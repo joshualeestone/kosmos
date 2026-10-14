@@ -27097,6 +27097,14 @@ const ACCT_WARN_PCT = 75, ACCT_HIGH_PCT = 90;
 const ACCT_MOVE = new Map();
 const ACCT_MOVE_SHOW_MS = 2 * 60e3;   // a finished move's sentence stays two minutes, then the row is plain again
 const ACCT_PICK = new Map();          // the target picked in a row's menu, so a poll's repaint does not undo a half-made choice
+/* #6108: whether an account can take another account's agents in one move. One rule for the menu and for the check
+   made again at the click (the menu can be a while old: Settings repaints when something is pressed). */
+function acctBulkTarget(x, fromDir) {
+  return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
+    && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
+    && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && x.weekly.usedPct >= 100);   // a full account cannot run them either
+}
 function acctUsageHtml(a, list) {
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
@@ -27110,22 +27118,22 @@ function acctUsageHtml(a, list) {
   const names = sessions.map((n) => (known.get(n) && known.get(n).name) || n);
   /* Only accounts a move can land on: shared history (as the agent page's picker requires, #1492: an option that
      always fails is worse than none) and not signed out or refused. */
-  const targets = (list || []).filter((x) => x && x.provider === 'anthropic' && x.dir && x.dir !== a.dir && x.memoryShared
-    && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
-    && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && x.weekly.usedPct >= 100));   // a full account cannot run them either
+  const targets = (list || []).filter((x) => acctBulkTarget(x, a.dir));
   const canMove = names.length > 0 && targets.length > 0;
+  const anyRunning = sessions.some((n) => known.get(n) && cardStOf(known.get(n)).pres === 'on');   // a move restarts only a running agent
   let usage = '';
   if (!a.apiKey) {
     if (w) {
       const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
       const band = pct >= ACCT_HIGH_PCT ? 'high' : pct >= ACCT_WARN_PCT ? 'warn' : 'ok';
-      const resets = new Date(w.resetsAt).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      /* A weekday alone reads as today when the reset is a week out (just after one), so then the date is said too. */
+      const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - Date.now() > 6 * 864e5
+        ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · last changed ' + esc(age) : '') + '</p></div>'
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
-          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.')) : '') + '</p>' : '');
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (anyRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.')) : '') + '</p>' : '');
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
       usage = a.weeklyBlocked === 'windows'
@@ -27144,7 +27152,7 @@ function acctUsageHtml(a, list) {
     ? '<p class="acct-agents-line">Its agents on this computer: ' + names.map(esc).join(', ') + esc(short) + '</p>'
     : '<p class="acct-agents-line">No agents on it on this computer' + esc(short) + '.</p>';
   let st = ACCT_MOVE.get(a.dir) || null;
-  if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }
+  if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) { ACCT_MOVE.delete(a.dir); st = null; }   // never before it is said
   const busy = !!(st && st.moving);
   /* Named the way every other account picker names them (#1917/#2095): two accounts on one email get their qualifier. */
   const qual = accountQualifiers(list || []);
@@ -27858,7 +27866,7 @@ async function paintAccounts(opts) {
      the region sees a change. Done here, not in the move's handler, so a paint that superseded the handler's own still
      announces it. */
   for (const [dir, st] of ACCT_MOVE) {
-    if (st && !st.moving && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) {   // also for a row no longer drawn
+    if (st && !st.moving && !st.announce && Date.now() - (st.doneAt || 0) > ACCT_MOVE_SHOW_MS) {   // also for a row no longer drawn; never before it is said
       const ps = document.getElementById('set-accounts-msg'); if (ps && ps.textContent === st.said) ps.textContent = '';   // the panel line expires with it
       ACCT_MOVE.delete(dir); continue;
     }
@@ -27893,17 +27901,22 @@ async function paintAccounts(opts) {
         /* The list drawn at the last paint can be a poll old: an agent moved on its own page since then must not be
            moved again to an account nobody picked for it (the route moves an agent from wherever it is). So ask again,
            and move only the ones still here. If that cannot be asked, move nothing rather than guess. */
-        let fresh = null;
+        let fresh = null, ft = null;
         try {
           const r = await fetch('/api/accounts?agents=1', { cache: 'no-store' });
           const j = r && r.ok ? await r.json() : null;
           const fr = j && Array.isArray(j.accounts) ? j.accounts.find((x) => x && String(x.dir) === from) : null;
           fresh = fr && fr.agentsHere && Array.isArray(fr.agentsHere.names) ? new Set(fr.agentsHere.names) : null;
+          ft = fresh ? j.accounts.find((x) => x && String(x.dir) === to) || null : null;   // and the account they go to, as it is now
         } catch { fresh = null; }
         const names = fresh ? row.agentsHere.names.filter((n) => !guide.has(n) && fresh.has(n)) : [];
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
         if (!names.length) said = 'Nothing moved: its agents are no longer on this account.';
+        else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
+          const was = list.find((x) => String(x.dir) === to);
+          said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take them now. Pick another account.';
+        }
         else said = await moveAccountAgents(from, to, names, (done, all) => {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
           const t = 'Moving ' + done + ' of ' + all + '…';
@@ -27917,7 +27930,16 @@ async function paintAccounts(opts) {
       finally { ACCT_MOVE.set(from, { moving: false, said, doneAt: Date.now(), announce: true }); }
       ACCT_PICK.delete(from);
       accountsDropped();
-      try { await paintAccounts(); } catch { /* the sentence is kept in ACCT_MOVE and spoken by the next paint */ }
+      try { await paintAccounts(); } catch { /* said below */ }
+      /* The paint says it when it draws the row. When it did not (the list could not be read, or the row is gone), say it
+         here, so a move that happened is never left unsaid. */
+      const left = ACCT_MOVE.get(from);
+      if (left && left.announce) {
+        left.announce = false;
+        const panelSay = document.getElementById('set-accounts-msg');
+        acctCancelSay();
+        if (panelSay) { panelSay.textContent = ''; setTimeout(() => { panelSay.textContent = left.said; }, 150); }
+      }
       /* The paint speaks the sentence (above). Put focus where the pressed button was: the row's move menu if it is
          still there, else the list. */
       const m = document.querySelector('[data-acct-move-msg="' + CSS.escape(from) + '"]');

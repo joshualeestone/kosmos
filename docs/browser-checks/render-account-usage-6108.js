@@ -34,6 +34,11 @@ const ACCOUNTS = [
   claude('busy@example.com', 'busy', { weekly: { usedPct: 82, resetsAt: now + 50 * H, at: now - 2 * H }, agentsHere: { names: ['s-dana', 's-eli', 's-guide'], complete: true } }),
   claude('stale@example.com', 'stale', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-st1', 's-st2'], complete: true } }),
   claude('nocheck@example.com', 'nocheck', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-nc'], complete: true } }),
+  claude('tgt@example.com', 'tgt', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-tg'], complete: true } }),
+  claude('gone@example.com', 'gone', { weekly: { usedPct: 10, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
+  claude('lost@example.com', 'lost', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-lo'], complete: true } }),
+  claude('fullstop@example.com', 'fullstop', { weekly: { usedPct: 100, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z2'], complete: true } }),
+  claude('weekout@example.com', 'weekout', { weekly: { usedPct: 3, resetsAt: now + 162 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('mixed@example.com', 'mixed', { weekly: { usedPct: 95, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-p', 's-r1', 's-r2', 's-slow'], complete: true } }),
   claude('spare@example.com', 'spare', { weekly: { usedPct: 20, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
   claude('fresh@example.com', 'fresh', { weekly: null, agentsHere: { names: ['s-x'], complete: true } }),
@@ -49,7 +54,7 @@ const ACCOUNTS = [
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
 const AGENTS = [{ sessionName: 's-dana', name: 'Dana', state: 'working' }, { sessionName: 's-eli', name: 'Eli', state: 'working' }, { sessionName: 's-x', name: 'x<b>y', state: 'working' },
-  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
+  { sessionName: 's-guide', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-guide2', name: 'Kosmos Guide', isGuide: true, state: 'working' }, { sessionName: 's-q', name: 'Quinn', state: 'working' }, { sessionName: 's-z', name: 'Zed', state: 'stopped' }, { sessionName: 's-z2', name: 'Zoe', state: 'stopped' }, { sessionName: 's-p', name: 'Pia', state: 'working' }, { sessionName: 's-r1', name: 'Rex', state: 'working' }, { sessionName: 's-r2', name: 'Rio', state: 'working' }, { sessionName: 's-slow', name: 'Sol', state: 'working' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -71,11 +76,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /* The stub behaves like the engine: a 'changed' move takes the agent off its account in the next list. s-p
            comes back 'partial' (saved, restart pending); s-r1 and s-r2 are refused with the same reason. */
         const where = new Map(); accounts.forEach((a) => (a.agentsHere ? a.agentsHere.names : []).forEach((n) => where.set(n, a.dir)));
-        const list = () => accounts.map((a) => a.agentsHere ? { ...a, agentsHere: { ...a.agentsHere, names: [...where].filter(([, d]) => d === a.dir).map(([n]) => n) } } : a);
+        const list = () => accounts.map((a0) => ({ ...a0, ...((window.__acctPatch || {})[a0.dir] || {}) })).map((a) => a.agentsHere ? { ...a, agentsHere: { ...a.agentsHere, names: [...where].filter(([, d]) => d === a.dir).map(([n]) => n) } } : a);
         const realFetch = window.fetch;
         window.fetch = (u, opts) => {
           const url = String(u);
           /* Like the server: agentsHere only when the page asks (?agents=1), so a page that stopped asking draws nothing. */
+          if (url.indexOf('/api/accounts') !== -1 && window.__failAccounts > 0 && window.__passAccounts > 0) window.__passAccounts--;   // let the click's own re-read through first
+          else if (url.indexOf('/api/accounts') !== -1 && window.__failAccounts > 0) { window.__failAccounts--; return Promise.resolve({ ok: false, status: 503, json: async () => ({}) }); }
           if (url.indexOf('/api/accounts') !== -1 && window.__failNextAccounts) { window.__failNextAccounts = false; return Promise.resolve({ ok: false, status: 503, json: async () => ({}) }); }
           if (url.indexOf('/api/accounts') !== -1) return Promise.resolve({ ok: true, json: async () => ({ accounts: /[?&]agents=1\b/.test(url) ? list() : list().map(({ agentsHere, ...rest }) => rest) }) });
           const m = url.match(/\/api\/agent\/([^/]+)\/account$/);
@@ -152,7 +159,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const again = box(email) && box(email).querySelector('[data-acct-move]');
           const againSel = box(email) && box(email).querySelector('[data-acct-move-to]');
           const drawnBusy = !!again && again.disabled && again.textContent.trim() === 'Moving…';
-          const quietMid = !!box(email) && (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button, not the live region
+          const psMid = document.getElementById('set-accounts-msg');
+          const quietMid = !!box(email) && !!psMid && !/Moving/.test(psMid.textContent) && (msgOf(box(email).getAttribute('data-acct-dir')) || '') === '';   // progress is on the button: never in the live region   // progress is on the button, not the live region
           if (again && !once) { if (againSel) { againSel.disabled = false; againSel.value = toDir; } again.disabled = false; again.click(); }
           for (let i = 0; i < 150 && posts.length - start < expect; i++) await new Promise((r) => setTimeout(r, 20));
           await new Promise((r) => setTimeout(r, 400));
@@ -170,7 +178,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           const ps = document.getElementById('set-accounts-msg'); moved.spoken = ps ? { text: ps.textContent.trim(), role: ps.getAttribute('role') } : null;   // the panel's persistent status line
           const ae = document.activeElement;   // before any further repaint; which element, not just which row
           moved.focus = !ae ? null : ae.id === 'set-accounts' ? 'list' : ae.hasAttribute('data-acct-move-msg') ? 'sentence:' + ae.getAttribute('data-acct-move-msg') : ae.hasAttribute('data-acct-move-to') ? 'menu:' + ae.getAttribute('data-acct-move-to') : ae.tagName;
+          /* A repaint may clear the line (clearing is not spoken); speaking it again would write the sentence back. */
+          const texts = []; const obs = new MutationObserver(() => { texts.push(ps.textContent.trim()); });
+          if (ps) obs.observe(ps, { childList: true, characterData: true, subtree: true });
           await paintAccounts();   // a later repaint inside the two minutes: the sentence stays, but is not spoken again
+          await new Promise((r) => setTimeout(r, 300)); obs.disconnect(); moved.respoken = texts.filter((t) => t && t === moved.msg).length;
           const again = document.querySelector('[data-acct-move-msg="/home/.claude-busy"]');
           moved.redrawn = again ? { text: again.textContent.trim(), role: again.getAttribute('role') } : null; }
         const busyAfter = read('busy@example.com');
@@ -186,6 +198,18 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         window.__failNextAccounts = true;
         const ncMove = await runMove('nocheck@example.com', '/home/.claude-spare', 0, true);
         if (ncMove) ncMove.msg = msgOf('/home/.claude-nocheck');
+        /* The account picked went full since the menu was drawn: nothing moves, and the row says why. */
+        window.__acctPatch = { '/home/.claude-gone': { weekly: { usedPct: 100, resetsAt: Date.now() + 50 * 3600e3, at: Date.now() } } };
+        const tgMove = await runMove('tgt@example.com', '/home/.claude-gone', 0, true);
+        if (tgMove) tgMove.msg = msgOf('/home/.claude-tgt');
+        window.__acctPatch = null; await paintAccounts();
+        /* The list cannot be read after the move: the result is still said, by the panel's status line. */
+        window.__passAccounts = 1; window.__failAccounts = 2;
+        const lostMove = await runMove('lost@example.com', '/home/.claude-spare', 1, true);
+        await new Promise((r) => setTimeout(r, 300));
+        if (lostMove) { const pl = document.getElementById('set-accounts-msg'); lostMove.spoken = pl ? pl.textContent.trim() : null; lostMove.left = window.__failAccounts; }
+        window.__failAccounts = 0; await paintAccounts();
+        const fullstop = read('fullstop@example.com'), weekout = read('weekout@example.com');
         const mine = read('mine@example.com'), unwired = read('unwired@example.com');
         const unsureNote = acctMoveNote([{ sessionName: 'a', state: 'working' }, { sessionName: 'b', state: 'unknown' }]);
         // Two minutes on, a repaint shows the row plain again.
@@ -193,7 +217,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         await paintAccounts();
         const expired = msgOf('/home/.claude-busy');
         /* Sideways overflow of the page itself, with the list in its real place. */
-        return { contrast, staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
+        return { contrast, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
       await page.close();
       if (r.error) { say(false, tag + ' ' + r.error); continue; }
@@ -224,11 +248,15 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(!!r.moved && r.moved.quietMid, tag + ' mid-move the live region is silent (a screen reader hears the result once)', JSON.stringify(r.moved));
       say(!!r.moved && r.moved.msg === 'Moved 2 agents. They restart on the new account.', tag + ' and says how many moved and that they restart, still there after the list repaints with the agents gone', JSON.stringify(r.moved && r.moved.msg));
       say(!!r.moved && r.moved.focus === 'list', tag + ' after the move, focus lands on the list (the pressed button is gone), not the sentence the status line already speaks', JSON.stringify(r.moved && r.moved.focus));
-      say(!!r.moved && !!r.moved.redrawn && r.moved.redrawn.text === 'Moved 2 agents. They restart on the new account.' && r.moved.redrawn.role === null, tag + ' a later repaint keeps the sentence but does not announce it again', JSON.stringify(r.moved && r.moved.redrawn));
+      say(!!r.moved && !!r.moved.redrawn && r.moved.redrawn.text === 'Moved 2 agents. They restart on the new account.' && r.moved.respoken === 0, tag + ' a later repaint keeps the sentence but does not announce it again (the panel line is not written with it again)', JSON.stringify(r.moved && { redrawn: r.moved.redrawn, respoken: r.moved.respoken }));
       say(r.expired === '', tag + ' two minutes on, a repaint shows the row plain again', JSON.stringify(r.expired));
       say(!!r.busyAfter && r.busyAfter.agents === 'No agents on it on this computer.', tag + ' after the move the busy row has no agents left (the repaint happened)', JSON.stringify(r.busyAfter && r.busyAfter.agents));
       say(!!r.staleMove && r.staleMove.posts.length === 1 && r.staleMove.posts[0].agent === 's-st1' && /^Moved 1 agent\b/.test(r.staleMove.msg || ''), tag + ' an agent moved elsewhere since the list was drawn is not moved again (Move reads the list afresh)', JSON.stringify(r.staleMove));
       say(!!r.ncMove && r.ncMove.posts.length === 0 && r.ncMove.msg === 'Nothing moved: Kosmos could not check which agents are on this account. Try again in a moment.', tag + ' when the fresh list cannot be read, nothing moves and the row says so', JSON.stringify(r.ncMove));
+      say(!!r.tgMove && r.tgMove.posts.length === 0 && r.tgMove.msg === 'Nothing moved: gone@example.com cannot take them now. Pick another account.', tag + ' an account that went full since the menu was drawn takes nothing (Move checks the target afresh)', JSON.stringify(r.tgMove));
+      say(!!r.lostMove && r.lostMove.posts.length === 1 && r.lostMove.left === 0 && /^Moved 1 agent\b/.test(r.lostMove.spoken || ''), tag + ' when the list cannot be read after a move, the result is still said', JSON.stringify(r.lostMove));
+      say(!!r.fullstop && r.fullstop.warnText === 'At its weekly limit. Move its agent to another account.', tag + ' at its limit with only a stopped agent, no promise that a move gets it working', JSON.stringify(r.fullstop && r.fullstop.warnText));
+      say(!!r.weekout && new RegExp('resets [^·]*\\b' + r.weekoutDay + '\\b').test(r.weekout.line || ''), tag + ' a reset a week out names its date, not only a weekday that reads as today', JSON.stringify(r.weekout && r.weekout.line));
       say(!!r.mixed && r.mixed.posts.length === 4, tag + ' a mixed move sends one move per agent', JSON.stringify(r.mixed && r.mixed.posts));
       say(!!r.mixed && r.mixed.msg === "Not restarted yet (Pia): We saved spare@example.com, but could not start it again: the session is busy. It is still on the old account until it restarts. Not moved (Rex, Rio): That account does not share this computer's memory. No answer yet for Sol. Check its account in a moment.",
         tag + ' saved-but-restarting keeps the engine\'s reason, one refusal is said once, and an unanswered move is not called a failure', JSON.stringify(r.mixed && r.mixed.msg));
