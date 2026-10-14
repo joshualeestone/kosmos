@@ -20621,8 +20621,9 @@ const server = http.createServer(async (req, res) => {
     };
     if (taskAct[3] !== 'reopen') { act(''); return; }
     /* #6157: a reopen may say why ({ why }). No body, or one that is not JSON, is a reopen with no reason, as every
-       older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. */
-    readBody(req).then((raw) => {
+       older caller (the page, an older CLI) sends; a `why` that is not text is refused rather than dropped. 8 KiB, as
+       the other small JSON routes: the reason is capped at 300 characters. */
+    readBody(req, 8 * 1024).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       const why = body && typeof body === 'object' ? body.why : undefined;
@@ -21462,7 +21463,11 @@ const server = http.createServer(async (req, res) => {
       /* Work that is done is not given to anyone: the new owner would be told about finished work. A closed task
          (`task close` sets the task's closedAt and leaves stored parts open) counts, as progressOf reads it. */
       if (tasks.progressOf(task).closed || parts.find((x) => Number(x.id) === Number(partId)).closedAt) {
-        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' }); return;
+        /* #6157: a done TASK says how to put it back (the refusal an agent met with no way forward). A closed part of an
+           open task is put back on the task page; the CLI has no part reopen, so it names none. No double quote in it:
+           the Mac CLI reads `error` with sed. */
+        const back = tasks.progressOf(task).closed ? '; put it back first with kosmos task reopen ' + id + ' ' + task.number : '';
+        sendJson(res, 400, { error: 'task ' + task.number + (parts.length > 1 ? ', part ' + Number(partId) + ',' : '') + ' is done, so it is not given to anyone' + back }); return;
       }
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {
