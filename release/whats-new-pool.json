@@ -503,7 +503,7 @@
       "status": "pending"
     },
     {
-      "title": "Updates restart Kosmos without taking focus",
+      "title": "A restart after an update stops taking focus",
       "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it no longer takes focus.",
       "icon": "spark",
       "platforms": [
