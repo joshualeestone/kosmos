@@ -218,7 +218,7 @@ function emptySpot(page, sel) {
               nm.textContent = was;
               return res;
             });
-            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer !== 'out' && !String(fit.cleoAnswer).startsWith('out') && fit.longName === 'in' && fit.clearOfFace && fit.cardFits,
+            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && fit.clearOfFace && fit.cardFits,
               `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face`, JSON.stringify(fit));
           } else {
             chk(card.columns > 2 && !beside, `${tag} CONTROL: landscape keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
