@@ -30492,13 +30492,19 @@ function aoUsageWords(e, now) {
     'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
     'not-wired': 'Kosmos is not set up to read usage for this account.',
   }[e.blocked] || '';
+  const frozenSay = {
+    'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
+    'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
+    'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
+    'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
+  }[e.blocked] || '';
   const w = e.weekly;
-  if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.' };
+  if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', frozen: '' };
   const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
   const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - now > 6 * 864e5
     ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
   const age = agoWords(now - w.at);
-  return { pct, line: pct + '% of its weekly limit used · resets ' + resets + (age ? ' · Kosmos last saw it change ' + age : '') };
+  return { pct, line: pct + '% of its weekly limit used · resets ' + resets + (age ? ' · Kosmos last saw it change ' + age : ''), frozen: frozenSay };
 }
 function aoEl(tag, cls, text) {
   const el = document.createElement(tag);
@@ -30542,6 +30548,7 @@ function aoGroup(c, seen, ao, now) {
         meter.appendChild(bar);
         meter.appendChild(aoEl('p', 'acct-usage-line', u.line));
         row.appendChild(meter);
+        if (u.frozen) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.frozen));
       } else row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
       const names = ao.agents.filter((a) => a.dir === e.dir).map((a) => a.name);
       row.appendChild(aoEl('p', 'acct-agents-line', names.length
@@ -30575,9 +30582,15 @@ function aoPaint() {
   wrap.hidden = false;
 }
 /* Settings > AI Models was painted: show what is known now, and read the other computers if a round can. */
+let AO_KICKED_AT = 0;
+const AO_KICK_GAP_MS = 5000;   // repaints come in bursts (an account action, its follow-ups): one round for the burst
 function aoKick() {
   try { aoPaint(); } catch { /* next paint */ }
-  if (typeof location !== 'undefined' && location.protocol === 'https:') { try { oaRound(); } catch { /* the next tick */ } }
+  if (typeof location === 'undefined' || location.protocol !== 'https:') return;
+  const now = Date.now();
+  if (now - AO_KICKED_AT < AO_KICK_GAP_MS) return;   // the 15 s round (oaStart) keeps it fresh between bursts
+  AO_KICKED_AT = now;
+  try { oaRound(); } catch { /* the next tick */ }
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
@@ -42361,6 +42374,7 @@ function settingsGo(section, opts) {
      this section stays the one on screen -- gated there, not here, so a
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
+  if (section === 'accounts' && typeof aoKick === 'function') aoKick();   // #6178: the other computers' accounts, read on arrival
   /* #4313: the community list is a fetch, not the poll, and the send sweep changes it on its
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */

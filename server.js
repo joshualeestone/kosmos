@@ -6463,9 +6463,9 @@ const server = http.createServer(async (req, res) => {
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
-        /* #6178: each Claude account's weekly usage on this computer, the same values /api/accounts gives its rows (one
-           helper). Another of the person's computers reads it through the sibling path (#4812) for Settings > AI Models;
-           kept 60 s in engine/accountsweekly.js so the 5 s poll does not pay for it each time. */
+        /* #6178: each Claude account's weekly usage on this computer, from the helper /api/accounts uses, kept up to 60 s
+           (engine/accountsweekly.js). Another of the person's computers reads it through the sibling path (#4812) for
+           Settings > AI Models. */
         accountsWeekly: (() => { try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return []; } })(),
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
