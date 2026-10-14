@@ -660,6 +660,12 @@ git -C "$REPO" log --oneline -8 | cat
 # its label would have made the next four uncountable -- the change would have
 # destroyed the measurement that justified it, and nobody would notice, because
 # the failures would simply blend into a busier bucket.
+step "== 1a-floor. the setup floor on the prod pointer and /setup this cut will re-publish (kosmos#6149) =="
+# A cut's site deploy (step 8) publishes the prod pointer and /setup as the site holds them. The export check there is
+# the authority; this is the same check, seconds in, so a site below the floor refuses before anything is built.
+. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
+[ ! -f "$SITE/dist/latest.json" ] || kosmos_setup_floor_pointer_ok "the site's dist/latest.json" "$(cat "$SITE/dist/latest.json")" || exit 1
+[ ! -f "$SITE/setup" ] || kosmos_setup_floor_installer_ok "the site's /setup" "$SITE/setup" || exit 1
 step "== 1b. the versions entry, before anything is built =="
 # #1455: where a PENDING entry file may be left instead of hand-stamping the page.
 # Overridable, and defaulted into $REPO rather than $SITE so a stray file can never

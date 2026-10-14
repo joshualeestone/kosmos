@@ -73,6 +73,22 @@ case "$out" in *"setup floor"*) bad "CONTROL: promote-channel's floor refused 0.
   *"refusing to promote a missing artifact"*) pass "CONTROL: promote-channel gets past the floor to its next check (the missing artifact)";;
   *) bad "CONTROL: promote-channel stopped somewhere unexpected: $out";; esac
 
+# promote-channel.sh: setup-staging, about to become /setup, must know the read-only app (checked before any write).
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+site; git init -q "$T/site"; printf 'an installer from before 0.7.45\n' > "$T/site/setup-staging"
+( cd "$T/site" && shasum -a 256 setup-staging > setup-staging.sha256 )
+sg="$(shasum -a 256 < "$T/site/setup-staging" | awk '{print $1}')"
+printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"   # promote's artifact checks come first
+( cd "$T/site/dist" && shasum -a 256 kosmos-0.7.49-arm64.tar.gz > kosmos-0.7.49-arm64.tar.gz.sha256 )
+asha="$(shasum -a 256 < "$T/site/dist/kosmos-0.7.49-arm64.tar.gz" | awk '{print $1}')"
+printf '{"version":"0.7.49","sha256":"%s","artifact":"kosmos-0.7.49-arm64.tar.gz","setup_sha256":"%s"}' "$asha" "$sg" > "$T/site/dist/latest-staging.json"
+git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
+before="$(cd "$T/site/dist" && ls -la && cat ./*)"
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"; rc=$?
+case "$out" in *"setup-staging (about to become /setup) does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old setup-staging before it becomes /setup (rc $rc)";; *) bad "promote and an old setup-staging: $out";; esac
+[ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && [ ! -e "$T/site/setup" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
+rm -rf "$T/site/.git"
+
 # publish-staging-pointer.sh: refused below the floor before any write.
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "publish-staging refuses 0.7.44 (rc $rc)" || bad "publish-staging accepted 0.7.44"
