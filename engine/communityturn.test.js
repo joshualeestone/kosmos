@@ -499,14 +499,20 @@ test('#5296 review 8: a CUT history (bounded tail) that starts after the post is
   assert.equal(ct.workedSince([{ state: 'idle', at: post + MIN }, { state: 'working', at: NOW - 3 * H }], post, []), true, 'CONTROL: a history reaching back past the post');
 });
 
-test('#5636 F7a: with stamp, the line says when it was sent and that a later sight is the same reminder', () => {
+test('#5636 F7a: with stamp, the line says when it was sent (date and time) and that only the same Sent time is this reminder', () => {
   const { sent, o } = tickArgs({ stamp: true });
   ct.tickOnce(o);
-  assert.equal(sent[0][1], ct.stamped(ct.TURN_TEXT, NOW));
-  assert.ok(sent[0][1].startsWith(ct.TURN_TEXT), 'the reminder itself changed: ' + sent[0][1]);
+  assert.ok(sent[0][1].startsWith(ct.TURN_TEXT + ' (Sent '), 'the reminder itself changed: ' + sent[0][1]);
   const d = new Date(NOW);
-  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  assert.ok(sent[0][1].endsWith(' (Sent at ' + hhmm + '. If you come across this line again later in your conversation, it is this same reminder, not a new one.)'), sent[0][1]);
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. A line with this same Sent time, met again later in your conversation, is this reminder, not a new one.)');
+  // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
+  assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
+  // The waiting-activity line (lineFor) is stamped too.
+  const over = tickArgs({ stamp: true, lineFor: () => 'Kosmos here: 2 comments wait for your answer.' });
+  ct.tickOnce(over.o);
+  assert.ok(over.sent[0][1].startsWith('Kosmos here: 2 comments wait for your answer. (Sent '), over.sent[0][1]);
   // CONTROL: without the option the line is the reminder alone (what other callers and tests compare).
   const plain = tickArgs();
   ct.tickOnce(plain.o);

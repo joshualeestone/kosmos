@@ -184,19 +184,22 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
   return out.slice(0, MAX_PER_PASS);
 }
 
-/* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
-   Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
 /* #5636 F7a (0.7.49 report: a Meta seat met "your last post was 3 hours ago or more" every few hours while the board
    logged one send a day): a runner that keeps one long session (Muse) has the old line in the conversation it rereads
-   every turn, and can act on it again. The line therefore says when it was sent and that a later sight of it is the
-   same reminder. The time is the board's local clock, HH:MM. Only the board's caller asks for it (o.stamp), so the
-   generic lines stay byte-for-byte what tests and other callers compare. */
+   every turn, and can act on it again. The line therefore says when it was sent, date and time on the board's clock
+   (the same clock the agent reads with date), and that a line with this SAME Sent time is this reminder. Review 1: never
+   "any later line like it", which would let a model skip tomorrow's real reminder (the floor prompt has no opt-out,
+   #5315). Only the board's caller asks for it (o.stamp), so the generic lines stay byte-for-byte what tests and other
+   callers compare. */
 function stamped(text, now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
-  const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-  return String(text) + ' (Sent at ' + hhmm + '. If you come across this line again later in your conversation, it is this'
-    + ' same reminder, not a new one.)';
+  const p2 = (n) => String(n).padStart(2, '0');
+  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  return String(text) + ' (Sent ' + when + '. A line with this same Sent time, met again later in your conversation, is this'
+    + ' reminder, not a new one.)';
 }
+/* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
+   Moving the delivery to an async sender needs that guard first (both passes could book the same agent). */
 function tickOnce(o) {
   const results = [];
   /* Review 5: while a gate is off nothing is watched, so the idle-seen marks are not trusted after it (replynudge's
