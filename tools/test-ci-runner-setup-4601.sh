@@ -289,6 +289,8 @@ run in-shortsha "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install 0123456 "
 [ "$(rc in-shortsha)" = 2 ] && has in-shortsha "full 40-character sha" && ! grep -q '^curl' "$T/in-shortsha.calls" && pass "install refuses a short commit before any network call" || fail "install short commit: rc $(rc in-shortsha)"
 run in-badpin "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "not-a-sha"
 [ "$(rc in-badpin)" = 2 ] && has in-badpin "64 hex characters" && ! grep -q '^curl' "$T/in-badpin.calls" && pass "install refuses a guard pin that is not 64 hex" || fail "install bad pin: rc $(rc in-badpin)"
+run in-extra "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G" extra
+[ "$(rc in-extra)" = 2 ] && has in-extra "nothing more" && pass "install refuses arguments past the commit and sha256" || fail "install extra args: rc $(rc in-extra)"
 run in-fork "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_COMPARE=diverged -- install "$C" "$G"
 [ "$(rc in-fork)" = 1 ] && has in-fork "is not on main" && pass "install refuses a commit not on main" || fail "install off-main: rc $(rc in-fork)"
 run in-who "$CH" -- --apply install "$C" "$G"
@@ -466,7 +468,10 @@ run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 # --- verify -----------------------------------------------------------------------------------------------------
 VCI="$T/vci"; mkdir -p "$VCI/actions-runner" "$VCI/.kosmos-ci"
 printf 'LANG=en_US.UTF-8\nACTIONS_RUNNER_HOOK_JOB_STARTED=%s\nACTIONS_RUNNER_HOOK_JOB_COMPLETED=%s\n' "$VCI/.kosmos-ci/job-started.sh" "$VCI/.kosmos-ci/job-completed.sh" > "$VCI/actions-runner/.env"
-for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do printf '#!/bin/bash\n' > "$VCI/.kosmos-ci/$f"; chmod 755 "$VCI/.kosmos-ci/$f"; done
+# The hooks install really wrote (in-apply above), so verify's byte comparison has the true bodies to match.
+printf '#!/bin/bash\n' > "$VCI/.kosmos-ci/job-guard.sh"
+for f in job-started.sh job-completed.sh job-cleanup.sh; do cp "$CH/.kosmos-ci/$f" "$VCI/.kosmos-ci/$f"; done
+chmod 755 "$VCI/.kosmos-ci/"*
 GS="$(shasum -a 256 "$VCI/.kosmos-ci/job-guard.sh" | cut -d' ' -f1)"
 vcase() {  # vcase <name> <want rc> <want text> <env...>
   local name="$1" want="$2" text="$3"; shift 3
@@ -493,6 +498,9 @@ mv "$VCI/.kosmos-ci" "$VCI/.kosmos-ci.away"; vcase cidir-missing 1 "no $VCI/.kos
 mkdir -p "$VCI/actions-runner/_work/_temp"; : > "$VCI/actions-runner/_work/_temp/left"
 vcase temp-left 0 "_work/_temp is not empty while idle"
 rm -f "$VCI/actions-runner/_work/_temp/left"
+cp "$VCI/.kosmos-ci/job-started.sh" "$T/started.good"; printf '#!/bin/bash\nexit 0\n' > "$VCI/.kosmos-ci/job-started.sh"
+vcase hook-rewritten 1 "job-started.sh differs from what install writes"
+cp "$T/started.good" "$VCI/.kosmos-ci/job-started.sh"
 vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS"
 vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
