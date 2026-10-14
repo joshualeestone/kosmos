@@ -1,16 +1,16 @@
 'use strict';
 /**
- * kosmos#6174: an agent moved to another account whose restart could not finish (the move came back partial while
- * its session still ran) keeps running on its old account until it restarts. The account list groups agents by their
- * launch file, which already names the new account, so the agent sat under the new account as if it ran there.
+ * kosmos#6174: an agent moved to another account whose window could not be closed (the move came back partial with
+ * its session still running) keeps running on its old account. The account list groups agents by their launch file,
+ * which already names the new account, so the agent sat under the new account as if it ran there.
  *
- * The move route notes the session left running on the old account (server.js noteMoveOutcome): the SAME session as
- * before the restart, when the window could not be closed. The agent counts as moving while its current session is still the noted one (the same start). Any other
- * session restarted onto the new account; no session at all (stopped, or a relaunch that failed) runs nowhere. Neither
- * is moving; the move route clears the note on its next move, a list read drops one whose session is readably another
- * (clearIf, only that very note), and a leftover note never marks (it needs the very same session). The reading is the agent's own session (the pane roster) and its tmux start, so a failed read (null)
- * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent onto the new
- * account is never marked.
+ * The move route notes that session (server.js noteMoveOutcome: the SAME session start before and after the restart).
+ * The agent is marked while its current session is still the noted one. A different session means it has restarted,
+ * which is NOT proof it reached the new account: the launch job that was never booted out still holds the old account,
+ * so a session it starts later (a crash, the agent exiting) can still run there, unmarked. That errs toward no mark,
+ * never a wrong one; telling it apart would need launchd's loaded job, which is not read here. No session, or an
+ * unreadable one, marks nobody. The move route clears a note on its next move; a list read drops one whose session is
+ * readably another (clearIf, only that exact note, so it cannot race a move's write); a leftover note never marks.
  *
  * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
  */
@@ -53,9 +53,9 @@ function clear(name) {
 
 /**
  * Whether `name` is still running on the account it was moved from. `startedAt(name)` answers its current session's
- * start in ms, or null when there is none or it could not be read. Read only (review 4): a stale note is harmless,
- * since it marks only while the very same session runs, and clearing here would race the move route's write. The move
- * route is the one writer that clears. `all` (optional) is the notes already read, so a list reads the file once.
+ * start in ms, or null when there is none or it could not be read. Read only: the list prunes through clearIf, which
+ * deletes only the exact note it read, and the move route clears on its next move. `all` (optional) is the notes
+ * already read, so a list reads the file once per row.
  */
 function isMoving(name, startedAt, all) {
   const rec = (all && typeof all === 'object' ? all : readAll())[name];

@@ -6,8 +6,9 @@ the agent under the new account, though it still runs on the old one until it re
 ## Finished looks like
 In Settings, AI Models, an agent moved to another account whose process is still running on its old account (the move
 came back partial because its window could not be closed) is listed under the account it was moved to, with "(still on
-its old account until it restarts)" after its name. Once it restarts onto the new account the marker goes, because its
-running process then reads the new account. Every other agent reads as before.
+its old account until it restarts)" after its name, while that same session runs. Once it has restarted the marker
+goes. A restart that came from the still-loaded old launch job (a crash, the agent exiting) can still be on the old
+account and is then unmarked: under-marking, never a wrong mark (review 9). Every other agent reads as before.
 
 ## How (review 1 replaced the first design)
 - The move route (POST /api/agent/:name/account) reads the agent's tmux session start before its restart attempt. If
