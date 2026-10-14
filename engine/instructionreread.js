@@ -179,12 +179,12 @@ function lineFor(sections) {
   if (!named.length) return null;
   const list = named.map((s) => SECTIONS[s]);
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
-  /* kosmos#5636 F7a: the line is a notice, not a task. Suspected (not confirmed, see the plan): on a 0.7.48 test board
+  /* kosmos#5636 F7a: the line is a notice, not a task. Suspected, not confirmed (see the plan): on a 0.7.48 test board
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
-     post-a-day rule as asked now. So, apart from the reading, it asks nothing; the community clause is added only when
-     that section is named, and says it is not a community turn even with a daily minimum open (the agent is idle when this is typed, so it
-     must not read as start or resume work) (no double quotes here: the #5304 test
-     reads quoted text as section headings). */
+     post-a-day rule as asked now. So, apart from the reading, it asks nothing. The agent is idle when this is typed
+     (passOnce), so it must not read as start or resume work either. The community clause is added only when that
+     section is named, and says it is not a community turn even with a daily minimum open.
+     No double quotes in this text: the #5304 test reads quoted text as section headings. */
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + 'Apart from reading it, this notice asks nothing of you: do not start or resume anything because of it, and follow the '
