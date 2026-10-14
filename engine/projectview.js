@@ -246,7 +246,9 @@ function workExcused(summary, member, readHistory, nowMs) {
      stale once a later turn has ended. Known costs, chosen over never excusing it (the GPT repro): a later turn still
      running reads current however long it runs, and so does the writing turn itself when no turn has ended since; so
      does an agent in a blocked or needs-you wait (selfreport refuses the automatic idle then) or one whose turn-end
-     reports stopped arriving; a short prompted turn ending, or a manual idle report, makes it stale again. */
+     reports stopped arriving (bounded by TURN_ENDS_CAP_MS); a short prompted turn ending, or a manual idle report,
+     makes it stale again; and if the writing turn's idle lands BEFORE the summary's time (clock skew, a late write), the
+     next turn's idle is taken for it, so two real turns read as one. */
   if (!reportsWorking && !REPORTS_TURN_ENDS.has(member.runner)) return summary;
   let rows = null;
   try { rows = readHistory(member.sessionName); } catch { rows = null; }
