@@ -1132,9 +1132,9 @@ function tapProbe4663(skip) {
       await phonePage.setViewportSize({ width: 900, height: 700 });
       await phonePage.waitForTimeout(100);
       const tipWideOrder = await order();
-      const tip1024 = await tipWalk();
-      chk(tipWideOrder === 'members-files,room,tasks' && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(900)),
-        `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tip1024 }));
+      const tipWide = await tipWalk();
+      chk(tipWideOrder === 'members-files,room,tasks' && !tipWide.error && tipWide.places === 4 && tipWide.steps.length === 4 && tipWide.steps.every(stepOk(900)),
+        `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tipWide }));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
       // Wide and short (a phone on its side): 800x800 on a touchscreen is an upright tablet since #6107 (tablet arm above).

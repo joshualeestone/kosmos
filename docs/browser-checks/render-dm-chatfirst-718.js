@@ -638,6 +638,9 @@ function measure() {
         const page = await ctx.newPage();
         const errs = []; page.on('pageerror', (e) => errs.push(e.message));
         await page.addInitScript(() => {
+          // #6107: a touch screen sideways at 960px+ (1024x768 here) opens on one screen by default; these arms measure
+          // the tabbed root they always have, so the tablet's own choice is tabs.
+          try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* storage refused */ }
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
           window.setInterval = () => 0;
           window.fetch = async (url) => { const u = String(url); if (u.includes('/thread')) return enc(window.__fx); if (u.includes('avatar')) return new Response('', { status: 404 }); return enc({}); };

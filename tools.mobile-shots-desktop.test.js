@@ -40,6 +40,19 @@ test('control: the same desktop-only screen at the desktop size is planned', () 
   assert.match(r.stdout, /planned 1 screen\(s\)/);
 });
 
+/* #6107: a tablet 960px and up can show the one-screen view, so it plans the desktop-only screens; under 960px it does not. */
+test('#6107: a desktop-only screen is planned at a landscape tablet size (960px and up)', () => {
+  const r = run(['--sizes', 'ipadminiland', '--screens', 'cons-agents', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /planned 1 screen\(s\)/);
+});
+
+test('#6107 control: the same desktop-only screen at an upright iPad mini (744px) is skipped, exit 2', () => {
+  const r = run(['--sizes', 'ipadmini', '--screens', 'cons-agents', '--themes', 'light', '--engines', 'chromium']);
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /no shot would be taken/);
+});
+
 /* kosmos#4524: a mistyped cover control would arm nothing and pass, so it is refused before the plan. The correctly
  * spelled name is the control, showing the refusal is about the name. */
 test('a mistyped MSHOTS_COVER_CONTROL is refused with exit 2, before a browser starts', () => {
