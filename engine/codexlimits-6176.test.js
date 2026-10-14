@@ -86,8 +86,13 @@ const touch = (f, ms) => fs.utimesSync(f, new Date(ms), new Date(ms));
 test('a resumed session (older name, written later) is read: write time decides, not the name', () => {
   const h = home();
   const resumed = writeRollout(h, '13', '09-00-00', [tokenRow('2026-10-14T11:30:00Z', rl(win(55, 10080, NOW + 864e5), null))]);
-  const newer = writeRollout(h, '14', '10-00-00', [tokenRow('2026-10-14T10:05:00Z', rl(win(20, 10080, NOW + 864e5), null))]);
-  touch(newer, Date.parse('2026-10-14T10:05:00Z')); touch(resumed, Date.parse('2026-10-14T11:30:00Z'));
+  // Three sessions started later than it (by name), none written since 10:05: ranked by name, the resumed file would
+  // not be among the three read at all; ranked by when it was written, it is first.
+  for (const [d, t] of [['14', '10-00-00'], ['14', '10-01-00'], ['14', '10-02-00']]) {
+    const f = writeRollout(h, d, t, [tokenRow('2026-10-14T10:05:00Z', rl(win(20, 10080, NOW + 864e5), null))]);
+    touch(f, Date.parse('2026-10-14T10:05:00Z'));
+  }
+  touch(resumed, Date.parse('2026-10-14T11:30:00Z'));
   assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 55);
 });
 
