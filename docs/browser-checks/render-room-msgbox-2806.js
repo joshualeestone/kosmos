@@ -959,7 +959,7 @@ function tapProbe4663(skip) {
       const tabletBack = await order();
       const tabletMidRemoved = await phonePage.evaluate(() => window.__midRemoved);
       chk(tabletArm === 'pj-post' && tabletFocus === 'pj-post' && tabletMidRemoved === 0 && tabletOrder === 'tasks,room,members-files' && tabletBack === 'room,members-files,tasks',
-        `[tablet] #6107: an upright tablet puts Tasks first, then the room, then Members/Files, by DOM, and the composer keeps its focus`,
+        `[tablet] #6107: an upright tablet puts Tasks first, then the room, then Members/Files, by DOM, and the composer keeps its focus through the move`,
         `${tabletOrder} (back at 375: ${tabletBack}), focus ${tabletArm} -> ${tabletFocus}, room column removed ${tabletMidRemoved}x`);
       await phonePage.evaluate(() => { const t = document.getElementById('pj-post'); if (t) t.blur(); });
       // #4663: on a touchscreen the project page's small controls (drawn 22 to 28px) take a tap across at least 36px
