@@ -350,7 +350,7 @@ function bodyFromFile(ctx, file, nothing) {
     const code = e && e.code;
     /* PowerShell 5.1 does not expand ~ in a native command's argument, so ~\post.txt arrives as typed; nor does Git
        Bash in --body-file=~/x. The hint names no shell, and gives the PowerShell form, the usual one. */
-    const why = code === 'ENOENT' ? (/^~[\\/]/.test(file) ? 'there is no such file; ~ was not turned into your home folder, so give the full path (in PowerShell, $HOME\\' + file.slice(2) + ')' : 'there is no such file') : code === 'EISDIR' ? 'it is a folder, not a file'
+    const why = code === 'ENOENT' ? (/^~[\\/]/.test(file) ? 'there is no such file; ~ was not turned into your home folder, so give the full path (in PowerShell, $HOME\\' + file.slice(2).replace(/\//g, '\\') + ')' : 'there is no such file') : code === 'EISDIR' ? 'it is a folder, not a file'
       : code === 'NOTFILE' ? 'it is not a regular file'
       : code === 'EACCES' || code === 'EPERM' ? 'it cannot be read' : String((e && e.message) || e);
     ctx.err(nothing + ': kosmos could not read ' + file + ' (' + why + ').');

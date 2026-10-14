@@ -39,7 +39,9 @@
 # get that stdin, so `printf report | powershell -File kosmos.ps1 feedback write` saves
 # the report. When the process was started to run this very file, the flag is not sent:
 # any host argument naming it counts, so -File, its abbreviations and pwsh 7's positional
-# form (`pwsh kosmos.ps1 ...`, where the first argument is the file) are all covered.
+# form (`pwsh kosmos.ps1 ...`, where the first argument is the file) are all covered; on
+# Windows PowerShell 5.1 only the value after -File counts, since 5.1 runs a bare
+# positional argument as -Command.
 # A host started with -Command, -EncodedCommand or pwsh 7.4's -CommandWithArgs (or an abbreviation) is never the -File
 # case, and a pipe written inside its command text is a real in-session pipe, so the scan
 # is skipped there even when the script's path appears among its arguments.
@@ -69,7 +71,12 @@ if ($pipedIn -and $PSCommandPath) {
     $candidates = @()
     try { $candidates += [IO.Path]::GetFullPath($named) } catch { }
     try { $candidates += (Resolve-Path -LiteralPath $named -ErrorAction Stop).ProviderPath } catch { }
-    if ($candidates -contains $PSCommandPath) { $pipedIn = $false; break }
+    # Windows PowerShell 5.1 runs a bare positional argument as -Command, not -File (only
+    # pwsh 7 takes it as the file), so there only the value after -File counts.
+    if ($candidates -contains $PSCommandPath) {
+      if ($fileValue -or $PSVersionTable.PSEdition -ne 'Desktop') { $pipedIn = $false }
+      break
+    }
     if ($fileValue) { break }
   }
 }

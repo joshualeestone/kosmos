@@ -116,6 +116,7 @@ test('#5946: a --body-file that cannot be used is refused with the reason, and n
   const cases = [
     ['missing.txt', /could not read missing\.txt \(there is no such file\)/],
     ['~\\post.txt', /there is no such file; ~ was not turned into your home folder, so give the full path \(in PowerShell, \$HOME\\post\.txt\)/],
+    ['~/notes/post.txt', /give the full path \(in PowerShell, \$HOME\\notes\\post\.txt\)/],
     ['ansi.txt', /ansi\.txt is not UTF-8 text.*Set-Content -Encoding UTF8 <file> or Out-File <file>/],
     ['nul.txt', /nul\.txt holds NUL characters/],
     ['odd.txt', /odd\.txt is not whole UTF-16 text/],
@@ -466,6 +467,10 @@ test('#5946 PowerShell: a pipe inside ANOTHER script run with -File is refused a
     const out = r.stdout + r.stderr;
     assert.match(out, /Nothing was saved: text piped into kosmos in PowerShell does not reach it/, out);
     assert.match(out, /REXIT=2/, out);
+    /* Windows PowerShell 5.1 runs bare positional words as -Command, so the script's path there is not the -File
+       case even with no -Command switch: the pipe in those words is refused at once too. */
+    const p = cp.spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', "'a report'", '|', '&', ps1, 'feedback', 'write'], { env, input: '', encoding: 'utf8', timeout: 60000 });
+    assert.match(p.stdout + p.stderr, /Nothing was saved: text piped into kosmos in PowerShell does not reach it/, p.stdout + p.stderr);
   } finally { try { removeZip(root); } finally { removeTree(data); } }
 });
 
