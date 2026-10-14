@@ -25,7 +25,8 @@
 # tools/run-tests.sh, whose name arm is `pgrep -fl` with no -u (tools/lib/cut-guard.sh), so it sees a suite of ANY
 # user on this Mac and waits. The run markers are per-HOME and do not cross users; the name arm does. So the
 # runner's .env must never set a KOSMOS_ variable (KOSMOS_TESTS_IGNORE_SUITE, KOSMOS_NO_WAIT and the other wait
-# controls would turn the lock off for every job), and install refuses one.
+# controls would turn the lock off for every job): install refuses one and verify flags one. That file is the only
+# place this script reads; a `launchctl setenv` or a shell profile in kosmos-ci's session would reach jobs too.
 # The runner package is the latest actions/runner release, checked against the sha256 that same release publishes:
 # that catches a damaged download, not a compromised release (trust on first fetch, as Baron's script had it).
 # The job guard is pinned harder, by a main commit and a sha256 the operator supplies, but only at install: it lives
@@ -89,11 +90,13 @@ PROBLEMS=0
 problem() { printf 'REFUSE: %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
 ok() { printf 'ok:     %s\n' "$*"; }
 
-# repo_variable <name>: prints its value ("" when set but empty), "<unset>", or fails when it cannot tell.
+# repo_variable <name>: prints its value ("" when set but empty), "<unset>" on a 404, or fails when it cannot tell.
+# One variable by name, so no listing page can hide it.
 repo_variable() {
-  local out
-  out="$(gh variable list --repo "$REPO" --json name,value --jq ".[] | select(.name == \"$1\") | \"=\" + .value")" || return 1
-  case "$out" in =*) printf '%s' "${out#=}" ;; *) printf '<unset>' ;; esac
+  local out rc=0
+  out="$(gh api "repos/$REPO/actions/variables/$1" --jq '"=" + .value' 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then printf '%s' "${out#=}"; return 0; fi
+  case "$out" in *"HTTP 404"*) printf '<unset>' ;; *) return 1 ;; esac
 }
 
 # shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (comma separated), so
@@ -255,8 +258,12 @@ install_runner() {
   fi
   # A Runner.Worker of this user is a job in flight: refuse rather than kill it. A job that starts between this check
   # and the stop below is still killed; that window is accepted for a step an operator runs by hand.
-  if pgrep -u "$(id -u)" -x Runner.Worker >/dev/null; then
+  local wrc=0
+  pgrep -u "$(id -u)" -x Runner.Worker >/dev/null || wrc=$?
+  if [ "$wrc" = 0 ]; then
     rm -f "$newg"; echo "refused: a job is running on this runner; install again when it is idle. Nothing changed" >&2; exit 1
+  elif [ "$wrc" -ge 2 ]; then
+    rm -f "$newg"; echo "refused: could not list processes (pgrep exit $wrc), so a job in flight cannot be ruled out. Nothing changed" >&2; exit 1
   fi
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
