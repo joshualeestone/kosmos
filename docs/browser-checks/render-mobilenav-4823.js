@@ -356,6 +356,9 @@ const teardownFails = [];
         await settled(page);
         await page.click('[data-pnav-go="settings"]');
         await settled(page);
+        // #6107: this page has touch, and a touch screen held sideways at 960px+ opens on one screen by default; this arm
+        // measures today's tabbed board, so it chooses tabs on the tablet before widening.
+        await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* storage refused */ } });
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.waitForFunction(() => document.getElementById('pnav').hidden && BOARD_LAYOUT === 'grid', null, { timeout: 3000 }).catch(() => {});
         l = await look(page);

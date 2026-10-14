@@ -48226,8 +48226,8 @@ function tabletLandscape() { return !!(window.matchMedia && window.matchMedia(TA
 let TABLET_LAYOUT_MINE = null;   // the tablet's choice this session, for when local storage refuses it
 function deviceLayout(boardLayout) {
   if (!tabletLandscape()) return boardLayout;
-  let mine = TABLET_LAYOUT_MINE;
-  try { mine = localStorage.getItem(TABLET_LAYOUT_KEY) || mine; } catch { /* storage refused: this session's choice stands */ }
+  let mine = TABLET_LAYOUT_MINE;   // this session's press wins, even over a stale stored value a refused write left behind
+  if (!mine) { try { mine = localStorage.getItem(TABLET_LAYOUT_KEY); } catch { mine = null; } }
   return mine === 'tabs' ? 'tabs' : 'consolidated';
 }
 function applyLayout(layout, apply) {
