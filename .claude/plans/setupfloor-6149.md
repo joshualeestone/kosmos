@@ -8,7 +8,7 @@ on prod: stricter than needed (0.7.42 to 0.7.44 can lift too), which fails close
 only. Splinter asked for it in the promote and rollback path before Josh's go for 0.7.49's prod promote.
 
 ## What
-- tools/lib/setup-floor.sh, the floor (0.7.45) and three checks:
+- tools/lib/setup-floor.sh, the floor (0.7.45) and five checks (the three below, plus _tree_ok and _site_untouched_ok that combine them):
   - `kosmos_setup_floor_ok <label> <version>`: a numeric part-by-part compare (0.7.100 is above 0.7.45); a version
     that is not plain numbers and dots is refused.
   - `kosmos_setup_floor_pointer_ok <label> <json>`: a Mac pointer's version AND the version in its artifact name
@@ -27,8 +27,8 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - deploy-site.sh, early on both committed pointers (fail fast), and on its EXPORT right before vercel (the bytes
     it publishes);
   - release.sh, on its own site export right before its vercel deploy (a cut publishes both pointers and both
-    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the site's origin/main (fetched; the checkout only if the fetch fails),
-    pair the cut re-publishes UNTOUCHED (the prod pair for a staging cut, the staging pair for a prod cut: the pair
+    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the pair the cut re-publishes UNTOUCHED, read from the site's origin/main (fetched and
+    verified to exist; the checkout only if not) (the prod pair for a staging cut, the staging pair for a prod cut: the pair
     a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
   - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
