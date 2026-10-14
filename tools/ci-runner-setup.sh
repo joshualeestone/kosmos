@@ -8,8 +8,8 @@
 # Reads (pgrep, df, gh api GETs) always run.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
-#   preflight                 as the machine owner. Reads only. Refuses unless the agents have left this Mac
-#                             (runbook part 3, step 0), and checks disk, FileVault, sleep, power restore, tmux,
+#   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
+#                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep, power restore, tmux,
 #                             pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
 #   install <commit> <sha256> as kosmos-ci. The runner, the hooks and the job guard from THAT main commit
@@ -46,8 +46,10 @@ LABELS="self-hosted,macOS,arm64,kosmos-ci"
 BREW="${KOSMOS_CI_BREW:-/opt/homebrew}"            # the engine's fixed tmux fallback is /opt/homebrew/bin/tmux
 MIN_FREE_GIB="${KOSMOS_CI_MIN_FREE_GIB:-20}"       # the fleet's disk floor
 ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd labels that may stay loaded
-RUNNER_DIR="$HOME/actions-runner"
-CI_DIR="$HOME/.kosmos-ci"
+# From CI_HOME, not HOME: a dry run rehearsed as the owner then names and checks kosmos-ci's own paths. With --apply,
+# need_user refuses unless HOME is CI_HOME, so the two agree.
+RUNNER_DIR="$CI_HOME/actions-runner"
+CI_DIR="$CI_HOME/.kosmos-ci"
 
 say() { printf '== %s\n' "$*"; }
 # act <command...>: runs it with --apply, else prints it.
@@ -94,7 +96,11 @@ preflight() {
   local jobs raw
   if ! raw="$(launchctl list)"; then problem "could not read launchctl list"; raw=""; fi
   jobs="$(printf '%s\n' "$raw" | awk 'NR > 1 && $3 !~ /^com\.apple\./ && $3 !~ /^application\./ { print $3 }')"
-  [ -z "$ALLOW_JOBS" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E "$ALLOW_JOBS" || true)"
+  if [ -n "$ALLOW_JOBS" ]; then
+    # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
+    printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; }
+    [ -z "$jobs" ] || jobs="$(printf '%s\n' "$jobs" | grep -v -E "$ALLOW_JOBS" || true)"
+  fi
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
   else ok "no non-Apple launchd jobs loaded"; fi
@@ -161,6 +167,9 @@ create_user() {
   mode_line
   # A STANDARD user: no -admin. `-password -` prompts, so the password is never in an argv or this log.
   act sudo sysadminctl -addUser "$CI_USER" -fullName "Kosmos CI" -shell /bin/zsh -home "$CI_HOME" -password -
+  if [ "$APPLY" = 1 ] && ! id "$CI_USER" >/dev/null 2>&1; then
+    echo "STOP: $CI_USER was not created (sysadminctl gave no error); look at System Settings, Users & Groups" >&2; exit 1
+  fi
   if [ "$APPLY" = 1 ] && is_admin "$CI_USER"; then
     echo "STOP: $CI_USER came out an admin; remove it (sudo sysadminctl -deleteUser $CI_USER) and report" >&2; exit 1
   fi
@@ -179,6 +188,9 @@ install_runner() {
   local st
   st="$(curl -fsSL "https://api.github.com/repos/$REPO/compare/$commit...main" | sed -n 's/^  "status": "\([a-z]*\)".*/\1/p' | head -1 || true)"
   case "$st" in ahead|identical) ok "$commit is on main ($st)" ;; *) echo "refused: commit $commit is not on main (compare status '${st:-unknown}'), nothing changed" >&2; exit 1 ;; esac
+  if [ -e "$RUNNER_DIR/.env" ] && [ ! -r "$RUNNER_DIR/.env" ]; then
+    echo "refused: cannot read $RUNNER_DIR/.env (run as $CI_USER), so its KOSMOS_ keys cannot be ruled out; nothing changed" >&2; exit 1
+  fi
   if [ -f "$RUNNER_DIR/.env" ] && grep -q -E '^KOSMOS_' "$RUNNER_DIR/.env"; then
     echo "refused: $RUNNER_DIR/.env sets a KOSMOS_ variable ($(grep -E '^KOSMOS_' "$RUNNER_DIR/.env" | cut -d= -f1 | tr '\n' ' ')); a wait control there turns the suite lock off for every job. Remove it first." >&2
     exit 1
@@ -192,7 +204,8 @@ install_runner() {
     return 0
   fi
   mkdir -p "$RUNNER_DIR" "$CI_DIR"; cd "$RUNNER_DIR"
-  # Every download and check before the runner is touched, so a failure never leaves it stopped.
+  # Every download and read before the runner is touched, so a refusal never leaves it stopped; after the stop, an
+  # EXIT trap starts it again on any failure.
   local newg="$CI_DIR/job-guard.sh.new" got rel ver tgz pub have was_running=0 sv
   curl -fsSL "https://raw.githubusercontent.com/$REPO/$commit/tools/ci-runner-job-guard.sh" -o "$newg" \
     || { rm -f "$newg"; echo "could not fetch the job guard at $commit: nothing changed" >&2; exit 1; }
@@ -206,13 +219,21 @@ install_runner() {
   pub="$(printf '%s' "$rel" | grep -o 'BEGIN SHA osx-arm64 -->[0-9a-f]*' | head -1 | sed 's/.*-->//' || true)"
   have="$(shasum -a 256 "$tgz" | cut -d' ' -f1)"
   [ -n "$pub" ] && [ "$pub" = "$have" ] || { rm -f "$tgz" "$newg"; echo "runner package sha256 $have is not the published '${pub:-none}': refused, nothing changed" >&2; exit 1; }
+  # MERGE into .env (config.sh writes keys there): keep every key this does not set. Read now, before the stop.
+  # grep exits 1 when no line is left (fine) and 2 when it could not read .env, which must not drop config.sh's keys.
+  local env_keep=""
+  if [ -f "$RUNNER_DIR/.env" ]; then
+    if env_keep="$(grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env")"; then :
+    else [ $? = 1 ] || { rm -f "$newg"; echo "could not read $RUNNER_DIR/.env; nothing changed" >&2; exit 1; }; fi
+  fi
   # A Runner.Worker of this user is a job in flight: stopping the runner now would kill it.
   if pgrep -u "$(id -u)" -x Runner.Worker >/dev/null; then
     rm -f "$newg"; echo "refused: a job is running on this runner; install again when it is idle. Nothing changed" >&2; exit 1
   fi
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
-    case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
+    case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true
+      trap 'echo "install failed after stopping the runner: starting it again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT ;; esac
     if [ "$was_running" = 1 ]; then
       case "$(./svc.sh status 2>&1 || true)" in
         *Started*) rm -f "$newg"; echo "refused: the runner did not stop; nothing unpacked" >&2; exit 1 ;;
@@ -233,7 +254,8 @@ pkill -u "$(id -u)" -x node 2>/dev/null || true
 HOOK
   act_write "$CI_DIR/job-completed.sh" 755 <<'HOOK'
 #!/bin/bash
-# Located by its own path: the hooks live beside each other. The job's temp is emptied AFTER a job only.
+# Located by its own path: the hooks live beside each other. The job's temp is emptied AFTER a job only: at job
+# start it holds the event payload the guard reads.
 D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
 "$D/job-cleanup.sh"
 TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
@@ -246,17 +268,14 @@ D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
 "$D/job-guard.sh" || exit 1
 exec "$D/job-cleanup.sh"
 HOOK
-  # MERGE into .env (config.sh writes keys there): replace only the keys this sets.
-  touch "$RUNNER_DIR/.env"
-  # grep exits 1 when no line is left (fine) and 2 when it could not read .env, which must not drop config.sh's keys.
-  if grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env" > "$RUNNER_DIR/.env.new"; then :
-  else [ $? = 1 ] || { rm -f "$RUNNER_DIR/.env.new"; echo "could not read $RUNNER_DIR/.env; it is unchanged" >&2; exit 1; }; fi
-  { echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CI_DIR/job-started.sh"
+  { [ -z "$env_keep" ] || printf '%s\n' "$env_keep"
+    echo "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CI_DIR/job-started.sh"
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
     echo "LANG=en_US.UTF-8"   # launchd gives none; the tmux tests need it
-    echo "PATH=/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$HOME/.local/bin"; } >> "$RUNNER_DIR/.env.new"
+    echo "PATH=/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"; } > "$RUNNER_DIR/.env.new"
   mv -f "$RUNNER_DIR/.env.new" "$RUNNER_DIR/.env"
   echo "hooks and .env written (merged)"
+  trap - EXIT
   if [ "$was_running" = 1 ]; then ./svc.sh start && echo "runner started again"; fi
 }
 
@@ -282,14 +301,14 @@ register() {
 
 # runner_busy: true, false, or "unknown" when the API could not say.
 runner_busy() {
-  gh api "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null || echo unknown
+  gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null || echo unknown
 }
 
 verify() {
   need_user "$OWNER"
   say "the runner, from the API"
   local row
-  row="$(gh api "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | \"\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(\",\"))\"")" \
+  row="$(gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | \"\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(\",\"))\"")" \
     || { problem "could not read the runners API"; row=""; }
   local want_labels
   want_labels="$(printf '%s\n' "$LABELS" | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | sort | paste -sd, -)"
@@ -328,7 +347,7 @@ machine_settings() {
 # Settings that need an admin, in System Settings (printed, never run):
 #  1. Users & Groups: automatic login as $CI_USER. The runner is a LaunchAgent of $CI_USER, so after a restart it is
 #     offline until $CI_USER is logged in. Needs FileVault off (preflight checks it).
-#  2. Energy: keep "prevent automatic sleeping" and "start up after a power failure" (preflight checks sleep).
+#  2. Energy: keep "prevent automatic sleeping" and "start up after a power failure" (preflight checks both).
 EOF
 }
 
