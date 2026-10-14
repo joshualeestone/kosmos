@@ -201,3 +201,21 @@ test('#570 7c-4 clearing the channel re-arms dry-run, the same interlock as the 
   chat.setChannel(null);
   assert.equal(chat.DRY_RUN, true);
 });
+
+test('#5949 a Windows agent whose state is remembered through a failed look gets no confident note about what it was doing', () => {
+  withFleet([windowsAgent('winheld')], (board) => {
+    chat.setRunner(recordingTmux());
+    chat.setChannel(fakeChannel({ ok: true }));
+    /* The real card, copied so its state can be the one a look gave (a Windows card cannot be arranged working here). */
+    const working = board.agents.map((a) => (a.sessionName === 'winheld' ? { ...a, state: 'working' } : a));
+    const fresh = chat.deliver('winheld', 'one', working);
+    assert.equal(fresh.state, chat.DELIVERY.PLACED);
+    assert.equal(fresh.paneState, 'working', 'CONTROL: a fresh look describes the pane');
+    assert.doesNotMatch(fresh.paneNote, /could not tell/, 'CONTROL: and says what it was doing');
+    const held = working.map((a) => (a.sessionName === 'winheld' ? { ...a, stateRead: 'remembered', screenRead: 'remembered' } : a));
+    const v = chat.deliver('winheld', 'two', held);
+    assert.equal(v.state, chat.DELIVERY.PLACED);
+    assert.equal(v.paneState, null);
+    assert.match(v.paneNote, /could not tell what it was doing/);
+  });
+});

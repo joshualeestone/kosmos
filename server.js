@@ -22944,7 +22944,10 @@ function start(port = PORT) {
             const owed = ft.anyOwed(records);
             if (!owed) FAILOVER_TELL_SEEN.clear();   // review 11: no stale "idle last pass" outlives a quiet spell
             const told = !owed ? [] : ft.sweepOnce({ roster: safeRoster(), records, DELIVERY: chat.DELIVERY,
-              isIdle: (c) => c.state === 'idle', seenIdle: FAILOVER_TELL_SEEN, markTold: tasks.markMoveTold,
+              /* #5949: a remembered idle waits for a fresh look. */
+              isIdle: (c) => c.state === 'idle' && !require('./engine/status').stateIsRemembered(c),
+              seenIdle: FAILOVER_TELL_SEEN,
+              markTold: tasks.markMoveTold,
               /* An Antigravity agent whose quota resume is still due is left to agyquota's carry-on line, which names the
                  same parts (review 11); once that is not pending (sent, given up, switched off), it is told here plainly. */
               skip: (c) => failoverRunnerOf(c) === 'antigravity' && agyQuota.resumePending(c.sessionName,
@@ -23467,7 +23470,9 @@ if (require.main === module) {
        equivalent; needs_you/blocked still come through the self-report path and
        reconcileReport, which outranks this. Platform-agnostic, unit-tested with
        injected inputs. */
-    require('./engine/status').setPaneCapture(require('./engine/win32capture').make());
+    /* #5949: with the agents' last good states kept on disk, so a board that has just started (an update
+       restarts it) shows each card's last known state, marked as remembered, until its first live look. */
+    require('./engine/status').setPaneCapture(require('./engine/win32capture').make({ lastState: require('./engine/win32capture').fileLastState() }));
     /* The agents' own private browser (engine/agentbrowser.js): a one-time
        install of the pinned server, started at boot in the background so it is
        in place before the first agent launches. Never fatal and never awaited --

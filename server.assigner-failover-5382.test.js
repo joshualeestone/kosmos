@@ -144,8 +144,13 @@ test('review 8: readRunner is failoverRunnerOf (null when nothing recorded); the
   assert.match(after, /skip: \(c\) => failoverRunnerOf\(c\) === 'antigravity' && agyQuota\.resumePending\(c\.sessionName,\s*\{ now: Date\.now\(\), env: process\.env, allowed: liveExecution\.liveExecutionAllowed\(\), book: AGY_QUOTA_BOOK \}\)/);
   assert.doesNotMatch(after, /resumeFor/, 'the sweep resumes agents again');
   assert.match(after, /isIdle: \(c\) => c\.state === 'idle'/, 'the sweep no longer types only into idle cards');
+  /* #5949: and only into a FRESH idle, never one remembered through a failed look (pinned whole, so dropping it fails). */
+  assert.match(after, /isIdle: \(c\) => c\.state === 'idle' && !require\('\.\/engine\/status'\)\.stateIsRemembered\(c\),/,
+    'the failover tell waits for a fresh look before typing into a remembered idle');
   assert.match(after, /if \(!owed\) FAILOVER_TELL_SEEN\.clear\(\);/, 'the idle memory outlives a quiet spell');
-  assert.match(after, /markTold: tasks\.markMoveTold/);
+  /* Live code, never a comment: #5949 once left this text after a // on its line, and a bare match still passed. */
+  assert.match(after, /^[^\S\n]*markTold: tasks\.markMoveTold,/m);
+  assert.doesNotMatch(after, /\/\/[^\n]*markTold: tasks\.markMoveTold/, 'markTold must not sit behind a // comment');
   assert.match(SRC, /movedAway: \(session, roster\) => require\('\.\/engine\/failovertell'\)\.owedFor\(session, projects\.readAll\(\), roster\)/);
   assert.match(SRC, /movedTold: \(session, items\) => require\('\.\/engine\/failovertell'\)\.markAll\(session, items, tasks\.markMoveTold\)/);
 });

@@ -96,7 +96,10 @@ const PEER_STATES = ['idle', 'working'];
    first; deterministic (member order within a state) so the choice is stable. */
 function peersFor(session, members, cards) {
   const others = (Array.isArray(members) ? members : []).filter((m) => m && m !== session && cards.has(m));
-  const ranked = PEER_STATES.flatMap((st) => others.filter((m) => cards.get(m).state === st));
+  /* #5949: a peer whose state is remembered through a failed look is not seen idle or working now: skipped until a fresh
+     look, as a failed look's unknown always was. */
+  const seenNow = (m) => !require('./status').stateIsRemembered(cards.get(m));
+  const ranked = PEER_STATES.flatMap((st) => others.filter((m) => cards.get(m).state === st && seenNow(m)));
   return ranked.slice(0, MAX_PEERS).map((m) => ({ session: m, name: cards.get(m).name || m }));
 }
 
