@@ -16,8 +16,8 @@ docs/browser-checks/render-room-send-shows-now-6168.js holds the room POST open 
   unreachable board mark it (unreachable as "Not confirmed": it may have arrived); a kept post drops it after the re-read.
 
 ## Decided
-- The box keeps the words on a failure, as before, and the failed bubble stays until the next post replaces it, as the
-  agent page does. Rejected: removing the bubble on failure (the message would quietly disappear).
+- The box is emptied at the press (once the bubble is drawn) and the words come back on a failure; the failed bubble
+  stays until the next post replaces it, as the agent page does. Rejected: removing the bubble on failure (the message would quietly disappear).
 
 ## Weakest premise
 That a row id the room did not have at the press is this post. The board writes the row only when its fan-out is done,
@@ -60,3 +60,6 @@ rule" for identical words; it does not (it matches only after the POST answers).
    out of the box (onKept, the success path's rule), so one more press cannot post it twice. Comments corrected (the
    pending shape lists `before` and `onKept`; the thrown branch also covers a throw before the post went). Left: the
    engine's `unconfirmed` state is treated as success, as before this branch; bubble height across the swap unmeasured.
+6. sonnet: no blocker or warning. Converged. NITs taken: the "Decided" line above corrected; the review-N tags taken out of
+   the code comments (the reasons stay; the history is here). Left: a board clock >10 s behind keeps an arrived unsure post
+   beside its copy until the next post; the pending bubble shows the typed text, the kept row the stored (dedented) form.
