@@ -885,7 +885,15 @@ function tapProbe4663(skip) {
         for (let i = 0; i < 6; i += 1) { const b = document.createElement('button'); b.type = 'button'; b.className = 'tkcard tk-probe'; b.textContent = 'Task ' + (i + 1) + ': a stand-in card with a title long enough to wrap'; list.appendChild(b); }
         const first = list.querySelector('.tk-probe');
         first.focus();
-        const ring = parseFloat(getComputedStyle(first).outlineWidth) + parseFloat(getComputedStyle(first).outlineOffset);
+        // The ring's reach, read from the page's own .tkcard:focus-visible rule: a computed outline after a scripted
+        // focus depends on whether the browser counts that focus as visible, which is not what is being measured.
+        let ring = 0;
+        for (const sh of document.styleSheets) {
+          let rules; try { rules = sh.cssRules; } catch { continue; }
+          for (const r of rules) if (r.selectorText && /\.tkcard:focus-visible\b/.test(r.selectorText) && r.style.outlineWidth) {
+            ring = Math.max(ring, (parseFloat(r.style.outlineWidth) || 0) + (parseFloat(r.style.outlineOffset) || 0));
+          }
+        }
         const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
         const out = { dir: getComputedStyle(list).flexDirection, scrolls: list.scrollWidth > list.clientWidth + 1,
           pageFits: document.documentElement.scrollWidth <= window.innerWidth, ring,
