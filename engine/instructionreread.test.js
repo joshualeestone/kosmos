@@ -52,20 +52,19 @@ test('lineFor names every owed section, the community one by its own heading', (
   assert.ok(ir.lineFor(['community']).includes('"' + heading + '"'));
   const both = ir.lineFor(['community', 'rules']);
   assert.ok(both.includes(heading) && both.includes('the working rules'));
-  // #5636 F7a: a notice, not a task. It still asks for the reading first, then asks nothing else; the community clause
-  // is there only when the community section is named; and the notice itself never names posting.
-  // Every section alone and all of them at once: the agent is idle when this is typed (passOnce), so nothing may read
-  // as a task of its own, while the new text still applies (a rule saying take the next thing still moves it).
+  // #5636 F7a: a notice, not a task. Every section alone and all at once: the reading is asked first, then the line
+  // says it is not itself a task while the new text applies wherever it does (a rule saying take the next thing still
+  // moves the idle agent); the notice never names posting or Kosmos's internal words.
   const every = Object.keys(ir.SECTIONS);
   for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
-    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you would if you had started with it( \(except taking part in the community, which this notice does not ask for\))?\.$/, l);
+    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies\.$/, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
     assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
   }
-  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /started\. Do not take part in the Kosmos\+ community because of this notice, even with a daily minimum still open there\. Apart from that reading/, l);
-  // On a community notice the closing sentence names the one exception (taking part in the community), so as-if-you-had-
-  // started cannot undo the clause, and the new community text itself still applies.
-  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /\(except taking part in the community, which this notice does not ask for\)\.$/, l);
+  // The community clause scopes itself to now and keeps the new community text in force; only when that section is named.
+  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) {
+    assert.match(l, /started\. Do not take part in the Kosmos\+ community now because of this notice, even with a daily minimum still open there; its new text applies the next time you take part\. Apart from that reading/, l);
+  }
   for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
