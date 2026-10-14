@@ -50,7 +50,10 @@ kosmos_setup_floor_pointer_ok() {
   v=$(printf '%s' "$json" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
   art=$(printf '%s' "$json" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
   kosmos_setup_floor_ok "$label" "$v" || return 1
-  [ -n "$art" ] || return 0
+  [ -n "$art" ] || {
+    echo "setup floor (kosmos#6149): $label names no artifact, so what it installs cannot be checked -- refusing" >&2
+    return 1
+  }
   av=$(printf '%s' "$art" | sed -n 's/^kosmos-\(.*\)-[a-z0-9_]*\.tar\.gz$/\1/p')
   if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2

@@ -39,6 +39,7 @@ kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz)" 2>/de
 kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.40-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.49 pointer naming a 0.7.40 tarball passed" || pass "a pointer whose tarball is older than its version is refused"
 kosmos_setup_floor_pointer_ok t "$(ptr 0.7.44 kosmos-0.7.44-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.44 pointer passed" || pass "a 0.7.44 pointer is refused"
 kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer with no version passed" || pass "a pointer with no version is refused"
+kosmos_setup_floor_pointer_ok t '{"version":"0.7.49","sha256":"bb"}' 2>/dev/null && bad "a pointer with no artifact passed" || pass "a pointer with no artifact is refused (fail closed)"
 for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz not-a-build.zip; do
   kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 "$art")" 2>/dev/null && bad "artifact $art passed" || pass "a 0.7.49 pointer naming $art is refused (fail closed)"
 done
@@ -82,6 +83,14 @@ case "$out" in *"setup floor"*) bad "CONTROL: publish-staging's floor refused 0.
   *"does not exist - nothing to point at"*) pass "CONTROL: publish-staging gets past the floor to its next check (the missing tarball)";;
   *) bad "CONTROL: publish-staging stopped somewhere unexpected: $out";; esac
 
+# Each publisher checks its export BEFORE its own vercel deploy: the first tree check sits above the first deploy line.
+# (release.sh's cannot run in the suite; this is the arm that fails if it is moved below the deploy or deleted.)
+for f in release.sh deploy-site.sh; do
+  chk="$(grep -n 'kosmos_setup_floor_tree_ok "' "$HERE/$f" | head -1 | cut -d: -f1)"
+  dep="$(grep -n 'vercel deploy --prod --yes' "$HERE/$f" | grep -v '^[0-9]*:[[:space:]]*#' | head -1 | cut -d: -f1)"
+  if [ -n "$chk" ] && [ -n "$dep" ] && [ "$chk" -lt "$dep" ]; then pass "$f checks its export (line $chk) before its vercel deploy (line $dep)"
+  else bad "$f: tree check line '${chk:-none}', deploy line '${dep:-none}'"; fi
+done
 # deploy-site.sh is run for real by tools/test-deploy-site-promote.sh (its kosmos#6149 arms: the real floor refuses
 # a committed pointer below it with nothing deployed, and a pointer whose tarball is older than its version).
 
