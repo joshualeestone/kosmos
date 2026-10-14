@@ -2612,27 +2612,28 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 }
 
 /* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
-   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
-   the agent is taken to run on the account it was moved from until it restarts. That reads the tmux session, not the
-   process: a process relaunched inside the same session (unmeasured; restartInner kills the session) would stay marked. A REFUSED restart (nothing confirmed as ours) and
-   anything else clear the note. The session is found as remove.js sessionFor finds it (the roster card for the cleaned
-   name, tied to the agent), so a legacy session (`angel-discord` for `angel`) is read and a bystander session that
-   merely shares the name is not. The read after the restart is fresh (no cache), so it sees the session as the
-   restart left it and hands nothing to other readers. The note keeps the account the agent was running on before its
-   FIRST partial move (`from`), so moving it back there is not marked. Not covered (accepted, as restartInner accepts
-   it): macOS refusing to stop the launch job after the window closed, where launchd may respawn the old job later
-   under a new session. `deps` (restart, sessionOf, startedAt) is for tests. Never throws: the note is not the move. */
+   written once the outcome is known. Two partials leave the agent on the account it ran on, and both are noted: the
+   window could not be closed (the SAME session runs on), or launchd/systemd held the old job (restartInner's
+   oldJobHeld: it runs on in a session it starts itself, noted only if that session already exists right after the
+   restart; usually it does not yet, so this case is usually unmarked, the safe direction). Rejected: adopting the next
+   session later, since a manual Restart (not this route) would then leave a lasting wrong mark. Any other outcome,
+   including a REFUSED restart (nothing confirmed as ours), clears a note an earlier move wrote. The session is found
+   as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so a legacy session
+   (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. The read after the
+   restart is fresh (no cache). The note keeps the account the agent ran on before its FIRST partial move (`from`), so
+   moving it back there is not marked. `deps` (restart, sessionOf, startedAt) is for tests. Never throws. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
-function ourSessionFor(name) {
+function ourSessionFor(name, roster) {
   try {
-    const card = require('./engine/status').paneRoster().find((p) => p && p.sessionName === name);
+    const cards = Array.isArray(roster) ? roster : require('./engine/status').paneRoster();
+    const card = cards.find((p) => p && p.sessionName === name);
     return card && card.session && card.isNamedOurs ? card.session : null;
   } catch { return null; }
 }
 function sessionStartFor(name, fresh, deps = {}) {
-  const session = (deps.sessionOf || ourSessionFor)(name);
+  const session = deps.sessionOf ? deps.sessionOf(name) : ourSessionFor(name, deps.roster);
   if (!session) return null;
   try { return (deps.startedAt || ((s) => require('./engine/status').sessionStartedAtFromTmux(s, Date.now(), { fresh })))(session); } catch { return null; }
 }
@@ -2660,11 +2661,6 @@ function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}, oldJo
     accountmoving.note(name, after, from);
   } catch { /* the marker is not the move */ }
 }
-/* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
-   under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
-   launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
-   The mark reads the agent's own session from the pane roster and its tmux start, only for agents with a note: no
-   process reads. */
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
    list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
    configDir runs on the default account; `complete` is false when anything could not be read. */
@@ -2684,13 +2680,25 @@ function claudeAgentsByAccount() {
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
     },
+    /* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
+       under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
+       launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
+       The mark reads the agent's own session from the pane roster and its tmux start, only for agents with a note: no
+       process reads. */
     moving(dir, isDefault, deps = {}) {   // #6174: the agents on this row still running on the account they were moved from
       const am = require('./engine/accountmoving');
       let notes = {}; try { notes = am.notes(); } catch { notes = {}; }   // read once; agents with no note cost nothing
+      // The pane roster once per call, and only when some agent on this row has a note (review 6).
+      let roster;
+      const readDeps = () => {
+        if (deps.sessionOf || roster !== undefined) return { ...deps, roster };
+        try { roster = require('./engine/status').paneRoster(); } catch { roster = []; }
+        return { ...deps, roster };
+      };
       const rowKey = isDefault ? null : (() => { try { return dir ? path.resolve(dir) : null; } catch { return null; } })();
       return this.on(dir, isDefault).filter((n) => {
         try {
-          if (!notes[n] || !am.isMoving(n, (x) => sessionStartFor(x, false, deps), notes)) return false;
+          if (!notes[n] || !am.isMoving(n, (x) => sessionStartFor(x, false, readDeps()), notes)) return false;
           // Moved back to the account it is still running on: it runs here, so it is not moving.
           const from = notes[n].from;
           const fromKey = from == null ? null : path.resolve(from);

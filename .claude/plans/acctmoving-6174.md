@@ -58,3 +58,7 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 5) The default row also compares a note's `from` with its own folder (an agent whose launch file names the
   default folder by path); the from-account read cleans the name first (moveFromDir), and is not exercised by a test
   (the route's other reads are; the helper is a one-line readJob).
+- (review 6) The held-job case is noted only if the held job's session already exists right after the restart;
+  usually it does not yet, so this case is usually unmarked (safe direction). Rejected: adopting the next session
+  later, because a manual Restart (not the move route) would then leave a lasting wrong mark. The pane roster is read
+  once per row, only when an agent on it has a note. oldJobHeld is pinned false for a stop launchd accepted.
