@@ -912,8 +912,11 @@ function tapProbe4663(skip) {
         let ring = 0;
         for (const sh of document.styleSheets) {
           let rules; try { rules = sh.cssRules; } catch { continue; }
-          for (const r of rules) if (r.selectorText && /\.tkcard:focus-visible\b/.test(r.selectorText) && r.style.outlineWidth) {
-            ring = Math.max(ring, (parseFloat(r.style.outlineWidth) || 0) + (parseFloat(r.style.outlineOffset) || 0));
+          // From the `outline` shorthand's own text: it carries var(--label), and a shorthand with var() leaves its
+          // longhands (outline-width among them) reading as empty in the CSSOM.
+          for (const r of rules) if (r.selectorText && /\.tkcard:focus-visible\b/.test(r.selectorText)) {
+            const m = /([\d.]+)px/.exec(r.style.getPropertyValue('outline') || r.style.outlineWidth || '');
+            if (m) ring = Math.max(ring, parseFloat(m[1]) + (parseFloat(r.style.outlineOffset) || 0));
           }
         }
         const L = list.getBoundingClientRect(); const C = first.getBoundingClientRect();
