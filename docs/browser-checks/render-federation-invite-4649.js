@@ -1597,7 +1597,8 @@ const closeAll = (page) => page.evaluate(() => {
     }, want, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilStatus ' + JSON.stringify(want.text)));
     /* #6105: a "Copied" line reverts after 2 s. On a box saturated by the full suite the read after a wait could land
        past that and see an empty line, so once the wanted line is up its revert is cancelled: the read sees what the
-       wait saw. Only the revert is stopped; the arm's assertion is unchanged. */
+       wait saw. Only the shared copy timer (FEDINV_COPY_TIMER, here the Copied revert) is stopped; the arm's assertion is
+       unchanged. */
     const untilCopied = (page, text, ms = 4000) => page.waitForFunction((t) => {
       if (document.getElementById('fedinv-status').textContent !== t) return false;
       if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
@@ -2161,6 +2162,9 @@ const closeAll = (page) => page.evaluate(() => {
         return (await step(page)).status;
       };
       const run = async (between) => {
+        // #6105 review 3: the last arm's Copied has reverted first, so press()'s "the line changed" wait starts from an
+        // empty line (it compares to the line before the press; the same sentence said again would never differ).
+        await untilReverted(p9.page);
         await p9.page.evaluate(() => { FEDINV_CLIP_HOLDS = ''; });
         await setClip(p9.page, 'ok');
         await press(p9.page);

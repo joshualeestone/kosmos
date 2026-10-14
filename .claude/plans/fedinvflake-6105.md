@@ -29,6 +29,10 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
   with a 4 s wait that logs a NOTE; press() in C9 logs a NOTE when its wait times out; untilReverted's comment says it
   returns at once when no Copied is showing.
 
+## Review 3 (opus) fix
+- C9's run() waits for the last arm's Copied to revert first, so press()'s NOTE fires only on a real timeout (it
+  compared against the same sentence and timed out on every passing run, a 3 s stall the old code hid).
+
 ## Decided, not missed
 - Freezing the revert inside the wait changes page state, but only the timer the arm does not test; the alternative
   (racing a 2 s timer on a box that can stall for seconds) is the flake.
