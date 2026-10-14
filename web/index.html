@@ -12073,19 +12073,19 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    and a button the grid areas below do not place. The classic look only: the hidden new look draws its own
    cards (#4470) and gets its tablet pass with it. Measured by render-home-phone-718.js (tablet arm). */
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
-  :root:not([data-look="new"]) #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
+  :root:not([data-look="new"]) body:not(.consolidated) #grid.cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
     grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
     column-gap: 14px; row-gap: 2px; align-items: center; text-align: left; padding: 18px 18px 16px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .ameta { grid-area: m; align-self: start; margin: 0; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin-top: 6px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
-  :root:not([data-look="new"]) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .ameta { grid-area: m; align-self: start; margin: 0; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin-top: 6px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
+  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; }
 }
 /* #6107 piece 2, the project room on an upright tablet (classic tab layout; the hidden new look and the consolidated
    view keep their own grids). Under 68rem the room is one column in source order: Members and Files, then the
@@ -12097,7 +12097,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 > .pjsplit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist { flex-direction: row; overflow-x: auto; min-height: 0;
     scroll-snap-type: x proximity; padding-bottom: 4px; }
-  :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist > .tkcard { flex: 0 0 min(260px, 70%); width: auto; scroll-snap-align: start; }
+  :root:not([data-look="new"]) body:not(.consolidated) .pj3 #pj-tasklist > .tkcard { flex: 0 0 min(260px, 70%); width: auto; margin-left: 0; scroll-snap-align: start; }   /* margin: a sub-task's indent (.sub1/.sub2) means nothing in a row */
 }
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
@@ -34615,9 +34615,9 @@ function placeLook(cons) {
     else if (!want && crumb.parentElement === mid) oneView.insertBefore(crumb, pj3);
   }
   /* #6107: an upright tablet keeps Tasks at the top of the tab layout; a switch to the consolidated view or the new
-     look must put it back where they expect it. In a try: placeLook can run before PJ_TABLET_MQ (a const further
-     down) is declared, and pjPhoneOrder's own first call at load orders the room then. */
-  try { pjPhoneOrder(); } catch (e) { if (!(e instanceof ReferenceError)) throw e; /* not declared yet: the load-time call covers it */ }
+     look must put it back where they expect it. Only once the room's queries exist: placeLook can run before
+     PJ_TABLET_MQ (a const further down) is declared, and pjPhoneOrder's own first call at load orders the room then. */
+  if (PJ_ORDER_READY) pjPhoneOrder();
 }
 function lookToggleClick() {
   const on = document.documentElement.getAttribute('data-look') !== 'new';
@@ -67294,6 +67294,8 @@ const PJ_TOUCH_MQ = '(hover: none)';         // the room's touchscreen CSS block
 // #6107: an upright tablet (portrait; landscape waits on Josh's split-view call). The room's tablet CSS block uses
 // this exact query (pinned the same way). A phone is under 600px wide upright and is landscape on its side.
 const PJ_TABLET_MQ = '(hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait)';
+// var, not let: placeLook reads it, and it may run before this line; a var reads undefined there instead of throwing.
+var PJ_ORDER_READY = true;
 /* #5312: when the touch test changes (a tablet turned, a pointer attached), every Copy in a hover bar is renamed for
    what a press now does (msgCopyButton, msgCopyPressed). */
 function msgCopyRelabel() {
