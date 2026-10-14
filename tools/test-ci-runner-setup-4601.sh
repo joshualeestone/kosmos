@@ -40,8 +40,8 @@ case "$me" in
   gh)
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
     case "$*" in
-      *"variable list"*KOSMOS_CI_SHELL_SHARDS*) printf '%s' "${FX_SHARDS:-}" ;;
-      *"variable list"*KOSMOS_CI_RUNNER*) printf '%s' "${FX_RUNNER_VAR-on}" ;;
+      *"variable list"*KOSMOS_CI_SHELL_SHARDS*) [ -z "${FX_SHARDS+set}" ] || printf '=%s' "$FX_SHARDS" ;;
+      *"variable list"*KOSMOS_CI_RUNNER*) printf '=%s' "${FX_RUNNER_VAR-on}" ;;
       *"| .busy"*) [ "${FX_BUSY2_FAIL:-0}" = 1 ] && exit 1; row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
       *actions/runners*) printf '%s\n' "${FX_RUNNER_ROW-online false arm64,kosmos-ci,macos,self-hosted}" ;;
     esac ;;
@@ -113,7 +113,13 @@ refuse launchctl-unreadable "could not read launchctl list" FX_LAUNCHCTL_FAIL=1
 refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
+refuse shards-pair "routes shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
+for v in "" off; do
+  run pf-shards-off "$H" FX_SHARDS="$v" -- preflight
+  [ "$(rc pf-shards-off)" = 0 ] && has pf-shards-off "set to '$v', which names no shard" && pass "preflight: KOSMOS_CI_SHELL_SHARDS='$v' routes no shard and is said so" \
+    || fail "shards '$v': rc $(rc pf-shards-off): $(grep -i shards "$T/pf-shards-off.out")"
+done
 refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmos.board "KOSMOS_CI_ALLOW_JOBS=(unbalanced"
 run pf-allow "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.' -- preflight
 [ "$(rc pf-allow)" = 0 ] && pass "preflight: an allowed job (KOSMOS_CI_ALLOW_JOBS) does not refuse" || fail "allow-list: $(grep REFUSE "$T/pf-allow.out")"

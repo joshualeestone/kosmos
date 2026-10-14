@@ -13,11 +13,11 @@
 #                             power restore, tmux, pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named
 #                             launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
-#   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session. The runner, the hooks and the job guard
+#   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session (svc.sh, which stops and starts the
+#                             runner, needs the GUI session, not ssh). The runner, the hooks and the job guard
 #                             from THAT main commit
-#   register                  as kosmos-ci, in its Screen Sharing session. Both stop or start the runner through
-#                             svc.sh, which needs the GUI session, not ssh.
-#                             Reads the registration token from stdin, so it is never in any argv
+#   register                  as kosmos-ci, in its Screen Sharing session, for the same reason. Reads the
+#                             registration token from stdin, so it is never in any argv
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels
 #   machine-settings          prints the settings that need an admin in System Settings
 #
@@ -30,7 +30,8 @@
 # that catches a damaged download, not a compromised release (trust on first fetch, as Baron's script had it).
 # The job guard is pinned harder, by a main commit and a sha256 the operator supplies, but only at install: it lives
 # in kosmos-ci's own home, so a job the guard admits could rewrite it for later jobs (a persistent runner, as on the
-# mini). The guard refuses everything but this repo's own code; that is the boundary.
+# mini). Likewise the runner's PATH ends with kosmos-ci's ~/.local/bin (the fallback for a tmux built from source),
+# which a job can write. The guard refuses everything but this repo's own code; that is the boundary.
 # KOSMOS_CI_RUNNER (the kill switch) is READ here, never written. KOSMOS_CI_SHELL_SHARDS must stay unset (#4601:
 # one runner cannot carry a shell shard), and preflight and verify refuse when it is set.
 set -euo pipefail
@@ -85,11 +86,21 @@ PROBLEMS=0
 problem() { printf 'REFUSE: %s\n' "$*"; PROBLEMS=$((PROBLEMS + 1)); }
 ok() { printf 'ok:     %s\n' "$*"; }
 
-# repo_variable <name>: prints its value, "<unset>", or fails when it cannot tell.
+# repo_variable <name>: prints its value ("" when set but empty), "<unset>", or fails when it cannot tell.
 repo_variable() {
   local out
-  out="$(gh variable list --repo "$REPO" --json name,value --jq ".[] | select(.name == \"$1\") | .value")" || return 1
-  if [ -n "$out" ]; then printf '%s' "$out"; else printf '<unset>'; fi
+  out="$(gh variable list --repo "$REPO" --json name,value --jq ".[] | select(.name == \"$1\") | \"=\" + .value")" || return 1
+  case "$out" in =*) printf '%s' "${out#=}" ;; *) printf '<unset>' ;; esac
+}
+
+# shards_check <value>: test.yml's scope job routes a shell shard only for the tokens 1/2 and 2/2 (comma separated), so
+# any other value, empty included, routes none. Refuse exactly when one would route.
+shards_check() {
+  local v="$1" tok routed=""
+  if [ "$v" = "<unset>" ]; then ok "KOSMOS_CI_SHELL_SHARDS unset"; return; fi
+  for tok in $(printf '%s' "$v" | tr ',' ' '); do case "$tok" in 1/2|2/2) routed="$routed $tok" ;; esac; done
+  if [ -n "$routed" ]; then problem "KOSMOS_CI_SHELL_SHARDS is '$v', which routes shell shard(s)$routed here: one runner cannot carry a shell shard (#4601); unset it first"
+  else ok "KOSMOS_CI_SHELL_SHARDS is set to '$v', which names no shard (test.yml routes none)"; fi
 }
 
 preflight() {
@@ -156,8 +167,7 @@ preflight() {
   say "repo variables"
   local v
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
-    if [ "$v" = "<unset>" ]; then ok "KOSMOS_CI_SHELL_SHARDS unset"
-    else problem "KOSMOS_CI_SHELL_SHARDS is '$v': one runner cannot carry a shell shard (#4601); unset it first"; fi
+    shards_check "$v"
   else problem "could not read the repo variables (gh): cannot rule out KOSMOS_CI_SHELL_SHARDS"; fi
   if v="$(repo_variable KOSMOS_CI_RUNNER)"; then ok "KOSMOS_CI_RUNNER is $v (read only; the runbook keeps it on)"; fi
 
@@ -339,7 +349,7 @@ EOF
     [ "$v" = on ] && ok "KOSMOS_CI_RUNNER on" || problem "KOSMOS_CI_RUNNER is '$v': jobs do not route to the runner"
   else problem "could not read KOSMOS_CI_RUNNER"; fi
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
-    [ "$v" = "<unset>" ] && ok "KOSMOS_CI_SHELL_SHARDS unset" || problem "KOSMOS_CI_SHELL_SHARDS is '$v' (#4601: unset it)"
+    shards_check "$v"
   else problem "could not read KOSMOS_CI_SHELL_SHARDS"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node)"
   local left busy2
