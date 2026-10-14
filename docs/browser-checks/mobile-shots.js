@@ -133,7 +133,8 @@ const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
    phone-only screen (the #burger menu, shown up to 56rem and hidden above) does not exist on a wider tablet; tab8,
    the iPad mini and the 11-inch iPad upright (600, 744, 834px) all still show it. The 896 below is that 56rem by
    value: today the only phoneOnly screen (nav-menu) keys on it. A desktop-only screen is skipped at phone sizes and
-   at tablets under 960px: a landscape tablet (960px and up) shows the one-screen view, so it shoots those too. */
+   at tablets under 960px: from 960px a tablet can show the one-screen view (and the desktop-only screens force it,
+   openConsAgents), so it shoots those too, upright or sideways. */
 const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
