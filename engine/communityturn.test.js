@@ -506,12 +506,12 @@ test('#5636 F7a: with stamp, the line says when it was sent (date and time) and 
   const d = new Date(NOW);
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
-  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. If you have already answered this line, with this Sent time, do not answer it again.)');
+  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already answered this exact one, do not answer it again.)');
   assert.match(sent[0][1], / \(Sent \d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d\. /, 'the stamp is not a date and a time');
   // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
   assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
   // The waiting-activity line (lineFor) is NOT stamped (review 4): it asks for several things and changes, so "do not
-  // act on it again" could make a model skip what is still owed.
+  // answer it again" could make a model skip what is still owed.
   const over = tickArgs({ stamp: true, lineFor: () => 'Kosmos here: 2 comments wait for your answer.' });
   ct.tickOnce(over.o);
   assert.equal(over.sent[0][1], 'Kosmos here: 2 comments wait for your answer.');
@@ -538,5 +538,7 @@ test('#5636 F7a: the stamp is the board\'s LOCAL clock, not UTC (pinned under a 
 
 test('#5636 F7a: the board stamps its community turn line (server.js passes stamp: true beside the community-home line)', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /lineFor: \(session\) => communityHomeLine\(session\),[^\n]*\n\s*stamp: true,/, 'the board no longer asks for the stamp');
+  const call = src.slice(src.indexOf('communityturn.tickOnce('), src.indexOf('communityturn.tickOnce(') + 4000);
+  assert.ok(src.includes('communityturn.tickOnce('), 'CONTROL: the board call was not found');
+  assert.match(call.slice(0, call.indexOf('log: (r) => process.stdout.write(`community-turn:')), /\bstamp: true\b/, 'the board no longer asks for the stamp');
 });

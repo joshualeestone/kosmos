@@ -188,8 +188,9 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
    logged one send a day). A runner that keeps one long session (Muse) has the old line in the conversation it rereads
    every turn, and can act on it again.
    - The generic line (INTRO, FLOOR or TURN, the one that repeats word for word) says when it was sent, date and time on
-     the board's local clock, and not to answer it again once answered. "Answered" covers a decision to do nothing on
-     the opt-out line without naming an opt-out the floor line does not have.
+     the board's local clock, that a different Sent time is a new reminder (said first, review 7), and not to answer
+     this exact one again once answered. "Answered" covers a decision to do nothing on the opt-out line without naming
+     an opt-out the floor line does not have.
    - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
      line has no opt-out, #5315). One Sent time names one line: a sent line waits TURN_GAP_MS (3 h) before the next, and
      a held or busy try types nothing.
@@ -202,8 +203,8 @@ function stamped(text, now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
-  return String(text) + ' (Sent ' + when + '. If you have already answered this line, with this Sent time, do not answer'
-    + ' it again.)';
+  return String(text) + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already'
+    + ' answered this exact one, do not answer it again.)';
 }
 
 /* Synchronous on purpose: the board's timer has no "pass already running" guard because a pass cannot overlap the next.
@@ -267,11 +268,12 @@ function tickOnce(o) {
       // #5315: below the daily floor, the opt-out is dropped (FLOOR_TEXT); beyond it, kept (TURN_TEXT). A never-posted
       // agent gets INTRO_TEXT (no opt-out either, #6076). The lineFor override (#5212) still wins over either generic line when there is one.
       let text = d.first ? INTRO_TEXT : (d.postedToday ? TURN_TEXT : FLOOR_TEXT);
-      // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
-      if (o.stamp === true) text = stamped(text, now);
+      let generic = true;
       if (!d.first && typeof o.lineFor === 'function') {
-        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) text = l; } catch { /* the generic line */ }
+        try { const l = o.lineFor(d.session); if (typeof l === 'string' && l.trim()) { text = l; generic = false; } } catch { /* the generic line */ }
       }
+      // #5636 F7a: the board's own caller stamps (server.js), and only a generic line, the one that repeats word for word.
+      if (o.stamp === true && generic) text = stamped(text, now);
       try { v = o.deliver(d.session, text, roster); } catch { v = { state: D.UNCONFIRMED }; }
       const state = v && v.state;
       const held = Boolean(v && v.held === true);
