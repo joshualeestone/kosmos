@@ -51,3 +51,7 @@ same name without the agent moving would clear the mark early (safe direction).
   there is not marked. Tests drive restartForMove with injected readers (start read before the restart, each outcome).
 - Not testable through the seam: the fresh read (the session seam never caches), so it is covered by reading only.
 - Windows, or any machine where tmux cannot be read: no session start, so nobody is ever marked there.
+- (review 4) The list is read-only: a stale note never marks (it needs the very same session), and only the move
+  route clears, so a page read cannot race a move's write; the notes file is read once per row and agents with no note
+  cost nothing. The mark reads the tmux session, not the process: a process relaunched inside the same session would
+  stay marked (unmeasured; restartInner kills the session). A default-account agent moved away and back is tested.

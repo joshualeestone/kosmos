@@ -2613,7 +2613,8 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
 
 /* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
    written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
-   the agent runs on the account it was moved from until it restarts. A REFUSED restart (nothing confirmed as ours) and
+   the agent is taken to run on the account it was moved from until it restarts. That reads the tmux session, not the
+   process: a process relaunched inside the same session (unmeasured; restartInner kills the session) would stay marked. A REFUSED restart (nothing confirmed as ours) and
    anything else clear the note. The session is found as remove.js sessionFor finds it (the roster card for the cleaned
    name, tied to the agent), so a legacy session (`angel-discord` for `angel`) is read and a bystander session that
    merely shares the name is not. The read after the restart is fresh (no cache), so it sees the session as the
@@ -2652,13 +2653,13 @@ function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}) {
     accountmoving.note(name, startedBefore, from);
   } catch { /* the marker is not the move */ }
 }
-/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
-   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
-   configDir runs on the default account; `complete` is false when anything could not be read. */
 /* #6174: an agent whose move came back partial while its session kept running (engine/accountmoving.js) is listed
    under the account it was moved to, by its launch file, and marked moving there until it restarts. Listed by the
    launch file on purpose: a stopped agent, or one whose relaunch failed, runs nowhere, so the new row is right for it.
    The mark needs only tmux's session start (status.sessionStartedAtFromTmux, cached two seconds): no process reads. */
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
 function claudeAgentsByAccount() {
   const walk = agentsByAccountWalk('claude', { skipGuide: true });
   let complete = walk.complete;
@@ -2677,12 +2678,13 @@ function claudeAgentsByAccount() {
     },
     moving(dir, isDefault, deps = {}) {   // #6174: the agents on this row still running on the account they were moved from
       const am = require('./engine/accountmoving');
+      let notes = {}; try { notes = am.notes(); } catch { notes = {}; }   // read once; agents with no note cost nothing
       const rowKey = isDefault ? null : (() => { try { return dir ? path.resolve(dir) : null; } catch { return null; } })();
       return this.on(dir, isDefault).filter((n) => {
         try {
-          if (!am.isMoving(n, (x) => sessionStartFor(x, false, deps))) return false;
+          if (!notes[n] || !am.isMoving(n, (x) => sessionStartFor(x, false, deps), notes)) return false;
           // Moved back to the account it is still running on: it runs here, so it is not moving.
-          const from = (am.notes()[n] || {}).from;
+          const from = notes[n].from;
           const fromKey = from == null ? null : path.resolve(from);
           return !(fromKey === rowKey || (isDefault && from == null));
         } catch { return false; }
