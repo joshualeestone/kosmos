@@ -39,3 +39,11 @@ X days!".
 
 ## Weakest premise
 Call 2: resetting after one missed weekend may feel like a punishment. A grace day is a change to `visit()` only.
+
+## Surface gate (final validation)
+The diff touches tokens eight other checks watch (worldsw, topnotes, uoffline-slot, apphead, plus-active, utoast).
+All eight were run against a sandboxed board serving this branch: render-worldsw-lockout-3055, render-login-expiry-3532,
+render-restart-screen-4343, render-plus-bar-3837, render-plus-gutter-4542, render-plus-blue-1615,
+render-phone-taps-5218 and render-phone-offline-718 all pass. (render-login-expiry-3532 first failed on a board started
+before the engine edits, whose "Kosmos needs a quick restart" notice held the update chip's slot; it passes on a fresh
+board.) Their per-check trailers are on the commit that adds this section.
