@@ -31,6 +31,9 @@ const path = require('node:path');
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PER_PASS = 3;   // lines typed per pass; the timer delivers the rest
 const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
+/* kosmos#5636 F7a: lineFor says the notice asks nothing beyond the reading. A section whose text is a standing do-X-daily
+   rule (as the community's post-a-day minimum is) can still read as due now; when adding one here, add a clause for it
+   in lineFor as the community has. */
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
   // kosmos#5635 review 5: no "with your person's OK": a board-start update had none, and the agent may repeat this.
@@ -183,13 +186,14 @@ function lineFor(sections) {
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
      post-a-day rule as asked now. So, apart from the reading, it asks nothing. The agent is idle when this is typed
      (passOnce), so it must not read as start or resume work either. The community clause is added only when that
-     section is named, and says it is not a community turn even with a daily minimum open.
+     section is named, and says to do nothing there because of it even with a daily minimum open.
      No double quotes in this text: the #5304 test reads quoted text as section headings. */
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + 'Apart from reading it, this notice asks nothing of you: do not start or resume anything because of it, and follow the '
     + 'new text from here whenever it applies.'
-    + (named.includes('community') ? ' It is not a community turn: do nothing in the community because of it, even if a daily minimum there is still open.' : '');
+    + (named.includes('community') ? ' Do nothing in the community because of this notice, even if a daily minimum there is still open: Kosmos tells you '
+      + 'separately when it is time.' : '');
 }
 
 /*
