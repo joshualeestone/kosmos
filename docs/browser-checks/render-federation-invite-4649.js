@@ -2051,7 +2051,7 @@ const closeAll = (page) => page.evaluate(() => {
       await untilCopied(p7.page, 'Invitation copied.');
       /* #6105: every line written from here is recorded, so the read cannot fall between a reset and the sentence said
          30 ms later, or after the 2 s revert (both read as an empty line on a saturated box). The "finished late" line
-         is written in the write's own handler, so it is on record by the next evaluate. */
+         is written in the write's own handler, so it is on record before the wait below returns. */
       await p7.page.evaluate(() => {
         const el = document.getElementById('fedinv-status');
         window.__lines = [];
