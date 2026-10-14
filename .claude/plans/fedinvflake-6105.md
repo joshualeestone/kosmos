@@ -18,7 +18,7 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 - untilReverted(page): the revert has run (timer gone, both buttons say their own words), replacing C9's 2.1 s sleeps.
 - C6: busy line by untilStatus; the 3 s limit by untilRefused (was a 3.2 s sleep); the late write by untilCopied.
 - C7b: a MutationObserver records every line written after the stale write is released; the arm judges the last
-  non-empty line ("Invitation copied.") and that no "finished late" line was ever written (its real failure, written
+  line written ("Invitation copied."; a line cleared after it reds) and that no "finished late" line was ever written (its real failure, written
   synchronously in the write's handler). Silence still passes, as the file's own note says it cannot tell silence
   from a second Copied.
 
