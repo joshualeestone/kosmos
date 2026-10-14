@@ -33,12 +33,16 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 - C9's run() waits for the last arm's Copied to revert first, so press()'s NOTE fires only on a real timeout (it
   compared against the same sentence and timed out on every passing run, a 3 s stall the old code hid).
 
+## Review 4 (sonnet) fix
+- C1 times its revert on the page's clock from the moment the Copied was seen and requires 1.5 s to 4.5 s (the 6 s
+  wait alone let a much slower revert pass, which the old 2.3 s read caught); its snapshot reads the real status line.
+  This also covers the too-short revert for C1 (the residual below remains for C6 and C7b).
+
 ## Decided, not missed
 - Freezing the revert inside the wait changes page state, but only the timer the arm does not test; the alternative
   (racing a 2 s timer on a box that can stall for seconds) is the flake.
 - Residual (review 1): untilCopied cancels the revert as soon as the line is up, so a regression that shortened the
-  2 s revert to about 100 ms is not caught by C6 or C7b (nor by C1, whose revert wait has no lower bound; the old 2.3 s
-  sleep had none either). Accepted: the flake is the defect here, and a revert-timing check belongs in its own arm.
+  2 s revert to about 100 ms is not caught by C6 or C7b (C1 now times its revert, review 4). Accepted: C1 is the revert-timing check, and the same revert serves every arm.
 - Residual (review 2): C7b's wait returns on the first line said, so a line cleared a few ms after the stale write's
   Copied could be missed; a narrow case of the revert-timing residual above.
 - Residual (review 1): C6's "nothing said while it waits" (a 300 ms read) and its busy line must both be read before the
