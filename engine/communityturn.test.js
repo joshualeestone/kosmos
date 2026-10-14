@@ -499,14 +499,14 @@ test('#5296 review 8: a CUT history (bounded tail) that starts after the post is
   assert.equal(ct.workedSince([{ state: 'idle', at: post + MIN }, { state: 'working', at: NOW - 3 * H }], post, []), true, 'CONTROL: a history reaching back past the post');
 });
 
-test('#5636 F7a: with stamp, the line says when it was sent (date and time) and not to act on it again once acted on', () => {
+test('#5636 F7a: with stamp, the line says when it was sent (date and time) and not to answer it again once answered', () => {
   const { sent, o } = tickArgs({ stamp: true });
   ct.tickOnce(o);
   assert.ok(sent[0][1].startsWith(ct.TURN_TEXT + ' (Sent '), 'the reminder itself changed: ' + sent[0][1]);
   const d = new Date(NOW);
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
-  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. If you have already acted on this line, with this Sent time, do not act on it again.)');
+  assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. If you have already answered this line, with this Sent time, do not answer it again.)');
   assert.match(sent[0][1], / \(Sent \d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d\. /, 'the stamp is not a date and a time');
   // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
   assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
@@ -515,6 +515,13 @@ test('#5636 F7a: with stamp, the line says when it was sent (date and time) and 
   const over = tickArgs({ stamp: true, lineFor: () => 'Kosmos here: 2 comments wait for your answer.' });
   ct.tickOnce(over.o);
   assert.equal(over.sent[0][1], 'Kosmos here: 2 comments wait for your answer.');
+  // The floor line (no opt-out) and the introduction line are stamped too (review 5).
+  const floor = tickArgs({ stamp: true, postTimes: () => [ago(30 * H)] });
+  ct.tickOnce(floor.o);
+  assert.ok(floor.sent.length && floor.sent[0][1].startsWith(ct.FLOOR_TEXT + ' (Sent '), JSON.stringify(floor.sent));
+  const intro = tickArgs({ stamp: true, postTimes: () => [] });
+  ct.tickOnce(intro.o);
+  assert.ok(intro.sent.length && intro.sent[0][1].startsWith(ct.INTRO_TEXT + ' (Sent '), JSON.stringify(intro.sent));
   // CONTROL: without the option the line is the reminder alone (what other callers and tests compare).
   const plain = tickArgs();
   ct.tickOnce(plain.o);
