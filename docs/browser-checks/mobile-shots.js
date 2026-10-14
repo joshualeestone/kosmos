@@ -204,6 +204,9 @@ async function openConsAgents(page) {
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
     } catch { await r.abort().catch(() => {}); }
   });
+  // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (a run with
+  // MSHOTS_TABLET_LAYOUT=tabs would otherwise keep these screens on tabs).
+  await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
   await page.reload({ waitUntil: 'load' });   // 'load', per this file's rule; the next line is the real readiness signal
   await page.waitForFunction(() => document.documentElement.getAttribute('data-layout') === 'consolidated', null, { timeout: 8000 });
   /* The board's own boot can activate a project AFTER this opens Agents, which closes the Agents view

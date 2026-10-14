@@ -48685,7 +48685,7 @@ function openConsolidatedCreate() {
    /api/style layout the tiles do -- no second store, EXCEPT on a touch tablet held sideways, where #6107 keeps the
    choice on that tablet (TABLET_LAYOUT_KEY) and never writes the board -- then re-lays the current
    tab via applyLayout, which also re-paints every picker's checked state, so the
-   header, the tiles and the board never diverge. No navigation is forced: the
+   header and the board never diverge (on a sideways tablet the board is left alone on purpose, #6107). No navigation is forced: the
    moving highlight is the feedback, and the choice applies to the Agents/Projects
    screen whenever it is next shown (Settings is a whole page in both layouts). On
    a failed save the view is left as it was: an unreachable engine is a
