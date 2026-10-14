@@ -52,3 +52,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 13) One definition of a sentence for both ends of the request, with the head's own abbreviation rule
   (notAnEnd, for a full stop only): a sentence ending in a closing quote is not pulled in, and p.m. or e.g. does not
   split one.
+- (round 14) For the request a full stop ends a sentence unless the word is a known abbreviation, a list number, a
+  dotted word of two or more short pieces (e.g., p.m., U.S.) or a capital initial: a filename, domain, version or
+  ellipsis (config.yaml., example.com., v1.2., wait...) ends one. The head's own cut rule is unchanged.

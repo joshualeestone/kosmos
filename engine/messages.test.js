@@ -462,6 +462,14 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   assert.equal(messages.requestIn(said, { namedAt: at(said, '@mara') }).sentence, '@mara please ship.');
   const pm = 'News. ' + fill + 'Meet at 3 p.m. tomorrow, @mara? Done.';
   assert.equal(messages.requestIn(pm, { namedAt: at(pm, '@mara') }).sentence, 'Meet at 3 p.m. tomorrow, @mara?');
+  // A filename, domain, version or ellipsis ends a sentence (review 14): the next sentence is not quoted too.
+  for (const [end, rest] of [['config.yaml.', 'Thanks for the help.'], ['example.com.', 'Then lunch.'], ['v1.2.', 'Then lunch.'], ['wait...', 'Then lunch.']]) {
+    const tx = 'News. ' + fill + 'Please @mara update ' + end + ' ' + rest;
+    assert.equal(messages.requestIn(tx, { namedAt: at(tx, '@mara') }).sentence, 'Please @mara update ' + end, tx.slice(-60));
+  }
+  // ...and the sentence before a mention is not pulled in when it ends that way.
+  const prev = 'News. ' + fill + 'I fixed config.yaml. @mara please check it.';
+  assert.equal(messages.requestIn(prev, { namedAt: at(prev, '@mara') }).sentence, '@mara please check it.');
   // The re-measure (review 12/13): with the request when it fits, without it when what follows would push it over.
   let bareCalls = 0;
   const bareLine = () => { bareCalls += 1; return 'BARE'; };
