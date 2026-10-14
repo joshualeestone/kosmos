@@ -18,6 +18,13 @@ A held id leaves the held list when a line tells it (take). Only restore puts it
 that line could not be typed, so the member never saw it. A post typed to the member carries the posts held for it
 then, so they are taken with it and are not held afterwards.
 
+## How the 19:31 seat saw m1032 (open)
+m1032 was held, so it was not typed to the seat. A read with its own token would have cleared all 9 shown ids through
+#6116 (dropShown), so the seat most likely read the room WITHOUT its token. Reasoned from code, not measured:
+engine/musefront.js never references KOSMOS_AGENT_TOKEN, and Muse has no report bridge (agy, codex, gemini and grok
+each have one that reads it). If the seat saw m1032 some other way, the window is a guess for exactly the case that
+motivated it. The test-Mac board log (the seat's room reads around 19:31) would settle it.
+
 ## Weakest premise, and the residuals review 1 found
 That the member saw the older posts when it saw X. The window is the LEAST any default read showing X, made before
 the member's first reply to X, can have shown (the latest such read), not the 39 an immediate read shows. Not
