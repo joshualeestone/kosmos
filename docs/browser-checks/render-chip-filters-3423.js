@@ -3,7 +3,7 @@
 /**
  * #6180 (Josh, 2026-10-14): the "No project" chip and filter are GONE ("people dont have to assign an agent to a
  * project"); this check now pins their absence (no tile, no data-noproj anywhere, no noproj filter) and keeps the
- * Issue filter it always covered. The original #3423 contract below is kept for history.
+ * Issue filter it always covered. Its #3423 origin is noted below.
  *
  * #3423 (Josh, 0.6.88 live test): the Agents top chip "Issue" is a clickable filter toggle, the same pattern as the
  * "Messages" tile. (Its "No project" sibling, #1898's needs-you-no-project drill-down, was removed by #6180.)

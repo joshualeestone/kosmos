@@ -255,7 +255,8 @@ test('#6180: an agent taken off its last project gets no warning triangle; being
 /* #6180: the engine marks exactly that write quiet, and carries the mark from the stored record to the verdict. */
 test('#6180: the off-its-last-project write is the one marked quiet, and wroteBy carries it', () => {
   const projectsSrc = fs.readFileSync(require('path').join(__dirname, 'engine', 'projects.js'), 'utf8');
-  assert.match(projectsSrc, /because: why, \.\.\.\(why === WROTE_WHY\.off \? \{ quiet: true \} : \{\}\)/, 'the off write is not marked quiet');
+  assert.match(projectsSrc, /quiet = offWriteIsQuiet\(why, toldOverride\(instructions\.staleness\(sessionName\), sessionName\)\)/, 'the off write does not ask offWriteIsQuiet');
+  assert.match(projectsSrc, /because: why, \.\.\.\(quiet \? \{ quiet: true \} : \{\}\)/, 'the write does not pass the quiet mark');
   const instrSrc = fs.readFileSync(require('path').join(__dirname, 'engine', 'instructions.js'), 'utf8');
   assert.match(instrSrc, /\.\.\.\(by\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'the stored record drops the quiet mark');
   assert.match(instrSrc, /\.\.\.\(rec\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'wroteBy drops the quiet mark');

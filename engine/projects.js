@@ -27,6 +27,15 @@ const WROTE_WHY = {
   off: 'Kosmos took it off its last project',
   colleagues: 'Kosmos updated the list of agents it can message',
 };
+/* #6180 (Josh, 10-14): an agent need not be on a project, so the write that takes it off its last one is marked quiet
+   and the board draws no stale triangle for it. Only when nothing else is waiting: if the agent already runs on older
+   instructions for a reason Kosmos did not record (a person's edit), the quiet write would replace that record and
+   hide the edit, so it is not quiet then. `prior` is instructions.staleness before the write. */
+function offWriteIsQuiet(why, prior) {
+  if (why !== WROTE_WHY.off) return false;
+  if (prior && prior.state === 'stale' && !(prior.wroteBy && prior.wroteBy.who === 'kosmos')) return false;
+  return true;
+}
 
 /**
  * Projects — the work, and which agents are on it.
@@ -3517,7 +3526,11 @@ function tellAgent(sessionName, projects, roster) {
       : WROTE_WHY.colleagues;
     /* #6180 (Josh, 10-14): an agent need not be on a project, so being taken off its last one is never a warning: the
        write is marked quiet and the board draws no stale triangle for it (it still re-reads at its next restart). */
-    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why, ...(why === WROTE_WHY.off ? { quiet: true } : {}) });
+    let quiet = false;
+    if (why === WROTE_WHY.off) {
+      try { quiet = offWriteIsQuiet(why, toldOverride(instructions.staleness(sessionName), sessionName)); } catch { quiet = false; }   // cannot tell: not quiet
+    }
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why, ...(quiet ? { quiet: true } : {}) });
     /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
        file without the agent's project world moving, and speaking to a running
        agent about that would be noise (#304). */
@@ -3733,6 +3746,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   changedFileTimes,
+  offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, andList, setRoleHere, ROLE_HERE_MAX,

@@ -37,3 +37,8 @@ That the reported agent really was asking a question. Every path to Issue and th
    it; tests in web.told-banner.test.js, a mutant reds them); the false "project pages read it" claim corrected here and
    on the card. Stale prose fixed (server.test.js, web/index.html, the chip check header, its README row). Part 4 now
    has web.noproject-6180.test.js (option text, default, label; mutants red).
+2. sonnet: no blocker. WARNINGs fixed: the quiet mark now has a REAL engine test (engine/instructions.test.js: write
+   then wroteBy, with an unmarked control) instead of only a source match; the off write is no longer quiet when a
+   person's edit is already waiting (offWriteIsQuiet, exported and unit-tested in engine/projects-quiet-6180.test.js; a
+   mutant dropping the guard reds it), so the quiet write cannot hide that edit. Nits fixed (test messages, the lift's
+   silent constant fallback, a grammar slip, the chip check's "kept for history" line).
