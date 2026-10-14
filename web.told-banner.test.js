@@ -261,3 +261,15 @@ test('#6180: the off-its-last-project write is the one marked quiet, and wroteBy
   assert.match(instrSrc, /\.\.\.\(by\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'the stored record drops the quiet mark');
   assert.match(instrSrc, /\.\.\.\(rec\.quiet === true \? \{ quiet: true \} : \{\}\)/, 'wroteBy drops the quiet mark');
 });
+
+/* #6180 review 3: the agent page agrees with the card. A quiet write (taken off its last project) shows neither the
+   header banner nor the "updated working rules ... Restart" section, which would call a removal a rules update. */
+test('#6180: the agent page says nothing for a quiet write, and still shows a Kosmos change that is not quiet', () => {
+  const { el, reports, render } = panel();
+  const loud = sampleFor('stale');
+  render(loud);
+  assert.equal(reports.hidden, false, 'CONTROL: a Kosmos change that is not quiet lost its working-rules section');
+  render({ ...loud, wroteBy: { who: 'kosmos', because: 'Kosmos took it off its last project', quiet: true } });
+  assert.equal(el.hidden, true, 'a quiet write showed the header banner');
+  assert.equal(reports.hidden, true, 'a quiet write showed the working-rules section, calling a removal a rules update');
+});

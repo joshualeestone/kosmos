@@ -44433,7 +44433,8 @@ function renderStale(s) {
   const reports = document.getElementById('d-instr-reports');
   const reportsGo = document.getElementById('d-instr-reports-go');
   const hideReports = () => { if (reports && !reports.hidden) reports.hidden = true; };
-  if (!s || s.state === 'current') {
+  // #6180: a quiet Kosmos write (taken off its last project) says nothing here either, as the card draws no mark.
+  if (!s || s.state === 'current' || (s.state === 'stale' && s.wroteBy && s.wroteBy.quiet === true)) {
     /* 🛑 CLEARED THROUGH `setLive`, NOT AROUND IT, AND THAT ONE WORD WAS THE
        BUG. This wiped the node with `textContent` while `setLive` keeps its own
        record of the last string it WROTE -- so the record still held the

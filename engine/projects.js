@@ -29,11 +29,12 @@ const WROTE_WHY = {
 };
 /* #6180 (Josh, 10-14): an agent need not be on a project, so the write that takes it off its last one is marked quiet
    and the board draws no stale triangle for it. Only when nothing else is waiting: if the agent already runs on older
-   instructions for a reason Kosmos did not record (a person's edit), the quiet write would replace that record and
-   hide the edit, so it is not quiet then. `prior` is instructions.staleness before the write. */
+   instructions for ANY reason (a person's edit, or another Kosmos change such as who it reports to, which gets no told
+   record), the quiet write would replace that record and hide it, so it is not quiet then. `prior` is the verdict
+   before the write (staleness through toldOverride). Called at run time, after `instructions` (below) is loaded. */
 function offWriteIsQuiet(why, prior) {
   if (why !== WROTE_WHY.off) return false;
-  if (prior && prior.state === 'stale' && !(prior.wroteBy && prior.wroteBy.who === 'kosmos')) return false;
+  if (prior && prior.state === instructions.STALENESS.STALE) return false;
   return true;
 }
 

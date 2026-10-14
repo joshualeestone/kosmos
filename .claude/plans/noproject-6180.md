@@ -42,3 +42,8 @@ That the reported agent really was asking a question. Every path to Issue and th
    person's edit is already waiting (offWriteIsQuiet, exported and unit-tested in engine/projects-quiet-6180.test.js; a
    mutant dropping the guard reds it), so the quiet write cannot hide that edit. Nits fixed (test messages, the lift's
    silent constant fallback, a grammar slip, the chip check's "kept for history" line).
+3. opus: no blocker. WARNINGs fixed: the off write is quiet only when NOTHING is waiting (any stale verdict, including
+   another Kosmos change such as reports-to, which gets no told record, keeps it loud); the agent page's renderStale
+   treats a quiet write as current, so it no longer calls a removal "updated working rules" (arm in
+   web.told-banner.test.js, mutant red). STALENESS.STALE instead of the bare string. Left (NIT): the tellAgent wiring is
+   pinned by a source match, not a run; staleness is read without the exact session the board passes.
