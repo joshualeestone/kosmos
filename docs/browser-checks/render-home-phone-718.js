@@ -181,15 +181,18 @@ function emptySpot(page, sel) {
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
         // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
-        for (const [w, h, upright, across] of [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0]]) {
+        // The last is a MOUSE at iPad portrait size (a laptop window snapped tall): only the touch clause keeps it on the
+        // desktop card, so dropping that clause from the query fails here and nowhere else.
+        for (const [w, h, upright, across, mouse] of [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0], [834, 1194, false, 0, true]]) {
           const tag = `[${engine} ${w}x${h} tablet]`;
-          const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
+          const ctx = await browser.newContext(mouse ? { viewport: { width: w, height: h } } : { viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
           await home(page, URL, 'grid');
-          // Precondition: the engine reports a touch screen (both do with hasTouch: hover none, pointer coarse). If one
+          // Precondition: the engine reports a touch screen (a mouse context: that it does NOT) (both do with hasTouch: hover none, pointer coarse). If one
           // ever stops, the tablet layout cannot apply here, and this says so instead of reading as a product failure.
           const touch = await page.evaluate(() => matchMedia('(hover: none) and (pointer: coarse)').matches);
-          if (!touch) { chk(false, `${tag} harness: this engine does not report a touch screen here, so the tablet arm cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is false'); await ctx.close(); continue; }
+          if (mouse && touch) { chk(false, `${tag} harness: a mouse context reports a touch screen, so the mouse control cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is true'); await ctx.close(); continue; }
+          if (!mouse && !touch) { chk(false, `${tag} harness: this engine does not report a touch screen here, so the tablet arm cannot run`, 'matchMedia((hover: none) and (pointer: coarse)) is false'); await ctx.close(); continue; }
           const card = await page.evaluate(() => {
             const cards = [...document.querySelectorAll('#grid .acard:not(.notrunning)')];
             const lefts = new Set(cards.map((c) => Math.round(c.getBoundingClientRect().left)));
@@ -232,7 +235,7 @@ function emptySpot(page, sel) {
             chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && /^(left|start)$/.test(fit.nameAlign) && fit.clearOfFace && fit.cardFits,
               `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face, left-aligned`, JSON.stringify(fit));
           } else {
-            chk(card.columns > 2 && !beside, `${tag} CONTROL: landscape keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
+            chk(card.columns > 2 && !beside, `${tag} CONTROL: ${mouse ? 'a mouse at iPad portrait size' : 'landscape'} keeps the desktop card (more than two across, the face above the name)`, JSON.stringify({ columns: card.columns, g: card.g, n: card.n }));
           }
           await ctx.close();
         }

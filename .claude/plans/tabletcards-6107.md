@@ -1,6 +1,6 @@
-# #6107 tablets as a first-class design: step 1, mockups for Josh
+# #6107 tablets as a first-class design: the upright-tablet build (cards and project room)
 
-Owner: Angel. Started 2026-10-13 17:51 CDT. Local only (CI hold from Splinter 17:47).
+Owner: Angel. Started 2026-10-13 17:51 CDT. Step 1 (mockups) was local while CI was held; this branch is pushed.
 
 ## Finished looks like
 Step 1 (done 18:15, on branch tablet-6107): Josh has the iPad mockups in his channel. This branch
