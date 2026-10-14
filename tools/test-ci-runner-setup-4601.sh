@@ -95,8 +95,11 @@ case "$me" in
     esac; fi ;;
   sudo) case "$*" in *"sysadminctl -addUser"*) [ "${FX_SYSADMIN_NOOP:-0}" = 1 ] || : > "$(dirname "$CALL_LOG")/user-created" ;; esac ;;
   tar) [ "${FX_TAR_FAIL:-0}" = 1 ] && exit 1 ;;
-  config.sh) printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG"
-    echo "/login/shell/path:/usr/bin" > "$(dirname "$0")/.path" ;;   # as actions/runner env.sh does
+  config.sh)   # as actions/runner: refuses once configured (.runner), else configures and writes .path from env.sh
+    [ -f "$(dirname "$0")/.runner" ] && { echo "Cannot configure the runner because it is already configured." >&2; exit 1; }
+    printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG"
+    echo '{"agentName":"x"}' > "$(dirname "$0")/.runner"
+    echo "/login/shell/path:/usr/bin" > "$(dirname "$0")/.path" ;;
   svc.sh)
     st="$(dirname "$0")/.svc-state"
     case "$1" in
@@ -461,6 +464,7 @@ if [ "$(rc rg-apply)" = 0 ] && grep -qx 'token-in-env=tok-SECRET-123' "$T/rg-app
    && grep -qx "PATH=$(cat "$CH/actions-runner/.path")" "$CH/actions-runner/.env"; then pass "CONTROL: register --apply passes the token in the environment, never in argv, and makes .path the PATH .env sets"
 else fail "register --apply: rc $(rc rg-apply), calls: $(cat "$T/rg-apply.calls")"; fi
 echo stopped > "$CH/actions-runner/.svc-state"
+rm -f "$CH/actions-runner/.runner"   # rg-apply configured it; this case is about the Listener
 STDIN_FILE="$T/token" run rg-nolistener "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-nolistener)" = 1 ] && has rg-nolistener "no new Runner.Listener is running" && pass "register --apply fails when no Listener comes up" || fail "register no listener: rc $(rc rg-nolistener): $(tail -1 "$T/rg-nolistener.out")"
 RS="$T/rg-service"; svc_home "$RS"; cp "$BIN/_stub" "$RS/actions-runner/config.sh"; chmod +x "$RS/actions-runner/config.sh"
@@ -471,10 +475,15 @@ STDIN_FILE="$T/token" run rg-twice "$RS" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RS" -
   && pass "register --apply refuses a runner already registered as a service, before config.sh" || fail "register twice: rc $(rc rg-twice): $(tail -1 "$T/rg-twice.out")"
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
-rm -f "$CH/actions-runner/.service"   # rg-apply registered it; this case is about the token
+rm -f "$CH/actions-runner/.service" "$CH/actions-runner/.runner"   # rg-apply registered it; the next cases are about other refusals
 echo stopped > "$CH/actions-runner/.svc-state"
 STDIN_FILE="$T/token" run rg-handrun "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_OLD_TOO=3333 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-handrun)" = 1 ] && has rg-handrun "no new Runner.Listener" && pass "register --apply does not take a hand-started Listener for the service's" || fail "register hand-run listener: rc $(rc rg-handrun): $(tail -1 "$T/rg-handrun.out")"
+echo '{}' > "$CH/actions-runner/.runner"
+STDIN_FILE="$T/token" run rg-configured "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
+[ "$(rc rg-configured)" = 1 ] && has rg-configured "configured already" && ! grep -q '^config\.sh' "$T/rg-configured.calls" \
+  && pass "register --apply refuses a runner configured already, before config.sh" || fail "register configured: rc $(rc rg-configured): $(tail -1 "$T/rg-configured.out")"
+rm -f "$CH/actions-runner/.runner"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
