@@ -4872,11 +4872,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            does NOT mistake this deliberate relaunch for a duplicate and defer back to
            this (exiting) instance -- which would quit to nothing. Two channels, either
            suffices: the launch ENVIRONMENT (handed directly to the new process, no disk),
-           preserving the current environment and adding the one key; and a token FILE
-           written just below as a fallback. A normal user launch carries neither. */
-        /* #6158: a restart nobody asked for, made while another app is in front, opens the fresh copy without
-           activating it and tells it so (relaunchMayActivate). The key is removed first, so it is only ever this
-           restart's answer. */
+           preserving the current environment and adding the handoff key (the merge below); and a
+           token FILE written just below as a fallback. A normal user launch carries neither.
+           #6158: before that merge, a restart nobody asked for, made while another app is in front, opens the fresh
+           copy without activating it and tells it so with the quiet key (relaunchMayActivate). The quiet key is
+           removed first, so it is only ever this restart's answer. */
         let mayActivate = relaunchMayActivate(asked: asked, wasActive: NSApp.isActive)
         conf.activates = mayActivate
         logLine("relaunch: the fresh copy opens " + (mayActivate ? "in front" : "behind the front app, not taking focus (#6158)"))
