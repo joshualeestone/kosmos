@@ -21,7 +21,7 @@
  * Writes the board's saved layout (the same field the Settings tiles write) and
  * puts it back to what it was on exit. Refuses a board that is not a fixture.
  * #6107: a landscape touch tablet (1194x834) opens on one screen whatever the board says, with the agents rail
- * open, and a press there is kept on the tablet (the board setting does not move; the desktop page is the control).
+ * open, and a press there is kept on the tablet (the board setting, read back from the server, does not move).
  */
 const { chromium } = require('playwright');
 (async () => {
@@ -150,7 +150,7 @@ const { chromium } = require('playwright');
     // --- #6107: a touch tablet held sideways keeps its OWN layout, defaulting to one screen. ---
     // The board's setting is tabs. A landscape iPad (1194x834, touch) opens on one screen anyway, with the agents
     // rail open (1100px and up); a press on the tablet is remembered on the tablet and the board's setting never
-    // moves (the desktop page below is the control); turning the tablet upright gives the board's setting back.
+    // moves (read back from the server after each press); turning the tablet upright gives the board's setting back.
     await putLayout('tabs');
     const tctx = await b.newContext({ viewport: { width: 1194, height: 834 }, hasTouch: true, isMobile: true });
     const tp = await tctx.newPage();
@@ -169,7 +169,7 @@ const { chromium } = require('playwright');
       const touch = await tp.evaluate(() => matchMedia('(hover: none) and (pointer: coarse) and (orientation: landscape)').matches);
       say(touch, 'tablet: the context reports a touch screen held sideways (harness precondition)');
       await tSettled(true);
-      say(true, 'tablet, board set to tabs: it opens on one screen (#6107)');
+      say((await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'consolidated', 'tablet, board set to tabs: it opens on one screen (#6107)');
       say(!(await tp.evaluate(() => document.body.classList.contains('fold-a'))), 'tablet at 1194px: the agents rail is open, not folded to faces');
       say((await savedLayoutOf()) === 'tabs', 'tablet: opening it did not change the board setting (still tabs)');
       // A press on the tablet is kept on the tablet: tabs, then one screen. A board PUT would make the board
@@ -186,7 +186,8 @@ const { chromium } = require('playwright');
       await tp.click(LAY + ' [data-layout-switch="tabs"]');
       await tSettled(false);
       await tp.reload({ waitUntil: 'networkidle' });
-      await tp.waitForTimeout(1500);
+      await tp.waitForFunction(() => document.documentElement.hasAttribute('data-layout'), null, { timeout: 15000 }).catch(() => {});
+      await tp.waitForTimeout(300);
       say(!(await tp.evaluate(() => document.body.classList.contains('consolidated'))) && (await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs',
         'tablet: its own non-default choice (tabs) survives a reload');
       // Turned upright at 1024x1366 (wide enough for one screen, so only the rule decides): the BOARD's setting applies
@@ -194,7 +195,8 @@ const { chromium } = require('playwright');
       // is tabs, so the two disagree and the turn must pick the board's.
       await putLayout('consolidated');
       await tp.reload({ waitUntil: 'networkidle' });
-      await tp.waitForTimeout(1500);
+      await tp.waitForFunction(() => document.documentElement.hasAttribute('data-layout'), null, { timeout: 15000 }).catch(() => {});
+      await tp.waitForTimeout(300);
       say((await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs', 'tablet sideways: its own tabs choice wins over the board (now one screen)');
       await tp.setViewportSize({ width: 1024, height: 1366 });
       await tSettled(true);
