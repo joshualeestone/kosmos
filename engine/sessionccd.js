@@ -11,18 +11,21 @@
  *     at the moment it starts, and that never shows in the session's own environment (review 1, measured).
  *
  * One tmux call per batch of sessions, not one each (a status read is polled):
- *   list-sessions first, then  marker g ; show-environment -g ; then per live session  marker i ; show-environment -t =<s>.
+ *   list-sessions first, then  marker g ; show-environment -s -g ; then per live session  marker i ;
+ *   show-environment -s -t =<s>  (quoted: see parseQuoted).
  * The WHOLE environment is read, never one variable: `show-environment -t s CLAUDE_CONFIG_DIR` exits 1 where it is
  * unset, and tmux stops a `;` sequence at its first error (measured 2026-10-13). The marker is literal, because
- * `#{session_name}` expands to nothing in a client-less display-message (measured). Batches stay well under tmux's
- * "command too long" limit (review 1: about 180 short names fit in one).
+ * `#{session_name}` expands to nothing in a client-less display-message (measured). Batches are a COUNT (40), not a
+ * byte budget: about 180 short names fit under tmux's "command too long" limit, but 40 very long names do not, and
+ * that batch then answers unknown (fail-safe; Kosmos names are at most 32 characters, engine/create.js).
  *
  * Answer per name, three states. The fail-safe direction is the whole point:
  *   a string   the session environment pins CLAUDE_CONFIG_DIR to that folder
- *   ''         the session pins nothing AND the server has no global value (or the session removes it): the default
+ *   ''         the session pins nothing, or removes the variable, AND the server has no global value: the default
  *   null       UNKNOWN: no such session; tmux could not be asked; the answer could not be read; or the session
  *              pins nothing while the server HAS a global value (it may have inherited it, or a different one if the
- *              global changed since it started)
+ *              global changed since it started); or it removes the variable while the server has one (a name can
+ *              forge a removal line, review 3); or its value is set but empty
  * A caller must treat null as "do not know", never as "default folder".
  *
  * Known limit: a session that inherited a global value which was later REMOVED from the server reads ''. tmux keeps
