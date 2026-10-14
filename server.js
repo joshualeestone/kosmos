@@ -2702,7 +2702,11 @@ function claudeAgentsByAccount() {
           if (!am.isMoving(n, startedAt, notes)) {
             // A readable, different session: it has restarted (not proof it reached the new account; see
             // engine/accountmoving.js). Drop that very note, never one a move just wrote.
-            if (Number.isFinite(now)) am.clearIf(n, notes[n].started);
+            // Confirmed by a fresh read first: a cached read may predate a session the move just noted.
+            if (Number.isFinite(now)) {
+              const fresh = sessionStartFor(n, true, readDeps());
+              if (Number.isFinite(fresh) && fresh !== notes[n].started) am.clearIf(n, notes[n].started);
+            }
             return false;
           }
           // Moved back to the account it is still running on: it runs here, so it is not moving.

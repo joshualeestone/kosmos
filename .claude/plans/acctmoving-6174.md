@@ -6,7 +6,7 @@ the agent under the new account, though it still runs on the old one until it re
 ## Finished looks like
 In Settings, AI Models, an agent moved to another account whose process is still running on its old account (the move
 came back partial because its window could not be closed) is listed under the account it was moved to, with "(still on
-its old account until it restarts)" after its name, while that same session runs. Once it has restarted the marker
+its old account: restart it to finish the move)" after its name, while that same session runs. Once it has restarted the marker
 goes. A restart that came from the still-loaded old launch job (a crash, the agent exiting) can still be on the old
 account and is then unmarked: under-marking, never a wrong mark (review 9). Every other agent reads as before.
 
@@ -53,10 +53,9 @@ same name without the agent moving would clear the mark early (safe direction).
   there is not marked. Tests drive restartForMove with injected readers (start read before the restart, each outcome).
 - Not testable through the seam: the fresh read (the session seam never caches), so it is covered by reading only.
 - Windows, or any machine where tmux cannot be read: no session start, so nobody is ever marked there.
-- (review 4) The list is read-only: a stale note never marks (it needs the very same session), and only the move
-  route clears, so a page read cannot race a move's write; the notes file is read once per row and agents with no note
-  cost nothing. The mark reads the tmux session, not the process: a process relaunched inside the same session would
-  stay marked (unmeasured; restartInner kills the session). A default-account agent moved away and back is tested.
+- (review 4, superseded by review 8) The list was read-only; it now prunes through clearIf (see below).
+  The mark reads the tmux session, not the process: a process relaunched inside the same session would stay marked
+  (unmeasured; restartInner kills the session). A default-account agent moved away and back is tested.
 - (review 5) The default row also compares a note's `from` with its own folder (an agent whose launch file names the
   default folder by path); the from-account read cleans the name first (moveFromDir), and is not exercised by a test
   (the route's other reads are; the helper is a one-line readJob).
@@ -67,3 +66,7 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 8) A list read prunes a note whose session is readably another (clearIf: only that exact note, so it cannot
   race a move that just wrote a new one); a note with no readable session is kept. Both session reads in the move route
   are fresh. restartForMove passes the cleaned name to removal.restart (restartInner cleans it again; no change).
+- (review 11) The page says "restart it to finish the move": a restart the never-booted-out old job makes by itself
+  stays on the old account, so only a Kosmos restart finishes it. The list prunes only after a FRESH read confirms a
+  different session. `from` is the launch file's account, so two partial moves in a row can mark an agent already on
+  the row's account (stated in the module header). The route test pins that `from` is read before setAccount.
