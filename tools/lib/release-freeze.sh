@@ -42,7 +42,8 @@
 #
 # ⚠️ #1369's lesson still stands, and it is why the hold has an END: a hold with
 # no stated end silently became "never merge" on 2026-08-28. This names the
-# version, and the hold lifts when that version serves.
+# version, and the hold lifts when that version serves, or when the cutter calls
+# the cut off (review 1: an abandoned cut would otherwise leave a hold nothing can end).
 #
 # It is a function rather than an echo so it can be asserted on: the message IS
 # the deliverable here, and an inline echo is not something a test can hold.
@@ -50,9 +51,9 @@ release_freeze_notice() {
   local sha="$1" build="$2" version="$3" channel="$4"
   [ -n "$sha" ] && [ -n "$build" ] && [ -n "$version" ] && [ -n "$channel" ] || { echo "release_freeze_notice: sha, build, version and channel are required" >&2; return 1; }
   printf '   frozen at %s, building in %s\n' "${sha:0:12}" "$build"
-  printf '   Merges after this line are NOT in %s. HOLD MERGES TO MAIN until %s serves on\n' "$version" "$version"
-  printf '   %s: if this cut is redone, the re-cut freezes CURRENT main, and anything\n' "$channel"
-  printf '   merged in between rides along untested (#6130).\n'
+  printf '   Merges after this line are NOT in this attempt at %s. HOLD MERGES TO MAIN until\n' "$version"
+  printf '   %s serves on %s, or the cutter calls this cut off: if it is redone, the re-cut\n' "$version" "$channel"
+  printf '   freezes CURRENT main, and anything merged in between rides along untested (#6130).\n'
 }
 
 release_freeze() {

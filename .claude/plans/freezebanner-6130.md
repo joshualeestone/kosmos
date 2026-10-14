@@ -20,3 +20,9 @@ duration"), the card, and Splinter's 0.7.48 MERGE HOLD. If the rule changes, thi
 - tools.release-freeze-notice.test.js, 5 tests: the hold wording; prod names prod; sha and build; every missing
   argument refuses with no output; release.sh's one call passes four arguments under the names it really uses.
 - Mutants, each reds a test: the old "SAFE" wording, dropping the channel guard, a two-argument call.
+
+## Review
+1. opus: no blocker. WARNING: an abandoned cut left a hold nothing could end (the #1369 failure), so the banner now
+   adds "or the cutter calls this cut off", asserted and mutant-checked. NITs taken: "NOT in this attempt at
+   <version>" (merges DO ride a redo), and docs/releasing.md names the channel's pointer and the called-off end.
+   Noted, not changed: the docs scope a freeze to "when a cut has to land"; the banner holds on every cut.
