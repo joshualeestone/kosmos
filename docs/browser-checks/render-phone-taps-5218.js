@@ -211,7 +211,10 @@ const RULES = () => {
     {
       const ctx = await browser.newContext({ viewport: { width: 1366, height: 1000 }, hasTouch: true });
       const page = await ctx.newPage();
-      await open(page, '', '.namego');
+      // #6107: a touch tablet held sideways at 960px+ opens the one-screen layout by itself, so the card grid's names
+      // never show here; wait for the one-screen rows, and pin that nothing had to ask for them.
+      await open(page, '', 'body.consolidated .lrow .namego');
+      chk(await page.evaluate(() => document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] a sideways touch tablet opens one screen by itself (#6107)');
       await page.evaluate(() => { applyLayout('consolidated', true); showTab('agents'); });
       await page.waitForSelector('body.consolidated .lrow .namego', { state: 'visible', timeout: 8000 }); await page.waitForTimeout(400);
       chk(await page.evaluate(() => matchMedia('(hover: none), (pointer: coarse)').matches && document.body.classList.contains('consolidated')), '[tablet 1366 one-screen] touch, in the one-screen layout');
