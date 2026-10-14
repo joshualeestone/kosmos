@@ -18,6 +18,12 @@ Card: kosmos#6175 (#6108 follow-up).
 - The route comment says it is narrower than creation on purpose and that a misaimed status line of ours reads as
   wired on the page, so its repoint is reachable only through the route. The browser arms wait on state, not 120 ms.
 
+## Review 2 (sonnet)
+- The explainer's id is a sequence (ACCT_SOON_SEQ), not derived from the folder (two folders could collide).
+- A paint already in flight could replace the row and clear the status line after the success: the claim (message and
+  focus) is re-made for about a second whenever the row node changes or the line is no longer ours.
+- A body that cannot be read is 400; a fault after reading is 500 with its message.
+
 ## Decided, not missed
 - The default account (~/.claude) is offered too: the person presses the button, and the line says what it changes in
   their own Claude Code.

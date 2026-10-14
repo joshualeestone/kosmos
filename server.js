@@ -11981,8 +11981,10 @@ const server = http.createServer(async (req, res) => {
         catch { r = { wired: false, because: 'the usage reading could not be set up' }; }
         if (!r || r.wired !== true) { sendJson(res, 409, { wired: false, because: (r && r.because) || 'the usage reading could not be set up' }); return; }
         sendJson(res, 200, { wired: true, changed: r.changed === true });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      }, () => sendJson(res, 400, { error: 'we could not read that request' }))   // the body could not be read
+      .catch((e) => {   // review 2: a fault after reading is the server's, not an unreadable request
+        if (!res.headersSent) sendJson(res, 500, { error: 'the usage reading could not be set up: ' + String((e && e.message) || e) });
+      });
     return;
   }
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
