@@ -347,6 +347,67 @@ function cleanMessage(raw) {
   return String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
 }
 
+/*
+ * #4934 / #5967: a room post that is ONLY acknowledgement (agreed, thanks, confirmed)
+ * and carries no new facts. The room valve (engine/messages.js) holds on the VOLUME
+ * of arrivals; this is the separate signal a RUN of these is judged by, so a room
+ * that is only agreeing back and forth is held sooner than volume alone would hold
+ * it. The classification is pure text, so it is unit-tested on its own.
+ *
+ * Whole-post judgment with STRUCTURAL escapes, never a prefix check. The failure to
+ * avoid is a word list that would hold a real "agreed, and here is the number: 42":
+ * that post escapes two ways here, by words outside the lexicon AND by a digit, so it
+ * is content. A post is acknowledgement-only only if ALL of these hold:
+ *   A. after @mention tokens are stripped it is at most ACK_MAX_WORDS words (brevity:
+ *      necessary, since a real update is almost never this short, not sufficient);
+ *   B. every remaining word is in the closed ACK_WORDS lexicon (the WHOLE post, not a
+ *      prefix), matched case-insensitively and with edge punctuation trimmed, so
+ *      "AGREED." and "Thanks!!" still count (a case-sensitive match is this fleet's
+ *      most repeated false zero);
+ *   C. it carries no new-information signal: a digit, a url or scheme, a file path or
+ *      a filename.ext, inline code/backticks, a question mark, a currency or percent
+ *      sign, or a double-quoted span.
+ * Failing ANY of A/B/C makes it content, which RESETS the run, so ordinary back-and-
+ * forth with real content is never judged by this at all. Every edge case here errs
+ * toward content (not held), which is the safe direction: the dangerous direction is
+ * calling a real post an acknowledgement, and that needs every word in the lexicon.
+ */
+const ACK_MAX_WORDS = 5;
+const ACK_WORDS = new Set([
+  'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed', 'confirm',
+  'confirms', 'ack', 'acked', 'acknowledged', 'acknowledge', 'ok', 'okay', 'okey', 'k',
+  'kk', 'yes', 'yep', 'yeah', 'yup', 'sure', 'sounds', 'good', 'great', 'perfect',
+  'will', 'do', 'done', 'noted', 'got', 'it', 'understood', 'roger', 'cool', 'nice',
+  'fine', 'right', 'correct', 'indeed', 'affirmative', 'ditto', 'same', 'to', 'me',
+]);
+// A few common acknowledgement emoji, judged whole (never trimmed as punctuation).
+const ACK_EMOJI = new Set(['👍', '🙏', '✅', '👌', '💯', '🔥']);
+function acknowledgementOnly(raw) {
+  const text = cleanMessage(raw);
+  if (!text) return false;                       // nothing said is not an acknowledgement
+  // C: a new-information signal. Any one present means the post carries new facts.
+  if (/[0-9]/.test(text)) return false;          // a digit
+  if (/:\/\//.test(text) || /\bhttps?:/i.test(text)) return false; // a url or scheme
+  if (text.includes('`')) return false;          // inline code / backticks
+  if (text.includes('?')) return false;          // a question
+  if (/[$%£€]/.test(text)) return false;         // a currency or percent sign
+  if (text.includes('"')) return false;          // a double-quoted span
+  if (/\S+\.[A-Za-z]{1,8}(?![A-Za-z])/.test(text) || /\/\S/.test(text)) return false; // filename.ext or a path
+  // A: strip @mention tokens, then the brevity gate.
+  const stripped = text.replace(/(^|\s)@\S+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!stripped) return false;                   // only @mentions: nothing acknowledged
+  const tokens = stripped.split(' ');
+  if (tokens.length > ACK_MAX_WORDS) return false;
+  // B: every content token is an acknowledgement word (or an acknowledgement emoji).
+  for (const tok of tokens) {
+    if (ACK_EMOJI.has(tok)) continue;
+    const w = tok.toLowerCase().replace(/^[^0-9a-zÀ-ɏ]+|[^0-9a-zÀ-ɏ]+$/gi, '');
+    if (w === '') continue;                      // a pure-punctuation token such as "!!"
+    if (!ACK_WORDS.has(w)) return false;         // a word outside the lexicon -> content
+  }
+  return true;
+}
+
 /**
  * The person's text as it is KEPT, preserving paragraph breaks.
  *
@@ -4166,7 +4227,7 @@ module.exports = {
   updateDmDelivery,   // #5805 slice 2b
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
-  cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget,
+  cleanMessage, acknowledgementOnly, storeText, messageProblem, addressable, resolveCard, paneTarget,
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
