@@ -11285,6 +11285,14 @@ const server = http.createServer(async (req, res) => {
                recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
                recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
             weekly: require('./engine/accountsweekly').weeklyOf(a, nowMs),   // #6178: one helper, shared with /api/status
+            /* #6176: the five-hour limit, from the same status line, or null when there is no current reading (a key,
+               none recorded, or the window has reset). Same units as weekly: resetsAt and at in epoch ms. */
+            fiveHour: (() => {
+              try {
+                const r = a.dir && !a.apiKey ? require('./engine/allowance').readFiveHour(a.dir, nowMs) : null;
+                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+              } catch { return null; }
+            })(),
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).

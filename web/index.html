@@ -735,6 +735,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-usage-meter { display: flex; align-items: center; gap: 10px; }
 .acct-usage-meter .bar { flex: 0 0 120px; }
 .acct-usage-next { margin-top: 6px; }   /* #6176: a second window's meter, a short step under the first */
+.acct-usage-five { margin-top: 6px; }   /* #6176: the five-hour meter, a short step under the weekly one */
 #set-accounts .acct-usage-line, #set-accounts .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
 #set-accounts .acct-usage-none { color: var(--label-2); }
 #set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
@@ -27307,7 +27308,7 @@ function acctUsageHtml(a, list) {
   if (a && a.provider === 'openai') return acctCodexUsageHtml(a);
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
-  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !a.agentsHere)) return '';
+  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !('fiveHour' in a) && !a.agentsHere)) return '';
   const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
@@ -27340,6 +27341,20 @@ function acctUsageHtml(a, list) {
     'linked-settings': 'This is the last reading Kosmos saw. It will not update, because this account\'s settings file is a link to a file elsewhere (or to nothing).',
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
+  /* #6176: the five-hour limit, from the same status line, as its own line under the weekly one. It resets within
+     hours, so it warns but never suggests a move (the cure for a five-hour limit is waiting, not another account). */
+  const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) ? a.fiveHour : null;
+  let five = '';
+  if (f && !a.apiKey) {
+    const fp = Math.max(0, Math.min(100, Math.round(f.usedPct)));
+    const fband = fp >= ACCT_HIGH_PCT ? 'high' : fp >= ACCT_WARN_PCT ? 'warn' : 'ok';
+    const sameDay = new Date(f.resetsAt).toDateString() === new Date().toDateString();
+    const fresets = new Date(f.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const fage = agoWords(Date.now() - f.at);
+    five = '<div class="acct-usage-meter acct-usage-five"><span class="bar" aria-hidden="true"><i class="' + fband + '" style="width:' + fp + '%"></i></span>'
+      + '<p class="acct-usage-line">' + fp + '% of its 5-hour limit used · resets ' + esc(fresets) + (fage ? ' · Kosmos last saw it change ' + esc(fage) : '') + '</p></div>'
+      + (fp >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (fband === 'high' ? ' high' : '') + '">' + (fp >= 100 ? 'At its 5-hour limit until ' + esc(fresets) + '.' : 'Close to its 5-hour limit.') + '</p>' : '');
+  }
   let usage = '';
   /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
      creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
@@ -27359,9 +27374,14 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
+        + five
         + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
           + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
+    } else if (five) {
+      /* A five-hour reading with no weekly one: "no reading yet" would contradict it, so it stands alone (and is said
+         to be the last one when the account cannot be read any more). */
+      usage = five + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '');
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
       usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>' + usageSetup;
