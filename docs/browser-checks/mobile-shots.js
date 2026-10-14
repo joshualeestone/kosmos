@@ -423,6 +423,21 @@ const SCREENS = [
     await page.waitForSelector('#panel-settings', { state: 'visible', timeout: 5000 });
     await page.waitForSelector('#reboot-slot .utoast.reboot', { state: 'visible', timeout: 12000 });
   } },
+  /* #6160: the streak by the K mark. A throwaway board is on day 1 (no note), so /api/streak is stubbed on this
+     screen's own page to a 12-day streak: once with the day's note showing, once with the label shown by hovering
+     the mark. The counting itself is engine/streak-6160.test.js's. */
+  { name: 'streak-congrats', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }));
+    await at(page, '');
+    await page.waitForSelector('#kcongrats:not([hidden])', { state: 'visible', timeout: 12000 });
+  } },
+  { name: 'streak-hover', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: false }) }));
+    await at(page, '');
+    await page.waitForSelector('#kstreak:not([hidden])', { state: 'attached', timeout: 12000 });
+    await page.hover('#klink');
+    await page.waitForFunction(() => getComputedStyle(document.getElementById('kstreak')).opacity === '1', null, { timeout: 5000 });
+  } },
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
