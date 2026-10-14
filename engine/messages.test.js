@@ -1400,35 +1400,35 @@ test('#4934/#5967: two agents TRADING acks are a back-and-forth loop -- the four
   });
 });
 
-test('#4934/#5967: federated posts are keyed on the stable member id, not the display name, so distinct outsiders sharing a name are a poll', () => {
+test('#4934/#5967: an external post whose display name equals a local agent does not get that local agent\'s first ack refused', () => {
   withFleet(room4(), (board) => {
     const now = Date.now();
     seedPosts(now, []); // ensure the log dir exists
-    // Three DIFFERENT outsiders all DISPLAY as "Guest" (the external `from` is a capped display
-    // name) but carry DISTINCT member ids, each answering once -- a poll. Keying the run on `from`
-    // would read three "Guest"s as a repeating sender and refuse the fourth answer, dropping a
-    // requested message with nothing stored (the dangerous direction). Keyed on `member`, they are
-    // three distinct senders, so the local fourth answer is delivered.
-    [['acctA', 'agreed'], ['acctB', 'ok'], ['acctC:macX', 'yes']].forEach(([member, text], i) => {
-      fs.appendFileSync(messages.LOG, JSON.stringify({
-        kind: 'external', id: 'x-' + i, project: 'henderson-lease', from: 'Guest', member,
-        fromKind: 'person', external: true, text, at: new Date(now - (3 - i) * 1000).toISOString(),
-      }) + '\n');
-    });
+    // An OUTSIDER who happens to display as "leo" acks, then two local fighters ack once. The run
+    // length is four, but the incoming post is the LOCAL agent leo answering for the FIRST time.
+    // The outsider is a different party, so the local leo is not repeating. Comparing the outsider's
+    // display name to the local sessionName (both "leo") would wrongly treat leo as continuing a
+    // loop and drop the local agent's requested answer. Only a LOCAL prior sender counts, so leo is
+    // delivered.
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-1', project: 'henderson-lease', from: 'leo', fromKind: 'person', external: true, text: 'agreed', at: new Date(now - 3000).toISOString() }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'p-1', project: 'henderson-lease', from: 'mara', to: MEMBERS4, text: 'ok', at: new Date(now - 2000).toISOString(), outcomes: {} }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'p-2', project: 'henderson-lease', from: 'april', to: MEMBERS4, text: 'yes', at: new Date(now - 1000).toISOString(), outcomes: {} }) + '\n');
     armSender('leo-discord'); arm([]);
-    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes' }, board.agents, MEMBERS4);
-    assert.equal(out.state, chat.DELIVERY.PLACED, 'three distinct outsiders sharing the display name "Guest" were read as a repeating sender; a poll answer was dropped');
-    assert.notEqual(out.code, 'ack_only', 'a poll of distinct outsiders must not be refused');
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS4);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'a local agent\'s first ack was refused because an OUTSIDER shared its display name; a requested answer was dropped');
+    assert.notEqual(out.code, 'ack_only', 'the local first-time answerer must not be refused');
 
-    // CONTROL: the SAME outsider (one member id) trading acks with a local agent is a real loop,
-    // and is still refused on the fourth -- the member keying catches a repeat as well as it
-    // avoids a false one.
+    // CONTROL: when the LOCAL agent leo itself has already acked in the run, its next ack IS
+    // continuing its own loop and is refused -- the run length and threshold are the same, only the
+    // local sender's own repeat triggers the refusal.
     wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
-    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-a', project: 'henderson-lease', from: 'Guest', member: 'acctA', fromKind: 'person', external: true, text: 'agreed', at: new Date(now - 3000).toISOString() }) + '\n');
-    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'p-1', project: 'henderson-lease', from: 'leo', to: MEMBERS4, text: 'ok', at: new Date(now - 2000).toISOString(), outcomes: {} }) + '\n');
-    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'external', id: 'x-b', project: 'henderson-lease', from: 'Guest', member: 'acctA', fromKind: 'person', external: true, text: 'thanks', at: new Date(now - 1000).toISOString() }) + '\n');
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'april', text: 'yes' },
+    ]);
     const refused = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS4);
-    assert.equal(refused.code, 'ack_only', 'a real loop between one outsider and one local agent, trading acks, was not stopped');
+    assert.equal(refused.code, 'ack_only', 'the local agent continuing its own run was not refused');
   });
 });
 

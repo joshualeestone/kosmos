@@ -400,8 +400,9 @@ const ACK_MAX_CHARS = 200;
 // too: it reports that something finished, it does not agree, so a "done" answering "is it ready?"
 // is a status the room may need, not a content-free ack. "do"/"will do" stay (willingness to act
 // is agreement; without "it", "do it" cannot form). "yes" stays: it is an acknowledgement in the
-// loop context, and the run gate in messages.js (4 consecutive AND at least one sender repeating
-// -- a true back-and-forth, not a poll of distinct answerers) bounds the false-positive.
+// loop context, and the run gate in messages.js (4 consecutive AND the incoming post's own sender
+// already in the run -- a true back-and-forth, not a poll of distinct answerers) bounds the
+// false-positive.
 const ACK_WORDS = new Set([
   'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed',
   'confirms', 'ack', 'acked', 'acknowledged', 'ok', 'okay', 'okey', 'k',

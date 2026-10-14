@@ -2183,11 +2183,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      operator post or a reopen clears it exactly as it clears the arrival budget. A
      post with any new facts is content (chat.acknowledgementOnly is false) and RESETS
      the run, so the volume valve below, and ordinary back-and-forth with real content,
-     are left exactly as they were. The run also has to be a BACK-AND-FORTH, not a poll:
-     it counts only when at least one sender repeats in the trailing run (the sender-identity
-     logic below). Distinct senders each answering a question once -- "everyone ready?" ->
-     four "yes"es -- are a poll, and dropping one of those would lose a message someone asked
-     for, so a poll is delivered and only a true loop is stopped.
+     are left exactly as they were. The incoming ack is also refused only in a BACK-AND-FORTH,
+     not a poll: only when the incoming post's OWN sender already appears in the trailing run,
+     so it is continuing a loop it is already part of (the sender logic below). Distinct senders
+     each answering a question once -- "everyone ready?" -> four "yes"es -- are a poll, and
+     dropping one of those would lose a message someone asked for, so a poll is delivered and
+     only a true loop is stopped.
 
      THIS IS NOT A ROOM HOLD (review round 2, PM Liu Kang). It refuses only the
      ack-only post that would extend the run; the very next post carrying content gets
@@ -2228,36 +2229,29 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       .filter((m) => m && ((m.kind === 'post' && !m.operator) || m.kind === 'external')
         && m.project === projectId && Date.parse(m.at) >= countFrom)
       .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-    // A sender's STABLE identity, used to tell a back-and-forth loop from a poll. A federated
-    // `external` row is keyed on `member` (the relay's stable id, an account or "<account>:<mac>"),
-    // NOT on `from`: `from` is a capped display NAME that two different outsiders can share and
-    // that can equal a local agent's sessionName, so keying on it would see a false repeat (blind
-    // round). `member` falls back to `from` only when an older relay never stamped one. External
-    // and local identities are namespaced apart, so an outsider displayed as "leo" never counts as
-    // the local agent "leo". An absent/empty identity returns null and is left OUT of the repeat
-    // test, so an unidentifiable sender errs toward delivery, never a false refusal.
-    const identityOf = (m) => {
-      if (m && m.kind === 'external') {
-        const id = m.member || m.from;
-        return (typeof id === 'string' && id.trim() !== '') ? 'ext:' + id : null;
-      }
-      const id = m && m.from;
-      return (typeof id === 'string' && id.trim() !== '') ? 'local:' + id : null;
-    };
+    // Only LOCAL prior senders matter for the back-and-forth test. This incoming post is ALWAYS a
+    // local agent (operator posts are excluded above; a federated `external` row is never the
+    // incoming post here), so it "continues the run" only when that SAME local agent -- its
+    // sessionName -- already posted in the trailing run. An external row is a different party even
+    // when its display `from` equals a local agent's sessionName, so it is counted toward the run
+    // LENGTH (ackRun) but NOT toward who-is-repeating: comparing only local sessionName to local
+    // sessionName needs no namespacing and cannot be fooled by an outsider's display name. (A loop
+    // conducted only by outside parties is therefore never stopped by this early trigger, since it
+    // is never the incoming local post; it is left to the volume valve below.)
     let ackRun = 0;
-    const priorSenders = [];   // the stable identity of each PRIOR sender in the trailing ack run (the incoming post is judged against these)
+    const priorLocalSenders = [];
     for (let i = ackPosts.length - 1; i >= 0; i -= 1) {
       if (!chat.acknowledgementOnly(ackPosts[i].text)) break;
       ackRun += 1;
-      priorSenders.push(identityOf(ackPosts[i]));
+      if (ackPosts[i].kind !== 'external' && typeof ackPosts[i].from === 'string' && ackPosts[i].from !== '') {
+        priorLocalSenders.push(ackPosts[i].from);
+      }
     }
     // This incoming post, not yet in the log: it extends the run only if it, too, is
-    // acknowledgement-only; otherwise it is content and the run is broken (0). The incoming post
-    // is always a local agent (operator posts are excluded above), so its `from` is a sessionName.
+    // acknowledgement-only; otherwise it is content and the run is broken (0).
     const incomingIsAck = chat.acknowledgementOnly(stored);
     ackRun = incomingIsAck ? ackRun + 1 : 0;
-    const incomingId = incomingIsAck ? identityOf({ kind: 'post', from }) : null;
-    // This incoming ack is refused ONLY when its OWN sender is CONTINUING the run: its identity
+    // Refuse this incoming ack ONLY when its OWN sender is CONTINUING the run: its sessionName
     // already appears earlier in the trailing run, so it is adding yet another acknowledgement to a
     // back-and-forth it is already part of. A sender posting its FIRST ack in the run is ANSWERING,
     // not looping -- a person or agent asked the room "everyone ready?" and this is one fighter's
@@ -2266,10 +2260,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     // nothing of it, the dangerous direction this trigger exists to avoid (review round 2, PM Liu
     // Kang; and the blind round that found gating on "any repeat anywhere in the run" punished the
     // next arrival rather than the repeater). Two agents trading acks are still caught: the
-    // trader's own next ack repeats its earlier one. An unknown identity (null, e.g. an external
-    // row with no member) never matches, so an unidentifiable incoming sender errs toward delivery,
-    // and a loop among unidentified external parties is left to the volume valve below, not here.
-    const incomingContinuesLoop = incomingId !== null && priorSenders.includes(incomingId);
+    // trader's own next ack repeats its earlier one.
+    const incomingContinuesLoop = incomingIsAck && typeof from === 'string' && from !== '' && priorLocalSenders.includes(from);
     if (ackRun >= ACK_RUN_LIMIT && incomingContinuesLoop) {
       const because = 'Kosmos stopped passing on agreement-only replies here; '
         + 'posts with something new still go through.';
