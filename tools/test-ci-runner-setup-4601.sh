@@ -26,6 +26,7 @@ case "$me" in
     [ "$1" = managername ] && { echo "${FX_MANAGER:-Aqua}"; exit 0; }
     [ "$1" = manageruid ] && { echo "${FX_MANAGERUID:-777}"; exit 0; }
     [ "$1 ${2%%/*}" = "print gui" ] || exit 1
+    [ "${FX_NO_SERVICES:-0}" = 1 ] && { printf 'gui/501 = {\n\ttype = login\n\tservices = {\n\t}\n}\n'; exit 0; }
     printf 'gui/501 = {\n\ttype = login\n\tservices = {\n'
     printf '\t\t     %s      - \t%s\n' 874 com.apple.Finder 471 application.com.apple.Terminal.1234.5678 612 com.openssh.ssh-agent
     [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/\t\t     -      0 \t/'
@@ -159,6 +160,9 @@ refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
 refuse gh-404-unseen "could not read the repo variables" FX_VARLIST_FAIL=1
 refuse df-garbage "could not read free disk" FX_FREE_KIB=abc
 refuse df-empty "could not read free disk" FX_DF_NOROW=1
+refuse no-services "listed no services at all" FX_NO_SERVICES=1
+for n in df-garbage df-empty; do ! has "pf-$n" "GiB free" && pass "preflight $n: no false 'GiB free' line beside the refusal" || fail "preflight $n printed a GiB line though df could not be read"; done
+! has pf-no-services "no non-Apple launchd jobs loaded" && pass "preflight: an empty services block is not read as 'no jobs'" || fail "empty services block read as no jobs"
 refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
 refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
 refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
