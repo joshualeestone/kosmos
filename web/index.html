@@ -48200,10 +48200,11 @@ const TABLET_LAYOUT_MQ = '(hover: none) and (pointer: coarse) and (orientation: 
 const TABLET_LAYOUT_KEY = 'kosmos-tablet-layout';
 let STYLE_LAYOUT = null;   // the board's own layout setting (not BOARD_LAYOUT, the agents grid/list/org choice), last read by paintStyles; what every other screen uses
 function tabletLandscape() { return !!(window.matchMedia && window.matchMedia(TABLET_LAYOUT_MQ).matches); }
+let TABLET_LAYOUT_MINE = null;   // the tablet's choice this session, for when local storage refuses it
 function deviceLayout(boardLayout) {
   if (!tabletLandscape()) return boardLayout;
-  let mine = null;
-  try { mine = localStorage.getItem(TABLET_LAYOUT_KEY); } catch { mine = null; }
+  let mine = TABLET_LAYOUT_MINE;
+  try { mine = localStorage.getItem(TABLET_LAYOUT_KEY) || mine; } catch { /* storage refused: this session's choice stands */ }
   return mine === 'tabs' ? 'tabs' : 'consolidated';
 }
 function applyLayout(layout, apply) {
@@ -48696,7 +48697,8 @@ document.addEventListener('click', async (e) => {
   if ((document.documentElement.getAttribute('data-layout') || 'tabs') === want) return;
   // #6107: on a landscape touch tablet the choice is this tablet's own; the board's setting is left alone.
   if (tabletLandscape()) {
-    try { localStorage.setItem(TABLET_LAYOUT_KEY, want); } catch { /* not remembered, but applied now */ }
+    TABLET_LAYOUT_MINE = want;
+    try { localStorage.setItem(TABLET_LAYOUT_KEY, want); } catch { /* kept for this session only (TABLET_LAYOUT_MINE) */ }
     applyLayout(want, true);
     return;
   }

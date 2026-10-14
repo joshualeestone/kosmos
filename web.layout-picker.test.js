@@ -392,7 +392,7 @@ test('#6107: a landscape touch tablet keeps its own layout, defaulting to the on
   const click = SCRIPT.slice(SCRIPT.indexOf("closest('[data-layout-switch]')"));
   const tab = click.indexOf('if (tabletLandscape()) {'), put = click.indexOf("method: 'PUT'");
   assert.ok(tab > 0 && put > tab, 'the tablet branch comes before the board PUT');
-  assert.match(click.slice(tab, put), /localStorage\.setItem\(TABLET_LAYOUT_KEY, want\);[\s\S]*applyLayout\(want, true\);\n    return;/);
+  assert.match(click.slice(tab, put), /TABLET_LAYOUT_MINE = want;\n    try \{ localStorage\.setItem\(TABLET_LAYOUT_KEY, want\);[\s\S]*applyLayout\(want, true\);\n    return;/);
   // Turning the tablet re-applies the rule.
   assert.match(SCRIPT, /tlq\.addEventListener\('change', \(\) => \{ if \(STYLE_LAYOUT\) applyLayout\(deviceLayout\(STYLE_LAYOUT\), true\); \}\)/);
 });
