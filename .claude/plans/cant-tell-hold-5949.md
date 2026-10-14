@@ -44,7 +44,8 @@ roster read failed), nothing logged why, and the card's explanation line is gone
    store.saveFlushed), with when it was last SEEN: written when a state changes and confirmed at most once a minute
    otherwise, so an agent idle all morning still carries; entries for agents no longer running drop out once too old
    to carry. server.js wires it on Windows (`fileLastState`). A state last seen more than 10 minutes before is not used, and a state is used only for the session it was read
-   from (its session id is kept beside it), so an agent relaunched while the board restarted does not wear it. Its hold runs from the first look this run, so the usual 3 looks and 15 s apply.
+   from (its session id is kept beside it), so an agent relaunched while the board restarted does not wear it. The in-run hold follows the same rule:
+   an agent listed under a different session from the one it was last read well in starts afresh, with nothing held. Its hold runs from the first look this run, so the usual 3 looks and 15 s apply.
    Limit: it covers a first read that LISTS an agent with no usable token (a streaming agent whose state file has not
    caught up). A first read that fails outright still refuses the board, since the roster has no earlier list.
 6. Code that ACTS because an agent reads idle waits for a fresh look: the Assigner (`assigner.idleCard`), the

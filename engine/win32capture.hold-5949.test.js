@@ -677,3 +677,22 @@ test('#5949 an agent relaunched while the board restarted does not wear its pred
   assert.equal(cap2('ada:0.0'), 'busy');
   assert.equal(cap2.note('ada:0.0').held, true);
 });
+
+test('#5949 an agent relaunched in a new session mid-run is not held on its old session\'s state', () => {
+  let answer = [live('sid-1', 'busy')];
+  /* The ownership record names whichever session is running as ada, as it does after a relaunch. */
+  let t = 1000;
+  const cap = win32capture.make({ run: () => answer, record: { read: () => (answer[0].sessionId === 'sid-1' ? { 'sid-1': { name: 'ada', runner: 'claude' } } : { 'sid-2': { name: 'ada', runner: 'claude' } }) },
+    now: () => t, ttlMs: 1000, streamState: () => null, log: () => {} });
+  assert.equal(cap('ada:0.0'), 'busy', 'CONTROL: read busy in its first session');
+  answer = [live('sid-1', 'compacting')];   // the SAME session with a token Kosmos does not know: held
+  t += 5000;
+  assert.equal(cap('ada:0.0'), 'busy', 'CONTROL: the same session is held');
+  answer = [live('sid-1', 'busy')];
+  t += 5000;
+  cap('ada:0.0');
+  answer = [{ pid: 4, cwd: '/w', kind: 'interactive', startedAt: 2, sessionId: 'sid-2', name: 'x' }];   // relaunched: streaming, no state yet
+  t += 5000;
+  assert.equal(cap('ada:0.0'), null, 'the new session does not show the old one\'s working');
+  assert.notEqual((cap.note('ada:0.0') || {}).held, true);
+});

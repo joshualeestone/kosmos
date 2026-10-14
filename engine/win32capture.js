@@ -313,7 +313,7 @@ function make(opts) {
      Written to the agent's log only when it changes (held, gave up, back), never every tick.
      An agent never read well this run starts from its remembered state (see fileLastState), so a
      board that has just started shows that, marked, instead of "Can't tell" before its first look. */
-  const memory = new Map();   // name -> { token, at, fails, cause, phase: 'ok' | 'held' | 'unknown', said, carried }
+  const memory = new Map();   // name -> { token, at, fails, cause, phase: 'ok' | 'held' | 'unknown', said, carried, sid: the session it was read in }
   const runnerOf = new Map();   // name -> the runner its last listing recorded ('' for Claude)
   const PER_TURN = require('./win32codexlive').PER_TURN;
   function noteRead(snap) {
@@ -324,7 +324,7 @@ function make(opts) {
         if (GOOD.has(token)) {
           const m = memory.get(name);
           if (m && m.said) say(name, 'status-read-back', 'Kosmos can check on it again, after ' + m.fails + ' failed ' + (m.fails === 1 ? 'look' : 'looks'));
-          memory.set(name, { token, at: t, fails: 0, cause: null, phase: 'ok', said: false, carried: false });
+          memory.set(name, { token, at: t, fails: 0, cause: null, phase: 'ok', said: false, carried: false, sid: snap.sids.get(name) || null });
           good.set(name, token);
         } else {
           failed(name, snap.why.get(name) || 'its status could not be read', t, snap.sids.get(name));
@@ -353,17 +353,26 @@ function make(opts) {
   }
   function failed(name, cause, t, sid) {
     let m = memory.get(name);
+    /* Listed under a DIFFERENT session from the one it was read well in: it was relaunched (a crash and a restart the
+       board did not start, say), and the old session's state says nothing about the new one, exactly as for the
+       board-start carry. Started afresh, with nothing to hold. */
+    let relaunched = false;
+    if (m && typeof sid === 'string' && sid && typeof m.sid === 'string' && m.sid && m.sid !== sid) {
+      memory.delete(name);
+      m = null;
+      relaunched = true;
+    }
     if (!m) {
       /* Not read well yet this run: start from the state remembered before the board started,
          if it is recent. Its hold runs from this first look, not from when it was remembered. */
-      const c = firstGoodRead ? null : carriedNow()[name];
+      const c = firstGoodRead || relaunched ? null : carriedNow()[name];
       const cAt = c && typeof c.at === 'string' ? Date.parse(c.at) : NaN;
       /* Only for the SAME session it was remembered from: an agent relaunched while the board restarted is a new
          session, and its predecessor's state says nothing about it. An entry with no session (or a look with none)
          is not used. */
       const sameSession = Boolean(c && typeof c.sid === 'string' && c.sid && typeof sid === 'string' && sid === c.sid);
       const usable = Boolean(sameSession && GOOD.has(c.token) && Number.isFinite(cAt) && Number.isFinite(t) && t - cAt >= 0 && t - cAt < CARRY_MAX_MS);
-      m = { token: usable ? c.token : null, at: t, fails: 0, cause, phase: 'ok', said: false, carried: usable };
+      m = { token: usable ? c.token : null, at: t, fails: 0, cause, phase: 'ok', said: false, carried: usable, sid: (typeof sid === 'string' && sid) || null };
       memory.set(name, m);
     }
     m.fails += 1;
