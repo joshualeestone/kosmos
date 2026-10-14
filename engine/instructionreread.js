@@ -31,9 +31,9 @@ const path = require('node:path');
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PER_PASS = 3;   // lines typed per pass; the timer delivers the rest
 const lastOf = (debt) => (Number.isFinite(debt.last) ? debt.last : debt.at);
-/* kosmos#5636 F7a: lineFor says the notice asks for nothing beyond the reading and following the new text where it applies. A section whose text is a standing do-X-daily
-   rule (as the community's post-a-day minimum is) can still read as due now; when adding one here, add a clause for it
-   in lineFor as the community has. */
+/* kosmos#5636 F7a, for whoever adds a section here: lineFor tells the agent the notice is not itself a task. A section
+   whose text is a standing do-X-daily rule (as the community's post-a-day minimum is) can still read as due now, so give
+   it its own clause in lineFor, as the community has. */
 const SECTIONS = Object.freeze({
   community: 'the section headed "The Kosmos+ community"',
   // kosmos#5635 review 5: no "with your person's OK": a board-start update had none, and the agent may repeat this.
@@ -188,7 +188,8 @@ function lineFor(sections) {
      is typed, passOnce) follows the new text wherever it applies, so a working rule that says to take the next thing
      still moves it. When the community section is named, one clause scopes itself to now: no taking part because of
      this notice, and the new community text applies the next time the agent takes part. It names no community duty, so
-     it sends nobody to check one. No double quotes in this text: the #5304 test reads quoted text as section headings. */
+     it sends nobody to check one. No double quotes in the text added here (the section names carry them by design): the #5304 test
+     reads quoted text as section headings. */
   const community = named.includes('community')
     ? 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
       + 'its new text applies the next time you take part. '
