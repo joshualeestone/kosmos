@@ -492,8 +492,13 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   [ -n "$cap" ] || { kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return; }
   kill -STOP "$cap" 2>/dev/null
   case "$(ps -o stat= -p "$cap" 2>/dev/null)" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo 2 > "$m.r"; return ;; esac
-  for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
+  # kosmos#6048: TERM FIRST, while the wrapper is still in `wait "$CMD"` (its command runs on). The TERM interrupts that
+  # wait, and the teardown runs from the EXIT trap with TERM ignored, so nothing can interrupt it there: the old
+  # teardown's wait on the stopped capper holds for good, the new one releases. Ending the command first raced: a TERM
+  # landing while the old teardown already sat in its wait cut that wait short (bash runs a trapped signal's handler
+  # at once), so the control sometimes released (CI 2026-10-14 01:50, "got 0").
   kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
+  for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done   # whatever the teardown left of the command
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"
