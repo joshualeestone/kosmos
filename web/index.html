@@ -30476,15 +30476,15 @@ function aoAgentsOf(body) {
     .slice(0, AO_MAX_AGENTS)
     .map((a) => ({ name: aoStr(a.name) || aoStr(a.sessionName), dir: aoStr(a.account.dir, 4096) }));
 }
-/* How many of that computer's agents it could not tie to an account (their launch file unreadable): the list of an
-   account's agents is then "some could not be checked", as the row there says, never a confident "none". */
+/* How many of that computer's CLAUDE agents it could not tie to an account. Only runner 'claude': a Codex, Gemini or
+   Grok agent has no Claude account to tie, and a card with no runner is one that computer holds no record of. */
 function aoUnknownOf(body) {
   if (!body || !Array.isArray(body.agents)) return 0;
   return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
-    && !(a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))).length;
+    && a.runner === 'claude' && !(a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))).length;
 }
-/* That computer's clock against this page's: its answer's checkedAt is its "now", this read's time is ours. Its readings'
-   times are moved by the difference, so an age or a reset time is said in this page's clock. 0 when it sent none. */
+/* That computer's clock against this page's: its answer's checkedAt against this read's time. The difference also holds
+   the read's own round trip (under OA_READ_LIMIT_MS). 0 when it sent none. */
 function aoSkewOf(body, now) {
   const t = body && typeof body.checkedAt === 'string' ? Date.parse(body.checkedAt) : NaN;
   return Number.isFinite(t) ? now - t : 0;
@@ -30557,7 +30557,10 @@ function aoGroup(c, seen, ao, now) {
     note = c.name + ' could not read its accounts just now. Kosmos asks again shortly.';
   } else if (!ao.accounts.length) {
     note = 'No Claude account is set up on ' + c.name + '.';
-  } else if (st !== 'ok' || stale) {
+  }
+  if (ao && (st !== 'ok' || stale) && !(Array.isArray(ao.accounts) && ao.accounts.length)) {
+    note += ' Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';   // an old empty answer is old too
+  } else if (ao && Array.isArray(ao.accounts) && ao.accounts.length && (st !== 'ok' || stale)) {
     note = (st === 'out' ? 'Not connected. ' : st === 'blocked' ? c.name + ' cannot be read from here right now. ' : '') + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
   }
   if (note) g.appendChild(aoEl('p', 'dhint ao-note', note));

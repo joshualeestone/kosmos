@@ -60,7 +60,9 @@ const STATUS = {
     { sessionName: 'ann', name: 'Ann', account: { dir: '/Users/p/.claude', email: 'p@example.com' } },
     { sessionName: 'bo', name: 'Bo', account: { dir: '/Users/p/.claude-work', email: 'w@example.com' } },
     { sessionName: 'guide', name: 'Guide', isGuide: true, account: { dir: '/Users/p/.claude' } },
-    { sessionName: 'nobody', name: 'Nobody', account: null },
+    { sessionName: 'nobody', name: 'Nobody', runner: 'claude', account: null },
+    { sessionName: 'cody', name: 'Cody', runner: 'codex', account: null },
+    { sessionName: 'stray', name: 'Stray', runner: null, account: null },
   ],
   accountsWeekly: [
     { dir: '/Users/p/.claude', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
@@ -176,7 +178,7 @@ test('#6178 the real read keeps the accounts AND still keeps the agents (#4812 u
   const { api } = load({ fetchImpl: async () => ({ status: 200, json: async () => STATUS }) });
   const r = await api.oaReadOne({ name: 'studio', address: 'studio.kosmosplus.com', online: true });
   assert.ok(r && r.state === 'ok', 'the read did not come back ok: ' + JSON.stringify(r));
-  assert.deepEqual(r.agents.map((a) => a.sessionName), ['ann', 'bo', 'nobody'], 'the Agents view lost its agents');
+  assert.deepEqual(r.agents.map((a) => a.sessionName), ['ann', 'bo', 'nobody', 'cody', 'stray'], 'the Agents view lost its agents');
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
   assert.ok(kept && Array.isArray(kept.accounts) && kept.accounts.length === 2, 'the accounts were not kept: ' + JSON.stringify(kept));
   const gate = load({ fetchImpl: async () => ({ status: 401, json: async () => ({}) }) });
@@ -301,7 +303,7 @@ test('#6178 an agent whose account could not be read makes the list "some could 
   const now = Date.now();
   api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, now);
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
-  assert.equal(kept.unknown, 1, 'the agent with no account (and not the guide) was not counted');
+  assert.equal(kept.unknown, 1, 'only the Claude agent with no account counts (not the Codex one, a card with no record, or the guide): ' + kept.unknown);
   const c = { name: 'studio', address: 'studio.kosmosplus.com' };
   const t = text(api.aoGroup(c, { state: 'ok', at: now }, kept, now));
   assert.match(t, /Its agents on studio: Ann \(some could not be checked\)/);
@@ -334,4 +336,11 @@ test('#6178 ages and reset times are said in this page\'s clock, not the other c
   assert.equal(api.aoUsageWords(e, now, 0).pct, null, 'CONTROL: read in this clock unshifted, the reading looks a week old');
   assert.equal(api.aoAccountsOf({ accountsWeekly: [{ dir: '/d', weekly: { usedPct: 1, resetsAt: 1e300, at: now } }] })[0].weekly, null,
     'a reset time no Date can show was kept');
+});
+
+test('#6178 an old empty answer says it is old', () => {
+  const { api } = load();
+  const now = Date.now();
+  const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'out', at: now - 600e3 }, { accounts: [], agents: [], at: now - 600e3 }, now));
+  assert.match(t, /No Claude account is set up on studio\. Showing what this page last read, 10 minutes ago\./);
 });
