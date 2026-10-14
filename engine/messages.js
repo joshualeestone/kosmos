@@ -255,35 +255,22 @@ function spillHead(text) {
   return { head, words };
 }
 /* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
-   shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the first
-   sentence that names this member, at the positions mentionedMembers recorded (`namedAt`, so it is exactly what the
-   room read as a mention: an ambiguous or unmatched @-word is never quoted as naming the member). Labelled Where it
-   names you, not as a request: a mention can be a thank-you or a sign-off (review 6); else the first question (a ?
-   ending a word, never one inside a link). A sentence that ends inside the head is skipped for the next one (one the opening cut only started is not). Cut at a
-   whole word to at most REQUEST_MAX characters plus an ellipsis. A sentence runs from the end of the one before (. ! ?
-   then a space) to its own end: both callers pass chat.cleanMessage's text, which has no line breaks, so a list with
-   no punctuation reads as one sentence, and an abbreviation such as "e.g." can start one early (the head's NOT_AN_END
-   list is not applied here), as can a sentence after one ending in a closing quote or bracket. */
+   shortened, its preview carries the request (Josh: "put the request in the preview"). That is the first sentence that
+   names this member, at the positions mentionedMembers recorded (`namedAt`: exactly what the room read as a mention,
+   so an ambiguous or unmatched @-word is never quoted as naming the member), labelled Where it names you rather than
+   as a request, since a mention can be a thank-you; else the first question (a ? after a word and before a space or
+   the end, so not one partway through a link; a link ending in ? still counts). A sentence that ends inside the head is
+   skipped for the next one (one the opening cut only started is not). Cut at a whole word to at most REQUEST_MAX
+   characters plus an ellipsis. A sentence runs from the end of the one before (. ! ? then a space) to its own end;
+   both callers pass chat.cleanMessage's text, which has no line breaks, so a list with no punctuation reads as one
+   sentence, and an abbreviation such as "e.g." or a sentence ending in a closing quote can start one early. */
 const REQUEST_MAX = 300;
 const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
-const GREETING_WORDS = 4;   // words before a mention that ends its sentence, for it to read as a greeting
-function sentenceAt(t, at, greeting = false) {
+function sentenceAt(t, at) {
   const before = t.slice(0, at);
   const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
   const stop = t.slice(at).search(/[.!?](\s|$)/);
-  let end = stop < 0 ? t.length : at + stop + 1;
-  const own = end;   // where the mention's own sentence ends, before a greeting takes the next one
-  /* Reviews 4 and 5: a greeting ("Hi @mara.", "Good morning @mara:") holds no request on its own, so the next
-     sentence comes too: a mention that ends its sentence with at most GREETING_WORDS words before it ("Great work from
-     @leo and @mara." has more, and is left alone). `next` is where that following sentence starts. */
-  const token = greeting ? (t.slice(at).match(/^@[A-Za-z0-9._-]+/) || [''])[0] : '';
-  let next = -1;
-  if (greeting && end < t.length && !/[A-Za-z0-9]/.test(t.slice(at + token.length, end))
-    && (t.slice(from, at).match(/\S+/g) || []).length <= GREETING_WORDS) {
-    const more = t.slice(end).search(/[.!?](\s|$)/);
-    next = end;
-    end = more < 0 ? t.length : end + more + 1;
-  }
+  const end = stop < 0 ? t.length : at + stop + 1;
   /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
      question), at a whole word and after an ellipsis, so the request itself is never what the cut drops. */
   let start = from; let lead = '';
@@ -299,7 +286,7 @@ function sentenceAt(t, at, greeting = false) {
     const sp = open.lastIndexOf(' ');
     sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
   }
-  return { sentence, from, end: own, next, fullEnd: end };
+  return { sentence, from, end };
 }
 /* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
    as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
@@ -308,23 +295,15 @@ const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301
 function requestIn(text, opts = {}) {
   const t = String(text);
   const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
-  /* Shown already only when the mention's (or question's) own sentence ends inside the head: an opening cut can stop
-     partway through it. A greeting inside the head gives way to a later mention; failing one, to the sentence after
-     the greeting (review 5: "Hi @mara. Please send the lease." opening a post). */
-  let afterGreeting = null;
+  /* Shown already only when the sentence ends inside the head: an opening cut can stop partway through it. A mention
+     inside the head gives way to a later one. Only the sentence that names the member is quoted, never the one after
+     it: review 7 showed every rule for "a greeting takes the next sentence" also quotes unrelated text under a label
+     saying it names the member. */
   for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
     if (!(Number.isInteger(at) && at >= 0 && at < t.length)) continue;
-    const s = sentenceAt(t, at, true);
-    if (!s) continue;
-    if (s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
-    if (!afterGreeting && s.next >= 0 && s.fullEnd > headEnd) {
-      let p = Math.max(s.next, headEnd);
-      while (p < t.length && /\s/.test(t[p])) p += 1;   // past the space, so the sentence found starts here
-      const rest = p < t.length ? sentenceAt(t, p) : null;
-      if (rest) afterGreeting = rest.sentence;
-    }
+    const s = sentenceAt(t, at);
+    if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
   }
-  if (afterGreeting) return { sentence: unquotable(afterGreeting), asked: true };
   for (const m of t.matchAll(/(?<=\S)\?(?=\s|$)/g)) {
     const s = sentenceAt(t, m.index);
     if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
@@ -333,8 +312,9 @@ function requestIn(text, opts = {}) {
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
    again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
-   characters of request, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the
-   head's end is in it. The head itself is still the post's own words, unquoted, as before this change. */
+   characters of request, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage
+   trims), so a sentence ending before the head's end is in it. The head itself is still the post's own words,
+   unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
   const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
