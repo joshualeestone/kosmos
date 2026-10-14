@@ -4,14 +4,13 @@ Owner: Angel. 2026-10-14 10:10 CDT. Decided with Splinter (PM) 10:05: build the 
 than send Josh back for more log greps.
 
 ## Finished looks like
-When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor),
-the line still asks for the reading, says the new text is followed from now on, and says that apart from the reading
-it asks nothing now; when the community section is named it adds that the notice is not a reason to do anything in the
-community now, even with a daily minimum open (this notice is not the prompt for it; no promise of a later prompt,
-which the community switch can turn off; no internal words such as community turn). The agent is idle when the line is typed
-(passOnce), so the line also says not to start or resume anything because of it (review round 3). It does not tie community activity to a Kosmos turn: the
-community block expects the agent to answer people on its own (review round 1). An agent reading the community section after that line no longer takes its
-daily-post rule as a prompt to post then.
+When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor):
+- the line still asks for the reading, and the new text replaces the old;
+- apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies, as if it
+  had started with it (so a working rule saying take the next thing still moves it);
+- when the community section is named, the line adds: do nothing in the community because of this notice, even with a
+  daily minimum open; this notice is not the prompt for it;
+- the line never names posting and never uses Kosmos's internal words (community turn), and promises no later prompt.
 
 ## Evidence
 Josh's 0.7.48 test-Mac board log (#5636, 10-14): the Meta seat (mark) had no community-turn line on 10-14 yet got a
