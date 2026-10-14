@@ -182,3 +182,35 @@ test('#4926 R2 review 4: every staleHeld call in server.js passes the member (wi
   assert.ok(calls.length >= 2, 'fixture: fewer than the two server flush call sites found: ' + calls.length);
   for (const c of calls) assert.match(c, /^messages\.staleHeld\(p, ids, undefined, undefined, who2\)$/, 'a server call does not pass the flush\'s member: ' + c);
 });
+
+/* N7, the 10-13 19:31:31Z test-Mac log: a Meta seat held 9 posts of one round (m1024 to m1032), answered the round
+   in ONE reply to m1032, and the flush dropped only m1032 and told it the other 8 as new. */
+test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 older held posts too; a newer one is still told', async () => {
+  const round = [];
+  for (let n = 1024; n <= 1032; n += 1) round.push(post('m' + n, 40 - (n - 1024)));   // m1024 40 min ago ... m1032 32 min ago
+  const later = post('m1033', 20);   // posted after m1032, before the reply: not covered
+  const answer = { kind: 'post', id: 'm1034', project: 'p1', from: 'mark', to: ['ann'], text: 'answers to all of them', replyTo: 'm1032', at: ago(10) };
+  const log = [...round, later, answer];
+  const ids = [...round, later].map((r, i) => (i % 2 ? roomhold.addressedId(r.id) : r.id));   // asks and plain posts both
+  roomhold.forget('mark');
+  for (const x of ids) assert.ok(roomhold.hold('mark', 'p1', x), 'fixture: could not hold ' + x);
+  const typed = [];
+  const DELIVERY = { PLACED: 'placed', COULD_NOT: 'could_not' };
+  await roomhold.flushOnIdle('mark', { deliver: async (n, line) => { typed.push(line); return { state: DELIVERY.PLACED }; }, roster: [], shownOf: () => 'p1', DELIVERY, env: {},
+    stale: (p, got, n) => messages.staleHeld(p, got, log, NOW, n) });
+  assert.equal(typed.length, 1, 'nothing was told: ' + JSON.stringify(typed));
+  for (const r of round) assert.doesNotMatch(typed[0], new RegExp('\\b' + r.id + '\\b'), r.id + ' of the answered round was told again: ' + typed[0]);
+  assert.match(typed[0], /\bm1033\b/, 'a post newer than the answered one was dropped');
+  assert.deepEqual(roomhold.heldIn('mark', 'p1'), [], 'the line was not taken');
+  // CONTROLS, on staleHeld directly: no reply, a reply in another room, someone else's reply, no member named.
+  const judge = (lg, who) => messages.staleHeld('p1', round.map((r) => r.id), lg, NOW, who);
+  assert.equal(judge([...round], 'mark').size, 0, 'without the reply, the round was dropped');
+  assert.equal(judge([...round, { ...answer, project: 'p2' }], 'mark').size, 0, 'a reply in another room dropped the round');
+  assert.equal(judge([...round, { ...answer, from: 'bob' }], 'mark').size, 0, 'someone else\'s reply dropped the round for mark');
+  assert.equal(judge(log, undefined).size, 0, 'with no member named, the round was dropped');
+  // A reply to the round's OLDEST post covers nothing newer than it.
+  const first = judge([...round, { ...answer, replyTo: 'm1024' }], 'mark');
+  assert.deepEqual([...first].sort(), ['m1024'], 'a reply to the oldest post dropped newer ones: ' + [...first]);
+  assert.ok(judge(log, 'mark').answered.has('m1028'), 'an older post was not marked answered (a limit hold would keep it back)');
+  roomhold.forget('mark');
+});
