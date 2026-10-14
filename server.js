@@ -5769,7 +5769,8 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
+      const claudeKnown = listOf(accounts);   // #6178: kept apart for accountsWeekly below, so the poll still reads the list once
+      const known = claudeKnown.concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -6374,6 +6375,10 @@ const server = http.createServer(async (req, res) => {
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
+        /* #6178: each Claude account's weekly usage on this computer, the same values /api/accounts gives its rows (one
+           helper). Another of the person's computers reads it through the sibling path (#4812) for Settings > AI Models;
+           kept 60 s in engine/accountsweekly.js so the 5 s poll does not pay for it each time. */
+        accountsWeekly: (() => { try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return []; } })(),
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
@@ -11096,26 +11101,12 @@ const server = http.createServer(async (req, res) => {
                writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
                recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
                recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
-            weekly: (() => {
-              try {
-                const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
-                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
-              } catch { return null; }
-            })(),
+            weekly: require('./engine/accountsweekly').weeklyOf(a, nowMs),   // #6178: one helper, shared with /api/status
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
-            weeklyBlocked: (() => {
-              if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
-              if (process.platform === 'win32') return 'windows';
-              try {
-                const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
-                const sl = j && j.statusLine;
-                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
-                return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
-            })(),
+            weeklyBlocked: require('./engine/accountsweekly').weeklyBlockedOf(a),   // #6178: one helper, shared with /api/status
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
             ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false } } : {}),
