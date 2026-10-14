@@ -61,7 +61,7 @@
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
  * `phoneOnly: true` if the screen exists only at a phone width (the desktop size and tablets over 56rem skip it), and
- * `desktopOnly: true` if it exists only at a desktop width (the phone and tablet sizes skip it; the consolidated
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes and tablets under 960px skip it; the consolidated
  * view, for one, starts at 960px).
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
  * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
@@ -132,9 +132,9 @@ const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 /* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
    phone-only screen (the #burger menu, shown up to 56rem and hidden above) does not exist on a wider tablet; tab8,
    the iPad mini and the 11-inch iPad upright (600, 744, 834px) all still show it. The 896 below is that 56rem by
-   value: today the only phoneOnly screen (nav-menu) keys on it; a desktop-only screen is
-   skipped at every size that is not the desktop one, tablets included. */
-const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
+   value: today the only phoneOnly screen (nav-menu) keys on it. A desktop-only screen is skipped at phone sizes and
+   at tablets under 960px: a landscape tablet (960px and up) shows the one-screen view, so it shoots those too. */
+const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 896)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
@@ -2214,9 +2214,9 @@ async function run() {
     throw new Error('MSHOTS_COVER_CONTROL=spill needs a phone size');
   }
   /* Nothing to shoot is not a pass: every requested screen is skipped at the sizes asked for (skipWhy:
-     phone-only at desktop or a tablet over 56rem, desktop-only at a phone or tablet). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
+     phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px). Decided before any browser or board starts (tools.mobile-shots-desktop.test.js). */
   const planned = args.sizes.reduce((n, sz) => n + screens.filter((sc) => !skipWhy(SIZES[sz], sc)).length, 0);
-  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or tablet)');
+  if (!planned) throw new Error('no shot would be taken: every requested screen is skipped at these sizes (phone-only at desktop or a tablet over 56rem, desktop-only at a phone or a tablet under 960px)');
   // Test hook (tools.mobile-shots-desktop.test.js): report the plan and stop, before any browser or board.
   if (process.env.MSHOTS_PLAN_ONLY === '1') { console.log(`planned ${planned} screen(s) per theme and engine`); return 0; }
   const { chromium, webkit } = require('playwright');
