@@ -398,6 +398,12 @@ ptr_setup_sha() { printf '%s' "$1" | sed -n 's/.*"setup_sha256":[[:space:]]*"\([
 ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 # The version inside a Windows zip NAME (kosmos-<version>-win-x64.zip), empty if it is not that shape.
 win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1/p'; }
+# kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves (and with them
+# /setup and /setup-staging), so neither may name a build older than the setup floor (tools/lib/setup-floor.sh).
+. "$(dirname "$0")/lib/setup-floor.sh" || { echo "deploy-site: cannot load tools/lib/setup-floor.sh -- refusing"; exit 1; }
+CSJ_FLOOR=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || CSJ_FLOOR=""
+[ -z "$CJ" ] || kosmos_setup_floor_ok "the committed dist/latest.json" "$(ptr_version "$CJ")" || exit 1
+[ -z "$CSJ_FLOOR" ] || kosmos_setup_floor_ok "the committed dist/latest-staging.json" "$(ptr_version "$CSJ_FLOOR")" || exit 1
 
 # #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
 # learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while

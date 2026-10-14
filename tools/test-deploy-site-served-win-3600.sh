@@ -87,6 +87,9 @@
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
+# kosmos#6149: these fixtures are 0.6.x builds, older than the setup floor (0.7.45), so the floor is lowered here.
+# tools/test-setup-floor-6149.sh tests the floor itself; this file tests deploy-site's other behaviour.
+export KOSMOS_SETUP_FLOOR=0.0.0
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)

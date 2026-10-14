@@ -130,6 +130,11 @@ cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >
 read_pointer_field() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2" 2>/dev/null || true; }
 read_field() { read_pointer_field "$SNAP" "$1"; }
 V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$ARTIFACT_FIELD")"
+# kosmos#6149 point 1: prod must never be pointed at a Mac build older than the setup floor (its /setup comes with it).
+if [ "$FAMILY" = mac ]; then
+  . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
+  kosmos_setup_floor_ok "the staging pointer being promoted" "$V" || exit 1
+fi
 
 # Defense in depth on a prod path: artifact/manifest names come from the staging pointer and
 # are used directly as filesystem paths below, so reject any value that is not a bare filename
