@@ -507,6 +507,7 @@ test('#5636 F7a: with stamp, the line says when it was sent (date and time) and 
   const p2 = (n) => String(n).padStart(2, '0');
   const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
   assert.equal(sent[0][1], ct.TURN_TEXT + ' (Sent ' + when + '. A line with this same Sent time, met again later in your conversation, is this reminder, not a new one.)');
+  assert.match(sent[0][1], / \(Sent \d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d\. /, 'the stamp is not a date and a time');
   // Two sends a day apart at the same clock time carry different stamps (the date), so a real reminder is never "the same".
   assert.notEqual(ct.stamped('x', NOW), ct.stamped('x', NOW + 24 * H));
   // The waiting-activity line (lineFor) is stamped too.
