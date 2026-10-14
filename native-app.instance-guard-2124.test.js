@@ -86,7 +86,12 @@ test('the #2094 relaunch hands off BOTH ways before opening the fresh copy', () 
 
 test('the env handoff MERGES onto the current environment (does not replace it)', () => {
   // Replacing conf.environment would strip KOSMOS_HOME etc. from the fresh copy.
-  assert.match(SRC, /conf\.environment\s*=\s*ProcessInfo\.processInfo\.environment[\s\S]{0,80}\.merging\(/, 'conf.environment is set without merging the current environment');
+  /* #6158: the rule, not one spelling of it. The environment handed over starts from the current one, directly or
+     through one local copy (relaunchEnv, which #6158 edits before the merge); a fresh dictionary is still refused. */
+  const direct = /conf\.environment\s*=\s*ProcessInfo\.processInfo\.environment[\s\S]{0,80}\.merging\(/.test(SRC);
+  const viaCopy = /var (\w+) = ProcessInfo\.processInfo\.environment\n[\s\S]{0,400}?conf\.environment = \1\s*\n?\s*\.merging\(/.test(SRC);
+  assert.ok(direct || viaCopy, 'conf.environment is set without merging the current environment');
+  assert.doesNotMatch(SRC, /conf\.environment\s*=\s*\[/, 'conf.environment is replaced by a fresh dictionary');
 });
 
 test('the runtime both-arms selftest hatch exists (build-time gate drives it)', () => {

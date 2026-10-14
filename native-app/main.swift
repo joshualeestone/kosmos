@@ -1380,6 +1380,23 @@ func scanUnderGrant() -> Bool {
 let kRelaunchHandoffEnvKey = "KOSMOS_RELAUNCH_HANDOFF"
 let kRelaunchHandoffTTL: TimeInterval = 30  // a relaunch's fresh copy launches within a second or two
 
+/* #6158: A RESTART NOBODY ASKED FOR NEVER TAKES FOCUS. The silent restart onto a new version runs while another app
+   is in front once the Mac has had no input for relaunchQuietSeconds, and an agent driving the iOS Simulator from a
+   script makes no input, so the new copy (opened activating, then activating itself at launch) took focus from the
+   simulator mid-verification, once per new version. The fresh copy of such a restart is opened without activating and
+   is told so in its launch environment; it then does not activate itself either. A restart the person pressed Restart
+   for, or one made while Kosmos was already in front, comes to the front as before. */
+let kRelaunchQuietEnvKey = "KOSMOS_RELAUNCH_QUIET"
+/// Whether a relaunch may bring the fresh copy to the front: only if the person asked, or Kosmos was already in front.
+func relaunchMayActivate(asked: Bool, wasActive: Bool) -> Bool { asked || wasActive }
+/// One-shot, as the handoff: read, then unset, so the board this copy starts (it copies the environment) and any later
+/// relaunch never inherit it.
+func consumeQuietRelaunch() -> Bool {
+    let quiet = ProcessInfo.processInfo.environment[kRelaunchQuietEnvKey] == "1"
+    unsetenv(kRelaunchQuietEnvKey)
+    return quiet
+}
+
 // The handoff token file, resolved the SAME way boardTokenValue() resolves its dir, so
 // the exiting instance and the fresh copy (same user, same env) agree on the path.
 func relaunchHandoffURL() -> URL? {
@@ -1998,6 +2015,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // EXCEPT a #2094 self-update relaunch, which hands us a one-shot handoff signal so
         // it is not mistaken for a duplicate (deduping there would quit to nothing).
         let handoff = consumeFreshRelaunchHandoff()
+        let launchedQuietly = consumeQuietRelaunch()   // #6158: a restart nobody asked for, made behind another app
         let other = otherRunningInstance()
         if shouldDeferToExistingInstance(handoff: handoff, otherRunning: other != nil) {
             logLine("#2124: another Kosmos instance is already running; activating it and exiting this duplicate")
@@ -2037,7 +2055,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         } else {
             loadBoard()
         }
-        NSApp.activate(ignoringOtherApps: true)
+        // #6158: a quiet restart stays behind the app the person (or an agent's simulator run) is using.
+        if launchedQuietly { logLine("#6158: restarted onto a new version behind another app; not taking focus") }
+        else { NSApp.activate(ignoringOtherApps: true) }
         if computerMode != .connect {
             // #2125 slice 3: keep the native Accessibility verdict fresh for the first-run
             // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
@@ -4853,7 +4873,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            suffices: the launch ENVIRONMENT (handed directly to the new process, no disk),
            preserving the current environment and adding the one key; and a token FILE
            written just below as a fallback. A normal user launch carries neither. */
-        conf.environment = ProcessInfo.processInfo.environment
+        /* #6158: a restart nobody asked for, made while another app is in front, opens the fresh copy without
+           activating it and tells it so (relaunchMayActivate). The key is removed first, so it is only ever this
+           restart's answer. */
+        let mayActivate = relaunchMayActivate(asked: asked, wasActive: NSApp.isActive)
+        conf.activates = mayActivate
+        logLine("relaunch: the fresh copy opens " + (mayActivate ? "in front" : "behind the front app, not taking focus (#6158)"))
+        var relaunchEnv = ProcessInfo.processInfo.environment
+        relaunchEnv.removeValue(forKey: kRelaunchQuietEnvKey)
+        if !mayActivate { relaunchEnv[kRelaunchQuietEnvKey] = "1" }
+        conf.environment = relaunchEnv
             .merging([kRelaunchHandoffEnvKey: String(Date().timeIntervalSince1970)]) { _, new in new }
         writeRelaunchHandoffToken()
         NSWorkspace.shared.openApplication(at: target, configuration: conf) { app, err in
@@ -6595,6 +6624,27 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
              .silent, "AHEAD of the board still says nothing, the untouched direction")
     if adviceBad > 0 {
         print("\nstale-check: the #1182 relaunch advice is wrong, which is the loop Josh hit")
+        exit(1)
+    }
+    ran += 6
+
+    /* #6158: a restart nobody asked for, behind another app, never takes focus; the flag that says so is one-shot. */
+    var quietBad = 0
+    func quietCheck(_ ok: Bool, _ what: String) {
+        if !ok { quietBad += 1 }
+        print((ok ? "PASS  " : "FAIL  ") + "quiet: " + what)
+    }
+    quietCheck(!relaunchMayActivate(asked: false, wasActive: false), "a restart nobody asked for, behind another app, does not take focus")
+    quietCheck(relaunchMayActivate(asked: true, wasActive: false), "the person pressed Restart: the fresh copy comes to the front")
+    quietCheck(relaunchMayActivate(asked: false, wasActive: true), "Kosmos was already in front: it stays in front")
+    setenv(kRelaunchQuietEnvKey, "1", 1)
+    quietCheck(consumeQuietRelaunch(), "a fresh copy told it was a quiet restart reads it")
+    quietCheck(!consumeQuietRelaunch() && ProcessInfo.processInfo.environment[kRelaunchQuietEnvKey] == nil,
+               "and only once: the board it starts never inherits it")
+    setenv(kRelaunchQuietEnvKey, "0", 1)
+    quietCheck(!consumeQuietRelaunch(), "only the value 1 means quiet")
+    if quietBad > 0 {
+        print("\nstale-check: a restart nobody asked for would take focus, or its flag lingers (#6158)")
         exit(1)
     }
     ran += 6
