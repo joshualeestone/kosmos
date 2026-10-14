@@ -158,6 +158,8 @@ const read = (pg) => pg.evaluate(() => {
     const g = await read(pg);
     say(g.note && g.note.hidden, 'no note: no congrats, no note (control)');
     say(g.label && g.label.opacity === '0', 'no note: the label waits for a hover', JSON.stringify(g.label));
+    const vis = await pg.evaluate(() => getComputedStyle(document.getElementById('kstreak')).visibility);
+    say(vis === 'hidden', 'no note: at rest the label is hidden, so a screen reader reads it once, as the description', vis);
     say(g.described === 'kstreak', 'no note: the K mark is described by the label', JSON.stringify(g.described));
     await pg.hover('#klink');
     await pg.waitForTimeout(250);
@@ -245,7 +247,27 @@ const read = (pg) => pg.evaluate(() => {
     await press(60);
     const tabAfterNoClick = (await read(pg)).tab;
     say(tabAfterNoClick === 'agents', 'long press with no click, then a tap: the tap still goes to Agents', tabAfterNoClick);
+    // Android: the system long press cancels the pointer and raises its own menu; that menu shows the label, and is not opened
+    await pg.waitForTimeout(2800);
+    const android = await pg.evaluate(async () => {
+      const k = document.getElementById('klink'), r = k.getBoundingClientRect();
+      const o = { pointerType: 'touch', isPrimary: true, bubbles: true, clientX: r.left + 5, clientY: r.top + 5, pointerId: 9 };
+      k.dispatchEvent(new PointerEvent('pointerdown', o));
+      await new Promise((res) => setTimeout(res, 150));
+      k.dispatchEvent(new PointerEvent('pointercancel', o));
+      const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: o.clientX, clientY: o.clientY });
+      const opened = k.dispatchEvent(menu);
+      return { shown: document.getElementById('kstreak').classList.contains('show'), menuBlocked: !opened };
+    });
+    say(android.shown && android.menuBlocked, 'Android long press: its own menu shows the label and is not opened', JSON.stringify(android));
+    // and a keyboard Enter right after (a tablet with a keyboard) is a real press: it navigates
+    await pg.evaluate(() => { const t = document.querySelector('#tabs [data-tab="projects"]'); if (t) t.click(); });
+    await pg.focus('#klink'); await pg.keyboard.press('Enter'); await pg.waitForTimeout(200);
+    const tabAfterEnter = (await read(pg)).tab;
+    say(tabAfterEnter === 'agents', 'keyboard after a long press: Enter on the K mark still goes to Agents', tabAfterEnter);
     // A real tap leaves :hover stuck on a touch screen; the label must not hang under the mark after it.
+    await pg.evaluate(() => document.activeElement && document.activeElement.blur());   // the arms above leave the mark focused (label up by design)
+    await pg.waitForTimeout(2800);                                                       // and a long-press label still on its 2.5 s
     await pg.tap('#klink');
     await pg.waitForTimeout(300);
     const afterTap = await read(pg);
@@ -268,6 +290,21 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(300);
     const later = await read(pg);
     say(first.label && first.label.hidden && later.label && !later.label.hidden && later.label.text === '5 days in a row in the Kosmos', 'retry: after a failed answer the next minute asks again and the label appears', JSON.stringify({ calls, first: first.label, later: later.label }));
+    await pg.close();
+  }
+
+  // a board that keeps saying no is asked a handful of times, not every minute forever
+  {
+    let calls = 0;
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    await pg.clock.install({ time: NOON });
+    await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"no"}' }).catch(() => {}); });
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
+    await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
+    await pg.clock.runFor(30 * 60 * 1000);
+    await pg.waitForTimeout(300);
+    say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
     await pg.close();
   }
 

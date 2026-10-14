@@ -2266,11 +2266,13 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kstreak { position: absolute; top: calc(100% + 8px); left: 0; z-index: 5; padding: 6px 10px;
   background: var(--bg-elevated); color: var(--label); border: 1px solid var(--separator); border-radius: 9px;
   box-shadow: 0 6px 22px rgba(20,22,26,.13); font-size: 0.8125rem; font-weight: 600; line-height: 1.3; white-space: nowrap;
-  opacity: 0; transform: translateY(-3px); transition: opacity .12s ease, transform .12s ease; pointer-events: none; }
+  opacity: 0; transform: translateY(-3px); pointer-events: none;
+  visibility: hidden; transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s; }   /* hidden at rest: read once, as the mark's description, not again as page text */
 .kstreak[hidden] { display: none; }
-.klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
-@media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; } }   /* a tap leaves :hover stuck on a touch screen */
-.kmark .kstreak.quiet { opacity: 0; transform: translateY(-3px); }   /* Escape put it away (WCAG 1.4.13); back on the next hover or focus */
+.klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; }
+@media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; } }
+.klink img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }   /* a long press is ours, not the image's save menu */   /* a tap leaves :hover stuck on a touch screen */
+.kmark .kstreak.quiet { opacity: 0; transform: translateY(-3px); visibility: hidden; }   /* Escape put it away (WCAG 1.4.13); back on the next hover or focus */
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
    data-scope (the control says what it operates on rather than assuming there
@@ -35290,7 +35292,7 @@ function streakLocalDay(d) {
 }
 function streakLabel(n) { return n === 1 ? '1 day in the Kosmos' : n + ' days in a row in the Kosmos'; }
 function streakCongrats(n) { return "Congrats you've been in the Kosmos for " + n + ' days!'; }
-let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0;   // the load itself is not input: it already counted its own day
+let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0, streakMisses = 0;   // the load itself is not input: it already counted its own day
 function streakNoteGone() {
   const slot = document.getElementById('streak-slot');
   if (!slot) return;
@@ -35325,21 +35327,24 @@ async function streakCheck() {
   streakAsking = true;
   try {
     const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today }), cache: 'no-store' });
-    if (!r.ok) return;
+    if (!r.ok) { streakMisses++; return; }
     const got = await r.json();
-    if (got && Number.isInteger(got.count) && got.count > 0) streakDay = today;   // a reply with no count is not a settled day: the next minute asks again
+    if (got && Number.isInteger(got.count) && got.count > 0) { streakDay = today; streakMisses = 0; } else streakMisses++;   // a reply with no count is not a settled day
     paintStreak(got);
-  } catch { /* the streak can wait */ } finally { streakAsking = false; }
+  } catch { streakMisses++; } finally { streakAsking = false; }
 }
 (() => {
   const lab = document.getElementById('kstreak'), k = document.getElementById('klink');
   // A phone has no hover: a long press on the mark shows the label for a moment, and that press does not also navigate.
   if (k && lab) {
     let held = null, swallow = false, shown = null;
+    let touchAt = 0;
+    const showLabel = () => { swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); };
     k.addEventListener('pointerdown', (e) => {
       swallow = false;   // a long press that ended with no click (Android raises contextmenu instead) must not eat this press
+      if (e.pointerType === 'touch') touchAt = Date.now();
       if (e.pointerType !== 'touch' || lab.hidden) return;
-      held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
+      held = setTimeout(() => { held = null; showLabel(); }, 400);   // under the platforms' own long press, which would cancel the press first
     });
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
     // Escape puts the label away without moving the pointer or focus; the next hover or focus brings it back.
@@ -35347,7 +35352,14 @@ async function streakCheck() {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lab.hidden && getComputedStyle(lab).opacity !== '0') { lab.classList.add('quiet'); lab.classList.remove('show'); } });   // only when it is up: Escape elsewhere must not silence the next hover
     for (const ev of ['focus', 'mouseenter']) k.addEventListener(ev, () => lab.classList.remove('quiet'));
     k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);   // leave: a finger that slides off the mark is not a long press
-    k.addEventListener('contextmenu', (e) => { if (swallow) e.preventDefault(); });
+    // Android raises its own long-press menu (and may cancel the pointer first): that IS the long press, so show the label there.
+    k.addEventListener('contextmenu', (e) => {
+      const touch = swallow || Date.now() - touchAt < 1500;
+      if (!touch || lab.hidden) return;
+      e.preventDefault();
+      if (!swallow) { cancel(); showLabel(); }
+    });
+    k.addEventListener('keydown', () => { swallow = false; });   // a keyboard Enter after a long press that raised no click is a real press
     // Capture phase: at the target, capture listeners run before the K mark's own click handler, whatever order they were added in.
     k.addEventListener('click', (e) => { if (swallow) { swallow = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
   }
@@ -35360,9 +35372,10 @@ for (const ev of ['pointerdown', 'keydown']) document.addEventListener(ev, () =>
 const streakLoadDay = streakLocalDay(new Date());   // asking again for the day this page opened on (a failed answer) needs no input
 setInterval(() => {
   if (document.hidden) return;
+  if (streakMisses >= 5) return;   // a board that keeps saying no is not asked every minute forever; coming back resets it
   if (streakLocalDay(new Date()) === streakLoadDay || Date.now() - streakInputAt < 10 * 60 * 1000) streakCheck();
 }, 60 * 1000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) streakCheck(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { streakMisses = 0; streakCheck(); } });
 
 // ---------------------------------------------------------------------------
 // Grid / list toggles. One handler, and the control NAMES what it operates on
