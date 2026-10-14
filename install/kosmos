@@ -3082,6 +3082,30 @@ cmd_keep_copy() {
   exit 0
 }
 
+# #6071 (slice D1): INTERNAL, the report hook's call when a Claude agent's tool call fails (PostToolUseFailure), not
+# for people, so no help row (like keep-copy). Sends the hook's digest (the tool, a signature of tool + input + error,
+# and the error's first line) to the board, which counts repeats of the same failure inside one turn
+# (engine/toolloop.js). Never the tool's input itself. The error line arrives on STDIN and the request body leaves on
+# curl's stdin, so neither is in an argument list `ps` shows. At most 3 s, and always exits 0.
+#   printf '%s' <error line> | kosmos tool-failed <tool> <signature>
+cmd_tool_failed() {
+  local _tool="${1:-}" _sig="${2:-}" _err
+  case "$_sig" in ''|*[!0-9a-f]*) exit 0 ;; esac
+  _err=""; [ -t 0 ] || _err="$(head -c 2000 2>/dev/null | head -1)"
+  # Cut BEFORE escaping, so a cut can never split an escape pair and leave the body unreadable.
+  # LC_ALL=C: a cut that lands inside a multibyte character must not make sed refuse the line.
+  _tf_esc() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | LC_ALL=C cut -c1-300 | LC_ALL=C sed 's/\\/\\\\/g; s/"/\\"/g'; }
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(agent_board_token || true)"
+  printf '{"tool":"%s","sig":"%s","error":"%s","from_pane":"%s"}' "$(_tf_esc "$_tool")" "$_sig" "$(_tf_esc "$_err")" "$(_tf_esc "${TMUX_PANE:-}")" \
+    | kosmos_curl "$_bt" "$_tok" -sS -m 3 -X POST "$URL/api/toolfail" -H 'content-type: application/json' --data-binary @- >/dev/null 2>&1 || true
+  exit 0
+}
+
 cmd_report() {
   local _clear=0
   # #2709: `report show` (alias `status`) is the READ-BACK -- an agent checking
@@ -4276,7 +4300,7 @@ kosmos_command_list() {
   printf '  kosmos status        say whether Kosmos is running, and where\n'
   printf '  kosmos open          open the dashboard in your browser, starting Kosmos if needed\n'
   printf '  kosmos agents        list the agent sessions running on this computer\n'
-  printf '  kosmos version       say which version of Kosmos this is\n'
+  printf '  kosmos version       say which version of Kosmos this is (also --version or -v)\n'
   printf '  kosmos update        install a newer Kosmos when one is published (only on a computer set to connect elsewhere; the app runs it)\n'
   printf '  kosmos msg           send a message to one agent\n'
   printf '  kosmos post          post in a project room\n'
@@ -5555,11 +5579,13 @@ case "${1:-}" in
   restart) agent_board_guard "$@"; cmd_restart ;;
   board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   keep-copy) shift; cmd_keep_copy "$@" ;;   # #5153: internal, the report hook's copy before an edit, not for people
+  tool-failed) shift; cmd_tool_failed "$@" ;;   # #6071: internal, the report hook's digest of a failed tool call, not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;
   adopt)   shift; cmd_adopt "$@" ;;
   version) cmd_version ;;
+  --version|-v) cmd_version ;;   # #6084: agents and people try --version first; it answered "Unknown"
   update)  shift; cmd_update "$@" ;;   # #4382: the Mac app's update look on a computer with no board
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;

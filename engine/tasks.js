@@ -1978,8 +1978,110 @@ function sameTextOpen(p, sentence, beforeNumber, { parent = null, detail = null,
   return out.slice(0, 3);
 }
 
+/* #6083: two agents added the same ask in the same minute in OTHER words, so #5319's same-text note never fired. A
+   second, weaker note covers that case, and it can never cost a task: it never says "close the new one", it names
+   the similar task and says to close one only if it is the same ask.
+   🔑 #5319's eight review rounds measured why a loose match is dangerous ("Email Alice" / "Email Bob", approve /
+   reject, "Do not enable" / "Enable", Dallas to Austin / Austin to Dallas, "-5" / "5", "x > 5" / "x < 5", a check
+   mark / a cross, C++ / C). So "near" is narrow, and every one of those is never near:
+   - the same words IN THE SAME ORDER once case and punctuation are set aside, or that with one FILLER word added or dropped
+     (both titles 3+ words: one word changes a two-word ask too much). Order is kept, so swapped places are never near, and a swap of one word for another (Alice /
+     Bob, approve / reject) is never near either. A reordered title is a miss, which costs only today's behaviour;
+   - and NEVER near when the numbers (with their signs), the symbols or the negating words differ.
+   (Decided 2026-10-13: an earlier draft also required the capitalized words to match, which refused the report's own
+   case, one agent writing "Meta" and the other "meta". Keeping word order covers swapped places without it.)
+   And only within NEAR_TASK_WINDOW_MS of the open task's creation: the report's case is two adds in the same minute,
+   and a short window keeps the note away from long-lived lookalikes. */
+const NEAR_TASK_WINDOW_MS = 10 * 60 * 1000;
+const NEGATING = new Set(['not', 'no', 'never', 'none', 'nor', 'without', 'dont', 'doesnt', 'didnt', 'isnt', 'arent',
+  'wasnt', 'werent', 'cannot', 'cant', 'wont', 'shouldnt', 'mustnt', 'neither', 'stop', 'skip', 'avoid', 'hasnt', 'havent',
+  'hadnt', 'couldnt', 'wouldnt', 'neednt', 'shant', 'aint', 'unless', 'except', 'nothing', 'nobody',
+  // Review 1: agents write in other languages too. The common negations of German, French, Spanish and Portuguese.
+  'nicht', 'kein', 'keine', 'keinen', 'nie', 'pas', 'jamais', 'rien', 'nunca', 'nada', 'nao', 'n\u00e3o', 'non']);
+/* Review 3: the ONE word added or dropped must be filler, from a short allow-list. A deny-list of words that change an
+   ask leaked in every round (prod, staging, admin, second, three, a dropped name: "Email Alice about the launch" /
+   "Email about the launch"), as #5319's rounds found for any loose rule. An allow-list cannot leak that way: anything
+   not on it is a miss, which costs only today's behaviour. Review 4: 'a' is not on it, because a single letter is often a
+   label ("Run variant A tests", DNS A records). 'now' and 'soon' stay: an urgent ask and the same ask unhurried are
+   near enough for a note that only says to close the new one if it is the same ask. */
+const FILLER = new Set(['now', 'please', 'pls', 'asap', 'the', 'an', 'soon', 'quickly', 'kindly', 'urgently']);
+/* Review 1: sentence punctuation is set aside; every other punctuation or symbol character counts, as in #5319 ("C#" is
+   not "C", "!=" is not "=", "50%" is not "50"). */
+/* Review 5: '?' is not set aside: a question ("Delete the logs?") is another ask than an order. */
+const SENTENCE_MARKS = new Set(Array.from('.,;:\'"\u2018\u2019\u201c\u201d()[]-\u2013\u2014'));
+const edgeMark = (c) => SENTENCE_MARKS.has(c);
+function titleShape(sentence) {
+  const raw = String(sentence == null ? '' : sentence).normalize('NFC');
+  /* Review 5: only sentence marks are trimmed from a word's ends. Every other character stays IN its word, in its
+     place: a symbol keeps its position ("C++ to C" / "C to C++", "> to >=" / ">= to >" are never near), and a
+     combining mark is part of its word (Devanagari \u0915\u093e and \u0915\u0940 stay two words). */
+  const trim = (w) => { const c = Array.from(w); let i = 0; let j = c.length;
+    while (i < j && edgeMark(c[i])) i += 1; while (j > i && edgeMark(c[j - 1])) j -= 1; return c.slice(i, j).join(''); };
+  const words = raw.split(/\s+/u).map(trim).filter(Boolean);
+  const lower = words.map((w) => w.toLowerCase().replace(/['\u2019\u02bc]/gu, ''));
+  // Review 2: a command-line flag ("--dry-run", "-x") changes how a thing runs; its leading dashes are not sentence
+  // punctuation, so the flags are compared as written.
+  // Review 6: a quoted or bracketed flag ("'--dry-run'", "(-f)") is still a flag.
+  const flags = raw.split(/\s+/u).map((w) => w.replace(/^[(\[{'"\u2018\u201c]+|[)\]}'"\u2019\u201d.,;:]+$/gu, ''))
+    .filter((w) => /^-{1,2}\p{L}/u.test(w)).map((w) => w.toLowerCase()).sort().join(' ');
+  return {
+    flags,
+    bag: lower,
+    // Review 6: an en or em dash before a digit is a minus sign (typographic autocorrect writes one).
+    // Review 7: a point or comma before the digit (".5") and a foot or inch mark after it (5' and 5") are part of it.
+    numbers: (raw.match(/[-+\u2212\u2013\u2014]?[.,]?\d[\d.,:]*['"]?/gu) || []).map((n) => n.replace(/^[\u2212\u2013\u2014]/u, '-')).join(' '),
+    symbols: Array.from(raw).filter((c) => /[\p{S}\p{P}]/u.test(c) && !SENTENCE_MARKS.has(c)).sort().join(''),
+    // Review 2: a hyphenated negation ("do-not") counts too.
+    negating: lower.flatMap((w) => w.split('-')).filter((w) => NEGATING.has(w)).sort().join(' '),
+  };
+}
+function isNearTitle(a, b) {
+  const x = titleShape(a);
+  const y = titleShape(b);
+  if (!x.bag.length || !y.bag.length) return false;
+  if (x.numbers !== y.numbers || x.symbols !== y.symbols || x.negating !== y.negating || x.flags !== y.flags) return false;
+  if (x.bag.join(' ') === y.bag.join(' ')) return true;
+  // One word added or dropped, order kept: removing one word from the longer gives the shorter.
+  const [long, short] = x.bag.length > y.bag.length ? [x.bag, y.bag] : [y.bag, x.bag];
+  if (long.length !== short.length + 1 || short.length < 3) return false;   // both 3+ words: a short title is generic
+  for (let i = 0; i < long.length; i += 1) {
+    if (long.slice(0, i).concat(long.slice(i + 1)).join(' ') === short.join(' ')) return FILLER.has(long[i]);
+  }
+  return false;
+}
+/* Open tasks, numbered below the new one (the later of two adds is the one told), under the same parent, for the same
+   people, added within the window, whose title is near but NOT the same text (#5319 names those), and not already under
+   way. At most three, oldest first. `made` is the stored task (its createdAt sets the window). */
+function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
+  if (!made || !Number.isInteger(made.number)) return [];
+  const madeAt = Date.parse(made.createdAt || '');
+  if (!Number.isFinite(madeAt)) return [];
+  const parent = Number.isInteger(made.parent) ? made.parent : null;
+  const people = (list) => [...new Set((list || []).filter((x) => typeof x === 'string' && x))].sort().join('\n');
+  const myWho = people(whoOf(made));
+  const mine = sameTaskText(made.sentence);
+  // Review 1 (#5319 review 7): the same title for another target is another ask, so the detail and checks must match.
+  const checks = (list) => (Array.isArray(list) ? list : []).map((c) => sameTaskText(c)).join('\n');
+  const myDetail = sameTaskText(made.detail);
+  const myChecks = checks(made.doneWhen);
+  const out = [];
+  for (const t of (p && Array.isArray(p.tasks)) ? p.tasks : []) {
+    if (!t || t.closedAt || !Number.isInteger(t.number) || t.number >= made.number) continue;
+    if ((Number.isInteger(t.parent) ? t.parent : null) !== parent) continue;
+    if (people(whoOf(t)) !== myWho || sameTaskText(t.detail) !== myDetail || checks(t.doneWhen) !== myChecks) continue;
+    const at = Date.parse(t.createdAt || '');
+    if (!Number.isFinite(at) || madeAt - at < 0 || madeAt - at > windowMs) continue;
+    if (sameTaskText(t.sentence) === mine) continue;
+    if (isOnHold(t) || t.dueDate || t.builtAt || partsOf(t).some((x) => x && x.closedAt)) continue;
+    if (!isNearTitle(t.sentence, made.sentence)) continue;
+    out.push({ number: t.number, sentence: t.sentence });
+  }
+  out.sort((a, b) => a.number - b.number);
+  return out.slice(0, 3);
+}
+
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
-  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };

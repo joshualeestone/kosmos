@@ -175,6 +175,27 @@ leak_family() {
     }'
 }
 
+# leak_kts_owners <root>: one line per `kts-` dir left in <root>, naming the test file that made it. A `kts-` dir
+# is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means its
+# sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
+# `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
+# unterminated owner line (a kill during the write) still reports.
+leak_kts_owners() {
+  local root="${1%/}" d owner pid
+  for d in "$root"/kts-*; do
+    [ -d "$d" ] || continue
+    owner=""
+    if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
+    if [ -n "$owner" ]; then
+      pid="pid unknown"
+      case "$owner" in *$'\t'*) pid=${owner#*$'\t'} ;; esac
+      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); its exit sweep did not run (killed, still running, or the sweep failed)"
+    else
+      echo "  ${d##*/}: no owner recorded (made by a tmpscope older than #6061, or the write failed)"
+    fi
+  done
+}
+
 # leak_tmp_check <root> <allowlist>: the families of entries left inside <root> that
 # no allowlist line matches. A line is a family name or a shell glob
 # (`aoc-state.*.polls`); `#` starts a comment. Allowlisted families that left nothing
@@ -199,7 +220,10 @@ leak_tmp_check() {
       # shellcheck disable=SC2254  # the pattern is a glob on purpose
       case "$fam" in $pat) ok=1; break ;; esac
     done <<< "$allowed"
-    if [ "$ok" -eq 0 ]; then echo "temp: $n x $fam (not on the allowlist; e.g. $ex)"; found=1; fi
+    if [ "$ok" -eq 0 ]; then
+      echo "temp: $n x $fam (not on the allowlist; e.g. $ex)"; found=1
+      [ "$fam" = kts ] && leak_kts_owners "$root"
+    fi
   done <<< "$left"
   while IFS= read -r pat; do
     [ -n "$pat" ] || continue

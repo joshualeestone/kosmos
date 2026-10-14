@@ -1,0 +1,180 @@
+'use strict';
+/**
+ * #6083: two agents added one ask in the same minute in OTHER words, and #5319's same-text note never fired. A second,
+ * weaker note now names an open task with a NEAR title added in the last few minutes, and never says "close the new
+ * one". Pure rows on tasks.isNearTitle (every #5319 counterexample is never near) and tasks.nearOpen, then the real
+ * route on a sandboxed board, including two adds sent at the same moment.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const os = require('node:os');
+const path = require('node:path');
+const fs = require('node:fs');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-6083-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
+process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const { start, server, boardAuthState } = require('./server');
+const projects = require('./engine/projects');
+const tasks = require('./engine/tasks');
+
+let base;
+test.before(async () => {
+  await start(0);
+  base = `http://127.0.0.1:${server.address().port}`;
+  assert.equal(boardAuthState.on, false, 'a fully-sandboxed board must not enforce');
+});
+test.after(() => {
+  try { server.close(); } catch { /* ignore */ }
+  fs.rmSync(SANDBOX, { recursive: true, force: true });
+});
+
+test('#6083: which titles are near (pure); every #5319 counterexample is never near', () => {
+  for (const [a, b, want, why] of [
+    ['Run the Meta pass', 'run the meta pass now', true, 'one word added, a name in another case'],
+    ['Run the Meta pass', 'Run the meta pass.', true, 'case and punctuation only'],
+    ['Review the onboarding copy', 'Review onboarding copy', true, 'one word dropped'],
+    ['Meta pass: run', 'Run Meta pass', false, 'reordered: a deliberate miss (order is kept)'],
+    ['Email Alice', 'Email Bob', false, '#5319: another person'],
+    ['Approve the PR', 'Reject the PR', false, '#5319: the opposite verb'],
+    ['Do not enable sync', 'Enable sync', false, '#5319: a negation'],
+    ['Not enable the sync', 'Enable the sync', false, 'a negation as the one added word'],
+    ['Fly Dallas to Austin', 'Fly Austin to Dallas', false, '#5319: swapped places'],
+    ['Set offset to -5', 'Set offset to 5', false, '#5319: a sign'],
+    ['Ship if x > 5', 'Ship if x < 5', false, '#5319: a comparison'],
+    ['Support C++', 'Support C', false, '#5319: a symbol in a name'],
+    ['Say \u2705 today', 'Say \u274c today', false, '#5319: a check mark is not a cross'],
+    ['Pay $5 now', 'Pay \u20ac5 now', false, '#5319: another currency'],
+    ['Draft the report for 2026', 'Draft the report for 2027', false, 'another number'],
+    ['Fix it', 'Fix it now', false, 'two-word titles are too generic for a word more'],
+    ['Write tests', 'Write more tests', false, 'two-word titles are too generic for a word more'],
+    ['', 'Run the pass', false, 'an empty title is never near'],
+    // Review 1: punctuation that carries meaning counts, as #5319's symbols do.
+    ['Support C#', 'Support C', false, 'review 1: C# is not C'],
+    ['Ship if x != 5', 'Ship if x = 5', false, 'review 1: != is not ='],
+    ['Refund 50% of the order', 'Refund 50 of the order', false, 'review 1: a percent'],
+    // Review 1: one added word that changes the scope or timing.
+    ['Delete all the old logs', 'Delete the old logs', false, 'review 1: all'],
+    ['Email only the sales team', 'Email the sales team', false, 'review 1: only'],
+    ['Run the migration later', 'Run the migration', false, 'review 1: later'],
+    ['Deploy to staging first', 'Deploy to staging', false, 'review 1: first'],
+    // Review 1: more negations, and another apostrophe.
+    ['We havent merged the PR', 'We merged the PR', false, 'review 1: havent'],
+    ['Don\u02bct enable the sync', 'Enable the sync', false, 'review 1: a U+02BC apostrophe'],
+    ['Aktiviere nicht den Sync', 'Aktiviere den Sync', false, 'review 1: German'],
+    ['Ne supprime pas les logs', 'Ne supprime les logs', false, 'review 1: French'],
+    // Review 2: flags, a hyphenated negation, and more which-one and how-often words.
+    ['Run the migrations --dry-run', 'Run the migrations', false, 'review 2: a flag'],
+    ['Commit all changes --no-verify', 'Commit all changes', false, 'review 2: a flag'],
+    ['Run the script -x', 'Run the script', false, 'review 2: a short flag'],
+    ['do-not merge the PR', 'merge the PR', false, 'review 2: a hyphenated negation'],
+    ['Merge the other PR', 'Merge the PR', false, 'review 2: other'],
+    ['Run the job twice', 'Run the job', false, 'review 2: twice'],
+    ['Delete the logs permanently', 'Delete the logs', false, 'review 2: permanently'],
+    // Review 3: the one word added or dropped must be filler; anything else is a miss.
+    ['Reset the prod database', 'Reset the database', false, 'review 3: prod'],
+    ['Grant admin access to bob', 'Grant access to bob', false, 'review 3: admin'],
+    ['Write the second draft', 'Write the draft', false, 'review 3: an ordinal'],
+    ['Buy the three licenses', 'Buy the licenses', false, 'review 3: a number word'],
+    ['Email Alice about the launch', 'Email about the launch', false, 'review 3: a dropped name'],
+    ['Run the Meta pass please', 'Run the Meta pass', true, 'review 3: filler (please) is near'],
+    ['Run variant A tests', 'Run variant tests', false, 'review 4: a single letter is a label'],
+    ['Check the A records', 'Check the records', false, 'review 4: DNS A records'],
+    ['Restart the server now', 'Restart the server', true, 'review 4: now is filler, by decision'],
+    ['Change > to >= in the check', 'Change >= to > in the check', false, 'review 5: swapped symbols'],
+    ['Replace == with === in auth', 'Replace === with == in auth', false, 'review 5: swapped operators'],
+    ['Migrate the parser from C++ to C', 'Migrate the parser from C to C++', false, 'review 5: a symbol keeps its word'],
+    ['\u0930\u093e\u092e \u0915\u093e \u0915\u093e\u092e \u0915\u0930\u094b', '\u0930\u093e\u092e \u0915\u0940 \u0915\u093e\u092e \u0915\u0930\u094b', false, 'review 5: a combining mark is part of its word'],
+    ['Delete the logs?', 'Delete the logs', false, 'review 5: a question is another ask'],
+    ['Run the Meta pass.', 'run the meta pass now', true, 'review 5: a full stop is still set aside'],
+    ["Run the migrations '--dry-run'", 'Run the migrations dry-run', false, 'review 6: a quoted flag'],
+    ['Run the migrations (--dry-run)', 'Run the migrations dry-run', false, 'review 6: a bracketed flag'],
+    ['Remove the file "-f"', 'Remove the file f', false, 'review 6: a double-quoted flag'],
+    ['Set the limit to \u20135', 'Set the limit to 5', false, 'review 6: an en-dash minus'],
+    ['Set the timeout to .5', 'Set the timeout to 5', false, 'review 7: a leading point'],
+    ['Cut the board to 5\'', 'Cut the board to 5"', false, 'review 7: feet and inches'],
+  ]) assert.equal(tasks.isNearTitle(a, b), want, `${a} | ${b}: ${why}`);
+});
+
+test('#6083: nearOpen: open, earlier, same parent and people, inside the window, not the same text, not under way', () => {
+  const now = Date.parse('2026-10-13T20:00:00Z');
+  const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+  const made = { number: 20, sentence: 'run the meta pass now', createdAt: at(0), who: 'meta' };
+  const P = { tasks: [
+    { number: 1, sentence: 'Run the Meta pass', createdAt: at(2), who: 'meta' },
+    { number: 2, sentence: 'Run the Meta pass', createdAt: at(11), who: 'meta' },
+    { number: 3, sentence: 'Run the Meta pass', createdAt: at(1), who: 'grok' },
+    { number: 4, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', parent: 9 },
+    { number: 5, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', closedAt: at(0) },
+    { number: 6, sentence: 'run the meta pass now', createdAt: at(1), who: 'meta' },
+    { number: 7, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', dueDate: '2026-10-20' },
+    { number: 30, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' },
+    // Review 1: the same title for another target, a time after the new task's, and the other under-way states.
+    { number: 8, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', detail: 'for PR 15' },
+    { number: 9, sentence: 'Run the Meta pass', createdAt: at(-1), who: 'meta' },
+    { number: 10, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', builtAt: at(0) },
+    { number: 11, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', parts: [{ sentence: 'x', closedAt: at(0) }] },
+    // Review 3: other done-when checks, and on hold.
+    { number: 12, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', doneWhen: ['the pass report is posted'] },
+    { number: 13, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta', onHold: true },
+  ] };
+  assert.deepEqual(tasks.nearOpen(P, made).map((t) => t.number), [1],
+    'only #1: #2 is outside the window, #3 is for someone else, #4 under another parent, #5 closed, #6 the same text (#5319 names it), #7 due, #8 another detail, #9 made after, #10 built, #11 a part closed, #12 other checks, #13 on hold, #30 is newer');
+  assert.deepEqual(tasks.nearOpen({ tasks: [{ number: 4, sentence: 'Run the Meta pass', createdAt: at(1), who: 'meta' }] }, { ...made, parent: 4 }), [],
+    'the task\'s own parent is never named (the same-parent rule is what excludes it)');
+  assert.deepEqual(tasks.nearOpen(P, { ...made, createdAt: 'not a time' }), [], 'no creation time, no window, no note');
+});
+
+const PID = 'p6083';
+function seed(list) {
+  const folder = fs.mkdtempSync(path.join(SANDBOX, 'pf-'));
+  projects.writeAll([{ id: PID, name: 'Research', folder, agents: [], taskCounter: list.length, tasks: list }]);
+}
+async function add(sentence) {
+  const res = await fetch(base + '/api/project/' + PID + '/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence }) });
+  return { code: res.status, json: await res.json() };
+}
+
+test('#6083: the route adds a near task and names the similar one, without telling anyone to close the new one', async () => {
+  seed([{ number: 1, sentence: 'Run the Meta pass', createdAt: new Date().toISOString(), closedAt: null, who: null }]);
+  const r = await add('run the meta pass now');
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.equal(r.json.task.number, 2, 'the task is ADDED as asked');
+  assert.equal(r.json.note, 'Note: a similar open task was added in the last few minutes: #1 (Run the Meta pass). '
+    + 'If it is the same ask, close this new one (#2); if it is a different ask, ignore this note.');
+  assert.doesNotMatch(r.json.note, /["\\]/, 'the note holds no double quote or backslash');
+  const other = await add('Update the onboarding copy');
+  assert.equal(other.json.note, undefined, 'CONTROL: a task like no other gets no note');
+  const same = await add('Run the Meta pass');
+  // The same text as #1: #5319 names #1; the near note names only #2 (near, not the same text), never #1 again.
+  // Review 2: the near note comes first, so #5319's copyable command stays the end of the line.
+  assert.match(same.json.note || '', /^Note: a similar open task was added in the last few minutes: #2 \(run the meta pass now\)\. If it is the same ask, close this new one \(#4\); if it is a different ask, ignore this note\. Note: an open task with the same text already exists: #1 \(Run the Meta pass\)\. If this is the same ask, close the new one: kosmos task close p6083 4$/, same.json.note);
+  assert.equal((same.json.note.match(/#1 \(/g) || []).length, 1, 'a task #5319 names is not named again');
+});
+
+test('#6083 review 5: two similar tasks are both named, in one plural note', async () => {
+  const now = new Date().toISOString();
+  seed([{ number: 1, sentence: 'Run the Meta pass', createdAt: now, closedAt: null, who: null },
+    { number: 2, sentence: 'Please run the Meta pass now', createdAt: now, closedAt: null, who: null }]);
+  const r = await add('run the meta pass now');
+  assert.equal(r.code, 200, JSON.stringify(r.json));
+  assert.equal(r.json.note, 'Note: similar open tasks were added in the last few minutes: #1 (Run the Meta pass), '
+    + '#2 (Please run the Meta pass now). If it is the same ask, close this new one (#3); if it is a different ask, ignore this note.');
+});
+
+test('#6083: two near adds sent at the same moment: the later one is told about the earlier', async () => {
+  seed([]);
+  const [a, b] = await Promise.all([add('Run the Grok pass'), add('run the grok pass now')]);
+  assert.equal(a.code, 200, JSON.stringify(a.json));
+  assert.equal(b.code, 200, JSON.stringify(b.json));
+  const [first, later] = a.json.task.number < b.json.task.number ? [a, b] : [b, a];
+  assert.equal(first.json.note, undefined, 'the earlier add is not told about a task that did not exist yet');
+  assert.match(later.json.note || '', new RegExp('^Note: a similar open task was added in the last few minutes: #' + first.json.task.number + ' '),
+    'the later add names the earlier: ' + later.json.note);
+});

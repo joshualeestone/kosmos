@@ -4543,6 +4543,9 @@ const kosmosHome = process.argv[2];
 const reporthook = require(path.join(kosmosHome, 'app', 'engine', 'reporthook.js'));
 const accounts = require(path.join(kosmosHome, 'app', 'engine', 'accounts.js'));
 const script = reporthook.hookScriptPath();
+/* #6071: PostToolUseFailure is wired only for a Claude Code that knows it (2.1.0+); an older one drops a settings
+   file naming it. Which claude decides each folder is accounts.claudeVersionForFolder, the same rule prepare uses. */
+const versionFor = (t) => { try { return accounts.claudeVersionForFolder(path.dirname(t)); } catch { return null; } };
 /* ⚠️ ONE HOME FOR BOTH HALVES of this loop: accounts.list() scans the HOME
    accounts resolved (AGENT_WORKFORCE_HOME first, for sandboxing), so the
    default ~/.claude target must resolve through THE SAME answer -- reading
@@ -4553,7 +4556,7 @@ const targets = [path.join(home, '.claude', 'settings.json')]
   .concat(accounts.list().filter((a) => !a.isDefault).map((a) => path.join(a.dir, 'settings.json')));
 let refused = 0;
 for (const t of targets) {
-  const got = reporthook.ensureWired(t, script);
+  const got = reporthook.ensureWired(t, script, { claudeVersion: versionFor(t) });
   if (got.wired !== true) refused += 1;
 }
 /* #3946: the same targets get the statusline that records the account's weekly

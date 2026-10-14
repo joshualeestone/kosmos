@@ -194,3 +194,89 @@ test('two copies of remove-at-end.js (two paths) still install ONE signal handle
   assert.equal(r.status, 0, String(r.stderr));
   assert.equal(String(r.stdout).trim(), '1');
 });
+
+test('#6061: a SIGKILL leaves its kts- dir, and .kts-owner in it names the test file that was killed', (t) => {
+  const base = freshBase(t);
+  const victim = path.join(base, 'victim-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+  assert.equal(r.signal, 'SIGKILL', 'the victim was not SIGKILLed: ' + String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, 'a SIGKILL did not leave exactly one kts- dir, so this cannot test what it is for: ' + entries(base));
+  const owner = fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8');
+  assert.match(owner, /^victim-6061\.test\.js\tpid \d+\n$/, 'the owner line does not name the killed file relative to its cwd');
+  assert.equal(owner.split('\t')[1].trim(), `pid ${r.pid}`, 'the owner line names another pid');
+});
+
+test('#6061: a process with no script file (node -e) records that it had none', (t) => {
+  const base = freshBase(t);
+  const r = spawnSync(process.execPath, ['-e', `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL')`], { env: { ...process.env, TMPDIR: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.match(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), /^\(no script, [^)/]+\)\tpid \d+\n$/, 'argv0 is not its basename, so a full node path reaches the log');
+});
+
+test('#6061 end to end: the leak guard reads the owner a killed process really wrote (not a hand-made line)', (t) => {
+  const base = freshBase(t);
+  const victim = path.join(base, 'victim-e2e.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const guard = path.join(__dirname, 'tools', 'lib', 'test-leak-guard.sh');
+  const g = spawnSync('bash', ['-c', '. "$1" && leak_kts_owners "$2"', 'g', guard, base], { encoding: 'utf8' });
+  assert.equal(g.status, 0, g.stderr);
+  assert.match(g.stdout, new RegExp(`^  kts-[A-Za-z0-9]{6}: made by victim-e2e\\.test\\.js \\(pid ${r.pid}\\); its exit sweep did not run \\(killed, still running, or the sweep failed\\)\\n$`));
+});
+
+test('#6061: a killed file outside its cwd is named by its absolute path, never a climb of ../', (t) => {
+  const base = freshBase(t);
+  const away = fs.mkdtempSync(path.join(base, 'away-'));
+  const victim = path.join(base, 'outside-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));   // HOME away from the victim, so no ~ applies here
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  const named = fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0];
+  assert.equal(named, fs.realpathSync(victim));
+});
+
+test('#6061 review 1: a killed file under the home folder is written with ~, so no user name reaches the log', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const away = fs.mkdtempSync(path.join(base, 'away-'));
+  const victim = path.join(base, 'homed-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: away, env: { ...process.env, TMPDIR: base, HOME: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '~/homed-6061.test.js');
+});
+
+test('#6061 review 2: a killed process whose cwd was deleted still names its file (by its absolute path)', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const gone = fs.mkdtempSync(path.join(base, 'gone-'));
+  const elsewhere = fs.mkdtempSync(path.join(base, 'home-'));
+  const victim = path.join(base, 'nocwd-6061.test.js');
+  fs.writeFileSync(victim, `process.chdir(${JSON.stringify(gone)});require('fs').rmdirSync(${JSON.stringify(gone)});`
+    + `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { env: { ...process.env, TMPDIR: base, HOME: elsewhere } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  assert.ok(!fs.existsSync(gone), 'fixture: the cwd was not deleted, so this proves nothing');
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], victim);
+});
+
+test('#6061 review 3: a file in the cwd whose name starts with two dots is named relative, not as a climb', (t) => {
+  const base = fs.realpathSync(freshBase(t));
+  const victim = path.join(base, '..dots-6061.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});process.kill(process.pid,'SIGKILL');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base, HOME: base } });
+  assert.equal(r.signal, 'SIGKILL', String(r.stderr));
+  const left = entries(base).filter((n) => n.startsWith('kts-'));
+  assert.equal(left.length, 1, String(entries(base)));
+  assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '..dots-6061.test.js');
+});

@@ -75,6 +75,14 @@ function backend() {
       }
       if (req.method === 'GET' && req.url.startsWith('/agents/me/following/feed')) {
         if (st.big) return send(200, { items: [], pad: 'x'.repeat(cs.RESPONSE_CAP) });
+        // #5636 F7c: st.pages pages the feed by cursor ('c1', 'c2', ...), as the service's keyset cursor does.
+        if (st.pages) {
+          const c = new URL(req.url, 'http://x').searchParams.get('cursor');
+          (st.feedCalls = st.feedCalls || []).push(c);
+          const i = c ? Number(c.slice(1)) : 0;
+          if (st.failPage === i) return send(503, { detail: 'down' });
+          return send(200, { items: st.pages[i] || [], next_cursor: i + 1 < st.pages.length ? 'c' + (i + 1) : null });
+        }
         return send(200, { items: st.feed, next_cursor: null });
       }
       if (req.method === 'POST' && req.url === '/posts') return send(201, { id: 'p' + (++st.n) });
@@ -592,6 +600,76 @@ test('#5636 F7: the followed agents\' posts are listed before their "Reply to:" 
     assert.ok(plain.text.includes('Newest from the agents you follow:'), plain.text);
     assert.ok(!plain.text.includes('their replies'), plain.text);
     assert.ok(!plain.text.includes('----- Below:'), 'a divider with no replies below it: ' + plain.text);
+  } finally { await b.close(); }
+});
+
+test('#5636 F7c: a page of replies does not crowd out the posts: older pages are read for posts only, at most FEED_PAGES_MAX', async () => {
+  fresh(); const b = await backend();
+  const neo = { name: 'NEO' };
+  const uuid = (n) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const reply = (n, day) => ({ kind: 'reply', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T12:00:00Z', channel: 'general', sub_channel: null,
+    body: 'REPLY' + n, post: { id: uuid(900 + n), title: 'Other ' + n, agent: { name: 'ZED' } }, parent_id: null });
+  const post = (n, day) => ({ kind: 'post', id: uuid(n), agent: neo, created_at: '2026-10-' + day + 'T10:00:00Z', channel: 'general', sub_channel: null,
+    body: 'POST' + n, post: { id: uuid(n), title: 'Post ' + n, agent: neo }, parent_id: null });
+  const tens = (from, day) => Array.from({ length: 10 }, (_, i) => reply(from + i, day));
+  try {
+    await cf.follow('mara', 'quill');
+    // Page 1: ten replies, one of them on a post page 2 carries. Page 2: replies and one post. Page 3: one post.
+    // Page 4: a post that must not be read.
+    const first = tens(1, '12');
+    first[9] = { ...first[9], post: { id: uuid(500), title: 'Post 500', agent: neo } };   // a reply on the older post 500
+    b.st.pages = [first, [...tens(11, '11').slice(0, 9), post(500, '11')], [post(501, '10')], [post(502, '09')]];
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.ok(r.text.includes('POST500') && r.text.includes('POST501'), 'the posts behind a page of replies were not read: ' + r.text);
+    assert.ok(!r.text.includes('POST502'), 'more than FEED_PAGES_MAX pages were read');
+    assert.deepEqual(b.st.feedCalls, [null, 'c1', 'c2']);
+    assert.ok(!r.text.includes('REPLY11'), 'a later page\'s reply was added');
+    assert.ok(r.text.includes('Reply to: Other 1\n') || r.text.includes('Reply to: Other 1 '), 'CONTROL: the first page\'s replies are kept: ' + r.text);
+    assert.ok(r.text.indexOf('Reply to: Other 9') > 0 && r.text.indexOf('POST501') < r.text.indexOf('Reply to: Other 9'), 'a post is listed after a reply');
+    assert.ok(r.text.includes('Newest posts from the agents you follow, then their replies'), r.text);
+    // The first page's reply on post 500 is listed under that post, not as a "Reply to:" entry of its own.
+    assert.ok(!r.text.includes('Reply to: Post 500'), 'a reply on a post now shown stayed a separate entry: ' + r.text);
+    assert.ok(r.text.includes('REPLY10'), 'the reply on post 500 was dropped');
+    b.st.feedCalls = [];
+    b.st.pages = [[...tens(1, '12').slice(0, 8), post(800, '12'), post(801, '12')], [post(802, '11'), post(803, '11'), post(804, '11')]];
+    const capped = await cf.readFollowing('mara');
+    assert.ok(capped.text.includes('POST802') && !capped.text.includes('POST803'), 'POST803 was shown: ' + capped.text);
+    // Enough posts on the first page: no further page is asked for.
+    b.st.feedCalls = [];
+    b.st.pages = [[post(600, '12'), post(601, '12'), post(602, '12'), reply(603, '12')], [post(604, '11')]];
+    await cf.readFollowing('mara');
+    assert.deepEqual(b.st.feedCalls, [null], 'a later page was read with enough posts on the first');
+    // A later page that fails costs only its posts; the first page is still shown.
+    b.st.feedCalls = [];
+    b.st.pages = [tens(1, '12'), [post(700, '11')]];
+    b.st.failPage = 1;
+    const down = await cf.readFollowing('mara');
+    b.st.failPage = undefined;
+    assert.equal(down.ok, true, down.because);
+    assert.ok(down.text.includes('None of the newest items from the agents you follow is a post'), down.text);
+    assert.deepEqual(b.st.feedCalls, [null, 'c1'], 'the failing page was never asked for, so this tests nothing');
+    // Review 3: each older page waits at most PAGE_WAIT_MS for the agent's call chain (the first page keeps the default).
+    const calls = [];
+    const real = cs.agentCall;
+    cs.agentCall = (k, m, p, o) => { calls.push({ p, waitMs: o && o.waitMs }); return real(k, m, p, o); };
+    try {
+      b.st.feedCalls = [];
+      b.st.pages = [tens(1, '12'), [post(710, '11')]];
+      await cf.readFollowing('mara');
+    } finally { cs.agentCall = real; }
+    const feedCalls = calls.filter((c) => c.p.startsWith('/agents/me/following/feed'));
+    assert.equal(feedCalls.length, 2, JSON.stringify(calls));
+    assert.equal(feedCalls[0].waitMs, undefined, 'the first page lost its default wait');
+    assert.equal(feedCalls[1].waitMs, cf.PAGE_WAIT_MS, 'an older page did not ask for the short PAGE_WAIT_MS wait');
+    // Review 3: no older page starts once READ_PAGES_MS has passed since the read began.
+    cf._setReadPagesMs(0);
+    try {
+      b.st.feedCalls = [];
+      const late = await cf.readFollowing('mara');
+      assert.equal(late.ok, true, late.because);
+      assert.deepEqual(b.st.feedCalls, [null], 'an older page started after the read-time bound');
+    } finally { cf._setReadPagesMs(null); }
   } finally { await b.close(); }
 });
 

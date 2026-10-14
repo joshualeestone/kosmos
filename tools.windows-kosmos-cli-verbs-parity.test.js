@@ -71,9 +71,9 @@ function macVerbsFromDispatch(text) {
   return verbs.filter((v) => !MAC_INTERNAL_VERBS.has(v));
 }
 
-/* Dispatched, but not for people: the supervised board entry (#2956) and the report hook's copy (#5153). No help row
-   and no Windows twin, by design. */
-const MAC_INTERNAL_VERBS = new Set(['board-run', 'keep-copy']);
+/* Dispatched, but not for people: the supervised board entry (#2956), the report hook's copy (#5153) and its digest of
+   a failed tool call (#6071; the Windows hook posts that itself). No help row and no Windows twin, by design. */
+const MAC_INTERNAL_VERBS = new Set(['board-run', 'keep-copy', 'tool-failed']);
 
 /* The verbs its help lists: #4785 made it one row per command (`printf '  kosmos start   start Kosmos...'`)
    inside kosmos_command_list(), where it had been one `kosmos start | stop | ...` line. */

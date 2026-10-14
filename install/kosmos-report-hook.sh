@@ -21,12 +21,14 @@
 #                        permission prompt, once the turn moves on; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
+#   PostToolUseFailure -> no report: `kosmos tool-failed`, a digest of the failed call the
+#                        board counts for the same failure repeating in one turn (#6071)
 #
 # ⚠️ THE TABLE ABOVE IS THE WHOLE TABLE, AND IT USED TO BE SPLIT. StopFailure
 # and SessionEnd sat BELOW the prose block that followed, so a sentence reading
 # "every line above" was true of five rows and silently false of seven (#1466).
 #
-# EVERY ONE OF THE SEVEN passes --auto, and that is the point rather than a
+# EVERY ONE OF THE SEVEN REPORTS passes --auto, and that is the point rather than a
 # detail: --auto means THE MACHINE WROTE THIS, not the agent (install/kosmos,
 # above cmd_report). This hook is the machine. It was once passed on the Stop
 # line alone, because it was added for #900's rule rather than for what it
@@ -470,6 +472,41 @@ case "$EVENT" in
       mkdir -p "$THROTTLE_DIR" 2>/dev/null; date +%s > "$MARK" 2>/dev/null || true
       report working --auto "running ${TOOL}"
     else report needs_you --auto "asking permission to use ${TOOL}${CMD:+: $CMD}"; fi ;;
+  PostToolUseFailure)
+    # #6071 (slice D1): one failed tool call, sent to the board as a digest so it can count the SAME failure repeating
+    # inside one turn (engine/toolloop.js). The signature is a hash of the tool, its input and the WHOLE error, made
+    # here, so the input never leaves this Mac; only the error's first line is sent to be shown. Without jq, the whole
+    # payload is hashed with its per-call fields (tool_use_id, duration_ms) taken out. An interrupt is the person
+    # stopping the call, not a failure, so it is not sent. In the background, like report(): nothing waits on it.
+    # The error line goes to the CLI on stdin, not in its arguments, where `ps` would show it.
+    if [ -n "$KOSMOS" ]; then
+      if [ -n "$JQ" ]; then TF_INTR=$(printf '%s' "$INPUT" | "$JQ" -r '.is_interrupt == true' 2>/dev/null)
+      # Without jq: Claude Code writes the top-level key as `"is_interrupt":<bool>,"duration_ms":` (2.1.296), so only that
+      # shape counts. A key of that name inside the error string is escaped (\") and cannot match; one inside tool_input
+      # is not followed by duration_ms. When the top-level key is left out, the call was not interrupted.
+      elif printf '%s' "$INPUT" | LC_ALL=C grep -q '"is_interrupt"[[:space:]]*:[[:space:]]*true[[:space:]]*,[[:space:]]*"duration_ms"'; then TF_INTR=true
+      else TF_INTR=false
+      fi
+      if [ "$TF_INTR" != true ]; then
+        TF_TOOL=$(json_field '.tool_name' 'tool_name'); TF_TOOL="${TF_TOOL:-a tool}"
+        # The sed fallback (no jq) returns the error still JSON-escaped, so there its first line also ends at a literal \n.
+        if [ -n "$JQ" ]; then TF_ERR=$(json_field '.error' 'error' | head -1 | cut -c1-300)
+        else TF_ERR=$(json_field '.error' 'error' | sed 's/\\n.*//' | cut -c1-300); fi
+        if command -v shasum >/dev/null 2>&1; then TF_HASH='shasum -a 256'; else TF_HASH='sha256sum'; fi
+        # What is hashed must not be empty: the hash of nothing is one constant, which would make every unreadable
+        # payload "the same failure".
+        if [ -n "$JQ" ]; then
+          TF_WHAT=$(printf '%s' "$INPUT" | "$JQ" -cS '[.tool_name, .tool_input, ((.error // "") | tostring)]' 2>/dev/null)
+        else
+          TF_WHAT=$(printf '%s' "$INPUT" | LC_ALL=C sed 's/"tool_use_id"[[:space:]]*:[[:space:]]*"[^"]*"//g; s/"duration_ms"[[:space:]]*:[[:space:]]*[0-9.eE+-]*//g')
+        fi
+        TF_SIG=''
+        [ -n "$TF_WHAT" ] && TF_SIG=$(printf '%s' "$TF_WHAT" | $TF_HASH 2>/dev/null | cut -c1-64)
+        if [ -n "$TF_SIG" ]; then
+          ( printf '%s' "$TF_ERR" | "$KOSMOS" tool-failed "$TF_TOOL" "$TF_SIG" >/dev/null 2>&1 & ) 2>/dev/null || true
+        fi
+      fi
+    fi ;;
   Stop)
     rm -f "$MARK" 2>/dev/null || true
     # #900: --auto, so this end-of-turn idle cannot erase a `blocked` or

@@ -50,6 +50,22 @@ printf '%s\n' "$out" | grep -q 'note: 2 allowlisted families left nothing' && ok
 unused_list=$(printf '%s\n' "$out" | sed -n 's/.*left nothing this run (\([^)]*\)).*/\1/p')
 [ "$unused_list" = "gone-family, other-gone" ] && ok "the families that left nothing are named, comma-separated, in sorted order" || bad "unused families named as '$unused_list': $out"
 printf '%s\n' "$unused_list" | grep -q -E 'codex-forget|aoc-state|tmp' && bad "a family that did leak is named as unused: $unused_list" || ok "families that leaked are not named as unused"
+# #6061: a kts- dir (tmpscope's TMPDIR, left when its exit sweep did not run or failed) names the file that made it.
+mkdir "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
+printf 'engine/killed-6061.test.js\tpid 4242\n' > "$root/kts-Ab12Cd/.kts-owner"
+out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
+[ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'temp: 2 x kts (not on the allowlist' && ok "a kts- leak fails the check like any family" || bad "kts leak: rc=$rc out=$out"
+printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/killed-6061.test.js (pid 4242); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: a kts- dir with an owner names the killed test file and pid" || bad "kts owner not named: $out"
+printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: a kts- dir without an owner says so rather than naming nothing" || bad "ownerless kts not reported: $out"
+[ "$(printf '%s\n' "$out" | grep -c ': made by \|: no owner recorded')" -eq 2 ] && ok "#6061: one owner line per kts- dir, none for the other leaked family (brand-new)" || bad "owner lines wrong count: $out"
+# review 1: an owner line cut by a kill mid-write (no newline, or empty) still reports, even under set -e.
+printf 'engine/cut.test.js' > "$root/kts-Zz99Yy/.kts-owner"
+rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: made by engine/cut.test.js (pid unknown); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: an unterminated owner line with no tab is still named under set -e" || bad "unterminated owner under set -e: rc=$rc out=$out"
+: > "$root/kts-Zz99Yy/.kts-owner"
+rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: an empty owner file reads as no owner under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+rm -rf "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
 [ "$rc" -eq 0 ] && ok "only allowlisted families left: clean" || bad "allowlisted-only root: rc=$rc"
