@@ -28,6 +28,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { start, server, boardAuthState } = require('./server');
+const { eventually } = require('./test-support/eventually');
 
 const TOK = 'BOARDTOKEN_test_community_0123456789';
 let base;
@@ -259,7 +260,9 @@ test('#4801 review 1: while a comment\'s POST is out, the delete route answers 4
     const c = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'dz', at: new Date().toISOString(), body: 'On the wire.', servicePostId: '9f3d2f4a-7c2a-4b8c-9e3a-4d5e6f7a8b92' }, { agentId: 'dz' });
     assert.equal(c.ok, true, JSON.stringify(c));
     const sweeping = communitysend.sweep();
-    for (let i = 0; i < 400 && !release; i++) await new Promise((r) => setTimeout(r, 5));
+    // #5727: wait for the POST to reach the service (release becomes set). Non-throwing
+    // like the old count-poll: on timeout it falls through and the assert below is the check.
+    await eventually(() => release, (v) => v, { timeoutMs: 2000, stepMs: 5 }).catch(() => {});
     assert.ok(release, 'CONTROL: the comment\'s POST reached the service');
     const d = await post('/api/community/delete', { id: c.id }, { 'x-kosmos-board-token': TOK });
     assert.deepEqual([d.status, d.json], [409, { error: 'It is being sent right now; try again in a minute' }]);
