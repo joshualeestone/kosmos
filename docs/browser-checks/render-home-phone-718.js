@@ -199,7 +199,10 @@ function emptySpot(page, sel) {
             const ada = document.querySelector('#grid .acard[data-agent="ada"]');
             if (!ada) return { error: 'no ada card' };
             const r = (sel) => { const e = ada.querySelector(sel); if (!e) return null; const b = e.getBoundingClientRect(); return { l: b.left, r: b.right, t: b.top, b: b.bottom }; };
-            return { columns: lefts.size, cards: cards.length, g: r('.agauge'), n: r('.aname'), m: r('.ameta'), st: r('.astate'), task: r('.atask') };
+            // Every child of an ordinary card sits in a named grid area: a new line the areas do not name would fall
+            // into an implicit row under the model line.
+            const unplaced = cards.flatMap((c) => [...c.children].filter((k) => getComputedStyle(k).display !== 'none' && getComputedStyle(k).gridArea.split('/').every((p) => p.trim() === 'auto')).map((k) => k.className));
+            return { columns: lefts.size, cards: cards.length, g: r('.agauge'), n: r('.aname'), m: r('.ameta'), st: r('.astate'), task: r('.atask'), unplaced };
           });
           if (card.error || !card.g || !card.n || !card.m || !card.st || !card.task) { chk(false, `${tag} the ada card and its parts are drawn`, JSON.stringify(card)); await ctx.close(); continue; }
           const beside = card.g.r <= card.n.l + 1 && card.g.r <= card.m.l + 1 && card.g.r <= card.st.l + 1;   // name, role and state right of the face
@@ -209,6 +212,7 @@ function emptySpot(page, sel) {
             // Two across on an iPad; one across on a 7 or 8 inch tablet, where two would leave a needs-you card too narrow.
             chk(card.cards >= 3 && card.columns === across, `${tag} #6107: the agent cards are ${across === 2 ? 'two' : 'one'} across`, JSON.stringify({ columns: card.columns, cards: card.cards }));
             chk(beside && stacked && under, `${tag} #6107: the face is on the left, name then state beside it, the task underneath`, JSON.stringify(card));
+            chk(card.unplaced.length === 0, `${tag} #6107: every line of every ordinary card is in a named grid area`, JSON.stringify(card.unplaced));
             // The shapes most likely to break: cleo needs you (the state pill carries an Answer button), and a long name
             // beside the 64px face. Nothing in the card may poke out of it, or under the face.
             const fit = await page.evaluate(() => {
