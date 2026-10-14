@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.47",
+  "lastProd": "0.7.49",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -382,7 +382,8 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "Long task and room messages arrive whole",
@@ -417,7 +418,8 @@
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "An agent's page shows the imports question",
@@ -425,7 +427,8 @@
       "icon": "chat",
       "rank": 7,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "The Agents list fits a narrow window",
@@ -471,7 +474,8 @@
       ],
       "rank": 4.5,
       "since": "0.7.49",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "A project says when goal planning is stuck",
@@ -479,6 +483,34 @@
       "icon": "tasks",
       "rank": 8.5,
       "since": "0.7.49",
+      "status": "shown",
+      "shownIn": "0.7.49"
+    },
+    {
+      "title": "Kosmos has its own iPad layouts",
+      "line": "On an iPad held upright, agent cards go two across and a project opens on its tasks; held sideways, agents and projects share one screen.",
+      "icon": "phone",
+      "rank": 3,
+      "since": "0.7.49",
+      "status": "pending"
+    },
+    {
+      "title": "Decision tasks say who needs you",
+      "line": "A task in Needs your decision now says which agent put it there, and why, in the same words as the project page.",
+      "icon": "tasks",
+      "rank": 6,
+      "since": "0.7.50",
+      "status": "pending"
+    },
+    {
+      "title": "Updates stop stealing focus",
+      "line": "When Kosmos restarts itself onto a new version while another app is in front, it now opens behind that app.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.50",
       "status": "pending"
     }
   ]

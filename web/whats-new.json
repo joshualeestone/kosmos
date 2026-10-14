@@ -1,36 +1,33 @@
 {
-  "version": "0.7.49",
+  "version": "0.7.50",
   "highlights": [
     {
-      "icon": "list",
-      "title": "See a Claude account's weekly usage",
-      "line": "Settings, AI Models can show a Claude account's weekly usage, which of this computer's agents run on it, and a way to move them.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "spark",
-      "title": "Qwen in Add a provider",
-      "line": "Add a provider now offers Qwen, run on this computer through Ollama or at an address you give, and asks before a large download.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "An agent says when a plugin cannot reach it",
-      "line": "When an agent on another Claude account, or on Codex, cannot use plugins you added, its page says so and that restarting will not help."
-    },
-    {
-      "icon": "chat",
-      "title": "An agent's page shows the imports question",
-      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question."
+      "icon": "phone",
+      "title": "Kosmos has its own iPad layouts",
+      "line": "On an iPad held upright, agent cards go two across and a project opens on its tasks; held sideways, agents and projects share one screen."
     },
     {
       "icon": "tasks",
-      "title": "A project says when goal planning is stuck",
-      "line": "A project's page says when Kosmos could not get an agent to plan toward its goal. It tries again; a project task gets work going sooner."
+      "title": "Decision tasks say who needs you",
+      "line": "A task in Needs your decision now says which agent put it there, and why, in the same words as the project page."
+    },
+    {
+      "icon": "spark",
+      "title": "Updates stop stealing focus",
+      "line": "When Kosmos restarts itself onto a new version while another app is in front, it now opens behind that app.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "list",
+      "title": "The Agents list fits a narrow window",
+      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short."
+    },
+    {
+      "icon": "list",
+      "title": "Quiet runs of a recurring task roll up",
+      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed."
     }
   ]
 }
