@@ -104,6 +104,9 @@ need_user() {
     return 0
   fi
   if [ "$APPLY" = 1 ]; then echo "refused: $STAGE runs as $1, not $(id -un)" >&2; exit 2; fi
+  # The owner's stages READ the caller's own launchd domain, crontab and gh: as anyone else there is no harmless dry run,
+  # only a verdict about the wrong account.
+  if [ "$1" = "$OWNER" ]; then echo "refused: $STAGE reads $OWNER's own launchd jobs, crontab and gh; run it as $OWNER, not $(id -un)" >&2; exit 2; fi
   echo "note: $STAGE runs as $1 (this is $(id -un)); a dry run only prints"
 }
 
@@ -521,7 +524,8 @@ EOF
       else problem "$RUNNER_DIR/.env does not set ACTIONS_RUNNER_HOOK_JOB_$k=$CI_DIR/$f: the job guard is not wired"; fi
     done
   fi
-  if [ -r "$CI_DIR" ] && [ -x "$CI_DIR" ]; then
+  if [ "$hidden" = 0 ] && [ ! -e "$CI_DIR" ]; then problem "no $CI_DIR: the job guard and its hooks are not installed"
+  elif [ -r "$CI_DIR" ] && [ -x "$CI_DIR" ]; then
     for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
       [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
     done
@@ -594,6 +598,6 @@ case "$STAGE" in
   register) register ;;
   verify) verify ;;
   machine-settings) machine_settings ;;
-  jq-programs) printf '%s\n' "$JQ_VAR" "$(jq_busy)" "$(jq_row)" ;;   # reads nothing; for the test
+  jq-programs) printf '%s\n' "$JQ_VAR" "$(jq_busy)" "$(jq_row)" ;;   # changes nothing; for the test
   *) echo "usage: tools/ci-runner-setup.sh [--apply] preflight | create-user | install <commit> <sha256> | register | verify | machine-settings | jq-programs" >&2; exit 2 ;;
 esac
