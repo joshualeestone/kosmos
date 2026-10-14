@@ -48898,6 +48898,8 @@ async function paintStyles(apply) {
   const ticket = ++STYLE_REQ;
   let r = null;
   try { r = await (await fetch('/api/style', { cache: 'no-store' })).json(); } catch { r = null; }
+  // #6107: a sideways tablet's layout is its own and needs no board value, so a failed read still applies it.
+  if (!r && ticket === STYLE_REQ && tabletLandscape()) { applyLayout(deviceLayout('tabs'), apply); return; }
   if (!r || ticket !== STYLE_REQ) return;
   if (apply) applyStyle(r.tokens);
   STYLE_LAYOUT = r.layout === 'consolidated' ? 'consolidated' : 'tabs';
