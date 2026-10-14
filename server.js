@@ -19402,7 +19402,7 @@ const server = http.createServer(async (req, res) => {
        (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
        and the existing render must agree on which arm this is. */
     let asText = false;
-    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
+    /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; messages.ROOM_READ_ROWS when not given or
        not a whole number in range, so an older CLI and a bad value both get what they always got). */
     let textRows = messages.ROOM_READ_ROWS;
     try {

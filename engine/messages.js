@@ -1080,7 +1080,8 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id; a room post, not a direct message), one shortly before another's post it answered there (N7), or a post
+     replyTo = that id; a room post, not a direct message), one within the room rows a read showing another's
+     post it answered there would show before it (N7), or a post
      older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
@@ -1110,10 +1111,12 @@ function staleHeld(projectId, ids, log, now, member) {
     /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
        the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
        before X that a room read showing X shows by default: at most the ROOM_READ_ROWS - 1 rows before it, of the
-       kinds the read shows (server.js caps outside rows, so a read can reach further back, never less far). */
+       kinds the read shows, in the order it shows them (server.js caps outside rows, so a read can reach further back,
+       never less far). */
     const covered = new Set();
     if (answered.size) {
-      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind));
+      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind))
+        .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
       room.forEach((x, i) => {
         if (x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
         const xAt = Date.parse(x.at);

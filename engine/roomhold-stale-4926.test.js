@@ -222,6 +222,13 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.ok(!far.has('m1024'), 'a post more than ROOM_READ_ROWS - 1 rows before the answered one was dropped');
   const near = messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...filler.slice(1), post('m1032', 32), answer], NOW, 'mark');
   assert.ok(near.has('m1024'), 'control: the post exactly ROOM_READ_ROWS - 1 rows before the answered one was kept');
+  // The window is in the read's order (by `at`), not the log's: a post appended late but started earlier sits before
+  // the answered post in the read and takes a slot there, so the oldest one falls outside.
+  const late = post('m1040', 33);
+  const lateLog = [post('m1024', 40), ...filler.slice(1), post('m1032', 32), late, answer];
+  assert.ok(!messages.staleHeld('p1', ['m1024'], lateLog, NOW, 'mark').has('m1024'), 'the window was counted in log order');
+  // A post at the same instant as the answered one is not before it.
+  assert.ok(!messages.staleHeld('p1', ['m1031'], [{ ...post('m1031', 32) }, post('m1032', 32), answer], NOW, 'mark').has('m1031'), 'a post at the same instant was covered');
   // Rows the room read does not show (a reaction) do not use up the window.
   const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
   assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
@@ -233,7 +240,10 @@ test('#4926 N7: ROOM_READ_KINDS is the list of row kinds the server room read ke
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('const rows = guideMaskedRows(rec.rows, null)');
   assert.notEqual(at, -1, 'the room read\'s row filter was not found');
-  const kept = new Set([...src.slice(at, at + 1500).matchAll(/m\.kind === '([a-z]+)'/g)].map((x) => x[1]));
+  // Only the first .filter of the chain: a later one names some kinds again. It guards a kind added on either side.
+  const end = src.indexOf('/* A note written for the agents', at);
+  assert.ok(end > at, 'the end of the room read\'s row filter was not found');
+  const kept = new Set([...src.slice(at, end).matchAll(/m\.kind === '([a-z]+)'/g)].map((x) => x[1]));
   assert.ok(kept.size >= 4, 'fixture: too few kinds read from the filter: ' + [...kept]);
   assert.deepEqual([...messages.ROOM_READ_KINDS].sort(), [...kept].sort(), 'the room read and staleHeld disagree on which rows a read shows');
 });

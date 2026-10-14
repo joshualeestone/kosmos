@@ -20,7 +20,8 @@ then, so they are taken with it and are not held afterwards.
 That the member saw the older posts when it saw X. The window is the most a DEFAULT read showing X can show. Not
 covered, so an older unseen post can still be dropped:
 - a read with a small -n, or a read made after many later rows (it showed X and fewer rows before it);
-- two sends interleaving: Y's send starts first (earlier `at`), X reaches the member first and takes the held list,
+- two sends interleaving (the window itself follows the read's order by `at`, so a late-appended row is counted
+  where the read shows it): Y's send starts first (earlier `at`), X reaches the member first and takes the held list,
   then Y is held. Milliseconds wide.
 Rejected for these: recording what each read showed per member (dropShown already clears what a token read showed;
 this rule exists for readers Kosmos cannot see), and dropping on any later post (an unrelated post would erase asks).
