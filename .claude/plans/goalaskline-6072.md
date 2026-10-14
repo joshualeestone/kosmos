@@ -23,8 +23,12 @@ merges. Card: joshualeestone/kosmos#6072 (the measured premise and the call are 
 - [BLOCKER as reported] the line missed the new look's own-row rule (flex: 1 0 100%) the paused line has --> added for
   parity, and docs/browser-checks/render-onhold-4771.js now renders it (injected on the board's own /api/projects
   answer) at light 1400 and dark 390: it shows, takes its own full-width row, and goes once the give-up does.
-  Measured: removing the rule still passes, because a sentence this long wraps to its own row anyway, so the reported
-  squeeze does not happen with these words; the check pins the outcome, the rule protects a shorter sentence later.
+  Measured: removing the rule still passes at both widths, because a sentence this long cannot sit beside the title
+  row, so the reported squeeze does not happen with these words. The row check therefore does not test the rule (said
+  in the check); the rule is kept for parity with the paused line.
+- Review 2: the block put the page in the new look and left it there; it now restores the look it found. The surface
+  gate mapped 'pj-one-view' to render-shell-noscroll-4872.js: run with this change, 72 of 72 pass, so a per-check
+  trailer says so.
 - [WARNING] rewritten on every 5 s poll, so a status line re-announced --> FIXED (written only on change; tested).
 - [WARNING] "today" / "tomorrow" were not what the board knows --> FIXED ("in the last day", "will try again later").
 - [WARNING] call sites unguarded --> FIXED (source pins on both, plus the render check).
