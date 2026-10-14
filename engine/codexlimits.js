@@ -23,6 +23,7 @@ const path = require('node:path');
 const FILES_TRIED = 3;   // reports compared
 const FILES_MAX = 6;     // files read at most, so busy sessions that never reported cannot hide one that did
 const DAYS_LISTED = 7;
+const LISTED_PER_HOME = 12;   // files stat'd per home at most (newest day folders first), so many agents stay cheap
 const TAIL_BYTES = 256 * 1024;
 
 /** One window `{ used_percent, window_minutes, resets_at }`, validated, or null. resetsAt in epoch ms. */
@@ -35,7 +36,6 @@ function windowOf(w) {
   return { usedPct: pct, windowMinutes: mins, resetsAt: resets * 1000 };
 }
 
-/** The `rate_limits` of one parsed rollout row, as `{ windows, plan }`, or null when the row carries none. */
 /* The row's report on the account's own bucket: `{ windows, plan }`, where windows may be empty (a report that names
    no current window still counts as the latest report). null when the row carries no rate_limits, or another bucket. */
 function limitsOfRow(row) {
@@ -74,7 +74,7 @@ function recentFiles(homes) {
   return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX).map((x) => x.f);
 }
 function filesIn(home) {
-  const root = path.join(home, 'sessions'), days = [];
+  const root = path.join(home, 'sessions'), days = [], files = [];
   for (const y of numbered(root)) {
     for (const m of numbered(path.join(root, y))) {
       for (const d of numbered(path.join(root, y, m))) { days.push(path.join(root, y, m, d)); if (days.length >= DAYS_LISTED) break; }
@@ -82,11 +82,14 @@ function filesIn(home) {
     }
     if (days.length >= DAYS_LISTED) break;
   }
-  const files = [];
   for (const dir of days) {
+    if (files.length >= LISTED_PER_HOME) break;   // newest day folders first: the rest are older sessions
     let names = [];
-    try { names = fs.readdirSync(dir).filter((n) => /^rollout-.*\.jsonl$/.test(n)); } catch { /* unreadable: skipped */ }
-    for (const n of names) { const f = path.join(dir, n); try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone: skipped */ } }
+    try { names = fs.readdirSync(dir).filter((n) => /^rollout-.*\.jsonl$/.test(n)).sort().reverse(); } catch { /* unreadable: skipped */ }
+    for (const n of names) {
+      if (files.length >= LISTED_PER_HOME) break;
+      const f = path.join(dir, n); try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone: skipped */ }
+    }
   }
   return files;
 }
@@ -124,9 +127,11 @@ function read(homes, now = Date.now()) {
       if (++found >= FILES_TRIED) break;   // three reports compared is enough; files with none do not count
     }
   } catch { return null; }
-  if (!best) return null;
-  const windows = best.windows.filter((w) => w.resetsAt > now);
-  return windows.length ? { windows, plan: best.plan, at: best.at } : null;   // the latest report decides, even when it is over
+  try {
+    if (!best) return null;
+    const windows = best.windows.filter((w) => w.resetsAt > now);
+    return windows.length ? { windows, plan: best.plan, at: best.at } : null;   // the latest report decides, even when it is over
+  } catch { return null; }
 }
 
-module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, FILES_MAX, DAYS_LISTED, TAIL_BYTES };
+module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, FILES_MAX, DAYS_LISTED, LISTED_PER_HOME, TAIL_BYTES };

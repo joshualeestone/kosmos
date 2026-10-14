@@ -11167,7 +11167,8 @@ const server = http.createServer(async (req, res) => {
            own folder AND each of its agents' private ones. A job with no configDir runs on the default account. */
         const codexHomes = (() => {
           const byDir = new Map(), onDefault = [];
-          try {
+          let walked = false;   // built on the first ChatGPT row only: an API-key-only list never walks the agents
+          const walk = () => { if (walked) return; walked = true; try {
             const runtime = require('./engine/codexruntime');
             for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
               const priv = runtime.forAgent(sessionName);
@@ -11176,8 +11177,8 @@ const server = http.createServer(async (req, res) => {
               if (!byDir.has(key)) byDir.set(key, []);
               byDir.get(key).push(priv);
             }
-          } catch { /* the account folder alone is still read */ }
-          return (a) => { let key = null; try { key = path.resolve(a.dir); } catch { key = null; } return [a.dir, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
+          } catch { /* the account folder alone is still read */ } };
+          return (a) => { walk(); let key = null; try { key = path.resolve(a.dir); } catch { key = null; } return [a.dir, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
         })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show

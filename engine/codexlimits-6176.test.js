@@ -153,6 +153,14 @@ test('several homes: the account folder and its agents\' private ones are read t
   assert.equal(codexlimits.read([], NOW), null);
 });
 
+test('a home lists at most LISTED_PER_HOME files, newest day folders first', () => {
+  const h = home();
+  writeRollout(h, '01', '09-00-00', [tokenRow('2026-10-01T09:00:00Z', rl(win(77, 10080, NOW + 864e5), null))]);   // the oldest folder
+  for (let i = 0; i < 12; i++) writeRollout(h, '14', '09-' + String(i).padStart(2, '0') + '-00', [{ timestamp: '2026-10-14T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+  assert.equal(codexlimits.LISTED_PER_HOME, 12);
+  assert.equal(codexlimits.read(h, NOW), null, 'twelve newer files fill the listing; the oldest folder is not listed');
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB
