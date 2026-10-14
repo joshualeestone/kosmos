@@ -144,7 +144,7 @@ refuse launchctl-unreadable "could not read launchctl print gui/" FX_LAUNCHCTL_F
 refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
-refuse shards-pair "would route shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
+refuse shards-pair "could route shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
 refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
 refuse gh-404-unseen "could not read the repo variables" FX_VARLIST_FAIL=1
@@ -262,8 +262,9 @@ run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD
 HK="$T/hookcheck"; mkdir -p "$HK"; cp "$CH/.kosmos-ci/job-started.sh" "$HK/"
 printf '#!/bin/bash\n: > "$(dirname "$0")/cleanup-ran"\n' > "$HK/job-cleanup.sh"
 printf '#!/bin/bash\nexit 1\n' > "$HK/job-guard.sh"; chmod 755 "$HK/"*
+[ -x "$HK/job-started.sh" ] || fail "install --apply wrote no job-started.sh to test"
 "$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
-[ "$hrc" != 0 ] && [ ! -e "$HK/cleanup-ran" ] && pass "job-started stops on a guard refusal, before cleanup" || fail "job-started with a refusing guard: rc $hrc, cleanup ran: $([ -e "$HK/cleanup-ran" ] && echo yes || echo no)"
+[ -x "$HK/job-started.sh" ] && [ "$hrc" != 0 ] && [ ! -e "$HK/cleanup-ran" ] && pass "job-started stops on a guard refusal, before cleanup" || fail "job-started with a refusing guard: rc $hrc, cleanup ran: $([ -e "$HK/cleanup-ran" ] && echo yes || echo no)"
 printf '#!/bin/bash\nexit 0\n' > "$HK/job-guard.sh"
 "$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
 [ "$hrc" = 0 ] && [ -e "$HK/cleanup-ran" ] && pass "job-started runs cleanup once the guard admits the job" || fail "job-started with an admitting guard: rc $hrc"
