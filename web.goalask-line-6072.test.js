@@ -22,7 +22,7 @@ test('a project the Assigner gave up on today says who it could not reach, and w
   const { paint, line } = rig(false);
   paint({ id: 'p1', name: 'Feedback', goalAskGaveUp: GAVE });
   assert.equal(line().hidden, false);
-  assert.equal(line().textContent, 'Kosmos could not reach Echo to plan the next work toward this project\'s goal (3 tries today). It will ask again tomorrow; to start sooner, give the project a task.');
+  assert.equal(line().textContent, 'Kosmos could not reach Echo to plan the next work toward this project\'s goal (3 tries in the last day). It will try again later; to start sooner, give the project a task.');
   assert.doesNotMatch(line().textContent, /this Mac/, 'person-facing words say this computer, never this Mac');
 });
 
@@ -34,7 +34,7 @@ test('no line when nothing gave up, and the line clears when the give-up goes (c
   assert.equal(line().hidden, true);
   assert.equal(line().textContent, '', 'a cleared give-up left its words behind');
   paint({ id: 'p2', name: 'Other' });
-  assert.equal(line().hidden, true, 'a project with no field (an older board) shows a line');
+  assert.equal(line().hidden, true, 'a project with no field (an older board) showed a line');
 });
 
 test('a read that failed shows no line, even with a give-up on the last good copy', () => {
@@ -51,6 +51,32 @@ test('the agent name is set as text, never as markup', () => {
   assert.doesNotMatch(page.liftAll(SCRIPT, ['paintGoalAsk']), /innerHTML/, 'the line is written as markup');
 });
 
-test('the line sits under the project name, beside the paused line, as a status', () => {
-  assert.match(HTML, /id="pj-one-paused"[^>]*><\/p>\s*<!-- kosmos#6072[\s\S]*?-->\s*<p class="dhint" id="pj-one-goalask" role="status" hidden><\/p>/);
+test('the line sits under the project name, beside the paused line, styled and laid out as that line is', () => {
+  assert.match(HTML, /id="pj-one-paused"[^>]*><\/p>\s*<!-- kosmos#6072[\s\S]*?-->\s*<p class="dhint pj-paused-line" id="pj-one-goalask" role="status" hidden><\/p>/);
+  // Review 1: in the new look each header line takes its own row (flex: 1 0 100%), as the paused line does.
+  assert.match(HTML, /#pj-one-view \.pjmidhead #pj-one-goalask,[^\n]*\n[\s\S]{0,400}?\{ flex: 1 0 100%; \}/);
+});
+
+test('review 1: it is painted wherever the header pause line is, including the failed-read path (source pins)', () => {
+  assert.match(SCRIPT, /paintHeadPause\(p\);\s*\/\/ kosmos#5391\s*\n\s*paintGoalAsk\(p\);/, 'paintOneProject does not paint the line');
+  assert.match(SCRIPT, /paintHeadPause\(pjById\(PJ_CURRENT\)\);[^\n]*\n\s*try \{ if \(PJ_CURRENT\) paintGoalAsk\(pjById\(PJ_CURRENT\)\); \}/, 'the failed-read path does not hide the line');
+});
+
+test('review 1: a repaint with nothing changed writes nothing (no re-announce every poll); one try reads "1 try"', () => {
+  const { paint, line } = rig(false);
+  paint({ id: 'p1', goalAskGaveUp: GAVE });
+  let writes = 0;
+  const l = line();
+  const text = l.textContent;
+  let hid = l.hidden;
+  Object.defineProperty(l, 'textContent', { get: () => text, set: () => { writes += 1; } });
+  Object.defineProperty(l, 'hidden', { get: () => hid, set: (v) => { writes += 1; hid = v; } });
+  paint({ id: 'p1', goalAskGaveUp: GAVE });
+  assert.equal(writes, 0, 'an unchanged repaint rewrote the status line');
+  const r2 = rig(false);
+  r2.paint({ id: 'p1', goalAskGaveUp: { ...GAVE, tries: 1 } });
+  assert.match(r2.line().textContent, /\(1 try in the last day\)/);
+  const r3 = rig(false);
+  r3.paint({ id: 'p1', goalAskGaveUp: { ...GAVE, tries: 'many' } });
+  assert.equal(r3.line().hidden, true, 'a count the board never sends was shown');
 });

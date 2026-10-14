@@ -1,4 +1,4 @@
-// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
+// Browser-check-surface: tsk-paused tsk-groups tk-hold tk-hold-msg tk-hold-hint tk-activity pj-one-pause pj-one-pause-label pj-one-pause-hint pj-one-pause-msg tsk-tiles tk-repeat-every tk-repeat-day tk-repeat-at tk-repeat-save tk-repeat-line tk-repeat-msg tkPaintRepeat pj-head-pause pj-one-paused pj-head-pause-msg paintHeadPause pjTogglePause pj-one-goalask paintGoalAsk tk-review-row tk-review-who tk-review-msg tkPaintReviewer tkReviewerOf
 'use strict';
 /**
  * On hold and paused, on the screen (kosmos#4771).
@@ -11,6 +11,9 @@
  *  - a project's settings offer "Pause it"; pressing it pauses the project ("Resume it", "This project is paused"),
  *    its task then counts under On hold, and that task's page says the project is paused,
  *  - taking the task off hold and resuming the project brings On hold back to zero,
+ *  - kosmos#6072: a project the Assigner gave up on today (injected on the board's own /api/projects answer) shows the
+ *    goal-ask line under its name, on its own full-width row in the new look (the phone layout #5391 review 1 fixed for
+ *    the paused line), and the line goes once the give-up does (the control),
  *  - light 1400 and dark 390, with no sideways scroll and no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -212,6 +215,39 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => /Pause/.test(document.getElementById('pj-head-pause').textContent), null, { timeout: 5000 }).catch(() => {});
       chk(/^\s*Pause\s*$/.test(await text(page, '#pj-head-pause') || '') && await page.isHidden('#pj-one-paused'),
         `${tag} #5391 Resume resumes it, and the Paused line goes`, await text(page, '#pj-head-pause'));
+      /* kosmos#6072: the goal-ask line. The board's real answer, with a give-up added to this project only (the
+         Assigner never runs here); then the same answer without it, so the line must go (the control). */
+      const GAVE = { at: Date.now() - 60000, tries: 3, agent: 'Echo', session: 'echo', because: 'could_not' };
+      let inject = true;
+      await page.route('**/api/projects', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        let res; let body;
+        try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
+        for (const proj of body.projects || []) if (proj.id === winter.id) proj.goalAskGaveUp = inject ? GAVE : null;
+        try { await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
+      });
+      await page.evaluate(() => { document.documentElement.setAttribute('data-look', 'new'); });
+      await page.evaluate(async (pid) => { await pjReload(); tskGoToProject(pid); }, winter.id);
+      await page.waitForFunction(() => { const e = document.getElementById('pj-one-goalask'); return e && !e.hidden; }, null, { timeout: 8000 }).catch(() => {});
+      chk(await page.isVisible('#pj-one-goalask')
+        && /^Kosmos could not reach Echo to plan the next work toward this project's goal \(3 tries in the last day\)/.test(await text(page, '#pj-one-goalask') || ''),
+        `${tag} #6072 a project the Assigner gave up on today says so under its name`, await text(page, '#pj-one-goalask'));
+      const row = await page.evaluate(() => {
+        const e = document.getElementById('pj-one-goalask');
+        const head = e && e.closest('.pjmidhead');
+        if (!e || !head) return null;
+        const r = e.getBoundingClientRect(); const h = head.getBoundingClientRect();
+        return { w: Math.round(r.width), hw: Math.round(h.width), x: Math.round(r.left - h.left) };
+      });
+      /* Measured: this holds with or without the line's flex: 1 0 100% rule (removing it still passes at 390), because a
+         sentence this long cannot fit beside the title row and wraps to its own. The rule is kept for parity with the
+         paused line, so a shorter sentence later still gets its own row; this check pins the outcome, not the rule. */
+      chk(!!row && row.w >= row.hw - 2 && row.x <= 2, `${tag} #6072 the goal-ask line takes its own full-width row (not squeezed beside the title row)`, JSON.stringify(row));
+      inject = false;
+      await page.evaluate(async (pid) => { await pjReload(); tskGoToProject(pid); }, winter.id);
+      await page.waitForFunction(() => { const e = document.getElementById('pj-one-goalask'); return e && e.hidden; }, null, { timeout: 8000 }).catch(() => {});
+      chk(await page.isHidden('#pj-one-goalask'), `${tag} #6072 the line goes once the give-up does (control)`, await text(page, '#pj-one-goalask'));
+      await page.unroute('**/api/projects');
       await openTask(page, launch.id, 1);
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
