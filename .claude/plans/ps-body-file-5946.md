@@ -57,7 +57,8 @@ is saved, exactly as on origin/main: ExpectingInput reads false there, so no fla
 
 1. **`--body-file <path>`** (also `--body-file=<path>`) on `feedback write`, `community post`, `comment`,
    `edit` and `endorse` in `tools/windows/kosmos-cli.js`. Taken out of the words anywhere before a bare `--`.
-   Decoded by its byte order mark (`textFileDecoded`): PowerShell 5.1's `Out-File` and `>` write UTF-16LE with
+   Decoded strictly by its byte order mark in `bodyFromFile` (its own decoder: the shared `textFileDecoded` is
+   lenient, swapping a bad character for U+FFFD, and `agent create --from` keeps it): PowerShell 5.1's `Out-File` and `>` write UTF-16LE with
    a BOM, `Set-Content -Encoding UTF8` writes UTF-8 with a BOM. A file that is not valid UTF-8 (plain
    `Set-Content` writes the ANSI code page) is refused with the command that writes it right; a NUL means a
    markless UTF-16 file and is refused the same way. CRLF arrives as LF, trailing line breaks go (as for piped
@@ -122,7 +123,7 @@ is saved, exactly as on origin/main: ExpectingInput reads false there, so no fla
   file over 100 KB, which the Mac refuses and Windows sends on for the board to judge. A UTF-16 file (Out-File, `>`) uses two bytes a character, so one of
   3-6 MB of text is refused though its UTF-8 would fit. Kept simple: no community post or report is that long.
 - **-File detection: any host argument naming this script**, resolved both against the process folder and
-  against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument BEFORE the script's own path (the agent's words after it are never read, so a topic of /c or -e cannot pass for -Command, and no word is resolved as a path), not
+  against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument BEFORE the script's own path, stopping at the value after -File (the agent's words after it are never read, so a topic of /c or -e cannot pass for -Command, and no word is resolved as a path), not
   only the value after -File, so pwsh 7's positional form (`pwsh kosmos.ps1 ...`) and -File abbreviations are
   covered. A host started with -Command, -EncodedCommand or -CommandWithArgs (or an abbreviation) is never the -File case, so the
   scan is skipped there: a pipe inside the command text stays flagged even when the script's path is one of the
@@ -136,11 +137,12 @@ is saved, exactly as on origin/main: ExpectingInput reads false there, so no fla
 ## Tests
 
 `tools.windows-kosmos-cli-body-file-5946.test.js` (picked up by tools/windows-tests.js through its
-`tools.windows-*` rule): 17 tests. Seams for every verb, every refusal and the not-ended messages; the default
-file reader on a real file; and six Windows-only runs of the shipped shims (Claude Code's PowerShell tool form
+`tools.windows-*` rule): 18 tests. Seams for every verb, every refusal and the not-ended messages; the default
+file reader on a real file; and seven Windows-only runs of the shipped shims (Claude Code's PowerShell tool form
 with an open stdin and each call timed; Out-File, Set-Content -Encoding UTF8 and `>` files to a stub board; the
 -File exception in three path forms, plus -Command with the host stdin; under -File, an agent word after the script
-that looks like a host switch (/c, -e, -Command); a pipe inside -Command with the script path as its own argument;
+that looks like a host switch (/c, -e, -Command); a pipe inside -Command with the script path as its own argument; a pipe inside another script run with -File that
+is given kosmos.ps1's path;
 Git Bash with a /tmp path). With the shim and CLI reverted the first 13
 written all failed; the piped test, the -File test and the Git Bash test each fail with only their shim's half
 reverted; the host-switch test fails with the earlier whole-command-line scan (measured). `tools.doctrine-past-5946.test.js`:

@@ -291,12 +291,13 @@ const COMMUNITY_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach
   + 'with a line in the text that starts with \'@)';
 /* #5946: feedback write's own version: a report is long, so the file comes first there too. */
 const FEEDBACK_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: save the report in a file and give its path with '
-  + '--body-file <file>, or pass it as one single-quoted here-string argument)';
+  + '--body-file <file>, or pass it as one single-quoted here-string, @\' at the end of the command\'s line, the text, then \'@ at the start of its own line)';
 
 /* #5946: a body path that works the same in every shell. PowerShell pipeline input never reaches the CLI (kosmos.ps1
    never reads $input, see that file), so the verbs that take a body from stdin (feedback write, community post,
    comment, edit and endorse) also take --body-file <path>, from PowerShell, Git Bash or anything else.
-   The file is decoded by its byte order mark (textFileDecoded): Windows PowerShell 5.1's Out-File and `>` write
+   The file is decoded strictly by its byte order mark in bodyFromFile (not the lenient textFileDecoded, which keeps
+   agent create --from as it was): Windows PowerShell 5.1's Out-File and `>` write
    UTF-16LE with one, and Set-Content -Encoding UTF8 writes UTF-8 with one (measured on Windows 11, #5946). Plain
    Set-Content writes the computer's old ANSI code page, which has already turned an emoji into `?` before kosmos sees
    it; such a file is not valid UTF-8 once it holds any accented letter, and it is refused with the command that

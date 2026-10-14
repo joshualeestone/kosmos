@@ -451,6 +451,24 @@ test('#5946 PowerShell: under -File, an agent word after the script that looks l
   } finally { await board.close(); try { removeZip(root); } finally { removeTree(data); } }
 });
 
+test('#5946 PowerShell: a pipe inside ANOTHER script run with -File is refused at once, even when kosmos.ps1 is one of that script\'s arguments', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  /* The value after -File ends the host-argument scan: it names the script that was started, and the arguments
+     after it are that script's own, never read as the host's. */
+  const root = zipRoot();
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-5946-data-'));
+  try {
+    const env = Object.assign({}, process.env, { AGENT_WORKFORCE_DATA: data, AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/collector' });
+    for (const k of ['KOSMOS_WORLD', 'NODE_OPTIONS', 'KOSMOS_AGENT_TOKEN_ONLY']) delete env[k];
+    const ps1 = path.join(root, 'bin', 'kosmos.ps1');
+    const runner = path.join(data, 'runner.ps1');
+    fs.writeFileSync(runner, "param($k)\n'a report' | & $k feedback write\n\"REXIT=$LASTEXITCODE\"\n");
+    const r = cp.spawnSync(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', runner, ps1], { env, input: '', encoding: 'utf8', timeout: 60000 });
+    const out = r.stdout + r.stderr;
+    assert.match(out, /Nothing was saved: text piped into kosmos in PowerShell does not reach it/, out);
+    assert.match(out, /REXIT=2/, out);
+  } finally { try { removeZip(root); } finally { removeTree(data); } }
+});
+
 test('#5946: reply/msg/post --stdin and connect refuse a PowerShell pipe at once too (their read waits up to 120 s / 3 s)', async () => {
   for (const [words, why] of [
     [['reply', '--stdin'], /Nothing was kept: text piped into kosmos in PowerShell does not reach it, so --stdin has nothing to read there\.\nPass it as one single-quoted here-string after the command instead, without --stdin.*plain single quotes end at an apostrophe/],

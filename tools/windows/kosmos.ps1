@@ -52,15 +52,17 @@ if ($pipedIn -and $PSCommandPath) {
   # (after it come the agent's words, which are never read here, so a word like /c or -e
   # cannot pass for a host switch and no word is resolved as a path) or the first
   # -Command / -EncodedCommand / -CommandWithArgs switch (a pipe inside its text is a real
-  # in-session one, even when the script's path is one of the arguments after it). When the
-  # script is not among them at all (a pipe inside another script run with -File), every
-  # argument is read; none matches, so the flag is sent, which is right for that pipe.
+  # in-session one, even when the script's path is one of the arguments after it). The value
+  # after -File ends the scan too: it is this script (the flag is not sent) or another one
+  # (a pipe inside that script is a real in-session one, and its own arguments are not read).
   $hostArgs = [Environment]::GetCommandLineArgs()
+  $fileValue = $false
   for ($i = 1; $i -lt $hostArgs.Count; $i++) {
     $named = $hostArgs[$i]
-    if ($named -match '^(?:--?|/)(\w+)$') {
+    if (-not $fileValue -and $named -match '^(?:--?|/)(\w+)$') {
       $n = $Matches[1].ToLowerInvariant()
       if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec' -or 'commandwithargs'.StartsWith($n) -or $n -eq 'cwa') { break }
+      if ('file'.StartsWith($n)) { $fileValue = $true; continue }
     }
     # Two readings: against the process directory, and against PowerShell's own location
     # (where a relative path resolves after pwsh's -WorkingDirectory).
@@ -68,6 +70,7 @@ if ($pipedIn -and $PSCommandPath) {
     try { $candidates += [IO.Path]::GetFullPath($named) } catch { }
     try { $candidates += (Resolve-Path -LiteralPath $named -ErrorAction Stop).ProviderPath } catch { }
     if ($candidates -contains $PSCommandPath) { $pipedIn = $false; break }
+    if ($fileValue) { break }
   }
 }
 $pipeFlag = @()
