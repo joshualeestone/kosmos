@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 130 ok. Eighty-seven mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 132 ok. Eighty-nine mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -53,7 +53,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
   without the KOSMOS_ check; then the runner row unsorted, busy read from any runner, an empty df read as 0 GiB;
   then shards_check routing 'all' or splitting on commas only (both caught by the parity test), the guard pin
-  unchecked, the temp's dotfiles kept).
+  unchecked, the temp's dotfiles kept; then the same-account refusal by name and by uid removed).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
@@ -108,3 +108,5 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   does) runs on twelve values, and preflight must refuse exactly the ones it routes.
 - verify never needs kosmos-ci signed in to gh: its API half runs as the owner. kosmos-ci's home stays 750 so the
   owner can read the file half; a gh token in kosmos-ci's home would be readable by every admitted job.
+- Every stage refuses, dry or not, when the CI user is the owner by name or by uid: the cleanup hook ends every tmux
+  and node process of the CI user, which would be the agents'.

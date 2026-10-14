@@ -47,7 +47,15 @@ case "$me" in
     case "$1" in
       -un) echo "${FX_WHO:-agent1}" ;;
       -Gn) [ "${FX_GROUPS_FAIL:-0}" = 1 ] && exit 1; echo "${FX_GROUPS:-staff everyone}" ;;
-      -u) echo 777 ;;
+      -u)   # per user: agent1 501, kosmos-ci 777 once it exists (or 501 with FX_SAME_UID), anyone else 900
+        u="${2:-${FX_WHO:-agent1}}"
+        case "$u" in
+          agent1) echo 501 ;;
+          kosmos-ci) if [ -z "${2:-}" ] || [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ]; then
+                       [ "${FX_SAME_UID:-0}" = 1 ] && echo 501 || echo 777
+                     else exit 1; fi ;;
+          *) echo 900 ;;
+        esac ;;
       *) [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
     esac ;;
   xcode-select) [ "${FX_NO_CLT:-0}" = 1 ] && exit 2; echo /Library/Developer/CommandLineTools ;;
@@ -251,6 +259,10 @@ run pf-groups "$H" FX_CI_EXISTS=1 FX_GROUPS_FAIL=1 -- preflight
 [ "$(rc pf-groups)" = 1 ] && has pf-groups "could not read kosmos-ci's groups" && pass "preflight: unreadable groups refuse rather than read as standard" || fail "preflight groups: rc $(rc pf-groups)"
 run cu-note "$H" FX_WHO=someone -- create-user
 [ "$(grep -c 'runs as agent1' "$T/cu-note.out")" = 1 ] && pass "create-user dry run by another user says who it runs as once" || fail "create-user note count: $(grep -c 'runs as agent1' "$T/cu-note.out")"
+run same-name "$H" KOSMOS_CI_USER=agent1 -- preflight
+[ "$(rc same-name)" = 2 ] && has same-name "both 'agent1'" && ! has same-name "==" && pass "every stage refuses a CI user named as the owner, before any check" || fail "same name: rc $(rc same-name)"
+run same-uid "$H" FX_CI_EXISTS=1 FX_SAME_UID=1 -- create-user
+[ "$(rc same-uid)" = 2 ] && has same-uid "the same account (uid 501)" && ! has same-uid "WOULD" && pass "every stage refuses a CI user that is the owner's uid" || fail "same uid: rc $(rc same-uid): $(tail -1 "$T/same-uid.out")"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
