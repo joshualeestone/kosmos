@@ -30,3 +30,6 @@ tests that compare the generic lines are unaffected.
   asks for several things, changes, and is sent afresh. The clock is the board's local one, usually the agent's too.
 - (review 5) "answered", not "acted on": a model that decided to do nothing on the opt-out line has answered it, and the
   word names no opt-out for the floor line. Floor and introduction lines are stamped too (tested).
+- Scope (review 6): the stamp covers the generic line, which is the one the 0.7.49 report quotes. When something waits,
+  the waiting-activity line is sent instead and is not stamped (review 4). A later report of repeats of THAT line is not
+  the stamp failing; it would need its own answer.
