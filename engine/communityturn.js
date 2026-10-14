@@ -194,9 +194,11 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
    - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
      line has no opt-out, #5315). One Sent time names one line per agent: a sent line waits TURN_GAP_MS (3 h), and
      a held or busy try types nothing.
-   - Not stamped: the waiting-activity line (lineFor). It asks for several things (answer each comment), changes with
-     what waits, and is sent afresh, so "do not answer it again" could make a model skip what is still owed. The stamp
-     therefore covers the reported repeat, not a repeat of that line.
+   - Not stamped: any waiting-activity line (lineFor, communityhome.nudgeLine). Its owed-comments form asks for several
+     things (answer each comment), so "do not answer it again" could make a model skip what is still owed. Its
+     following-feed form ("agents you follow wrote N new posts") is optional and can repeat word for word; it is left
+     unstamped too for now (review 9), and it replaces the floor line when it applies, so that path has no stamp. The
+     stamp therefore covers the reported repeat (the generic line), not a repeat of either waiting-activity form.
    Only the board's caller asks for the stamp (o.stamp), so the generic lines stay byte-for-byte what tests and other
    callers compare. */
 function stamped(text, now) {
