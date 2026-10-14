@@ -110,7 +110,7 @@ run() {
 rc() { cat "$T/$1.rc"; }
 has() { grep -q -F -- "$2" "$T/$1.out"; }
 # A changing call: anything but a read. curl counts only with -o or -O (a download); gh only with -X.
-changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh) |^curl .*(-o |-[a-zA-Z]*O)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
+changed() { grep -E '^(sudo|sysadminctl|tar|config\.sh|svc\.sh) |^curl .*(-o |-[a-zA-Z]*O|--output|--remote-name)|^gh .*-X|^launchctl (bootout|disable|load|unload)' "$T/$1.calls"; }
 
 H="$T/home"; mkdir -p "$H"
 
@@ -157,6 +157,8 @@ refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmo
 for n in launchctl-unreadable bad-allow-ere; do
   ! has "pf-$n" "no non-Apple launchd jobs loaded" && pass "preflight $n: no false 'no jobs loaded' line beside the refusal" || fail "preflight $n printed 'no non-Apple launchd jobs loaded' though it could not tell"
 done
+run pf-allow-kosmos "$H" FX_JOBS=com.kosmos.board KOSMOS_CI_ALLOW_JOBS='kosmos' -- preflight
+[ "$(rc pf-allow-kosmos)" = 0 ] && has pf-allow-kosmos "allowed to stay loaded (KOSMOS_CI_ALLOW_JOBS): com.kosmos.board" && pass "preflight: a narrow allow list (kosmos) is not taken for match-everything" || fail "allow kosmos: $(grep REFUSE "$T/pf-allow-kosmos.out")"
 for pat in '.*' '^' '^io\.tailscale\.|'; do
   run pf-allow-all "$H" FX_JOBS=com.kosmos.board "KOSMOS_CI_ALLOW_JOBS=$pat" -- preflight
   # A grep that rejects a trailing "|" refuses it as invalid instead; either refusal is right, a clear is not.
@@ -234,12 +236,12 @@ run in-env "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
   || fail "install .env override: rc $(rc in-env): $(tail -1 "$T/in-env.out")"
 # CONTROL and the real path: --apply, with the downloads stubbed. An existing .env key the install does not own survives.
-printf 'LANG=C\nRUNNER_KEEP=1\n' > "$CH/actions-runner/.env"; chmod 640 "$CH/actions-runner/.env"
+printf 'LANG=C\nRUNNER_KEEP=1\nexport PATH=/stale\n' > "$CH/actions-runner/.env"; chmod 640 "$CH/actions-runner/.env"
 run in-apply "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply install "$C" "$G"
 e="$CH/actions-runner/.env"
 if [ "$(rc in-apply)" = 0 ] && grep -q '^tar xzf actions-runner-osx-arm64-2.999.0.tar.gz' "$T/in-apply.calls" \
    && grep -qx 'RUNNER_KEEP=1' "$e" && grep -qx "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CH/.kosmos-ci/job-started.sh" "$e" \
-   && grep -qx 'LANG=en_US.UTF-8' "$e" && [ "$(grep -c '^LANG=' "$e")" = 1 ] && ! grep -q '^KOSMOS_' "$e" \
+   && ! grep -q 'PATH=/stale' "$e" && grep -qx 'LANG=en_US.UTF-8' "$e" && [ "$(grep -c '^LANG=' "$e")" = 1 ] && ! grep -q '^KOSMOS_' "$e" \
    && [ "$(stat -f %Lp "$e")" = 640 ] && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ] \
    && head -1 "$CH/.kosmos-ci/job-cleanup.sh" | grep -qx '#!/bin/bash'; then
   pass "CONTROL: install --apply unpacks, installs the guard and hooks, merges .env keeping other keys"
