@@ -228,6 +228,7 @@ function make(opts) {
     if (cache && (t - cache.at) < ttlMs) return cache;
     const byName = new Map();
     const why = new Map();   // #5949: name -> why its live row gave no usable token
+    const runners = new Map();   // #5949: name -> its recorded runner, so an unlisted per-turn agent is known stopped
     let ok = false;
     let claudeOk = false;   // #5949: did `claude agents --json` itself answer? (codex rows come from elsewhere)
     let readWhy = null;
@@ -270,6 +271,7 @@ function make(opts) {
           const listed = typeof hit.status === 'string' && hit.status ? hit.status : null;
           const token = listed || readStreamState(name, hit);
           byName.set(name, token);
+          runners.set(name, typeof hit.runner === 'string' ? hit.runner : '');
           if (!GOOD.has(token)) {
             why.set(name, listed
               ? 'Claude Code reported a status Kosmos does not know (' + JSON.stringify(listed.slice(0, 40)) + ')'
@@ -285,8 +287,9 @@ function make(opts) {
       ok = false;
       byName.clear();
       why.clear();
+      runners.clear();
     }
-    cache = { at: t, ok, claudeOk: ok && claudeOk, byName, why, readWhy: readWhy || 'the status read failed' };
+    cache = { at: t, ok, claudeOk: ok && claudeOk, byName, why, runners, readWhy: readWhy || 'the status read failed' };
     noteRead(cache);
     return cache;
   }
@@ -305,6 +308,8 @@ function make(opts) {
      An agent never read well this run starts from its remembered state (see fileLastState), so a
      board that has just started shows that, marked, instead of "Can't tell" before its first look. */
   const memory = new Map();   // name -> { token, at, fails, cause, phase: 'ok' | 'held' | 'unknown', said, carried }
+  const runnerOf = new Map();   // name -> the runner its last listing recorded ('' for Claude)
+  const PER_TURN = require('./win32codexlive').PER_TURN;
   function noteRead(snap) {
     const t = snap.at;
     if (snap.ok) {
@@ -323,9 +328,12 @@ function make(opts) {
          card for it, so there is nothing to hold and nothing to say. Forgotten quietly. But if the
          Claude read itself failed (a codex agent kept the map alive), an unlisted agent is one we
          could not see: that is a failed look, held like any other. */
+      for (const [name, runner] of snap.runners) runnerOf.set(name, runner);
       for (const name of [...memory.keys()]) {
         if (snap.byName.has(name)) continue;
-        if (snap.claudeOk) memory.delete(name);
+        /* A per-turn agent (Codex, Gemini, Grok, Antigravity) is listed from its own source, which DID answer: unlisted,
+           it has stopped, whatever the Claude read did. */
+        if (snap.claudeOk || PER_TURN.has(runnerOf.get(name))) { memory.delete(name); runnerOf.delete(name); }
         else failed(name, snap.readWhy, t);
       }
       if (snap.claudeOk) { remember(good, t); firstGoodRead = true; }

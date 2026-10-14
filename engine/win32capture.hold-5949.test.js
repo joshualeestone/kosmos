@@ -321,6 +321,15 @@ test('#5949 code that acts because an agent is idle waits for a fresh look, not 
   const waiting = { ...limited, state: 'blocked', screenState: 'idle' };
   assert.equal(chat.limitReleased(waiting), true, 'CONTROL: a blocked limit report over an idle screen releases');
   assert.equal(chat.limitReleased({ ...waiting, screenRead: 'remembered' }), false, 'not when that screen is remembered');
+  /* The first-reply reminder types into the pane because the card reads idle: it waits too. */
+  const nudge = require('./firstreply-nudge');
+  const owes = { state: 'owes', heardAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), because: null };
+  assert.equal(nudge.plan(card, owes, undefined, Date.now()).act, 'nudge', 'CONTROL: a fresh idle that owes a first reply is reminded');
+  assert.equal(nudge.plan({ ...card, screenRead: 'remembered' }, owes, undefined, Date.now()).act, 'none');
+  const typed = [];
+  nudge.sweepOnce({ roster: [{ ...card, screenRead: 'remembered' }], book: new Map(), now: Date.now(), thread: () => null,
+    paused: () => null, replyChannel: () => null, deliver: (session) => { typed.push(session); return { state: 'placed' }; } });
+  assert.deepEqual(typed, [], 'the sweep types nothing into a pane whose idle is remembered');
 });
 
 test('#5949 the carry is aged on when a state was last SEEN: an agent idle all morning still carries', () => {
@@ -495,5 +504,31 @@ test('#5949 a stale working report over a failed look is marked unreadable, not 
   } finally {
     status.setPaneSource(null);
     status.setPaneCapture(null);
+  }
+});
+
+test('#5949 a per-turn agent that stops while the Claude read is failing is forgotten, not held', () => {
+  const record = { read: () => ({ 'sid-c': { name: 'cy', runner: 'claude' }, 'sid-x': { name: 'cx', runner: 'codex' } }) };
+  const codexRow = { pid: 9, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-x', name: 'x' };
+  let claude = [live('sid-c', 'busy')];
+  let codexUp = true;
+  let t = 1000;
+  const cap = win32capture.make({ run: () => claude, record, now: () => t, ttlMs: 1000, problem: () => 'the status read timed out after 15 s',
+    streamState: () => 'idle', log: () => {} });
+  const win32live = require('./win32live');
+  const realByName = win32live.byName;
+  win32live.byName = (o) => realByName({ ...o, codexLive: () => (codexUp ? [codexRow] : []) });
+  try {
+    assert.equal(cap('cx:0.0'), 'idle', 'CONTROL: the codex agent is read');
+    assert.equal(cap('cy:0.0'), 'busy');
+    claude = null;   // the Claude read fails ...
+    codexUp = false;   // ... and the codex agent stops; a second codex agent keeps the live map alive
+    win32live.byName = (o) => realByName({ ...o, codexLive: () => [{ ...codexRow, sessionId: 'sid-y' }] });
+    t += 5000;
+    assert.equal(cap('cy:0.0'), 'busy', 'CONTROL: the Claude agent we could not see is held');
+    assert.equal(cap('cx:0.0'), null, 'the stopped codex agent is not served a remembered state');
+    assert.notEqual((cap.note('cx:0.0') || {}).held, true, 'and is not marked as held');
+  } finally {
+    win32live.byName = realByName;
   }
 });
