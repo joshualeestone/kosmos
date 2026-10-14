@@ -307,7 +307,8 @@ const engineFiles = fs.readdirSync(engineDir).filter((f) => f.endsWith('.js') &&
 
 /* Every non-test source a caller could live in. #5548 (#6113 item 3): every key is posix, because findOrphans compares
    it with a module's posix rel to skip the module's own file; a path.join key is engine\x.js on Windows, never equal,
-   so every module counted as its own caller and the guard passed there finding nothing (measured on the windows job).
+   so every module counted as its own caller: the windows job measured all 31 TRIAGED_5548 names as "gaining a caller",
+   and by the same cause the guard could find no orphan there (reasoned, not measured).
    Reads and stats go through path.join(__dirname, key), which takes the posix key on Windows too. */
 const CALLER_FILES = [
   ...engineFiles.map((f) => path.posix.join('engine', f)),
@@ -461,6 +462,7 @@ for (const s2 of sources) {
 // posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
 const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.posix.join('engine', f)) }));
 
+/* Only Windows can fail this (path.join already gives / on a Mac or Linux), so the windows job is what arms it. */
 test('#5548: every engine module is a caller file under the same key, so findOrphans can skip its own file', () => {
   const keys = new Set(sources.map((s2) => s2.f));
   const missing = engineModules.map((m) => m.rel).filter((r) => !keys.has(r));
