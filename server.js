@@ -4046,9 +4046,12 @@ function withUnread(list) {
    ~/.codex for Codex) is mtime-cached per folder in engine/pluginreach, so an unchanged poll adds no
    settings.json/.claude.json read -- the read-once-per-poll discipline #5314 uses, extended to the
    per-agent-folder case this read needs. `a.reach` is null for a pane we cannot tie to an agent.
-   The live pane's CLAUDE_CONFIG_DIR is not available at /api/status, so a default-account agent
-   EFFECTIVE_CCD-pinned elsewhere stays reaches:true and stays silent -- a missed notice, never a false
-   one (the safe direction). Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
+   #6095: a default-account Claude agent (no account.dir) is not assumed to run in the person's folder: its
+   tmux session may be pinned to another one (the supervisor's EFFECTIVE_CCD block) or have inherited a
+   leaked server value. engine/sessionccd reads every such session's real CLAUDE_CONFIG_DIR in ONE tmux call
+   per poll: a folder is judged as that folder, '' is the clean default (as before), and null (unknown: no
+   session, an unreadable answer, or a server value it may have inherited) gives reach UNKNOWN, which the
+   board renders as nothing. Windows has no tmux sessions and keeps the default reading. Exported + injectable (opts.fs, opts.personHome) so a test can drive it with
    fixture rows and count reads, exactly like withAgentSortFields. */
 function attachPluginReach(agents, opts) {
   const o = opts || {};
@@ -4060,6 +4063,24 @@ function attachPluginReach(agents, opts) {
   const deps = o.fs ? { fs: o.fs } : undefined;
   const trust = require('./engine/trust'); // memoized; canonicalOnDisk keys a folder the way Claude Code does
   const canon = o.canonicalize || trust.canonicalOnDisk; // injectable for tests; realpath the way Claude keys projects
+  // #6095: the real folder of each default-account Claude agent's session, read once for all of them.
+  const isDefaultClaude = (a) => a && a.account && !a.account.dir && (a.runner === null || a.runner === undefined || a.runner === 'claude');
+  const sessionOf = (a) => (typeof a.session === 'string' && a.session) || a.sessionName || null;
+  let sessionDirs = null;
+  const onWindows = (o.platform || process.platform) === 'win32';
+  if (personClaudeDir && !onWindows) {
+    const names = (agents || []).filter(isDefaultClaude).map(sessionOf).filter(Boolean);
+    if (names.length) {
+      try {
+        if (o.sessionDirs) sessionDirs = o.sessionDirs(names);
+        else {
+          let bin;
+          try { bin = require('./engine/status').readerTmux() || undefined; } catch { bin = undefined; }   // the tmux status reads with
+          sessionDirs = require('./engine/sessionccd').sessionClaudeDirs(names, { bin });
+        }
+      } catch { sessionDirs = null; }
+    }
+  }
   for (const a of (agents || [])) {
     if (!(personClaudeDir && a && a.account)) { if (a) a.reach = null; continue; }
     // This agent's own working folder, canonicalized the way Claude Code keys .claude.json `projects`
@@ -4075,10 +4096,17 @@ function attachPluginReach(agents, opts) {
     };
     // Per-agent guard (#5309 iter 4): a surprise in ONE row's reach computation must never 500 the whole
     // /api/status response (its agents list has its own never-throw contract). An unexpected input -> null reach.
+    let agentClaudeDir = a.account.dir || null;
+    if (!onWindows && isDefaultClaude(a)) {
+      // #6095: no answer at all (the read failed, or this agent has no session to name) is UNKNOWN too.
+      const d = sessionDirs && sessionOf(a) && sessionDirs.has(sessionOf(a)) ? sessionDirs.get(sessionOf(a)) : null;
+      if (d === null) { a.reach = { reaches: null, reason: pluginreach.UNKNOWN }; continue; }
+      agentClaudeDir = d || null;
+    }
     try {
       a.reach = pluginreach.agentPluginReach({
         runner: a.runner,
-        agentClaudeDir: (a.account.dir || null),
+        agentClaudeDir,
         personClaudeDir, personClaudeJson, personCodexHome, agentWorkFolder,
       }, deps);
     } catch { a.reach = null; }
