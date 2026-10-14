@@ -70923,8 +70923,20 @@ async function pjPostSend(attachment) {
     if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
   };
   PJ_ROOM_PENDING[sentProject] = pend;
-  const repaintPending = () => {
-    if (PJ_CURRENT === sentProject && roomEl && roomEl.__lastBody) paintRoom(roomEl.__lastBody);
+  /* Is the reader on the room's floor? Asked BEFORE anything changes height (the box refilling, a taller verdict pill),
+     because afterwards the floor has already moved away from them. */
+  const onFloor = () => !!(roomEl && roomEl.clientHeight > 0
+    && (roomEl.scrollHeight - roomEl.scrollTop - roomEl.clientHeight) <= THREAD_BOTTOM_SLACK);
+  /* `keepFloor`: a reader who was on the floor stays there (the #1037 rule, for a change paintRoom does not count as new
+     posts: the pending row turning into its taller verdict). Once more after layout settles, unless they moved. */
+  const repaintPending = (keepFloor) => {
+    if (!(PJ_CURRENT === sentProject && roomEl && roomEl.__lastBody)) return;
+    paintRoom(roomEl.__lastBody);
+    if (!keepFloor) return;
+    roomEl.scrollTop = roomEl.scrollHeight;
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => { if (roomEl.__wasOnFloor !== false) roomEl.scrollTop = roomEl.scrollHeight; });
+    }
   };
   /* As the DM's tookBox / restoreUnsent (#4944): the words are in the room OR in the box, never both. The box
      is emptied at the press only when the bubble was drawn; a post that did not go puts them back (or parks them, when
@@ -70944,9 +70956,10 @@ async function pjPostSend(attachment) {
      marked and the words are NOT put back, or a second press would post it twice. */
   const notKept = (because, unsure) => {
     if (PJ_ROOM_PENDING[sentProject] !== pend) return;
+    const keepFloor = PJ_CURRENT === sentProject && onFloor();   // before the box refills and the pill grows the row
     restoreUnsent();
     pend.failed = true; pend.because = because; pend.unsure = !!unsure;
-    try { repaintPending(); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
+    try { repaintPending(keepFloor); } catch { /* the next read paints it; a throw here must not escape the catch below */ }
   };
   /* The sentence under the box and the bubble say the same thing, and neither speaks when a read already
      showed the room holding the post (the screen says it went; a line saying it could not would contradict it). An
