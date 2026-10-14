@@ -11,6 +11,10 @@
  * never a wrong one; telling it apart would need launchd's loaded job, which is not read here. No session, or an
  * unreadable one, marks nobody. The move route clears a note on its next move; a list read drops one whose session is
  * readably another (clearIf, only that exact note, so it cannot race a move's write); a leftover note never marks.
+ * Limits (unmeasured on a real partial move): the mark reads the tmux SESSION, not the process, so a process that
+ * restarted inside the same session onto the new account would stay marked until the session changes (the one way it
+ * could over-mark); and tmux keeps the session start in whole seconds, so a session recreated within the same second
+ * reads as the same one.
  *
  * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
  */
@@ -43,7 +47,7 @@ function note(name, started, from = null) {
   return writeAll(d);
 }
 
-/** A move that restarted the agent (or any later successful move) needs no note. */
+/** Any move outcome that is not a partial with the same session still running drops the note (noteMoveOutcome). */
 function clear(name) {
   const d = readAll();
   if (!(name in d)) return true;
