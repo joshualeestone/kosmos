@@ -158,6 +158,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
      [ -f "$EXPORT/dist/$f" ] || { echo "export dropped $f (#1669); $S/dist is incomplete"; exit 1; }
    done
+   . "$R/tools/lib/setup-floor.sh"; kosmos_setup_floor_tree_ok "the manual promote export" "$EXPORT"   # kosmos#6149: set -e stops here on a refusal
    ( cd "$EXPORT" && vercel deploy --prod --yes )   # set -e + the EXIT trap: a failed deploy exits non-zero and cleans up
    DEPLOY
    ```
@@ -199,8 +200,8 @@ will not publish a Mac pointer below 0.7.45, and promote-channel, deploy-site an
 `/setup` or `/setup-staging` that does not name `KOSMOS_READONLY_APP` (the switch and the lift came in one change, so
 an installer that names it can lift the lock; a string check, not a proof).
 NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
-Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and a hand-run `vercel deploy --prod` (the
-site's README still shows one). Never use any of them for the site once 0.7.49 is out: roll back by committing the
+Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and any other hand-run `vercel deploy
+--prod` (the site's README still shows one; the step 5 fallback above runs the floor's check on its export first). Never use any of them for the site once 0.7.49 is out: roll back by committing the
 older pointer and installer and running deploy-site.sh, which checks them.
 The way out for a person an old installer reached anyway is `chmod -R u+w` on the app folder
 (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
