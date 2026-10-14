@@ -26,8 +26,9 @@
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
 #   GNUFIND   the LOCKED fixture with a find first on PATH that knows no -flags: still refused (macOS only)
 #
-# On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL) skips. Ubuntu's sh is dash, which has no pipefail, so
-# there NOISY runs without the option it was written to catch; a green Linux run does not cover that fault (#6149).
+# On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL, GNUFIND) skips. The installer turns pipefail on only
+# under bash (its option line tests BASH_VERSION), and Ubuntu's sh is dash, so there NOISY runs without the option
+# it was written to catch; a green Linux run does not cover that fault (#6149).
 set -u
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -178,20 +179,21 @@ if [ "$(uname -s)" = "Darwin" ]; then
     OUT="$(run_block "$D")"
     case "$OUT" in *"RC=1"*) ok "LOCKED: a locked file refuses the update" ;; *) bad "LOCKED: not refused: $OUT" ;; esac
     case "$OUT" in *"$D/app/engine/x.js"*) ok "LOCKED: the refusal names the file" ;; *) bad "LOCKED: the file is not named: $OUT" ;; esac
-    case "$OUT" in *"It is locked"*"chflags -R nouchg"*) ok "LOCKED: it says how to unlock it" ;; *) bad "LOCKED: the wrong reason: $OUT" ;; esac
+    case "$OUT" in *"It is locked"*"chflags -R nouchg,nouappnd '$D/app'"*) ok "LOCKED: it says how to unlock it, on the stuck part only" ;; *) bad "LOCKED: the wrong reason or the wrong folder: $OUT" ;; esac
     all_there "$D" && ok "LOCKED: bin, app and runtime are all still there" || bad "LOCKED: a part was removed"
     # GNUFIND (#6149): a find first on PATH that knows no -flags (Homebrew findutils) must not read as "nothing
     # locked". The stub fails on -flags the way GNU find does and passes anything else to the real one.
     D2="$(mk_install lockedgnu)"; in_sb "$D2"; chflags uchg "${D2:?}/app/engine/x.js"
     GF="${SB:?}/gnufind"; mkdir -p "$GF"
     printf '%s\n' '#!/bin/sh' 'for a in "$@"; do [ "$a" = -flags ] && { echo "find: unknown predicate -flags" >&2; exit 1; }; done' 'exec /usr/bin/find "$@"' > "$GF/find"
-    chmod +x "$GF/find"
+    /bin/chmod +x "$GF/find"
     if PATH="$GF:$PATH" find "$D2" -flags +uchg >/dev/null 2>&1; then
       bad "CONTROL GNUFIND: the stub accepted -flags, so it stands in for nothing"
     else
       ok "CONTROL GNUFIND: the stub find refuses -flags, as GNU find does"
       OUT="$(run_block "$D2" "$GF")"
       case "$OUT" in *"RC=1"*"$D2/app/engine/x.js"*|*"$D2/app/engine/x.js"*"RC=1"*) ok "GNUFIND: with a GNU find first on PATH the locked file still refuses the update" ;; *) bad "GNUFIND: not refused with a GNU find first on PATH: $OUT" ;; esac
+      all_there "$D2" && ok "GNUFIND: bin, app and runtime are all still there" || bad "GNUFIND: a part was removed"
     fi
     chflags -R nouchg "$D2" 2>/dev/null
     # RELOCK: this fixture's app was WRITABLE before the update, so the refusal leaves it writable.
