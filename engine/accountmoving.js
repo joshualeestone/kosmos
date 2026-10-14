@@ -12,7 +12,7 @@
  * marks nobody. Comparing the exact start, not a time window, means a restart that relaunched the agent but still
  * reported partial is never marked.
  *
- * { name: { started } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
+ * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -34,11 +34,12 @@ function writeAll(d) {
   } catch { return false; }
 }
 
-/** The move route saved a move for `name` whose session, started at `started` (ms), is still running. */
-function note(name, started) {
+/** The move route saved a move for `name` whose session, started at `started` (ms), is still running, on the account
+    folder `from` (null: the default account). */
+function note(name, started, from = null) {
   if (typeof name !== 'string' || !name || !Number.isFinite(started)) return false;
   const d = readAll();
-  d[name] = { started };
+  d[name] = { started, from: typeof from === 'string' && from ? from : null };
   return writeAll(d);
 }
 

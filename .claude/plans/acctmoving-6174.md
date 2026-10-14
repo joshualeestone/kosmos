@@ -45,3 +45,9 @@ same name without the agent moving would clear the mark early (safe direction).
 - (review 2) The read after the restart is fresh (status.sessionStartedAtFromTmux opts.fresh: no cache read or write),
   so other readers keep their two-second cache; the note is keyed on the cleaned name, the roster's spelling; the
   route-side note is tested through the session seam (same, new, none, unread, full restart).
+- (review 3) The session is found as remove.js sessionFor finds it (the roster card tied to the agent), so legacy
+  `name-discord` sessions are read and a bystander sharing the name is not; only a PARTIAL outcome notes (a REFUSED
+  restart never does); the note keeps the account the agent ran on before its first partial move, so moving it back
+  there is not marked. Tests drive restartForMove with injected readers (start read before the restart, each outcome).
+- Not testable through the seam: the fresh read (the session seam never caches), so it is covered by reading only.
+- Windows, or any machine where tmux cannot be read: no session start, so nobody is ever marked there.
