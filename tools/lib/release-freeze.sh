@@ -43,7 +43,7 @@
 # ⚠️ #1369's lesson still stands, and it is why the hold has an END: a hold with
 # no stated end silently became "never merge" on 2026-08-28. This names the
 # version, and the hold lifts when that version serves, or when the cutter calls
-# the cut off (review 1: an abandoned cut would otherwise leave a hold nothing can end).
+# the cut off, so an abandoned cut does not leave a hold nothing can end.
 #
 # It is a function rather than an echo so it can be asserted on: the message IS
 # the deliverable here, and an inline echo is not something a test can hold.
