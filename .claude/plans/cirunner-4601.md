@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 155 ok. One hundred and four mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 157 ok. One hundred and six mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -60,7 +60,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   comparing the first pid only, no note on temp leftovers, a closed home counted twice; then register taking a
   hand-started Listener as the service's, a pgrep failure in the wait read as no Listener; then (after the rebase
   onto origin/main, which conflicted only in package.json) verify blind to a rewritten hook, install taking extra
-  arguments, and the guard call dropped from job-started).
+  arguments, and the guard call dropped from job-started; then hooks written in place, a hook reaching pkill).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
@@ -132,3 +132,6 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   (runsvc.sh runs ./externals/node24/bin/node ./bin/RunnerService.js from the runner dir), so an absolute anchor
   would count the runner's own node as a leftover on every idle runner. Spoofing the name needs a job the guard
   already admitted.
+- Files are written beside their target and renamed in (put), so a hook write that fails partway leaves the old hook
+  whole: an empty job-started.sh exits 0, so a restarted runner would otherwise run jobs with no guard.
+- The test runs every installed hook under env -i with only the stub PATH and asserts no pkill call reached the stub.

@@ -321,14 +321,18 @@ run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD
 
 # The installed job-started hook must run the guard and stop on its refusal. Run it against stand-ins: the guard
 # exits as told, and job-cleanup.sh is replaced by a marker FIRST, because the real one ends this user's tmux and node.
+# hookrun [VAR=value...] <hook>: the hook under the stub PATH and a sandbox HOME, never the tester's environment, and
+# it must reach no pkill (job-cleanup.sh is a marker here; a hook that inlined the real cleanup would show up).
+: > "$T/hook-calls.log"
+hookrun() { env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/hookhome" CALL_LOG="$T/hook-calls.log" "$@"; }
 HK="$T/hookcheck"; mkdir -p "$HK"; cp "$CH/.kosmos-ci/job-started.sh" "$HK/"
 printf '#!/bin/bash\n: > "$(dirname "$0")/cleanup-ran"\n' > "$HK/job-cleanup.sh"
 printf '#!/bin/bash\nexit 1\n' > "$HK/job-guard.sh"; chmod 755 "$HK/"*
 [ -x "$HK/job-started.sh" ] || fail "install --apply wrote no job-started.sh to test"
-"$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
+hookrun "$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
 [ -x "$HK/job-started.sh" ] && [ "$hrc" != 0 ] && [ ! -e "$HK/cleanup-ran" ] && pass "job-started stops on a guard refusal, before cleanup" || fail "job-started with a refusing guard: rc $hrc, cleanup ran: $([ -e "$HK/cleanup-ran" ] && echo yes || echo no)"
 printf '#!/bin/bash\nexit 0\n' > "$HK/job-guard.sh"
-"$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
+hookrun "$HK/job-started.sh" >/dev/null 2>&1; hrc=$?
 [ "$hrc" = 0 ] && [ -e "$HK/cleanup-ran" ] && pass "job-started runs cleanup once the guard admits the job" || fail "job-started with an admitting guard: rc $hrc"
 
 # job-completed empties the job's temp only when RUNNER_TEMP is that dir: run it against a sandbox runner layout.
@@ -336,12 +340,18 @@ HC="$T/hookdone"; mkdir -p "$HC/.kosmos-ci" "$HC/actions-runner/_work/_temp"; cp
 printf '#!/bin/bash\n: > "$(dirname "$0")/cleanup-ran"\n' > "$HC/.kosmos-ci/job-cleanup.sh"; chmod 755 "$HC/.kosmos-ci/"*
 TMPD_REAL="$(cd "$HC/actions-runner/_work/_temp" && pwd -P)"
 : > "$HC/actions-runner/_work/_temp/payload"; : > "$HC/actions-runner/_work/keep"
-RUNNER_TEMP="/somewhere/else" "$HC/.kosmos-ci/job-completed.sh"
+hookrun RUNNER_TEMP="/somewhere/else" "$HC/.kosmos-ci/job-completed.sh"
 [ -e "$HC/actions-runner/_work/_temp/payload" ] && [ -e "$HC/.kosmos-ci/cleanup-ran" ] && pass "job-completed runs cleanup and leaves the temp alone when RUNNER_TEMP is elsewhere" || fail "job-completed with a foreign RUNNER_TEMP"
 : > "$HC/actions-runner/_work/_temp/.hidden"
-RUNNER_TEMP="$TMPD_REAL" "$HC/.kosmos-ci/job-completed.sh"
+hookrun RUNNER_TEMP="$TMPD_REAL" "$HC/.kosmos-ci/job-completed.sh"
 [ ! -e "$HC/actions-runner/_work/_temp/payload" ] && [ ! -e "$HC/actions-runner/_work/_temp/.hidden" ] && [ -d "$HC/actions-runner/_work/_temp" ] && [ -e "$HC/actions-runner/_work/keep" ] \
   && pass "job-completed empties exactly the job's temp when RUNNER_TEMP is it" || fail "job-completed with the matching RUNNER_TEMP: $(ls -a "$HC/actions-runner/_work/_temp" "$HC/actions-runner/_work" | tr '\n' ' ')"
+
+! grep -q '^pkill' "$T/hook-calls.log" && pass "no hook run by the test reached pkill" || fail "a hook reached pkill: $(grep '^pkill' "$T/hook-calls.log")"
+# A hook write that fails partway leaves the old hook whole (put writes beside it and renames).
+R16="$T/run16"; svc_home "$R16"; mkdir -p "$R16/.kosmos-ci/job-started.sh.new"; echo "# old hook" > "$R16/.kosmos-ci/job-started.sh"
+run in-hookfail "$R16" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R16" -- --apply install "$C" "$G"
+[ "$(rc in-hookfail)" != 0 ] && grep -qx '# old hook' "$R16/.kosmos-ci/job-started.sh" && pass "install --apply that cannot write a hook leaves the old one whole" || fail "hook write failure: rc $(rc in-hookfail), job-started.sh: $(head -1 "$R16/.kosmos-ci/job-started.sh")"
 
 # A running runner: stopped, unpacked over, started again. A job in flight, or a stop that does not take, refuses.
 svc_home() {   # an installed runner: svc.sh, its .service marker, and (as the new package would bring) bin/runsvc.sh
@@ -460,10 +470,9 @@ STDIN_FILE="$T/token" run rg-twice "$RS" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$RS" -
 run rg-sudo "$CH" FX_WHO=kosmos-ci -- --apply register
 [ "$(rc rg-sudo)" = 2 ] && has rg-sudo "not /Users/kosmos-ci" && ! grep -q '^config\.sh' "$T/rg-sudo.calls" && pass "register --apply refuses when HOME is not kosmos-ci's (sudo -u keeps HOME)" || fail "register HOME check: rc $(rc rg-sudo)"
 rm -f "$CH/actions-runner/.service"   # rg-apply registered it; this case is about the token
-echo stopped > "$CH/actions-runner/.svc-state"; rm -f "$CH/actions-runner/.service"
+echo stopped > "$CH/actions-runner/.svc-state"
 STDIN_FILE="$T/token" run rg-handrun "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_OLD_TOO=3333 FX_LISTENER=0 KOSMOS_CI_START_WAIT_S=1 -- --apply register
 [ "$(rc rg-handrun)" = 1 ] && has rg-handrun "no new Runner.Listener" && pass "register --apply does not take a hand-started Listener for the service's" || fail "register hand-run listener: rc $(rc rg-handrun): $(tail -1 "$T/rg-handrun.out")"
-rm -f "$CH/actions-runner/.service"
 run rg-none "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply register
 [ "$(rc rg-none)" = 1 ] && has rg-none "no registration token" && ! grep -q '^config\.sh' "$T/rg-none.calls" && pass "register --apply refuses with no token" || fail "register no token: rc $(rc rg-none)"
 
