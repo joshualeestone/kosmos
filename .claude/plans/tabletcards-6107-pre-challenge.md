@@ -2,17 +2,17 @@
 pre_challenge: true
 method: challenge-loop
 branch: tabletcards-6107
-diff_hash: e5cc903e080757b5018cd23705fb3e046d3ef0a035803f25e1f74f005f6e134f
+diff_hash: d222319ed7f44151c41dda04bb9775ee9fd06a2c984318a14673b4e692dc1122
 validation: passed (Mortals, full suite, clean entry for this hash)
 subdir_audit: passed
-timestamp: 2026-10-14T05:45:32Z
-iterations: 20
+timestamp: 2026-10-14T09:59:05Z
+iterations: 24
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 20 (converged at 18 with zero NEW; two post-convergence fixes from the browser shots and a surface-gate trailer commit were reviewed again in 19, which found one NEW warning, fixed; 20 found zero NEW)
+**Iterations:** 24 (after CI on PR #6135, four more; converged at 18 with zero NEW; two post-convergence fixes from the browser shots and a surface-gate trailer commit were reviewed again in 19, which found one NEW warning, fixed; 20 found zero NEW)
 **Converged:** Yes
 **Total findings (BLOCKER/WARNING/CONVENTION, after dedup):** 2 BLOCKERs, 37 WARNINGs, 3 CONVENTIONs, plus NITs below
 **Fixed:** 36 | **Deferred:** 6 | **Asked (awaiting user):** 0
@@ -151,6 +151,28 @@ reading each one's contexts (none opens a touch context in the tablet range).
 **New findings:** 0 (duplicates: reading order, the ready-flag pin, foldables in the plan)
 **Converged:** no new actionable findings.
 
+#### Iteration 21 (after CI on PR #6135 failed the mouse control)
+**Reviewer model:** opus
+CI showed the desktop grid is two across at 834 with a mouse, so the control's "more than two across" was wrong;
+the controls now assert the face above the name (commit before this round).
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs
+- [CONVENTION] render-home-phone-718.js: control comment still described the column count --> FIXED (comment and header)
+
+#### Iteration 22
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
+- [WARNING] web/index.html pjPhoneOrder: Tasks re-appended on every non-tablet call --> FIXED (only when it is first, undoing our own move)
+
+#### Iteration 23
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+- [WARNING] mobile-shots.js: the menu button shows up to 56rem, not 40rem, so iPads lost the menu screen --> FIXED (896, comments and error text)
+
+#### Iteration 24
+**Reviewer model:** sonnet
+**New findings:** 0 (nits only)
+**Converged:** no new actionable findings. Rebased onto main after it (41 commits), focused tests 2939/2939, surface gate clean.
+
 ### Final Ledger (actionable, grouped)
 
 | # | Iter | Category | File | Origin | Description | Status |
@@ -182,5 +204,7 @@ None.
 
 ### Evidence outside the loop
 - render-room-msgbox-2806 (headed, Agent1s, 22:11): all arms PASS, 0 FAIL, including the six tablet and wide arms.
-- render-home-phone-718 (22:29): all tablet card arms PASS (834, 744, 600, landscape control). The mouse control was added after; its run is queued.
+- render-home-phone-718 (02:43 on the final checks): every tablet arm and both controls (landscape, mouse) PASS, 0 FAIL.
+- CI on PR #6135 at 9eb927be3: every job green (node, shell 1/2, shell 2/2, browser-checks, windows, linux, scope).
+- Full validation on Mortals for this hash (d222319e): PASSED.
 - Shots: ~/work/design-shots/kosmos-6107/cards and room (0 overflow, 0 errors).
