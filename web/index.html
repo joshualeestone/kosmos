@@ -12107,7 +12107,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
     /* A row of cards stretches to its tallest: the spare height goes to the last row, so the lines stay together and
        the model line sits at the foot, as .amodel's margin-top: auto does on the column card. */
     grid-template-rows: repeat(6, auto) 1fr; align-content: start;
-    column-gap: 14px; row-gap: 2px; align-items: center; text-align: left; padding: 18px 18px 16px; }
+    column-gap: 14px; row-gap: 0; align-items: center; text-align: left; padding: 18px 18px 16px; }   /* no row gap: absent lines (alsowork, community) leave empty rows; spacing is each line's own margin */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
