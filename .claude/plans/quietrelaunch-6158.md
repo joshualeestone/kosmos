@@ -41,3 +41,5 @@ each moment focus was taken. Focus taken with no such line means a second cause,
    test requires the guard to use the value read (a "false; _ = consume" mutant reds it); the 2124 assertion also
    refuses an emptied copy or one that loses any key but the quiet flag (dropping KOSMOS_HOME reds it); the missing
    file fallback is stated in the comment.
+2. sonnet: no blocker or warning. Converged. NIT taken: the #2124 and #6158 comments above the environment merge are
+   one comment again, naming both keys. Left: the 2124 viaCopy pin is narrow by design.
