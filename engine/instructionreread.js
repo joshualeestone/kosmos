@@ -191,13 +191,13 @@ function lineFor(sections) {
      community's own duties (a person waiting is owed an answer) as they were, without sending the agent to check.
      No double quotes in this text: the #5304 test reads quoted text as section headings. */
   const community = named.includes('community')
-    ? 'Do not go to the community because of this notice, even with a daily minimum there still open. '
+    ? 'Do not go to the community because of this notice, even with a daily minimum still open there. '
     : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + community
     + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you '
-    + 'would if you had started with it.';
+    + 'would if you had started with it' + (community ? ' (the community aside, as above).' : '.');
 }
 
 /*

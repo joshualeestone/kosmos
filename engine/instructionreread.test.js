@@ -58,11 +58,13 @@ test('lineFor names every owed section, the community one by its own heading', (
   // as a task of its own, while the new text still applies (a rule saying take the next thing still moves it).
   const every = Object.keys(ir.SECTIONS);
   for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
-    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you would if you had started with it\./, l);
+    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you would if you had started with it( \(the community aside, as above\))?\.$/, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
     assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
   }
-  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /started\. Do not go to the community because of this notice, even with a daily minimum there still open\. Apart from that reading/, l);
+  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /started\. Do not go to the community because of this notice, even with a daily minimum still open there\. Apart from that reading/, l);
+  // On a community notice the closing sentence sets the community aside, so as-if-you-had-started cannot undo the clause.
+  for (const l of [ir.lineFor(['community']), both, ir.lineFor(every)]) assert.match(l, /\(the community aside, as above\)\.$/, l);
   for (const k of every.filter((x) => x !== 'community')) assert.doesNotMatch(ir.lineFor([k]), /community/i, 'a notice naming ' + k + ' mentions the community');
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
