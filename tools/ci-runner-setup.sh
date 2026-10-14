@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # #4601: turn a fleet Mac (Agent1s, once the agents have moved to the new Mac) into the self-hosted CI runner, as the
-# runbook on #5488 (comment 6154688503, part 2) says. Baron's ci-mini-setup.sh (#5488 part b) generalised: the same
-# install, plus the checks and the user the runbook adds.
+# runbook on #5488 (comment 6154688503, part 2) says. It stands alone: it began as Baron's ci-mini-setup.sh (#5488 part
+# b, kept outside the repo, history only), with the same install plus the checks and the user the runbook adds.
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
 # otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register).
@@ -244,7 +244,9 @@ preflight() {
   if v="$(repo_variable KOSMOS_CI_SHELL_SHARDS)"; then
     shards_check "$v"
   else problem "could not read the repo variables (gh): cannot rule out KOSMOS_CI_SHELL_SHARDS"; fi
-  if v="$(repo_variable KOSMOS_CI_RUNNER)"; then ok "KOSMOS_CI_RUNNER is $v (read only; the runbook keeps it on)"
+  if v="$(repo_variable KOSMOS_CI_RUNNER)"; then
+    if [ "$v" = on ]; then ok "KOSMOS_CI_RUNNER is on (read only; the runbook keeps it on)"
+    else echo "note:   KOSMOS_CI_RUNNER is $v: no job routes to a self-hosted Mac until it is on (verify requires it)"; fi
   else echo "note:   could not read KOSMOS_CI_RUNNER (verify checks it)"; fi
 
   if [ "$PROBLEMS" -gt 0 ]; then say "preflight: $PROBLEMS refusal(s)"; return 1; fi
@@ -565,6 +567,13 @@ machine_settings() {
 #     header, "HOW kosmos-ci GETS THIS SCRIPT").
 EOF
 }
+
+# The CI user must never be the owner: job-cleanup.sh ends every tmux and node process of the CI user, which would be the
+# agents' own (the runbook's reason for a dedicated user). Refused for every stage, dry or not, by name and by uid.
+if [ "$CI_USER" = "$OWNER" ]; then echo "refused: KOSMOS_CI_USER and KOSMOS_CI_OWNER are both '$OWNER'; the CI user must be its own account" >&2; exit 2; fi
+if ci_uid="$(id -u "$CI_USER" 2>/dev/null)" && owner_uid="$(id -u "$OWNER" 2>/dev/null)" && [ "$ci_uid" = "$owner_uid" ]; then
+  echo "refused: $CI_USER and $OWNER are the same account (uid $ci_uid); the CI user must be its own account" >&2; exit 2
+fi
 
 case "$STAGE" in
   preflight) preflight ;;
