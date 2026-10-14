@@ -27166,12 +27166,16 @@ function acctUsageHtml(a, list) {
   const nameOf = (x) => acctPrimaryName(x) + (qual.get(String(x.dir || '')) ? ' (' + qual.get(String(x.dir || '')) + ')' : '');
   const who = esc(nameOf(a) || 'this account');
   const picked = targets.some((x) => x.dir === ACCT_PICK.get(a.dir)) ? ACCT_PICK.get(a.dir) : '';
+  /* The restart note describes the menu and the button, so a screen reader hears it before the click, not only after.
+     Id from the dir's character codes: unique per dir, and safe in an attribute. */
+  const noteId = 'acct-move-note-' + Array.from(String(a.dir)).map((c) => c.charCodeAt(0).toString(16)).join('');
+  const described = names.length ? ' aria-describedby="' + noteId + '"' : '';
   const move = canMove || busy
-    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '" aria-label="Move the agents on ' + who + ' to another account">'
+    ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
-      + (names.length ? '<p class="acct-move-note">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
      status line), so the sentence takes no focus. It is shown as soon as the move ends; only the panel line is
@@ -27926,10 +27930,10 @@ async function paintAccounts(opts) {
         const names = fresh ? drawn.filter((n) => fresh.has(n)) : [];
         const stoppedAtClick = new Set(names.filter((n) => { const c = (LAST || []).find((x) => x && x.sessionName === n); return c && cardStOf(c).pres === 'off'; }));
         if (!fresh) throw new Error('unchecked');
-        if (!names.length) said = 'Nothing moved: its agents are no longer on this account.';
+        if (!names.length) said = drawn.length === 1 ? 'Nothing moved: its agent is no longer on this account.' : 'Nothing moved: its agents are no longer on this account.';
         else if (!acctBulkTarget(ft, from)) {   // signed out, refused, full or gone since the menu was drawn
           const was = list.find((x) => String(x.dir) === to);
-          said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take them now. Pick another account.';
+          said = 'Nothing moved: ' + ((ft && acctPrimaryName(ft)) || (was && acctPrimaryName(was)) || 'that account') + ' cannot take ' + (names.length === 1 ? 'it' : 'them') + ' now. Pick another account.';
         }
         else said = await moveAccountAgents(from, to, names, (done, all) => {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint

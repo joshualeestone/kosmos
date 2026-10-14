@@ -252,7 +252,7 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
   } finally { fs.rmSync(settings, { force: true }); }
 });
 
-/* #6108: the page's "Moved X (stopped). It stays stopped" depends on what the account route answers for a stopped
+/* #6108: the page's "Moved X (stopped). It is not running now" depends on what the account route answers for a stopped
    agent. Pin it here, so a change to the route goes red rather than leaving the row's sentence untrue. */
 test('#6108 the account route moves a stopped agent without starting it, and says it is not running', async () => {
   const from = account('acct-6108-from');

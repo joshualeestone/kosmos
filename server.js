@@ -10953,8 +10953,9 @@ const server = http.createServer(async (req, res) => {
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
             /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
-               writes it while an agent on the account runs), or null when there is no reading to trust: an API key,
-               Windows, an account with its own status line, no agent run yet this week, or a week that has reset. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+               writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
+               recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
+               recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
             weekly: (() => {
               try {
                 const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
@@ -10963,7 +10964,7 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
-               Kosmos leaves alone) or 'not-wired' (no status line yet: nothing records a reading until setup wires it).
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
             weeklyBlocked: (() => {
               if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
@@ -10971,9 +10972,9 @@ const server = http.createServer(async (req, res) => {
               try {
                 const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
                 const sl = j && j.statusLine;
-                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading until setup wires it
+                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
                 return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: setup can wire it; unreadable: setup cannot either
+              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */

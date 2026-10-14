@@ -23,7 +23,7 @@ GET /api/accounts Claude rows gain `weekly: {usedPct, resetsAt(ms), at(ms)} | nu
   records a change, not a look), so the row says "last changed <age>", never "as of".
 - The warning's "Move its agents" sentence appears only when a move is offered.
 - A finished move's sentence stays until the first repaint after two minutes; the restart is said beside the control
-  before the click and in the result after; focus goes to the row's menu, or its sentence when the menu is gone.
+  before the click and in the result after; focus goes to the row's menu, or the list when the menu is gone (round 20: never the sentence, which the panel line speaks).
 
 - Move's border is --gold-bright like Sign in again's (1.95:1 on white, under the 3:1 control-edge floor). Kept
   deliberately: Josh reverted the --gold-edge fix on Sign in again (2026-08-26), and this button follows that ruling
