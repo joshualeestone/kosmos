@@ -172,25 +172,40 @@ const { chromium } = require('playwright');
       say(true, 'tablet, board set to tabs: it opens on one screen (#6107)');
       say(!(await tp.evaluate(() => document.body.classList.contains('fold-a'))), 'tablet at 1194px: the agents rail is open, not folded to faces');
       say((await savedLayoutOf()) === 'tabs', 'tablet: opening it did not change the board setting (still tabs)');
+      // A press on the tablet is kept on the tablet: tabs, then one screen. A board PUT would make the board
+      // consolidated, so the board still saying tabs after the second press is the evidence.
       await tOpenPop();
       await tp.click(LAY + ' [data-layout-switch="tabs"]');
       await tSettled(false);
       await tOpenPop();
       await tp.click(LAY + ' [data-layout-switch="consolidated"]');
       await tSettled(true);
-      // A board PUT here would have made the board consolidated; it must still say tabs.
       say((await savedLayoutOf()) === 'tabs', 'tablet: pressing one screen there is remembered on the tablet; the board setting is still tabs');
+      // Persistence, on the NON-default choice (one screen is the default, so keeping it proves nothing): tabs, reload.
+      await tOpenPop();
+      await tp.click(LAY + ' [data-layout-switch="tabs"]');
+      await tSettled(false);
+      await tp.reload({ waitUntil: 'networkidle' });
+      await tp.waitForTimeout(1500);
+      say(!(await tp.evaluate(() => document.body.classList.contains('consolidated'))) && (await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs',
+        'tablet: its own non-default choice (tabs) survives a reload');
+      // Turned upright at 1024x1366 (wide enough for one screen, so only the rule decides): the BOARD's setting applies
+      // again. The board is made consolidated first (reloaded so the page has read it) while the tablet's own choice
+      // is tabs, so the two disagree and the turn must pick the board's.
+      await putLayout('consolidated');
+      await tp.reload({ waitUntil: 'networkidle' });
+      await tp.waitForTimeout(1500);
+      say((await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'tabs', 'tablet sideways: its own tabs choice wins over the board (now one screen)');
+      await tp.setViewportSize({ width: 1024, height: 1366 });
+      await tSettled(true);
+      say((await tp.evaluate(() => document.documentElement.getAttribute('data-layout'))) === 'consolidated', 'tablet turned upright at 1024px: the board setting (one screen) applies again');
+      await putLayout('tabs');
+      // CONTROL for the rail: sideways at 1024x768 (under 1100px) the one-screen view still folds the agents rail.
+      await tp.evaluate(() => { try { localStorage.removeItem('kosmos-tablet-layout'); sessionStorage.removeItem('rail-fold-a'); } catch { /* fine */ } });
+      await tp.setViewportSize({ width: 1024, height: 768 });
       await tp.reload({ waitUntil: 'networkidle' });
       await tSettled(true);
-      say(true, 'tablet: its own choice survives a reload');
-      await tp.setViewportSize({ width: 834, height: 1194 });
-      await tSettled(false);
-      say(true, 'tablet turned upright: the board setting (tabs) applies again');
-      // CONTROL: the desktop page, reloaded, still follows the board (tabs), whatever the tablet chose.
-      await pg.reload({ waitUntil: 'networkidle' });
-      await dismissFirstRun();
-      await settled(false);
-      say((await htmlLayout()) === 'tabs', 'desktop (control): still on separate tabs after the tablet\'s presses');
+      say(await tp.evaluate(() => document.body.classList.contains('fold-a')), 'tablet sideways at 1024px (CONTROL): one screen, the agents rail still folded (under 1100px)');
     } finally {
       await tctx.close();
     }
