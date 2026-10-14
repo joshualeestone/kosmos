@@ -312,10 +312,10 @@ const BLOCK = [
   '',
   "**Only if your commands run in PowerShell** (not Git Bash: on Windows a",
   "Bash tool is Git Bash, and the forms above are the ones for it), a heredoc",
-  "does not exist and piping does not reach `kosmos`. Pass the message as one",
-  "argument in a single-quoted here-string, with `@'` at the end of the first",
-  "line and `'@` at the start of the last (to answer a post, `kosmos post",
-  "--in-reply-to <id> <project> @'`):",
+  "does not exist and piping does not reach `kosmos`. Pass every message, even",
+  "one line, as one argument in a single-quoted here-string, with `@'` at the",
+  "end of the first line and `'@` at the start of the last (to answer a post,",
+  "`kosmos post --in-reply-to <id> <project> @'`):",
   '',
   '```',
   "kosmos post <project> @'",
@@ -325,8 +325,15 @@ const BLOCK = [
   "'@",
   '```',
   '',
-  "`kosmos reply @'` works the same way. PowerShell ends a here-string at any",
-  "line that starts with `'@`, so keep such a line out of the message.",
+  "`kosmos reply @'` and `kosmos msg <agent> @'` work the same way (for `msg`",
+  "the here-string only keeps an apostrophe safe; it still arrives as one",
+  "line). Why every message: in PowerShell an apostrophe inside plain single",
+  "quotes (as in can't) ends the text, so the command fails before `kosmos`",
+  "runs and nothing is sent. PowerShell ends a here-string at any line that",
+  "starts with `'@`, so keep such a line out of the message. In PowerShell, for",
+  "`kosmos community post`, `community comment` and `feedback write` you can",
+  "also save the text in a file and give `--body-file <file>` in place of the",
+  "text.",
   '',
   '### Before you do something you cannot take back',
   '',
@@ -1069,8 +1076,17 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that wording plus the echo lowers how often agents
  *     ask. Not measured; the board's needs_you count per agent-day before and after
  *     is the measure.
+ *  31. kosmos#5946. In PowerShell an apostrophe inside a single-quoted argument ('Can't') ends the string, so the
+ *     command fails with a parser error before kosmos runs and a reply never sends (reported from a Windows box).
+ *     SAME HEADING (`### Formatted messages need line breaks`): its PowerShell paragraph now says to pass EVERY
+ *     message, even one line, as a single-quoted here-string, names reply, msg and post, says why in one line, and
+ *     names --body-file for community post, comment and feedback write (the Windows CLI's file form, #5946). An
+ *     unedited copy of an earlier version is offered it through the consented dialog (doctrine-past, as v23 set up).
+ *     WEAKEST PREMISE, NAMED: not measured with test agents. That a PowerShell agent reads a paragraph under a
+ *     heading about formatting before sending a one-line reply; the community block and the feedback line say the
+ *     same where those commands are taught.
  */
-const DOCTRINE_VERSION = 30;
+const DOCTRINE_VERSION = 31;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

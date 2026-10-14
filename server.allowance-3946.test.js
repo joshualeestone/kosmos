@@ -172,3 +172,110 @@ test('#3946 /api/accounts says which Claude account is calibrated', async () => 
   assert.ok(row, 'the default Claude account is not listed: ' + JSON.stringify(rows.map((a) => [a.provider, a.dir])));
   assert.equal(row.weeklyTokensPerPoint, 2e6);
 });
+
+/* #6108: a Claude row carries the account's weekly reading (as Kosmos last recorded it) and the agents on it on this
+   computer, so Settings can show both and offer a move before an agent runs out. */
+test('#6108 /api/accounts: a Claude row carries its weekly reading and its agents here', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6108' } }));
+  const at = Date.now() - 2 * 3600e3;
+  fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 82, resetsAt: FUTURE, at, history: [[at, 82, FUTURE]] }));
+  lead('usage-on-default', { role: 'writer' }, null);   // no configDir: the default account
+  lead('usage-guide', { role: 'setup' }, null);         // the setup guide, also on the default account: never listed
+  fs.writeFileSync(path.join(create.workerDir('usage-guide'), '.kosmos-setup-guide'), '');
+  const other = account('acct-6108-other');
+  lead('usage-on-other', { role: 'writer' }, other);    // CONTROL: on another account, must not be listed here
+  const rows = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
+  const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+  assert.ok(row, 'the default Claude account is not listed');
+  assert.deepEqual(row.weekly, { usedPct: 82, resetsAt: FUTURE * 1000, at }, 'the weekly reading did not arrive, or not in ms');
+  assert.ok(row.agentsHere && Array.isArray(row.agentsHere.names), 'no agentsHere on the row: ' + JSON.stringify(row.agentsHere));
+  assert.ok(row.agentsHere.names.includes('usage-on-default'), 'the agent on this account is missing: ' + JSON.stringify(row.agentsHere));
+  assert.ok(!row.agentsHere.names.includes('usage-on-other'), 'an agent on ANOTHER account was listed here');
+  assert.equal(row.agentsHere.complete, true, 'every agent here was readable, so the list is complete');
+  assert.ok(!row.agentsHere.names.includes('usage-guide'), 'the setup guide was listed among the account\'s agents');
+  // A reading from a week that has already reset is not this week's: the row says there is none.
+  fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
+  const rows2 = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
+  const row2 = rows2.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+  assert.equal(row2.weekly, null, 'a reading from a week that has reset was shown as current');
+});
+
+test('#6108 the shared walk: a guard counts the setup guide, the accounts list does not', () => {
+  const { enumerateAgentsOnAccount, claudeAgentsByAccount } = require('./server');
+  const acct = account('acct-6108-guide');
+  lead('guide-on-acct', { role: 'setup' }, acct);
+  fs.writeFileSync(path.join(create.workerDir('guide-on-acct'), '.kosmos-setup-guide'), '');
+  lead('worker-on-acct', { role: 'writer' }, acct);
+  const guard = enumerateAgentsOnAccount(acct, false, 'claude');
+  assert.ok(guard.usedBy.includes('guide-on-acct'), 'the disconnect guard no longer counts the guide: removing its account would strand it');
+  assert.ok(guard.usedBy.includes('worker-on-acct'), 'CONTROL: the guard counts an ordinary agent');
+  const list = claudeAgentsByAccount().on(acct, false);
+  assert.ok(!list.includes('guide-on-acct'), 'the accounts list shows the setup guide');
+  assert.ok(list.includes('worker-on-acct'), 'CONTROL: the list shows an ordinary agent');
+});
+
+test('#6108 the shared walk is fail-closed: an agent whose job cannot be read makes the list incomplete', () => {
+  const { claudeAgentsByAccount } = require('./server');
+  assert.equal(claudeAgentsByAccount().complete, true, 'CONTROL: with every job readable the list is complete');
+  store.writeProfile('unreadable-6108', { role: 'writer' });
+  fs.mkdirSync(create.workerDir('unreadable-6108'), { recursive: true });
+  const jp = jobfix.jobPath('unreadable-6108');
+  fs.mkdirSync(jp, { recursive: true });   // a folder where the job file should be: present, but not readable as a job
+  try {
+    assert.equal(claudeAgentsByAccount().complete, false, 'an agent whose job could not be read was treated as absent, so the list claimed to be whole');
+  } finally { fs.rmSync(jp, { recursive: true, force: true }); }
+});
+
+test('#6108 /api/accounts says when an account cannot have a reading: its own status line, never a guess', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6108b' } }));
+  const settings = path.join(def, 'settings.json');
+  const blockedOf = async () => {
+    const rows = ((await (await fetch(base + '/api/accounts?agents=1')).json()) || {}).accounts || [];
+    const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+    assert.ok(row, 'the default Claude account is not listed');
+    return row.weeklyBlocked;
+  };
+  if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
+  try {
+    fs.rmSync(settings, { force: true });
+    assert.equal(await blockedOf(), 'not-wired', 'an account with no status line was promised a reading that cannot come');
+    fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
+    assert.equal(await blockedOf(), null, 'CONTROL: Kosmos\'s own status line was taken for someone else\'s');
+    fs.writeFileSync(settings, JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' } }));
+    assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
+    fs.writeFileSync(settings, '{ not json');
+    assert.equal(await blockedOf(), 'unreadable-settings', 'a settings file that cannot be parsed was promised a set-up that cannot happen');
+  } finally { fs.rmSync(settings, { force: true }); }
+});
+
+/* #6108: the page's "Moved X (stopped). It is not running now" depends on what the account route answers for a stopped
+   agent. Pin it here, so a change to the route goes red rather than leaving the row's sentence untrue. */
+test('#6108 the account route moves a stopped agent without starting it, and says it is not running', async () => {
+  const from = account('acct-6108-from');
+  /* The target must be an account the route knows: ~/.claude-<label> with a signed-in .claude.json, and its history
+     shared with the default account (projects linked to ~/.claude/projects), as prepare() makes them. */
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  fs.mkdirSync(path.join(home, '.claude', 'projects'), { recursive: true });
+  const to = path.join(home, '.claude-6108to');
+  fs.mkdirSync(to, { recursive: true });
+  fs.writeFileSync(path.join(to, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'to@example.com', accountUuid: 'u-6108-to' } }));
+  try { fs.symlinkSync(path.join(home, '.claude', 'projects'), path.join(to, 'projects')); } catch { /* already linked */ }
+  lead('sleeper-6108', { role: 'writer' }, from);
+  const r = await fetch(base + '/api/agent/sleeper-6108/account', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: to }) });
+  const out = await r.json();
+
+  assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
+  assert.match(String(out.because || ''), /is not running, so there is nothing to restart/, 'the reason no longer carries the exact phrase the page keys on');
+  assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
+});
+
+test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pages do not pay for it', async () => {
+  const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+  const claude = rows.filter((a) => a && a.provider === 'anthropic');
+  assert.ok(claude.length > 0, 'CONTROL: there is a Claude row to look at');
+  assert.ok(claude.every((a) => !('agentsHere' in a)), 'a caller that did not ask got agentsHere');
+});

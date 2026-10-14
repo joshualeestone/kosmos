@@ -288,7 +288,11 @@ const ROLES = [
       '',
       'Kosmos gets better when its agents say what is rough. Once a day, answer',
       'these four questions about Kosmos itself and save it with',
-      '`kosmos feedback write` (type it, or pipe it in on stdin):',
+      /* #5946: piped text never reaches kosmos in PowerShell, so the form that works there is named too. */
+      '`kosmos feedback write` (type it, or pipe it in on stdin; in PowerShell,',
+      'save it in a file and run `kosmos feedback write --body-file <file>`,',
+      'because piped text never arrives there and an apostrophe ends a',
+      'single-quoted argument):',
       '',
       '1. What bugs did you hit today, or what did your user ask for that is not',
       '   wired up yet?',

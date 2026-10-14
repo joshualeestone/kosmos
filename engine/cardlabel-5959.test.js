@@ -29,10 +29,14 @@ test('#5959: every state the page has a word for, the engine has the same word',
   }
 });
 
-test('#5959: the special cases agree (question, crash loop, restarting causes, reconnecting, an unknown state)', () => {
+test('#5959: the special cases agree (question, permission prompt, crash loop, restarting causes, reconnecting, an unknown state)', () => {
   const cards = [
     { state: 'needs_you', stateReportedBy: 'agent' },
     { state: 'needs_you', stateReportedBy: 'auto' },
+    { state: 'needs_you', awaitingApproval: true, stateReportedBy: 'auto' },   // #6091
+    { state: 'needs_you', stateReportedBy: 'agent', awaitingApproval: true },   // #6091: agent's own first
+    { state: 'needs_you', awaitingApproval: false },   // #6091 control
+    { state: 'working', awaitingApproval: true },   // #6091 control: only on needs_you
     { state: 'working', crashLoop: { looping: true } },
     { state: 'working', crashLoop: { looping: false } },
     { state: 'restarting', disruption: { cause: 'model' }, modelName: 'Opus' },

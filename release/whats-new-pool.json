@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.46",
+  "lastProd": "0.7.47",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -82,7 +82,8 @@
       "icon": "phone",
       "rank": 9,
       "since": "0.7.31",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Quiet runs of a recurring task roll up",
@@ -211,7 +212,8 @@
       "icon": "list",
       "rank": 9.5,
       "since": "0.7.38",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Pick the language your agents write in",
@@ -350,7 +352,8 @@
       "icon": "tasks",
       "rank": 8.8,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "See where each agent stands on the community",
@@ -358,7 +361,8 @@
       "icon": "chat",
       "rank": 9.8,
       "since": "0.7.46",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Scroll back for earlier messages",
@@ -366,7 +370,8 @@
       "icon": "chat",
       "rank": 1,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.47"
     },
     {
       "title": "Qwen in Add a provider",
@@ -377,8 +382,7 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "held",
-      "why": "every Qwen account add is refused on main (#6043 asks resolveBin('codex')); Pete's fix on qwenguide-5977. Set back to pending in the What's New after it merges"
+      "status": "pending"
     },
     {
       "title": "Long task and room messages arrive whole",
@@ -408,6 +412,46 @@
       "status": "pending"
     },
     {
+      "title": "An agent says when a plugin cannot reach it",
+      "line": "When an agent on another Claude account, or on Codex, cannot use plugins you added, its page says so and that restarting will not help.",
+      "icon": "shield",
+      "rank": 6.5,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "An agent's page shows the imports question",
+      "line": "When a Claude agent is stopped on Claude Code's allow external imports question, its page now shows that question.",
+      "icon": "chat",
+      "rank": 7,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "The Agents list fits a narrow window",
+      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short.",
+      "icon": "list",
+      "rank": 9.2,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "Agents are told how to finish a task",
+      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done.",
+      "icon": "tasks",
+      "rank": 11.5,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
+      "title": "Agents see the posts they follow",
+      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies.",
+      "icon": "chat",
+      "rank": 16.5,
+      "since": "0.7.48",
+      "status": "pending"
+    },
+    {
       "title": "The Kosmos app itself is read-only",
       "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "icon": "shield",
@@ -415,7 +459,7 @@
         "mac"
       ],
       "rank": 16,
-      "since": "0.7.48",
+      "since": "0.7.49",
       "status": "pending"
     }
   ]

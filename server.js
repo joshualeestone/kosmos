@@ -2546,6 +2546,40 @@ function knownAgentNames() {
   }
   return { names, complete, roster };
 }
+/* #6108: the ONE walk over this computer's agents and the account folder each runs on, so the account guards and the
+   accounts list cannot drift. Fail-closed: `complete` is false whenever anything could not be
+   read. `skipGuide` leaves the setup guide out (lists, #3739); a guard that must count every agent leaves it in. */
+function agentsByAccountWalk(runner, { skipGuide = false } = {}) {
+  const known = knownAgentNames();
+  let complete = known.complete;
+  const entries = [];   // { sessionName, home } with home null for the default account
+  let guideFolderName = null;
+  if (skipGuide) { try { guideFolderName = setupAssistant.guideName(); } catch { guideFolderName = null; } }   // read once per walk
+  for (const sessionName of known.names) {
+    let job = null;
+    try { job = create.readJob(sessionName); }
+    catch { complete = false; continue; }
+    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
+    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
+    // ENOENT is evidence of absence; any other failure makes this incomplete.
+    if (!job) {
+      let absent = true;
+      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
+      if (!absent) complete = false;
+      continue;
+    }
+    if (job.runner !== runner) continue;
+    if (skipGuide) {
+      let guide = false;
+      try { guide = setupAssistant.isGuideFolder(sessionName)
+        || (!!guideFolderName && create.cleanName(guideFolderName).toLowerCase() === create.cleanName(sessionName).toLowerCase() && setupAssistant.isGuideFolder(guideFolderName)); }
+      catch { guide = false; }
+      if (guide) continue;
+    }
+    entries.push({ sessionName, home: job.configDir || null });
+  }
+  return { entries, complete };
+}
 /* #3296/#3391 accounts slice: the fail-closed "which agents run on this account
    directory" enumeration, shared by EVERY provider's disconnect/remove route so the
    safety property lives in ONE place rather than being copied per provider (the
@@ -2563,31 +2597,38 @@ function knownAgentNames() {
    by a gemini agent). This is the exact logic the OpenAI DELETE route grew inline;
    that route now calls this so the four providers cannot drift. */
 function enumerateAgentsOnAccount(dir, isDefault, runner) {
-  const known = knownAgentNames();
-  let complete = known.complete;
-  const names = known.names;
+  const walk = agentsByAccountWalk(runner);
+  let complete = walk.complete;
   const usedBy = [];
-  for (const sessionName of names) {
-    let job = null;
-    try { job = create.readJob(sessionName); }
-    catch { complete = false; continue; }
-    // A null job is TWO answers readJob cannot separate: "no launch file" (a real
-    // answer) vs "could not read it" (ignorance). jobMissing splits them -- only
-    // ENOENT is evidence of absence; any other failure makes this incomplete.
-    if (!job) {
-      let absent = true;
-      try { absent = create.jobMissing(sessionName); } catch { absent = false; }
-      if (!absent) complete = false;
-      continue;
-    }
-    if (job.runner !== runner) continue;
-    const home = job.configDir || null;
+  for (const { sessionName, home } of walk.entries) {
     let onIt = false;
     try { onIt = home ? path.resolve(home) === path.resolve(dir) : isDefault; }
     catch { complete = false; continue; }
     if (onIt) usedBy.push(sessionName);
   }
   return { usedBy, complete };
+}
+
+/* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
+   list (which used to need a full walk per account row). The same reading as enumerateAgentsOnAccount: a job with no
+   configDir runs on the default account; `complete` is false when anything could not be read. */
+function claudeAgentsByAccount() {
+  const walk = agentsByAccountWalk('claude', { skipGuide: true });
+  let complete = walk.complete;
+  const byDir = new Map(), onDefault = [];
+  for (const { sessionName, home } of walk.entries) {
+    if (!home) { onDefault.push(sessionName); continue; }
+    let key; try { key = path.resolve(home); } catch { complete = false; continue; }
+    if (!byDir.has(key)) byDir.set(key, []);
+    byDir.get(key).push(sessionName);
+  }
+  return {
+    complete,
+    on(dir, isDefault) {   // the agents on one account row
+      let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
+      return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
+    },
+  };
 }
 
 /* #3296/#3391 accounts slice: store a NAMED gemini/grok account from a pasted API
@@ -4019,6 +4060,24 @@ function pathOf(req) {
  * which requests reach a decode is exactly the kind of second-order effect a
  * routing change is prone to.
  */
+/* #6072: every project on the wire carries `goalAskGaveUp`: when the Assigner tried MAX_ASK_FAILS times today to ask an
+   agent to plan work toward its goal and reached nobody, which agent it was and when; else null. Read from the memory
+   of an Assigner that has RUN in this process (ASSIGNER_VIEW, set by its sweep's tick, never at load), so a board whose
+   Assigner is off, or not opted in to live execution, says nothing (review 3). And null once the goal itself is gone
+   from BRIEF.md (review 3), read only for a project that has a give-up. Never a 500. */
+const ASSIGNER_VIEW = { mem: null };
+function withGoalAsk(list) {
+  const now = Date.now();
+  return (list || []).map((p) => {
+    let rec = null;
+    try {
+      rec = assigner.goalAskGaveUp(ASSIGNER_VIEW.mem, p, now);
+      if (rec && !brief.readGoal(p.folder)) rec = null;
+    } catch { rec = null; }
+    return { ...p, goalAskGaveUp: rec };
+  });
+}
+
 /* #670: every project on the wire carries its unread count, derived HERE
    from the record and the read cursor, never re-counted on the page. null
    when the record or the cursor cannot be read (unknown is not zero), and
@@ -10920,6 +10979,12 @@ const server = http.createServer(async (req, res) => {
         // Only a signed-in row can show its login as good, so only those are read (review iteration 4).
         const loginUntil = new Map(await Promise.all(claudeRows.map(async (a) => [a,
           (a.connection && a.connection.state === 'connected') ? await claudeloginlive.validUntilWithin(a, undefined, nowMs) : null])));
+        /* #6108: one walk for every row below, and only when the caller asks (?agents=1, Settings): the other pages that
+           read this list never show the agents, so they do not pay for the walk. */
+        let wantAgents = false;
+        try { wantAgents = new URL(req.url, ROUTING_BASE).searchParams.get('agents') === '1'; } catch { wantAgents = false; }
+        let claudeAgents = null;
+        if (wantAgents) { try { claudeAgents = claudeAgentsByAccount(); } catch { claudeAgents = null; } }
         const claude = claudeRows.map((a) => {
           /* #3136: the badge is the FRESHER of a passively-witnessed agent
              observation (obsByDir, filled by the ~60s sweep) and a
@@ -10981,6 +11046,33 @@ const server = http.createServer(async (req, res) => {
                 return stops ? { loginStopsAt: stops } : {};
               })()) },
             weeklyTokensPerPoint: cal ? Math.round(cal.tokensPerPoint) : null,
+            /* #6108: how much of the weekly limit this account has used, as Kosmos last recorded it (the statusline
+               writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
+               recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
+               recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
+            weekly: (() => {
+              try {
+                const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
+                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+              } catch { return null; }
+            })(),
+            /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
+               records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
+            weeklyBlocked: (() => {
+              if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
+              if (process.platform === 'win32') return 'windows';
+              try {
+                const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
+                const sl = j && j.statusLine;
+                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
+                return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
+              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
+            })(),
+            /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
+               be read, so the page can say the list may be short rather than call it whole. */
+            ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete } : { names: [], complete: false } } : {}),
           };
         });
         /* 🛑 `offerable` TRAVELS WITH THE ROW, for the same reason `memoryShared` does
@@ -17610,7 +17702,11 @@ const server = http.createServer(async (req, res) => {
         let name = '';
         try { name = decodeURIComponent(String(req.headers['x-attachment-name'] || '')); } catch { name = String(req.headers['x-attachment-name'] || ''); }
         const rec = attachments.save(scope, owner, { name, type: req.headers['content-type'], bytes });
-        sendJson(res, 200, { attachment: attachments.rowField(rec) });
+        /* #6098: an office file gets its text rendering before the answer, so the message that carries it can name
+           it. The conversion runs in a worker thread with a memory and a time limit (attachtext.js), so a hostile
+           file cannot stall or crash the board; it never fails the upload. */
+        return require('./engine/attachtext').render(rec).catch(() => null)
+          .then(() => sendJson(res, 200, { attachment: attachments.rowField(rec) }));
       })
       .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not keep that file') }));
     return;
@@ -18353,7 +18449,7 @@ const server = http.createServer(async (req, res) => {
     }
     const roster = safeRoster();
     try {
-      sendJson(res, 200, { projects: withShared(withUnread(projects.list(roster))), agentsUnreadable: roster === null });
+      sendJson(res, 200, { projects: withGoalAsk(withShared(withUnread(projects.list(roster)))), agentsUnreadable: roster === null });
     } catch {
       // The record is still readable when the roster is not, so the projects
       // themselves are served with every member marked unseen rather than the
@@ -18373,7 +18469,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, {
-        projects: withShared(withUnread(listed)),
+        projects: withGoalAsk(withShared(withUnread(listed))),
         agentsUnreadable: true,
         because: 'we cannot read the agents on this computer right now, so we are not saying anything about how they are doing',
       });
@@ -19272,9 +19368,11 @@ const server = http.createServer(async (req, res) => {
        "nobody said anything." The check is EXISTENCE, never post-count: a real
        project with zero posts still returns the normal empty room below.
        ⚠️ readAll(), not projects.get(): get() routes through describe(), which
-       heals everSeen and can writeAll() -- a write side-effect on a room READ
-       would be a real defect. readAll() is the pure registry read get() itself
-       uses. FAILS OPEN: a transient registry-read throw must not become a false
+       heals everSeen and can writeAll() -- an incidental registry write on a room
+       READ would be a real defect. (The one deliberate write below, #4926, is
+       different: per reader, idempotent, and only for an agent's own token.)
+       readAll() is the pure registry read get() itself uses. FAILS OPEN: a
+       transient registry-read throw must not become a false
        "no such project," so on a throw we fall through to the best-effort room
        read below (which already handles an unreadable store), never to a 404. */
     let projectKnown = true;
@@ -19410,6 +19508,23 @@ const server = http.createServer(async (req, res) => {
         for (let i = rows.length - 1; i >= 0 && tail.length < textRows; i--) {
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
+        }
+        /* #4926: an agent that read the room with its own token has now SEEN these posts, so none of them is still held
+           for it: otherwise its next idle line tells it again about a thread it read and answered (Josh's 0.7.46 report,
+           a Grok seat). Only on a GET by an agent identified by its own token (KOSMOS_AGENT_TOKEN; `kosmos room` sends it
+           when the agent has one, and a caller without one is not reached); only the posts this read showed. A write that
+           fails leaves them held, and a read during an in-flight delivery (roomhold.take has cleared the ids, messages.js
+           may restore them if the typing fails) drops nothing, so a restore can still name a post this read showed. One
+           case goes the other way (review 3): the drop happens before the response is sent, so a read whose response
+           never reaches the agent (a reset, curl's -m 15) has cleared them unseen. The posts are still in the room; only
+           the idle reminder is missed. Moving it to 'finish' would not fix that (it means handed to the OS, not read). */
+        if (req.method === 'GET') {
+          try {
+            const reader = senderFromAgentToken(req, null, safeRoster());
+            const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
+            const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
+            if (who && shownIds.length) roomhold.dropShown(who, id, shownIds);
+          } catch { /* the posts stay held */ }
         }
         const lines = tail.flatMap((m) => {
           const when = messages.roomClock(m.at, zone);
@@ -22893,6 +23008,7 @@ function start(port = PORT) {
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
+          ASSIGNER_VIEW.mem = assignerPrev;   // #6072: set by a tick that ran, never at load (review 3)
           /* #5382 (review 8): tell each idle agent which of its parts the failover gave away (the record is on the part,
              engine/failovertell.js), whatever the failover setting says now: the parts were already moved. */
           try {
@@ -23886,7 +24002,9 @@ module.exports = {
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
+  ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
+  enumerateAgentsOnAccount, claudeAgentsByAccount, // #6108: the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests

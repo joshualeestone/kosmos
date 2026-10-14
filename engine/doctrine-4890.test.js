@@ -392,9 +392,9 @@ test('#4890 review 18: the shipped table holds every section of today\'s block',
   for (const s of defaults.sections()) assert.ok(PAST.sections.includes(sha(s.text)), 'missing section: ' + s.heading);
 });
 
-/* kosmos#5643 slice 2 review 1: tools/doctrine-past.js walks only the branch it runs on, so a regeneration drops blocks
-   released from OTHER branches (two v21 copies and one section, restored by hand in ac8507742; a regeneration on a branch drops them again).
-   They are pinned so a regeneration that loses them goes red. */
+/* kosmos#5643 slice 2 review 1: two v21 copies and one section were released from branches no single history holds
+   (restored by hand in ac8507742). Since #5946 tools/doctrine-past.js keeps every row of the default branch's committed
+   table, so a regeneration no longer drops them; they stay pinned so a generator that ever stops keeping them goes red. */
 test('the table keeps released blocks that no single branch history holds (two v21 copies, one section)', () => {
   for (const sha of ['8f049db34502268da4258dda6c2e242f8c13373b38f1e43800091e091c62aa5b', 'ff04f9d92e6c5917a67fff81781e8775d809467e312d8bb3f00aa04f5fed0e53']) {
     assert.ok(PAST.some((r) => r.sha256 === sha), 'engine/doctrine-past.js lost a released v21 block: ' + sha.slice(0, 12));

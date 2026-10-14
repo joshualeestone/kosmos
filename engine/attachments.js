@@ -337,7 +337,16 @@ function factsOf(r) {
     files), on the send path. */
 function wireNote(recs) {
   const list = Array.isArray(recs) ? recs : (recs ? [recs] : []);
-  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')]').join('');
+  return list.filter(Boolean).map((r) => ' [attached file: ' + r.file + ' (' + factsOf(r) + ')' + asText(r) + ']').join('');
+}
+/* #6098: an office file (xlsx, docx, pdf) also names its text rendering, written beside it on upload
+   (engine/attachtext.js), so an agent of any model family reads it with the same command as a text file:
+      [attached file: /…/sales.xlsx (application/vnd…, 18 KB); as text: /…/text.txt]
+   Only when the rendering is there: an upload from before #6098, or one that could not be written, says nothing. */
+function asText(r) {
+  if (!r || !r.dir || !require('./attachtext').kindFor(r.name)) return '';
+  const t = path.join(r.dir, 'text.txt');
+  try { return fs.statSync(t).isFile() ? '; as text: ' + t : ''; } catch { return ''; }
 }
 
 /** Resolve a request's attachment ids (either `attachment: id` or

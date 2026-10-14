@@ -213,6 +213,7 @@ o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbrepo/h KOSMOS_RUN_MARKER_DIR=$S/mfb perl -
 ok "#5446: no QUEUED_HEAVY_LIB and no default folder: the repo's main checkout supplies the guards, it says so, and runs" '[ "$rc" = 0 ] && [ -e $S/fb-ran ] && [[ "$o" =~ main\ checkout\ [^\ ]*/fbrepo\ at\ [0-9a-f]{7,}\ on\ [^\ ]+\ for\ the\ queue ]] && [[ "$o" != *"No such file"* ]]'
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnolib/h KOSMOS_RUN_MARKER_DIR=$S/mfbn perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnolib/tools/queued-heavy.sh "fallback-nolib" touch $S/fbn-ran 2>&1); rc=$?
 ok "#5446 CONTROL: the same with no cut-guard.sh in that checkout still exits 3 and runs nothing" '[ "$rc" = 3 ] && [ ! -e $S/fbn-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]]'
+ok "#5923: a run that cannot load the lib (exit 3) still releases the lib lock" '[ -d $S/mfbn ] && [ ! -e $S/mfbn/queued-heavy-lib.lock ]'
 qh_repo $S/fbold 1; echo 'unset -f kosmos_release_machine' >> $S/fbold/tools/lib/cut-guard.sh
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbold/h KOSMOS_RUN_MARKER_DIR=$S/mfbo perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbold/tools/queued-heavy.sh "fallback-old" touch $S/fbo-ran 2>&1); rc=$?
 ok "#5446: a fallen-back main checkout with an old lib exits 3, names the missing function and the pull that fixes it" '[ "$rc" = 3 ] && [ ! -e $S/fbo-ran ] && [[ "$o" == *"has no kosmos_release_machine"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
@@ -226,6 +227,212 @@ ok "#5446: a worktree's copy falls back to its MAIN checkout, not its own tree" 
 qh_repo $S/fbnone 0; mkdir -p $S/fbnone/x && cp "$REAL_QH" $S/fbnone/x/queued-heavy.sh
 o=$(env -u QUEUED_HEAVY_LIB HOME=$S/fbnone/h KOSMOS_RUN_MARKER_DIR=$S/mfbz perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/fbnone/x/queued-heavy.sh "fallback-none" touch $S/fbz-ran 2>&1); rc=$?
 ok "#5446: a main checkout with no lib at all: exits 3, names that checkout and the pull" '[ "$rc" = 3 ] && [ ! -e $S/fbz-ran ] && [[ "$o" == *"/fbnone has none either"* ]] && [[ "$o" == *"pull --ff-only"* ]]'
+# #5923: the DEFAULT shared lib checkout ($HOME/work/kosmos-bc-main-4610) is compared with origin/main by the blobs of
+# the two files the queue loads, and moved there only when no queue run could hold the old lib. Fixture: a repo whose
+# origin/main changed cut-guard.sh, checked out detached one commit behind. QH_TEST_PS stands in for ps, so a real
+# waiter on this box cannot sway an arm. Each arm: its own HOME, marker dir and deadline.
+qh_lib5923() {   # qh_lib5923 <home>: the fixture checkout under <home>/work/kosmos-bc-main-4610, one commit behind origin/main
+  local d="$1/work/kosmos-bc-main-4610" c="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+  mkdir -p "$d/tools/lib" && $GE git -C "$d" init -q && cp "$ROOT"/tools/lib/*.sh "$d/tools/lib/"
+  $GE git -C "$d" add -A && $GE git -C "$d" $c commit -qm old
+  echo '# a later main' >> "$d/tools/lib/cut-guard.sh"; $GE git -C "$d" $c commit -qam new
+  $GE git -C "$d" update-ref refs/remotes/origin/main HEAD && $GE git -C "$d" checkout -q --detach HEAD~1
+}
+run5923() {   # run5923 <name> [env assignments...]: runs the real wrapper with QUEUED_HEAVY_LIB unset and HOME=$S/l5923-<name>
+  local n="$1"; shift; mkdir -p $S/ml5923-$n
+  o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-$n KOSMOS_RUN_MARKER_DIR=$S/ml5923-$n QH_TEST_PS="cat $S/ps5923-$n" QH_TEST_CWD="cat $S/cwd5923" "$@" perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-$n" touch $S/l5923-$n-ran 2>&1); rc=$?
+}
+lh5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse HEAD; }
+lm5923() { $GE git -C $S/l5923-$1/work/kosmos-bc-main-4610 rev-parse origin/main; }
+# Iteration 18: a lib folder that has LOST its .git, inside an enclosing repo that is itself detached and behind its
+# origin/main. git must not walk up and move the enclosing repo as if it were the lib.
+qh_nogit5923() {
+  local w="$1/work" c="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+  mkdir -p "$w/kosmos-bc-main-4610/tools/lib" && $GE git -C "$w" init -q && cp "$ROOT"/tools/lib/*.sh "$w/kosmos-bc-main-4610/tools/lib/"
+  $GE git -C "$w" add -A && $GE git -C "$w" $c commit -qm old
+  echo '# a later main' >> "$w/kosmos-bc-main-4610/tools/lib/cut-guard.sh"; $GE git -C "$w" $c commit -qam new
+  $GE git -C "$w" update-ref refs/remotes/origin/main HEAD && $GE git -C "$w" checkout -q --detach HEAD~1
+}
+printf 'p1\nn/\n' > $S/cwd5923
+for n in mv mk ps sh set dirty nops cwd nocwd reuse dead gitlive idxlock gitreuse ahead same branch claim need psx nopid live mvfail mvkeep mvmix noorig unw sideneed; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; done
+run5923 mv
+ok "#5923: the default lib checkout behind origin/main, nothing live: moved to origin/main, said so, run runs, lock gone" '[ "$rc" = 0 ] && [ -e $S/l5923-mv-ran ] && [ "$(lh5923 mv)" = "$(lm5923 mv)" ] && [[ "$o" == *"moved"*"-> origin/main"*"cut-guard.sh differed"* ]] && [ ! -e $S/ml5923-mv/queued-heavy-lib.lock ]'
+run5923 mv
+ok "#5923: once at origin/main the next join says the queue files match and moves nothing" '[ "$rc" = 0 ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
+qh_nogit5923 $S/l5923-nogit; printf '1 0 /sbin/launchd\n' > $S/ps5923-nogit
+NOGIT_BEFORE=$($GE git -C $S/l5923-nogit/work rev-parse HEAD)
+run5923 nogit
+ok "#5923: a lib folder with no .git inside a behind, detached repo: that ENCLOSING repo is never moved, and the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-nogit-ran ] && [ "$($GE git -C $S/l5923-nogit/work rev-parse HEAD)" = "$NOGIT_BEFORE" ] && [[ "$o" != *moved* ]]'
+# Iteration 19: the same, but the lib folder has a .git that is not a repo (an empty directory), so the guard above
+# does not apply and only the git ceiling keeps git from walking up. Red without GIT_CEILING_DIRECTORIES.
+qh_nogit5923 $S/l5923-emptygit; mkdir $S/l5923-emptygit/work/kosmos-bc-main-4610/.git; printf '1 0 /sbin/launchd\n' > $S/ps5923-emptygit
+EMPTYGIT_BEFORE=$($GE git -C $S/l5923-emptygit/work rev-parse HEAD)
+run5923 emptygit
+ok "#5923: a lib whose .git is not a repo: git does not walk up, the enclosing repo is never moved, the line says git could not read it" '[ "$rc" = 0 ] && [ -e $S/l5923-emptygit-ran ] && [ "$($GE git -C $S/l5923-emptygit/work rev-parse HEAD)" = "$EMPTYGIT_BEFORE" ] && [[ "$o" != *moved* ]] && [[ "$o" == *"git could not read this checkout"* ]]'
+mkdir -p $S/ml5923-mk && : > $S/ml5923-mk/suitewait.999999
+run5923 mk
+ok "#5923: a queue marker present: NOT moved, says which, joins on the old lib and runs" '[ "$rc" = 0 ] && [ -e $S/l5923-mk-ran ] && [ "$(lh5923 mk)" != "$(lm5923 mk)" ] && [[ "$o" == *"DIFFERS"*"not moved (a queue marker is present (suitewait.999999))"* ]]'
+printf '4242 1 /bin/bash /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.x\n' > $S/ps5923-ps
+run5923 ps
+ok "#5923: another queued-heavy.sh live (a waiter after its re-exec): NOT moved, names its pid" '[ "$rc" = 0 ] && [ "$(lh5923 ps)" != "$(lm5923 ps)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4242)"* ]]'
+printf '4243 1 zsh -c bash /x/queued-heavy.sh "x" true\n4244 1 grep queued-heavy.sh\n4245 1 /bin/bash /x/not-queued-heavy.sh\n' > $S/ps5923-sh
+run5923 sh
+ok "#5923 CONTROL: a shell of the CALLER or a grep naming queued-heavy.sh is not a waiter, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 sh)" = "$(lm5923 sh)" ] && [[ "$o" == *moved* ]]'
+mkdir -p $S/ml5923-set; o=$(HOME=$S/nowhere KOSMOS_RUN_MARKER_DIR=$S/ml5923-set QH_TEST_PS="cat $S/ps5923-set" QUEUED_HEAVY_LIB=$S/l5923-set/work/kosmos-bc-main-4610 perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash "$REAL_QH" "lib-set" true 2>&1); rc=$?
+ok "#5923: a checkout named by QUEUED_HEAVY_LIB is reported, never moved" '[ "$rc" = 0 ] && [ "$(lh5923 set)" != "$(lm5923 set)" ] && [[ "$o" == *"not moved (it is not the default shared checkout)"* ]]'
+echo '# local' >> $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh
+run5923 dirty
+ok "#5923: a checkout with local changes is not moved and keeps them" '[ "$rc" = 0 ] && [ "$(lh5923 dirty)" != "$(lm5923 dirty)" ] && [[ "$o" == *"not moved (it has local changes)"* ]] && tail -1 $S/l5923-dirty/work/kosmos-bc-main-4610/tools/lib/process-fixture.sh | grep -q local'
+run5923 nops QH_TEST_PS=false
+ok "#5923: a process list that fails is not read as nothing live: NOT moved, says so" '[ "$rc" = 0 ] && [ "$(lh5923 nops)" != "$(lm5923 nops)" ] && [[ "$o" == *"not moved (could not list processes)"* ]]'
+printf 'p1\nn/\np4246\nn%s/tools\n' "$(cd $S/l5923-cwd/work/kosmos-bc-main-4610 && pwd -P)" > $S/cwd5923-in   # lsof prints the resolved path
+run5923 cwd QH_TEST_CWD="cat $S/cwd5923-in"
+ok "#5923: a process working inside the checkout blocks the move (a move replaces the whole tree)" '[ "$rc" = 0 ] && [ "$(lh5923 cwd)" != "$(lm5923 cwd)" ] && [[ "$o" == *"not moved (a process is working inside it (pid 4246))"* ]]'
+run5923 nocwd QH_TEST_CWD=false
+ok "#5923: a working-directory probe that fails blocks the move and says so" '[ "$rc" = 0 ] && [ "$(lh5923 nocwd)" != "$(lm5923 nocwd)" ] && [[ "$o" == *"not moved (could not list working directories)"* ]]'
+# A lib lock left by a holder whose pid now runs another command (here the test's own live holder H) is taken over at once.
+mkdir -p $S/ml5923-reuse/queued-heavy-lib.lock && echo $H > $S/ml5923-reuse/queued-heavy-lib.lock/pid && echo "a holder long gone" > $S/ml5923-reuse/queued-heavy-lib.lock/cmd
+run5923 reuse
+ok "#5923: a lib lock whose pid was reused by another command is taken over, and the run moves the lib" '[ "$rc" = 0 ] && [ "$(lh5923 reuse)" = "$(lm5923 reuse)" ] && [[ "$o" == *moved* ]] && [[ "$o" != *"stayed taken"* ]] && kill -0 $H'
+# A lib lock whose holder has died is taken over at once.
+sh -c 'exit 0' & DEAD5923=$!; wait $DEAD5923
+mkdir -p $S/ml5923-dead/queued-heavy-lib.lock && echo $DEAD5923 > $S/ml5923-dead/queued-heavy-lib.lock/pid
+run5923 dead
+ok "#5923: a lib lock whose holder has died is taken over, and the run moves the lib" '[ "$rc" = 0 ] && [ "$(lh5923 dead)" = "$(lm5923 dead)" ] && [[ "$o" != *"stayed taken"* ]] && ! kill -0 $DEAD5923 2>/dev/null'
+# Iteration 19: the holder died but the git it started is still checking out (git runs in its own group). The lock is
+# NOT taken over until that git exits, so no joiner loads a half-written lib. A sleep stands in for the live git and
+# ends after 3 s; the joiner must wait for it, then take over and move.
+sh -c 'exit 0' & DEADG5923=$!; wait $DEADG5923
+sleep 60 & GIT5923=$!
+# Iteration 25: the shape production writes, gitcmd (what that pid runs) before gitpid, so the matching-command branch
+# is the one exercised; with no gitcmd the arm would only reach the ps-failed branch.
+mkdir -p $S/ml5923-gitlive/queued-heavy-lib.lock && echo $DEADG5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/pid \
+  && ps -ww -o command= -p $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitcmd && echo $GIT5923 > $S/ml5923-gitlive/queued-heavy-lib.lock/gitpid
+GL_OLD5923=$(lh5923 gitlive)
+( run5923 gitlive; printf '%s\n' "$o" > $S/gitlive5923.out; echo "$rc" > $S/gitlive5923.rc ) &
+GLR5923=$!
+# Checked once the joiner is IN its lock loop (as the live arm does), never on a timer a slow box could beat: past
+# perl and the re-exec, then sleeping between lock reads, which it only does while it has NOT taken the lock.
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+glw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
+until_true 30 '[ -n "$glw5923" ] && pgrep -P "$glw5923" -x sleep >/dev/null'; gl_inloop5923=$?
+if [ "$gl_inloop5923" = 0 ] && [ "$(cat $S/ml5923-gitlive/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADG5923" ] && [ "$(lh5923 gitlive)" = "$GL_OLD5923" ]; then gl_held5923=held; else gl_held5923=taken; fi
+kill $GIT5923 2>/dev/null; wait $GIT5923 2>/dev/null; wait $GLR5923
+ok "#5923: a dead holder whose git is still checking out keeps the lock while that git lives, then the run takes over and moves" '[ "$gl_held5923" = held ] && [ "$(cat $S/gitlive5923.rc)" = 0 ] && [ "$(lh5923 gitlive)" = "$(lm5923 gitlive)" ] && ! grep -q "stayed taken" $S/gitlive5923.out'
+# Iteration 21: the instant before the pid reaches the lock (or a reused gitpid): no gitpid at all, but the lib's
+# index.lock exists, as it does for any running checkout. Not taken over until it is gone (removed here after 6 s).
+sh -c 'exit 0' & DEADI5923=$!; wait $DEADI5923
+mkdir -p $S/ml5923-idxlock/queued-heavy-lib.lock && echo $DEADI5923 > $S/ml5923-idxlock/queued-heavy-lib.lock/pid
+IDX5923="$($GE git -C $S/l5923-idxlock/work/kosmos-bc-main-4610 rev-parse --absolute-git-dir)/index.lock"; : > "$IDX5923"
+IL_OLD5923=$(lh5923 idxlock)
+( run5923 idxlock; printf '%s\n' "$o" > $S/idxlock5923.out; echo "$rc" > $S/idxlock5923.rc ) &
+ILR5923=$!
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+ilw5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
+until_true 30 '[ -n "$ilw5923" ] && pgrep -P "$ilw5923" -x sleep >/dev/null'; il_inloop5923=$?
+if [ "$il_inloop5923" = 0 ] && [ "$(cat $S/ml5923-idxlock/queued-heavy-lib.lock/pid 2>/dev/null)" = "$DEADI5923" ] && [ "$(lh5923 idxlock)" = "$IL_OLD5923" ]; then il_held5923=held; else il_held5923=taken; fi
+rm -f "$IDX5923"; wait $ILR5923
+ok "#5923: a dead holder with no gitpid but a live index.lock keeps the lock until index.lock is gone, then the run takes over and moves" '[ "$il_held5923" = held ] && [ "$(cat $S/idxlock5923.rc)" = 0 ] && [ "$(lh5923 idxlock)" = "$(lm5923 idxlock)" ] && ! grep -q "stayed taken" $S/idxlock5923.out'
+# Iteration 23: the dead holder's gitpid now names an UNRELATED live process (a reused pid): its recorded gitcmd does not
+# match what that pid runs, so it is not that git, and the run takes the lock over at once instead of waiting 5 minutes.
+sh -c 'exit 0' & DEADR5923=$!; wait $DEADR5923
+sleep 600 & OTHER5923=$!   # iteration 25: outlives the run's deadline, so a wrong hold cannot end by itself and pass
+mkdir -p $S/ml5923-gitreuse/queued-heavy-lib.lock && echo $DEADR5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/pid \
+  && echo $OTHER5923 > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitpid && echo "/bin/bash /x/queued-heavy.sh lib-gone" > $S/ml5923-gitreuse/queued-heavy-lib.lock/gitcmd
+gr_t0_5923=$(date +%s)
+run5923 gitreuse
+gr_secs5923=$(( $(date +%s) - gr_t0_5923 ))
+kill $OTHER5923 2>/dev/null; wait $OTHER5923 2>/dev/null
+ok "#5923: a dead holder's gitpid reused by an unrelated live process does not hold the lock; the run takes over at once and moves" '[ "$rc" = 0 ] && [ "$gr_secs5923" -lt 60 ] && [ "$(lh5923 gitreuse)" = "$(lm5923 gitreuse)" ] && [[ "$o" != *"stayed taken"* ]] && [ ! -e $S/ml5923-gitreuse/queued-heavy-lib.lock ]'
+# A checkout AHEAD of origin/main (a lib fix not merged yet) differs too, and is never moved back.
+d5923=$S/l5923-ahead/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo '# ahead' >> $d5923/tools/lib/cut-guard.sh && $GE git -C $d5923 -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -qam ahead
+run5923 ahead
+ok "#5923: a checkout ahead of origin/main is not moved back, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 ahead)" != "$(lm5923 ahead)" ] && [[ "$o" == *"not moved (its commit is not behind origin/main (ahead or diverged))"* ]]'
+GC5923="-c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+# Behind origin/main by a commit that leaves both queue files alone: the files match, so nothing moves (the measure is
+# the files, not commit distance).
+d5923=$S/l5923-same/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && echo x > $d5923/README && $GE git -C $d5923 add README && $GE git -C $d5923 $GC5923 commit -qm readme && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~1
+run5923 same
+ok "#5923: behind origin/main but with both queue files identical: says they match, moves nothing" '[ "$rc" = 0 ] && [ "$(lh5923 same)" != "$(lm5923 same)" ] && [[ "$o" == *"files match origin/main"* ]] && [[ "$o" != *moved* ]]'
+$GE git -C $S/l5923-branch/work/kosmos-bc-main-4610 checkout -q -b side5923
+run5923 branch
+ok "#5923: a checkout on a branch is not moved" '[ "$rc" = 0 ] && [ "$(lh5923 branch)" != "$(lm5923 branch)" ] && [[ "$o" == *"not moved (it is on a branch, not detached)"* ]]'
+mkdir -p $S/ml5923-claim && : > $S/ml5923-claim/machine-claim
+run5923 claim KOSMOS_IGNORE_MACHINE_CLAIM=1
+ok "#5923: a machine claim blocks the move like a waiter marker" '[ "$(lh5923 claim)" != "$(lm5923 claim)" ] && [[ "$o" == *"not moved (a queue marker is present (machine-claim))"* ]]'
+# The INSTALLED copy (in this HOME's .cache) names a function origin/main's lib lacks: no move, and the line names it.
+for n in inst instold; do qh_lib5923 $S/l5923-$n; printf '1 0 /sbin/launchd\n' > $S/ps5923-$n; mkdir -p $S/l5923-$n/.cache/claude-handoffs; done
+printf '#!/bin/bash\nQH_NEED_BASE="kosmos_wait_until_clear kosmos_gone_fn5923"\n' > $S/l5923-inst/.cache/claude-handoffs/queued-heavy.sh
+run5923 inst
+ok "#5923: the installed copy needs a function origin/main's lib lacks: not moved, names it, the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-inst-ran ] && [ "$(lh5923 inst)" != "$(lm5923 inst)" ] && [[ "$o" == *"has no kosmos_gone_fn5923, which the installed copy"* ]]'
+# An installed copy older than this check (no QH_NEED_BASE line): its needs are unknown, so no move.
+printf '#!/bin/bash\necho old\n' > $S/l5923-instold/.cache/claude-handoffs/queued-heavy.sh
+run5923 instold
+ok "#5923: an installed copy that predates the check blocks the move until it is reinstalled" '[ "$rc" = 0 ] && [ "$(lh5923 instold)" != "$(lm5923 instold)" ] && [[ "$o" == *"predates this check"* ]]'
+# origin/main's lib dropped a function this copy calls: moving would make every later join exit 3, so it does not move.
+d5923=$S/l5923-need/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_machine()/kosmos_release_machine_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
+run5923 need
+ok "#5923: origin/main's lib lacks a function this copy calls: not moved, names it, and the run still runs" '[ "$rc" = 0 ] && [ -e $S/l5923-need-ran ] && [ "$(lh5923 need)" != "$(lm5923 need)" ] && [[ "$o" == *"has no kosmos_release_machine, which this copy calls"* ]]'
+printf '1 0 /sbin/launchd\n4247 1 /x/queued-heavy.sh --queued-args /tmp/queued-heavy-args.y\n' > $S/ps5923-psx
+run5923 psx
+ok "#5923: a waiter run directly as its own command (argv[0] is the script) also blocks the move" '[ "$(lh5923 psx)" != "$(lm5923 psx)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid 4247)"* ]]'
+# A lock with no pid file at all (a holder killed between its mkdir and its pid write) is taken over after 20 reads.
+mkdir -p $S/ml5923-nopid/queued-heavy-lib.lock
+run5923 nopid
+ok "#5923: a lib lock with no pid is taken over after its consecutive empty reads, and the run moves the lib" '[ "$rc" = 0 ] && [ "$(lh5923 nopid)" = "$(lm5923 nopid)" ] && [[ "$o" != *"stayed taken"* ]]'
+# A lock held by a LIVE holder (this test's H, its command recorded) is respected: the run waits, moves nothing while
+# it is held, and goes on once it is released. The arm that proves the takeovers above are not unconditional.
+mkdir -p $S/ml5923-live/queued-heavy-lib.lock && ps -ww -o command= -p $H > $S/ml5923-live/queued-heavy-lib.lock/cmd && echo $H > $S/ml5923-live/queued-heavy-lib.lock/pid
+( run5923 live; printf '%s\n' "$o" > $S/live5923.out; echo "$rc" > $S/live5923.rc ) &
+LIVE5923=$!
+# Wait until the wrapper itself is running (re-exec'd, so past perl and its start-up), then give it time to reach the lock.
+until_true 30 'pgrep -f "^/bin/bash $REAL_QH --queued-args" >/dev/null'
+# Then until it is IN the lock loop: its first sleep (0.5 s between lock reads) is the only one before the lib loads.
+wp5923="$(pgrep -o -f "^/bin/bash $REAL_QH --queued-args")"
+until_true 30 '[ -n "$wp5923" ] && pgrep -P "$wp5923" -x sleep >/dev/null'
+live_held5923="$(lh5923 live)"; live_waiting5923=0; kill -0 $LIVE5923 2>/dev/null && live_waiting5923=1   # still waiting, not finished
+rm -rf $S/ml5923-live/queued-heavy-lib.lock
+wait $LIVE5923
+ok "#5923: a lib lock held by a live holder is respected (nothing moves while held), and the run moves once it is released" '[ "$live_waiting5923" = 1 ] && [ "$live_held5923" != "$(lm5923 live)" ] && [ "$(cat $S/live5923.rc)" = 0 ] && [ "$(lh5923 live)" = "$(lm5923 live)" ] && grep -q moved $S/live5923.out'
+# A default folder that is a git checkout but has no cut-guard.sh does not fall back to the repo's main checkout (a
+# move there recreates the file, and a run reading in that instant must not load another lib): it exits 3 at the load.
+mkdir -p $S/l5923-nolib/h/work/kosmos-bc-main-4610 && $GE git -C $S/l5923-nolib/h/work/kosmos-bc-main-4610 init -q
+qh_repo $S/l5923-nolib/repo 1
+o=$(env -u QUEUED_HEAVY_LIB HOME=$S/l5923-nolib/h KOSMOS_RUN_MARKER_DIR=$S/ml5923-nolib perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/l5923-nolib/repo/tools/queued-heavy.sh "lib-nolib" touch $S/l5923-nolib-ran 2>&1); rc=$?
+ok "#5923: a default folder that is a git checkout without cut-guard.sh exits 3 and does not fall back to the repo's main checkout" '[ "$rc" = 3 ] && [ ! -e $S/l5923-nolib-ran ] && [[ "$o" == *"could not load cut-guard.sh"* ]] && [[ "$o" != *"main checkout"* ]] && [[ "$o" == *"is a git checkout, so the fallback"*"is off for it (#5923)"* ]]'
+# A checkout stopped part way (seam: one file changed, rc 1) is put back at the old commit by force, and the line says so.
+run5923 mvfail QH_TEST_MOVE_FAIL=1
+ok "#5923: a move stopped part way is put back at the old commit, clean, and the line says so" '[ "$rc" = 0 ] && [ "$(lh5923 mvfail)" != "$(lm5923 mvfail)" ] && [ -z "$($GE git -C $S/l5923-mvfail/work/kosmos-bc-main-4610 status --porcelain --untracked-files=no)" ] && [[ "$o" == *"git checkout failed (rc 1) and the checkout was put back at"* ]]'
+# A checkout that failed before changing anything, and whose checkout back failed too, is NOT reported as mixed.
+run5923 mvkeep QH_TEST_MOVE_FAIL=nochange QH_TEST_RESTORE_FAIL=1
+ok "#5923: a failed move that changed nothing, with the checkout back failing too, says unchanged, not MIXED" '[ "$rc" = 0 ] && [ -e $S/l5923-mvkeep-ran ] && [ "$(lh5923 mvkeep)" != "$(lm5923 mvkeep)" ] && [[ "$o" == *"(rc 128) and left the checkout unchanged at"* ]] && [[ "$o" != *MIXED* ]]'
+# Its control: a move stopped part way whose checkout back fails is reported MIXED, with the repair command.
+run5923 mvmix QH_TEST_MOVE_FAIL=1 QH_TEST_RESTORE_FAIL=1
+ok "#5923 CONTROL: a move stopped part way that cannot be put back says FAILED PART WAY, MIXED, and the repair" '[ "$rc" = 0 ] && [[ "$o" == *"FAILED PART WAY (rc 1)"*"may be MIXED; repair with: git -C"*"checkout -f --detach"* ]]'
+# No origin/main to compare with: says so, moves nothing, and the run runs.
+$GE git -C $S/l5923-noorig/work/kosmos-bc-main-4610 update-ref -d refs/remotes/origin/main
+run5923 noorig
+ok "#5923: a checkout with no origin/main says so, is not moved, and the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-noorig-ran ] && [[ "$o" == *"has no origin/main to compare with (#5923)"* ]] && [[ "$o" != *moved* ]]'
+# An unwritable marker dir: no lock can be taken there, so the check is skipped, the line says so, and nothing moves.
+mkdir -p $S/ml5923-unw && chmod 555 $S/ml5923-unw
+run5923 unw
+chmod 755 $S/ml5923-unw
+ok "#5923: an unwritable marker dir skips the check, says the lib is loaded unchecked, and moves nothing" '[ "$(lh5923 unw)" != "$(lm5923 unw)" ] && [[ "$o" == *"is not writable, so the lib is loaded unchecked (#5923)"* ]]'
+# Origin/main's lib offers side turns (kosmos_light_side_clear) but lacks a side-lane function this copy then calls.
+d5923=$S/l5923-sideneed/work/kosmos-bc-main-4610; $GE git -C $d5923 checkout -q --detach origin/main && sed -i.bak 's/^kosmos_release_light_side()/kosmos_release_light_side_gone()/' $d5923/tools/lib/cut-guard.sh && rm -f $d5923/tools/lib/cut-guard.sh.bak && $GE git -C $d5923 $GC5923 commit -qam drop && $GE git -C $d5923 update-ref refs/remotes/origin/main HEAD && $GE git -C $d5923 checkout -q --detach HEAD~2
+run5923 sideneed
+ok "#5923: origin/main's lib offers side turns but lacks a side-lane function: not moved, names it, the run runs" '[ "$rc" = 0 ] && [ -e $S/l5923-sideneed-ran ] && [ "$(lh5923 sideneed)" != "$(lm5923 sideneed)" ] && [[ "$o" == *"has no kosmos_release_light_side, which this copy calls"* ]]'
+# The REAL ps (no QH_TEST_PS): the run's own pipeline subshell keeps this script's argv and must not read as a waiter.
+# QH_TEST_PS_NAME gives the script a name no real waiter on this box carries. Control: a live process of that name blocks.
+for n in rp rpc; do qh_lib5923 $S/l5923-$n; mkdir -p $S/ml5923-$n $S/rp5923-$n; cp "$REAL_QH" $S/rp5923-$n/qh5923self-$U.sh; done
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rp KOSMOS_RUN_MARKER_DIR=$S/ml5923-rp QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rp/qh5923self-$U.sh "lib-rp" true 2>&1); rc=$?
+ok "#5923: with the real ps, the run does not count itself or its own subshell, so the move happens" '[ "$rc" = 0 ] && [ "$(lh5923 rp)" = "$(lm5923 rp)" ] && [[ "$o" == *moved* ]]'
+mkdir -p $S/rp5923-other && printf '#!/bin/bash\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60; do sleep 1; done\n' > $S/rp5923-other/qh5923self-$U.sh   # ends by itself within a minute
+/bin/bash $S/rp5923-other/qh5923self-$U.sh </dev/null >/dev/null 2>&1 & RP5923=$!
+until_true 5 '[[ "$(ps -ww -o command= -p $RP5923)" == *qh5923self-$U.sh* ]]'
+o=$(env -u QUEUED_HEAVY_LIB -u QH_TEST_PS HOME=$S/l5923-rpc KOSMOS_RUN_MARKER_DIR=$S/ml5923-rpc QH_TEST_PS_NAME=qh5923self-$U.sh perl -e 'alarm(shift); exec @ARGV or die' "$QH_DEADLINE" /bin/bash $S/rp5923-rpc/qh5923self-$U.sh "lib-rpc" true 2>&1); rc=$?
+kill $RP5923 2>/dev/null   # stops the loop; the one-second sleep it is in then ends on its own
+ok "#5923 CONTROL: with the real ps, another live process of that name blocks the move and is named" '[ "$rc" = 0 ] && [ "$(lh5923 rpc)" != "$(lm5923 rpc)" ] && [[ "$o" == *"another queued-heavy.sh is live (pid $RP5923)"* ]]'
 # The shim itself can fail: a run with the marker dir outside this test's dir is refused before the wrapper starts.
 o=$(KOSMOS_RUN_MARKER_DIR=/tmp/not-this-test /bin/bash $QH "escape" true 2>&1); rc=$?
 ok "CONTROL: the shim refuses a marker dir outside this test" '[ "$rc" = 99 ] && [[ "$o" == *TEST-REFUSED* ]]'
@@ -368,7 +575,7 @@ sed 's|  exec /bin/bash "${BASH_SOURCE\[0\]}" --queued-args "$_qh_af"|  exec /no
 mkdir -p $S/tmpx; o=$(TMPDIR=$S/tmpx KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash $S/qh-noexec.sh "noexec" true 2>&1); r=$?
 ok "#5467: a failed re-exec exits 3, says so, and leaves no arguments file" '[ "$r" = 3 ] && [[ "$o" == *"could not restart itself"* ]] && [ -z "$(ls $S/tmpx)" ] && grep -q /nonexistent/bash $S/qh-noexec.sh'
 
-EXPECTED=105   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms
+EXPECTED=142   # 74 arms seeded from #4911's dry harness, the shim control, the killed wrapper's temp files, three lib arms, six #5446 lib-fallback arms, three #5064 arms, three #5331 arms, two #5332 arms, twelve #5467 arms, thirty-seven #5923 lib-drift arms
 echo "queued-heavy-4977: $oks OK, $bads BAD (expected $EXPECTED OK)"
 [ "$bads" = 0 ] && [ "$oks" = "$EXPECTED" ] || { echo "FAIL  tools/test-queued-heavy-4977.sh"; exit 1; }
 echo "PASS  tools/test-queued-heavy-4977.sh"

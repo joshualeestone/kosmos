@@ -864,3 +864,132 @@ test('#5678 review 7: failover moves a stalled part when the holder\'s other par
   const got = a.failoverPick('idleM', 'codex', [{ projectId: 'pr7f', n: 1, partId: 1, from: 'stalledL', fromRunner: 'claude' }], proj, new Set(), new Set());
   assert.ok(got && got.n === 1, 'a parked part kept the stalled holder on its tree: ' + JSON.stringify(got));
 });
+
+/* #6072: the give-up is kept per project, naming the agent Kosmos could not reach, until an ask lands, the project gets
+   open work, or the day is over. */
+function gaveUpWorld(name) {
+  const w = world([{ name }]);
+  writeBrief(w.pid, '## Goal\n\nA real goal.\n');
+  let landing = false;
+  const run = (prev, now) => a.tick({
+    prev, now, DELIVERY,
+    readSetting: () => ON, readRoster: () => w.cards, readRecords: () => projects.readAll(),
+    readCommitment: (session) => commitments.read(session), readGoal: (p) => brief.readGoal(p.folder),
+    give: () => ({ ok: true }),
+    ask: () => ({ state: landing ? DELIVERY.PLACED : DELIVERY.COULD_NOT }),
+  });
+  return { w, run, land: () => { landing = true; } };
+}
+const projectOf = (pid) => projects.readAll().find((p) => p.id === pid);
+
+test('#6072: MAX_ASK_FAILS undelivered goal asks leave a give-up naming the agent; one fewer leaves none (control)', () => {
+  const { w, run } = gaveUpWorld('gupone');
+  try {
+    let mem = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS - 1; i++) { mem = run(mem, now).next; now += 61 * 60 * 1000; }
+    assert.equal(a.goalAskGaveUp(mem, projectOf(w.pid), now), null, 'CONTROL: a give-up before MAX_ASK_FAILS fails');
+    mem = run(mem, now).next;
+    const rec = a.goalAskGaveUp(mem, projectOf(w.pid), now);
+    assert.ok(rec, 'no give-up after MAX_ASK_FAILS undelivered asks');
+    assert.equal(rec.tries, a.MAX_ASK_FAILS);
+    assert.equal(rec.because, 'could_not');
+    assert.equal(rec.at, now);
+    assert.ok(rec.agent && w.cards.some((c) => c.name === rec.agent || c.sessionName === rec.agent), 'the give-up does not name the asked agent: ' + rec.agent);
+  } finally { w.restore(); }
+});
+
+test('#6072: an ask that lands ends the give-up; open work hides it; a day later it has expired', () => {
+  const { w, run, land } = gaveUpWorld('guptwo');
+  try {
+    let mem = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS; i++) { mem = run(mem, now).next; now += 61 * 60 * 1000; }
+    const rec = a.goalAskGaveUp(mem, projectOf(w.pid), now);
+    assert.ok(rec, 'fixture: no give-up to clear, so this test proves nothing');
+    const at = rec.at;
+    assert.equal(a.goalAskGaveUp(mem, projectOf(w.pid), at + a.GOAL_ASK_MS), null, 'a give-up a whole day old still stands');
+    assert.equal(a.goalAskGaveUp(mem, projectOf(w.pid), at - 1), null, 'a give-up from the future is believed');
+    const t = addTask(w.pid, 'Something to do');
+    assert.equal(a.goalAskGaveUp(mem, projectOf(w.pid), now), null, 'open work, yet the goal still reads as stalled');
+    tasks.close(w.pid, t.number);
+    assert.ok(a.goalAskGaveUp(mem, projectOf(w.pid), now), 'CONTROL: with the task closed the give-up stands again');
+    /* Within the day, so only a landed ask can clear it (review 1: step also prunes an expired one). Forgetting when
+       the project was asked lets it be asked again now. */
+    land();
+    const reask = { ...mem, asked: new Map([...mem.asked].filter(([k]) => k !== w.pid)), askedSig: new Map([...mem.askedSig].filter(([k]) => k !== w.pid)) };
+    const reaskAt = now + 61 * 60 * 1000;
+    assert.ok(reaskAt - at < a.GOAL_ASK_MS, 'fixture: the re-ask is not within the day');
+    const after = a.tick({ prev: reask, now: reaskAt, DELIVERY,
+      readSetting: () => ON, readRoster: () => w.cards, readRecords: () => projects.readAll(),
+      readCommitment: (session) => commitments.read(session), readGoal: (p) => brief.readGoal(p.folder),
+      give: () => ({ ok: true }), ask: () => ({ state: DELIVERY.PLACED }) });
+    assert.ok(after.asks.some((x) => x.projectId === w.pid), 'fixture: the project was not asked again, so the clear is untested');
+    assert.equal(after.next.askGaveUp.has(w.pid), false, 'an ask that landed left the give-up in memory');
+  } finally { w.restore(); }
+});
+
+test('#6072: a give-up survives a restart (savedForm and restoredMemory), and a malformed or stale one is dropped', () => {
+  const now = T0 + 5 * 60 * 1000;
+  const mem = a.restoredMemory({ v: 1 }, now);
+  mem.askGaveUp.set('p-ok', { at: T0, tries: 3, agent: 'Echo', session: 'echo', because: 'could_not' });
+  const back = a.restoredMemory(JSON.parse(JSON.stringify(a.savedForm(mem))), now);
+  assert.deepEqual(back.askGaveUp.get('p-ok'), { at: T0, tries: 3, agent: 'Echo', session: 'echo', because: 'could_not' });
+  const bad = a.restoredMemory({ v: 1, askGaveUp: [
+    ['p-future', { at: now + 1, tries: 3, agent: 'E', session: 'e', because: 'could_not' }],
+    ['p-old', { at: now - a.GOAL_ASK_MS, tries: 3, agent: 'E', session: 'e', because: 'could_not' }],
+    ['p-why', { at: T0, tries: 3, agent: 'E', session: 'e', because: 'something else' }],
+    ['p-tries', { at: T0, tries: 0, agent: 'E', session: 'e', because: 'could_not' }],
+    ['p-agent', { at: T0, tries: 3, agent: 'x'.repeat(201), session: 'e', because: 'could_not' }],
+    ['p-nosession', { at: T0, tries: 3, agent: 'E', because: 'could_not' }],
+    [7, { at: T0, tries: 3, agent: 'E', session: 'e', because: 'could_not' }],
+    ['p-good', { at: T0, tries: 3, agent: 'E', session: 'e', because: 'threw' }],
+  ] }, now);
+  assert.deepEqual([...bad.askGaveUp.keys()], ['p-good'], 'a malformed, future or stale give-up was restored');
+});
+
+test('#6072 review 1: no give-up for an archived or paused project, or naming an agent that has left; step prunes them', () => {
+  const { w, run } = gaveUpWorld('gupthree');
+  try {
+    let mem = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS; i++) { mem = run(mem, now).next; now += 61 * 60 * 1000; }
+    const live = projectOf(w.pid);
+    assert.ok(a.goalAskGaveUp(mem, live, now), 'fixture: no give-up to hide, so this test proves nothing');
+    assert.equal(a.goalAskGaveUp(mem, { ...live, archived: true }, now), null, 'an archived project reads as stalled');
+    assert.equal(a.goalAskGaveUp(mem, { ...live, paused: true }, now), null, 'a paused project reads as stalled');
+    assert.equal(a.goalAskGaveUp(mem, { ...live, agents: [] }, now), null, 'a give-up names an agent no longer on the project');
+    // A listed project, as GET /api/projects sends it: member rows from projects.list, not names (fixture discipline).
+    const listedRow = projects.list(w.cards).find((p) => p.id === w.pid);
+    assert.ok(listedRow && Array.isArray(listedRow.agents) && listedRow.agents.length && typeof listedRow.agents[0] === 'object',
+      'fixture: the listed project does not carry member rows');
+    assert.ok(a.goalAskGaveUp(mem, listedRow, now), 'a listed project (member rows, not names) lost the give-up');
+    const archived = projects.readAll().map((p) => (p.id === w.pid ? { ...p, archived: true } : p));
+    const next = a.step({ prev: mem, roster: w.cards, setting: ON, records: archived, commitments: w.states(), now }).next;
+    assert.equal(next.askGaveUp.has(w.pid), false, 'step kept the give-up of an archived project');
+    // Review 2: a pause keeps it (hidden when read), so a resume within the day still shows the stall.
+    const paused = projects.readAll().map((p) => (p.id === w.pid ? { ...p, paused: true } : p));
+    const whilePaused = a.step({ prev: mem, roster: w.cards, setting: ON, records: paused, commitments: w.states(), now }).next;
+    assert.equal(whilePaused.askGaveUp.has(w.pid), true, 'a pause dropped the give-up, so a resume hides the stall');
+    assert.ok(a.goalAskGaveUp(whilePaused, live, now), 'after a resume the give-up should show again, and does not');
+    const kept = a.step({ prev: mem, roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), now }).next;
+    assert.equal(kept.askGaveUp.has(w.pid), true, 'CONTROL: step keeps it while the project is live');
+    const later = a.step({ prev: mem, roster: w.cards, setting: ON, records: projects.readAll(), commitments: w.states(), now: now + a.GOAL_ASK_MS }).next;
+    assert.equal(later.askGaveUp.has(w.pid), false, 'step kept an expired give-up');
+  } finally { w.restore(); }
+});
+
+test('#6072 review 3: a new failed ask, short of MAX_ASK_FAILS, drops the older give-up (it no longer describes the run)', () => {
+  const { w, run } = gaveUpWorld('gupfour');
+  try {
+    let mem = run(undefined, T0).next;
+    let now = T0 + a.IDLE_MS;
+    for (let i = 0; i < a.MAX_ASK_FAILS; i++) { mem = run(mem, now).next; now += 61 * 60 * 1000; }
+    assert.ok(mem.askGaveUp.has(w.pid), 'fixture: no give-up to replace');
+    const reask = { ...mem, asked: new Map([...mem.asked].filter(([k]) => k !== w.pid)), askedSig: new Map([...mem.askedSig].filter(([k]) => k !== w.pid)) };
+    const after = run(reask, now);
+    assert.ok(after.asks.some((x) => x.projectId === w.pid), 'fixture: the project was not asked again');
+    assert.equal(after.next.askFails.get(w.pid), 1, 'fixture: this is not the first try of a new run');
+    assert.equal(after.next.askGaveUp.has(w.pid), false, 'a stale give-up outlived the start of a new run');
+  } finally { w.restore(); }
+});

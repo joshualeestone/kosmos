@@ -258,6 +258,28 @@ function forgetProject(name, projectId) {
   return take(name, projectId).length;
 }
 
+/* #4926: the member read the room (`kosmos room`) and was SHOWN these post ids, so they are no longer held for it: its
+   next idle line must not tell it, again, about a thread it has read (and may have answered in plain words, which R2's
+   replyTo rule cannot see). Ids it was not shown (held after the read, or older than the rows it asked for) stay held.
+   Returns how many were dropped; 0 when none, or when the held file could not be read or written (they stay held).
+   Review 2: the read and the write are one synchronous step, and every hold, take and restore runs in the board process
+   (messages.js, server.js), so no hold can land between them and be overwritten. Review 4 corrected my first wording:
+   remove.js can also run from a separate tool (tools/cleanup-fixture-tokens-5418.js), where `forget` deletes a removed
+   agent's whole file; a drop that read just before that delete would write that agent's list back. Not traced further:
+   it needs a room read by the agent being removed, in the same instant. */
+function dropShown(name, projectId, shownIds) {
+  try {
+    const shown = new Set((Array.isArray(shownIds) ? shownIds : []).filter((x) => typeof x === 'string').map(plainId));
+    if (!shown.size) return 0;
+    const all = readAll(name);
+    const prior = Array.isArray(all[projectId]) ? all[projectId] : [];
+    const kept = prior.filter((x) => !shown.has(plainId(x)));
+    if (kept.length === prior.length) return 0;
+    all[projectId] = kept;
+    return writeAll(name, all) ? prior.length - kept.length : 0;
+  } catch { return 0; }
+}
+
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
@@ -444,4 +466,4 @@ function toldLine(name, d, after = '') {
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };

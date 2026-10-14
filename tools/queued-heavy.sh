@@ -16,7 +16,8 @@
 # #4977: this file in the repo (tools/queued-heavy.sh) is the reviewed source; tools/test-queued-heavy-4977.sh pins it
 # in CI. The copy agents run, ~/.cache/claude-handoffs/queued-heavy.sh, is installed separately, and nothing checks
 # that the two match. heavy-gate.sh's BUSY hint names that installed copy when it AND its lib exist, and a repo copy
-# otherwise (#5446). It does not check that lib is new enough, and the installed copy is not reviewed here.
+# otherwise (#5446). That hint does not check that the lib is new enough (this script's own #5923 check below does),
+# and the installed copy is not reviewed here.
 # TO CHANGE THE INSTALLED COPY: write the new version beside it and mv it over. Never edit it in place: waiters are
 # running it, and bash reads a script by byte offset, so an in-place edit kills them.
 set -u
@@ -88,7 +89,7 @@ fi
 [ "$#" -gt 0 ] || { echo "usage: queued-heavy.sh \"<what>\" <command> [args...]" >&2; exit 2; }
 # #4977: the guards come from ONE checkout shared by every waiter on the Mac, never the worktree this is run from: each
 # branch's own lib would put several lib generations in one queue (the cause of #4977's item 1). That checkout is meant
-# to sit at origin/main; nothing here updates it or checks that it does.
+# to sit at origin/main; the #5923 block below checks it on every join and moves it when that is safe.
 LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # #5446: that default folder exists on one Mac only, so elsewhere a REPO copy of this script died here (exit 3) before
 # joining the queue. With QUEUED_HEAVY_LIB unset (or empty) and no cut-guard.sh in the default, a repo copy uses the MAIN checkout
@@ -102,7 +103,9 @@ LIB_CHECKOUT="${QUEUED_HEAVY_LIB:-$HOME/work/kosmos-bc-main-4610}"
 # heavy-gate.sh's BUSY hint looks for this marker before it names a main checkout's copy: #5446-lib-fallback
 QH_LIB_FALLBACK=""
 QH_MAIN_TRIED=""
-if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ]; then
+# #5923: not when the default folder is a git checkout. A #5923 move there recreates cut-guard.sh, and a run reading in
+# that instant would fall back to a different lib; such a checkout that really lacks it exits 3 at the load below.
+if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.sh" ] && [ ! -e "$LIB_CHECKOUT/.git" ]; then
   _qh_common="$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || _qh_common=""
   case "$_qh_common" in
     */.git) if [ -f "${_qh_common%/.git}/tools/lib/cut-guard.sh" ]; then
@@ -113,13 +116,267 @@ if [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ ! -f "$LIB_CHECKOUT/tools/lib/cut-guard.s
   esac
   unset _qh_common
 fi
+# #5923: that shared checkout sat five days and 2,058 commits behind main, and nothing said so. On every join, compare
+# the two files the queue loads (cut-guard.sh and the process-fixture.sh it sources), as they are on disk, with
+# origin/main's:
+# commit distance is the wrong measure (2,058 commits behind and both files unchanged). origin/main is read from the
+# checkout's own refs; on Agent1s it is a worktree of ~/work/kosmos, whose refs every agent fetches. Nothing is fetched.
+# Only the DEFAULT checkout (QUEUED_HEAVY_LIB unset, no #5446 fallback) is ever moved, and only when moving it cannot
+# put two lib generations in one queue (#4977): detached and clean, no other queued-heavy.sh process (waiter or
+# holder), and no queue marker (suitewait.*, a machine claim, a side claim). A stale marker only blocks the move; the
+# line says why and this run joins on the lib as it is. The check, the move and the load below are one step under a
+# lock (the residuals of its takeover are in the plan, .claude/plans/libdrift-5923.md).
+# Weakest premise: a process is matched only as `<shell> <path>/queued-heavy.sh ...` or a direct exec of it (what a
+# waiter shows, before and after its #5467 re-exec), split on spaces. A path with a space is not seen, nor (for the
+# instant before its re-exec) one started with shell options before the path or through `env bash`.
+# This run and its direct children are not counted (the subshell of the `out="$(ps ...)"` substitution below keeps
+# this script's argv; keep ps in that substitution, not deeper in a pipeline, or a grandchild carries it too).
+# A copy of this script older than #5923 takes no lock here, so one that STARTS during a move is not held off by it.
+# Test seams, never set in production: QH_TEST_PS names a command printing "pid ppid command" lines in place of ps;
+# QH_TEST_PS_NAME replaces the script name matched (queued-heavy.sh), so a test sees only its own processes;
+# QH_TEST_CWD names a command printing lsof -Fn style lines (n<directory>) in place of the working-directory probe;
+# QH_TEST_MOVE_FAIL stands in for a checkout stopped part way (=nochange: one that failed before touching anything);
+# QH_TEST_RESTORE_FAIL stands in for the forced checkout back failing too.
+# All five are ignored when HOME is this user's real home (every test arm runs under a scratch HOME), so one left
+# exported in a shell cannot swap out a safety probe or append to the shared lib.
+QH_LIB_LOCK=""
+# The functions this script calls unguarded from the lib (checked again after the load, below). Before a move they
+# are looked for in origin/main's cut-guard.sh only, as `name()` or `function name()` at the start of a line: one moved
+# to process-fixture.sh, or indented, would refuse every move (safely, and the line names it) until this check follows.
+QH_NEED_BASE="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
+# GIT_OPTIONAL_LOCKS=0: a status here must not take the index lock another git in that checkout may want.
+# GIT_CEILING_DIRECTORIES: git must never walk up out of the lib folder to an enclosing repo (a lib that lost its .git,
+# or whose .git is not a repo, would otherwise be read, and moved, as some other checkout). Built from the RESOLVED path,
+# because git compares the ceiling with the physical one: a symlinked lib path would otherwise not stop it.
+_qh_libgit() { env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE GIT_OPTIONAL_LOCKS=0 GIT_CEILING_DIRECTORIES="$(dirname "$(CDPATH= cd -- "$LIB_CHECKOUT" 2>/dev/null && pwd -P || printf '%s' "$LIB_CHECKOUT")")" git -C "$LIB_CHECKOUT" "$@"; }
+_qh_lib_check() {
+  # The files the queue loads: cut-guard.sh and what it sources itself (process-fixture.sh, at its top). Kept by hand:
+  # if cut-guard.sh ever sources another lib file, add it here, or this check says "match" while that file differs.
+  local files="tools/lib/cut-guard.sh tools/lib/process-fixture.sh" f head main diff="" why="" p="" g=_qh_libgit
+  local rh; rh="$(eval "printf '%s' ~$(id -un)" 2>/dev/null)"   # the account's home, by name (not $HOME)
+  rh="$(CDPATH= cd -- "$rh" 2>/dev/null && pwd -P)"   # both resolved, so a trailing slash or a symlinked spelling still matches
+  if [ -z "$rh" ] || [ "$(CDPATH= cd -- "${HOME:-/}" 2>/dev/null && pwd -P)" = "$rh" ]; then   # the real home (or unknown): no test seams
+    local QH_TEST_PS="" QH_TEST_CWD="" QH_TEST_PS_NAME="" QH_TEST_MOVE_FAIL="" QH_TEST_RESTORE_FAIL=""
+  fi
+  [ -e "$LIB_CHECKOUT/.git" ] || return 0   # not a git checkout (a test fixture): nothing to say, and nothing above it is read
+  head="$($g rev-parse --verify -q HEAD 2>/dev/null)" || {
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: git could not read this checkout, so it is loaded unchecked (#5923)"; return 0; }
+  main="$($g rev-parse --verify -q refs/remotes/origin/main 2>/dev/null)" || { echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}; it has no origin/main to compare with (#5923)"; return 0; }
+  # The files on disk (what is sourced), against origin/main's.
+  for f in $files; do
+    $g diff --quiet "$main" -- "$f" >/dev/null 2>&1 || diff="${diff:+$diff, }${f##*/}"
+  done
+  if [ -z "$diff" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9}: the queue's files match origin/main ${main:0:9} (#5923)"
+    return 0
+  fi
+  if [ -n "${QUEUED_HEAVY_LIB:-}" ] || [ -n "$QH_LIB_FALLBACK" ]; then why="it is not the default shared checkout"
+  elif $g symbolic-ref -q HEAD >/dev/null 2>&1; then why="it is on a branch, not detached"
+  elif [ -n "$($g status --porcelain --untracked-files=no 2>/dev/null)" ]; then why="it has local changes"
+  elif ! $g merge-base --is-ancestor "$head" "$main" 2>/dev/null; then why="its commit is not behind origin/main (ahead or diverged)"
+  else
+    local d m; d="$(_qh_marker_dir_raw)"
+    for m in "$d"/suitewait.* "$d/machine-claim" "$d/light-side-claim"; do   # an unmatched glob stays literal, so -e is false
+      [ -e "$m" ] && { why="a queue marker is present (${m##*/})"; break; }
+    done
+    if [ -z "$why" ]; then
+      local out=""
+      # A ps that fails or prints nothing must not read as "nothing live": it always lists at least this run.
+      out="$(${QH_TEST_PS:-ps -axww -o pid= -o ppid= -o command=} 2>/dev/null)" || out=""
+      if [ -z "$out" ]; then
+        why="could not list processes"
+      else
+        p="$(printf '%s\n' "$out" | awk -v me="$$" -v nm="${QH_TEST_PS_NAME:-queued-heavy.sh}" '
+          function isq(w) { return w == nm || (length(w) > length(nm) && substr(w, length(w) - length(nm)) == "/" nm) }
+          $1 != me && $2 != me && (isq($3) || ($3 ~ /(^|\/)(ba|z|da|k)?sh$/ && isq($4))) { print $1; exit }')"
+      fi
+      [ -n "$p" ] && why="another queued-heavy.sh is live (pid $p)"
+    fi
+    # A move replaces the whole tree, so nothing may be working inside it: a process whose working directory is in the
+    # checkout (a browser check or a board started there by hand) blocks it. An empty answer blocks it too.
+    if [ -z "$why" ]; then
+      local real cw=""
+      real="$(CDPATH= cd -- "$LIB_CHECKOUT" 2>/dev/null && pwd -P)" || real=""
+      cw="$(${QH_TEST_CWD:-lsof -bnP -d cwd -Fn} 2>/dev/null)"
+      if [ -z "$real" ] || [ -z "$cw" ]; then why="could not list working directories"
+      else
+        p="$(printf '%s\n' "$cw" | awk -v a="n$real" -v b="n$LIB_CHECKOUT" '
+          /^p/ { pid = substr($0, 2) }
+          $0 == a || $0 == b || index($0, a "/") == 1 || index($0, b "/") == 1 { print pid; exit }')"
+        if [ -n "$p" ] && { [ "$p" = "$$" ] || [ "$p" = "$PPID" ]; }; then why="this run or its caller is working inside it (pid $p)"
+        elif [ -n "$p" ]; then why="a process is working inside it (pid $p)"; fi
+      fi
+    fi
+  fi
+  # Origin/main's lib must still define every function this copy calls unguarded (QH_NEED_BASE), or the move would
+  # make every later join exit 3 until this copy (the installed one, say) is updated too.
+  if [ -z "$why" ]; then
+    local fn tgt need="$QH_NEED_BASE"; tgt="$($g show "$main:tools/lib/cut-guard.sh" 2>/dev/null)"
+    # And the side lane's, which the load below requires when the lib offers side turns. Matched as `name()` or
+    # `function name()` at the start of a line; any other spelling reads as missing, and the move is refused.
+    printf '%s\n' "$tgt" | grep -qE '^(function )?kosmos_light_side_clear ?\(\)' && need="$need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
+    [ -n "$tgt" ] || why="could not read origin/main's cut-guard.sh"
+    for fn in $need; do
+      [ -n "$why" ] && break
+      printf '%s\n' "$tgt" | grep -qE "^(function )?$fn ?\(\)" || { why="origin/main's cut-guard.sh has no $fn, which this copy calls; update this copy first"; break; }
+    done
+    # The INSTALLED copy (what agents run) must also find every function it calls unguarded, or a repo copy's move
+    # would make every join of the installed copy exit 3 until someone reinstalls it. It names them in its own
+    # QH_NEED_BASE; an installed copy with no such line predates this check, so its needs are unknown: no move.
+    local inst="$HOME/.cache/claude-handoffs/queued-heavy.sh" ineed
+    if [ -z "$why" ] && [ -f "$inst" ] && ! [ "$inst" -ef "${BASH_SOURCE[0]}" ]; then
+      ineed="$(sed -n 's/^QH_NEED_BASE="\(.*\)"$/\1/p' "$inst" 2>/dev/null | head -1)"
+      if [ -z "$ineed" ]; then why="the installed copy $inst predates this check, so what it needs is unknown; install this copy first"
+      else
+        for fn in $ineed; do
+          printf '%s\n' "$tgt" | grep -qE "^(function )?$fn ?\(\)" || { why="origin/main's cut-guard.sh has no $fn, which the installed copy $inst calls; update it first"; break; }
+        done
+      fi
+    fi
+  fi
+  if [ -z "$why" ]; then
+    # The checkout runs as its own process group (job control on for this one start), so a Ctrl-C at the terminal
+    # does not reach git; bash ignores INT, TERM and HUP while it waits. git sets its own handlers, so a signal sent
+    # to git itself still stops it part way: then the old commit is checked out again, by force, and the line says so.
+    local mrc=0 gp gerr qtraps
+    gerr="$(mktemp "${TMPDIR:-/tmp}/qh-libmove.XXXXXX" 2>/dev/null || mktemp /tmp/qh-libmove.XXXXXX)" || gerr=/dev/null
+    # Whatever INT, TERM and HUP traps are set now (none today: the EXIT and signal traps come later) are saved and
+    # put back after. The ignored signals are inherited by git, which installs its own handlers, so a signal sent to
+    # git itself still stops it.
+    qtraps="$(trap -p INT TERM HUP)"
+    trap '' INT TERM HUP
+    if [ "${QH_TEST_MOVE_FAIL:-}" = nochange ]; then mrc=128   # test seam: a checkout that failed before changing anything
+    elif [ -n "${QH_TEST_MOVE_FAIL:-}" ]; then
+      echo '# a partial move' >> "$LIB_CHECKOUT/tools/lib/cut-guard.sh"; mrc=1   # test seam: a checkout stopped part way
+    else
+      set -m
+      $g -c core.hooksPath=/dev/null checkout -q --detach "$main" </dev/null >/dev/null 2>"$gerr" &   # off the terminal: a stopped job (SIGTTIN/TTOU) would hang the wait
+      gp=$!
+      set +m
+      # git runs in its own group, so it outlives a wrapper KILLed (or ALRMed) mid-checkout. The pid recorded is the
+      # subshell running git ($g is a function), which lives exactly as long as that git; in the lock it keeps a joiner
+      # from taking the lock over (and loading a half-written lib) while git is still writing.
+      [ -n "$QH_LIB_LOCK" ] && { ps -ww -o command= -p "$gp" > "$QH_LIB_LOCK/gitcmd"; echo "$gp" > "$QH_LIB_LOCK/gitpid"; } 2>/dev/null
+      wait "$gp" || mrc=$?
+      [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"   # git has exited: nothing left to wait for
+    fi
+    if [ "$mrc" = 0 ]; then
+      trap - INT TERM HUP; [ -n "$qtraps" ] && eval "$qtraps"
+      [ "$gerr" = /dev/null ] || rm -f "$gerr"   # never remove /dev/null (the fallback when mktemp fails)
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT moved ${head:0:9} -> origin/main ${main:0:9}: ${diff} differed and no queue waiter, claim or process inside it was live (#5923; back with: git -C '$LIB_CHECKOUT' checkout --detach $head)"
+      return 0
+    fi
+    local gmsg; gmsg="$(head -c 300 "$gerr" 2>/dev/null | tr '\n' ' ')"; [ "$gerr" = /dev/null ] || rm -f "$gerr"
+    # Forced back to the old commit: this discards any tracked edit made inside the checkout since the clean check above.
+    # Run like the move (its own group, off the terminal, INT/TERM/HUP still ignored here), so a Ctrl-C cannot stop it
+    # part way either.
+    local rok=no rp
+    if [ -z "${QH_TEST_RESTORE_FAIL:-}" ]; then
+      set -m
+      $g -c core.hooksPath=/dev/null checkout -q -f --detach "$head" </dev/null >/dev/null 2>&1 &
+      rp=$!
+      set +m
+      [ -n "$QH_LIB_LOCK" ] && { ps -ww -o command= -p "$rp" > "$QH_LIB_LOCK/gitcmd"; echo "$rp" > "$QH_LIB_LOCK/gitpid"; } 2>/dev/null
+      wait "$rp" && [ -z "$($g status --porcelain --untracked-files=no 2>/dev/null)" ] && rok=yes
+      [ -n "$QH_LIB_LOCK" ] && rm -f "$QH_LIB_LOCK/gitpid" "$QH_LIB_LOCK/gitcmd"
+    fi
+    trap - INT TERM HUP; [ -n "$qtraps" ] && eval "$qtraps"
+    if [ "$rok" = yes ]; then
+      why="git checkout failed (rc $mrc${gmsg:+: $gmsg}) and the checkout was put back at ${head:0:9}"
+    # The checkout back failed too (the same index.lock, say), but nothing had changed: still at the old commit, no
+    # tracked file differing from it (diff exits non-zero on a difference AND on an error, so an error reads as MIXED).
+    elif [ "$($g rev-parse --verify -q HEAD 2>/dev/null)" = "$head" ] && $g diff --quiet HEAD -- >/dev/null 2>&1; then
+      why="git checkout failed (rc $mrc${gmsg:+: $gmsg}) and left the checkout unchanged at ${head:0:9}"
+    else
+      echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT: the move to origin/main ${main:0:9} FAILED PART WAY (rc $mrc${gmsg:+: $gmsg}) and could not be put back, so its files may be MIXED; repair with: git -C '$LIB_CHECKOUT' checkout -f --detach $head (#5923)"
+      return 0
+    fi
+  fi
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') lib $LIB_CHECKOUT at ${head:0:9} DIFFERS from origin/main ${main:0:9} (${diff}); not moved ($why), so this run joins on the lib as it is (#5923)"
+}
+# The marker dir as the lib names it (_kosmos_marker_dir in cut-guard.sh; keep the two the same), needed before the lib
+# is loaded.
+_qh_marker_dir_raw() { printf '%s' "${KOSMOS_RUN_MARKER_DIR:-${HOME:-/tmp}/.cache/kosmos-run-markers}"; }
+# Removes the lib lock only while it is still this run's (a joiner may have taken it over).
+_qh_lib_unlock() { [ -n "$QH_LIB_LOCK" ] && [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$$" ] && rm -rf "$QH_LIB_LOCK"; return 0; }
+mkdir -p "$(_qh_marker_dir_raw)" 2>/dev/null
+if ! command -v git >/dev/null 2>&1; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') git is not installed, so the lib is loaded unchecked (#5923)"
+elif [ ! -w "$(_qh_marker_dir_raw)" ]; then
+  echo "QUEUED-HEAVY $(date '+%H:%M:%S') the marker dir $(_qh_marker_dir_raw) is not writable, so the lib is loaded unchecked (#5923)"
+else
+  QH_LIB_LOCK="$(_qh_marker_dir_raw)/queued-heavy-lib.lock"
+  _qh_i=0; _qh_empty=0; _qh_gone=""
+  # As _qh_take's lock: a dead holder's lock is taken over, and so is one with no pid for 20 CONSECUTIVE reads (a new
+  # holder between its mkdir and its pid write is never taken over). A holder also records its command line; a live
+  # pid running another command is a reused pid, and its lock is taken over too. Past 600 reads (about 5 min) this run
+  # gives up the lock and loads the lib unchecked.
+  until mkdir "$QH_LIB_LOCK" 2>/dev/null; do
+    _qh_op="$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)"
+    if [ -n "$_qh_op" ]; then _qh_empty=0
+      # A reused pid is a live one whose command (read, so not empty) differs from the one recorded.
+      _qh_oc="$(ps -ww -o command= -p "$_qh_op" 2>/dev/null)"
+      if ! kill -0 "$_qh_op" 2>/dev/null \
+         || { [ -s "$QH_LIB_LOCK/cmd" ] && [ -n "$_qh_oc" ] && [ "$_qh_oc" != "$(cat "$QH_LIB_LOCK/cmd" 2>/dev/null)" ]; }; then
+        # Only if it is still that holder's lock (another joiner may have just taken it over), and no git it started is
+        # still checking out (a dead holder's git keeps writing in its own group).
+        # Also not while the lib's index.lock exists: a running checkout holds it once git has started, which covers
+        # the instant between git creating it and its pid reaching the lock. Not covered: a holder KILLed after the
+        # fork and before git creates index.lock (tens of ms; the accepted wrapper-KILL residual, iteration 24). A lock
+        # left by a git that was itself killed blocks until the 5-minute give-up below, as it blocks every git anyway.
+        # The gitpid is removed once git exits, and a live pid running another command than the one recorded
+        # (gitcmd) is a reused pid, not that git (iteration 23): so a dead holder's long-gone git cannot hold the
+        # lock for good by its number landing on an unrelated process. gitcmd is written before gitpid (iteration 24),
+        # so a pid is never on record without its command.
+        _qh_gp="$(cat "$QH_LIB_LOCK/gitpid" 2>/dev/null)"
+        _qh_gl=no
+        if [ -n "$_qh_gp" ] && kill -0 "$_qh_gp" 2>/dev/null; then
+          _qh_gl=yes
+          _qh_gc="$(cat "$QH_LIB_LOCK/gitcmd" 2>/dev/null)"
+          [ -n "$_qh_gc" ] && [ "$(ps -ww -o command= -p "$_qh_gp" 2>/dev/null)" != "$_qh_gc" ] && _qh_gl=no
+        fi
+        _qh_gd="$(_qh_libgit rev-parse --absolute-git-dir 2>/dev/null)"
+        if [ "$_qh_gl" = no ] && { [ -z "$_qh_gd" ] || [ ! -e "$_qh_gd/index.lock" ]; }; then
+          [ "$(cat "$QH_LIB_LOCK/pid" 2>/dev/null)" = "$_qh_op" ] && rm -rf "$QH_LIB_LOCK"
+        fi
+      fi
+    else
+      # Counted per lock dir (its inode): a new holder's fresh dir restarts the count, so its mkdir-to-pid gap is safe.
+      _qh_ino="$(ls -di "$QH_LIB_LOCK" 2>/dev/null)"; _qh_ino="${_qh_ino%% *}"
+      [ "$_qh_ino" = "${_qh_lastino:-}" ] || _qh_empty=0
+      _qh_lastino="$_qh_ino"; _qh_empty=$((_qh_empty + 1))
+      if [ "$_qh_empty" -ge 20 ]; then
+        _qh_ino2="$(ls -di "$QH_LIB_LOCK" 2>/dev/null)"
+        [ "${_qh_ino2%% *}" = "$_qh_ino" ] && [ ! -s "$QH_LIB_LOCK/pid" ] && rm -rf "$QH_LIB_LOCK"   # still that pid-less dir
+        _qh_empty=0
+      fi
+    fi
+    _qh_i=$((_qh_i + 1)); [ "$_qh_i" -ge 600 ] && { QH_LIB_LOCK=""; break; }
+    [ -d "${QH_LIB_LOCK%/*}" ] || { QH_LIB_LOCK=""; _qh_gone=1; break; }   # the marker dir itself is gone: no lock can be taken, so stop at once
+    sleep 0.5
+  done
+  if [ -n "$QH_LIB_LOCK" ]; then
+    ps -ww -o command= -p "$$" > "$QH_LIB_LOCK/cmd" 2>/dev/null
+    echo "$$" > "$QH_LIB_LOCK/pid"
+    _qh_lib_check
+  elif [ -n "${_qh_gone:-}" ]; then
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the queue marker dir went away while waiting for the lib check's lock; loading the lib unchecked (#5923)"
+  else
+    echo "QUEUED-HEAVY $(date '+%H:%M:%S') the lib check's lock stayed taken for 5 min (holder pid ${_qh_op:-?}); loading the lib unchecked, possibly in the middle of a move (#5923)"
+  fi
+  unset _qh_i _qh_op _qh_oc _qh_empty _qh_ino _qh_ino2 _qh_lastino _qh_gp _qh_gl _qh_gc _qh_gd _qh_gone
+fi
 . "$LIB_CHECKOUT/tools/lib/cut-guard.sh" || {
+  _qh_lib_unlock
   echo "QUEUED-HEAVY: could not load cut-guard.sh from $LIB_CHECKOUT (set QUEUED_HEAVY_LIB to a checkout of origin/main)" >&2
   # #5446: the main-checkout fallback was tried and that checkout has no lib either (it predates it).
   [ -n "$QH_MAIN_TRIED" ] && echo "QUEUED-HEAVY: this repo's main checkout $QH_MAIN_TRIED has none either; if it is on main, bring it up to date with: git -C '$QH_MAIN_TRIED' pull --ff-only" >&2
+  # #5923: the default folder is a git checkout, so the #5446 fallback was not tried (a move there must not hand a run another lib).
+  [ -z "${QUEUED_HEAVY_LIB:-}" ] && [ -z "$QH_LIB_FALLBACK" ] && [ -e "$LIB_CHECKOUT/.git" ] && echo "QUEUED-HEAVY: $LIB_CHECKOUT is a git checkout, so the fallback to this repo's own checkout is off for it (#5923); bring it up to date with: git -C '$LIB_CHECKOUT' fetch -q origin && git -C '$LIB_CHECKOUT' checkout --detach origin/main" >&2
   exit 3; }
+_qh_lib_unlock   # #5923: loaded, so a move by the next joiner can no longer reach this run
 # The functions called unguarded: every run's, then the side lane's (it is offered only when kosmos_light_side_clear exists).
-_qh_need="kosmos_wait_until_clear kosmos_mark_suite_waiting kosmos_unmark_suite_waiting kosmos_refuse_if_earlier_suite_waiter _kosmos_suite_waiter_file kosmos_claim_machine kosmos_release_machine kosmos_refuse_if_machine_claimed kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live _kosmos_marker_dir"
+_qh_need="$QH_NEED_BASE"
 declare -F kosmos_light_side_clear >/dev/null && _qh_need="$_qh_need kosmos_light_side_take kosmos_publish_light_side_pgid kosmos_release_light_side"
 for _qh_fn in $_qh_need; do
   declare -F "$_qh_fn" >/dev/null || {
@@ -135,7 +392,7 @@ if [ -n "$QH_INHERITED_MAIN" ]; then
   if command -v kosmos_holds_machine_claim >/dev/null && kosmos_holds_machine_claim; then
     echo "QUEUED-HEAVY $(date '+%H:%M:%S') $WHAT runs now, inside the turn that already holds the box (it claims and releases nothing)"
     # Review 13: the same clean command environment an ordinary turn gives (no queue controls, no side labels).
-    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S 2>/dev/null
+    unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL QH_TEST_RESTORE_FAIL 2>/dev/null
     exec "$@"
   fi
   unset KOSMOS_MACHINE_CLAIM_COOKIE   # a cookie whose claim is gone names nothing; this run takes its own
@@ -421,7 +678,7 @@ fi
 # Review 4: the queue's own wait settings were for THIS script's wait; the command (a page layer, say) must wait on a
 # side turn on its own terms, not inherit KOSMOS_NO_WAIT and refuse beside one. The lib names them.
 unset ${KOSMOS_WAIT_CONTROL_VARS:-KOSMOS_NO_WAIT} 2>/dev/null
-unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S   # review 5: a command that queues on its own must not claim to be one of these
+unset KOSMOS_WAIT_KEEP_MARK KOSMOS_SIDE_CAPABLE KOSMOS_SIDE_AWARE QH_TEST_LOSE_TAKES QH_TEST_LOST_PAUSE_S QH_TEST_PS QH_TEST_PS_NAME QH_TEST_CWD QH_TEST_MOVE_FAIL QH_TEST_RESTORE_FAIL   # review 5: a command that queues on its own must not claim to be one of these
 if [ "$LANE" = side ]; then
   # Round 20 (Opus): the stop file and the descendants list exist BEFORE the command starts, so a full disk refuses the
   # turn before anything ran, and a stop is recorded by WRITING to a file that exists (an empty file: not stopped).
