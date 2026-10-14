@@ -1080,7 +1080,7 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id; a room post, not a direct message), one older than a post it answered there (N7), or a post
+     replyTo = that id; a room post, not a direct message), one shortly before another's post it answered there (N7), or a post
      older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
@@ -1088,6 +1088,8 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
    An id not in the record yet (a post still being delivered) is none of these. `member`: whose held ids these are. Every post stays in the room. */
 const HELD_TELL_MAX_MS = 2 * 60 * 60 * 1000;
 const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
+/* How many rows `kosmos room` shows when not given -n (server.js reads it from here). */
+const ROOM_READ_ROWS = 40;
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
@@ -1104,16 +1106,19 @@ function staleHeld(projectId, ids, log, now, member) {
       if (member && r.kind === 'post' && r.from === member && typeof r.replyTo === 'string') answered.add(r.replyTo);
     }
     /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
-       the round's other posts were told to it again as new. So a reply to X also answers every post in the room older
-       than X: the member saw X in a room read or a typed line, and either one showed it the older posts too (a typed
-       line carries the posts held for it then, and takes them). A post newer than X is not covered. */
-    let answeredAt = -Infinity;
+       the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
+       before X that a room read showing X shows by default: the ROOM_READ_ROWS - 1 room rows before it. */
+    const covered = new Set();
     if (answered.size) {
-      for (const r of rows) {
-        if (!r || r.kind !== 'post' || r.project !== projectId || !answered.has(r.id)) continue;
-        const v = Date.parse(r.at);
-        if (Number.isFinite(v) && v > answeredAt) answeredAt = v;
-      }
+      const room = rows.filter((r) => r && r.project === projectId);
+      room.forEach((x, i) => {
+        if (x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
+        const xAt = Date.parse(x.at);
+        for (let j = Math.max(0, i - (ROOM_READ_ROWS - 1)); j < i; j += 1) {
+          const y = room[j];
+          if (y.kind === 'post' && Date.parse(y.at) < xAt) covered.add(y.id);
+        }
+      });
     }
     for (const r of rows) {
       if (!r || r.kind !== 'post' || r.project !== projectId || !want.has(r.id)) continue;
@@ -1125,7 +1130,7 @@ function staleHeld(projectId, ids, log, now, member) {
       const until = member && r.heldUntil && typeof r.heldUntil === 'object' ? Date.parse(r.heldUntil[member]) : NaN;
       const from = Number.isFinite(until) && until > at ? until : at;
       if (t - from > HELD_TELL_MAX_MS || stoppedAt > at) out.add(r.id);
-      const handled = answered.has(r.id) || at < answeredAt;
+      const handled = answered.has(r.id) || covered.has(r.id);
       if (handled) out.answered.add(r.id);
       if (handled || t - at > HELD_ASKED_MAX_MS) { out.add(r.id); out.evenIfAsked.add(r.id); }
     }
@@ -3437,7 +3442,7 @@ module.exports = {
   logRoomRefusal,       // kosmos#5752 slice 3
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
-  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS,
+  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,

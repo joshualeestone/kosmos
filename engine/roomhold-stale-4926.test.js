@@ -212,5 +212,15 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   const first = judge([...round, { ...answer, replyTo: 'm1024' }], 'mark');
   assert.deepEqual([...first].sort(), ['m1024'], 'a reply to the oldest post dropped newer ones: ' + [...first]);
   assert.ok(judge(log, 'mark').answered.has('m1028'), 'an older post was not marked answered (a limit hold would keep it back)');
+  // A reply to mark's OWN post covers nothing: seeing your own post shows you nothing else of the room.
+  const own = { kind: 'post', id: 'm1035', project: 'p1', from: 'mark', to: ['ann'], text: 'mine', at: ago(31) };
+  assert.equal(judge([...round, own, { ...answer, replyTo: 'm1035' }], 'mark').size, 0, 'a reply to its own post dropped the round');
+  // Only the ROOM_READ_ROWS - 1 room rows before the answered post: one further back was never on a read that showed it.
+  const filler = [];
+  for (let k = 0; k < messages.ROOM_READ_ROWS - 1; k += 1) filler.push({ kind: 'note', project: 'p1', text: 'n', at: ago(35) });
+  const far = messages.staleHeld('p1', ['m1024', 'm1031'], [post('m1024', 40), ...filler, post('m1032', 32), answer], NOW, 'mark');
+  assert.ok(!far.has('m1024'), 'a post more than ROOM_READ_ROWS - 1 rows before the answered one was dropped');
+  const near = messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...filler.slice(1), post('m1032', 32), answer], NOW, 'mark');
+  assert.ok(near.has('m1024'), 'control: the post exactly ROOM_READ_ROWS - 1 rows before the answered one was kept');
   roomhold.forget('mark');
 });

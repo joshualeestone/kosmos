@@ -19401,7 +19401,7 @@ const server = http.createServer(async (req, res) => {
     let asText = false;
     /* #4891 N8: `kosmos room <id> -n N` asks for the last N rows of the text view (1 to 200; 40 when not given or
        not a whole number in range, so an older CLI and a bad value both get what they always got). */
-    let textRows = 40;
+    let textRows = messages.ROOM_READ_ROWS;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
