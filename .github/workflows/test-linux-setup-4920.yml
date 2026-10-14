@@ -46,6 +46,12 @@ jobs:
           bash tools/test-install-static.sh
           bash tools/test-install-static-control-4641.sh
 
+      # kosmos#4455: the update's lift-then-check walk uses find's -perm and -exec forms, and the shell shards that
+      # run this test go to macOS, so GNU find's reading of them was otherwise never run. The LOCKED arms skip here
+      # (the flag is macOS's); NODIR and the CONTROL arm (the replaced line loses bin) run.
+      - name: The update's lift-then-check walk on Linux (GNU find, kosmos#4455)
+        run: sh tools/test-update-locked-app-4455.sh
+
       - name: Prepare systemd user environment
         run: |
           sudo loginctl enable-linger "$USER" || true
