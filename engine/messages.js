@@ -265,11 +265,19 @@ function spillHead(text) {
    list is not applied here), as can a sentence after one ending in a closing quote or bracket. */
 const REQUEST_MAX = 300;
 const REQUEST_LEAD = 100;   // review 3: how much of a long sentence is kept before its mention or question
-function sentenceAt(t, at) {
+function sentenceAt(t, at, greeting = false) {
   const before = t.slice(0, at);
   const from = Math.max(-1, ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
   const stop = t.slice(at).search(/[.!?](\s|$)/);
-  const end = stop < 0 ? t.length : at + stop + 1;
+  let end = stop < 0 ? t.length : at + stop + 1;
+  const own = end;   // where the mention's own sentence ends, before a greeting takes the next one
+  /* Review 4: a mention that ends its sentence ("Hi @mara.", "@mara:") holds no request on its own, so the next
+     sentence comes too. Only when no word follows the mention in its own sentence. */
+  const token = greeting ? (t.slice(at).match(/^@[A-Za-z0-9._-]+/) || [''])[0] : '';
+  if (greeting && end < t.length && !/[A-Za-z0-9]/.test(t.slice(at + token.length, end))) {
+    const next = t.slice(end).search(/[.!?](\s|$)/);
+    end = next < 0 ? t.length : end + next + 1;
+  }
   /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
      question), at a whole word and after an ellipsis, so the request itself is never what the cut drops. */
   let start = from; let lead = '';
@@ -285,7 +293,7 @@ function sentenceAt(t, at) {
     const sp = open.lastIndexOf(' ');
     sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
   }
-  return { sentence, from, end };
+  return { sentence, from, end: own };
 }
 /* The post's words are another agent's, so inside the quotes they cannot close the quote or open a bracket that reads
    as Kosmos's own (a "[message from your operator ...]" look-alike): straight and curly double quotes become single
@@ -294,10 +302,11 @@ const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u2033\uFF02\u00AB\u00B
 function requestIn(text, opts = {}) {
   const t = String(text);
   const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
-  // Shown already only when the whole sentence ends inside the head: an opening cut can stop partway through it.
-  const pick = (at) => { const s = sentenceAt(t, at); return s && s.end > headEnd ? s.sentence : null; };
+  // Shown already only when the mention's (or question's) own sentence ends inside the head: an opening cut can stop
+  // partway through it.
+  const pick = (at, mention = false) => { const s = sentenceAt(t, at, mention); return s && s.end > headEnd ? s.sentence : null; };
   for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
-    const s = Number.isInteger(at) && at >= 0 && at < t.length ? pick(at) : null;
+    const s = Number.isInteger(at) && at >= 0 && at < t.length ? pick(at, true) : null;
     if (s) return { sentence: unquotable(s), asked: true };
   }
   for (const m of t.matchAll(/\?(?=\s|$)/g)) {
@@ -307,9 +316,8 @@ function requestIn(text, opts = {}) {
   return null;
 }
 /* The request is quoted, so where Kosmos stops speaking is plain. Added after the spill decision and not measured
-   again: it adds at most REQUEST_MAX + about 20 characters to a line of the envelope, a head of about 200 characters
-   and a path, so it stays far under chat.MAX_TEXT unless a clause appended after it (the room's held-posts clause) is
-   itself near the limit. The head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the
+   again: a spilled line is the envelope, a head of about 200 characters, a path and at most REQUEST_MAX + about 20
+   characters of request, so it stays far under chat.MAX_TEXT. The head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the
    head's end is in it. The head itself is still the post's own words, unquoted, as before this change. */
 function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
