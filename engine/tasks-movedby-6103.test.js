@@ -41,6 +41,9 @@ test('#6103: a named process move records movedBy in the store and in the activi
   assert.equal(part.who, 'april');
   assert.equal(part.movedVia, 'process');
   assert.equal(part.movedBy, 'mara', 'the agent that made the move is not recorded');
+  const padded = setup('Padded move');
+  tasks.assignPart(padded.p.id, padded.t.number, 1, 'april', { via: 'process', by: '  mara ' });
+  assert.equal(storedPart(padded.p, padded.t.number).movedBy, 'mara', 'a padded name was stored padded');
   const rows = assignedRows(p, t.number);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].who, 'april');
