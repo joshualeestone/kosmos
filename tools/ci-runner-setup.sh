@@ -378,7 +378,7 @@ HOOK
 D="$(cd "$(/usr/bin/dirname "$0")" && pwd -P)" || exit 1
 "$D/job-cleanup.sh"
 TMPD="$(cd "$D/../actions-runner/_work/_temp" 2>/dev/null && pwd -P)" || exit 0
-case "${RUNNER_TEMP:-}" in "$TMPD") rm -rf "${TMPD:?}"/* 2>/dev/null || true ;; esac
+case "${RUNNER_TEMP:-}" in "$TMPD") find "${TMPD:?}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true ;; esac   # dotfiles too
 HOOK
   put "$CI_DIR/job-started.sh" 755 <<'HOOK'
 #!/bin/bash
@@ -477,8 +477,8 @@ verify() {
     read -r status busy labels <<EOF
 $row
 EOF
-    [ "$status" = online ] && ok "$NAME online (busy=$busy)" || problem "$NAME is $status"
-    [ "${labels:-}" = "$want_labels" ] && ok "labels exactly $want_labels" || problem "labels are '${labels:-}', not $want_labels"
+    if [ "$status" = online ]; then ok "$NAME online (busy=$busy)"; else problem "$NAME is $status"; fi
+    if [ "${labels:-}" = "$want_labels" ]; then ok "labels exactly $want_labels"; else problem "labels are '${labels:-}', not $want_labels"; fi
   fi
   say "repo variables"
   local v
@@ -511,7 +511,13 @@ EOF
     for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
       [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
     done
-    [ ! -r "$CI_DIR/job-guard.sh" ] || echo "note:   job guard sha256 $(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1) (compare with the install pin)"
+    # A job the guard admits could rewrite it (the header): KOSMOS_CI_GUARD_SHA, the install pin, makes drift a problem.
+    if [ -r "$CI_DIR/job-guard.sh" ]; then
+      local gs; gs="$(shasum -a 256 "$CI_DIR/job-guard.sh" | cut -d' ' -f1)"
+      if [ -z "${KOSMOS_CI_GUARD_SHA:-}" ]; then echo "note:   job guard sha256 $gs (set KOSMOS_CI_GUARD_SHA to the install pin to have it checked)"
+      elif [ "$gs" = "$KOSMOS_CI_GUARD_SHA" ]; then ok "job guard sha256 is the install pin"
+      else problem "job guard sha256 $gs is not the install pin $KOSMOS_CI_GUARD_SHA: something rewrote it"; fi
+    fi
   else unchecked "cannot read $CI_DIR as $(id -un); the hook files"; fi
   # .env's PATH wins for jobs (see RUNNER_PATH), so a different .path is a note, not a problem. config.sh refills it
   # from its own shell, so a re-register (./svc.sh uninstall and ./config.sh remove first) can undo register's.
@@ -540,7 +546,7 @@ EOF
   fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi
   # Whether the job guard is wired is what verify exists to say; a check it could not make is not a pass.
-  if [ "$UNCHECKED" -gt 0 ]; then say "verify: no problem found, but $UNCHECKED check(s) could not be made (run it where $CI_USER's files are readable)"; return 3; fi
+  if [ "$UNCHECKED" -gt 0 ]; then say "verify: no problem found, but $UNCHECKED check(s) could not be made (give the owner read access to $CI_USER's home; see machine-settings)"; return 3; fi
   say "verify: clear"
 }
 
@@ -552,7 +558,9 @@ machine_settings() {
 #  2. Energy: keep "prevent automatic sleeping" and "start up after a power failure" (preflight checks both).
 #  3. Log in as $CI_USER once in Screen Sharing before install: its home and GUI session come with that login.
 #  4. Keep $OWNER_HOME at mode 700 (preflight checks it). If $CI_USER's own home is closed too, verify run as
-#     $OWNER cannot see the runner's files and exits 3 (unchecked); run verify as $CI_USER then.
+#     $OWNER cannot see the runner's files and exits 3 (unchecked). Keep $CI_USER's home at the macOS default 750
+#     (group staff) so $OWNER can read it. Do NOT sign $CI_USER in to gh to run verify itself: verify's API half needs a
+#     token that could read the repo's runners and variables, and every CI job admitted could read it from there.
 #  5. $CI_USER cannot read this script in $OWNER_HOME: fetch it at the install commit and match its sha256 (see the
 #     header, "HOW kosmos-ci GETS THIS SCRIPT").
 EOF
