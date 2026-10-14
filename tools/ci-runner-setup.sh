@@ -354,7 +354,7 @@ install_runner() {
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
     # The Listener that runs now, so the wait after the restart can require a new one.
-    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; old_listener="${old_listener%%$'\n'*}"
+    old_listener="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
       case "$(./svc.sh status 2>&1 || true)" in
@@ -465,9 +465,11 @@ register() {
 
 # wait_for_listener <pid before>: svc.sh start is a launchctl load, which succeeds for a service that dies at once.
 # A Listener other than <pid before> (the old one may still be shutting down) must appear, or this fails.
+# <pids before> may hold several (one per line): the old Listener can outlive the stop, so any pid not among them counts.
 wait_for_listener() {
   local before="$1" now waited=0
-  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"; now="${now%%$'\n'*}"; [ -z "$now" ] || [ "$now" = "$before" ]; do
+  while now="$(pgrep -u "$(id -u)" -x Runner.Listener || true)"
+        [ -z "$(printf '%s\n' "$now" | grep -v -x -F -e "${before:-none}" || true)" ]; do
     [ "$waited" -lt "${KOSMOS_CI_START_WAIT_S:-30}" ] || { echo "FAILED: the runner was loaded but no new Runner.Listener is running after ${waited}s; see ~/Library/Logs/actions.runner.*/stderr.log" >&2; exit 1; }
     sleep 1; waited=$((waited + 1))
   done
@@ -525,6 +527,7 @@ EOF
     done
   fi
   if [ "$hidden" = 0 ] && [ ! -e "$CI_DIR" ]; then problem "no $CI_DIR: the job guard and its hooks are not installed"
+  elif [ "$hidden" = 1 ]; then :   # counted once above
   elif [ -r "$CI_DIR" ] && [ -x "$CI_DIR" ]; then
     for f in job-guard.sh job-started.sh job-completed.sh job-cleanup.sh; do
       [ -x "$CI_DIR/$f" ] || problem "$CI_DIR/$f is missing or not executable"
@@ -544,6 +547,11 @@ EOF
   elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
   elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
   else echo "note:   $RUNNER_DIR/.path is not $RUNNER_PATH (config.sh's own shell PATH?). Jobs use .env's PATH; to tidy it, write that line to .path"; fi
+  # job-completed sweeps the job's temp only when RUNNER_TEMP matches its path; leftovers while idle say it did not.
+  if [ "$hidden" = 0 ] && [ -d "$RUNNER_DIR/_work/_temp" ] && [ -r "$RUNNER_DIR/_work/_temp" ] && [ "$busy" != true ] \
+     && [ -n "$(ls -A "$RUNNER_DIR/_work/_temp" 2>/dev/null)" ]; then
+    echo "note:   $RUNNER_DIR/_work/_temp is not empty while idle: the job-completed sweep may not be running"
+  fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
