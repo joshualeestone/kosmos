@@ -430,6 +430,9 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   // A short request whose words also appear in the head is still shown (position, not substring).
   const yes = 'Yes. Yesterday went well. ' + fill + 'Ok?';
   assert.equal(messages.requestIn(yes, { headEnd: 4 }).sentence, 'Ok?');
+  // A mention that ends its own sentence (a greeting) brings the next sentence, where the request is.
+  const greet = 'News. ' + fill + 'Hi @mara. Please send the lease by Friday. Thanks.';
+  assert.equal(messages.requestIn(greet, { namedAt: at(greet, '@mara') }).sentence, 'Hi @mara. Please send the lease by Friday.');
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
