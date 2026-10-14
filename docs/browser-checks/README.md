@@ -536,7 +536,7 @@ one invented by somebody who did not write them.
 | `render-connect-skip.js` | The predicate that gates the 281MB confirm says skip when Claude already runs and ask when the launcher does not. Reads `frClaudeInstallNeeded()`, does not click. Needs TWO boards booted WITHOUT dry-run (#1573) |
 | `render-full-width.js` | The board, settings and create form at 1760px: one row lining up with another (#286, #287) |
 | `render-grid-card-width.js` | The projects grid card matches the agents board width, and a long title truncates rather than widening it (#1310) |
-| `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278) |
+| `render-list-row.js` | The not-running row in the list layout, measured cell by cell against a running one (#278); and at 390 and 360 px, every row's model whole and on its own line (#6053) |
 | `render-found-count.js` | The found-agents screen: one label per row, a green Added, and a count that cannot disagree with its own rows (#1346). |
 | `render-long-title.js` | A long project title truncates instead of squeezing the search box (#1303 F). |
 | `render-title-descender-3438.js` | The project-detail title line-box clears descenders (the "g" in "Sourcing" is not clipped), keeping the one-line width ellipsis (#3438). |

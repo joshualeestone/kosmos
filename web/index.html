@@ -3993,7 +3993,19 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
        min-width: 2.4rem; text-align: right; }
 @media (max-width: 56rem) {
   .lrow { grid-template-columns: 34px 1fr; row-gap: 8px; }
-  .lstate, .ltask, .lmem { grid-column: 2; }
+  /* #6053: .ltitle and .lmodel were missing from this list, so auto-placement
+     dropped each into the 34px avatar column: the role spilled out under the
+     avatar, and every model read "Cla..." beside the memory bar. In column 2
+     the role sits under the name and the model gets its own line just above
+     the memory bar (its desktop neighbour, Josh's #856 order). */
+  .ltitle, .lstate, .ltask, .lmodel, .lmem { grid-column: 2; }
+  /* With a line of its own the model may wrap rather than be cut, so a long
+     name still reads in full on a narrow phone. A not-running row has no
+     model, and its empty cell would spend a line and a row-gap here (it
+     shared the memory cell's line before #6053). Both skip html.kremote,
+     which places .lmodel itself. */
+  html:not(.kremote) .lrow > .lmodel { white-space: normal; overflow-wrap: anywhere; }
+  html:not(.kremote) .lrow > .lmodel:empty { display: none; }
 }
 /* Grid mode for the projects list: the same rows laid as cards. */
 .pj-list.asgrid { display: grid; gap: 16px;
