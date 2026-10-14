@@ -27279,7 +27279,7 @@ function acctUsageHtml(a, list) {
     'windows': 'Kosmos cannot read usage for this account on Windows yet.',
     'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
     'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
-    'linked-settings': 'Kosmos cannot read usage for this account. Its settings file is a link to a file elsewhere, and Kosmos leaves that alone.',
+    'linked-settings': 'Kosmos cannot read usage for this account. Its settings file is a link to a file elsewhere (or to nothing), and Kosmos leaves that alone.',
     'not-wired': 'Kosmos is not set up to read usage for this account.',
   }[a.weeklyBlocked] || '';
   /* Under a reading, "cannot read" would contradict the number above it: say it is the last one and will not change. */
@@ -27287,7 +27287,7 @@ function acctUsageHtml(a, list) {
     'windows': 'This is the last reading Kosmos saw. It will not update on Windows yet.',
     'own-statusline': 'This is the last reading Kosmos saw. It will not update, because this account is set up its own way.',
     'unreadable-settings': 'This is the last reading Kosmos saw. It will not update, because Kosmos cannot read this account\'s settings.',
-    'linked-settings': 'This is the last reading Kosmos saw. It will not update, because this account\'s settings file is a link to a file elsewhere.',
+    'linked-settings': 'This is the last reading Kosmos saw. It will not update, because this account\'s settings file is a link to a file elsewhere (or to nothing).',
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
   let usage = '';
