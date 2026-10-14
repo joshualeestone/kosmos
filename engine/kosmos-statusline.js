@@ -81,8 +81,8 @@ function record(dir, reading, now, opt = {}) {
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
-    const sameWeek = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
-    if (sameWeek ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
+    const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
+    if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
   }
   const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
   if (keepHistory) {

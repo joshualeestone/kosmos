@@ -27343,7 +27343,8 @@ function acctUsageHtml(a, list) {
   }[a.weeklyBlocked] || '';
   /* #6176: the five-hour limit, from the same status line, as its own line under the weekly one. It resets within
      hours, so it warns but never suggests a move (the cure for a five-hour limit is waiting, not another account). */
-  const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) ? a.fiveHour : null;
+  const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) && Number.isFinite(a.fiveHour.at)
+    && a.fiveHour.resetsAt > Date.now() ? a.fiveHour : null;   // a panel left open past the reset must not keep saying "at its limit until"
   let five = '';
   if (f && !a.apiKey) {
     const fp = Math.max(0, Math.min(100, Math.round(f.usedPct)));
@@ -27374,10 +27375,10 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
-        + five
         + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
-          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '')
+        + five;   // after the weekly block whole, so the weekly warning's move suggestion never reads as the five-hour line's
     } else if (five) {
       /* A five-hour reading with no weekly one: "no reading yet" would contradict it, so it stands alone (and is said
          to be the last one when the account cannot be read any more). */

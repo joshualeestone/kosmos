@@ -57,6 +57,17 @@ test('within one window a lower figure is stale; a new window replaces it even w
   assert.equal(after.resetsAt, NOW_S + 3600 + 5 * 3600);
 });
 
+test('the one-hour tolerance: inside it is the same window, beyond it an older window is refused', () => {
+  const dir = freshDir(), R = NOW_S + 4 * 3600;
+  run(dir, payload({ used_percentage: 50, resets_at: R }));
+  run(dir, payload({ used_percentage: 40, resets_at: R - 3599 }));   // same window, stamped a little earlier: stale
+  assert.equal(readJson(path.join(dir, statusline.FIVE_HOUR_FILE)).usedPct, 50);
+  run(dir, payload({ used_percentage: 90, resets_at: R - 5 * 3600 }));   // the window before: older, refused even when higher
+  const kept = readJson(path.join(dir, statusline.FIVE_HOUR_FILE));
+  assert.equal(kept.usedPct, 50);
+  assert.equal(kept.resetsAt, R);
+});
+
 test('a payload with no five-hour figure, or a wrong-shaped one, writes no five-hour file', () => {
   for (const five of [undefined, null, { used_percentage: 'x', resets_at: NOW_S + 3600 }, { used_percentage: 20 }, { used_percentage: -1, resets_at: NOW_S + 3600 }]) {
     const dir = freshDir();

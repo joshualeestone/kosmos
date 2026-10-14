@@ -27,7 +27,9 @@ try { pw = require('playwright'); }
 catch { console.log('render-account-fivehour-6176: playwright is not on NODE_PATH - SKIPPED, not passed.'); process.exit(0); }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const H = 3600e3, now = Date.now();
+/* Every time is relative to a pinned noon, and the page's clock is pinned there too, so the "today, time only" form
+   never turns into tomorrow's weekday form late in the evening (the check ran red from 22:00 to midnight otherwise). */
+const H = 3600e3, now = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
 const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'a real request succeeded', observedAt: now - 9000, observedAgeMs: 9000 };
 const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: id + '@example.com', label: id + '@example.com', dir: '/home/.claude-' + id,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, agentsHere: { names: [], complete: true }, ...extra });
@@ -40,10 +42,13 @@ const ACCOUNTS = [
   claude('fivefull', { weekly: week(20), fiveHour: five(100) }),
   claude('fiveonly', { weekly: null, fiveHour: five(30) }),
   claude('fivefrozen', { weekly: null, weeklyBlocked: 'own-statusline', fiveHour: five(30) }),
+  claude('bothwarn', { weekly: week(90), fiveHour: five(85), agentsHere: { names: ['s-b'], complete: true } }),
+  claude('tomorrow', { weekly: week(20), fiveHour: { usedPct: 30, resetsAt: now + 14 * H, at: now - 60e3 } }),
+  claude('expired', { weekly: week(20), fiveHour: { usedPct: 99, resetsAt: now - 60e3, at: now - 3 * H } }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
 ];
-const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'working' }];
+const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'working' }, { sessionName: 's-b', name: 'Bo', state: 'working' }];
 
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
@@ -55,7 +60,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     catch (err) { say(false, '[' + engine + '] could not start a browser', err && err.message ? err.message.split('\n')[0] : String(err)); continue; }
     for (const [w, h] of [[1100, 900], [390, 844]]) {
       const tag = '[' + engine + ' ' + w + ']';
-      const page = await browser.newPage({ viewport: { width: w, height: h } });
+      const page = await browser.newPage({ viewport: { width: w, height: h }, locale: 'en-US' });
+      await page.clock.setFixedTime(new Date(now));
       /* A file:// page has no board, so its own background reads fail; WebKit reports each "due to access control checks". */
       const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
       await page.goto('file://' + PAGE);
@@ -85,6 +91,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             fiveLine: fiveM ? fiveM.querySelector('.acct-usage-line').textContent.trim() : null,
             fiveVisible: fiveM ? fiveM.getBoundingClientRect().height > 0 : false,
             warns: u ? [...u.querySelectorAll('.acct-usage-warn')].map((x) => x.textContent.trim()) : [],
+            order: u ? [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn')].map((x) => x.classList.contains('acct-usage-five') ? 'five' : x.classList.contains('acct-usage-meter') ? 'week' : (/5-hour/.test(x.textContent) ? 'fivewarn' : 'weekwarn')) : [],
             nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [],
           };
         };
@@ -103,6 +110,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.fiveonly && r.fiveonly.meters === 1 && r.fiveonly.fiveFill === '30%' && r.fiveonly.nones.length === 0, tag + ' only a five-hour reading: shown, with no "no reading yet" beside it', JSON.stringify(r.fiveonly));
       say(r.fivefrozen && r.fivefrozen.fiveFill === '30%' && r.fivefrozen.nones.length === 1 && /^This is the last reading Kosmos saw\. It will not update, because this account is set up its own way\.$/.test(r.fivefrozen.nones[0]), tag + ' under a blocked account it is the last reading', JSON.stringify(r.fivefrozen));
       say(r.key && r.key.meters === 0, tag + ' an API-key row draws no meter', JSON.stringify(r.key));
+      say(r.bothwarn && r.bothwarn.order.join(',') === 'week,weekwarn,five,fivewarn' && /Move its agent/.test(r.bothwarn.warns[0] || '') && r.bothwarn.warns[1] === 'Close to its 5-hour limit.',
+        tag + ' both warning: the weekly block (with its move) comes whole, then the five-hour one (with none)', JSON.stringify(r.bothwarn && { order: r.bothwarn.order, warns: r.bothwarn.warns }));
+      say(r.tomorrow && /^30% of its 5-hour limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:\d{2}\s?[AP]M · /.test(r.tomorrow.fiveLine || ''), tag + ' a reset after today names the weekday', JSON.stringify(r.tomorrow && r.tomorrow.fiveLine));
+      say(r.expired && r.expired.meters === 1 && r.expired.fiveLine === null, tag + ' a reading whose reset has passed is not drawn (a panel left open)', JSON.stringify(r.expired));
       if (w === 390) say(!r.sideways, tag + ' nothing scrolls sideways');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
       await page.close();
