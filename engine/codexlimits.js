@@ -6,17 +6,19 @@
  * `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl` carries
  *   "rate_limits": { "primary": { "used_percent": 0.0, "window_minutes": 10080, "resets_at": 1791985721 },
  *                    "secondary": null, "plan_type": "prolite", ... }
- * (measured 2026-10-14 on this computer, a ChatGPT sign-in on the prolite plan). Kosmos runs Codex, so the newest
- * session file in an account's home holds that account's latest report. Nothing here asks OpenAI anything.
+ * (measured 2026-10-14 on this computer, a ChatGPT sign-in on the prolite plan). Kosmos runs Codex, so the account's
+ * own home holds its latest report. Nothing here asks OpenAI anything.
  *
- * Read cheaply: only the end of the newest few files (a session file can run to megabytes, and the last report is at
- * its end), newest first by name, which carries the timestamp. A window whose reset time has passed is dropped: that
- * figure is from a window that is over. Never throws.
+ * Read cheaply, and bounded: only the newest seven day folders are listed (sessions/YYYY/MM/DD), their files ranked by
+ * when they were last WRITTEN (a long or resumed session keeps writing to a file named for when it started), and only
+ * the last 256 KB of the three most recent are read. The report with the latest time of its own wins. A window whose
+ * reset time has passed is dropped: that figure is from a window that is over. Never throws.
  */
 const fs = require('node:fs');
-const codexsession = require('./codexsession');
+const path = require('node:path');
 
 const FILES_TRIED = 3;
+const DAYS_LISTED = 7;
 const TAIL_BYTES = 256 * 1024;
 
 /** One window `{ used_percent, window_minutes, resets_at }`, validated, or null. resetsAt in epoch ms. */
@@ -53,30 +55,57 @@ function tail(file) {
   finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* nothing to do */ } } }
 }
 
+/** Sub-entries of `dir` named like a number, largest first (years, months, days). */
+function numbered(dir) {
+  try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && /^\d+$/.test(e.name)).map((e) => e.name).sort((a, b) => Number(b) - Number(a)); }
+  catch { return []; }
+}
+/** The session files in the newest DAYS_LISTED day folders, most recently written first, at most FILES_TRIED. */
+function recentFiles(home) {
+  const root = path.join(home, 'sessions'), days = [];
+  for (const y of numbered(root)) {
+    for (const m of numbered(path.join(root, y))) {
+      for (const d of numbered(path.join(root, y, m))) { days.push(path.join(root, y, m, d)); if (days.length >= DAYS_LISTED) break; }
+      if (days.length >= DAYS_LISTED) break;
+    }
+    if (days.length >= DAYS_LISTED) break;
+  }
+  const files = [];
+  for (const dir of days) {
+    let names = [];
+    try { names = fs.readdirSync(dir).filter((n) => /^rollout-.*\.jsonl$/.test(n)); } catch { /* unreadable: skipped */ }
+    for (const n of names) { const f = path.join(dir, n); try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone: skipped */ } }
+  }
+  return files.sort((a, b) => b.m - a.m).slice(0, FILES_TRIED).map((x) => x.f);
+}
+/** The last report in one file, `{ windows, plan, at }`, or null. */
+function lastReport(file) {
+  const lines = tail(file).split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || line.indexOf('rate_limits') === -1) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    const lim = limitsOfRow(row);
+    if (!lim) continue;
+    const at = Date.parse(row.timestamp);
+    if (!Number.isFinite(at)) continue;
+    return { ...lim, at };
+  }
+  return null;
+}
+
 /**
  * The account's latest report: `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }`, or null when
  * no session file in `home` carries one, or every window it reports has already reset.
  */
 function read(home, now = Date.now()) {
   if (typeof home !== 'string' || !home) return null;
-  let files;
-  try { files = codexsession.rollouts(home).slice(0, FILES_TRIED); } catch { return null; }
-  for (const file of files) {
-    const lines = tail(file).split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (!line || line.indexOf('rate_limits') === -1) continue;
-      let row;
-      try { row = JSON.parse(line); } catch { continue; }
-      const lim = limitsOfRow(row);
-      if (!lim) continue;
-      const at = Date.parse(row.timestamp);
-      if (!Number.isFinite(at)) continue;
-      const windows = lim.windows.filter((w) => w.resetsAt > now);
-      return windows.length ? { windows, plan: lim.plan, at } : null;   // the newest report decides, even when it is over
-    }
-  }
-  return null;
+  let best = null;
+  try { for (const f of recentFiles(home)) { const r = lastReport(f); if (r && (!best || r.at > best.at)) best = r; } } catch { return null; }
+  if (!best) return null;
+  const windows = best.windows.filter((w) => w.resetsAt > now);
+  return windows.length ? { windows, plan: best.plan, at: best.at } : null;   // the latest report decides, even when it is over
 }
 
-module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, TAIL_BYTES };
+module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, DAYS_LISTED, TAIL_BYTES };

@@ -52,7 +52,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     catch (err) { say(false, '[' + engine + '] could not start a browser', err && err.message ? err.message.split('\n')[0] : String(err)); continue; }
     for (const [w, h] of [[1100, 900], [390, 844]]) {
       const tag = '[' + engine + ' ' + w + ']';
-      const page = await browser.newPage({ viewport: { width: w, height: h }, locale: 'en-US' });
+      const page = await browser.newPage({ viewport: { width: w, height: h }, locale: 'en-US', timezoneId: Intl.DateTimeFormat().resolvedOptions().timeZone });   // the same zone as Node's noon
       await page.clock.setFixedTime(new Date(now));
       const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
       await page.goto('file://' + PAGE);
@@ -92,7 +92,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.warn && r.warn.warns.length === 1 && r.warn.warns[0] === 'Close to its 5-hour limit.', tag + ' at 82% it warns, with no move', JSON.stringify(r.warn && r.warn.warns));
       say(r.full && r.full.warns.length === 1 && new RegExp('^At its weekly limit until (Mon|Tue|Wed|Thu|Fri|Sat|Sun) ' + T + '\\.$').test(r.full.warns[0]), tag + ' at 100% it says until when', JSON.stringify(r.full && r.full.warns));
       say(r.over && r.over.meters.length === 1 && /weekly/.test(r.over.meters[0].line), tag + ' a window whose reset has passed is not drawn', JSON.stringify(r.over && r.over.meters));
-      say(r.none && r.none.meters.length === 0 && r.none.nones[0] === 'No usage reading for this sign-in yet. Codex reports it while an agent on it is working.', tag + ' no report: said plainly', JSON.stringify(r.none));
+      say(r.none && r.none.meters.length === 0 && r.none.nones[0] === 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.', tag + ' no report: said plainly', JSON.stringify(r.none));
       say(r.key && !r.key.usage, tag + ' an API-key row draws nothing (a key has no plan limits)', JSON.stringify(r.key));
       say(r.old && !r.old.usage, tag + ' an older board (no limits field) draws nothing', JSON.stringify(r.old));
       if (w === 390) say(!r.sideways, tag + ' nothing scrolls sideways');

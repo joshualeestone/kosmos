@@ -18,10 +18,11 @@ Codex writes its own limits into its session files: each `token_count` event in
 a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An OpenAI row's `dir` is its Codex home.
 
 ## Built
-- `engine/codexlimits.js`: `read(home, now)` tries the newest three session files (newest first by name, via
-  `codexsession.rollouts`), reads only the last 256 KB of each, and returns the newest report
+- `engine/codexlimits.js`: `read(home, now)` lists only the newest seven day folders, ranks their files by when they
+  were last written (a long or resumed session writes into a file named for when it started), reads the last 256 KB
+  of the three most recent, and returns the report with the latest time of its own
   `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }` with windows past their reset dropped,
-  or null. The newest report decides: an older file is never used to replace a report that is over.
+  or null. The latest report decides: an earlier one is never used to replace a report that is over.
 - `server.js`: ChatGPT rows (`authMode === 'chatgpt'`) in `/api/accounts` gain `limits`; API-key rows carry no field.
 - `web/index.html`: `acctCodexUsageHtml` (called from `acctUsageHtml` for OpenAI rows) draws the meters;
   `acctWindowName` names a window by its length.
@@ -31,10 +32,11 @@ a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An Op
 ## Calls
 1. "Codex last reported it <age>", not "Kosmos last saw it change": the source is Codex's own report, dated by its row.
 2. Windows are named by their length, so a plan with other windows still reads truthfully.
-3. Only the newest three files, and only their last 256 KB: the list is read on every open of AI Models.
+3. Bounded work: seven day folders listed, three files read, 256 KB each; the list is read on every open of AI Models.
+   A session resumed after more than seven days of folders is not seen (its next new session is).
 
 ## Known limits
-- Codex reports only while it runs. An account unused since its window reset shows "no reading yet" (this computer's
+- Codex reports only while it runs. An account unused since its window reset shows "No current usage reading" (this computer's
   own sign-in reads that way today: its last report, from Oct 7, reset this morning).
 - `render-accounts-openai.js` needs the runner's seeded board (sb4); run alone against an unseeded board it stops in
   the Add a provider flow, before any OpenAI row exists. It is measured in the full validation, on its own board.

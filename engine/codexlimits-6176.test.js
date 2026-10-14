@@ -81,6 +81,33 @@ test('a file with no report falls back to the next newest; only the newest three
   assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 40);
 });
 
+const touch = (f, ms) => fs.utimesSync(f, new Date(ms), new Date(ms));
+
+test('a resumed session (older name, written later) is read: write time decides, not the name', () => {
+  const h = home();
+  const resumed = writeRollout(h, '13', '09-00-00', [tokenRow('2026-10-14T11:30:00Z', rl(win(55, 10080, NOW + 864e5), null))]);
+  const newer = writeRollout(h, '14', '10-00-00', [tokenRow('2026-10-14T10:05:00Z', rl(win(20, 10080, NOW + 864e5), null))]);
+  touch(newer, Date.parse('2026-10-14T10:05:00Z')); touch(resumed, Date.parse('2026-10-14T11:30:00Z'));
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 55);
+});
+
+test('the latest report wins across files, so an over report in a newer-named file does not hide a live one', () => {
+  const h = home();
+  const live = writeRollout(h, '13', '09-00-00', [tokenRow('2026-10-14T11:00:00Z', rl(win(44, 10080, NOW + 864e5), null))]);
+  const over = writeRollout(h, '14', '10-00-00', [tokenRow('2026-10-14T10:00:00Z', rl(win(99, 300, NOW - 60e3), null))]);
+  touch(over, Date.parse('2026-10-14T10:00:00Z')); touch(live, Date.parse('2026-10-14T11:00:00Z'));
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 44);
+});
+
+test('only the newest seven day folders are listed: a report eight days back is not looked for', () => {
+  const h = home();
+  const old = writeRollout(h, '01', '09-00-00', [tokenRow('2026-10-14T11:00:00Z', rl(win(70, 10080, NOW + 864e5), null))]);
+  touch(old, NOW - 60e3);   // written recently, but its folder is eight folders back
+  for (const d of ['02', '03', '04', '05', '06', '07', '08']) writeRollout(h, d, '09-00-00', [{ timestamp: '2026-10-' + d + 'T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+  assert.equal(codexlimits.DAYS_LISTED, 7);
+  assert.equal(codexlimits.read(h, NOW), null);
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB

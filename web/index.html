@@ -27286,7 +27286,7 @@ function acctCodexUsageHtml(a) {
   const now = Date.now();
   const ws = a.limits && Array.isArray(a.limits.windows)
     ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt) && w.resetsAt > now) : [];
-  if (!ws.length) return '<div class="acct-usage"><p class="acct-usage-line acct-usage-none">No usage reading for this sign-in yet. Codex reports it while an agent on it is working.</p></div>';
+  if (!ws.length) return '<div class="acct-usage"><p class="acct-usage-line acct-usage-none">No current usage reading for this sign-in. Codex reports it while an agent on it is working.</p></div>';
   const age = Number.isFinite(a.limits.at) ? agoWords(now - a.limits.at) : '';
   const html = ws.map((w, i) => {
     const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
