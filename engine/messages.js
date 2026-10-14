@@ -1080,9 +1080,8 @@ function sendKey(kind, from, place, text) { return kind + '\u0000' + from + '\u0
      stopped !== false in that project, later than the post); dropped only when it is not addressed to the member;
    - and, in its `evenIfAsked` Set (R2, 10-05 user diagnostic: a session woken on 10-05 for 10-02 and 10-03 posts it
      had handled), dropped even when it names the member: one the member ANSWERED (its own post in that room with
-     replyTo = that id; a room post, not a direct message), one within the room rows a read showing another's
-     post it answered there would show before it (N7), or a post
-     older than HELD_ASKED_MAX_MS from the post itself.
+     replyTo = that id; a room post, not a direct message), one in the rows a default room read shows before another
+     member's post the member answered there (N7), or a post older than HELD_ASKED_MAX_MS from the post itself.
    The stale age counts from the post, or from the member's quota pause's end when there was one; the day rule
    counts from the post even then, so a pause of days does not deliver days-old asks. (#5805: roomhold.withoutStale
    keeps back an ask a Claude usage limit held; `answered`, the ids the member answered, tells the two apart.)
@@ -1114,8 +1113,12 @@ function staleHeld(projectId, ids, log, now, member) {
        kinds the read shows, in the order it shows them (server.js caps outside rows, so a read can reach further back,
        never less far). */
     const covered = new Set();
-    if (answered.size) {
-      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind))
+    /* Rows older than the oldest held post sit before all of them in the read, so they move no held post's distance
+       to X and are not scanned. A row whose time does not parse is kept (it still takes a slot). */
+    let oldestWanted = Infinity;
+    for (const r of rows) if (r && r.kind === 'post' && r.project === projectId && want.has(r.id)) oldestWanted = Math.min(oldestWanted, Date.parse(r.at));
+    if (answered.size && Number.isFinite(oldestWanted)) {
+      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind) && !(Date.parse(r.at) < oldestWanted))
         .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
       room.forEach((x, i) => {
         if (x.kind !== 'post' || !answered.has(x.id) || x.from === member) return;
