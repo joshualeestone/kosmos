@@ -61,7 +61,7 @@
  *   { name, owner, go: async (page, data) => { ...navigate to the screen... } }
  * plus `noServiceWorker: true` if `go` stubs a request with page.route, and
  * `phoneOnly: true` if the screen exists only at a phone width (the desktop size and tablets over 40rem skip it), and
- * `desktopOnly: true` if it exists only at a desktop width (the phone and tablet sizes skip it; the consolidated
+ * `desktopOnly: true` if it exists only at a desktop width (the phone sizes and tablets under 960px skip it; the consolidated
  * view, for one, starts at 960px).
  * One board serves every screen of a run, so a `go` that writes to the board's server store (a PUT, a
  * saved setting) must undo it in `after` (settings-recommender does, #4545), or it changes every screen
@@ -132,8 +132,9 @@ const DEFAULT_SIZES = ['se', 'iphone15', 'promax', 'android'];
 /* Why a screen is not shot at a size, or '' when it is. A tablet (#6107) is a touch size like a phone, but a
    phone-only screen (the #burger menu, hidden above 40rem) does not exist there either, except at tab8 (600px,
    under 40rem), which still shows it. The 640 below is that 40rem by value: today every phoneOnly screen keys on it; a desktop-only screen is
-   skipped at every size that is not the desktop one, tablets included. */
-const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 640)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop ? 'desktop-only screen' : ''));
+   skipped at phone sizes and at tablets under 960px. A landscape tablet (960px and up) can show the consolidated
+   view, so it shoots desktop-only screens too (#6107 landscape slice). */
+const skipWhy = (s, sc) => (sc.phoneOnly && (s.desktop || (s.tablet && s.width > 640)) ? 'phone-only screen' : (sc.desktopOnly && !s.desktop && !(s.tablet && s.width >= 960) ? 'desktop-only screen' : ''));
 const THEMES = ['light', 'dark'];
 const ENGINES = ['chromium', 'webkit'];
 
