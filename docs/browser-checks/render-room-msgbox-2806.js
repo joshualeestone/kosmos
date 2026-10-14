@@ -1818,8 +1818,9 @@ function tapProbe4663(skip) {
       chk(tabletPageErrors.length === 0, '[tablet] no script errors on the page', tabletPageErrors.join(' | '));
       await tabletPage.close();
     }
-    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, set as the dark/consolidated arm above sets it (the
-    // static page does not choose it by itself). Back (its crumb row is display:none) and + Add member (the Members
+    // #4663 in the ONE-SCREEN layout on a touchscreen tablet, at sideways sizes the page now opens on one screen
+    // by itself (#6107: a touch tablet at 960px+); the attribute set below, as the dark/consolidated arm above sets it,
+    // only makes sure of it. Back (its crumb row is display:none) and + Add member (the Members
     // card is display:none here, #3218) are not shown in this layout, so both are left out rather than forced
     // visible (forcing Members visible also reflows the Files card); the other four must all take their 36px tap.
     for (const w of [960, 1024, 1180]) {   // 960: the narrowest width the one-screen layout (and these rules) exist at
