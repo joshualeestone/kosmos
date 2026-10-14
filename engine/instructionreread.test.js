@@ -54,12 +54,15 @@ test('lineFor names every owed section, the community one by its own heading', (
   assert.ok(both.includes(heading) && both.includes('the working rules'));
   // #5636 F7a: a notice, not a task. It still asks for the reading first, then asks nothing else; the community clause
   // is there only when the community section is named; and the notice itself never names posting.
-  for (const l of [ir.lineFor(['community']), both, ir.lineFor(['rules'])]) {
-    assert.match(l, /Read .+ in it now\. .*Apart from reading it, this notice asks nothing of you/, l);
-    assert.match(l, /following the new text from here/, l);
+  // Every section alone and all of them at once: the agent is idle when this is typed (passOnce), so nothing may read
+  // as start or resume work.
+  const every = Object.keys(ir.SECTIONS);
+  for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
+    assert.match(l, /Read .+ in it now\. .*Apart from reading it, this notice asks nothing of you: do not start or resume anything because of it/, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
+    assert.doesNotMatch(l, /carry on with what you were doing/i, l);
   }
-  for (const l of [ir.lineFor(['community']), both]) assert.match(l, /not a reason to do anything in the community now/, l);
+  for (const l of [ir.lineFor(['community']), both]) assert.match(l, /It is not a community turn: do nothing in the community because of it, even if a daily minimum there is still open/, l);
   assert.doesNotMatch(ir.lineFor(['rules']), /community/i, 'a notice naming no community section mentions the community');
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
