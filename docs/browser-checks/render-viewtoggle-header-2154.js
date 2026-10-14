@@ -226,6 +226,8 @@ const { chromium } = require('playwright');
       await mp.click(LAY + ' [data-layout-switch="consolidated"]');
       await mp.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 15000 });
       say((await savedLayoutOf()) === 'consolidated', 'mouse at 1194x834 (CONTROL): a press there saves to the board, as before');
+      // And the rail: a mouse window under 1280px folds the agents rail as before; only a touch tablet opens it.
+      say(await mp.evaluate(() => document.body.classList.contains('fold-a')), 'mouse at 1194x834 (CONTROL): one screen folds the agents rail, as before (the open rail is touch only)');
     } finally {
       await mctx.close();
     }

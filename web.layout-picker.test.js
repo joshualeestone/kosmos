@@ -383,6 +383,7 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
 
 test('#6107: a landscape touch tablet keeps its own layout, defaulting to the one-screen view; the board setting is untouched', () => {
   // The rule's query: touch, sideways, and wide enough for the one-screen view (its own 960px floor).
+  assert.match(SCRIPT, /const CONSOLIDATED_TABLET_OPEN_MQ = '\(hover: none\) and \(pointer: coarse\) and \(orientation: landscape\) and \(min-width: 1100px\)';/, 'the open-rail rule is touch, sideways, 1100px and up');
   assert.match(SCRIPT, /const TABLET_LAYOUT_MQ = '\(hover: none\) and \(pointer: coarse\) and \(orientation: landscape\) and \(min-width: 960px\)';/);
   const dev = SCRIPT.slice(SCRIPT.indexOf('function deviceLayout('), SCRIPT.indexOf('function applyLayout('));
   // Off a landscape tablet the board's setting stands; on one, the tablet's own choice, the one-screen view by default.
