@@ -34,7 +34,7 @@ case "$me" in
       -un) echo "${FX_WHO:-agent1}" ;;
       -Gn) echo "${FX_GROUPS:-staff everyone}" ;;
       -u) echo 777 ;;
-      *) [ "${FX_CI_EXISTS:-0}" = 1 ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
+      *) [ "${FX_CI_EXISTS:-0}" = 1 ] || [ -f "$(dirname "$CALL_LOG")/user-created" ] || { echo "id: $1: no such user" >&2; exit 1; }; echo "uid=777($1)" ;;
     esac ;;
   ps) [ "${FX_PS_FAIL:-0}" = 1 ] && exit 1; [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
   gh)
@@ -55,6 +55,8 @@ case "$me" in
       */compare/*) printf '{\n  "status": "%s",\n' "${FX_COMPARE:-ahead}" ;;
       */releases/latest) printf '{"tag_name": "v2.999.0", "body": "<!-- BEGIN SHA osx-arm64 -->%s<!-- END SHA osx-arm64 -->"}' "$(printf 'runner-package' | shasum -a 256 | cut -d' ' -f1)" ;;
     esac; fi ;;
+  sudo) case "$*" in *"sysadminctl -addUser"*) [ "${FX_SYSADMIN_NOOP:-0}" = 1 ] || : > "$(dirname "$CALL_LOG")/user-created" ;; esac ;;
+  tar) [ "${FX_TAR_FAIL:-0}" = 1 ] && exit 1 ;;
   config.sh) printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG" ;;
   svc.sh)
     st="$(dirname "$0")/.svc-state"
@@ -77,7 +79,7 @@ run() {
   local name="$1" home="$2"; shift 2
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
-  : > "$LOG"
+  : > "$LOG"; rm -f "$T/user-created"
   env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" \
     ${envs[@]+"${envs[@]}"} bash "$S" "$@" > "$T/$name.out" 2>&1 < "${STDIN_FILE:-/dev/null}"
   echo $? > "$T/$name.rc"
@@ -112,6 +114,7 @@ refuse tmux35a "is 3.5a" "FX_TMUX_V=tmux 3.5a"
 refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
+refuse bad-allow-ere "KOSMOS_CI_ALLOW_JOBS is not a valid ERE" FX_JOBS=com.kosmos.board "KOSMOS_CI_ALLOW_JOBS=(unbalanced"
 run pf-allow "$H" FX_JOBS=io.tailscale.ipn.helper KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.' -- preflight
 [ "$(rc pf-allow)" = 0 ] && pass "preflight: an allowed job (KOSMOS_CI_ALLOW_JOBS) does not refuse" || fail "allow-list: $(grep REFUSE "$T/pf-allow.out")"
 mv "$BREWD/bin/pwsh" "$T/pwsh.away"
@@ -144,6 +147,8 @@ run cu-blocked "$H" FX_JOBS=com.kosmos.board -- --apply create-user
 run cu-nolaunchctl "$H" FX_LAUNCHCTL_FAIL=1 -- --apply create-user
 [ "$(rc cu-nolaunchctl)" = 1 ] && ! changed cu-nolaunchctl >/dev/null && has cu-nolaunchctl "could not read launchctl list" \
   && pass "create-user --apply refuses when launchctl cannot be read (no fail-open under ||)" || fail "create-user, launchctl unreadable: rc $(rc cu-nolaunchctl)"
+run cu-noop "$H" FX_SYSADMIN_NOOP=1 -- --apply create-user
+[ "$(rc cu-noop)" = 1 ] && has cu-noop "was not created" && pass "create-user --apply stops when sysadminctl made no user" || fail "create-user no-op: rc $(rc cu-noop)"
 run cu-exists "$H" FX_CI_EXISTS=1 -- --apply create-user
 [ "$(rc cu-exists)" = 1 ] && ! changed cu-exists >/dev/null && pass "create-user refuses when kosmos-ci exists" || fail "create-user exists: rc $(rc cu-exists)"
 
@@ -152,16 +157,16 @@ C=0123456789abcdef0123456789abcdef01234567
 G="$(printf 'guard' | shasum -a 256 | cut -d' ' -f1)"
 CH="$T/cihome"; mkdir -p "$CH"
 before="$(snap "$CH")"
-run in-dry "$CH" FX_WHO=kosmos-ci -- install "$C" "$G"
-if [ "$(rc in-dry)" = 0 ] && has in-dry "WOULD: fetch tools/ci-runner-job-guard.sh at $C" && ! changed in-dry >/dev/null && [ "$(snap "$CH")" = "$before" ]; then
+run in-dry "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
+if [ "$(rc in-dry)" = 0 ] && has in-dry "WOULD: fetch tools/ci-runner-job-guard.sh at $C" && grep -q '^curl .*/compare/' "$T/in-dry.calls" && ! changed in-dry >/dev/null && [ "$(snap "$CH")" = "$before" ]; then
   pass "install dry run: checks the commit is on main, downloads nothing, HOME unchanged"
 else fail "install dry run: rc $(rc in-dry), changing calls: $(changed in-dry | head -2), $(tail -2 "$T/in-dry.out")"; fi
-run in-fork "$CH" FX_WHO=kosmos-ci FX_COMPARE=diverged -- install "$C" "$G"
+run in-fork "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_COMPARE=diverged -- install "$C" "$G"
 [ "$(rc in-fork)" = 1 ] && has in-fork "is not on main" && pass "install refuses a commit not on main" || fail "install off-main: rc $(rc in-fork)"
 run in-who "$CH" -- --apply install "$C" "$G"
 [ "$(rc in-who)" = 2 ] && has in-who "runs as kosmos-ci" && ! changed in-who >/dev/null && pass "install --apply refuses as any user but kosmos-ci" || fail "install as agent1: rc $(rc in-who)"
 mkdir -p "$CH/actions-runner"; printf 'LANG=C\nKOSMOS_TESTS_IGNORE_SUITE=1\n' > "$CH/actions-runner/.env"
-run in-env "$CH" FX_WHO=kosmos-ci -- install "$C" "$G"
+run in-env "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
   || fail "install .env override: rc $(rc in-env): $(tail -1 "$T/in-env.out")"
 # CONTROL and the real path: --apply, with the downloads stubbed. An existing .env key the install does not own survives.
@@ -192,6 +197,13 @@ R3="$T/run3"; svc_home "$R3"
 run in-stuck "$R3" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R3" FX_SVC_STUCK=1 -- --apply install "$C" "$G"
 [ "$(rc in-stuck)" = 1 ] && has in-stuck "did not stop" && ! grep -q '^tar ' "$T/in-stuck.calls" \
   && pass "install --apply refuses to unpack when the runner did not stop" || fail "install stuck stop: rc $(rc in-stuck)"
+R5="$T/run5"; svc_home "$R5"
+run in-tarfail "$R5" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R5" FX_TAR_FAIL=1 -- --apply install "$C" "$G"
+[ "$(rc in-tarfail)" != 0 ] && grep -q '^svc.sh stop' "$T/in-tarfail.calls" && grep -q '^svc.sh start' "$T/in-tarfail.calls" \
+  && pass "install --apply starts the runner again when it fails after stopping it" || fail "install fail after stop: rc $(rc in-tarfail), calls: $(grep svc "$T/in-tarfail.calls" | tr '\n' ' ')"
+run in-owner "$H" -- install "$C" "$G"
+[ "$(rc in-owner)" = 0 ] && has in-owner "unpack into /Users/kosmos-ci/actions-runner" && ! has in-owner "$H/" \
+  && pass "install dry run as the owner names kosmos-ci's paths, not the owner's" || fail "install dry as owner: $(grep WOULD "$T/in-owner.out" | head -2)"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -202,7 +214,7 @@ run late-apply "$H" -- preflight --apply
 
 # --- register ---------------------------------------------------------------------------------------------------
 printf 'tok-SECRET-123\n' > "$T/token"
-STDIN_FILE="$T/token" run rg-dry "$CH" FX_WHO=kosmos-ci -- register
+STDIN_FILE="$T/token" run rg-dry "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- register
 if [ "$(rc rg-dry)" = 0 ] && has rg-dry "--name kosmos-ci-agent1s" && tr -d '\\' < "$T/rg-dry.out" | grep -q -F -- '--labels self-hosted,macOS,arm64,kosmos-ci' \
    && ! grep -q SECRET "$T/rg-dry.out" "$T/rg-dry.calls" && ! changed rg-dry >/dev/null; then pass "register dry run: name and labels printed, token neither read nor printed, nothing called"
 else fail "register dry run: rc $(rc rg-dry): $(cat "$T/rg-dry.out")"; fi
