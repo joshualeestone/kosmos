@@ -29,7 +29,7 @@ That the reported agent really was asking a question. Every path to Issue and th
   card, list row or org node, BOARD_FILTERS is exactly Messages and Issue; its Issue-filter arms are kept. rc=0.
 - engine/status.test.js: needs_you counts with or without a project, and no no-project tally exists.
 - server.test.js: the stats-tile harnesses end on the Issue tile; the page carries no st-attn-noproj.
-- Related node suites and the browser-check guards: 1037 pass, 0 fail.
+- Related node suites and the browser-check guards pass (2141 / 0 fail at 4a35c0940, run alone).
 
 ## Review
 1. opus: no blocker. WARNINGs fixed: the stale badge beside the name drew a triangle for "Kosmos took it off its last
@@ -47,3 +47,5 @@ That the reported agent really was asking a question. Every path to Issue and th
    treats a quiet write as current, so it no longer calls a removal "updated working rules" (arm in
    web.told-banner.test.js, mutant red). STALENESS.STALE instead of the bare string. Left (NIT): the tellAgent wiring is
    pinned by a source match, not a run; staleness is read without the exact session the board passes.
+4. sonnet: no blocker or warning. Converged. NITs already recorded above (source-match wiring; staleness without the
+   exact session). Evidence count updated.
