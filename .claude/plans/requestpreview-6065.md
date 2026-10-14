@@ -1,0 +1,27 @@
+# #6065 N1: a room post that is still shortened carries the request in its preview
+
+Owner: Angel. 2026-10-14 11:30 CDT. From Josh's 0.7.48 five-family report (card comment 10-14 09:09): GPT got the whole
+briefing, but Gemini and Meta still had long room posts arrive shortened with the full text in a file. His ask: confirm
+on the Gemini and Meta runners, and where a message is still shortened, put the request in the preview.
+
+## Finished looks like
+When a room post or DM is too long to type whole (messages.spillsAt), the line the agent sees still carries the head,
+the size and the file, and now also the request: for a room post, the sentence that @-mentions this member (by handle
+or display name, as the room resolves mentions) shown as "It asks you: ..."; otherwise the post's first question shown
+as "Its first question: ..."; nothing when there is neither or it is already in the head. At most 300 characters.
+
+## What the code says about the Gemini and Meta shortening (read on origin/main, not measured on the test Mac)
+- No runner-specific cut exists: the only spill is messages.spillsAt, measured per member on the whole line.
+- Each member's line carries per-member extras: the answer clause when mentioned, the missed-posts note and the
+  held-posts clause (roomhold.clauseFor). A busy or quota-held Gemini or Meta seat carries more of them, so a post near
+  the limit can fit for GPT and spill for them. That is the likeliest Kosmos-side cause; unconfirmed without the post's
+  length and each seat's line.
+- If a seat saw a temp-file path or other wording than "(long message, N words; the full text is in your own folder at
+  ...)", the runner saved long command output itself (for example from `kosmos room`), not Kosmos.
+
+## Decided
+- Build Josh's preview ask now; it helps whichever cause it is. Rejected: raising the limit (chat.MAX_TEXT is what the
+  pane takes) and dropping the held-posts clause to make room (the agent would lose those posts' ids).
+- DMs pass no names, so a DM's preview gets the first question (the whole DM is to that agent).
+- Weakest premise: that the request is one sentence with an @-mention or a question mark. A request phrased as an
+  instruction with neither ("Gemini seat: confirm delivery.") gets no request clause; the head and file are unchanged.

@@ -410,6 +410,37 @@ test('#6065: a room post past the old 700 but within chat\'s limit reaches every
   });
 });
 
+test('#6065 N1: requestIn finds the sentence that @-mentions the member, else the first question, cut at a whole word', () => {
+  const body = 'Status for the week. ' + 'Filler words here. '.repeat(30) + 'Please, @mara, check the lease dates before Friday. More filler. Is the deposit back?';
+  assert.deepEqual(messages.requestIn(body, ['mara']), { sentence: 'Please, @mara, check the lease dates before Friday.', asked: true });
+  // By display name too, as the room resolves mentions (agentnames.nameKey).
+  assert.equal(messages.requestIn('Intro. Can @Mara-Lisa read it? End.', ['mara', 'Mara Lisa']).asked, true);
+  // Another member's mention is not this member's request: the first question instead.
+  assert.deepEqual(messages.requestIn(body, ['leo']), { sentence: 'Is the deposit back?', asked: false });
+  assert.equal(messages.requestIn('No ask in here. Just news.', ['leo']), null);
+  // A request longer than REQUEST_MAX is cut at a whole word and says so.
+  const long = messages.requestIn('Intro. @mara ' + 'please read '.repeat(60) + 'now.', ['mara']);
+  assert.ok(long.sentence.length <= 301 && long.sentence.endsWith('…') && !/ …$/.test(long.sentence), long.sentence);
+});
+
+test('#6065 N1: a room post still shortened carries the request to each member in its preview', () => {
+  withFleet(room3(), (board) => {
+    workerFolders(['leo', 'mara', 'april']);
+    const tmux = arm([]);
+    const text = 'Briefing for the release. ' + 'The release notes cover many changes in detail. '.repeat(240)
+      + 'Then: @mara, please confirm the Gemini delivery on your seat. The end.';
+    const out = messages.sendPost({ operator: true, project: 'henderson-lease', text }, board.agents, MEMBERS);
+    assert.ok(out && out.id, JSON.stringify(out));
+    const typed = tmux.pastedMessages();
+    const lineOf = (who) => typed.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
+    const mara = lineOf('mara'); const leo = lineOf('leo');
+    assert.ok(mara && leo, 'CONTROL: the post was shortened for both (a file each): ' + typed.map((l) => l.slice(0, 120)).join(' | '));
+    assert.ok(mara.includes('It asks you: Then: @mara, please confirm the Gemini delivery on your seat.'), mara.slice(-300));
+    // leo is not asked and the post has no question: no request clause at all.
+    assert.doesNotMatch(leo, /It asks you:|Its first question:/, leo.slice(-300));
+  });
+});
+
 test('#1264: the pane line does not grow with the body, however long the body gets', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     const typedFor = (repeats) => {
