@@ -11978,7 +11978,10 @@ const server = http.createServer(async (req, res) => {
         if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
         let r;
         try { r = require('./engine/allowance').ensureStatusLine(path.join(acct.dir, 'settings.json')); }
-        catch { r = { wired: false, because: 'the usage reading could not be set up' }; }
+        catch (e) {   // review 4: logged, as the 500 path is
+          try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }
+          r = { wired: false, because: 'the usage reading could not be set up' };
+        }
         if (!r || r.wired !== true) { sendJson(res, 409, { wired: false, because: (r && r.because) || 'the usage reading could not be set up' }); return; }
         sendJson(res, 200, { wired: true, changed: r.changed === true });
       }, () => sendJson(res, 400, { error: 'we could not read that request' }))   // the body could not be read
