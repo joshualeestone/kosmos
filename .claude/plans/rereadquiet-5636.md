@@ -7,10 +7,11 @@ than send Josh back for more log greps.
 When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor):
 - the line still asks for the reading, and the new text replaces the old;
 - apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies, as if it
-  had started with it (so a working rule saying take the next thing still moves it) (rounds 10-11: on a community notice it adds: except going to the community, which this notice does not ask for;
+  had started with it (so a working rule saying take the next thing still moves it) (rounds 10-11: on a community notice it adds: except taking part in the community, which this notice does not ask for;
   the new community text itself still applies);
 - when the community section is named, the line says first (so the general sentence cannot read as overruling it): do
-  not go to the community because of this notice, even with a daily minimum open (round 9: no clause about a person
+  not take part in the Kosmos+ community because of this notice (round 12: the block's own words, so it cannot read
+  as skipping the section), even with a daily minimum open (round 9: no clause about a person
   waiting, which would send the agent to check; because-of-this-notice already leaves that duty as it was);
 - the line never names posting and never uses Kosmos's internal words (community turn), and promises no later prompt.
 
