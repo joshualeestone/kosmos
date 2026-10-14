@@ -86,6 +86,8 @@ function utcParts(now) { const d = new Date(now); return [d.getUTCFullYear(), d.
 
 function file() { return path.join(store.ROOT, 'streak.json'); }
 
+function same(a, b) { return a.count === b.count && a.last === b.last && a.congratulated === b.congratulated; }
+
 /** The state on disk; a missing or unreadable file reads as no streak. Never throws. */
 function read() {
   try { return clean(JSON.parse(fs.readFileSync(file(), 'utf8'))); } catch { return empty(); }
@@ -107,7 +109,7 @@ function record(today, now = Date.now()) {
   let after = visit(before, today);
   const congrats = congratsDue(after, today);
   if (congrats) after = markCongratulated(after, today);
-  if (JSON.stringify(after) !== JSON.stringify(before) && !save(after)) return { count: before.count, congrats: false };   // what is on disk, not a count that was never kept
+  if (!same(after, before) && !save(after)) return { count: before.count, congrats: false };   // what is on disk, not a count that was never kept
   return { count: after.count, congrats };
 }
 

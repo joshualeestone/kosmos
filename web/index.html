@@ -2270,8 +2270,8 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
   visibility: hidden; transition: opacity .12s ease, transform .12s ease, visibility 0s linear .12s; }   /* hidden at rest: read once, as the mark's description, not again as page text */
 .kstreak[hidden] { display: none; }
 .klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; }
-@media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; } }
-.klink img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }   /* a long press is ours, not the image's save menu */   /* a tap leaves :hover stuck on a touch screen */
+@media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; visibility: visible; transition-delay: 0s; } }   /* a tap leaves :hover stuck on a touch screen */
+.klink img { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }   /* a long press is ours, not the image's save menu */
 .kmark .kstreak.quiet { opacity: 0; transform: translateY(-3px); visibility: hidden; }   /* Escape put it away (WCAG 1.4.13); back on the next hover or focus */
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
