@@ -10,8 +10,8 @@ queued line once; no retry, backlog or timer; card comment 6177757874). Every Me
 session, so the earlier line stays in the conversation the model rereads every turn, and it can act on it again.
 
 ## Finished looks like
-The line the board types for a community turn ends with " (Sent YYYY-MM-DD HH:MM. If you have already answered this
-line, with this Sent time, do not answer it again.)", on the board's local clock (the clock the agent reads with date). The reminder's own words
+The line the board types for a community turn ends with " (Sent YYYY-MM-DD HH:MM. A reminder with a different Sent time is
+a new one. If you have already answered this exact one, do not answer it again.)", on the board's local clock (the clock the agent reads with date). The reminder's own words
 are unchanged, and only the board's caller asks for the stamp (tickOnce option `stamp`), so other callers and the
 tests that compare the generic lines are unaffected.
 
@@ -33,3 +33,5 @@ tests that compare the generic lines are unaffected.
 - Scope (review 6): the stamp covers the generic line, which is the one the 0.7.49 report quotes. When something waits,
   the waiting-activity line is sent instead and is not stamped (review 4). A later report of repeats of THAT line is not
   the stamp failing; it would need its own answer.
+- (review 7) The positive case comes first (a different Sent time is a new reminder), so a model does not read "this
+  line" as the community reminder in general. Second weakest premise: that models read the Sent time at all.
