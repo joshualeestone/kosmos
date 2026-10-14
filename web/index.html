@@ -16598,6 +16598,9 @@ window.kosmosMeasureScrollbarWidth();
         <p class="dhint" id="pj-one-made" style="margin:2px 0 0;" hidden></p>
         <!-- kosmos#5391: a paused project says so where its name is, not only in Settings. -->
         <p class="dhint pj-paused-line" id="pj-one-paused" role="status" hidden></p>
+        <!-- kosmos#6072: the Assigner tried today to ask an agent to plan work toward this project's goal and reached
+             nobody; said where the goal is, not as the Issue pill (Issue is an agent needing the person, #4730). -->
+        <p class="dhint" id="pj-one-goalask" role="status" hidden></p>
         <p class="fmsg" id="pj-head-pause-msg" aria-live="polite"></p>
         <!-- kosmos#5287: a project joined from another account says who shared it and what THEY wrote about it, as
              theirs. Their words are never this project's own description (the brief its agents get), so they live here. -->
@@ -61709,6 +61712,7 @@ async function loadProjects() {
     paintPjNone();
     // kosmos#5391 review 2: the header Pause / Resume goes inert while the projects cannot be read (it repaints on recovery).
     try { if (PJ_CURRENT) paintHeadPause(pjById(PJ_CURRENT)); } catch { /* a paint never breaks the failure path */ }
+    try { if (PJ_CURRENT) paintGoalAsk(pjById(PJ_CURRENT)); } catch { /* kosmos#6072: nor this line */ }
     // ⚠️ Reported where the person is LOOKING, not only into the list. Both the
     // add-member and remove-member paths call this from the one-project view,
     // where `#pj-list` is hidden -- so a failed refresh left the member list
@@ -65403,6 +65407,7 @@ function paintOneProject() {
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */
   paintHeadPause(p);   // kosmos#5391
+  paintGoalAsk(p);   // kosmos#6072
   const madeLine = document.getElementById('pj-one-made');
   if (p.made && p.made.via === 'process') {
     madeLine.textContent = 'Made by ' + (p.made.by ? (pjNameOf(p, p.made.by) || p.made.by) : 'an agent or another program on this computer')
@@ -73959,6 +73964,22 @@ document.getElementById('pj-one-remove-go').addEventListener('click', async () =
    Painted with the page from the same state Settings reads (p.paused, p.pausedByPerson). */
 /* kosmos#5391 review 3: one press at a time across BOTH pause buttons (header and Settings). */
 let PJ_PAUSE_BUSY = false;
+/* kosmos#6072: one line under the project's name when the Assigner gave up today on asking an agent to plan work
+   toward this project's goal (GET /api/projects carries it as goalAskGaveUp; the board hides it for a paused or
+   archived project, open work, an agent no longer on it, a goal no longer in BRIEF.md, or a day old). Hidden on a read
+   that failed: a line from a read we could not make would claim what we cannot see. */
+function paintGoalAsk(p) {
+  const line = document.getElementById('pj-one-goalask');
+  if (!line) return;
+  const g = p && p.goalAskGaveUp;
+  const show = PJ_READ_FAILED !== true && !!(g && typeof g.agent === 'string' && g.agent);
+  line.hidden = !show;
+  line.textContent = show
+    ? 'Kosmos could not reach ' + g.agent + ' to plan the next work toward this project\'s goal (' + (Number(g.tries) || 3)
+      + ' tries today). It will ask again tomorrow; to start sooner, give the project a task.'
+    : '';
+}
+
 function paintHeadPause(p) {
   const btn = document.getElementById('pj-head-pause');
   const line = document.getElementById('pj-one-paused');

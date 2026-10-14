@@ -1,0 +1,25 @@
+# goalaskline-6072: the project page says when the Assigner gave up on its goal today (#6072 slice 2)
+
+Stacked on goalaskgaveup-6072 (slice 1: GET /api/projects carries `goalAskGaveUp`). Rebased onto main once slice 1
+merges. Card: joshualeestone/kosmos#6072 (the measured premise and the call are on it).
+
+## The call
+- web/index.html: one status line under the project's name, beside the paused line (`pj-one-goalask`, the same
+  `dhint` style), painted by `paintGoalAsk(p)` from the project the page already holds (it polls /api/projects; card
+  comment 6156864486). Words: "Kosmos could not reach <agent> to plan the next work toward this project's goal (<n>
+  tries today). It will ask again tomorrow; to start sooner, give the project a task."
+- Hidden when the project carries no give-up, and on a read that failed (a line from a read we could not make would
+  claim what we cannot see). The board already hides it for a paused or archived project, open work, an agent no
+  longer on it, a goal gone from BRIEF.md, or a day old (slice 1).
+- Not the Issue pill (Issue is an agent needing the person, #4730), not the project tile (Josh's #747/#748 layout).
+
+## Proven
+- web.goalask-line-6072.test.js (the page's real function, lifted): the line names the agent and the try count; no
+  line with no give-up, and it clears when the give-up goes (control: it shows first); no line on a failed read; the
+  name is set as text, never markup; the element sits beside the paused line as a status.
+- web.project-pause-head-5391.test.js still passes (the neighbouring line).
+
+## Weakest premise
+"It will ask again tomorrow": the next goal ask is due a day after the last try (GOAL_ASK_MS), but only if an idle
+member and a goal are there then. And "give the project a task" is the person's lever because open work switches
+the goal ask off and the Assigner can hand that task out.
