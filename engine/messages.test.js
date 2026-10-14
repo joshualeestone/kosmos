@@ -446,6 +446,12 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   const hl = messages.spillLine(headOnly, '/f.md', { namedAt: at(headOnly, '@mara') });
   assert.match(hl, / A question in it: "Can someone check the dates\?"$/, hl.slice(-200));
   assert.doesNotMatch(hl, /Where it names you/, hl.slice(-200));
+  // A long question whose last 100 characters hold no space (a link) keeps text before the ?, never just the ?.
+  const link = 'Intro. ' + 'word '.repeat(60) + 'have you seen https://example.com/' + 'a'.repeat(120) + '? End.';
+  const lq = messages.requestIn(link, {});
+  assert.ok(lq && lq.sentence.length > 50 && lq.sentence.endsWith('?'), JSON.stringify(lq));
+  // questions: false (a background reader) quotes no question.
+  assert.equal(messages.requestIn(body, { namedAt: [], questions: false }), null);
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
@@ -470,7 +476,7 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     workerFolders(['leo', 'mara', 'april']);
     const tmux = arm([]);
     const long = 'The release notes cover many changes in detail. '.repeat(240);
-    const text = 'Briefing for the release. ' + long + 'Then: @Mara-Lisa, please confirm the Gemini delivery on your seat. The end.';
+    const text = 'Briefing for the release. ' + long + '@Mara-Lisa, please confirm the Gemini delivery on your seat. The end.';
     const out = messages.sendPost({ operator: true, project: 'henderson-lease', text }, board.agents, MEMBERS);
     assert.ok(out && out.id, JSON.stringify(out));
     const typed = tmux.pastedMessages();
@@ -478,15 +484,19 @@ test('#6065 N1: a room post still shortened carries the request to each member i
     const mara = lineOf('mara'); const leo = lineOf('leo');
     assert.ok(mara && leo, 'CONTROL: the post was shortened for both (a file each): ' + typed.map((l) => l.slice(0, 120)).join(' | '));
     // Mentioned by DISPLAY name: the roster lookup at delivery is what finds it.
-    assert.ok(mara.includes('Where it names you: "Then: @Mara-Lisa, please confirm the Gemini delivery on your seat."'), mara.slice(-300));
+    // The mention starts its sentence: an off-by-one in namedAt would pull in the sentence before.
+    assert.ok(mara.includes('Where it names you: "@Mara-Lisa, please confirm the Gemini delivery on your seat."'), mara.slice(-300));
     // leo is not asked and the post has no question: no request clause at all.
     assert.doesNotMatch(leo, /Where it names you:|A question in it:/, leo.slice(-300));
-    // With a question and no mention of leo: leo's preview carries the first question.
-    tmux.pastedMessages().length = 0;
-    const q = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing two. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
+    // leo is named only in the head, so the later question is quoted for him; april is not named, so a question in
+    // the post is not quoted to her (review 9: no steering a reader the post is not to).
+    const q = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'Briefing two for @leo. ' + long + 'Did everyone get the notes? The end.' }, board.agents, MEMBERS);
     assert.ok(q && q.id, JSON.stringify(q));
-    const leo2 = tmux.pastedMessages().filter((l) => l.includes('Briefing two.')).find((l) => l.includes(path.join(require('./dmfiles').ownDir('leo', 'Inbox'))));
-    assert.ok(leo2 && leo2.includes('A question in it: "Did everyone get the notes?"'), String(leo2).slice(-300));
+    const two = tmux.pastedMessages().filter((l) => l.includes('Briefing two'));
+    const of = (who) => two.find((l) => l.includes(path.join(require('./dmfiles').ownDir(who, 'Inbox'))));
+    assert.ok(of('leo') && of('april'), 'CONTROL: shortened for both: ' + two.map((l) => l.slice(0, 80)).join(' | '));
+    assert.ok(of('leo').includes('A question in it: "Did everyone get the notes?"'), of('leo').slice(-300));
+    assert.doesNotMatch(of('april'), /Where it names you:|A question in it:/, of('april').slice(-300));
   });
 });
 

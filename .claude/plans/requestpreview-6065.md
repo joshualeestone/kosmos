@@ -37,3 +37,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 7) The greeting rule from rounds 4 and 5 (a short mention sentence also takes the next one) is removed: each
   version quoted unrelated text under a label saying it names the member, and the label (Where it names you, round 6)
   is already true of "Hi @mara." alone. Only the naming sentence is quoted.
+- (round 9) A question is quoted only to a member the post names (or a DM's reader): quoting one to a background
+  member would steer an agent the post was not addressed to, which the room already avoids (no answer line). A long
+  question with no space in its last 100 characters (a link) is cut by character, never down to the bare ?.
