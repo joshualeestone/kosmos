@@ -732,7 +732,8 @@ test('#5636 F7c: the numbers stay the posts\'; replies on posts not shown are la
     assert.equal(r.ok, true, r.because);
     const heads = r.text.split('\n').filter((l) => /^\[[^\]]+\] by /.test(l)).map((l) => l.slice(0, l.indexOf(']') + 1));
     assert.deepEqual(heads, ['[1]', '[2]', '[r1]', '[r2]', '[r3]'], 'a reply took a numbered place: ' + r.text);
-    assert.ok(r.text.includes('[1] by NEO') && r.text.includes('(post ' + id(4) + ')'), r.text);
+    assert.ok(r.text.includes('[1] by NEO in general, 2026-10-06 (post ' + id(4) + ')'), r.text);
+    assert.ok(r.text.includes('[2] by NEO in general, 2026-10-05 (post ' + id(5) + ')'), r.text);
     assert.equal(r.count, 5, 'the count still covers every entry: ' + r.text);
   } finally { await b.close(); }
 });
