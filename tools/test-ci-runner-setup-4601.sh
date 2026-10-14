@@ -8,6 +8,8 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 S="$HERE/ci-runner-setup.sh"
+# Several cases make a dir mode 000 and expect it unreadable, which root ignores: say so rather than red for that.
+if [ "$(id -u)" = 0 ]; then echo "skip test-ci-runner-setup-4601: run as root, where mode 000 does not block reads"; exit 0; fi
 T="$(mktemp -d)" || exit 1; [ -d "$T" ] || exit 1; trap 'chmod -R u+rwx "$T" 2>/dev/null; rm -rf "$T"' EXIT   # chmod: some cases make dirs 000
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }

@@ -128,3 +128,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   with it byte for byte, so a job that rewrites job-started.sh to skip the guard is a problem, not a pinned guard.
 - Rebased onto origin/main 07:29 (81 commits): package.json conflicted twice and took main's line plus this branch's
   two commands; the three files of this branch were byte-identical to the pre-rebase head.
+- Deferred: anchoring verify's RunnerService.js exclusion on $RUNNER_DIR. The real service host's argv is relative
+  (runsvc.sh runs ./externals/node24/bin/node ./bin/RunnerService.js from the runner dir), so an absolute anchor
+  would count the runner's own node as a leftover on every idle runner. Spoofing the name needs a job the guard
+  already admitted.
