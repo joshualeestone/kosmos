@@ -222,3 +222,21 @@ after this commit, and its result is recorded at the end of this file.
 - That is the test whose default check this branch inverts and to which it adds two checks. So the claim "the
   installed app is read-only by default after a real install, and `=0` leaves it writable" is measured NOWHERE yet.
 - No PR until it has run green here. If it first ran at the next cut and was red, it would stop a release.
+
+## The install test has now run, on Mortals (2026-10-13, 20:27 CDT)
+`tools/test-install.sh` ran for the first time on this branch, on Mortals, from bundles built from the branch
+(`KOSMOS_ALLOW_MINOS=1 KOSMOS_NOTARIZE=0`, Developer ID signed, inside a tmux session there: from a bare ssh
+shell the signing fails and no bundle is built).
+- **The gate form (`KOSMOS_INSTALL_GATE=1`, what a release cut runs) at 83e1349de2: 165 passed, 0 failed.** It
+  stops before the probe blocks, so NONE of this branch's three checks is in it. I had planned to run only this
+  form and would have called the branch measured on a run that never reached its own checks.
+- **The full form at 83e1349de2: 410 passed, 1 failed.** The failure was this branch's own check, "an update over a
+  writable app leaves the new app read-only". The check was wrong, not the installer: it ran after the fallback
+  install, which goes to a different sandbox home, so it looked at the app the `=0` update had left writable.
+  Written in review and never run until now.
+- **Fixed in 6c4d1eccd8:** the check is a second update of the SAME install with the switch unset, straight after
+  the `=0` update. **The full form at 6c4d1eccd8: 413 passed, 0 failed**, with all three `#4455` checks in the log
+  (the default is read-only; `=0` leaves it writable; an update over a writable app ends read-only).
+- What that rests on: the bundles were built at 83e1349de2 and only `tools/test-install.sh` changed after, so the
+  rerun did not rebuild them. One run of each form. Logs: `~/.cache/ick-validation/ick-4455-installtest-*.log`
+  on Mortals, the gate one copied to Agent1s.
