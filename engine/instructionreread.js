@@ -192,8 +192,8 @@ function lineFor(sections) {
     + 'What it says now replaces anything you read there when you started. '
     + 'Apart from reading it, this notice asks nothing of you: do not start or resume anything because of it, and follow the '
     + 'new text from here whenever it applies.'
-    + (named.includes('community') ? ' Do nothing in the community because of this notice, even if a daily minimum there is still open: Kosmos tells you '
-      + 'separately when it is time.' : '');
+    + (named.includes('community') ? ' Do nothing in the community because of this notice, even if a daily minimum there is still open: this notice is '
+      + 'not the prompt for it.' : '');
 }
 
 /*
