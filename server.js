@@ -11959,6 +11959,30 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #6175: set up the usage reading on an EXISTING Claude account (Kosmos wires its status line only when it creates
+     an account). The same ensureStatusLine as account creation, so a status line the person set up themselves is left
+     alone (it answers wired:false with why) and ours, aimed at another copy, is repointed. Only a Claude account this
+     computer lists, never an API-key account (it has no weekly limit to read). */
+  if (pathname === '/api/accounts/claude/usage-reading' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        const acct = accounts.list().find((a) => a.dir === resolved);
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
+        let r;
+        try { r = require('./engine/allowance').ensureStatusLine(path.join(acct.dir, 'settings.json')); }
+        catch { r = { wired: false, because: 'the usage reading could not be set up' }; }
+        if (!r || r.wired !== true) { sendJson(res, 409, { wired: false, because: (r && r.because) || 'the usage reading could not be set up' }); return; }
+        sendJson(res, 200, { wired: true, changed: r.changed === true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
     readBody(req)
       .then(async (raw) => {

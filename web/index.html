@@ -27275,6 +27275,12 @@ function acctUsageHtml(a, list) {
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
   let usage = '';
+  /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
+     creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
+  const usageSetup = a.weeklyBlocked === 'not-wired' && !a.apiKey
+    ? '<p class="acct-usage-line acct-usage-none">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
+      + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '">Set up usage reading</button>'
+    : '';
   if (!a.apiKey) {
     if (w) {
       const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
@@ -27285,12 +27291,12 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
-        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '')
+        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' + usageSetup : '')
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
           + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
-      usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>';
+      usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>' + usageSetup;
     }
   }
   const short = here && here.complete ? '' : ' (some could not be checked)';
@@ -28193,6 +28199,34 @@ async function paintAccounts(opts) {
       if (j.because) btn.title = j.because;
       btn.disabled = false;
       setTimeout(() => { if (btn.isConnected) btn.textContent = label; }, 4000);
+    });
+  }
+  /* #6175: set up the usage reading on an existing account, then repaint (the row then says a reading comes once an
+     agent on it works). A refusal (an own status line, an unreadable settings file) is said on the row, not hidden. */
+  for (const btn of box.querySelectorAll('[data-usage-setup]')) {
+    btn.addEventListener('click', async () => {
+      const dir = btn.dataset.usageSetup;
+      btn.disabled = true;
+      btn.textContent = 'Setting up\u2026';
+      let j = {}; let ok = false;
+      try {
+        const res = await fetch('/api/accounts/claude/usage-reading', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir }),
+        });
+        try { j = (await res.json()) || {}; } catch { j = {}; }
+        ok = res.ok && j.wired === true;
+      } catch { ok = false; }
+      if (ok) { try { await paintAccounts(); } catch { /* the next paint shows it */ } return; }
+      const why = j.because || j.error || 'Kosmos could not set it up just now.';
+      const prev = btn.nextElementSibling;
+      if (prev && prev.dataset && prev.dataset.usageSay) prev.remove();   // a second refusal replaces the first
+      const say = document.createElement('p');
+      say.dataset.usageSay = '1';
+      say.className = 'acct-usage-line acct-usage-none';
+      say.textContent = 'Not set up: ' + why.replace(/^./, (c) => c.toLowerCase()) + (/[.!?]$/.test(why) ? '' : '.');
+      btn.after(say);
+      btn.textContent = 'Set up usage reading';
+      btn.disabled = false;
     });
   }
   for (const btn of box.querySelectorAll('[data-check-claude]')) {

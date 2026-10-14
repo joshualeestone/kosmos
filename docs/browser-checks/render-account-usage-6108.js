@@ -289,6 +289,40 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
       say(r.contrast.warnDot >= 3 && r.contrast.highDot >= 3, tag + ' the warning dots stand out from the card (3:1 or more) in this theme', JSON.stringify(r.contrast));
       say(r.contrast.moveText >= 4.5, tag + ' Move\'s label is readable on its button in this theme (4.5:1 or more)', JSON.stringify(r.contrast));
+      /* #6175: a "not set up" row offers to set the reading up; an own-status-line row does not. A refusal is said on the
+         row (a second replaces the first), and a success repaints the row without the offer. The route is stubbed like
+         the engine: refused twice, then wired (the next list no longer says not-wired). */
+      const s6175 = await page.evaluate(async () => {
+        const row = (n) => document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-' + n + '"]');
+        const btnOf = (n) => row(n) && row(n).querySelector('[data-usage-setup]');
+        const out = { offer: !!btnOf('unwired'), offerText: btnOf('unwired') ? btnOf('unwired').textContent.trim() : null,
+          explain: row('unwired') ? row('unwired').textContent.replace(/\s+/g, ' ') : '', ownOffer: !!btnOf('mine'), posts: [] };
+        let refuse = 2;
+        const prior = window.fetch;
+        window.fetch = (u, opts) => {
+          if (String(u).indexOf('/api/accounts/claude/usage-reading') !== -1) {
+            const dir = JSON.parse(opts.body).dir; out.posts.push(dir);
+            if (refuse > 0) { refuse--; return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'this account already has its own status line, so it was left alone' }) }); }
+            (window.__acctPatch = window.__acctPatch || {})[dir] = { weeklyBlocked: null };
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
+          }
+          return prior(u, opts);
+        };
+        const settle = () => new Promise((r) => setTimeout(r, 120));
+        btnOf('unwired').click(); await settle();
+        out.say1 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
+        btnOf('unwired').click(); await settle();
+        out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
+        btnOf('unwired').click(); await settle();
+        out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null };
+        window.fetch = prior;
+        return out;
+      });
+      say(s6175.offer && s6175.offerText === 'Set up usage reading' && /adds Kosmos\u2019s status line to this account\u2019s Claude Code/.test(s6175.explain), tag + ' #6175 a not-set-up row offers to set the reading up, and says what it adds', JSON.stringify({ offer: s6175.offer, text: s6175.offerText }));
+      say(!s6175.ownOffer, tag + ' #6175 a row with the person\'s own status line is not offered it (control)', String(s6175.ownOffer));
+      say(s6175.say1.length === 1 && s6175.say1[0] === 'Not set up: this account already has its own status line, so it was left alone.', tag + ' #6175 a refusal is said on the row', JSON.stringify(s6175.say1));
+      say(s6175.say2.length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));
+      say(s6175.posts.length === 3 && s6175.posts.every((d) => d === '/home/.claude-unwired') && !s6175.after.offer && s6175.after.line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' #6175 once set up, the row repaints without the offer and says a reading comes', JSON.stringify(s6175.after));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
     }
     await browser.close();
