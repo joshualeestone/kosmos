@@ -117,9 +117,11 @@ const read = (pg) => pg.evaluate(() => {
     say(boxes.length === 2 && !overlap, 'together (' + vp.width + 'px): the two notices do not overlap', JSON.stringify(boxes));
     /* The label's anchor must not capture the notice stack: #topnotes is a child of .headleft and floats centred under
        the navigation (#5018). Making .headleft positioned once squeezed every notice into a column at the left. */
-    const vw = await pg.evaluate(() => window.innerWidth);
-    const centred = boxes.every((x) => Math.abs((x.l + x.r) / 2 - vw / 2) < 4);
-    say(centred, 'together (' + vp.width + 'px): the notices stay centred under the navigation', JSON.stringify({ vw, centres: boxes.map((x) => (x.l + x.r) / 2) }));
+    // Against the header's own centre, the box #topnotes anchors to: window.innerWidth counts a classic scrollbar
+    // (Linux CI draws a 15px one, macOS overlays it), which would put "centre" 7.5px off with nothing wrong.
+    const mid = await pg.evaluate(() => { const r = document.querySelector('.apphead header').getBoundingClientRect(); return (r.left + r.right) / 2; });
+    const centred = boxes.every((x) => Math.abs((x.l + x.r) / 2 - mid) < 4);
+    say(centred, 'together (' + vp.width + 'px): the notices stay centred under the navigation', JSON.stringify({ header: mid, centres: boxes.map((x) => (x.l + x.r) / 2) }));
     await pg.screenshot({ path: path.join(OUT, 'streak-together-' + vp.width + '.png') }).catch(() => {});
     await pg.close();
   }
