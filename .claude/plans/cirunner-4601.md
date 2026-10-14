@@ -4,8 +4,9 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 
 ## What
 - `tools/ci-runner-setup.sh`: Baron's `ci-mini-setup.sh` (#5488 part b) generalised and moved into the repo. Stages
-  preflight, create-user, install, register, verify, machine-settings. DRY RUN BY DEFAULT: every changing command
-  goes through `act`/`act_write`, which print `WOULD:` unless `--apply` is given.
+  preflight, create-user, install, register, verify, machine-settings. DRY RUN BY DEFAULT: a change either goes
+  through `act` (which prints `WOULD:` unless `--apply` is given) or sits after a stage's own dry-run return
+  (install, register).
 - `tools/test-ci-runner-setup-4601.sh`, registered in `test:shell`: stubs on PATH for every changing command and
   every machine read, a sandbox HOME, and a CONTROL per stage with `--apply` that must reach the stubs.
 
@@ -27,12 +28,12 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 55 ok. Twenty-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 58 ok. Twenty-four mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
   check, no restart trap after a stop, the runner dir taken from HOME; then a failed restart unreported, the
-  package left behind).
+  package left behind; then an API failure read as a race, labels unguarded, export KOSMOS_ missed).
 - Live dry run on Agent1s, 04:27 CDT: preflight refuses on exactly the three step-0 conditions (72 launchd jobs,
   crontab, live suites) and passes every machine check, autorestart included; verify against kosmos-ci-mini is
   clear on the API rows. The runbook's 81 counts the owner's open GUI apps too (`application.*` labels, 9 here),

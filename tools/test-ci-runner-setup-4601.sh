@@ -42,7 +42,7 @@ case "$me" in
     case "$*" in
       *"variable list"*KOSMOS_CI_SHELL_SHARDS*) printf '%s' "${FX_SHARDS:-}" ;;
       *"variable list"*KOSMOS_CI_RUNNER*) printf '%s' "${FX_RUNNER_VAR-on}" ;;
-      *"| .busy"*) row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
+      *"| .busy"*) [ "${FX_BUSY2_FAIL:-0}" = 1 ] && exit 1; row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
       *actions/runners*) printf '%s\n' "${FX_RUNNER_ROW-online false arm64,kosmos-ci,macos,self-hosted}" ;;
     esac ;;
   curl)
@@ -165,7 +165,10 @@ run in-fork "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" FX_COMPARE=diverged -- i
 [ "$(rc in-fork)" = 1 ] && has in-fork "is not on main" && pass "install refuses a commit not on main" || fail "install off-main: rc $(rc in-fork)"
 run in-who "$CH" -- --apply install "$C" "$G"
 [ "$(rc in-who)" = 2 ] && has in-who "runs as kosmos-ci" && ! changed in-who >/dev/null && pass "install --apply refuses as any user but kosmos-ci" || fail "install as agent1: rc $(rc in-who)"
-mkdir -p "$CH/actions-runner"; printf 'LANG=C\nKOSMOS_TESTS_IGNORE_SUITE=1\n' > "$CH/actions-runner/.env"
+mkdir -p "$CH/actions-runner"; printf 'LANG=C\nexport KOSMOS_NO_WAIT=1\n' > "$CH/actions-runner/.env"
+run in-env-export "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
+[ "$(rc in-env-export)" = 1 ] && has in-env-export "KOSMOS_NO_WAIT" && pass "install refuses an 'export KOSMOS_' line in the runner .env" || fail "install export KOSMOS_: rc $(rc in-env-export)"
+printf 'LANG=C\nKOSMOS_TESTS_IGNORE_SUITE=1\n' > "$CH/actions-runner/.env"
 run in-env "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
   || fail "install .env override: rc $(rc in-env): $(tail -1 "$T/in-env.out")"
@@ -241,14 +244,16 @@ vcase() {  # vcase <name> <want rc> <want text> <env...>
   [ "$(rc "v-$name")" = "$want" ] && has "v-$name" "$text" && pass "verify: $name" || fail "verify $name: rc $(rc "v-$name"): $(grep -E 'REFUSE|clear' "$T/v-$name.out" | head -2)"
 }
 vcase clear 0 "verify: clear"
-vcase labels 1 "labels are arm64,macos,self-hosted" "FX_RUNNER_ROW=online false arm64,macos,self-hosted"
+vcase labels 1 "labels are 'arm64,macos,self-hosted'" "FX_RUNNER_ROW=online false arm64,macos,self-hosted"
 vcase offline 1 "kosmos-ci-agent1s is offline" "FX_RUNNER_ROW=offline false arm64,kosmos-ci,macos,self-hosted"
 vcase missing 1 "no runner named kosmos-ci-agent1s" FX_RUNNER_ROW=
 vcase switchoff 1 "KOSMOS_CI_RUNNER is 'off'" FX_RUNNER_VAR=off
 vcase shards 1 "KOSMOS_CI_SHELL_SHARDS is '2/2'" FX_SHARDS=2/2
 vcase leftover 1 "kosmos-ci still runs" "FX_PS=/opt/homebrew/bin/tmux"
-vcase leftover-busy 0 "verify: clear" "FX_PS=node" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
+vcase leftover-busy 0 "while a job is in flight (busy=true)" "FX_PS=node" "FX_RUNNER_ROW=online true arm64,kosmos-ci,macos,self-hosted"
 vcase raced 1 "went busy or idle during verify" FX_BUSY2=true
+vcase reread-fails 1 "could not read the runners API a second time" FX_BUSY2_FAIL=1
+vcase nolabels 1 "labels are '', not" "FX_RUNNER_ROW=online false"
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
 run v-nouser "$H" -- verify
 [ "$(rc v-nouser)" = 1 ] && has v-nouser "no user kosmos-ci on this Mac" && pass "verify: no CI user here is a problem, not a clean 'nothing left'" || fail "verify no user: rc $(rc v-nouser)"

@@ -9,8 +9,9 @@
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
-#                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep, power restore, tmux,
-#                             pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
+#                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep,
+#                             power restore, tmux, pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named
+#                             launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
 #   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session. The runner, the hooks and the job guard
 #                             from THAT main commit
@@ -27,7 +28,9 @@
 # controls would turn the lock off for every job), and install refuses one.
 # The runner package is the latest actions/runner release, checked against the sha256 that same release publishes:
 # that catches a damaged download, not a compromised release (trust on first fetch, as Baron's script had it).
-# The job guard is pinned harder, by a main commit and a sha256 the operator supplies.
+# The job guard is pinned harder, by a main commit and a sha256 the operator supplies, but only at install: it lives
+# in kosmos-ci's own home, so a job the guard admits could rewrite it for later jobs (a persistent runner, as on the
+# mini). The guard refuses everything but this repo's own code; that is the boundary.
 # KOSMOS_CI_RUNNER (the kill switch) is READ here, never written. KOSMOS_CI_SHELL_SHARDS must stay unset (#4601:
 # one runner cannot carry a shell shard), and preflight and verify refuse when it is set.
 set -euo pipefail
@@ -193,8 +196,8 @@ install_runner() {
   if [ -e "$RUNNER_DIR/.env" ] && [ ! -r "$RUNNER_DIR/.env" ]; then
     echo "refused: cannot read $RUNNER_DIR/.env (run as $CI_USER), so its KOSMOS_ keys cannot be ruled out; nothing changed" >&2; exit 1
   fi
-  if [ -f "$RUNNER_DIR/.env" ] && grep -q -E '^KOSMOS_' "$RUNNER_DIR/.env"; then
-    echo "refused: $RUNNER_DIR/.env sets a KOSMOS_ variable ($(grep -E '^KOSMOS_' "$RUNNER_DIR/.env" | cut -d= -f1 | tr '\n' ' ')); a wait control there turns the suite lock off for every job. Remove it first." >&2
+  if [ -f "$RUNNER_DIR/.env" ] && grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then
+    echo "refused: $RUNNER_DIR/.env sets a KOSMOS_ variable ($(grep -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env" | cut -d= -f1 | tr '\n' ' ')); a wait control there turns the suite lock off for every job. Remove it first." >&2
     exit 1
   fi
   if [ "$APPLY" != 1 ]; then
@@ -228,18 +231,20 @@ install_runner() {
     if env_keep="$(grep -v -E '^(ACTIONS_RUNNER_HOOK_JOB_STARTED|ACTIONS_RUNNER_HOOK_JOB_COMPLETED|PATH|LANG)=' "$RUNNER_DIR/.env")"; then :
     else [ $? = 1 ] || { rm -f "$newg"; echo "could not read $RUNNER_DIR/.env; nothing changed" >&2; exit 1; }; fi
   fi
-  # A Runner.Worker of this user is a job in flight: stopping the runner now would kill it.
+  # A Runner.Worker of this user is a job in flight: refuse rather than kill it. A job that starts between this check
+  # and the stop below is still killed; that window is accepted for a step an operator runs by hand.
   if pgrep -u "$(id -u)" -x Runner.Worker >/dev/null; then
     rm -f "$newg"; echo "refused: a job is running on this runner; install again when it is idle. Nothing changed" >&2; exit 1
   fi
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
-    case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true
-      trap 'echo "install failed after stopping the runner: starting it again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT ;; esac
+    case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
     if [ "$was_running" = 1 ]; then
       case "$(./svc.sh status 2>&1 || true)" in
         *Started*) rm -f "$newg"; echo "refused: the runner did not stop; nothing unpacked" >&2; exit 1 ;;
       esac
+      # A tar that fails partway leaves old and new files mixed; the runner is started on that, and says so.
+      trap 'echo "install failed after stopping the runner: starting it again on whatever was unpacked; install again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT
     fi
   fi
   tar xzf "$tgz"
@@ -305,9 +310,9 @@ register() {
   ./svc.sh status
 }
 
-# runner_busy: true, false, or "unknown" when the API could not say.
+# runner_busy: prints true or false; fails when the API could not say.
 runner_busy() {
-  gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null || echo unknown
+  gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | .busy" 2>/dev/null
 }
 
 verify() {
@@ -321,10 +326,12 @@ verify() {
   local busy=false
   if [ -z "$row" ]; then problem "no runner named $NAME"
   else
-    set -- $row
-    busy="$2"
-    [ "$1" = online ] && ok "$NAME online (busy=$2)" || problem "$NAME is $1"
-    [ "$3" = "$want_labels" ] && ok "labels exactly $want_labels" || problem "labels are $3, not $want_labels"
+    local status labels
+    read -r status busy labels <<EOF
+$row
+EOF
+    [ "$status" = online ] && ok "$NAME online (busy=$busy)" || problem "$NAME is $status"
+    [ "${labels:-}" = "$want_labels" ] && ok "labels exactly $want_labels" || problem "labels are '${labels:-}', not $want_labels"
   fi
   say "repo variables"
   local v
@@ -335,15 +342,20 @@ verify() {
     [ "$v" = "<unset>" ] && ok "KOSMOS_CI_SHELL_SHARDS unset" || problem "KOSMOS_CI_SHELL_SHARDS is '$v' (#4601: unset it)"
   else problem "could not read KOSMOS_CI_SHELL_SHARDS"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node)"
-  local left
+  local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
   if ! id "$CI_USER" >/dev/null 2>&1; then problem "no user $CI_USER on this Mac: run verify on the runner's own Mac"
   # macOS ps -U exits 1 for a user with no processes, which here means the user is not logged in.
   elif ! left="$(ps -U "$CI_USER" -o comm=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
   # The busy flag was read before ps: read it again, and a job that started or ended in between is a rerun.
-  elif [ -n "$row" ] && [ "$(runner_busy)" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
-  elif left="$(printf '%s\n' "$left" | awk -F/ '{ print $NF }' | grep -x -E 'tmux|node' || true)"; [ -n "$left" ] && [ "$busy" != true ]; then problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')(fine only while a job runs)"
-  else ok "no tmux or node left under $CI_USER"; fi
+  elif [ -n "$row" ] && ! busy2="$(runner_busy)"; then problem "could not read the runners API a second time"
+  elif [ -n "$row" ] && [ "$busy2" != "$busy" ]; then problem "the runner went busy or idle during verify; run verify again"
+  else
+    left="$(printf '%s\n' "$left" | awk -F/ '{ print $NF }' | grep -x -E 'tmux|node' || true)"
+    if [ -z "$left" ]; then ok "no tmux or node left under $CI_USER"
+    elif [ "$busy" = true ]; then ok "tmux or node running under $CI_USER, while a job is in flight (busy=true)"
+    else problem "$CI_USER still runs: $(printf '%s\n' "$left" | sort | uniq -c | tr -s ' ' | tr '\n' ' ')with no job in flight"; fi
+  fi
   if [ "$PROBLEMS" -gt 0 ]; then say "verify: $PROBLEMS problem(s)"; return 1; fi
   say "verify: clear"
 }
