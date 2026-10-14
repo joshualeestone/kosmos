@@ -63,3 +63,10 @@ rule" for identical words; it does not (it matches only after the POST answers).
 6. sonnet: no blocker or warning. Converged. NITs taken: the "Decided" line above corrected; the review-N tags taken out of
    the code comments (the reasons stay; the history is here). Left: a board clock >10 s behind keeps an arrived unsure post
    beside its copy until the next post; the pending bubble shows the typed text, the kept row the stored (dedented) form.
+
+## After review: the room's own browser checks on the final tree
+render-room-scroll's consolidated arm "a send that fails lands them at the bottom" went red (gap 50 > 8): the failed
+bubble's taller verdict pill and the words coming back into the growing composer moved the floor away from a reader who
+was on it, and nothing re-pinned them (#1037's resize rule only covers the box resizing, not the row growing). Fixed:
+notKept asks whether the reader is on the floor BEFORE the box refills, and the repaint pins them back (once more after
+layout settles, unless they moved). The other nine room checks passed on that tree.
