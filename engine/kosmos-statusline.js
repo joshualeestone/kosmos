@@ -125,10 +125,9 @@ function main(argv, input, now) {
   try { if (!fs.statSync(dir).isDirectory()) return; } catch { return; }
   let payload = null;
   try { payload = JSON.parse(input); } catch { return; }
-  const reading = weeklyOf(payload);
-  if (reading) record(dir, reading, now);
-  const five = fiveHourOf(payload);
-  if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false });
+  // Each reading on its own: a failure recording one must never cost the other.
+  try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
+  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {

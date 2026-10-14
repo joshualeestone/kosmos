@@ -46,6 +46,9 @@ const ACCOUNTS = [
   claude('tomorrow', { weekly: week(20), fiveHour: { usedPct: 30, resetsAt: now + 14 * H, at: now - 60e3 } }),
   claude('expired', { weekly: week(20), fiveHour: { usedPct: 99, resetsAt: now - 60e3, at: now - 3 * H } }),
   claude('bothfrozen', { weekly: week(40), weeklyBlocked: 'not-wired', fiveHour: five(30) }),
+  claude('bothwin', { weekly: week(40), weeklyBlocked: 'windows', fiveHour: five(30) }),
+  claude('bothown', { weekly: week(40), weeklyBlocked: 'own-statusline', fiveHour: five(30) }),
+  claude('bothbad', { weekly: week(40), weeklyBlocked: 'unreadable-settings', fiveHour: five(30) }),
   claude('weekfrozen', { weekly: week(40), weeklyBlocked: 'not-wired', fiveHour: null }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
@@ -115,6 +118,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.bothfrozen && r.bothfrozen.meters === 2 && r.bothfrozen.nones.length === 1 && r.bothfrozen.lastIsNone
         && r.bothfrozen.nones[0] === "These are the last readings Kosmos saw. They will not update, because Kosmos is not set up to read this account's usage.",
         tag + ' both readings, neither updating: one note after both, in the plural', JSON.stringify(r.bothfrozen && r.bothfrozen.nones));
+      for (const [id, words] of [['bothwin', 'These are the last readings Kosmos saw. They will not update on Windows yet.'],
+        ['bothown', 'These are the last readings Kosmos saw. They will not update, because this account is set up its own way.'],
+        ['bothbad', "These are the last readings Kosmos saw. They will not update, because Kosmos cannot read this account's settings."]]) {
+        say(r[id] && r[id].nones.length === 1 && r[id].lastIsNone && r[id].nones[0] === words, tag + ' both readings frozen (' + id + '): the plural note in its own words', JSON.stringify(r[id] && r[id].nones));
+      }
       say(r.weekfrozen && r.weekfrozen.nones.length === 1 && /^This is the last reading Kosmos saw\. It will not update/.test(r.weekfrozen.nones[0]),
         tag + ' weekly only, not updating: the singular note, as before (control)', JSON.stringify(r.weekfrozen && r.weekfrozen.nones));
       say(r.key && r.key.meters === 0, tag + ' an API-key row draws no meter', JSON.stringify(r.key));
