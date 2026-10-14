@@ -108,4 +108,9 @@ Card: kosmos#6175 (#6108 follow-up).
   (the step sat after page.close; its "mutant red" was the same crash). At 9957b2599 the check is "all good" with 108
   #6175 PASS lines (chromium and webkit, both themes). The no-offer mutant went red on the offer and describedby arms
   but then crashed on the missing fields; the says are now safe on a missing field, so a missing offer is FAIL lines,
-  not a crash. Re-run queued for a clean mutant verdict.
+  not a crash. MEASURED at f18b82951 (17:09): check "all good", 108 #6175 PASS; the no-offer mutant "FAILED" with 96
+  #6175 FAIL lines (16 arms x 6 engine/viewport runs), no crash.
+- Full validation at f18b82951: 20390 tests pass, 0 fail; it failed only the #2518 surface gate, naming five checks whose
+  tokens this page change touches. All five were run against f18b82951 and pass (unread-edge 72 PASS, refreshlogin 77,
+  agentdm 40, disconnect-stop "ok", account-badge its own summary line; each exit 0, no FAIL). Per-check trailers on
+  the commit that records this.
