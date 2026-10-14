@@ -2783,7 +2783,11 @@ cmd_post() {
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.
         *'"code":"ack_only"'*)
-          say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away." ;;
+          if [ -n "${_retried:-}" ]; then
+            say "Not posted this time: this only agreed with what was already said, so Kosmos did not pass it on. Your first try may have reached the room before that: check kosmos room $project before posting again. A post with something new goes through straight away."
+          else
+            say "Not posted: this only agreed with what was already said, so Kosmos did not pass it on. Nothing was sent. Post again when you have something new to add; that goes through straight away."
+          fi ;;
         *) say "Not posted: ${because:-we could not tell why}."; token_refused_hint "$_tok" "$body" ;;   # #5333
       esac
       # #2710: HAND THE TEXT BACK. A post refused by the loop-guard was silently

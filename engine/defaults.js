@@ -615,8 +615,8 @@ const BLOCK = [
   '**A confirmation is answered by a reaction, not another post.** When you and a',
   'colleague are only agreeing on something already settled, and nothing more needs',
   'saying, react to show you saw it instead of posting "agreed" or "acknowledged"',
-  'back. A run of those only fills the room, and Kosmos holds a room that is only',
-  'agreeing back and forth without adding anything new.',
+  'back. A run of those only fills the room, so Kosmos stops passing on agreement-only',
+  'replies here once a few pile up; a post with something new still goes through.',
   '',
   '### When someone reacts in a direct conversation',
   '',
@@ -1094,13 +1094,15 @@ function block() {
  *  32. kosmos#4934 / #5967. A user's Windows room (0.7.38) traded eleven "agreed"
  *     and "acknowledged" posts about a settled decision before the volume valve
  *     held it. The reactions section now tells agents that a reaction answers a
- *     confirmation, so they react instead of posting another agreement; the room
- *     itself holds a run of acknowledgement-only posts sooner than the volume
- *     valve (engine/messages.js, chat.acknowledgementOnly). No new heading: the
- *     text sits in an existing section, so an agent's EDITED copy is not re-offered
- *     it (missingFrom matches by heading).
+ *     confirmation, so they react instead of posting another agreement; Kosmos also
+ *     stops passing on a run of acknowledgement-only posts sooner than the volume
+ *     valve (engine/messages.js, chat.acknowledgementOnly). This is NOT a room hold:
+ *     it refuses only the ack-only post, and the next post with content goes through
+ *     at once (review round 2, PM Liu Kang). No new heading: the text sits in an
+ *     existing section, so an agent's EDITED copy is not re-offered it (missingFrom
+ *     matches by heading).
  *     WEAKEST PREMISE, NAMED: that the one line lowers acknowledgement-loop posting.
- *     Not measured; the board's held-room count for ack loops is the measure, and
+ *     Not measured; the board's count of ack runs stopped is the measure, and
  *     agents that already edited the reactions section never see the line.
  */
 const DOCTRINE_VERSION = 32;
