@@ -516,7 +516,7 @@ function failoverRunnerOf(card) {
   try { const prov = store.readProfile(card.sessionName).provider; if (prov) return create.providerRunner(prov); } catch { /* no profile */ }
   return null;
 }
-function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from } = {}) {
+function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDelivery, noPage, from, by } = {}) {
   if (!screen && !assigner) {
     const v = tasks.partValve();
     if (v.refused) return { ok: false, status: 429, because: v.because, retryAfterSecs: v.retryAfterSecs };
@@ -542,7 +542,7 @@ function givePart(projectId, n, partId, who, { screen, roster, assigner, asyncDe
      still on that agent and still open, not held and not built, at the moment of the write (tasks.assignPart). */
   const failoverFrom = assigner && typeof from === 'string' && from ? from : null;
   const made = failoverFrom ? { via: 'assigner', onlyIfWho: failoverFrom, failover: true }
-    : assigner ? { via: 'assigner', onlyIfFree: true } : { via: screen ? 'screen' : 'process' };
+    : assigner ? { via: 'assigner', onlyIfFree: true } : screen ? { via: 'screen' } : { via: 'process', by };   // #6103: `by`, the named caller (movedBy)
   let out;
   try { out = tasks.assignPart(projectId, n, partId, who, made); }
   catch (err) { require('./engine/agyquota').releaseCapStart(capSlot); throw err; }   // a write that threw gave nothing
@@ -21450,7 +21450,7 @@ const server = http.createServer(async (req, res) => {
       const toSelf = !viaScreen && !!caller.card && !!asked.who && sameAgentName(asked.who, caller.card.sessionName, caller.byKey);
       try {
         partId = Number(partId);
-        const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf });
+        const g = await givePart(id, task.number, partId, asked.who, { screen: viaScreen, roster, asyncDelivery: true, noPage: toSelf, by: caller.card ? caller.card.sessionName : null });
         if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
         if (!g.ok) { sendJson(res, g.status || 400, { error: g.because }); return; }
         /* `who` first: the Mac CLI reads the new owner from the start of this answer (the task inside has its own). */
