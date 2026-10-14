@@ -37,7 +37,7 @@ case "$me" in
   pgrep)
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
     # A Listener runs while this runner dir's svc state is "started" (cwd is the runner dir), with the pid start gave it.
-    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] || exit 1; cat .svc-pid 2>/dev/null || echo 4343; exit 0 ;; esac
+    case "$*" in *Runner.Listener*) [ "${FX_LISTENER:-1}" = 1 ] && [ "$(cat .svc-state 2>/dev/null)" = started ] || exit 1; [ -z "${FX_OLD_TOO:-}" ] || echo "$FX_OLD_TOO"; cat .svc-pid 2>/dev/null || echo 4343; exit 0 ;; esac
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) [ "${FX_DF_NOROW:-0}" = 1 ] && { echo "Filesystem 1024-blocks Used Available Capacity Mounted"; exit 0; }
@@ -414,6 +414,9 @@ run in-sudo-iu "$R12" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R12" FX_MANAGERUID=501 -
 R13="$T/run13"; svc_home "$R13"
 run in-partial "$R13" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R13" FX_DL_PARTIAL=1 -- --apply install "$C" "$G"
 [ "$(rc in-partial)" = 1 ] && [ ! -e "$R13/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes a partly downloaded package" || fail "install partial download: rc $(rc in-partial), left: $(ls "$R13/actions-runner" | tr '\n' ' ')"
+R14="$T/run14"; svc_home "$R14"; echo 5000 > "$R14/actions-runner/.svc-pid"
+run in-bothlisteners "$R14" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R14" FX_OLD_TOO=4999 KOSMOS_CI_START_WAIT_S=2 -- --apply install "$C" "$G"
+[ "$(rc in-bothlisteners)" = 0 ] && has in-bothlisteners "runner started again" && pass "install --apply accepts the new Listener while the old one is still listed first" || fail "install old+new listeners: rc $(rc in-bothlisteners): $(tail -1 "$T/in-bothlisteners.out")"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
@@ -478,6 +481,9 @@ vcase guard-unpinned 3 "the job guard's integrity" KOSMOS_CI_GUARD_SHA=
 chmod 000 "$VCI/actions-runner/.env"; vcase env-unreadable 3 "cannot read $VCI/actions-runner/.env"; chmod 644 "$VCI/actions-runner/.env"
 chmod 000 "$VCI/.kosmos-ci"; vcase cidir-unreadable 3 "cannot read $VCI/.kosmos-ci"; chmod 755 "$VCI/.kosmos-ci"
 mv "$VCI/.kosmos-ci" "$VCI/.kosmos-ci.away"; vcase cidir-missing 1 "no $VCI/.kosmos-ci: the job guard and its hooks are not installed"; mv "$VCI/.kosmos-ci.away" "$VCI/.kosmos-ci"
+mkdir -p "$VCI/actions-runner/_work/_temp"; : > "$VCI/actions-runner/_work/_temp/left"
+vcase temp-left 0 "_work/_temp is not empty while idle"
+rm -f "$VCI/actions-runner/_work/_temp/left"
 vcase guard-pin 0 "job guard sha256 is the install pin" KOSMOS_CI_GUARD_SHA="$GS"
 vcase guard-drift 1 "something rewrote it" KOSMOS_CI_GUARD_SHA=0000000000000000000000000000000000000000000000000000000000000000
 vcase psfail 1 "kosmos-ci runs no processes" FX_PS_FAIL=1
@@ -489,6 +495,8 @@ vcase unwired 1 "the job guard is not wired"
 vcase hook-twice 1 "sets ACTIONS_RUNNER_HOOK_JOB_STARTED more than once"
 cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 000 "$VCI/actions-runner"
 vcase home-hidden 3 "check(s) could not be made"
+chmod 000 "$VCI"; vcase home-closed 3 "but 1 check(s) could not be made"; chmod 755 "$VCI"
+grep -q 'but 1 check(s) could not be made' "$T/v-home-hidden.out" && pass "verify counts a hidden runner dir once" || fail "hidden runner dir counted: $(grep 'could not be made' "$T/v-home-hidden.out")"
 chmod 755 "$VCI/actions-runner"
 ! has v-home-hidden "install has not run here" && ! has v-home-hidden "no $VCI/actions-runner/.path here" && pass "verify: a runner dir it cannot enter is not called missing" || fail "verify hidden dir read as missing"
 cp "$T/vci.env" "$VCI/actions-runner/.env"; chmod 644 "$VCI/.kosmos-ci/job-guard.sh"
