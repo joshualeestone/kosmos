@@ -1046,7 +1046,8 @@ function tapProbe4663(skip) {
         `[wide] every step of the project tip is a pointing card, on screen, wider than a phone`, JSON.stringify(tip800));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
-      await phonePage.setViewportSize({ width: 800, height: 800 });
+      // Wide and short (a phone on its side): 800x800 on a touchscreen is an upright tablet since #6107 (tablet arm above).
+      await phonePage.setViewportSize({ width: 800, height: 400 });
       await phonePage.waitForTimeout(100);
       const order800 = await order();
       chk(order800.startsWith('members-files,room'), `[wide] wider than a phone, it goes back after Members/Files`, order800);
