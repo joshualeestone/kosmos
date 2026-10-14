@@ -1637,7 +1637,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   // Read BEFORE the send, from the card the send was authorised against, so the
   // note describes the pane we typed into rather than whatever it became while
   // we were typing.
-  const paneState = allowed.card.state || null;
+  /* #5949: a state the card shows from a REMEMBERED look (held through a failed check) is not what the agent was doing
+     when this was sent, so the note says we could not tell, as a failed look always did. */
+  const paneState = ('stateRead' in allowed.card && allowed.card.stateRead === 'remembered') ? null : (allowed.card.state || null);
   // ⚠️ The note depends on the VERDICT as well as the state (see waitingNote),
   // and the verdict is not known until the sends have answered — so it is built
   // at each return rather than once up front.

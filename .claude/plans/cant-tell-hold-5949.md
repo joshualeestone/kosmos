@@ -53,7 +53,9 @@ roster read failed), nothing logged why, and the card's explanation line is gone
    (`accountnotify`) and the Recommender's peers (`recommender.peersFor`, which types into idle or working peers) skip
    a card whose screen reading is held (`status.stateIsRemembered`, reading `screenRead`, which is set even when a
    report decided the state, since a limit wait carries the screen along as `screenState`). The other readers of a
-   held state draw it (cards, counts, project rows). Found by grepping engine/ and server.js for code keyed on idle.
+   held state draw it (cards, counts, project rows), except the delivery note a person reads after sending a message
+   (`chat.deliver`'s paneState), which says "we could not tell what it was doing" for a card showing a remembered state,
+   as it did for a failed look on main. Found by grepping engine/ and server.js for code keyed on idle.
 7. One fact, not two: the tokens are win32streamstate's BUSY/IDLE (classify's win32 arm and the capture both read
    them), and the hold length is win32roster.HOLD_MS (the capture gives up when the roster stops standing in).
 
