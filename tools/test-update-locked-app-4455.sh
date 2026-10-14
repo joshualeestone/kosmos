@@ -78,7 +78,7 @@ in_sb() {
 }
 
 # Run the shipped block as the updater does: under the installer's options, inside a function, with dest, stage
-# and info. Prints the block's own lines, then RC=<n>. $2 = a directory to put FIRST on PATH (a chmod stub), or "".
+# and info. Prints the block's own lines, then RC=<n>. $2 = a stub directory to put FIRST on PATH (chmod or find), or "".
 run_block() {
   _dest="$1"; _stub="${2:-}"
   cat > "${SB:?}/driver.sh" <<DRIVER
@@ -266,7 +266,7 @@ else
     # #6149: a value that is not 0 or 1 is said aloud, so a person who set =false to opt out learns it did not.
     case "$_v" in
       ""|1) case "$_out" in *"other than 0 or 1"*) bad "DEFAULT: '$_v' printed the not-understood note" ;; *) ok "DEFAULT: '$_v' prints no note" ;; esac ;;
-      *)    case "$_out" in *"other than 0 or 1"*"left read-only"*) ok "DEFAULT: '$_v' says it was not understood and the app stays read-only" ;; *) bad "DEFAULT: '$_v' gave no note: $_out" ;; esac ;;
+      *)    case "$_out" in *"other than 0 or 1"*"so it stays on"*) ok "DEFAULT: '$_v' says it was not understood and the app stays read-only" ;; *) bad "DEFAULT: '$_v' gave no note: $_out" ;; esac ;;
     esac
   done
   _out="$(KOSMOS_READONLY_APP=0 sh "$SB/lock-driver.sh" "$(mk_install default-zero-note)" 2>&1)"

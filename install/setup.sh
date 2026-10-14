@@ -742,7 +742,8 @@ LOG="$LOG_DIR/install.log"
 # KOSMOS_TMUX_SRC and KOSMOS_SRC can point at local files carried over on a
 # thumb drive. Same code path, one variable different.
 # The installed app/ folder is left read-only after an install or update (#4449; on by default since #4455).
-# KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on.
+# KOSMOS_READONLY_APP=0 leaves it writable, as before. Only 0 is off: unset, EMPTY, or any other value is on,
+# and a value other than 0 or 1 is said aloud (#6149).
 # It is read on EACH run and kept nowhere: the board's own updater runs this file with the board's environment,
 # so unless the board itself was started with =0, an app left writable is read-only again after its next update.
 KOSMOS_RELEASE_BASE="${KOSMOS_RELEASE_BASE:-https://installkosmos.com/dist}"
@@ -1443,7 +1444,7 @@ install_kosmos() {
   # BEGIN #4455 lock
   case "${KOSMOS_READONLY_APP:-1}" in
     0|1) ;;
-    *) info "note: KOSMOS_READONLY_APP is set to something other than 0 or 1, so the Kosmos app is left read-only (only 0 turns that off)" ;;
+    *) info "note: KOSMOS_READONLY_APP is set to something other than 0 or 1; only 0 turns the read-only app off, so it stays on" ;;
   esac
   if [ "${KOSMOS_READONLY_APP:-1}" != 0 ]; then
     chmod -R a-w "$dest/app" 2>/dev/null || info "note: the Kosmos app folder could not be made read-only; the install is otherwise complete"
