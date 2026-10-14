@@ -740,6 +740,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
 #set-accounts .acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); transform: translateY(-1px); }
 #set-accounts .acct-usage-warn.high::before { background: var(--danger); }   /* themed: the raw reds fail on the dark card */
+/* #6178: the accounts on the person's other computers, under this computer's own list, in the same type as its rows.
+   Scoped under #set-other-wrap to outrank `.panel p`, as the rows above are under #set-accounts. */
+#set-other-wrap { margin-top: 18px; }
+#set-other-wrap .ao-computer { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--k-rule); }
+#set-other-wrap .ao-acct { display: flex; flex-direction: column; gap: 6px; }
+#set-other-wrap .ao-name { margin: 0; font-weight: 650; color: var(--label); overflow-wrap: anywhere; }
+#set-other-wrap .ao-acct-name { margin: 0; font-size: .875rem; color: var(--label); overflow-wrap: anywhere; }
+#set-other-wrap .ao-note, #set-other-wrap .acct-usage-line, #set-other-wrap .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); overflow-wrap: anywhere; }
+#set-other-wrap .ao-note, #set-other-wrap .acct-usage-none { color: var(--label-2); }
 .acct-move { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acct-move select { min-height: 44px; font-size: .875rem; max-width: 100%; }
 /* The account panel's own primary action shape (Sign in again's gold outline), so Move reads as this panel's button. */
@@ -18093,6 +18102,13 @@ window.kosmosMeasureScrollbarWidth();
            write already queued. Focus a container, let the live region speak. -->
       <div id="set-accounts" tabindex="-1"></div>
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
+      <!-- kosmos#6178: the accounts on the person's OTHER computers, read by this browser from each one (the #4812
+           sibling path), never through our server. Painted by aoPaint; hidden when there is nothing to say. -->
+      <div id="set-other-wrap" class="ao-wrap" hidden>
+        <h4 class="dlab">On your other computers</h4>
+        <p class="dhint" id="set-other-note"></p>
+        <div id="set-other"></div>
+      </div>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -27432,6 +27448,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
 }
 
 async function paintAccounts(opts) {
+  if (typeof aoKick === 'function') aoKick();   // kosmos#6178: the other computers' accounts, read while this screen is up
   const followUp = (opts && Number.isInteger(opts.followUp)) ? opts.followUp : 0;
   const box = document.getElementById('set-accounts');
   const msg = document.getElementById('set-accounts-msg');
@@ -30142,6 +30159,7 @@ async function oaReadOne(c) {
   const ac = typeof AbortController === 'function' ? new AbortController() : null;
   const cut = ac ? setTimeout(() => ac.abort(), OA_READ_LIMIT_MS) : null;
   let state = 'out', agents = null, answered = false;
+  let okBody = null;   // kosmos#6178: the answer itself, for aoKeep (body is scoped to the try)
   try {
     const opts = { cache: 'no-store', credentials: 'include', mode: 'cors' };
     if (ac) opts.signal = ac.signal;
@@ -30156,7 +30174,7 @@ async function oaReadOne(c) {
       body = null;
     }
     state = oaClassify(res.status, body);
-    if (state === 'ok') agents = oaAgentsOf(body);
+    if (state === 'ok') { agents = oaAgentsOf(body); okBody = body; }
   } catch {
     /* No answer the page may read. A computer the board's last probe (up to a minute old) said is up most likely
        answered and did not let this page read it (an older connector without the sibling answer does exactly that). */
@@ -30167,6 +30185,7 @@ async function oaReadOne(c) {
   /* Not kept if a refresh took this computer off the account's list while the read ran: one added back later must
      start as new, not as what this read saw. */
   if (!(OA_COMPUTERS && oaOthers(OA_COMPUTERS).some((o) => o.address === c.address))) return null;
+  if (typeof aoKeep === 'function') aoKeep(c.address, state, okBody, Date.now());   // kosmos#6178
   return oaRemember(OA_SEEN, c.address, state, agents, Date.now());
 }
 function oaNote(c, seen, now) {
@@ -30357,7 +30376,8 @@ async function oaRound(again) {
      reads); a tick, a visibility change or a read-on-return landing mid-round is simply dropped. */
   if (OA_BUSY) { if (again === true) OA_AGAIN = true; return; }
   if (document.hidden) return;
-  if (!oaHost()) { oaPaint(); return; }
+  const aoOn = typeof aoShown === 'function' && aoShown();   // kosmos#6178: Settings > AI Models reads them too
+  if (!oaHost() && !aoOn) { oaPaint(); return; }
   OA_BUSY = true;
   try {
     oaPaint();   // a list that went stale meanwhile shows greyed while the reads run
@@ -30365,7 +30385,7 @@ async function oaRound(again) {
        OA_COMPUTERS_AT starts at 0, so the first round still asks. */
     /* Once a list is known, it is not refreshed while nothing can use it: "This computer only" is ticked, or this page
        is not this computer's own Kosmos+ address (the route probes every computer, up to 24 s of board work). */
-    const useful = !OA_COMPUTERS || (!oaThisOnly() && oaEligible(OA_COMPUTERS, location));
+    const useful = !OA_COMPUTERS || ((!oaThisOnly() || aoOn) && oaEligible(OA_COMPUTERS, location));   // #6178: "This computer only" is the Agents view's, not Settings'
     const need = useful && Date.now() - OA_COMPUTERS_AT >= OA_COMPUTERS_EVERY_MS;
     const refresh = need ? oaRefreshComputers() : null;
     /* The round waits only for its reads. The computers refresh runs on its own (it can take 24 s), so it neither
@@ -30373,12 +30393,13 @@ async function oaRound(again) {
        with no list known yet, waits for it: there is nothing to read until it lands. */
     if (!OA_COMPUTERS && refresh) await refresh;
     /* oaHost is checked again because the first round can have waited on the refresh meanwhile. */
-    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && !oaThisOnly() && oaHost()) {
+    if (OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) && ((!oaThisOnly() && oaHost()) || (typeof aoShown === 'function' && aoShown()))) {
       oaPaint();   // groups appear at once, "Reading its agents..." until each answers
       // Each group as its own read lands; a paint that throws must not end the round early (the final paint retries).
-      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => { try { oaPaint(); } catch { /* next paint */ } }, () => null)));
+      await Promise.all(oaOthers(OA_COMPUTERS).map((c) => oaReadOne(c).then(() => { try { oaPaint(); } catch { /* next paint */ } try { if (typeof aoPaint === 'function') aoPaint(); } catch { /* next paint */ } }, () => null)));
     }
     oaPaint();
+    try { if (typeof aoPaint === 'function') aoPaint(); } catch { /* next paint */ }
   } finally {
     OA_BUSY = false;
     if (OA_AGAIN) { OA_AGAIN = false; setTimeout(oaRound, 0); }
@@ -30415,6 +30436,148 @@ function oaStart() {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) { oaPaint(); oaRound(); } });   // greys a list gone stale while hidden, before the read
   oaRound();
   OA_TIMER = setInterval(oaRound, OA_STATUS_EVERY_MS);
+}
+/* ===== kosmos#6178: the accounts on your other computers, in Settings > AI Models =====
+   🔑 THE SAME READ AS #4812, NOTHING NEW ON THE WIRE. Each other computer's own /api/status, asked by this browser
+   with its own sign-in for that computer (oaReadOne), now also carries `accountsWeekly` (that computer's Claude accounts
+   and their weekly usage, server.js) and each agent's `account.dir`. Nothing about one computer passes through our
+   server, and a computer that has not let this browser in shows nothing but that.
+   🔑 OWN STORE, SAME LIFETIME. AO_SEEN beside OA_SEEN, written by oaReadOne's guarded aoKeep call: a fresh answer
+   replaces it, "not let in" forgets it, and no answer keeps the last one (shown with its age), as #4812 does for agents.
+   ⚠️ The other computer's answer is untrusted: every field is checked here and every string goes in through
+   textContent. */
+const AO_SEEN = new Map();   // address -> { accounts: [...] | null (an older Kosmos), agents: [{ name, dir }], at }
+const AO_MAX_ACCOUNTS = 50;
+const AO_MAX_AGENTS = 500;
+
+function aoStr(v, max) { return typeof v === 'string' && v ? v.slice(0, max || 200) : null; }
+/* That computer's Claude accounts, or null when its Kosmos sends none (an older one, before #6178). */
+function aoAccountsOf(body) {
+  if (!body || !Array.isArray(body.accountsWeekly)) return null;
+  return body.accountsWeekly.filter((e) => e && typeof e === 'object' && aoStr(e.dir, 4096)).slice(0, AO_MAX_ACCOUNTS).map((e) => {
+    const w = e.weekly && typeof e.weekly === 'object' && Number.isFinite(e.weekly.usedPct)
+      && Number.isFinite(e.weekly.resetsAt) && Number.isFinite(e.weekly.at) ? e.weekly : null;
+    return {
+      dir: aoStr(e.dir, 4096), email: aoStr(e.email), label: aoStr(e.label), organization: aoStr(e.organization),
+      isDefault: e.isDefault === true,
+      weekly: w ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
+      blocked: ['windows', 'own-statusline', 'unreadable-settings', 'not-wired'].includes(e.blocked) ? e.blocked : null,
+    };
+  });
+}
+/* That computer's agents with the account each runs on (its folder, which matches an accountsWeekly entry there). */
+function aoAgentsOf(body) {
+  if (!body || !Array.isArray(body.agents)) return [];
+  return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
+    && a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))
+    .slice(0, AO_MAX_AGENTS)
+    .map((a) => ({ name: aoStr(a.name) || aoStr(a.sessionName), dir: aoStr(a.account.dir, 4096) }));
+}
+function aoKeep(address, state, body, now) {
+  if (state === 'ok') AO_SEEN.set(address, { accounts: aoAccountsOf(body), agents: aoAgentsOf(body), at: now });
+  else if (state === 'notin') AO_SEEN.delete(address);   // a browser no longer let in must not keep showing them
+}
+/* Settings > AI Models is on screen. */
+function aoShown() {
+  if (typeof document === 'undefined' || document.hidden) return false;
+  const sec = document.getElementById('s-sec-accounts');
+  return !!sec && !sec.closest('[hidden]');
+}
+/* One account's weekly line, in the words its own row uses on that computer (acctUsageHtml): the same numbers,
+   the same reasons. No warning and no move: those act on this board's engine, and the account is not here. */
+function aoUsageWords(e, now) {
+  const blockedSay = {
+    'windows': 'Kosmos cannot read usage for this account on Windows yet.',
+    'own-statusline': 'Kosmos cannot read usage for this account. It is set up its own way, and Kosmos leaves that alone.',
+    'unreadable-settings': 'Kosmos cannot read this account\'s settings, so it cannot read its usage.',
+    'not-wired': 'Kosmos is not set up to read usage for this account.',
+  }[e.blocked] || '';
+  const w = e.weekly;
+  if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.' };
+  const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
+  const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - now > 6 * 864e5
+    ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+  const age = agoWords(now - w.at);
+  return { pct, line: pct + '% of its weekly limit used · resets ' + resets + (age ? ' · Kosmos last saw it change ' + age : '') };
+}
+function aoEl(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text !== undefined) el.textContent = text;
+  return el;
+}
+/* One other computer: its accounts with their usage and their agents there, or one line saying why not. */
+function aoGroup(c, seen, ao, now) {
+  const g = aoEl('div', 'ao-computer');
+  g.dataset.address = c.address;
+  g.appendChild(aoEl('p', 'ao-name', c.name));
+  const st = seen ? seen.state : 'reading';
+  const stale = typeof oaStale === 'function' && oaStale(seen, now);
+  let note = '';
+  if (!ao) {
+    note = st === 'notin' ? 'This browser is not let in on ' + c.name + ' yet. Open it to sign in.'
+      : st === 'blocked' ? c.name + ' is online, but it cannot be read from here yet. It may need the latest Kosmos.'
+      : st === 'out' ? 'Not connected.'
+      : 'Reading its accounts...';
+  } else if (ao.accounts === null) {
+    note = c.name + ' has an older Kosmos. Its accounts show here once it updates.';
+  } else if (!ao.accounts.length) {
+    note = 'No Claude account is set up on ' + c.name + '.';
+  } else if (st !== 'ok' || stale) {
+    note = (st === 'out' ? 'Not connected. ' : '') + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
+  }
+  if (note) g.appendChild(aoEl('p', 'dhint ao-note', note));
+  if (ao && Array.isArray(ao.accounts)) {
+    for (const e of ao.accounts) {
+      const row = aoEl('div', 'ao-acct');
+      row.appendChild(aoEl('p', 'ao-acct-name', e.email || e.label || (e.isDefault ? 'The first Claude account' : 'A Claude account')));
+      const u = aoUsageWords(e, now);
+      if (u.pct !== null) {
+        const meter = aoEl('div', 'acct-usage-meter');
+        const bar = aoEl('span', 'bar');
+        bar.setAttribute('aria-hidden', 'true');
+        const fill = aoEl('i', u.pct >= ACCT_HIGH_PCT ? 'high' : u.pct >= ACCT_WARN_PCT ? 'warn' : 'ok');
+        fill.setAttribute('style', 'width:' + u.pct + '%');   // as the row above draws its own meter
+        bar.appendChild(fill);
+        meter.appendChild(bar);
+        meter.appendChild(aoEl('p', 'acct-usage-line', u.line));
+        row.appendChild(meter);
+      } else row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
+      const names = ao.agents.filter((a) => a.dir === e.dir).map((a) => a.name);
+      row.appendChild(aoEl('p', 'acct-agents-line', names.length
+        ? 'Its agents on ' + c.name + ': ' + names.join(', ')
+        : 'Kosmos cannot see any agents on it on ' + c.name + '.'));
+      g.appendChild(row);
+    }
+  }
+  return g;
+}
+function aoPaint() {
+  const wrap = document.getElementById('set-other-wrap');
+  const list = document.getElementById('set-other');
+  const noteEl = document.getElementById('set-other-note');
+  if (!wrap || !list || !noteEl) return;
+  const https = typeof location !== 'undefined' && location.protocol === 'https:';
+  const others = https && OA_COMPUTERS && oaEligible(OA_COMPUTERS, location) ? oaOthers(OA_COMPUTERS) : [];
+  for (const a of [...AO_SEEN.keys()]) if (!others.some((c) => c.address === a)) AO_SEEN.delete(a);
+  list.textContent = '';
+  if (!others.length) {
+    /* The app's own board (127.0.0.1) is another site to every other computer, so this browser's sign-in there is
+       never sent: say where they can be seen, but only when this account has another computer to see. */
+    const elsewhere = !https && typeof COMPUTERS_OPENABLE !== 'undefined' && COMPUTERS_OPENABLE === true;
+    noteEl.textContent = elsewhere ? 'To see the accounts on your other computers here, open Kosmos from this computer\'s Kosmos+ address.' : '';
+    wrap.hidden = !elsewhere;
+    return;
+  }
+  noteEl.textContent = 'As each computer reads its own accounts. Usage on one computer is not added to another\'s.';
+  const now = Date.now();
+  for (const c of others) list.appendChild(aoGroup(c, OA_SEEN.get(c.address), AO_SEEN.get(c.address) || null, now));
+  wrap.hidden = false;
+}
+/* Settings > AI Models was painted: show what is known now, and read the other computers if a round can. */
+function aoKick() {
+  try { aoPaint(); } catch { /* next paint */ }
+  if (typeof location !== 'undefined' && location.protocol === 'https:') { try { oaRound(); } catch { /* the next tick */ } }
 }
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
