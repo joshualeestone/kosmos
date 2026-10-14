@@ -62844,6 +62844,12 @@ function tskRow(t, at) {
     ? agoWords(Date.now() - Date.parse(t.waitingSince)) : '';
   const waitLine = !waitWords ? ''
     : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
+  /* #6157: WHO put it here and why, in the project page's words for the same reason (PJ_NEEDS_WHY, the codes from
+     projects.needsYouReason), so the person does not try to flag it some other way. A missed run the person reviews names no agent itself
+     (its repeat line says it); the filter keeps an older or odd entry with no agent out of the line too. */
+  const whoWaits = t.state !== 'decision' || !Array.isArray(t.waitingOn) ? [] : t.waitingOn.filter((w) => w && w.who);
+  const whoLine = !whoWaits.length ? ''
+    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
      sits under Needs Your Decision, and still says who marked it and offers the undo). */
@@ -62878,7 +62884,7 @@ function tskRow(t, at) {
     + (moved && moved !== added ? '<span>last activity ' + esc(moved) + '</span>' : '')
     + (t.dueDate ? '<span>due ' + esc(t.dueDate) + '</span>' : '')
     + chip + allDone
-    + '</div>' + cannot + waitLine + repeatLine + builtLine + '</div>'
+    + '</div>' + cannot + waitLine + whoLine + repeatLine + builtLine + '</div>'
     + '<div class="tsk-side">' + whoHtml
     /* Said once per row (Mona): inside a status group the heading already names the state, so the
        row's state line shows only when grouping by project, where it is information. */

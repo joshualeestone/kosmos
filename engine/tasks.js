@@ -1771,6 +1771,20 @@ function cardsNeedingPerson(task, roster, members) {
 }
 
 /**
+ * #6157: WHO put this task in Needs your decision, and why: one `{ who, reason }` per card that makes waitingOnPerson
+ * true (the same cards, so the hint and the red can never disagree), in roster order. `reason` is the project page's
+ * code for the same thing (projects.needsYouReason: question, trust, gave_up, crash_loop, stuck_auth, stuck_rate,
+ * own_bound, other), so the page words it as the project's Issue list does. A card is a roster row, not a member row:
+ * it is present by being on the roster and tied by isNamedOurs, which cardsNeedingPerson already required.
+ */
+function waitingOnOf(task, roster, members) {
+  return cardsNeedingPerson(task, roster, members).map((card) => ({
+    who: card.sessionName,
+    reason: projects.needsYouReason({ ...card, present: true, tied: true }, task.projectId) || 'other',
+  }));
+}
+
+/**
  * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting on you for 12 days": the OLDEST
  * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
  * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
@@ -2101,7 +2115,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 }
 
 module.exports = { create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, setBuilt, clearBuilt, BUILT_NOTE_MAX, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
