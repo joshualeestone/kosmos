@@ -452,6 +452,11 @@ test('#6065 N1: requestIn: the sentence at the room\'s own mention positions, el
   assert.ok(lq && lq.sentence.length > 50 && lq.sentence.endsWith('?'), JSON.stringify(lq));
   // questions: false (a background reader) quotes no question.
   assert.equal(messages.requestIn(body, { namedAt: [], questions: false }), null);
+  // A question ending in a closing quote or bracket is still the one quoted, with its closer.
+  const quoted = 'News. ' + fill + 'He asked: is it ready?" ok. Is it? Next.';
+  assert.equal(messages.requestIn(quoted, {}).sentence, "He asked: is it ready?'");
+  const bracket = 'News. ' + fill + 'Check the dates (are they final?) today. Fine.';
+  assert.equal(messages.requestIn(bracket, {}).sentence, 'Check the dates (are they final?)');
   assert.equal(messages.requestIn('No ask in here. Just news.', {}), null);
   // A request longer than REQUEST_MAX is cut at a whole word and says so.
   const longT = 'Intro. @mara ' + 'please read '.repeat(60) + 'now.';
