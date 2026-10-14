@@ -122,7 +122,7 @@ async function postAndMeasure(page, words) {
   console.log('MEASURE  room send-to-visible with the POST held ' + HOLD_MS + ' ms: ' + (ms === null ? 'NOT DRAWN while held' : ms + ' ms'));
   chk(ms !== null && ms < 500, '#6168: the room draws the person\'s message while the post is still on its way', ms === null ? 'not drawn' : ms + ' ms');
   const during = await readRoom(page, WORDS);
-  chk(during.copies === 1 && during.pending && during.you, 'it is drawn once, as the person\'s own bubble, marked pending', JSON.stringify(during));
+  chk(during.copies === 1 && during.pending && during.you && during.drawn, 'it is drawn once, visibly (a real box on screen), as the person\'s own bubble, marked pending', JSON.stringify(during));
   chk(during.slot === 'Sending…', 'its time slot says Sending… while it is on its way', JSON.stringify(during.slot));
   chk(await page.inputValue('#pj-post') === '', 'review 1: the words are in the room, not also left in the box (the #4944 "in both places" complaint)');
 
@@ -222,6 +222,26 @@ async function postAndMeasure(page, words) {
   chk(staleAfter.refused && staleAfter.box === 'ok', 'review 3: refused, the new post stays marked Not posted and its words come back', JSON.stringify(staleAfter));
   await page.fill('#pj-post', '');
 
+  /* 2e3. Another window posts the same words during the flight (review 4): the room hands over to THAT post, then the
+     board refuses this one. A refusal means this post was not kept, so it is drawn again, marked, and its words come back
+     rather than vanishing in silence. */
+  const TWIN = 'same words from two windows';
+  await page.evaluate(() => { window.__refuse = 'the room is on hold'; });
+  await page.fill('#pj-post', TWIN);
+  await page.click('#pj-post-go');
+  await page.waitForFunction(() => typeof window.__release === 'function', { timeout: 3000 }).catch(() => {});
+  await page.evaluate((w) => { window.__rows.push({ kind: 'post', id: 'rtwin', operator: true, text: w, at: new Date().toISOString() }); }, TWIN);
+  await page.evaluate(() => loadRoom());
+  await page.evaluate(() => window.__release && window.__release());
+  await page.waitForFunction(() => document.getElementById('pj-post-go').disabled === false, { timeout: 5000 }).catch(() => {});
+  const twin = await page.evaluate((w) => ({
+    box: document.getElementById('pj-post').value,
+    marked: [...document.querySelectorAll('#pj-room .msg.pj-pending')].some((r) => r.textContent.includes(w) && /Not posted/.test(r.textContent)),
+    line: document.getElementById('pj-room-msg').textContent,
+  }), TWIN);
+  chk(twin.marked && twin.box === TWIN && /on hold/i.test(twin.line), 'review 4: refused after the room handed over to another window\'s same words, it is drawn again as Not posted and its words come back', JSON.stringify(twin));
+  await page.fill('#pj-post', '');
+
   /* 2f. Moving to another project mid-post, then refused: the words are parked as that project's draft, never put into
      the other project's box (review 2: the parking branch). */
   const AWAY = 'sent from p1, refused after I moved to p2';
@@ -250,7 +270,7 @@ async function postAndMeasure(page, words) {
     NOPE, { timeout: 5000 }).catch(() => {});
   const refused = await readRoom(page, NOPE);
   const refusedText = await page.evaluate((w) => { const r = [...document.querySelectorAll('#pj-room .msg')].find((x) => x.textContent.includes(w)); return r ? r.textContent : ''; }, NOPE);
-  chk(refused.copies === 1 && refused.pending && /Not posted\.\s*The room is on hold/i.test(refusedText), 'a refused post stays drawn, marked Not posted, with the board\'s reason', refusedText.slice(0, 160));
+  chk(refused.copies === 1 && refused.pending && refused.drawn && /Not posted\.\s*The room is on hold/i.test(refusedText), 'a refused post stays drawn, marked Not posted, with the board\'s reason', refusedText.slice(0, 160));
   chk(await page.inputValue('#pj-post') === NOPE, 'and its words are still in the box to send again');
 
   chk(errors.length === 0, 'no page errors', errors.join(' | ').slice(0, 300));
