@@ -38,7 +38,7 @@ rule" for identical words; it does not (it matches only after the POST answers).
    #4944's tookBox / restoreUnsent); the check could not see a double copy (it now reads the room's own hand-over while
    the post is still answering, plus same-words and dropped-connection arms). Also: the first repaint is inside the try.
    Left: no reply header or file cards on the pending row (they appear on the swap); "Sending…" not announced (failures
-   and success are); an unsure post that did land leaves its words back in the box.
+   and success are). (The unsure-post-lands case was fixed in review 5.)
 2. sonnet: no blocker. WARNINGs fixed, each with a check arm that a mutant reds: a failure no longer puts the words back
    when a read already showed the room holding the post (a second press would have posted it twice); a throw after the
    board answered is not reported as a failed post; the id snapshot no longer throws on a malformed read before the try;
@@ -56,3 +56,7 @@ rule" for identical words; it does not (it matches only after the POST answers).
    window's same words draws the post again as Not posted and gives the words back (it vanished silently). Stale plan
    lines corrected. Left: a board clock more than 10 s behind the browser's keeps an arrived "Not confirmed" post beside
    its kept copy until the next post.
+5. opus: no blocker. WARNING fixed with an arm a mutant reds: an unsure post later seen in the room took its words back
+   out of the box (onKept, the success path's rule), so one more press cannot post it twice. Comments corrected (the
+   pending shape lists `before` and `onKept`; the thrown branch also covers a throw before the post went). Left: the
+   engine's `unconfirmed` state is treated as success, as before this branch; bubble height across the swap unmeasured.

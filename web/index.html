@@ -68293,7 +68293,8 @@ let PJ_ROOM_POSTS_OF = null;   // which project PJ_ROOM_POSTS was painted for
    on agents"): the person's post, drawn the moment they press Post, per project, as the agent page does (#4944,
    TALK_PENDING). The room waited for the POST, which types into every member's pane in turn, and then for the room to be
    read again. Now it is drawn from what was typed, marked "Sending…", and the kept row replaces it once the room holds
-   it; a post the board did not keep stays drawn, marked, with the reason. { text, startedAt, failed, unsure, because }. */
+   it; a post the board did not keep stays drawn, marked, with the reason.
+   { text, startedAt, before (row ids at the press), failed, unsure, because, onKept }. */
 const PJ_ROOM_PENDING = {};
 /* The pending post, in the person's own bubble (pjRoomRow's operator arm), its time slot saying "Sending…" in plain
    text, or its verdict when it did not go. */
@@ -70568,7 +70569,13 @@ function paintRoom(body) {
     if (!pend) return '';
     /* A refused post stays (the board said it did not keep it); a "Not confirmed" one goes once the room shows it
        arrived (review 1: it used to sit under its own kept copy until the next post). */
-    if ((!pend.failed || pend.unsure) && pjRoomPendingKept(allRows, pend)) { delete PJ_ROOM_PENDING[p.id]; return ''; }
+    if ((!pend.failed || pend.unsure) && pjRoomPendingKept(allRows, pend)) {
+      delete PJ_ROOM_PENDING[p.id];
+      /* Review 5: an unsure post that turns out to have arrived had its words put back in the box; take them out again
+         (only if the box still holds exactly them), or one more press would post it twice. */
+      if (pend.unsure && typeof pend.onKept === 'function') { try { pend.onKept(); } catch { /* the words stay; nothing is lost */ } }
+      return '';
+    }
     return filtering ? '' : pjRoomPendingRow(pend, p);
   })();
   /* An unreadable record is SAID, ahead of whatever could be read --
@@ -70784,6 +70791,11 @@ async function pjPostSend(attachment) {
   const lastRows = roomEl && roomEl.__lastBody && Array.isArray(roomEl.__lastBody.rows) ? roomEl.__lastBody.rows : [];
   const before = new Set(lastRows.map((r) => r && r.id).filter((id) => typeof id === 'string'));
   const pend = { text: sentText, startedAt: Date.now(), before };
+  /* Review 5: called by paintRoom when an unsure post is seen to have arrived; the success path's rule (#1303C pair). */
+  pend.onKept = () => {
+    if (PJ_CURRENT === sentProject && input.value.trim() === sentText) pjComposerReset(input);
+    if ((PJ_ROOM_DRAFTS[sentProject] || '').trim() === sentText) delete PJ_ROOM_DRAFTS[sentProject];
+  };
   PJ_ROOM_PENDING[sentProject] = pend;
   const repaintPending = () => {
     if (PJ_CURRENT === sentProject && roomEl && roomEl.__lastBody) paintRoom(roomEl.__lastBody);
@@ -70889,7 +70901,8 @@ async function pjPostSend(attachment) {
          pending row goes (the next read draws the kept one) and nothing says it did not arrive. */
       if (PJ_ROOM_PENDING[sentProject] === pend) { delete PJ_ROOM_PENDING[sentProject]; try { repaintPending(); } catch { /* the next read paints */ } }
     } else {
-      /* The post may have arrived before the connection died, so it is not said to have failed. */
+      /* The connection died, so the post may have arrived; or (rarely) the page threw before it went. Either way it is
+         not said to have failed. */
       failed('We could not reach Kosmos, so we cannot tell whether that was posted. Check the room before posting it again.', UNSURE_WHY, true);
     }
   } finally {
