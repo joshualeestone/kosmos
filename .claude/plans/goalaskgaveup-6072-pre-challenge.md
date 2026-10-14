@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: goalaskgaveup-6072
-diff_hash: 691a1eb58af576397fa70ca8d5a329c64eb7204452597f956267c2619c400bcd
+diff_hash: 64ce7ffa97b2fabaca6d0bbf938f1ade7b9a5f93f613ca8cd4835232471910d8
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-14T00:18:10Z
@@ -25,6 +25,13 @@ in my new assigner test. Fixed with a real projects.list row (620daa51), reviewe
 Mutations (each restored): no record, no clear on a landed ask, no open-work check, the route not wrapping, no
 restore, no archived/paused check, no member check, no step prune, no goal check, no new-run drop, prune of paused:
 each reds the tests aimed at it.
+
+**Rebased onto main 20:4x CDT** (GitHub refused the merge: a conflict in server.js's module.exports, where #6066's
+`taskFinalWordHint` landed at the same spot as this branch's `ASSIGNER_VIEW`; both kept). Every file except server.js
+is byte-identical to the validated head cced229b; server.js's own changed lines are identical (24 of 24, compared
+without line numbers); main's copy moved. So the validation above is carried by identical change content, not by this
+hash, which is the rebased diff's. After the rebase: 301 of 301 across the assigner, goal-ask, #6066, failover,
+server.projects and fixture-discipline tests; one post-rebase review round.
 
 ### Per-Iteration Breakdown
 
