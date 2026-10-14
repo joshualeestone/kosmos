@@ -2611,29 +2611,45 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
   return { usedBy, complete };
 }
 
-/* #6174, for the account-move route: the restart, with the agent's session start read before it and the note written
-   once the outcome is known. A partial move with the SAME session still running (same start) is noted as still on the old
-   account until it restarts; anything else clears the note. The read after the restart is fresh (no cache), so it sees
-   the session as the restart left it and hands nothing to other readers. Not covered (accepted, as restartInner
-   accepts it): macOS refusing to stop the launch job after the window closed, where launchd may respawn the old job
-   later under a new session. Never throws: the note is not the move. */
-function restartForMove(rawName) {
+/* #6174, for the account-move route: the restart, with the agent's tmux session start read before it and the note
+   written once the outcome is known. Only a PARTIAL outcome with the SAME session still running (same start) is noted:
+   the agent runs on the account it was moved from until it restarts. A REFUSED restart (nothing confirmed as ours) and
+   anything else clear the note. The session is found as remove.js sessionFor finds it (the roster card for the cleaned
+   name, tied to the agent), so a legacy session (`angel-discord` for `angel`) is read and a bystander session that
+   merely shares the name is not. The read after the restart is fresh (no cache), so it sees the session as the
+   restart left it and hands nothing to other readers. The note keeps the account the agent was running on before its
+   FIRST partial move (`from`), so moving it back there is not marked. Not covered (accepted, as restartInner accepts
+   it): macOS refusing to stop the launch job after the window closed, where launchd may respawn the old job later
+   under a new session. `deps` (restart, sessionOf, startedAt) is for tests. Never throws: the note is not the move. */
+function ourSessionFor(name) {
+  try {
+    const card = require('./engine/status').paneRoster().find((p) => p && p.sessionName === name);
+    return card && card.session && card.isNamedOurs ? card.session : null;
+  } catch { return null; }
+}
+function sessionStartFor(name, fresh, deps = {}) {
+  const session = (deps.sessionOf || ourSessionFor)(name);
+  if (!session) return null;
+  try { return (deps.startedAt || ((s) => require('./engine/status').sessionStartedAtFromTmux(s, Date.now(), { fresh })))(session); } catch { return null; }
+}
+function restartForMove(rawName, fromDir, deps = {}) {
   const name = create.cleanName(rawName) || rawName;   // the roster's spelling, the key the account list reads
-  let startedBefore = null;
-  try { startedBefore = require('./engine/status').sessionStartedAtFromTmux(name); } catch { startedBefore = null; }
+  const startedBefore = sessionStartFor(name, false, deps);
   let back;
-  try { back = removal.restart(name, 'account'); }
+  try { back = (deps.restart || removal.restart)(name, 'account'); }
   catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-  noteMoveOutcome(name, back.outcome === removal.OUTCOME.RESTARTED, startedBefore);
+  noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps);
   return back;
 }
-function noteMoveOutcome(name, ok, startedBefore) {
+function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}) {
   try {
     const accountmoving = require('./engine/accountmoving');
-    let startedAfter = null;
-    if (!ok) { try { startedAfter = require('./engine/status').sessionStartedAtFromTmux(name, Date.now(), { fresh: true }); } catch { startedAfter = null; } }
-    if (!ok && Number.isFinite(startedBefore) && startedAfter === startedBefore) accountmoving.note(name, startedBefore);
-    else accountmoving.clear(name);
+    const after = outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null;
+    if (!(Number.isFinite(startedBefore) && after === startedBefore)) { accountmoving.clear(name); return; }
+    const prior = accountmoving.notes()[name];
+    // The same session moved again: it still runs where it ran before the first move.
+    const from = prior && prior.started === startedBefore ? prior.from : (fromDir || null);
+    accountmoving.note(name, startedBefore, from);
   } catch { /* the marker is not the move */ }
 }
 /* #6108: every Claude agent on this computer grouped by the account folder it runs on, in ONE pass, for the accounts
@@ -2659,9 +2675,18 @@ function claudeAgentsByAccount() {
       let key = null; try { key = dir ? path.resolve(dir) : null; } catch { key = null; }
       return [...(isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])];
     },
-    moving(dir, isDefault) {   // #6174: the agents on this row still running on the account they were moved from
-      const startedAt = (n) => require('./engine/status').sessionStartedAtFromTmux(n);
-      return this.on(dir, isDefault).filter((n) => { try { return require('./engine/accountmoving').isMoving(n, startedAt); } catch { return false; } });
+    moving(dir, isDefault, deps = {}) {   // #6174: the agents on this row still running on the account they were moved from
+      const am = require('./engine/accountmoving');
+      const rowKey = isDefault ? null : (() => { try { return dir ? path.resolve(dir) : null; } catch { return null; } })();
+      return this.on(dir, isDefault).filter((n) => {
+        try {
+          if (!am.isMoving(n, (x) => sessionStartFor(x, false, deps))) return false;
+          // Moved back to the account it is still running on: it runs here, so it is not moving.
+          const from = (am.notes()[n] || {}).from;
+          const fromKey = from == null ? null : path.resolve(from);
+          return !(fromKey === rowKey || (isDefault && from == null));
+        } catch { return false; }
+      });
     },
   };
 }
@@ -13477,13 +13502,14 @@ const server = http.createServer(async (req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const fromDir = (() => { try { return create.readJob(name).configDir || null; } catch { return null; } })();   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
           return;
         }
         try { observed.forgetAgent(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
-        const back = restartForMove(name);   // #6174: also notes an agent left running on its old account
+        const back = restartForMove(name, fromDir);   // #6174: also notes an agent left running on its old account
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
         /* #2338: lead with the human-chosen account name (the `.kosmos-name`
            sidecar an OpenAI row carries, #2095), the same value the picker shows,
@@ -24160,7 +24186,7 @@ module.exports = {
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
-  enumerateAgentsOnAccount, claudeAgentsByAccount, noteMoveOutcome, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
+  enumerateAgentsOnAccount, claudeAgentsByAccount, noteMoveOutcome, restartForMove, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests

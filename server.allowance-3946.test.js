@@ -194,6 +194,7 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   assert.ok(row.agentsHere.names.includes('usage-on-default'), 'the agent on this account is missing: ' + JSON.stringify(row.agentsHere));
   assert.ok(!row.agentsHere.names.includes('usage-on-other'), 'an agent on ANOTHER account was listed here');
   assert.equal(row.agentsHere.complete, true, 'every agent here was readable, so the list is complete');
+  assert.ok(Array.isArray(row.agentsHere.moving), '#6174: the row does not send which agents are still moving');
   assert.ok(!row.agentsHere.names.includes('usage-guide'), 'the setup guide was listed among the account\'s agents');
   // A reading from a week that has already reset is not this week's: the row says there is none.
   fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
@@ -271,7 +272,7 @@ test('#6108 the account route moves a stopped agent without starting it, and say
   assert.equal(out.outcome, 'partial', 'a stopped agent did not come back partial: ' + JSON.stringify(out));
   assert.match(String(out.because || ''), /is not running, so there is nothing to restart/, 'the reason no longer carries the exact phrase the page keys on');
   assert.equal(path.resolve(create.readJob('sleeper-6108').configDir), path.resolve(to), 'the account was not saved');
-  // #6174: a stopped agent runs nowhere, so its partial move leaves no moving note.
+  // #6174 (a regression pin, not the comparison's test): a stopped agent has no session to note.
   assert.ok(!('sleeper-6108' in require('./engine/accountmoving').notes()), 'a stopped agent was noted as still running on its old account');
 });
 
@@ -284,26 +285,58 @@ test('#6108 /api/accounts walks the agents only when asked (?agents=1): other pa
 
 test('#6174 an agent whose move came back partial while the same session runs is marked moving, until it restarts', () => {
   const { claudeAgentsByAccount } = require('./server');
-  const status = require('./engine/status');
   const accountmoving = require('./engine/accountmoving');
   const newAcct = account('acct-6174-new');
+  const oldAcct = account('acct-6174-old');
   lead('mv-still-old', { role: 'writer' }, newAcct);   // moved here; its old session still runs
   lead('mv-restarted', { role: 'writer' }, newAcct);   // moved here; a new session has started since
   lead('mv-stopped', { role: 'writer' }, newAcct);     // moved here; no session at all
+  lead('mv-back', { role: 'writer' }, oldAcct);        // moved away and back to the account it still runs on
   lead('mv-plain', { role: 'writer' }, newAcct);       // CONTROL: never had a partial move
-  accountmoving.note('mv-still-old', 1000e3);
-  accountmoving.note('mv-restarted', 1000e3);
-  accountmoving.note('mv-stopped', 1000e3);
-  status.setSessionSource(() => 'mv-still-old\t1000\nmv-restarted\t2000\nmv-plain\t500\n');
-  try {
-    const by = claudeAgentsByAccount();
-    assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
-    assert.deepEqual(by.moving(newAcct, false), ['mv-still-old'], 'only the agent whose old session still runs is marked');
-    assert.ok(!('mv-restarted' in accountmoving.notes()), 'a restarted agent kept its note');
-    // Once its session restarts, the mark goes.
-    status.setSessionSource(() => 'mv-still-old\t3000\n');
-    assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false), [], 'a restarted agent is still marked moving');
-  } finally { status.setSessionSource(null); }
+  accountmoving.note('mv-still-old', 1000e3, oldAcct);
+  accountmoving.note('mv-restarted', 1000e3, oldAcct);
+  accountmoving.note('mv-stopped', 1000e3, oldAcct);
+  accountmoving.note('mv-back', 1000e3, oldAcct);
+  // Legacy-style sessions: the card's session is not the board name, and is what the start is read from.
+  let starts = { 'mv-still-old-discord': 1000e3, 'mv-restarted-discord': 2000e3, 'mv-back-discord': 1000e3, 'mv-plain-discord': 500e3 };
+  const deps = { sessionOf: (n) => (n === 'mv-stopped' ? null : n + '-discord'), startedAt: (s) => (s in starts ? starts[s] : null) };
+  const by = claudeAgentsByAccount();
+  assert.ok(by.on(newAcct, false).includes('mv-still-old'), 'listed by its launch file (the account it was moved to)');
+  assert.deepEqual(by.moving(newAcct, false, deps), ['mv-still-old'], 'only the agent whose old session still runs is marked');
+  assert.ok(!('mv-restarted' in accountmoving.notes()), 'a restarted agent kept its note');
+  assert.deepEqual(by.moving(oldAcct, false, deps), [], 'an agent moved back to the account it still runs on was marked');
+  // Once its session restarts, the mark goes.
+  starts = { 'mv-still-old-discord': 3000e3 };
+  assert.deepEqual(claudeAgentsByAccount().moving(newAcct, false, deps), [], 'a restarted agent is still marked moving');
+});
+
+test('#6174 restartForMove reads the start BEFORE the restart, notes only a PARTIAL with the same session, keeps the first account', () => {
+  const { restartForMove } = require('./server');
+  const accountmoving = require('./engine/accountmoving');
+  const remove = require('./engine/remove');
+  const run = (name, outcome, before, after, from) => {
+    let reads = 0;
+    const deps = {
+      sessionOf: (n) => n + '-discord',
+      startedAt: () => { reads += 1; return reads === 1 ? before : after; },
+      restart: () => { assert.equal(reads, 1, 'the start was not read before the restart'); return { outcome }; },
+    };
+    return restartForMove(name, from, deps);
+  };
+  run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/a');
+  run('rf-new', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a');     // it did relaunch
+  run('rf-gone', remove.OUTCOME.PARTIAL, 1000e3, null, '/acct/a');      // no session after
+  run('rf-refused', remove.OUTCOME.REFUSED, 1000e3, 1000e3, '/acct/a'); // nothing confirmed as ours
+  run('rf-unread', remove.OUTCOME.PARTIAL, null, null, '/acct/a');
+  const n = accountmoving.notes();
+  assert.deepEqual(n['rf-same'], { started: 1000e3, from: '/acct/a' }, 'a partial move with the same session running was not noted');
+  for (const k of ['rf-new', 'rf-gone', 'rf-refused', 'rf-unread']) assert.ok(!(k in n), k + ' was noted');
+  // Moved again while the same session still runs: the account it runs on is still the first one.
+  run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/b');
+  assert.equal(accountmoving.notes()['rf-same'].from, '/acct/a', 'a second partial move replaced the account it still runs on');
+  // A move that restarted it clears the note.
+  run('rf-same', remove.OUTCOME.RESTARTED, 1000e3, 1000e3, '/acct/b');
+  assert.ok(!('rf-same' in accountmoving.notes()), 'a full restart left the note');
 });
 
 test('#6174 accountmoving: a failed reading marks nobody and keeps the note; another session clears it', () => {
@@ -318,22 +351,4 @@ test('#6174 accountmoving: a failed reading marks nobody and keeps the note; ano
   assert.equal(accountmoving.isMoving('x-6174', () => 6000), false, 'another session is not');
   assert.ok(!('x-6174' in accountmoving.notes()), 'another session left the note behind');
   assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
-});
-
-test('#6174 the move route notes a partial move only while the SAME session still runs; a full restart clears it', () => {
-  const { noteMoveOutcome } = require('./server');
-  const status = require('./engine/status');
-  const accountmoving = require('./engine/accountmoving');
-  try {
-    status.setSessionSource(() => 'rt-same\t1000\nrt-new\t2000\n');
-    noteMoveOutcome('rt-same', false, 1000e3);    // partial, the same session after the restart: noted
-    noteMoveOutcome('rt-new', false, 1000e3);     // partial, a new session since (it did relaunch): not noted
-    noteMoveOutcome('rt-gone', false, 1000e3);    // partial, no session (stopped or failed relaunch): not noted
-    noteMoveOutcome('rt-unknown', false, null);   // partial, no start read before: not noted
-    const n = accountmoving.notes();
-    assert.deepEqual(n['rt-same'], { started: 1000e3 }, 'a partial move with the same session running was not noted');
-    for (const k of ['rt-new', 'rt-gone', 'rt-unknown']) assert.ok(!(k in n), k + ' was noted');
-    noteMoveOutcome('rt-same', true, 1000e3);     // a later move that restarted it: cleared
-    assert.ok(!('rt-same' in accountmoving.notes()), 'a full restart left the note');
-  } finally { status.setSessionSource(null); }
 });
