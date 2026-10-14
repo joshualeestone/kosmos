@@ -1438,6 +1438,36 @@ test('#4934/#5967: after an ack-only refusal a content post from the same agent 
   });
 });
 
+test('#4934/#5967: in a room OVER the volume budget, an ack run yields the honest room_held, not ack_only (the "goes through straight away" promise must hold)', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // Fill the room to its arrival budget with real content (alternating senders so no PAIR
+    // cap fires), then a trailing run of acks. The ack trigger fires SOONER than the volume
+    // valve, but ack_only tells the agent a content post "goes through straight away" -- which
+    // is FALSE here, because the room is already over the volume cap, so a content post would
+    // be held too. The gate must defer to the genuine room_held hold, not promise delivery it
+    // cannot keep (challenge-loop round 9).
+    const posts = [];
+    for (let i = 0; i < ROOM_BUDGET / 2 - 3; i += 1) {
+      posts.push({ from: MEMBERS[i % 3], text: 'round ' + i + ' carries real content to review' });
+    }
+    posts.push({ from: 'leo', text: 'agreed' });
+    posts.push({ from: 'mara', text: 'ok' });
+    posts.push({ from: 'april', text: 'confirmed' });
+    seedPosts(now, posts);
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'an over-budget room let the fourth ack through');
+    assert.equal(out.code, 'room_held', 'an ack run in an over-budget room returned ack_only, whose "goes through straight away" copy is false when the room is actually volume-held');
+    // CONTROL: the identical trailing ack run in an UNDER-budget room IS ack_only (proving the
+    // room_held above is the over-budget behavior, not a blanket change).
+    wipeLog(); chat.resetForTests(); armSender('leo-discord'); arm([]);
+    seedPosts(now, [{ from: 'leo', text: 'agreed' }, { from: 'mara', text: 'ok' }, { from: 'april', text: 'confirmed' }]);
+    const under = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
+    assert.equal(under.code, 'ack_only', 'an ack run in an under-budget room must still be ack_only');
+  });
+});
+
 test('#4934/#5967: the CLI copy for ack_only tells the agent to post something new, never that the room is held', () => {
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   // The refusal copy branch for a code runs from its first case token to the next `;;`.

@@ -2310,6 +2310,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
+  let allowed = lim.roomArrivalsPerWindow;
+  if (lim.on && operator !== true && arrivals + charged > allowed) {
+    /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
+       same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
+       earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
+    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
+  }
   /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
      the volume valve below. The volume valve counts arrivals; two agents trading
      "agreed" and "acknowledged" about a settled decision fill a room with noise well
@@ -2337,8 +2344,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          #315's silent-blocked concern does not apply here: the agent is not held, it is
          told plainly to post content, which it can do at once.
      Nothing is kept (id null) and nothing is typed, exactly as #4967's refusal; only
-     the false hold is removed. */
-  if (lim.on && operator !== true) {
+     the false hold is removed.
+
+     GATED ON THE ROOM BEING UNDER ITS VOLUME BUDGET (review round 3, blind review). The
+     ack_only copy promises the next content post "goes through straight away"; that holds
+     only when the room is not already over the volume cap. If it IS over, even a content
+     post is refused by the volume valve below with the honest room_held, so emitting
+     ack_only here would be the same false promise this change exists to remove. So when the
+     room is at or over budget we skip this block and let the volume valve return the genuine
+     hold; the ack trigger fires only in a room still under its arrival budget. */
+  if (lim.on && operator !== true && arrivals + charged <= allowed) {
     const ackPosts = log
       .filter((m) => m && m.kind === 'post' && !m.operator && m.project === projectId && Date.parse(m.at) >= countFrom)
       .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -2358,13 +2373,6 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     }
   }
 
-  let allowed = lim.roomArrivalsPerWindow;
-  if (lim.on && operator !== true && arrivals + charged > allowed) {
-    /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
-       same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
-       earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
-    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
-  }
   if (operator !== true && arrivals + charged > allowed) {
     const because = lim.on
       ? 'This conversation went back and forth for a while without landing, '
