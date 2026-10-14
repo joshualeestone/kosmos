@@ -34953,6 +34953,11 @@ const ORG_FACE_R = 22;       // #4502: a face's radius (a 44px node), the cleara
    across, so a line at 12px still crosses its disc: it keeps a line off the middle, not off the face).
    #4499: hoisted to module scope so orgPlaceGated and orgFirstRingClear (the first-ring gate) can read it. */
 const ORG_LINE_CLEAR = 12;
+/* #4499: the extra px the first-ring floor seats roots apart BEYOND ORG_LINE_CLEAR, so the line still clears 12px
+   as DRAWN: the squeeze scales the whole chart down to ORG_SQUEEZE_MIN (0.7), and (12 + 6) * 0.7 = 12.6 >= 12.
+   The floor (orgPlace's MIN_SPAN) and the gate's fundability ceiling (orgPlaceGated's maxFundable) both derive
+   from it, so it lives here once rather than as a literal in each; a test pins the two derivations equal. */
+const ORG_LINE_MARGIN = 6;
 
 /* ---- the organic layer (#285) ----------------------------------------------
    Josh: "grab a hold of one of the nodes and move it and it moves the whole
@@ -35430,7 +35435,7 @@ function orgPlace(nodes, floored) {
      card). floored=false returns the proportional spans (what the chart drew before #4499); floored=true returns
      the floored spans. Slices stay contiguous and disjoint either way, so nothing new can cross. */
   const prop = roots.map((n) => (TAU * weigh(n)) / total);
-  const MIN_SPAN = Math.asin(Math.min(1, (ORG_LINE_CLEAR + 6) / ORG_R0));
+  const MIN_SPAN = Math.asin(Math.min(1, (ORG_LINE_CLEAR + ORG_LINE_MARGIN) / ORG_R0));
   let spans;
   if (!floored) {
     spans = prop;
@@ -35701,9 +35706,13 @@ function orgPlace(nodes, floored) {
   return { placed, maxR };
 }
 /* #4499: the least distance any first-ring root's hub line passes from another first-ring root's face. This is
-   the bug surface: an outer-lane root's line grazing an inner root's face. Deeper lines are kept at or above
-   ORG_LINE_CLEAR by the sector layout's own clear() step, so a sub-ORG_LINE_CLEAR line is always first-ring,
-   which is why orgPlaceGated can decide with this O(roots^2) check instead of a full O(n^2) scan. */
+   the bug surface #4499 targets: an outer-lane root's line grazing an inner root's face. orgPlaceGated funds a
+   chart from this cheap O(roots^2) first-ring measure rather than a full O(n^2) line-to-face scan. That is sound
+   only EMPIRICALLY: the guard (web.org-first-ring-clear-4499.test.js) checks over a representative sweep of
+   shapes that no chart this gate funds has ANY sub-ORG_LINE_CLEAR line by the full scan. It is NOT a structural
+   guarantee that deeper lines always clear: the sector layout's clear() step can fall back to a loose placement
+   that enforces no line clearance, so a deeper sub-ORG_LINE_CLEAR line is possible in general, and the guard,
+   not the layout, is what rules it out for the funded set. */
 function orgFirstRingClear(placed) {
   const roots = [];
   for (const s of placed.values()) if (!s.node.parent) roots.push({ x: Math.cos(s.ang) * s.r, y: Math.sin(s.ang) * s.r });
@@ -35724,21 +35733,25 @@ function orgFirstRingClear(placed) {
    measured, not estimated: lay the chart out both ways and keep the floored one only when it is size-safe. It is
    all-or-nothing per chart: a chart that cannot be cleared size-safely (two heavy roots, or many roots with one
    heavy root) keeps the proportional layout and its first-ring clearance is handled by #4499's size card. The
-   second layout runs only when a chart actually has the bug and has few enough roots to seat the floor, so an
-   unaffected chart pays one layout pass, not two. */
+   second layout runs only when a chart's first-ring measure actually trips the bug threshold (preClear below
+   ORG_LINE_CLEAR) and the chart has few enough roots to seat the floor, so a chart with no sub-ORG_LINE_CLEAR
+   first-ring line pays one layout pass, not two. A chart that trips the threshold but cannot be helped (a flat
+   fleet, whose floored layout equals its proportional one) does pay the second, diagnostic, pass. */
 function orgPlaceGated(nodes) {
   const pre = orgPlace(nodes, false);
   const preClear = orgFirstRingClear(pre.placed);
   let roots = 0;
   for (const s of pre.placed.values()) if (!s.node.parent) roots += 1;
-  const maxFundable = Math.floor((Math.PI * 2) / Math.asin(Math.min(1, (ORG_LINE_CLEAR + 6) / ORG_R0)));
+  const maxFundable = Math.floor((Math.PI * 2) / Math.asin(Math.min(1, (ORG_LINE_CLEAR + ORG_LINE_MARGIN) / ORG_R0)));
   // Only a chart WITH the bug (a sub-ORG_LINE_CLEAR first-ring line), few enough roots to seat the floor, is a candidate.
   if (preClear >= ORG_LINE_CLEAR || roots > maxFundable) return { placed: pre.placed, maxR: pre.maxR, funded: false };
   const flo = orgPlace(nodes, true);
   const floClear = orgFirstRingClear(flo.placed);
-  // Fund (use the floored layout) only when it is measured size-safe, clears ORG_LINE_CLEAR, and is no worse than
-  // the proportional first-ring clearance. Otherwise keep the proportional layout.
-  const funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR && floClear >= preClear - 0.05;
+  // Fund (use the floored layout) only when it is measured size-safe and clears ORG_LINE_CLEAR. Otherwise keep
+  // the proportional layout. Clearing ORG_LINE_CLEAR already makes the floored first ring no worse than the
+  // proportional one: the early-out above guarantees preClear < ORG_LINE_CLEAR, so floClear >= ORG_LINE_CLEAR is
+  // always an improvement (an explicit floClear >= preClear clause here would be vacuous).
+  const funded = flo.maxR <= pre.maxR * 1.01 + 1 && floClear >= ORG_LINE_CLEAR;
   return funded ? { placed: flo.placed, maxR: flo.maxR, funded: true } : { placed: pre.placed, maxR: pre.maxR, funded: false };
 }
 
