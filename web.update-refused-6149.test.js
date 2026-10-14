@@ -38,6 +38,8 @@ test('a locked refusal names the locked path and gives the unlock line for every
   assert.ok(t.startsWith('<b>The update did not take.</b>The installer stopped (code 1). Kosmos is still on 0.7.48.'), t);
   assert.match(t, /Part of it is locked: <code>\/k\/app\/engine\/x\.js<\/code>\. Nothing was removed\./);
   assert.match(t, /<code>chflags -R nouchg,nouappnd '\/k\/app' '\/k\/runtime'<\/code>/);
+  assert.match(t, /If it is still refused, the lock was set by an administrator, who can clear it with: <code>sudo chflags -R noschg,nosappnd '\/k\/app' '\/k\/runtime'<\/code>/,
+    'the administrator line for the two flags a person cannot clear, as the installer prints it');
   assert.ok(t.endsWith(' The installer\'s notes are at <code>/k/logs/install.log</code>.'), 'the notes stay last');
 });
 

@@ -1365,6 +1365,7 @@ install_kosmos() {
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
+  # A refusal also leaves logs/update-refused for the board (#6149 point 8); a swap that goes through removes it.
   local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _stuck_names="" _found="" _refusedf="" _p="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
   # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a

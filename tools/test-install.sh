@@ -1250,8 +1250,13 @@ chk "#4455: KOSMOS_READONLY_APP=0 still leaves the app writable (the off switch)
 chk "update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 # #4455: a second update, the switch UNSET, over the app the =0 update above left WRITABLE. That is the shape
 # every install from before this release has at its first update afterwards. It must end read-only.
+# #6149 point 8: a refusal record left by an earlier refused update is removed once a swap goes through. Planted here,
+# checked after this update (the CONTROL proves the plant landed, so its absence afterwards is the swap's doing).
+mkdir -p "$SB/home2/logs" && printf 'why=locked\nat=%s\nts=2026-01-01T00:00:00Z\npart=app\n' "$SB/home2/app/x" > "$SB/home2/logs/update-refused"
+chk "CONTROL #6149: a stale refusal record is planted before the update" "[ -f \"$SB/home2/logs/update-refused\" ]"
 RC=0; cat "$SETUP" | HOME="$SBH" KOSMOS_HOME_APP_DIR="$SBH/Applications" KOSMOS_APP_DIR= KOSMOS_SYS_APP_DIR="$SYS_OK" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" env -u KOSMOS_READONLY_APP sh > "$SB/probe1c.log" 2>&1 || RC=$?
 chk "probe second update exits 0" "rc_ok $RC"
+chk "#6149: an update that goes through removes the earlier refusal record" "[ ! -e \"$SB/home2/logs/update-refused\" ]"
 chk "#4455: an update over a writable app leaves the new app read-only" "[ -f \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/server.js\" ] && [ ! -w \"$SB/home2/app/engine\" ] && [ ! -w \"$SB/home2/app\" ]"
 chk "second update did not open the dashboard" "[ \"\$(wc -l < \"$SB/opened.log\" | tr -d ' ')\" = \"1\" ]"
 KOSMOS_HOME="$SB/home2" "$SB/bin2/kosmos" stop > /dev/null 2>&1 || true
