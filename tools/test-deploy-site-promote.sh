@@ -17,7 +17,7 @@
 set -uo pipefail
 # kosmos#6149: these fixtures are 0.6.x builds, older than the setup floor (0.7.45), so the floor is lowered here.
 # tools/test-setup-floor-6149.sh tests the floor itself; this file tests deploy-site's other behaviour.
-export KOSMOS_SETUP_FLOOR=0.0.0
+export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 DEPLOY="$HERE/deploy-site.sh"
@@ -540,5 +540,23 @@ read -r S34 L34 <<<"$(make_scenario)"
 run_deploy "$S34" "$L34" --promote
 { [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start"; } \
   && pass "#5589: a pointer answering 5xx through every retry counts as unread (exit 75)" || bad "#5589 persistent 503 (rc=$RC) out=$out"
+# 35) kosmos#6149: with the REAL setup floor (0.7.45; this file lowers it for its 0.6.x fixtures), the committed
+#     0.6.31 pointer is refused before anything is deployed: LIVE still serves OLD. Arm 1 is the control (the same
+#     scenario deploys under the lowered floor).
+read -r S35 L35 <<<"$(make_scenario)"
+out="$(env -u KOSMOS_SETUP_FLOOR_TEST -u KOSMOS_SETUP_FLOOR_LOWER PATH="$BIN:$PATH" LIVE_DIR="$L35" HOST_URL="$HOSTURL" \
+  KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S35" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+  bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)" && has "$out" "older than 0.7.45"; } \
+  && pass "#6149: the real floor refuses a committed pointer below 0.7.45" || bad "#6149 real floor (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L35/dist/latest.json")" = "$OLD" ] \
+  && pass "#6149: the refusal deployed nothing (LIVE still serves $OLD)" || bad "#6149 refusal still changed LIVE"
+# 36) kosmos#6149: a committed pointer whose version is not its tarball's is refused (the tarball is what installs).
+read -r S36 L36 <<<"$(make_scenario)"
+write_ptr "$S36/dist/latest.json" "$NEW" "$(sha_of "$L36/dist/$NEWART")" "kosmos-0.6.29-arm64.tar.gz"
+git -C "$S36" add -A && git -C "$S36" commit -q -m "a pointer naming another version's tarball"
+run_deploy "$S36" "$L36" --promote
+{ [ "$RC" = 1 ] && has "$out" "says version $NEW but names artifact kosmos-0.6.29-arm64.tar.gz"; } \
+  && pass "#6149: a pointer naming another version's tarball is refused" || bad "#6149 version/artifact mismatch (rc=$RC) out=$out"
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

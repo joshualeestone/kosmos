@@ -5,7 +5,7 @@
 # 0.7.49 gets past the floor). deploy-site.sh's call is pinned by its own line below (it needs live hosts to run).
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-unset KOSMOS_SETUP_FLOOR   # the real floor, whatever the caller exported
+unset KOSMOS_SETUP_FLOOR_TEST KOSMOS_SETUP_FLOOR_LOWER   # the real floor, whatever the caller exported
 T="$(mktemp -d "${TMPDIR:-/tmp}/setup-floor-test.XXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 fail=0
@@ -24,22 +24,35 @@ for v in "" 0.7.49-rc1 v0.7.49 0.7..49 .7.49 0.7.49. garbage; do
 done
 out="$(kosmos_setup_floor_ok "the staging pointer" 0.7.44 2>&1)"
 case "$out" in *"0.7.44, older than 0.7.45"*) pass "the refusal names the version and the floor";; *) bad "refusal text: $out";; esac
-out="$(KOSMOS_SETUP_FLOOR=0.0.0 bash -c '. "$1"; kosmos_setup_floor_ok t 0.6.30' _ "$HERE/lib/setup-floor.sh" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && pass "a lowered floor (test fixtures) lets 0.6.30 through" || bad "lowered floor still refused 0.6.30"
+lowered() { env "$@" bash -c '. "$1"; kosmos_setup_floor_ok t 0.6.30' _ "$HERE/lib/setup-floor.sh" 2>&1; }
+out="$(lowered KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0)"; rc=$?
+[ "$rc" = 0 ] && pass "a lowered floor (both test variables) lets 0.6.30 through" || bad "lowered floor still refused 0.6.30"
 case "$out" in *"LOWERED"*) pass "a lowered floor says so";; *) bad "a lowered floor was silent: $out";; esac
+lowered KOSMOS_SETUP_FLOOR_LOWER=0.0.0 >/dev/null && bad "LOWER alone lowered the floor" || pass "KOSMOS_SETUP_FLOOR_LOWER alone keeps the real floor"
+lowered KOSMOS_SETUP_FLOOR_TEST=1 >/dev/null && bad "TEST alone lowered the floor" || pass "KOSMOS_SETUP_FLOOR_TEST alone keeps the real floor"
+lowered KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=abc >/dev/null && bad "a non-numeric LOWER lowered the floor" || pass "a non-numeric KOSMOS_SETUP_FLOOR_LOWER keeps the real floor"
+
+# The pointer check: the artifact name's version must be the pointer's, and both above the floor.
+ptr() { printf '{"version":"%s","sha256":"bb","artifact":"%s"}' "$1" "$2"; }
+kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.49-arm64.tar.gz)" 2>/dev/null && pass "a 0.7.49 pointer naming its own tarball passes" || bad "a matching 0.7.49 pointer was refused"
+kosmos_setup_floor_pointer_ok t "$(ptr 0.7.49 kosmos-0.7.40-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.49 pointer naming a 0.7.40 tarball passed" || pass "a pointer whose tarball is older than its version is refused"
+kosmos_setup_floor_pointer_ok t "$(ptr 0.7.44 kosmos-0.7.44-arm64.tar.gz)" 2>/dev/null && bad "a 0.7.44 pointer passed" || pass "a 0.7.44 pointer is refused"
+kosmos_setup_floor_pointer_ok t '{"sha256":"bb"}' 2>/dev/null && bad "a pointer with no version passed" || pass "a pointer with no version is refused"
 
 # promote-channel.sh (mac): a staging pointer below the floor is refused, and prod's latest.json is untouched.
 site() { rm -rf "$T/site"; mkdir -p "$T/site/dist"; printf '%s' '{"version":"0.7.40","sha256":"aa"}' > "$T/site/dist/latest.json"; }
 site; printf '%s' '{"version":"0.7.44","sha256":"bb","artifact":"kosmos-0.7.44-arm64.tar.gz"}' > "$T/site/dist/latest-staging.json"
-before="$(cat "$T/site/dist/latest.json")"
+before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "promote-channel refuses 0.7.44 (rc $rc)" || bad "promote-channel accepted 0.7.44"
 case "$out" in *"setup floor"*) pass "promote-channel's refusal is the floor's";; *) bad "promote-channel refused for another reason: $out";; esac
-[ "$(cat "$T/site/dist/latest.json")" = "$before" ] && pass "prod's latest.json is untouched" || bad "latest.json changed"
+[ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "nothing in dist/ changed (files and bytes)" || bad "dist/ changed"
 # CONTROL: 0.7.49 gets past the floor (it may stop later for its own reasons, never the floor's).
 site; printf '%s' '{"version":"0.7.49","sha256":"bb","artifact":"kosmos-0.7.49-arm64.tar.gz"}' > "$T/site/dist/latest-staging.json"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
-case "$out" in *"setup floor"*) bad "CONTROL: promote-channel's floor refused 0.7.49: $out";; *) pass "CONTROL: promote-channel's floor lets 0.7.49 by";; esac
+case "$out" in *"setup floor"*) bad "CONTROL: promote-channel's floor refused 0.7.49: $out";;
+  *"refusing to promote a missing artifact"*) pass "CONTROL: promote-channel gets past the floor to its next check (the missing artifact)";;
+  *) bad "CONTROL: promote-channel stopped somewhere unexpected: $out";; esac
 
 # publish-staging-pointer.sh: refused below the floor before any write.
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc=$?
@@ -47,10 +60,11 @@ site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc
 case "$out" in *"setup floor"*) pass "publish-staging's refusal is the floor's";; *) bad "publish-staging refused for another reason: $out";; esac
 [ ! -e "$T/site/dist/latest-staging.json" ] && pass "no staging pointer was written" || bad "a staging pointer was written"
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.49 2>&1)"
-case "$out" in *"setup floor"*) bad "CONTROL: publish-staging's floor refused 0.7.49: $out";; *) pass "CONTROL: publish-staging's floor lets 0.7.49 by";; esac
+case "$out" in *"setup floor"*) bad "CONTROL: publish-staging's floor refused 0.7.49: $out";;
+  *"does not exist - nothing to point at"*) pass "CONTROL: publish-staging gets past the floor to its next check (the missing tarball)";;
+  *) bad "CONTROL: publish-staging stopped somewhere unexpected: $out";; esac
 
-# deploy-site.sh: both committed Mac pointers go through the floor before anything is served.
-n="$(grep -c 'kosmos_setup_floor_ok "the committed dist/latest' "$HERE/deploy-site.sh")"
-[ "$n" = 2 ] && pass "deploy-site checks both committed Mac pointers" || bad "deploy-site floor calls: $n (want 2)"
+# deploy-site.sh is run for real by tools/test-deploy-site-promote.sh (its kosmos#6149 arms: the real floor refuses
+# a committed pointer below it with nothing deployed, and a pointer whose tarball is older than its version).
 
 [ "$fail" = 0 ] && echo "setup-floor: all arms passed" || { echo "setup-floor: FAILED"; exit 1; }

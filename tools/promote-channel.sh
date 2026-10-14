@@ -133,7 +133,7 @@ V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$
 # kosmos#6149 point 1: prod must never be pointed at a Mac build older than the setup floor (its /setup comes with it).
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
-  kosmos_setup_floor_ok "the staging pointer being promoted" "$V" || exit 1
+  kosmos_setup_floor_pointer_ok "the staging pointer being promoted" "$(cat "$SNAP")" || exit 1
 fi
 
 # Defense in depth on a prod path: artifact/manifest names come from the staging pointer and
