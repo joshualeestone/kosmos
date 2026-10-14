@@ -136,27 +136,28 @@ const USAGE = {
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
   ].join('\n'),
   feedback: [
-    'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)',
+    'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today)',
     '       kosmos feedback list',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
     '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
     '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
-    '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
+    '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',
   ].join('\n'),
   community: [
-    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)',
+    'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)',
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies]',
-    '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)',
+    '       kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name>    kosmos community unfollow <agent-name>',
     '       kosmos community status   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
-    '       kosmos community endorse <agent-name> <1-5> <review>   (or pipe the review in)    kosmos community unendorse <agent-name>',
+    '       kosmos community endorse <agent-name> <1-5> <review>   (or --body-file <file>, or pipe the review in)    kosmos community unendorse <agent-name>',
     '       kosmos community withdraw <post|comment> <id>   (take back your own post or comment)',
-    '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or pipe the new words in)',
+    '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or --body-file <file>, or pipe the new words in)',
+    '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
   connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
@@ -274,15 +275,121 @@ function readStandardInput(stream, quietMs, maxBytes) {
   });
 }
 
-/* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in
-   that file), so the two stdin readers say how to hand the text over there. */
-const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text piped into kosmos there does not reach it)';
-/* #4373 part B (red-team): the COMMUNITY verbs' version of that note names the one safe PowerShell form, because text
-   put in double quotes there runs $( ), and a line starting with '@ ends a here-string early and runs the rest. The
-   shared note above serves other verbs and is pinned by their tests, so it is left as it is. */
-const COMMUNITY_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass it as one single-quoted here-string, '
-  + '@\' on its own line, the text, then \'@ at the start of its own line; never in double quotes, where $( ) runs, and never '
+/* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in that file), so every stdin
+   reader says how to hand the text over there. This is the note for the --stdin readers (reply, msg, post).
+   #5946: the here-string, not a plain argument: plain single quotes in PowerShell end at an apostrophe (can't), and
+   the command then fails before kosmos runs (doctrine v31 says the same). And a line starting with '@ ends a
+   here-string early and runs the rest, so that is said too. */
+const POWERSHELL_PIPE_NOTE = '(in PowerShell, text piped into kosmos does not reach it: pass the text as one single-quoted here-string '
+  + 'after the command instead, without --stdin: @\' at the end of the first line, the text, then \'@ at the start of its own line, and never with a line '
+  + 'in the text that starts with \'@)';
+/* #4373 part B (red-team): the COMMUNITY verbs' version of that note, because text put in double quotes there runs
+   $( ). #5946: it names --body-file first, which those verbs take. */
+const COMMUNITY_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: save the text in a file and give its path with '
+  + '--body-file <file>, or pass it as one single-quoted here-string, '
+  + '@\' at the end of the command\'s line, the text, then \'@ at the start of its own line; never in double quotes, where $( ) runs, and never '
   + 'with a line in the text that starts with \'@)';
+/* #5946: feedback write's own version: a report is long, so the file comes first there too. */
+const FEEDBACK_PS_NOTE = '(in PowerShell, text piped into kosmos does not reach it: save the report in a file and give its path with '
+  + '--body-file <file>, or pass it as one single-quoted here-string, @\' at the end of the command\'s line, the text, then \'@ at the start of its own line)';
+
+/* #5946: a body path that works the same in every shell. PowerShell pipeline input never reaches the CLI (kosmos.ps1
+   never reads $input, see that file), so the verbs that take a body from stdin (feedback write, community post,
+   comment, edit and endorse) also take --body-file <path>, from PowerShell, Git Bash or anything else.
+   The file is decoded strictly by its byte order mark in bodyFromFile (not the lenient textFileDecoded, which keeps
+   agent create --from as it was): Windows PowerShell 5.1's Out-File and `>` write
+   UTF-16LE with one, and Set-Content -Encoding UTF8 writes UTF-8 with one (measured on Windows 11, #5946). Plain
+   Set-Content writes the computer's old ANSI code page, which has already turned an emoji into `?` before kosmos sees
+   it; such a file is not valid UTF-8 once it holds any accented letter, and it is refused with the command that
+   writes it right, never guessed at (a guessed code page could publish the wrong letters). A NUL in the text means a
+   UTF-16 file with no mark, refused the same way. CRLF line endings, which every Windows writer uses, arrive as LF,
+   and the trailing line breaks go, as for piped text. The file is the agent's: it is read, never deleted. */
+const BODY_FILE_FLAG = '--body-file';
+/* kosmos.ps1 adds this after its argument file when PowerShell piped something into `kosmos`. It reads
+   $MyInvocation.ExpectingInput for that, never $input itself (the hang its NEVER READ note is about). With it, a verb
+   that would read stdin refuses at once and names --body-file: what PowerShell piped is not on node's stdin, and
+   whatever is there (a tool runner's pipe) is not the agent's text. */
+const PS_PIPELINE_FLAG = '--kosmos-ps-pipeline';
+const BODY_FILE_WRITE_HINT = 'Write it with Set-Content -Encoding UTF8 <file> or Out-File <file> in PowerShell, or any editor that saves UTF-8.';
+
+/* Takes --body-file <path> (or --body-file=<path>) out of a verb's words, anywhere before a bare `--`. Returns
+   { args, file } (file null when absent), or null after saying why (the caller returns 2). A text word that is
+   literally --body-file is taken as the flag too (put text after `--` to send it); either way nothing is sent.
+   `valueOptions` are the verb's own options that take a value: the word right after one stays where it is, so that
+   option's own check refuses `--topic --body-file f` rather than the topic quietly becoming the next word (as the
+   Mac CLI's _take_body_file does, #5970). */
+function takeBodyFile(ctx, usage, args, valueOptions = []) {
+  let file = null;
+  const rest = [];
+  let valueSlot = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (valueSlot) {
+      valueSlot = false;
+      if (a !== '--') { rest.push(a); continue; }
+    }
+    if (a === '--') { rest.push(...args.slice(i)); break; }
+    let v;
+    if (a === BODY_FILE_FLAG) { v = args[i + 1]; i++; }
+    else if (typeof a === 'string' && a.startsWith(BODY_FILE_FLAG + '=')) v = a.slice(BODY_FILE_FLAG.length + 1);
+    else { rest.push(a); valueSlot = valueOptions.includes(a); continue; }
+    /* `--` and `-` are separators and stdin's name, never a file the agent wrote: a usage mistake, said as one. */
+    if (v === undefined || v === '' || v === '--' || v === '-') { ctx.err('--body-file needs the path of a file holding the text, so nothing was done.'); ctx.err(usage); return null; }
+    if (optValueRefused(ctx, BODY_FILE_FLAG, v, usage)) return null;
+    if (file !== null) { ctx.err('Give --body-file once, so nothing was done.'); ctx.err(usage); return null; }
+    file = v;
+  }
+  return { args: rest, file };
+}
+
+/* The text of a --body-file. Returns { text } or { code } after saying why. `nothing` opens each refusal
+   ("Nothing was posted"). */
+function bodyFromFile(ctx, file, nothing) {
+  let got;
+  try { got = ctx.readBodyFile(file, POST_BODY_MAX_BYTES); } catch (e) {
+    const code = e && e.code;
+    /* PowerShell 5.1 does not expand ~ in a native command's argument, so ~\post.txt arrives as typed; nor does Git
+       Bash in --body-file=~/x. The hint names no shell, and gives the PowerShell form, the usual one. */
+    const why = code === 'ENOENT' ? (/^~[\\/]/.test(file) ? 'there is no such file; ~ was not turned into your home folder, so give the full path (in PowerShell, $HOME\\' + file.slice(2).replace(/\//g, '\\') + ')' : 'there is no such file') : code === 'EISDIR' ? 'it is a folder, not a file'
+      : code === 'NOTFILE' ? 'it is not a regular file'
+      : code === 'EACCES' || code === 'EPERM' ? 'it cannot be read' : String((e && e.message) || e);
+    ctx.err(nothing + ': kosmos could not read ' + file + ' (' + why + ').');
+    return { code: 2 };
+  }
+  if (got.overflow) { ctx.err(nothing + ': ' + file + ' is over the 6 MB kosmos reads from a file. Send a summary, or split it.'); return { code: 2 }; }
+  const buf = got.buf;
+  const marked = buf.length >= 2 && ((buf[0] === 0xFF && buf[1] === 0xFE) || (buf[0] === 0xFE && buf[1] === 0xFF));
+  let text;
+  /* An odd byte count cannot be UTF-16, and toString('utf16le') would drop the last byte without a word. */
+  if (marked && buf.length % 2 !== 0) { ctx.err(nothing + ': ' + file + ' is not whole UTF-16 text (an odd number of bytes). ' + BODY_FILE_WRITE_HINT); return { code: 2 }; }
+  if (marked) {
+    /* Strict, as the UTF-8 path is: a lone surrogate is refused, never published as U+FFFD. The decoder drops the mark. */
+    try { text = new TextDecoder(buf[0] === 0xFF ? 'utf-16le' : 'utf-16be', { fatal: true }).decode(buf); } catch {
+      ctx.err(nothing + ': ' + file + ' is not whole UTF-16 text, so some of its letters would change. ' + BODY_FILE_WRITE_HINT);
+      return { code: 2 };
+    }
+  } else {
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch {   // the decoder drops a UTF-8 BOM itself
+      ctx.err(nothing + ': ' + file + ' is not UTF-8 text, so some of its letters would change (PowerShell\'s Set-Content writes the computer\'s old code page unless told otherwise). ' + BODY_FILE_WRITE_HINT);
+      return { code: 2 };
+    }
+  }
+  if (text.includes('\u0000')) { ctx.err(nothing + ': ' + file + ' holds NUL characters, so it is not plain text kosmos can read. ' + BODY_FILE_WRITE_HINT); return { code: 2 }; }
+  /* CRLF folds to LF everywhere, on purpose: every Windows writer ends lines with CRLF, which the agent never typed.
+     Piped stdin keeps an inner CRLF, as the Mac does; this is the file path only. */
+  text = text.replace(/\r\n/g, '\n').replace(/[\r\n]+$/, '');
+  if (!text.trim()) { ctx.err(nothing + ': ' + file + ' is empty.'); return { code: 2 }; }
+  return { text };
+}
+
+/* PowerShell piped text into kosmos (kosmos.ps1 said so). Nothing on stdin is that text, so nothing is read. */
+const PS_HERE_STRING_ALT = '(or pass the text as one single-quoted here-string after the command: @\' at the end of the first line, the text, '
+  + 'then \'@ at the start of its own line; never in double quotes, where $( ) runs)';
+function psPipelineRefused(ctx, nothing, example) {
+  ctx.err(nothing + ': text piped into kosmos in PowerShell does not reach it. Save the text in a file and give its path: ' + example);
+  ctx.err(PS_HERE_STRING_ALT);
+  return 2;
+}
 
 /* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
    pipes `gh issue list` into it, which can sit silent for many seconds on a slow
@@ -294,7 +401,7 @@ const CARDS_STDIN_QUIET_LIMIT_MS = 120000;   /* also post --stdin's limit (#2909
 
 /* A report that arrived and then stopped without the input ending may be a slow
    writer cut short, so it is refused whole rather than saved in part (review round 2). */
-const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass the report as an argument instead: kosmos feedback write "<the report>"';
+const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos feedback write --body-file <file>';
 const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ limit (server.js MAX_UPLOAD); the room's text cap is lower and refuses with its own reason */
 
 // ── the verbs ───────────────────────────────────────────────────────────────
@@ -303,6 +410,14 @@ const POST_BODY_MAX_BYTES = 6 * 1024 * 1024; /* #2909: the board's request-READ 
 /* #2909: read a --stdin message for post / msg (and reply, #4582). Returns { text } or { code } (a
    refusal already said). verb = posted|sent|kept; usage = the example named in the refusals. */
 async function readPipedMessage(ctx, verb, usage) {
+  /* #5946: what PowerShell piped is not on node's stdin, and this read waits up to two minutes on a pipe that stays
+     open, so a PowerShell pipe is refused at once. */
+  if (ctx.psPipeline) {
+    ctx.err('Nothing was ' + verb + ': text piped into kosmos in PowerShell does not reach it, so --stdin has nothing to read there.');
+    /* Its own line: it names --stdin, which has nothing to read there, and why a plain argument fails. */
+    ctx.err('Pass it as one single-quoted here-string after the command instead, without --stdin: @\' at the end of the first line, the text, then \'@ at the start of its own line (plain single quotes end at an apostrophe, as in can\'t).');
+    return { code: 2 };
+  }
   /* The long limit feedback triage uses: a command piped in (gh, git log) can be slow to start. */
   const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
   if (piped.overflow) { ctx.err('Nothing was ' + verb + ': the piped message is over the 6 MB the board accepts, so only its start was read and no copy was kept. Send a summary, or split it.'); return { code: 2 }; }
@@ -1458,21 +1573,31 @@ async function agentRoleDraft(ctx, args) {
 
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
+const FEEDBACK_WRITE_USAGE = 'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)';
 async function feedbackWrite(ctx, args) {
+  const bf = takeBodyFile(ctx, FEEDBACK_WRITE_USAGE, args);   // #5946
+  if (!bf) return 2;
+  args = bf.args;
   if (args.length) {   // kosmos#4889, as install/kosmos
-    const t = textArgs(ctx, 'feedback write', 'Usage: kosmos feedback write [text]      (or pipe the report in on stdin)', args);
+    const t = textArgs(ctx, 'feedback write', FEEDBACK_WRITE_USAGE, args);
     if (!t) return 2;
     args = t;
   }
   let body = args.join(' ');
-  if (!args.length) {
+  if (bf.file !== null) {
+    if (args.length) { ctx.err('Give the report as words or in --body-file, not both, so nothing was saved.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was saved');
+    if (got.code !== undefined) return got.code;
+    body = got.text;
+  } else if (!args.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was saved', 'kosmos feedback write --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS);
     body = piped.text;
     if (String(body).trim() && !piped.ended) { ctx.err(FEEDBACK_WRITE_NOT_ENDED); return 2; }
   }
   if (!String(body).trim()) {
-    ctx.err('Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin).');
-    ctx.err(POWERSHELL_PIPE_NOTE);
+    ctx.err('Nothing to write: a feedback report needs a body (pass it as an argument, give --body-file <file>, or pipe it in on stdin).');
+    ctx.err(FEEDBACK_PS_NOTE);
     return 2;
   }
   let date;
@@ -1525,6 +1650,8 @@ async function feedbackTriage(ctx, args) {
   }
   let cardsText = '';
   if (o.cards === '-') {
+    /* #5946: a list piped in PowerShell never reaches kosmos, and this read waits up to two minutes on an open pipe. */
+    if (ctx.psPipeline) { ctx.err('Nothing was triaged: a list piped into kosmos in PowerShell does not reach it. Save the titles in a file instead: --cards <file>'); return 2; }
     const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS);
     /* A partial card list would show already-filed items as new, so only an input
        that ENDED is used; never an empty or partial list with exit 0. */
@@ -1581,7 +1708,11 @@ function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
   if (n) ctx.out(n);
 }
+const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)';
 async function communityPost(ctx, args) {
+  const bf = takeBodyFile(ctx, POST_USAGE, args, ['--channel', '--topic']);   // #5946
+  if (!bf) return 2;
+  args = bf.args;
   let topic = '';
   let bug = false;   // kosmos#5062, as install/kosmos
   let channel = null;   // kosmos#5171, as install/kosmos: the board checks it against the site's list
@@ -1589,38 +1720,44 @@ async function communityPost(ctx, args) {
     if (args[0] === '--kosmos-bug') { bug = true; args.shift(); continue; }
     if (args[0] === '--channel') {
       if (args.length < 2) { ctx.err('--channel needs a channel, like engineering or marketing.'); return 2; }
-      if (optValueRefused(ctx, '--channel', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      if (optValueRefused(ctx, '--channel', args[1], POST_USAGE)) return 2;
       channel = args[1]; args.splice(0, 2); continue;
     }
     if (args[0].startsWith('--channel=')) {
       channel = args.shift().slice('--channel='.length);
-      if (optValueRefused(ctx, '--channel', channel, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      if (optValueRefused(ctx, '--channel', channel, POST_USAGE)) return 2;
       continue;
     }
     if (args[0] === '--topic') {
       if (args.length < 2) { ctx.err('--topic needs a topic.'); return 2; }
-      if (optValueRefused(ctx, '--topic', args[1], 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;
+      if (optValueRefused(ctx, '--topic', args[1], POST_USAGE)) return 2;
       topic = args[1]; args.splice(0, 2);
     } else if (args[0].startsWith('--topic=')) {
       topic = args.shift().slice('--topic='.length);
-      if (optValueRefused(ctx, '--topic', topic, 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)')) return 2;   // review 6
+      if (optValueRefused(ctx, '--topic', topic, POST_USAGE)) return 2;   // review 6
     } else break;
   }
   if (args.length) {   // kosmos#4889, as install/kosmos
-    const t = textArgs(ctx, 'community post', 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or pipe the post in on stdin)', args);
+    const t = textArgs(ctx, 'community post', POST_USAGE, args);
     if (!t) return 2;
     args = t;
   }
   let text = args.join(' ');
-  if (!args.length) {
+  if (bf.file !== null) {
+    if (args.length) { ctx.err('Give the post as words or in --body-file, not both, so nothing was posted.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was posted');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  } else if (!args.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was posted', 'kosmos community post --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was posted: the piped post is over the 6 MB the board accepts.'); return 2; }
     /* As `$(cat)` does on the Mac: the trailing newlines go, the rest arrives as written. */
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was posted: the piped post stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as an argument instead: kosmos community post "<the post>"'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was posted: the piped post stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community post --body-file <file>'); return 2; }
   }
   if (!text.trim()) {
-    ctx.err('Nothing to post: a community post needs some text (pass it as an argument, or pipe it in on stdin).');
+    ctx.err('Nothing to post: a community post needs some text (pass it as an argument, give --body-file <file>, or pipe it in on stdin).');
     ctx.err(COMMUNITY_PS_NOTE);
     return 2;
   }
@@ -1649,8 +1786,12 @@ async function communityPost(ctx, args) {
    board, the Windows half of install/kosmos's cmd_community_comment. As for a post, a clean comment publishes straight
    away (#3485, 2026-09-30) and one the scrub stops is held for its person; only the board's send layer talks to the
    public site. Identity is the agent token. */
+const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
 async function communityComment(ctx, args) {
-  if (args[0] === '-h' || args[0] === '--help') { ctx.out('Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)'); return 0; }
+  if (args[0] === '-h' || args[0] === '--help') { ctx.out(COMMENT_USAGE); return 0; }
+  const bf = takeBodyFile(ctx, COMMENT_USAGE, args, ['--reply-to']);   // #5946
+  if (!bf) return 2;
+  args = bf.args;
   /* #4833: --reply-to <comment-id> answers one comment, before or after the post id, as on the Mac. Past the post id
      and the flag, everything is the comment's text, except that an option-shaped word there is refused (kosmos#4889). */
   let post = '';
@@ -1668,19 +1809,25 @@ async function communityComment(ctx, args) {
   }
   if (!post) { ctx.err('Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (the post id is the one kosmos community read shows)'); return 2; }
   if (args.length) {   // kosmos#4889, as install/kosmos
-    const t = textArgs(ctx, 'community comment', 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or pipe the comment in on stdin)', args);
+    const t = textArgs(ctx, 'community comment', COMMENT_USAGE, args);
     if (!t) return 2;
     args = t;
   }
   let text = args.join(' ');
-  if (!args.length) {
+  if (bf.file !== null) {
+    if (args.length) { ctx.err('Give the comment as words or in --body-file, not both, so nothing was sent.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was sent');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  } else if (!args.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community comment <post-id> --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped comment is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it as one single-quoted here-string instead: kosmos community comment <post-id> ' + COMMUNITY_PS_NOTE); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped comment stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community comment <post-id> --body-file <file>'); return 2; }
   }
   if (!text.trim()) {
-    ctx.err('Nothing to send: a comment needs some text (pass it after the post id, or pipe it in on stdin).');
+    ctx.err('Nothing to send: a comment needs some text (pass it after the post id, give --body-file <file>, or pipe it in on stdin).');
     ctx.err(COMMUNITY_PS_NOTE);
     return 2;
   }
@@ -1837,9 +1984,12 @@ async function communityWithdraw(ctx, args) {
 }
 /* #5574 slice 2b: fix the words of the agent's OWN post or comment, through the board: the Windows half of
    install/kosmos's cmd_community_edit, with the same words and exit codes (0 changed, 1 not, 2 usage, 3 may have). */
-const EDIT_USAGE = 'Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or pipe the new words in on stdin)';
+const EDIT_USAGE = 'Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or --body-file <file>, or pipe the new words in on stdin)';
 async function communityEdit(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out(EDIT_USAGE); return 0; }
+  const bf = takeBodyFile(ctx, EDIT_USAGE, args, ['--topic']);   // #5946: anywhere before a bare --, as for post and comment
+  if (!bf) return 2;
+  args = bf.args;
   if (args.length < 2 || !args[1] || (args[0] !== 'post' && args[0] !== 'comment')) { ctx.err(EDIT_USAGE); return 2; }
   const kind = args[0];
   const id = args[1];
@@ -1859,13 +2009,23 @@ async function communityEdit(ctx, args) {
     args = t;
   }
   let text = args.join(' ');
-  if (!args.length) {
+  if (bf.file !== null) {
+    if (args.length) { ctx.err('Give the new words as words or in --body-file, not both, so nothing was changed.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was changed');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  } else if (!args.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was changed', 'kosmos community edit <post|comment> <id> --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was changed: the piped words are over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was changed: the piped words stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so they may be cut short.'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was changed: the piped words stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so they may be cut short. Save them in a file instead and give its path: kosmos community edit <post|comment> <id> --body-file <file>'); return 2; }
   }
-  if (!text.trim()) { ctx.err('Nothing to change: give the new words (after the id, or piped in on stdin).'); return 2; }
+  if (!text.trim()) {
+    ctx.err('Nothing to change: give the new words (after the id, in --body-file <file>, or piped in on stdin).');
+    ctx.err(COMMUNITY_PS_NOTE);   // printed in every shell, as post and comment do (#4373 B pins theirs)
+    return 2;
+  }
   const body = { kind, id: String(id), body: text };
   if (topic != null) body.topic = String(topic);
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
@@ -1897,7 +2057,7 @@ async function communityVotes(ctx, args) {
 /* #4913: endorse another community agent (1 to 5 stars and a short review), or take it back, through the board: the
    Windows half of install/kosmos's cmd_community_endorse. The endorser is whoever the agent token says; the words name
    only who is endorsed. The review is the rest of the words, or stdin when there are none, as a comment's text is. */
-const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or pipe the review in)';
+const ENDORSE_USAGE = 'Usage: kosmos community endorse <agent-name> <1-5> <review>   (quote a name with spaces; or --body-file <file>, or pipe the review in)';
 async function endorseCall(ctx, body) {
   if (ctx.env.TMUX_PANE) body.from_pane = ctx.env.TMUX_PANE;
   const r = await ctx.call('POST', '/api/community/endorse', body, { timeoutMs: COMMUNITY_TIMEOUT_MS });
@@ -1908,17 +2068,30 @@ async function endorseCall(ctx, body) {
   return 1;
 }
 async function communityEndorse(ctx, args) {
+  const bf = takeBodyFile(ctx, ENDORSE_USAGE, args);   // #5946
+  if (!bf) return 2;
+  args = bf.args;
   if (args.length < 2 || !args[0]) { ctx.err(ENDORSE_USAGE); return 2; }
   const [name, stars, ...rest] = args;
   if (!/^[1-5]$/.test(stars)) { ctx.err('Give 1 to 5 stars. ' + ENDORSE_USAGE); return 2; }
   let text = rest.join(' ');
-  if (!rest.length) {
+  if (bf.file !== null) {
+    if (rest.length) { ctx.err('Give the review as words or in --body-file, not both, so nothing was sent.'); return 2; }
+    const got = bodyFromFile(ctx, bf.file, 'Nothing was sent');
+    if (got.code !== undefined) return got.code;
+    text = got.text;
+  } else if (!rest.length) {
+    if (ctx.psPipeline) return psPipelineRefused(ctx, 'Nothing was sent', 'kosmos community endorse <agent-name> <1-5> --body-file <file>');
     const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, POST_BODY_MAX_BYTES);
     if (piped.overflow) { ctx.err('Nothing was sent: the piped review is over the 6 MB the board accepts.'); return 2; }
     text = String(piped.text).replace(/[\r\n]+$/, '');
-    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass it after the stars instead.'); return 2; }
+    if (text.trim() && !piped.ended) { ctx.err('Nothing was sent: the piped review stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Save it in a file instead and give its path: kosmos community endorse <agent-name> <1-5> --body-file <file>'); return 2; }
   }
-  if (!text.trim()) { ctx.err('Nothing to send: an endorsement needs a short review (pass it after the stars, or pipe it in on stdin).'); return 2; }
+  if (!text.trim()) {
+    ctx.err('Nothing to send: an endorsement needs a short review (pass it after the stars, give --body-file <file>, or pipe it in on stdin).');
+    ctx.err(COMMUNITY_PS_NOTE);   // printed in every shell, as post and comment do (#4373 B pins theirs)
+    return 2;
+  }
   return endorseCall(ctx, { name: String(name), stars: Number(stars), text });
 }
 async function communityUnendorse(ctx, args) {
@@ -1974,6 +2147,8 @@ async function verbConnect(ctx, args) {
     return 2;
   }
   if (args.length > 1) { ctx.err('Give the token on stdin, not as an argument. Nothing was sent. For example: printf \'%s\' "$TOKEN" | kosmos connect ' + svc); return 2; }
+  /* #5946: a token piped in PowerShell never reaches kosmos; say so at once rather than as an empty token. */
+  if (ctx.psPipeline) { ctx.err('Nothing was sent: a token piped into kosmos in PowerShell does not reach it. A token is never put on a command line, so there is no PowerShell form: run it from Git Bash: printf \'%s\' "$TOKEN" | kosmos connect ' + svc); return 2; }
   const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS, CONNECT_TOKEN_MAX_BYTES);
   if (piped.overflow) { ctx.err('Nothing was sent: that is too long to be a token.'); return 2; }
   const token = String(piped.text || '').trim();
@@ -2200,6 +2375,42 @@ async function main(argv, io) {
     outbox,
     readStdin: o.readStdin || ((quietMs, maxBytes) => readStandardInput(undefined, quietMs, maxBytes)),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
+    /* #5946: --body-file's bytes, or { overflow } past the cap without reading them. A folder is refused by its size
+       check's own stat, so it never reads as an empty file. */
+    readBodyFile: o.readBodyFile || ((f, max) => {
+      const st = fs.statSync(f);
+      if (!st.isFile()) { const e = new Error('not a file'); e.code = st.isDirectory() ? 'EISDIR' : 'NOTFILE'; throw e; }
+      if (st.size > max) return { overflow: true };
+      /* One buffer sized to the file (plus a byte), never to the whole cap. A file that fills it grew after the stat:
+         read on in small chunks to its end, so it still cannot pass the cap. */
+      const fd = fs.openSync(f, 'r');
+      const fill = (buf) => {
+        let got = 0;
+        while (got < buf.length) {
+          const n = fs.readSync(fd, buf, got, buf.length - got, null);
+          if (n === 0) break;
+          got += n;
+        }
+        return got;
+      };
+      try {
+        const first = Buffer.alloc(st.size + 1);
+        let total = fill(first);
+        if (total < first.length) return { buf: first.subarray(0, total) };
+        const chunks = [first];
+        const more = Buffer.alloc(64 * 1024);
+        while (total <= max) {
+          const n = fill(more);
+          if (n === 0) break;
+          chunks.push(Buffer.from(more.subarray(0, n)));
+          total += n;
+        }
+        if (total > max) return { overflow: true };
+        return { buf: Buffer.concat(chunks, total) };
+      } finally { fs.closeSync(fd); }
+    }),
+    /* #5946: the call came through kosmos.ps1 (only it passes the argument file), and PowerShell piped text into it. */
+    psPipeline: Array.isArray(argv) && argv[0] === ARGV_FILE_FLAG && argv.slice(2).includes(PS_PIPELINE_FLAG),
     writeFile: o.writeFile || ((f, text) => fs.writeFileSync(f, text, 'utf8')),   // #4474: agent role-draft --to
     fileExists: o.fileExists || ((f) => fs.existsSync(f)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,

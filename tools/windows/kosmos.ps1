@@ -25,8 +25,63 @@
 # to close, and a tool runner can hold that pipe open for good: every verb hung,
 # `kosmos reply` included. Gating it on $MyInvocation.ExpectingInput, or reading it
 # only for `feedback write`, did not help. So PowerShell pipeline input does not
-# reach the CLI; the two verbs that read stdin (`feedback write` with no text and
-# `feedback triage --cards -`) say to pass the text as an argument instead.
+# reach the CLI; every verb that reads stdin says how to hand the text over instead
+# (an argument, a here-string, or --body-file <file> since #5946).
+#
+# #5946: what this file DOES read is $MyInvocation.ExpectingInput, a flag on the call
+# itself that is true when something was piped into `kosmos`. Reading it never touches
+# $input or stdin (measured: no verb waits on an open stdin with it). When it is true the
+# CLI is told with --kosmos-ps-pipeline, so a verb that wanted piped text says at once
+# that it did not arrive and names --body-file, instead of waiting on a stdin that is
+# not the agent's text.
+# One exception, measured: `powershell -File kosmos.ps1 ...` with stdin redirected also
+# reads as ExpectingInput (the host feeds its stdin to the script), and there node DOES
+# get that stdin, so `printf report | powershell -File kosmos.ps1 feedback write` saves
+# the report. When the process was started to run this very file, the flag is not sent:
+# any host argument naming it counts, so -File, its abbreviations and pwsh 7's positional
+# form (`pwsh kosmos.ps1 ...`, where the first argument is the file) are all covered; on
+# Windows PowerShell 5.1 only the value after -File counts, since 5.1 runs a bare
+# positional argument as -Command.
+# A host started with -Command, -EncodedCommand or pwsh 7.4's -CommandWithArgs (or an abbreviation) is never the -File
+# case, and a pipe written inside its command text is a real in-session pipe, so the scan
+# is skipped there even when the script's path appears among its arguments.
+# Only the host's arguments before the script's path are read, never the words after it. A path that
+# does not match (an 8.3 short name) sends the flag, and the verb then refuses with the
+# sentence naming --body-file: a refusal, never a lost text.
+$pipedIn = [bool]$MyInvocation.ExpectingInput
+if ($pipedIn -and $PSCommandPath) {
+  # The host's own arguments are read in order, up to the first that names this script
+  # (after it come the agent's words, which are never read here, so a word like /c or -e
+  # cannot pass for a host switch and no word is resolved as a path) or the first
+  # -Command / -EncodedCommand / -CommandWithArgs switch (a pipe inside its text is a real
+  # in-session one, even when the script's path is one of the arguments after it). The value
+  # after -File ends the scan too: it is this script (the flag is not sent) or another one
+  # (a pipe inside that script is a real in-session one, and its own arguments are not read).
+  $hostArgs = [Environment]::GetCommandLineArgs()
+  $fileValue = $false
+  for ($i = 1; $i -lt $hostArgs.Count; $i++) {
+    $named = $hostArgs[$i]
+    if (-not $fileValue -and $named -match '^(?:--?|/)(\w+)$') {
+      $n = $Matches[1].ToLowerInvariant()
+      if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec' -or 'commandwithargs'.StartsWith($n) -or $n -eq 'cwa') { break }
+      if ('file'.StartsWith($n)) { $fileValue = $true; continue }
+    }
+    # Two readings: against the process directory, and against PowerShell's own location
+    # (where a relative path resolves after pwsh's -WorkingDirectory).
+    $candidates = @()
+    try { $candidates += [IO.Path]::GetFullPath($named) } catch { }
+    try { $candidates += (Resolve-Path -LiteralPath $named -ErrorAction Stop).ProviderPath } catch { }
+    # Windows PowerShell 5.1 runs a bare positional argument as -Command, not -File (only
+    # pwsh 7 takes it as the file), so there only the value after -File counts.
+    if ($candidates -contains $PSCommandPath) {
+      if ($fileValue -or $PSVersionTable.PSEdition -ne 'Desktop') { $pipedIn = $false }
+      break
+    }
+    if ($fileValue) { break }
+  }
+}
+$pipeFlag = @()
+if ($pipedIn) { $pipeFlag = @('--kosmos-ps-pipeline') }
 $argvFile = $null
 $code = 1
 try {
@@ -37,7 +92,7 @@ try {
   $ErrorActionPreference = 'Stop'
   [IO.File]::WriteAllText($argvFile, (ConvertTo-Json -InputObject $words -Compress -Depth 1), (New-Object Text.UTF8Encoding $false))
   $ErrorActionPreference = 'Continue'
-  & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile
+  & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile @pipeFlag
   $code = $LASTEXITCODE
 } catch {
   [Console]::Error.WriteLine('kosmos could not run: ' + $_.Exception.Message)
