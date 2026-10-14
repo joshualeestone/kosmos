@@ -164,6 +164,14 @@ const read = (pg) => pg.evaluate(() => {
     const h = await read(pg);
     say(h.label && h.label.opacity === '1' && h.label.text === '12 days in a row in the Kosmos', 'hover: the label shows the streak', JSON.stringify(h.label));
     await pg.screenshot({ path: path.join(OUT, 'streak-hover.png') }).catch(() => {});
+    // Escape puts it away without moving the pointer (WCAG 1.4.13); leaving and coming back brings it again
+    await pg.keyboard.press('Escape');
+    await pg.waitForTimeout(250);
+    const esc1 = (await read(pg)).label;
+    await pg.mouse.move(700, 700); await pg.waitForTimeout(150); await pg.hover('#klink'); await pg.waitForTimeout(250);
+    const back = (await read(pg)).label;
+    say(esc1.opacity === '0', 'Escape: the label goes away with the pointer still on the mark', JSON.stringify(esc1));
+    say(back.opacity === '1', 'Escape: the next hover brings it back', JSON.stringify(back));
     // click: still goes to Agents
     await pg.evaluate(() => { const t = document.querySelector('#tabs [data-tab="projects"]'); if (t) t.click(); });
     await pg.waitForTimeout(150);

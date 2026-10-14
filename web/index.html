@@ -2270,6 +2270,7 @@ a.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -
 .kstreak[hidden] { display: none; }
 .klink:focus-visible ~ .kstreak, .kstreak.show { opacity: 1; transform: none; }
 @media (hover: hover) { .klink:hover ~ .kstreak { opacity: 1; transform: none; } }   /* a tap leaves :hover stuck on a touch screen */
+.kmark .kstreak.quiet { opacity: 0; transform: translateY(-3px); }   /* Escape put it away (WCAG 1.4.13); back on the next hover or focus */
 @media (prefers-reduced-motion: reduce) { .kstreak { transition: none; } }
 /* ---- grid / list toggle. One component, each instance NAMES its scope with
    data-scope (the control says what it operates on rather than assuming there
@@ -35341,6 +35342,10 @@ async function streakCheck() {
       held = setTimeout(() => { held = null; swallow = true; lab.classList.add('show'); clearTimeout(shown); shown = setTimeout(() => lab.classList.remove('show'), 2500); }, 500);
     });
     const cancel = () => { if (held) { clearTimeout(held); held = null; } };
+    // Escape puts the label away without moving the pointer or focus; the next hover or focus brings it back.
+    // On the document, so it works while only the pointer is on the mark; it only adds a class, so Escape still does its other jobs.
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !lab.hidden) { lab.classList.add('quiet'); lab.classList.remove('show'); } });
+    for (const ev of ['blur', 'mouseleave']) k.addEventListener(ev, () => lab.classList.remove('quiet'));
     k.addEventListener('pointerup', cancel); k.addEventListener('pointercancel', cancel); k.addEventListener('pointerleave', cancel);   // leave: a finger that slides off the mark is not a long press
     k.addEventListener('contextmenu', (e) => { if (swallow) e.preventDefault(); });
     // Capture phase: at the target, capture listeners run before the K mark's own click handler, whatever order they were added in.

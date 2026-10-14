@@ -30,5 +30,10 @@ X days!".
 - Tests: `engine/streak-6160.test.js`, `server.streak-6160.test.js`, `docs/browser-checks/render-streak-6160.js`
   (wired in `tools/browser-checks.sh` and the README), and two `mobile-shots.js` screens for design shots.
 
+## Known limits (decided, not missed)
+- A screen a day ahead of the desk (a Kosmos+ screen in another time zone, or UTC+13/+14) records that day first and
+  shows that day's note there. The streak never loses a day for it: the desk's next new day still counts.
+- The count is per board, so a person with two computers has two counts (call 3).
+
 ## Weakest premise
 Call 2: resetting after one missed weekend may feel like a punishment. A grace day is a change to `visit()` only.
