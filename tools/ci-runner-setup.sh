@@ -57,7 +57,7 @@ ALLOW_JOBS="${KOSMOS_CI_ALLOW_JOBS:-}"             # an ERE of non-Apple launchd
 # need_user refuses unless HOME is CI_HOME, so the two agree.
 RUNNER_DIR="$CI_HOME/actions-runner"
 # The jobs' PATH, written to BOTH places the runner reads one: .env, and .path, which config.sh's env.sh fills from
-# the login shell's PATH and runsvc.sh exports. register rewrites .path after config.sh so the two agree.
+# the PATH of the shell that ran config.sh and runsvc.sh exports. register rewrites .path after config.sh so the two agree.
 RUNNER_PATH="/usr/bin:/bin:/usr/sbin:/sbin:$BREW/bin:/usr/local/bin:$CI_HOME/.local/bin"
 CI_DIR="$CI_HOME/.kosmos-ci"
 
@@ -119,8 +119,10 @@ preflight() {
   # application.* labels are the owner's open GUI apps (Terminal among them), not jobs.
   local jobs raw
   local unknown=0
-  if ! raw="$(launchctl list)"; then problem "could not read launchctl list"; raw=""; unknown=1; fi
-  jobs="$(printf '%s\n' "$raw" | awk 'NR > 1 && $3 !~ /^com\.apple\./ && $3 !~ /^application\./ { print $3 }')"
+  # The owner's GUI domain by name: a bare `launchctl list` reads the caller's session, which over ssh is not it.
+  if ! raw="$(launchctl print "gui/$(id -u)")"; then problem "could not read launchctl print gui/$(id -u)"; raw=""; unknown=1; fi
+  jobs="$(printf '%s\n' "$raw" | awk '/^\tservices = \{/ { f = 1; next } f && /^\t\}/ { f = 0 } f { print $NF }' \
+    | awk '$1 !~ /^com\.apple\./ && $1 !~ /^application\./')"
   if [ -n "$ALLOW_JOBS" ]; then
     # grep exits 2 on a bad pattern and prints nothing, which would clear every job.
     printf 'x\n' | grep -E "$ALLOW_JOBS" >/dev/null 2>&1 || [ $? = 1 ] || { problem "KOSMOS_CI_ALLOW_JOBS is not a valid ERE: $ALLOW_JOBS"; jobs=""; unknown=1; }
@@ -265,6 +267,7 @@ install_runner() {
   elif [ "$wrc" -ge 2 ]; then
     rm -f "$newg"; echo "refused: could not list processes (pgrep exit $wrc), so a job in flight cannot be ruled out. Nothing changed" >&2; exit 1
   fi
+  # Running is read from svc.sh only: a runner started by hand with ./run.sh reads as stopped and is unpacked over.
   if [ -x ./svc.sh ]; then
     sv="$(./svc.sh status 2>&1 || true)"
     case "$sv" in *Started*) was_running=1; ./svc.sh stop >/dev/null 2>&1 || true ;; esac
@@ -278,7 +281,8 @@ install_runner() {
   fi
   # Unpacked over the old release: tar deletes nothing, and svc.sh's copied runsvc.sh names its node version.
   tar xzf "$tgz"
-  chmod +x "$newg" && mv -f "$newg" "$CI_DIR/job-guard.sh"
+  chmod +x "$newg"
+  mv -f "$newg" "$CI_DIR/job-guard.sh"
   echo "runner $ver unpacked in $RUNNER_DIR; job guard installed from $commit, sha256 $got"
   # Job hooks. NOT a fresh VM: the checkout and ~ persist between jobs. They end what a previous job left running,
   # and only THIS user's: the agents' processes (another user) are never touched.
@@ -327,7 +331,7 @@ register() {
   need_user "$CI_USER"
   mode_line
   if [ "$APPLY" != 1 ]; then
-    echo "WOULD: write $RUNNER_DIR/.path as $RUNNER_PATH after config.sh (config.sh writes the login shell's there)"
+    echo "WOULD: write $RUNNER_DIR/.path as $RUNNER_PATH after config.sh (config.sh writes its own shell's PATH there)"
     echo "WOULD: read a registration token from stdin (mint it as $OWNER: gh api -X POST repos/$REPO/actions/runners/registration-token --jq .token)"
     printf 'WOULD: ACTIONS_RUNNER_INPUT_TOKEN=<token>'; printf ' %q' ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace; printf '\n'
     printf 'WOULD: %q install\nWOULD: %q start\n' ./svc.sh ./svc.sh
@@ -336,7 +340,7 @@ register() {
   [ -x "$RUNNER_DIR/config.sh" ] || { echo "refused: no runner in $RUNNER_DIR; run install first" >&2; exit 1; }
   cd "$RUNNER_DIR"
   local token=""
-  if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token; echo >&2; else IFS= read -r token || true; fi
+  if [ -t 0 ]; then printf 'registration token: ' >&2; IFS= read -r -s token || true; echo >&2; else IFS= read -r token || true; fi
   [ -n "$token" ] || { echo "refused: no registration token on stdin" >&2; exit 1; }
   # The runner reads ACTIONS_RUNNER_INPUT_<ARG> for a config argument it is not given, so the token stays out of argv.
   ACTIONS_RUNNER_INPUT_TOKEN="$token" ./config.sh --unattended --url "$REPO_URL" --name "$NAME" --labels "$LABELS" --work _work --replace
@@ -356,11 +360,12 @@ verify() {
   say "the runner, from the API"
   local row
   row="$(gh api --paginate "repos/$REPO/actions/runners" --jq ".runners[] | select(.name == \"$NAME\") | \"\(.status) \(.busy) \([.labels[].name | ascii_downcase] | sort | join(\",\"))\"")" \
-    || { problem "could not read the runners API"; row=""; }
+    || { problem "could not read the runners API"; row="?"; }
   local want_labels
   want_labels="$(printf '%s\n' "$LABELS" | tr ',' '\n' | tr '[:upper:]' '[:lower:]' | LC_ALL=C sort | paste -sd, -)"
   local busy=false
-  if [ -z "$row" ]; then problem "no runner named $NAME"
+  if [ "$row" = "?" ]; then row=""
+  elif [ -z "$row" ]; then problem "no runner named $NAME"
   else
     local status labels
     read -r status busy labels <<EOF
@@ -382,11 +387,12 @@ EOF
   elif [ ! -r "$RUNNER_DIR/.env" ]; then echo "note:   cannot read $RUNNER_DIR/.env as $(id -un); install refused KOSMOS_ keys, later edits are unchecked"
   elif grep -q -E '^[[:space:]]*(export[[:space:]]+)?KOSMOS_' "$RUNNER_DIR/.env"; then problem "$RUNNER_DIR/.env sets a KOSMOS_ variable: remove it"
   else ok "$RUNNER_DIR/.env sets no KOSMOS_ variable"; fi
-  # .path is what runsvc.sh exports; config.sh refills it from a login shell, so a re-register can undo register's.
+  # .path is what runsvc.sh exports; config.sh refills it from its own shell, so a re-register can undo register's
+  # (a re-register needs ./svc.sh uninstall and ./config.sh remove first: config.sh refuses a configured runner).
   if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
   elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
   elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
-  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (a login shell's PATH from config.sh?): as $CI_USER in its Screen Sharing session, write that line to it, then ./svc.sh stop and ./svc.sh start"; fi
+  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (config.sh's own shell PATH?): as $CI_USER in its Screen Sharing session, write that line to it, then ./svc.sh stop and ./svc.sh start"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
