@@ -21150,13 +21150,10 @@ function stateReason(a, opts) {
       ? 'This is taking longer than usual. Nothing was lost.'
       : 'This takes a few seconds. Nothing was lost.';
   }
-  /* #569 once rendered a reported state in the agent's own sentence, QUOTED, right here.
-     Josh then ruled the quoted line off every surface that showed it: #986 (grid and list),
-     #3043 and #3271 (the detail header, removed entirely). After those, the quoted arm was
-     dead (every caller passed noQuote:true to skip it), so #6118 removed it and the noQuote
-     opt-out with it. A reported+because agent now falls through to the state rules below,
-     exactly as the noQuote path did; the reported sentence still surfaces via the Talk
-     waiting box (waitingLine) and the engine-state sentences, which are untouched. */
+  /* #569 rendered a reported state as the agent's own quoted sentence here; #986/#3043/#3271
+     ruled that quote off every surface, leaving this arm dead (all callers passed noQuote:true).
+     #6118 removed it and the noQuote opt-out, so a reported+because agent falls through to the
+     states below; the sentence still surfaces via the Talk waiting box and the engine-state lines. */
   /* #874: same hedge shape as rate_limited below -- SCRAPED means a regex
      over a pane, not a live check of the account, so this says what was
      SEEN ("looks like") rather than what is concluded ("is not"). */
