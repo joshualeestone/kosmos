@@ -298,6 +298,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const out = { offer: !!btnOf('unwired'), offerText: btnOf('unwired') ? btnOf('unwired').textContent.trim() : null,
           explain: row('unwired') ? row('unwired').textContent.replace(/\s+/g, ' ') : '', ownOffer: !!btnOf('mine'), posts: [] };
         let refuse = 2;
+        const posts1 = () => out.posts.length;
         const prior = window.fetch;
         window.fetch = (u, opts) => {
           if (String(u).indexOf('/api/accounts/claude/usage-reading') !== -1) {
@@ -308,17 +309,27 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
           }
           return prior(u, opts);
         };
-        const settle = () => new Promise((r) => setTimeout(r, 120));
-        btnOf('unwired').click(); await settle();
+        /* Waits on the state each step reads (review 1), never a fixed sleep: a refusal is done when the button is enabled
+           again with its label back; the success when the offer is gone. */
+        const until = async (cond) => { for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 25)); return cond(); };
+        const idle = () => btnOf('unwired') && !btnOf('unwired').disabled && btnOf('unwired').textContent === 'Set up usage reading';
+        const b0 = btnOf('unwired'); const why0 = b0 && document.getElementById(b0.getAttribute('aria-describedby') || '');
+        out.describedBy = why0 ? why0.textContent.trim() : null;
+        btnOf('unwired').click(); await until(() => posts1() >= 1 && idle());
         out.say1 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
-        btnOf('unwired').click(); await settle();
+        out.msg1 = document.getElementById('set-accounts-msg').textContent;
+        btnOf('unwired').click(); await until(() => posts1() >= 2 && idle());
         out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
-        btnOf('unwired').click(); await settle();
-        out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null };
+        btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
+        out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null,
+          msg: document.getElementById('set-accounts-msg').textContent, focusIsRow: document.activeElement === row('unwired') };
         window.fetch = prior;
         return out;
       });
       say(s6175.offer && s6175.offerText === 'Set up usage reading' && /adds Kosmos\u2019s status line to this account\u2019s Claude Code/.test(s6175.explain), tag + ' #6175 a not-set-up row offers to set the reading up, and says what it adds', JSON.stringify({ offer: s6175.offer, text: s6175.offerText }));
+      say(/adds Kosmos\u2019s status line/.test(s6175.describedBy || ''), tag + ' #6175 the button is described by the line that says what it adds', JSON.stringify(s6175.describedBy));
+      say(s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
+      say(s6175.after.focusIsRow && s6175.after.msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: s6175.after.focusIsRow, msg: s6175.after.msg }));
       say(!s6175.ownOffer, tag + ' #6175 a row with the person\'s own status line is not offered it (control)', String(s6175.ownOffer));
       say(s6175.say1.length === 1 && s6175.say1[0] === 'Not set up: this account already has its own status line, so it was left alone.', tag + ' #6175 a refusal is said on the row', JSON.stringify(s6175.say1));
       say(s6175.say2.length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));

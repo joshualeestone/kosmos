@@ -27277,9 +27277,10 @@ function acctUsageHtml(a, list) {
   let usage = '';
   /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
      creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
+  const acctIdOf = (d) => String(d).replace(/[^A-Za-z0-9_-]/g, '_');   // an id from the folder, for aria-describedby
   const usageSetup = a.weeklyBlocked === 'not-wired' && !a.apiKey
-    ? '<p class="acct-usage-line acct-usage-none">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
-      + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '">Set up usage reading</button>'
+    ? '<p class="acct-usage-line acct-usage-none" id="acct-usage-why-' + acctIdOf(a.dir) + '">Setting it up adds Kosmos\u2019s status line to this account\u2019s Claude Code. It shows nothing, but it takes one empty row under the prompt.</p>'
+      + '<button class="acct-check" type="button" data-usage-setup="' + esc(a.dir) + '" aria-describedby="acct-usage-why-' + acctIdOf(a.dir) + '">Set up usage reading</button>'
     : '';
   if (!a.apiKey) {
     if (w) {
@@ -28216,8 +28217,18 @@ async function paintAccounts(opts) {
         try { j = (await res.json()) || {}; } catch { j = {}; }
         ok = res.ok && j.wired === true;
       } catch { ok = false; }
-      if (ok) { try { await paintAccounts(); } catch { /* the next paint shows it */ } return; }
-      const why = j.because || j.error || 'Kosmos could not set it up just now.';
+      const msg = document.getElementById('set-accounts-msg');
+      if (ok) {
+        try { await paintAccounts(); } catch { /* the next paint shows it */ }
+        /* Review 1: the repaint removed the focused button; say it worked in the panel's status line (after the
+           repaint, which writes there too) and put focus on the account's row. */
+        if (msg) msg.textContent = 'Usage reading set up. Kosmos reads it once an agent on this account is working.';
+        const rowNow = [...box.querySelectorAll('.acct-box')].find((b) => b.dataset.acctDir === dir);
+        if (rowNow) { rowNow.setAttribute('tabindex', '-1'); rowNow.focus(); }
+        return;
+      }
+      const raw = j.because || j.error;
+      const why = typeof raw === 'string' && raw ? raw : 'Kosmos could not set it up just now.';
       const prev = btn.nextElementSibling;
       if (prev && prev.dataset && prev.dataset.usageSay) prev.remove();   // a second refusal replaces the first
       const say = document.createElement('p');
@@ -28225,6 +28236,7 @@ async function paintAccounts(opts) {
       say.className = 'acct-usage-line acct-usage-none';
       say.textContent = 'Not set up: ' + why.replace(/^./, (c) => c.toLowerCase()) + (/[.!?]$/.test(why) ? '' : '.');
       btn.after(say);
+      if (msg) msg.textContent = say.textContent;   // review 1: the status region speaks it; the row keeps it in view
       btn.textContent = 'Set up usage reading';
       btn.disabled = false;
     });
