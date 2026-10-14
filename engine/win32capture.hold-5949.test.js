@@ -264,7 +264,7 @@ function memoryLastState(initial) {
 
 test('#5949 after a board start, a card shows its last known state, marked remembered, until its first live reading', () => {
   const t0 = Date.parse('2026-10-12T14:20:58Z');
-  const store = memoryLastState({ ada: { token: 'busy', at: '2026-10-12T14:20:50Z' } });
+  const store = memoryLastState({ ada: { token: 'busy', at: '2026-10-12T14:20:50Z', sid: 'sid-a' } });
   let answer = [{ pid: 2, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-a', name: 'x' }];   // no status yet
   let t = t0;
   const lines = [];
@@ -278,6 +278,7 @@ test('#5949 after a board start, a card shows its last known state, marked remem
   assert.equal(cap('ada:0.0'), 'idle', 'the first live reading replaces it');
   assert.equal(cap.note('ada:0.0'), null);
   assert.deepEqual(store.data.ada.token, 'idle', 'and is what the next start remembers');
+  assert.equal(store.data.ada.sid, 'sid-a', 'with the session it was read from');
   const before = store.writes;
   t += 5000; cap('ada:0.0');
   assert.equal(store.writes, before, 'an unchanged state is not written again');
@@ -285,7 +286,7 @@ test('#5949 after a board start, a card shows its last known state, marked remem
 
 test('#5949 a remembered state from a board that stopped long ago is not used', () => {
   const t0 = Date.parse('2026-10-12T14:20:58Z');
-  const store = memoryLastState({ ada: { token: 'busy', at: '2026-10-12T13:00:00Z' } });
+  const store = memoryLastState({ ada: { token: 'busy', at: '2026-10-12T13:00:00Z', sid: 'sid-a' } });
   const cap = win32capture.make({ run: () => [{ pid: 2, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-a', name: 'x' }],
     record: rec, now: () => t0, lastState: store, log: () => {} });
   assert.equal(cap('ada:0.0'), null);
@@ -425,7 +426,7 @@ test('#5949 a failed Claude read while a codex agent is up holds the Claude card
 });
 
 test('#5949 after the first good read, an agent that starts again does not wear its past session\'s state', () => {
-  const store = memoryLastState({ ada: { token: 'busy', at: new Date(1000).toISOString() } });
+  const store = memoryLastState({ ada: { token: 'busy', at: new Date(1000).toISOString(), sid: 'sid-a' } });
   let t = 2000;
   let answer = [live('sid-b', 'idle')];   // the first good read: ada is not running
   const cap = win32capture.make({ run: () => answer, record: rec, now: () => t, ttlMs: 1000, lastState: store, log: () => {} });
@@ -613,7 +614,7 @@ test('#5949 a held reading never stands in during a restart, so it cannot clear 
 });
 
 test('#5949 a good read of the per-turn agents alone ends the board-start carry (a box where the Claude read never answers)', () => {
-  const store = memoryLastState({ cz: { token: 'busy', at: new Date(1000).toISOString() } });
+  const store = memoryLastState({ cz: { token: 'busy', at: new Date(1000).toISOString(), sid: 'sid-z' } });
   const record = { read: () => ({ 'sid-x': { name: 'cx', runner: 'codex' }, 'sid-z': { name: 'cz', runner: 'codex' } }) };
   const row = (sid) => ({ pid: 9, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: sid, name: sid });
   let rows = [row('sid-x')];
@@ -659,4 +660,20 @@ test('#5949 each answer keeps its own why: a background read\'s cause rides with
   pending[1]([], null);
   assert.deepEqual(cached(), []);
   assert.equal(cached.problem(), null, 'a good answer carries no cause');
+});
+
+test('#5949 an agent relaunched while the board restarted does not wear its predecessor\'s state (the carry matches its session)', () => {
+  const t0 = Date.parse('2026-10-12T14:20:58Z');
+  const store = memoryLastState({ ada: { token: 'busy', at: '2026-10-12T14:20:50Z', sid: 'sid-old' } });
+  const listing = (sid) => [{ pid: 2, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: sid, name: 'x' }];   // no status yet
+  const relaunched = { read: () => ({ 'sid-new': { name: 'ada', runner: 'claude' } }) };
+  const cap = win32capture.make({ run: () => listing('sid-new'), record: relaunched, now: () => t0, ttlMs: 1000, lastState: store, log: () => {} });
+  assert.equal(cap('ada:0.0'), null, 'a new session is not given the old one\'s state');
+  assert.notEqual((cap.note('ada:0.0') || {}).held, true);
+  /* CONTROL: the same first look at the session it was remembered from does carry. */
+  const same = { read: () => ({ 'sid-old': { name: 'ada', runner: 'claude' } }) };
+  const cap2 = win32capture.make({ run: () => listing('sid-old'), record: same, now: () => t0, ttlMs: 1000,
+    lastState: memoryLastState({ ada: { token: 'busy', at: '2026-10-12T14:20:50Z', sid: 'sid-old' } }), log: () => {} });
+  assert.equal(cap2('ada:0.0'), 'busy');
+  assert.equal(cap2.note('ada:0.0').held, true);
 });

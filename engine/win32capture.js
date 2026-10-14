@@ -186,13 +186,15 @@ function make(opts) {
   /* Called once per good read with every agent it read well. Writes when a state changed, or when
      the file has not been confirmed for CONFIRM_EVERY_MS; drops agents a good read no longer lists
      whose state is too old to carry anyway, so the file does not grow with every agent ever seen. */
-  const remember = (good, t) => {
+  const remember = (good, t, sids) => {
     if (!lastState || !Number.isFinite(t)) return;
     const c = carriedNow();
     const iso = new Date(t).toISOString();
     let changed = false;
     for (const [name, token] of good) {
-      if (!c[name] || c[name].token !== token) { c[name] = { token, at: iso }; changed = true; }
+      /* The session it was read from rides along, so a carry is only ever used for that same session. */
+      const sid = (sids && sids.get(name)) || null;
+      if (!c[name] || c[name].token !== token || c[name].sid !== sid) { c[name] = { token, at: iso, sid }; changed = true; }
     }
     for (const name of Object.keys(c)) {
       if (good.has(name)) continue;
@@ -224,11 +226,12 @@ function make(opts) {
     // capturePane -> snapshot and blanking the whole tick. Date.now never throws,
     // so this only defends an injected clock, for full parity with the contract.
     let t;
-    try { t = now(); } catch { return { at: 0, ok: false, claudeOk: false, byName: new Map(), why: new Map(), runners: new Map(), readWhy: 'the clock could not be read' }; }
+    try { t = now(); } catch { return { at: 0, ok: false, claudeOk: false, byName: new Map(), why: new Map(), runners: new Map(), sids: new Map(), readWhy: 'the clock could not be read' }; }
     if (cache && (t - cache.at) < ttlMs) return cache;
     const byName = new Map();
     const why = new Map();   // #5949: name -> why its live row gave no usable token
     const runners = new Map();   // #5949: name -> its recorded runner, so an unlisted per-turn agent is known stopped
+    const sids = new Map();   // #5949: name -> the session it was listed with, so a carry matches its own session only
     let ok = false;
     let claudeOk = false;   // #5949: did `claude agents --json` itself answer? (codex rows come from elsewhere)
     let readWhy = null;
@@ -272,6 +275,7 @@ function make(opts) {
           const token = listed || readStreamState(name, hit);
           byName.set(name, token);
           runners.set(name, typeof hit.runner === 'string' ? hit.runner : '');
+          sids.set(name, typeof hit.sessionId === 'string' && hit.sessionId ? hit.sessionId : null);
           if (!GOOD.has(token)) {
             why.set(name, listed
               ? 'Claude Code reported a status Kosmos does not know (' + JSON.stringify(listed.slice(0, 40)) + ')'
@@ -289,8 +293,9 @@ function make(opts) {
       byName.clear();
       why.clear();
       runners.clear();
+      sids.clear();
     }
-    cache = { at: t, ok, claudeOk: ok && claudeOk, byName, why, runners, readWhy: readWhy || 'the status read failed' };
+    cache = { at: t, ok, claudeOk: ok && claudeOk, byName, why, runners, sids, readWhy: readWhy || 'the status read failed' };
     noteRead(cache);
     return cache;
   }
@@ -322,7 +327,7 @@ function make(opts) {
           memory.set(name, { token, at: t, fails: 0, cause: null, phase: 'ok', said: false, carried: false });
           good.set(name, token);
         } else {
-          failed(name, snap.why.get(name) || 'its status could not be read', t);
+          failed(name, snap.why.get(name) || 'its status could not be read', t, snap.sids.get(name));
         }
       }
       /* A good read that does not list an agent: it is not running, and the roster draws no
@@ -339,21 +344,25 @@ function make(opts) {
       }
       /* Any good read ends the board-start window and is remembered, the Claude read or only the per-turn agents' own
          source: a box where `claude agents --json` never answers must not carry a past session's state forever. */
-      remember(good, t);
+      remember(good, t, snap.sids);
       firstGoodRead = true;
       return;
     }
     /* A failed read says nothing about any agent, so every agent we know counts one failure. */
     for (const name of memory.keys()) failed(name, snap.readWhy, t);
   }
-  function failed(name, cause, t) {
+  function failed(name, cause, t, sid) {
     let m = memory.get(name);
     if (!m) {
       /* Not read well yet this run: start from the state remembered before the board started,
          if it is recent. Its hold runs from this first look, not from when it was remembered. */
       const c = firstGoodRead ? null : carriedNow()[name];
       const cAt = c && typeof c.at === 'string' ? Date.parse(c.at) : NaN;
-      const usable = Boolean(c && GOOD.has(c.token) && Number.isFinite(cAt) && Number.isFinite(t) && t - cAt >= 0 && t - cAt < CARRY_MAX_MS);
+      /* Only for the SAME session it was remembered from: an agent relaunched while the board restarted is a new
+         session, and its predecessor's state says nothing about it. An entry with no session (or a look with none)
+         is not used. */
+      const sameSession = Boolean(c && typeof c.sid === 'string' && c.sid && typeof sid === 'string' && sid === c.sid);
+      const usable = Boolean(sameSession && GOOD.has(c.token) && Number.isFinite(cAt) && Number.isFinite(t) && t - cAt >= 0 && t - cAt < CARRY_MAX_MS);
       m = { token: usable ? c.token : null, at: t, fails: 0, cause, phase: 'ok', said: false, carried: usable };
       memory.set(name, m);
     }
