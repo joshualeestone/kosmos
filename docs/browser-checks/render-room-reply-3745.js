@@ -581,6 +581,9 @@ function chk(ok, label, extra) {
     // Phone: tapping Reply in the tapped-open bar starts the reply and closes the bar (round 29).
     // A touch page: opened wide (the project list is a click away there), then narrowed to a phone.
     const phone = await browser.newPage({ viewport: { width: 1280, height: 800 }, hasTouch: true, isMobile: true, colorScheme: 'light' });
+    // #6107: a touch screen held sideways at 960px+ opens on one screen by default; this page uses the Projects tab,
+    // so it chooses tabs on the tablet first.
+    await phone.addInitScript(() => { try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* storage refused */ } });
     await phone.goto('http://127.0.0.1:' + PORT + '/', { waitUntil: 'networkidle' });
     if (await phone.isVisible('#firstrun')) await phone.keyboard.press('Escape');
     await phone.evaluate(() => document.querySelector('[data-tab="projects"]').click());

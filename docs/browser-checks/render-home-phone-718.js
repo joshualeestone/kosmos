@@ -16,7 +16,7 @@
  * #6107, an upright tablet (834x1194, touch): the cards are two across (one across at 600x960, a small tablet) with
  * the face on the left, name, role and state beside it and the task underneath, a needs-you card and a long name fitting;
  * also two across at 744x1133 (the iPad mini, the 330px floor). CONTROLS, each keeping the desktop card (face above the
- * name): a 1024x768 tablet in landscape, and a MOUSE at 834x1194 (the only arm that fails if the touch clause is dropped).
+ * name): a 900x700 tablet in landscape, and a MOUSE at 834x1194 (the only arm that fails if the touch clause is dropped).
  * #4662, at the same phone sizes: the Agents Sort dropdown is at least 16px (iOS zooms into a
  * smaller field), and every .sortctl select in the page plus one built by agentSortControlHtml
  * (how the one-screen layout builds its own) is at least 16px; at 1280 the Sort stays under 16px.
@@ -180,12 +180,12 @@ function emptySpot(page, sel) {
         // #6107: an upright tablet (iPad 11-inch portrait, touch) gets the cards two across, face on the left, name,
         // role and state beside it, the task underneath. CONTROL: the same tablet turned to landscape keeps the
         // desktop card (the face above the name), so the arm cannot pass on a page that
-        // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
-        // clause keeps it out.
+        // simply always draws the tablet card. 900x700 is inside the tablet width range, so only the orientation clause
+        // keeps it out (and under 960px, so the #6107 landscape-tablet one-screen layout does not apply either).
         // 744 is the iPad mini, the narrowest screen that gets two across (each card at its 330px floor).
         // The last is a MOUSE at iPad portrait size (a laptop window snapped tall): only the touch clause keeps it on the
         // desktop card, so dropping that clause from the query fails here and nowhere else.
-        for (const [w, h, upright, across, mouse] of [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [1024, 768, false, 0], [834, 1194, false, 0, true]]) {
+        for (const [w, h, upright, across, mouse] of [[834, 1194, true, 2], [744, 1133, true, 2], [600, 960, true, 1], [900, 700, false, 0], [834, 1194, false, 0, true]]) {
           const tag = `[${engine} ${w}x${h} tablet]`;
           const ctx = await browser.newContext(mouse ? { viewport: { width: w, height: h } } : { viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
