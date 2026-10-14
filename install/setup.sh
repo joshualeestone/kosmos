@@ -1365,7 +1365,7 @@ install_kosmos() {
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux
-  # where lsattr cannot read the filesystem.
+  # where lsattr cannot read the filesystem, and an immutable Kosmos folder itself (the parent of the three parts).
   # A refusal also leaves logs/update-refused for the board (#6149 point 8); a swap that goes through removes it.
   local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _stuck_names="" _found="" _refusedf="" _p="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
@@ -1396,9 +1396,12 @@ install_kosmos() {
     # #6149 point 9: Linux's own lock, a file marked immutable or append-only (chattr +i, +a). chmod cannot clear it
     # and rm cannot remove it, so it is searched for here as the macOS flags are above. A filesystem lsattr cannot
     # read (tmpfs, some overlays) prints nothing and is not refused, as before.
+    # -d first: the part folder itself (-R lists only what is inside it). -a: dot-files too; it also lists each
+    # folder's . and .. entries, which are skipped. The flag match is lowercase on purpose: i and a are the locks,
+    # while the uppercase I (indexed folder, on nearly every ext4 folder) and A (no access time) are harmless.
     for part in bin app runtime; do
       [ -d "$dest/$part" ] || continue
-      _found="$(lsattr -R "$dest/$part" 2>/dev/null | awk '$1 ~ /^[-a-zA-Z]+$/ && $1 ~ /[ia]/ { sub(/^[^ ]+ /, ""); print; exit }' || true)"
+      _found="$( { lsattr -d "$dest/$part"; lsattr -Ra "$dest/$part"; } 2>/dev/null | awk '$1 ~ /^[-a-zA-Z]+$/ && $1 ~ /[ia]/ { sub(/^[^ ]+ /, ""); if ($0 ~ /\/\.\.?$/) next; print; exit }' || true)"
       [ -n "$_found" ] || continue
       [ -n "$_stuck_at" ] || _stuck_at="$_found"
       _stuck_why=immutable
