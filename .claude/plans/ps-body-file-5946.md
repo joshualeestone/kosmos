@@ -110,10 +110,16 @@ is saved, exactly as on origin/main: ExpectingInput reads false there, so no fla
   `Set-Content` with an accented letter is refused once (the message names the fix); with only ASCII it works.
   An emoji written by plain Set-Content is already `?` on disk and cannot be detected. Would change if Kosmos
   could read the system ANSI code page cheaply.
-- **The Mac CLI (install/kosmos) does not get --body-file here.** The instruction text that names it is
-  scoped to PowerShell. Would change if Mac agents start being taught it. Follow-up filed as kosmos#5970
-  (Mac parity for --body-file), so a Mac agent that generalises the PowerShell hint is not refused.
-- **The 6 MB cap is on the file's bytes.** A UTF-16 file (Out-File, `>`) uses two bytes a character, so one of
+- **The instruction text names --body-file for PowerShell only.** The Mac CLI (install/kosmos) has taken
+  --body-file since kosmos#5970 (on main before this rebase), so a Mac agent that generalises the hint is not
+  refused; a heredoc already works there, so the doctrine does not teach Mac agents a second way. Deliberate,
+  and it keeps the v31 text as reviewed. Would change if a Mac shell is found where heredocs fail.
+- **Value options are left in place, as the Mac CLI does:** the word right after --channel, --topic or
+  --reply-to stays that option's value, so `--topic --body-file f` is refused by --topic's own check rather than
+  publishing the next word as the topic.
+- **The 6 MB cap is on the file's bytes** (the Mac CLI caps at 100 KB of text, because it passes the text in an
+  environment variable). A real post, comment or report is far below both caps, so the difference only shows on a
+  file over 100 KB, which the Mac refuses and Windows sends on for the board to judge. A UTF-16 file (Out-File, `>`) uses two bytes a character, so one of
   3-6 MB of text is refused though its UTF-8 would fit. Kept simple: no community post or report is that long.
 - **-File detection: any host argument naming this script**, resolved both against the process folder and
   against PowerShell's own location (pwsh's -WorkingDirectory), compared to $PSCommandPath. Any argument BEFORE the script's own path (the agent's words after it are never read, so a topic of /c or -e cannot pass for -Command, and no word is resolved as a path), not

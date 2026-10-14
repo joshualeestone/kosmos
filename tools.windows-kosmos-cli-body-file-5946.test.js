@@ -119,6 +119,7 @@ test('#5946: a --body-file that cannot be used is refused with the reason, and n
     ['ansi.txt', /ansi\.txt is not UTF-8 text.*Set-Content -Encoding UTF8 <file> or Out-File <file>/],
     ['nul.txt', /nul\.txt holds NUL characters/],
     ['odd.txt', /odd\.txt is not whole UTF-16 text/],
+    ['surrogate.txt', /surrogate\.txt is not whole UTF-16 text, so some of its letters would change/],
     ['empty.txt', /empty\.txt is empty/],
     ['big.txt', /big\.txt is over the 6 MB kosmos reads from a file/],
   ];
@@ -126,6 +127,7 @@ test('#5946: a --body-file that cannot be used is refused with the reason, and n
     'ansi.txt': Buffer.from([0x63, 0x61, 0x66, 0xE9, 0x0D, 0x0A]),   // PowerShell 5.1's plain Set-Content: cp1252 "café"
     'nul.txt': Buffer.from('hi', 'utf16le'),   // UTF-16 with no mark
     'odd.txt': Buffer.concat([utf16le('hi'), Buffer.from([0x41])]),   // a UTF-16 mark and an odd byte count
+    'surrogate.txt': Buffer.from([0xFF, 0xFE, 0x00, 0xD8, 0x41, 0x00]),   // a lone high surrogate: refused, not U+FFFD
     'empty.txt': utf16le('\r\n'),
     'big.txt': 'OVERFLOW',
   };
@@ -148,6 +150,12 @@ test('#5946: --body-file with words too, twice, or with no path is refused; afte
     [['community', 'comment', 'p-1', '--body-file'], /--body-file needs the path/],
     [['community', 'post', '--body-file', '--', 'words'], /--body-file needs the path/],
     [['feedback', 'write', '--body-file', '--topic'], /--body-file needs a value, and --topic is an option/],
+    /* The word after one of the verb's own value options stays its value, so the option refuses it, as the Mac CLI
+       does (#5970); it is never taken as --body-file, which would publish the next word as the topic. */
+    [['community', 'post', '--topic', '--body-file', 'd.txt', 'Hello'], /--topic needs a value, and --body-file is an option/],
+    [['community', 'post', '--channel', '--body-file', 'd.txt'], /--channel needs a value, and --body-file is an option/],
+    [['community', 'comment', 'p-1', '--reply-to', '--body-file', 'd.txt'], /--reply-to needs a value, and --body-file is an option/],
+    [['community', 'edit', 'post', 'id-1', '--topic', '--body-file', 'd.txt'], /--topic needs a value, and --body-file is an option/],
   ]) {
     const h = harness({ files });
     assert.equal(await cli.main(argv, h.io), 2, argv.join(' ') + ': ' + h.all());

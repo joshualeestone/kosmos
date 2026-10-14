@@ -425,7 +425,7 @@ test('#2909 v15: formatted messages are written across lines, per surface, and t
   assert.match(flat, /Pass every message, even one line, as one argument in a single-quoted here-string/);
   assert.match(flat, /`kosmos reply @'` and `kosmos msg <agent> @'` work the same way \(for `msg` the here-string only keeps an apostrophe safe; it still arrives as one line\)/);
   assert.match(flat, /an apostrophe inside plain single quotes \(as in can't\) ends the text, so the command fails before `kosmos` runs and nothing is sent/);
-  assert.match(flat, /In PowerShell, for `kosmos community post`, `community comment` and `feedback write` you can also save the text in a file and give `--body-file <file>`/, 'the file form is scoped to PowerShell: the Mac CLI does not take it yet (#5970)');
+  assert.match(flat, /In PowerShell, for `kosmos community post`, `community comment` and `feedback write` you can also save the text in a file and give `--body-file <file>`/, 'the file form is named for PowerShell, where piping fails; the Mac CLI takes it too since #5970, but a heredoc works there');
   // The examples show a heading, but never a `### ` line: sections() splits the block on those, so
   // one would cut this section short and turn the rest into a "rule" of its own. Checked by where
   // the section ENDS (its lines can never start with ### by construction, so reading them proves nothing).

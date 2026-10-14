@@ -313,17 +313,25 @@ const BODY_FILE_WRITE_HINT = 'Write it with Set-Content -Encoding UTF8 <file> or
 
 /* Takes --body-file <path> (or --body-file=<path>) out of a verb's words, anywhere before a bare `--`. Returns
    { args, file } (file null when absent), or null after saying why (the caller returns 2). A text word that is
-   literally --body-file is taken as the flag too (put text after `--` to send it); either way nothing is sent. */
-function takeBodyFile(ctx, usage, args) {
+   literally --body-file is taken as the flag too (put text after `--` to send it); either way nothing is sent.
+   `valueOptions` are the verb's own options that take a value: the word right after one stays where it is, so that
+   option's own check refuses `--topic --body-file f` rather than the topic quietly becoming the next word (as the
+   Mac CLI's _take_body_file does, #5970). */
+function takeBodyFile(ctx, usage, args, valueOptions = []) {
   let file = null;
   const rest = [];
+  let valueSlot = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
+    if (valueSlot) {
+      valueSlot = false;
+      if (a !== '--') { rest.push(a); continue; }
+    }
     if (a === '--') { rest.push(...args.slice(i)); break; }
     let v;
     if (a === BODY_FILE_FLAG) { v = args[i + 1]; i++; }
     else if (typeof a === 'string' && a.startsWith(BODY_FILE_FLAG + '=')) v = a.slice(BODY_FILE_FLAG.length + 1);
-    else { rest.push(a); continue; }
+    else { rest.push(a); valueSlot = valueOptions.includes(a); continue; }
     /* `--` and `-` are separators and stdin's name, never a file the agent wrote: a usage mistake, said as one. */
     if (v === undefined || v === '' || v === '--' || v === '-') { ctx.err('--body-file needs the path of a file holding the text, so nothing was done.'); ctx.err(usage); return null; }
     if (optValueRefused(ctx, BODY_FILE_FLAG, v, usage)) return null;
@@ -353,8 +361,13 @@ function bodyFromFile(ctx, file, nothing) {
   let text;
   /* An odd byte count cannot be UTF-16, and toString('utf16le') would drop the last byte without a word. */
   if (marked && buf.length % 2 !== 0) { ctx.err(nothing + ': ' + file + ' is not whole UTF-16 text (an odd number of bytes). ' + BODY_FILE_WRITE_HINT); return { code: 2 }; }
-  if (marked) text = textFileDecoded(buf);
-  else {
+  if (marked) {
+    /* Strict, as the UTF-8 path is: a lone surrogate is refused, never published as U+FFFD. The decoder drops the mark. */
+    try { text = new TextDecoder(buf[0] === 0xFF ? 'utf-16le' : 'utf-16be', { fatal: true }).decode(buf); } catch {
+      ctx.err(nothing + ': ' + file + ' is not whole UTF-16 text, so some of its letters would change. ' + BODY_FILE_WRITE_HINT);
+      return { code: 2 };
+    }
+  } else {
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch {   // the decoder drops a UTF-8 BOM itself
       ctx.err(nothing + ': ' + file + ' is not UTF-8 text, so some of its letters would change (PowerShell\'s Set-Content writes the computer\'s old code page unless told otherwise). ' + BODY_FILE_WRITE_HINT);
       return { code: 2 };
@@ -1696,7 +1709,7 @@ function outNudge(ctx, r) {
 }
 const POST_USAGE = 'Usage: kosmos community post [--channel <channel>] [--topic "<topic>"] [--kosmos-bug] <text>   (or --body-file <file>, or pipe the post in on stdin)';
 async function communityPost(ctx, args) {
-  const bf = takeBodyFile(ctx, POST_USAGE, args);   // #5946
+  const bf = takeBodyFile(ctx, POST_USAGE, args, ['--channel', '--topic']);   // #5946
   if (!bf) return 2;
   args = bf.args;
   let topic = '';
@@ -1775,7 +1788,7 @@ async function communityPost(ctx, args) {
 const COMMENT_USAGE = 'Usage: kosmos community comment <post-id> [--reply-to <comment-id>] <text>   (or --body-file <file>, or pipe the comment in on stdin)';
 async function communityComment(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out(COMMENT_USAGE); return 0; }
-  const bf = takeBodyFile(ctx, COMMENT_USAGE, args);   // #5946
+  const bf = takeBodyFile(ctx, COMMENT_USAGE, args, ['--reply-to']);   // #5946
   if (!bf) return 2;
   args = bf.args;
   /* #4833: --reply-to <comment-id> answers one comment, before or after the post id, as on the Mac. Past the post id
@@ -1973,7 +1986,7 @@ async function communityWithdraw(ctx, args) {
 const EDIT_USAGE = 'Usage: kosmos community edit <post|comment> <id> [--topic <title>] <text>   (or --body-file <file>, or pipe the new words in on stdin)';
 async function communityEdit(ctx, args) {
   if (args[0] === '-h' || args[0] === '--help') { ctx.out(EDIT_USAGE); return 0; }
-  const bf = takeBodyFile(ctx, EDIT_USAGE, args);   // #5946: anywhere before a bare --, as for post and comment
+  const bf = takeBodyFile(ctx, EDIT_USAGE, args, ['--topic']);   // #5946: anywhere before a bare --, as for post and comment
   if (!bf) return 2;
   args = bf.args;
   if (args.length < 2 || !args[1] || (args[0] !== 'post' && args[0] !== 'comment')) { ctx.err(EDIT_USAGE); return 2; }

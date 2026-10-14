@@ -58,7 +58,7 @@ if ($pipedIn -and $PSCommandPath) {
   $hostArgs = [Environment]::GetCommandLineArgs()
   for ($i = 1; $i -lt $hostArgs.Count; $i++) {
     $named = $hostArgs[$i]
-    if ($named -match '^[-/](\w+)$') {
+    if ($named -match '^(?:--?|/)(\w+)$') {
       $n = $Matches[1].ToLowerInvariant()
       if ('command'.StartsWith($n) -or 'encodedcommand'.StartsWith($n) -or $n -eq 'ec' -or 'commandwithargs'.StartsWith($n) -or $n -eq 'cwa') { break }
     }
