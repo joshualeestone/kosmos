@@ -482,13 +482,14 @@ test('#6174 the session is found through the pane roster as remove.js does: the 
   lead('rs-untied', { role: 'writer' }, acct);   // CONTROL: a pane under its name that is not tied to it
   accountmoving.note('rs-tied', 1000e3, null);
   accountmoving.note('rs-untied', 1000e3, null);
-  const roster = [
-    { sessionName: 'rs-tied', session: 'rs-tied-discord', isNamedOurs: true },
-    { sessionName: 'rs-untied', session: 'rs-untied', isNamedOurs: false },
-  ];
-  const asked = [];
-  const deps = { roster, startedAt: (s) => { asked.push(s); return 1000e3; } };
-  assert.deepEqual(claudeAgentsByAccount().moving(acct, false, deps), ['rs-tied'], 'the tied card was not used, or a bystander was');
-  assert.ok(asked.includes('rs-tied-discord'), 'the start was not read from the card\'s own session: ' + JSON.stringify(asked));
-  assert.ok(!asked.includes('rs-untied'), 'a session not tied to the agent was read');
+  // Real panes through the real roster (test-support/fleet): a tied agent (legacy session name) and a stranger's pane.
+  const fleet = require('./test-support/fleet');
+  fleet.install([fleet.agent('rs-tied'), fleet.stranger('rs-untied')]);
+  try {
+    const asked = [];
+    const deps = { startedAt: (s) => { asked.push(s); return 1000e3; } };
+    assert.deepEqual(claudeAgentsByAccount().moving(acct, false, deps), ['rs-tied'], 'the tied card was not used, or a bystander was');
+    assert.ok(asked.includes('rs-tied-discord'), 'the start was not read from the card\'s own session: ' + JSON.stringify(asked));
+    assert.ok(!asked.includes('rs-untied'), 'a session not tied to the agent was read');
+  } finally { fleet.restore(); }
 });
