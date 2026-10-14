@@ -55,7 +55,9 @@ kosmos_setup_floor_ok() {
 kosmos_setup_floor_pointer_ok() {
   local label="$1" json="$2" v art av
   # One of each key: a reader that takes the FIRST of a doubled key (install/setup.sh does) and this check, which
-  # would see the last, could otherwise disagree about which build installs.
+  # would see the last, could otherwise disagree about which build installs. The extractors read `"key":` (the real
+  # writer, write-latest-pointer.js, writes one line in that form); a pointer spelled `"key" :` reads as having no
+  # version and is refused, which fails closed.
   if [ "$(printf '%s' "$json" | grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
      [ "$(printf '%s' "$json" | grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
     echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2

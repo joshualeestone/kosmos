@@ -648,6 +648,17 @@ git -C "$REPO" log --oneline -8 | cat
 # window: step 1 is stricter on the past side, because it can see that an
 # already-stale entry is doomed once the cut adds its own fifteen minutes.
 . "$REPO/tools/lib/versions-entry.sh"
+step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (kosmos#6149) =="
+# A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
+# fail-fast on the site checkout (which may be behind origin/main), seconds in, so a site below the floor refuses
+# before anything is built; the export check before the deploy reads the bytes actually published and is the authority.
+. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
+# The test-only knob that lowers the floor has no place in a cut: refuse it outright.
+[ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || {
+  echo "KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"; exit 1; }
+kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
+kosmos_setup_floor_site_untouched_ok "the site checkout" "$SITE" "$CUT_CHANNEL" || {
+  echo "(this read the site CHECKOUT at $SITE: if it is behind origin/main, refresh it and cut again; if origin/main holds the old file too, it needs a build at or above the floor)"; exit 1; }
 # 🛑 ITS OWN STEP LABEL, AND THAT IS NOT COSMETIC. `cut_record_done` writes
 # `$_STEP` into ~/.claude/logs/cut-suite-runs.log, and that log is the ONLY
 # instrument that can count how a cut died. Left under step 1's banner, a
@@ -660,14 +671,6 @@ git -C "$REPO" log --oneline -8 | cat
 # its label would have made the next four uncountable -- the change would have
 # destroyed the measurement that justified it, and nobody would notice, because
 # the failures would simply blend into a busier bucket.
-step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (kosmos#6149) =="
-# A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
-# fail-fast on the site checkout (which may be behind origin/main), seconds in, so a site below the floor refuses
-# before anything is built; the export check before the deploy reads the bytes actually published and is the authority.
-. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
-kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
-kosmos_setup_floor_site_untouched_ok "the site checkout" "$SITE" "$CUT_CHANNEL" || {
-  echo "(this read the site CHECKOUT at $SITE: if it is behind origin/main, refresh it and cut again; if origin/main holds the old file too, it needs a build at or above the floor)"; exit 1; }
 step "== 1b. the versions entry, before anything is built =="
 # #1455: where a PENDING entry file may be left instead of hand-stamping the page.
 # Overridable, and defaulted into $REPO rather than $SITE so a stray file can never
