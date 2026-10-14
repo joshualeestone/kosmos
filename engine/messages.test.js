@@ -690,6 +690,13 @@ function room3() {
     fleet.agent('april', { state: 'idle' })];
 }
 const MEMBERS = ['leo', 'mara', 'april'];
+// A four-member room, for the poll case: four DISTINCT senders each answering a question once
+// (#4934/#5967 review round 2). room3 cannot express four distinct answerers.
+function room4() {
+  return [fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' }),
+    fleet.agent('april', { state: 'idle' }), fleet.agent('nova', { state: 'idle' })];
+}
+const MEMBERS4 = ['leo', 'mara', 'april', 'nova'];
 
 /* ── quoted words (#460) ─────────────────────────────────────────────────── */
 
@@ -1344,6 +1351,52 @@ test('#4934/#5967: an external (federated) content post breaks the ack run, so a
     }) + '\n');
     const refused = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks' }, board.agents, MEMBERS);
     assert.equal(refused.code, 'ack_only', 'an external ack was treated as content; it must be classified by text like any post');
+  });
+});
+
+test('#4934/#5967: four DISTINCT senders answering a polled question are a poll, not a loop -- the fourth is delivered, not dropped', () => {
+  withFleet(room4(), (board) => {
+    const now = Date.now();
+    // A person asks the room a yes/no question, then FOUR different fighters each answer once.
+    // That is a poll, not two agents trading acks. The run has no sender dimension, so without
+    // the back-and-forth gate the fourth answer trips the limit, is dropped, and its sender is
+    // told it only agreed with what was said -- which is false, and an answer the person asked
+    // for is lost with no record. That is the dangerous direction (review round 2, PM Liu Kang).
+    fs.appendFileSync(messages.LOG, JSON.stringify({
+      kind: 'post', id: 'mq', project: 'henderson-lease', operator: true,
+      from: 'you', to: MEMBERS4, text: 'is everyone ready to ship today?',
+      at: new Date(now - 5000).toISOString(), outcomes: {},
+    }) + '\n');
+    seedPosts(now, [
+      { from: 'mara', text: 'yes' },
+      { from: 'april', text: 'ok' },
+      { from: 'nova', text: 'agreed' },
+    ]);
+    armSender('leo-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'yes' }, board.agents, MEMBERS4);
+    assert.equal(out.state, chat.DELIVERY.PLACED, 'the fourth DISTINCT answerer was refused as an ack loop; a poll is not a loop, so a requested answer was dropped');
+    assert.notEqual(out.code, 'ack_only', 'the poll answer must not be refused with ack_only');
+    assert.ok(out.id, 'the fourth poll answer was not actually delivered (no id)');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.from === 'leo' && m.text === 'yes').length, 1, 'the delivered poll answer was not stored, so the room never saw it');
+  });
+});
+
+test('#4934/#5967: two agents TRADING acks are a back-and-forth loop -- the fourth is still refused (a repeating sender)', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    // Only TWO senders, trading acknowledgements back and forth -- the loop this trigger exists
+    // to stop. A sender appears more than once in the run, so it is a back-and-forth, not a
+    // poll, and the fourth ack is refused with ack_only exactly as before the poll fix.
+    seedPosts(now, [
+      { from: 'leo', text: 'agreed' },
+      { from: 'mara', text: 'ok' },
+      { from: 'leo', text: 'thanks' },
+    ]);
+    armSender('mara-discord'); arm([]);
+    const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'sure' }, board.agents, MEMBERS);
+    assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'two agents trading four acks were not stopped; a back-and-forth loop slipped through');
+    assert.equal(out.code, 'ack_only', 'the trading-loop refusal must carry ack_only');
+    assert.equal(messages.record().rows.filter((m) => m.kind === 'post' && m.text === 'sure').length, 0, 'the refused trading ack was stored');
   });
 });
 
