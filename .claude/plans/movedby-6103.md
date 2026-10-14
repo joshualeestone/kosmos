@@ -28,3 +28,6 @@ A pane-named caller is advisory, not verified; `addedBy` takes the same risk. Th
 1. opus: no blocker or warning; traced every part writer and reader. NITs taken: the route test now shows an unnamed
    move clears an earlier mover (and reds the no-clear mutant on its own); the WHO_MAX cap is documented. Left: a
    token-vs-pane flag (`caller.byToken`) is a design choice for whoever builds a map on this.
+2. sonnet: no blocker or warning. Converged. NITs taken: a padded name is stored trimmed (a no-trim mutant now reds
+   the named-move test itself); the cap comment says WHO_MAX is the longest `who` a part takes. Left: no end-to-end
+   test that the part route and the Assigner record no movedBy (unit-covered by the via cases).
