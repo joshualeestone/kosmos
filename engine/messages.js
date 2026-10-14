@@ -2167,17 +2167,34 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
-  /* #4934 / #5967: HOLD A RUN OF ACKNOWLEDGEMENT-ONLY POSTS SOONER than the volume
-     valve below. The volume valve counts arrivals; two agents trading "agreed" and
-     "acknowledged" about a settled decision fill a room with noise well under that
-     cap (a user's Windows room traded eleven before it fired). This is a SEPARATE,
-     earlier trigger on the trailing run of consecutive acknowledgement-only posts
-     since countFrom -- the SAME reset point the volume valve uses, so an operator
-     post or a reopen clears it exactly as it clears the arrival budget. A post with
-     any new facts is content (chat.acknowledgementOnly is false) and RESETS the run,
-     so the volume valve below, and ordinary back-and-forth with real content, are
-     left exactly as they were. The hold reuses the honest refusal #4967 shipped
-     (COULD_NOT / room_held: nothing kept, do not send it another way). */
+  /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
+     the volume valve below. The volume valve counts arrivals; two agents trading
+     "agreed" and "acknowledged" about a settled decision fill a room with noise well
+     under that cap (a user's Windows room traded eleven before it fired). This is a
+     SEPARATE, earlier trigger on the trailing run of consecutive acknowledgement-only
+     posts since countFrom -- the SAME reset point the volume valve uses, so an
+     operator post or a reopen clears it exactly as it clears the arrival budget. A
+     post with any new facts is content (chat.acknowledgementOnly is false) and RESETS
+     the run, so the volume valve below, and ordinary back-and-forth with real content,
+     are left exactly as they were.
+
+     THIS IS NOT A ROOM HOLD (review round 2, PM Liu Kang). It refuses only the
+     ack-only post that would extend the run; the very next post carrying content gets
+     ackRun 0 and is delivered at once. So it must neither SAY nor RECORD a hold:
+       - a DISTINCT code `ack_only` (not room_held), so the CLI tells the agent to post
+         something new, which goes straight through -- not that the room is paused for
+         an hour until the person is brought in, which is false and would make an agent
+         sit on real content (the dangerous direction this trigger exists to prevent);
+       - an honest person-facing `because`;
+       - deliberately NO valve row and NO refused row. A `stopped` valve row feeds the
+         held-tell staleness check and roomHeld() (volume-only today), so writing one
+         would make roomHeld and the person's feed report a hold that does not exist; a
+         ROOM_HELD_REFUSAL refused row is read by the volume path's who-was-refused
+         dedup (#315) as a prior volume hold, and would swallow a later genuine one.
+         #315's silent-blocked concern does not apply here: the agent is not held, it is
+         told plainly to post content, which it can do at once.
+     Nothing is kept (id null) and nothing is typed, exactly as #4967's refusal; only
+     the false hold is removed. */
   if (lim.on && operator !== true) {
     const ackPosts = log
       .filter((m) => m && m.kind === 'post' && !m.operator && m.project === projectId && Date.parse(m.at) >= countFrom)
@@ -2190,27 +2207,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     // acknowledgement-only; otherwise it is content and the run is broken (0).
     ackRun = chat.acknowledgementOnly(stored) ? ackRun + 1 : 0;
     if (ackRun >= ACK_RUN_LIMIT) {
-      const because = 'This conversation was only agreeing back and forth without adding anything new, '
-        + 'so Kosmos stopped it and asked everyone to bring you in.';
-      // Same valve-row dedup as the volume path (per room, per stopped-state, from
-      // countFrom): the ack hold fires sooner, so its row and reason are logged first.
-      const prior = log.filter((m) => m && m.kind === 'valve'
-        && m.project === projectId && Date.parse(m.at) >= countFrom);
-      const latest = prior[prior.length - 1];
-      if (!latest || (latest.stopped !== false) !== true) {
-        appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: true });
-      }
-      try {
-        // One refused row per agent per window, keyed on ROOM_HELD_REFUSAL like the
-        // volume path, so the two holds share the "who was refused" dedup (#315).
-        const already = log.some((m) => m && m.kind === 'refused'
-          && m.from === from && m.project === projectId && m.because === ROOM_HELD_REFUSAL
-          && Date.parse(m.at) >= countFrom);
-        if (!already) {
-          appendLog({ kind: 'refused', from, to: projectId, project: projectId, because: ROOM_HELD_REFUSAL, at });
-        }
-      } catch { /* the record is best-effort; the verdict is not */ }
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
+      const because = 'Kosmos stopped passing on agreement-only replies here; '
+        + 'posts with something new still go through.';
+      // No valve row and no refused row: see the block comment above. The ack-only
+      // post is quietly not forwarded; the next content post flows straight through.
+      return { state: chat.DELIVERY.COULD_NOT, code: 'ack_only', because, id: null, at, outcomes: null };
     }
   }
 
