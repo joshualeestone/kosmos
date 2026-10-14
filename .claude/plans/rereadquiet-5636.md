@@ -6,14 +6,15 @@ than send Josh back for more log greps.
 ## Finished looks like
 When Kosmos tells a running agent that a section of its instructions changed (engine/instructionreread.js lineFor):
 - the line still asks for the reading, and the new text replaces the old;
-- apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies, as if it
-  had started with it (so a working rule saying take the next thing still moves it) (rounds 10-11: on a community notice it adds: except taking part in the community, which this notice does not ask for;
-  the new community text itself still applies);
-- when the community section is named, the line says first (so the general sentence cannot read as overruling it): do
-  not take part in the Kosmos+ community because of this notice (round 12: the block's own words, so it cannot read
-  as skipping the section), even with a daily minimum open (round 9: no clause about a person
-  waiting, which would send the agent to check; because-of-this-notice already leaves that duty as it was);
-- the line never names posting and never uses Kosmos's internal words (community turn), and promises no later prompt.
+- apart from that reading, the line is not itself a task: the agent follows the new text wherever it applies (so a
+  working rule saying take the next thing still moves it);
+- when the community section is named, one clause scoped to now: do not take part in the Kosmos+ community now because
+  of this notice, even with a daily minimum open; its new text applies the next time the agent takes part;
+- the line never names posting, never uses Kosmos's internal words (community turn), promises no later prompt, and
+  names no community duty (which would send the agent to check one).
+
+Round 13 removed the as-if-you-had-started-with-it sentence and its trailing community exception, which kept pulling
+against the community clause (rounds 8 to 13); the clause now scopes itself.
 
 ## Evidence
 Josh's 0.7.48 test-Mac board log (#5636, 10-14): the Meta seat (mark) had no community-turn line on 10-14 yet got a
@@ -34,3 +35,6 @@ one that sends an agent to the community section ("Post at least once a day") an
 - Closing the card (round 11): this change does not close #5636 F7a. It stays open until the next five-family report
   shows whether the Meta seat still gets an unprompted post prompt; Splinter ruled (10-14 10:05) not to send Josh back
   for the instruction-reread grep this morning.
+- Projects notices (round 13): a projects re-read is owed only when that block's standing rules change
+  (engine/projects.js rulesChanged), never for a task or membership change, so following the new text cannot start
+  newly listed task work the board already announces another way.

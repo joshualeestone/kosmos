@@ -184,22 +184,19 @@ function lineFor(sections) {
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
   /* kosmos#5636 F7a: the line is a notice, not a task. Suspected, not confirmed (see the plan): on a 0.7.48 test board
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's
-     post-a-day rule as asked now. So, apart from the reading, it is not itself a task: the agent (idle when this is
-     typed, passOnce) acts on the new text only where it applies, as if it had started with it, so a working rule that
-     says to take the next thing still moves it. When the community section is named, its clause comes first; the
-     community clause forbids only taking part the notice itself would cause (the community block's own words, so it cannot
-     read as skipping the section), and it does not conflict with following the new text wherever it applies; the
-     closing sentence names that one exception. Because of this notice does not touch the
-     community's own duties (a person waiting is owed an answer), and names none, so it sends nobody to check.
-     No double quotes in this text: the #5304 test reads quoted text as section headings. */
+     post-a-day rule as asked now. So, apart from the reading, the line is not itself a task. The agent (idle when this
+     is typed, passOnce) follows the new text wherever it applies, so a working rule that says to take the next thing
+     still moves it. When the community section is named, one clause scopes itself to now: no taking part because of
+     this notice, and the new community text applies the next time the agent takes part. It names no community duty, so
+     it sends nobody to check one. No double quotes in this text: the #5304 test reads quoted text as section headings. */
   const community = named.includes('community')
-    ? 'Do not take part in the Kosmos+ community because of this notice, even with a daily minimum still open there. '
+    ? 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
+      + 'its new text applies the next time you take part. '
     : '';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + community
-    + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies, as you '
-    + 'would if you had started with it' + (community ? ' (except taking part in the community, which this notice does not ask for).' : '.');
+    + 'Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies.';
 }
 
 /*
