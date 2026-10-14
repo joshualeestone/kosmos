@@ -1109,7 +1109,8 @@ function staleHeld(projectId, ids, log, now, member) {
     }
     /* N7 (10-13 19:31Z, a Meta seat): the member answered a whole round in ONE reply, to the round's newest post, and
        the round's other posts were told to it again as new. So a reply to another's post X also answers the posts
-       before X that any default room read showing X, made before the member's first reply to X, showed: the
+       before X that any default room read showing X, made before the member's first reply to X, showed (assuming the
+       reply followed such a read, the rule's premise): the
        ROOM_READ_ROWS - 1 rows before X, less one for each row after X and before that reply, of the kinds the read
        shows, in the order it shows them (server.js). Outside rows count as full slots; the read skips outside rows past
        its cap, so it reaches further back than that, never less far. */

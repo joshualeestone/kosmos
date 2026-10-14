@@ -13,24 +13,26 @@ kinds (and earlier than X; nothing when the reply is not later than X). They are
 marked `answered` so a limit hold does not keep them back. Posts after X are untouched. ROOM_READ_ROWS (40) is the
 default `kosmos room` row count, now read by server.js from messages.js rather than kept as a second literal.
 
-## Why "taken with" needs no separate rule
-A held id leaves the held list when a line tells it (take). Only restore puts it back, and restore runs only when
-that line could not be typed, so the member never saw it. A post typed to the member carries the posts held for it
-then, so they are taken with it and are not held afterwards.
+## Why "taken with" has no separate rule (reasoned, not guaranteed)
+A held id leaves the held list when a line tells it (take). A post typed to the member carries the posts held for it
+then, so they are taken with it. restore puts ids back when the line's delivery comes back COULD_NOT or empty, and
+that includes a deliver that threw AFTER the paste (roomhold.flushOnIdle), so a line the member did see can be put
+back. N7 drops more in that case, the safe direction for this card; a separate "taken with" rule was not built.
 
 ## How the 19:31 seat saw m1032 (open)
 m1032 was held, so it was not typed to the seat. A read with its own token would have cleared all 9 shown ids through
 #6116 (dropShown), so the seat most likely read the room WITHOUT its token. Reasoned from code, not measured:
 engine/musefront.js never references KOSMOS_AGENT_TOKEN, and Muse has no report bridge (agy, codex, gemini and grok
 each have one that reads it). If the seat saw m1032 some other way, the window is a guess for exactly the case that
-motivated it. The test-Mac board log (the seat's room reads around 19:31) would settle it.
+motivated it. A second explanation fits too: a line that reached the seat was restored after its deliver threw
+(above). The test-Mac board log (the seat's room reads and delivery lines around 19:31) would settle it.
 
 ## Weakest premise, and the residuals review 1 found
 That the member saw the older posts when it saw X. The window is the LEAST any default read showing X, made before
 the member's first reply to X, can have shown (the latest such read), not the 39 an immediate read shows. Not
 covered, so an older unseen post can still be dropped:
-- a read with a small -n (rows after X and before the member's first reply to X are taken off the window, so a
-  default read made after later rows is covered);
+- a read with a small -n. (Covered, by contrast: a default read made after later rows, because the rows after X
+  and before the member's first reply are taken off the window.)
 - the member learned X's id without reading the room (a direct message, the person naming it, a quote elsewhere)
   and replied to it having seen none of the older posts;
 - a read the runner cut short: the server returned the rows, but the tool output limit dropped the oldest before
