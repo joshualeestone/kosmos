@@ -46,9 +46,10 @@ case "$me" in
     [ -z "${FX_PS:-}" ] || printf '%s\n' "$FX_PS" ;;
   gh)
     [ "${FX_GH_FAIL:-0}" = 1 ] && exit 1
+    [ "${FX_GH_500:-0}" = 1 ] && { echo "gh: Server Error (HTTP 500)"; exit 1; }
     case "$*" in
-      *"variable list"*KOSMOS_CI_SHELL_SHARDS*) [ -z "${FX_SHARDS+set}" ] || printf '=%s' "$FX_SHARDS" ;;
-      *"variable list"*KOSMOS_CI_RUNNER*) printf '=%s' "${FX_RUNNER_VAR-on}" ;;
+      *actions/variables/KOSMOS_CI_SHELL_SHARDS*) [ -n "${FX_SHARDS+set}" ] || { echo "gh: Not Found (HTTP 404)"; exit 1; }; printf '=%s' "$FX_SHARDS" ;;
+      *actions/variables/KOSMOS_CI_RUNNER*) printf '=%s' "${FX_RUNNER_VAR-on}" ;;
       *"| .busy"*) [ "${FX_BUSY2_FAIL:-0}" = 1 ] && exit 1; row="${FX_RUNNER_ROW-online false x}"; set -- $row; printf '%s\n' "${FX_BUSY2:-$2}" ;;
       *actions/runners*) printf '%s\n' "${FX_RUNNER_ROW-online false arm64,kosmos-ci,macos,self-hosted}" ;;
     esac ;;
@@ -123,6 +124,7 @@ refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
 refuse shards-pair "routes shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
+refuse gh-not-404 "could not read the repo variables" FX_GH_500=1
 refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
 refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
 refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
@@ -237,6 +239,10 @@ run in-nostart "$R6" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R6" FX_SVC_START_FAIL=1 -
 [ ! -e "$R1/actions-runner/actions-runner-osx-arm64-2.999.0.tar.gz" ] && pass "install --apply removes the package after unpacking it" || fail "the runner package was left in $R1/actions-runner"
 run rg-noinstall "$T/empty-ci" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/empty-ci" -- --apply register
 [ "$(rc rg-noinstall)" = 1 ] && has rg-noinstall "run install first" && pass "register --apply before install says so" || fail "register before install: rc $(rc rg-noinstall): $(tail -1 "$T/rg-noinstall.out")"
+R7="$T/run7"; svc_home "$R7"
+run in-pgrepfail "$R7" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R7" FX_PGREP_FAIL=1 -- --apply install "$C" "$G"
+[ "$(rc in-pgrepfail)" = 1 ] && has in-pgrepfail "could not list processes" && ! grep -q -E '^(svc.sh stop|tar )' "$T/in-pgrepfail.calls" \
+  && pass "install --apply refuses when pgrep cannot say whether a job runs" || fail "install pgrep failure: rc $(rc in-pgrepfail)"
 R4="$T/run4"; mkdir -p "$R4/actions-runner"; printf 'RUNNER_KEEP=1\n' > "$R4/actions-runner/.env"; chmod 000 "$R4/actions-runner/.env"
 run in-unread "$R4" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$R4" -- --apply install "$C" "$G"
 chmod 600 "$R4/actions-runner/.env"
