@@ -13,8 +13,8 @@
  *   - the page is no wider than the screen, in both layouts;
  * and at desktop width (1280) the button keeps its old height (the same with any min-height
  * taken away). The tab layout only: the consolidated layout does not show #restart-wrap.
- * #6107, an upright tablet (834x1194, touch): the cards are two across with the face on the left, name, role and
- * state beside it and the task underneath; a 1024x768 tablet in landscape keeps the desktop card (the control).
+ * #6107, an upright tablet (834x1194, touch): the cards are two across (one across at 600x960, a small tablet) with
+ * the face on the left, name, role and state beside it and the task underneath, a needs-you card and a long name fitting; a 1024x768 tablet in landscape keeps the desktop card (the control).
  * #4662, at the same phone sizes: the Agents Sort dropdown is at least 16px (iOS zooms into a
  * smaller field), and every .sortctl select in the page plus one built by agentSortControlHtml
  * (how the one-screen layout builds its own) is at least 16px; at 1280 the Sort stays under 16px.
@@ -180,7 +180,7 @@ function emptySpot(page, sel) {
         // desktop card (more than two columns, the face above the name), so the arm cannot pass on a page that
         // simply always draws the tablet card. 1024x768 is inside the tablet width range, so only the orientation
         // clause keeps it out.
-        for (const [w, h, upright] of [[834, 1194, true], [1024, 768, false]]) {
+        for (const [w, h, upright, across] of [[834, 1194, true, 2], [600, 960, true, 1], [1024, 768, false, 0]]) {
           const tag = `[${engine} ${w}x${h} tablet]`;
           const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: true, isMobile: engine === 'chromium' });
           const page = await ctx.newPage();
@@ -198,7 +198,8 @@ function emptySpot(page, sel) {
           const stacked = card.st.t >= card.n.b - 1;                                  // state under the name
           const under = card.task.t >= card.g.b - 1 && Math.abs(card.task.l - card.g.l) <= 2;   // task below the face, from its left edge
           if (upright) {
-            chk(card.cards >= 3 && card.columns === 2, `${tag} #6107: the agent cards are two across`, JSON.stringify({ columns: card.columns, cards: card.cards }));
+            // Two across on an iPad; one across on a 7 or 8 inch tablet, where two would leave a needs-you card too narrow.
+            chk(card.cards >= 3 && card.columns === across, `${tag} #6107: the agent cards are ${across === 2 ? 'two' : 'one'} across`, JSON.stringify({ columns: card.columns, cards: card.cards }));
             chk(beside && stacked && under, `${tag} #6107: the face is on the left, name then state beside it, the task underneath`, JSON.stringify(card));
             // The shapes most likely to break: cleo needs you (the state pill carries an Answer button), and a long name
             // beside the 64px face. Nothing in the card may poke out of it, or under the face.
