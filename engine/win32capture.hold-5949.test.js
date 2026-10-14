@@ -431,3 +431,69 @@ test('#5949 a changing state is written at most once every few seconds', () => {
   assert.ok(store.writes >= 2, 'CONTROL: it does write');
 });
 
+
+/* A report aged past REPORT_WORKING_DECAY_MS, as six minutes of quiet after an automatic "working" would leave it. */
+function staleWorkingReport(name) {
+  const selfreport = require('./selfreport');
+  const r = selfreport.record(name, { state: 'working', because: 'answering a prompt', auto: true });
+  assert.equal(r.recorded, true, 'CONTROL: the working report was recorded');
+  const file = selfreport.fileFor(name);
+  const rows = fs.readFileSync(file, 'utf8').trim().split('\n');
+  const last = JSON.parse(rows[rows.length - 1]);
+  last.at = new Date(Date.now() - status.REPORT_WORKING_DECAY_MS - 60 * 1000).toISOString();
+  rows[rows.length - 1] = JSON.stringify(last);
+  fs.writeFileSync(file, rows.join('\n') + '\n');
+}
+
+test('#5949 a HELD idle for a per-turn runner never ends a stale working report (only a state file read this tick does)', () => {
+  staleWorkingReport('coder');
+  const record = { read: () => ({ 'sid-o': { name: 'coder', runner: 'codex' } }) };
+  const row = { pid: 4242, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-o', name: 'coder', runner: 'codex' };
+  let token = 'idle';
+  let t = 1000;
+  status.setPaneSource(win32roster.make({ run: () => [row], record, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run: () => [row], record, now: () => t, ttlMs: 1000, streamState: () => token, log: () => {} }));
+  try {
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === 'coder');
+    const fresh = card();
+    assert.equal(fresh.state, status.STATE.IDLE, 'CONTROL: its state file read this tick says idle, which ends the stale report');
+    assert.equal('stateRead' in fresh, false, 'CONTROL: a fresh look adds no field');
+
+    token = null;   // the state file stops matching for a moment (a relaunch), so the capture holds its last idle
+    t += 5000;
+    const held = card();
+    assert.equal(held.screenRead, 'remembered', 'the capture is holding');
+    assert.equal(held.state, status.STATE.UNKNOWN, 'a remembered idle is not the supervisor\'s record that no turn is running');
+    assert.equal(held.stateRead, 'unreadable', 'and the card carries the hover\'s why');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
+test('#5949 a stale working report over a failed look is marked unreadable, not left unexplained', () => {
+  staleWorkingReport('kai');
+  const kaiRec = { read: () => ({ 'sid-k': { name: 'kai', runner: 'claude' } }) };
+  const agents = [live('sid-k', 'idle')];
+  status.setPaneSource(win32roster.make({ run: () => agents, record: kaiRec, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run: () => null, record: kaiRec, log: () => {} }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === 'kai');
+    assert.equal(a.state, status.STATE.UNKNOWN);
+    assert.equal(a.stateRead, 'unreadable');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+  /* CONTROL: the same report over a look that worked carries no mark (a Windows Claude idle cannot end it either). */
+  status.setPaneSource(win32roster.make({ run: () => agents, record: kaiRec, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: kaiRec, log: () => {} }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === 'kai');
+    assert.equal(a.state, status.STATE.UNKNOWN);
+    assert.equal('stateRead' in a, false);
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});

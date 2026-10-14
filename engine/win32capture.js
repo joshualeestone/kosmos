@@ -132,9 +132,26 @@ function defaultLog(name, event, because) {
  * @param {() => number} [opts.now] clock (default Date.now), injectable so the
  *   memo TTL is testable without real time.
  * @param {number} [opts.ttlMs] memo window in ms (default 1500).
- * @returns {(target: string, lines?: number) => (string|null)} a paneCapture: the
- *   session's live status token, or null on a failed/absent look. The `lines`
- *   argument is accepted (the seam passes it) and ignored -- there is no scrollback.
+ * @param {(name: string, hit: object) => (string|null)} [opts.streamState] a streaming
+ *   session's token from its supervisor's state file (default win32streamstate.stateFor).
+ * @param {() => (string|null)} [opts.problem] why the last read failed, in words for the
+ *   agent's log (default `run.problem`, which win32roster's cachedRun carries) (#5949).
+ * @param {(name: string, event: string, because: string) => void} [opts.log] where a fall
+ *   to unknown, a hold and a recovery are written (default the agent's own
+ *   win32-logs/<name>.log) (#5949).
+ * @param {number} [opts.failsToUnknown] failed looks in a row before "Can't tell"
+ *   (default FAILS_TO_UNKNOWN, 3) (#5949).
+ * @param {number} [opts.holdMs] and how long since the last good look, both needed
+ *   (default win32roster.HOLD_MS, 15 s) (#5949).
+ * @param {{ read: () => object, write: (obj: object) => void }} [opts.lastState] where the
+ *   last good states survive a board restart (server.js passes fileLastState() on Windows);
+ *   none by default, so nothing is carried (#5949).
+ * @returns {((target: string, lines?: number) => (string|null)) & { note: (target: string) => (object|null) }}
+ *   a paneCapture: the session's live status token (its last good one while held), or null
+ *   on a failed/absent look. The `lines` argument is accepted (the seam passes it) and
+ *   ignored -- there is no scrollback. `.note(target)` says how the last answer was reached
+ *   ({ held, cause }, { unreadable, cause }, or null for a fresh look); status.captureNote
+ *   reads it to mark the card (#5949).
  */
 function make(opts) {
   const run = opts && typeof opts.run === 'function' ? opts.run : win32roster.cachedRun;

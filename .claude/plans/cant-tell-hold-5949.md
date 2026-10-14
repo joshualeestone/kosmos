@@ -97,5 +97,12 @@ card falls back to what the board can read itself. The project view reads the re
 views disagree. Repairing the Codex heartbeat on Windows and making every view read one effective state is a
 separate change (written up on #5949), not this one.
 
+## Per-turn runners after #5972 (rebased onto main 2026-10-13)
+The hold covers every live row, not only Claude ones, so a Codex, Gemini, Grok or Antigravity agent whose state file
+stops matching for a moment (a relaunch) also keeps its last token, marked. #5972 lets a per-turn runner's idle
+(`liveToken`) end a stale automatic "working" report, because that idle is the supervisor's record read this tick. A
+HELD idle is not that record, so snapshot drops `liveToken` from a held reading and the card falls to "Can't tell",
+with the hover's why (`stateRead: 'unreadable'`), exactly as a failed look under a stale report now does.
+
 ## Not done
 A browser check: the change is a hover title and a CSS qualifier behind no click (Browser-check trailer).

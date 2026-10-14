@@ -1584,8 +1584,8 @@ function captureNote(target) {
 /**
  * #5949: the card's `stateRead` field, as an object to spread into the row: { stateRead:
  * 'remembered' } when the state shown is a held reading, { stateRead: 'unreadable' } when it is
- * unknown because the look failed, and {} otherwise (a fresh look, a Mac pane, or a state the
- * agent's own report decided, which no failed look touched).
+ * unknown and the look failed (a decayed report's unknown included), and {} otherwise (a fresh
+ * look, a Mac pane, or a state the agent's own report decided, which no failed look touched).
  * ⚠️ A WORD, NEVER A SENTENCE. The page says it in its own fixed words on hover; why the read
  * failed goes to the agent's log, never to a card (#3729: no diagnostic lines on agent cards).
  * Also { screenRead: 'remembered' } whenever the SCREEN reading was held, even when a report
@@ -1595,11 +1595,14 @@ function captureNote(target) {
 function stateReadFields(note, status, scraped) {
   if (!note || !status) return {};
   const screen = note.held === true ? { screenRead: 'remembered' } : {};
+  /* Unknown while the look is failing, whoever decided it: a stale working report falls to "we could not check" when
+     the look failed outright, and also over a HELD reading (a held idle cannot end that report: see liveToken in
+     snapshot). Either card needs the hover's why as much as any (the #5949 symptom itself). */
+  if ((note.unreadable === true || note.held === true) && status.state === STATE.UNKNOWN) return { stateRead: 'unreadable', ...screen };
   if (status.reported === true) return screen;
   /* Only when the card shows the held reading itself: a state something else decided this tick (a
      stop, a sign-in failure, a limit) is not "what it was doing when last seen". */
   if (note.held === true && status.state !== STATE.UNKNOWN && scraped && status.state === scraped.state) return { stateRead: 'remembered', ...screen };
-  if (note.unreadable === true && status.state === STATE.UNKNOWN) return { stateRead: 'unreadable' };
   return screen;
 }
 
@@ -8603,7 +8606,13 @@ function snapshot() {
        'Working now' beside a wait): a held reading is a memory, not a turn seen this tick. */
     const scrapedNow = !(readNote && readNote.held);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
-    const scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
+    let scrapedStatus = classify(pane, retireResetLimits(text, Date.now(), (row) => limitFirstSeenOf(pane.name, row)));   // #5031
+    /* #5949: a HELD idle is a memory of an earlier look, not the per-turn supervisor's state file read this tick, so it
+       never carries classify's `liveToken` (which lets an idle end a stale automatic "working" in reconcileReport). */
+    if (!scrapedNow && scrapedStatus.liveToken === true) {
+      const { liveToken: _heldLiveToken, ...heldScrape } = scrapedStatus;
+      scrapedStatus = heldScrape;
+    }
     /* The agent's own account outranks the scrape when fresh (#188); only a
        pane TIED to the name may read that name's record, the same gate every
        name-keyed read below honours. */
