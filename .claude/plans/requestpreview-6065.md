@@ -7,8 +7,9 @@ on the Gemini and Meta runners, and where a message is still shortened, put the 
 ## Finished looks like
 When a room post or DM is too long to type whole (messages.spillsAt), the line the agent sees still carries the head,
 the size and the file, and now also the request: for a room post, the sentence that @-mentions this member (by handle
-or display name, as the room resolves mentions) shown as "It asks you: ..."; otherwise the post's first question shown
-as "Its first question: ..."; nothing when there is neither or it is already in the head. At most 300 characters.
+or display name, and only when the room itself counted it as mentioned) shown quoted as It asks you: "..."; otherwise
+the post's first question (a ? ending a word, never one in a link) as Its first question: "..."; a sentence already in
+the head is skipped for the next one; nothing when there is none. At most 300 characters.
 
 ## What the code says about the Gemini and Meta shortening (read on origin/main, not measured on the test Mac)
 - No runner-specific cut exists: the only spill is messages.spillsAt, measured per member on the whole line.

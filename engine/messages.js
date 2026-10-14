@@ -255,42 +255,57 @@ function spillHead(text) {
   return { head, words };
 }
 /* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
-   shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the sentence
-   that @-mentions this member (any of `spellings`, matched as the room's mentions are, by agentnames.nameKey), else
-   the post's first question; none when neither exists or it already sits in the head. At most REQUEST_MAX characters,
-   cut at a whole word. A sentence runs from the end of the one before (. ! ? or a line break) to its own end. */
+   shortened, its preview carries the request (Josh: "put the request in the preview"). The request is the first
+   sentence that @-mentions this member, looked for only when the room counted it as mentioned (`mentioned`, from
+   mentionedMembers, so an ambiguous or too-short name never reads as "It asks you"), matched by agentnames.nameKey on
+   keys of 2 or more characters as that resolver does; else the first question (a ? ending a word, never one inside a
+   link). A sentence already in the head is skipped for the next one. At most REQUEST_MAX characters, cut at a whole
+   word. A sentence runs from the end of the one before (. ! ? then a space, or a line break) to its own end; an
+   abbreviation such as "e.g." can start it early (the head's NOT_AN_END list is not applied here). */
 const REQUEST_MAX = 300;
-function requestIn(text, spellings) {
-  const t = String(text);
-  const nameKey = require('./agentnames').nameKey;
-  const keys = new Set((Array.isArray(spellings) ? spellings : []).filter((x) => typeof x === 'string' && x).map((x) => nameKey(x)));
-  let at = -1; let asked = false;
-  if (keys.size) {
-    for (const m of t.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
-      const token = m[2]; const stripped = token.replace(/[._-]+$/, '');
-      if (keys.has(nameKey(token)) || (stripped && keys.has(nameKey(stripped)))) { at = m.index + m[1].length; asked = true; break; }
-    }
-  }
-  if (at < 0) { const q = t.indexOf('?'); if (q < 0) return null; at = q; }
+const collapsed = (x) => String(x).replace(/\s+/g, ' ').trim();
+function sentenceAt(t, at) {
   const before = t.slice(0, at);
   const from = Math.max(before.lastIndexOf('\n'), ...['. ', '! ', '? '].map((e) => { const i = before.lastIndexOf(e); return i < 0 ? -1 : i + 1; })) + 1;
-  const rest = t.slice(at);
-  const stop = rest.search(/[.!?](\s|$)|\n/);
-  let sentence = t.slice(from, stop < 0 ? t.length : at + stop + 1).replace(/\s+/g, ' ').trim();
+  const stop = t.slice(at).search(/[.!?](\s|$)|\n/);
+  let sentence = collapsed(t.slice(from, stop < 0 ? t.length : at + stop + 1));
   if (!sentence) return null;
   if (sentence.length > REQUEST_MAX) {
     const open = wholeChars(sentence.slice(0, REQUEST_MAX));
     const sp = open.lastIndexOf(' ');
-    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
+    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '…';
   }
-  return { sentence, asked };
+  return sentence;
 }
-function spillLine(text, file, spellings) {
+function requestIn(text, opts = {}) {
+  const t = String(text);
+  const head = typeof opts.head === 'string' ? collapsed(opts.head) : '';
+  const fresh = (s) => s && !(head && head.includes(s.replace(/…$/, '')));
+  if (opts.mentioned === true) {
+    const nameKey = require('./agentnames').nameKey;
+    const keys = new Set((Array.isArray(opts.spellings) ? opts.spellings : []).filter((x) => typeof x === 'string' && x)
+      .map((x) => nameKey(x)).filter((k) => k.length >= 2));
+    for (const m of t.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
+      const token = m[2]; const stripped = token.replace(/[._-]+$/, '');
+      if (!keys.has(nameKey(token)) && !(stripped && keys.has(nameKey(stripped)))) continue;
+      const s = sentenceAt(t, m.index + m[1].length);
+      if (fresh(s)) return { sentence: s, asked: true };
+    }
+  }
+  for (const m of t.matchAll(/\?(?=\s|$)/g)) {
+    const s = sentenceAt(t, m.index);
+    if (fresh(s)) return { sentence: s, asked: false };
+  }
+  return null;
+}
+/* The request is quoted, so where Kosmos stops speaking is plain (the post's words are another agent's). Added after
+   the spill decision and not measured again: a spilled line is the envelope, a head of about 200 characters, a path
+   and at most REQUEST_MAX more, far under chat.MAX_TEXT. */
+function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
-  const req = requestIn(text, spellings);
-  const shown = req && !head.includes(req.sentence.replace(/\u2026$/, ''));
+  const req = requestIn(text, { ...opts, head });
   return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
-    + (shown ? (req.asked ? ' It asks you: ' : ' Its first question: ') + req.sentence : '');
+    + (req ? (req.asked ? ' It asks you: "' : ' Its first question: "') + req.sentence + '"' : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
@@ -2421,7 +2436,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       spilled[name] = spill.file;
       // #6065 N1: the preview carries the request to this member (its @-mention by handle or display name).
       const card = (Array.isArray(roster) ? roster : []).find((c) => c && c.sessionName === name);
-      envelope = wrap(spillLine(cleaned, spill.file, [name, card && card.name]));   // #5706
+      envelope = wrap(spillLine(cleaned, spill.file, { spellings: [name, card && card.name], mentioned: mentioned.has(name) }));   // #5706
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
