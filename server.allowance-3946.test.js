@@ -332,13 +332,16 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const accountmoving = require('./engine/accountmoving');
   const remove = require('./engine/remove');
   const run = (name, outcome, before, after, from, held = false) => {
-    let reads = 0;
+    let reads = 0; let readsAtRestart = null;
     const deps = {
       sessionOf: (n) => n + '-discord',
       startedAt: () => { reads += 1; return reads === 1 ? before : after; },
-      restart: () => { assert.equal(reads, 1, 'the start was not read before the restart'); return { outcome, oldJobHeld: held }; },
+      restart: () => { readsAtRestart = reads; return { outcome, oldJobHeld: held }; },
     };
-    return restartForMove(name, from, deps);
+    const back = restartForMove(name, from, deps);
+    // Asserted here, not inside restart (restartForMove turns a throw there into a partial).
+    assert.equal(readsAtRestart, 1, name + ': the start was not read before the restart');
+    return back;
   };
   run('rf-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/a');
   run('rf-new', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a');     // it did relaunch
@@ -374,4 +377,23 @@ test('#6174 accountmoving: a failed reading marks nobody and keeps the note; ano
   assert.equal(accountmoving.isMoving('x-6174', () => 6000), false, 'another session is not');
   assert.ok('x-6174' in accountmoving.notes(), 'a read cleared the note (only the move route clears)');
   assert.equal(accountmoving.isMoving('never-6174', () => 1), false, 'an agent with no note was marked');
+});
+
+test('#6174 the session is found through the pane roster as remove.js does: the card tied to the agent, never a bystander', () => {
+  const { claudeAgentsByAccount } = require('./server');
+  const accountmoving = require('./engine/accountmoving');
+  const acct = account('acct-6174-roster');
+  lead('rs-tied', { role: 'writer' }, acct);     // its card's session is a legacy name, tied to it
+  lead('rs-untied', { role: 'writer' }, acct);   // CONTROL: a pane under its name that is not tied to it
+  accountmoving.note('rs-tied', 1000e3, null);
+  accountmoving.note('rs-untied', 1000e3, null);
+  const roster = [
+    { sessionName: 'rs-tied', session: 'rs-tied-discord', isNamedOurs: true },
+    { sessionName: 'rs-untied', session: 'rs-untied', isNamedOurs: false },
+  ];
+  const asked = [];
+  const deps = { roster, startedAt: (s) => { asked.push(s); return 1000e3; } };
+  assert.deepEqual(claudeAgentsByAccount().moving(acct, false, deps), ['rs-tied'], 'the tied card was not used, or a bystander was');
+  assert.ok(asked.includes('rs-tied-discord'), 'the start was not read from the card\'s own session: ' + JSON.stringify(asked));
+  assert.ok(!asked.includes('rs-untied'), 'a session not tied to the agent was read');
 });

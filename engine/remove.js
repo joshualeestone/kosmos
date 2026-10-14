@@ -2226,7 +2226,7 @@ function restartInner(name, cause, platform, startIfDead) {
       /* #6174: launchd (or systemd) refused to stop the old job after the window closed: it may run on as before, under
          its old arguments (its old account), in a session it starts itself. Said as a flag so a caller need not parse
          the sentence below. */
-      oldJobHeld: !gone && !ops.win32 && !stopped && !fromDead,
+      oldJobHeld: !gone && !ops.win32 && !stopped && !fromDead,   // a stop that threw also reads as held (stopped stays false)
       because: gone
         ? (fromDead
             ? `${shown}'s launch file is gone, so we could not start it. It has to be created again.`

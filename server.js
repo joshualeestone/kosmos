@@ -2621,7 +2621,8 @@ function enumerateAgentsOnAccount(dir, isDefault, runner) {
    as remove.js sessionFor finds it (the roster card for the cleaned name, tied to the agent), so a legacy session
    (`angel-discord` for `angel`) is read and a bystander that merely shares the name is not. The read after the
    restart is fresh (no cache). The note keeps the account the agent ran on before its FIRST partial move (`from`), so
-   moving it back there is not marked. `deps` (restart, sessionOf, startedAt) is for tests. Never throws. */
+   moving it back there is not marked. A restart refused because tmux could not be read also clears a still-valid note
+   (the mark goes early, the safe direction). `deps` (restart, sessionOf, roster, startedAt) is for tests. Never throws. */
 function moveFromDir(rawName) {   // the account folder the agent is on before the move (null: the default account)
   try { return create.readJob(create.cleanName(rawName)).configDir || null; } catch { return null; }
 }
@@ -2691,7 +2692,8 @@ function claudeAgentsByAccount() {
       // The pane roster once per call, and only when some agent on this row has a note (review 6).
       let roster;
       const readDeps = () => {
-        if (deps.sessionOf || roster !== undefined) return { ...deps, roster };
+        if (deps.sessionOf || Array.isArray(deps.roster)) return deps;
+        if (roster !== undefined) return { ...deps, roster };
         try { roster = require('./engine/status').paneRoster(); } catch { roster = []; }
         return { ...deps, roster };
       };
