@@ -2183,7 +2183,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      operator post or a reopen clears it exactly as it clears the arrival budget. A
      post with any new facts is content (chat.acknowledgementOnly is false) and RESETS
      the run, so the volume valve below, and ordinary back-and-forth with real content,
-     are left exactly as they were.
+     are left exactly as they were. The run also has to be a BACK-AND-FORTH, not a poll:
+     it counts only when at least one sender repeats in the trailing run (the sender-identity
+     logic below). Distinct senders each answering a question once -- "everyone ready?" ->
+     four "yes"es -- are a poll, and dropping one of those would lose a message someone asked
+     for, so a poll is delivered and only a true loop is stopped.
 
      THIS IS NOT A ROOM HOLD (review round 2, PM Liu Kang). It refuses only the
      ack-only post that would extend the run; the very next post carrying content gets
@@ -2224,28 +2228,46 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       .filter((m) => m && ((m.kind === 'post' && !m.operator) || m.kind === 'external')
         && m.project === projectId && Date.parse(m.at) >= countFrom)
       .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    // A sender's STABLE identity, used to tell a back-and-forth loop from a poll. A federated
+    // `external` row is keyed on `member` (the relay's stable id, an account or "<account>:<mac>"),
+    // NOT on `from`: `from` is a capped display NAME that two different outsiders can share and
+    // that can equal a local agent's sessionName, so keying on it would see a false repeat (blind
+    // round). `member` falls back to `from` only when an older relay never stamped one. External
+    // and local identities are namespaced apart, so an outsider displayed as "leo" never counts as
+    // the local agent "leo". An absent/empty identity returns null and is left OUT of the repeat
+    // test, so an unidentifiable sender errs toward delivery, never a false refusal.
+    const identityOf = (m) => {
+      if (m && m.kind === 'external') {
+        const id = m.member || m.from;
+        return (typeof id === 'string' && id.trim() !== '') ? 'ext:' + id : null;
+      }
+      const id = m && m.from;
+      return (typeof id === 'string' && id.trim() !== '') ? 'local:' + id : null;
+    };
     let ackRun = 0;
-    const runSenders = [];   // the sender (`from`) of each post in the trailing ack-only run
+    const runSenders = [];   // the stable identity of each sender in the trailing ack-only run
     for (let i = ackPosts.length - 1; i >= 0; i -= 1) {
       if (!chat.acknowledgementOnly(ackPosts[i].text)) break;
       ackRun += 1;
-      runSenders.push(ackPosts[i].from);
+      runSenders.push(identityOf(ackPosts[i]));
     }
     // This incoming post, not yet in the log: it extends the run only if it, too, is
-    // acknowledgement-only; otherwise it is content and the run is broken (0).
+    // acknowledgement-only; otherwise it is content and the run is broken (0). The incoming post
+    // is always a local agent (operator posts are excluded above), so its `from` is a sessionName.
     const incomingIsAck = chat.acknowledgementOnly(stored);
     ackRun = incomingIsAck ? ackRun + 1 : 0;
-    if (incomingIsAck) runSenders.push(from);
-    // A run is a LOOP only when it is a back-and-forth: at least one sender appears more than
-    // once in the trailing run (this incoming post included). Distinct senders each answering
+    if (incomingIsAck) runSenders.push(identityOf({ kind: 'post', from }));
+    // A run is a LOOP only when it is a back-and-forth: at least one KNOWN sender appears more
+    // than once in the trailing run (this incoming post included). Distinct senders each answering
     // ONCE are a POLL, not a loop -- a person or agent asks the room "everyone ready?" and the
     // fighters each reply "yes" -- and refusing the last of those would DROP an answer someone
     // asked for and record nothing of it, the dangerous direction this trigger exists to avoid
     // (review round 2, PM Liu Kang). The run scan above has no sender dimension, so without this
-    // a poll of four distinct answerers trips the limit. A genuine loop (two agents trading
-    // acks) has a repeating sender and is still caught. A poll that grows past the room's volume
-    // budget is held by the volume valve below with the honest room_held, not here.
-    const backAndForth = new Set(runSenders).size < runSenders.length;
+    // a poll of four distinct answerers trips the limit. A genuine loop (two agents trading acks)
+    // has a repeating identity and is still caught. A poll that grows past the room's volume budget
+    // is held by the volume valve below with the honest room_held, not here.
+    const known = runSenders.filter((s) => s !== null);
+    const backAndForth = new Set(known).size < known.length;
     if (ackRun >= ACK_RUN_LIMIT && backAndForth) {
       const because = 'Kosmos stopped passing on agreement-only replies here; '
         + 'posts with something new still go through.';

@@ -3401,6 +3401,8 @@ test('#4934: acknowledgementOnly lets a post with new facts escape, by a word ou
     'fix it', 'do it now',                   // short but not acknowledgement
     'do it', 'got it',                       // a directive / object-reference, not agreement ("it" is out of the lexicon)
     'confirm',                               // a bare request to confirm is content ("confirmed"/"confirms" are the ack)
+    'acknowledge',                           // a bare request to acknowledge is content ("acknowledged"/"ack"/"acked" are the ack) -- review round 2
+    'done',                                  // a status report, not agreement: "done" answering "is it ready?" is content the room may need -- review round 2
     'agreed and here are six more words past the cap', // over the brevity cap
     '', '   ', '@Kano',                      // nothing said, or only a leading mention
     // a @mention BEYOND the single leading one pulls a colleague in -> a new-info signal

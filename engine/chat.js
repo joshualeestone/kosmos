@@ -391,16 +391,17 @@ const ACK_MAX_WORDS = 5;
 // emoji, and far below the length at which the regex is slow.
 const ACK_MAX_CHARS = 200;
 // A closed lexicon of acknowledgement words. Several tokens are deliberately excluded to keep
-// a directive, a request or a status report from reading as agreement: "it" (a pronoun, never
-// agreement on its own -- it only glued "do it", an instruction); the bare imperatives
-// "confirm" and "acknowledge" (an instruction to the reader -- "confirm this" / "acknowledge
-// this" -- not the reader agreeing; the past forms "confirmed"/"confirms"/"acknowledged" ARE
-// the ack and stay); and "done" (it reports that something finished, it does not agree, so a
-// "done" answering "is it ready?" is a status the room may need, not a content-free ack).
-// "do"/"will do" stay (willingness to act is agreement; without "it", "do it" cannot form).
-// "yes" stays: it is an acknowledgement in the loop context, and the run gate in messages.js
-// (4 consecutive AND at least one sender repeating -- a true back-and-forth, not a poll of
-// distinct answerers) bounds the false-positive.
+// a request or a status report from reading as agreement: "it" (a pronoun, never agreement on
+// its own -- it only glued "do it", an instruction); the full request verbs "confirm" and
+// "acknowledge", which read as asking the READER to do something ("confirm this" / "acknowledge
+// this") rather than the reader agreeing. Their completed forms "confirmed"/"confirms"/
+// "acknowledged", and the established short acknowledgement token "ack"/"acked" (which stands for
+// "acknowledged", not "acknowledge this"), ARE the acknowledgement and stay. "done" is excluded
+// too: it reports that something finished, it does not agree, so a "done" answering "is it ready?"
+// is a status the room may need, not a content-free ack. "do"/"will do" stay (willingness to act
+// is agreement; without "it", "do it" cannot form). "yes" stays: it is an acknowledgement in the
+// loop context, and the run gate in messages.js (4 consecutive AND at least one sender repeating
+// -- a true back-and-forth, not a poll of distinct answerers) bounds the false-positive.
 const ACK_WORDS = new Set([
   'agreed', 'agree', 'agrees', 'thanks', 'thank', 'thx', 'ty', 'confirmed',
   'confirms', 'ack', 'acked', 'acknowledged', 'ok', 'okay', 'okey', 'k',
