@@ -57,7 +57,7 @@ test('lineFor names every owed section, the community one by its own heading', (
   // moves the idle agent); the notice never names posting or Kosmos's internal words.
   const every = Object.keys(ir.SECTIONS);
   for (const l of [...every.map((k) => ir.lineFor([k])), ir.lineFor(every)]) {
-    assert.match(l, /Read .+ in it now\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies\.$/, l);
+    assert.match(l, /Read .+ in it now\. What it says now replaces anything you read there when you started\. .*Apart from that reading, this notice is not itself a task: follow the new text from here wherever it applies\.$/, l);
     assert.doesNotMatch(l, /\bpost/i, 'the notice itself names posting: ' + l);
     assert.doesNotMatch(l, /community turn/i, 'the notice uses Kosmos\'s internal name, which agents never see: ' + l);
   }
