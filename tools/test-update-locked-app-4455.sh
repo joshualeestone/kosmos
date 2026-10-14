@@ -25,8 +25,9 @@
 #   HARMLESS  chmod fails and nothing is stuck: the update goes on                    (a failed chmod alone is no refusal)
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
 #   GNUFIND   the LOCKED fixture with a find first on PATH that knows no -flags: still refused (macOS only)
+#   TWOLOCKS  locks in two parts: the advice names both, and not the third (macOS only)
 #
-# On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL, GNUFIND) skips. The installer turns pipefail on only
+# On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL, GNUFIND, TWOLOCKS) skips. The installer turns pipefail on only
 # under bash (its option line tests BASH_VERSION), and Ubuntu's sh is dash, so there NOISY runs without the option
 # it was written to catch; a green Linux run does not cover that fault (#6149).
 set -u
@@ -196,6 +197,14 @@ if [ "$(uname -s)" = "Darwin" ]; then
       all_there "$D2" && ok "GNUFIND: bin, app and runtime are all still there" || bad "GNUFIND: a part was removed"
     fi
     chflags -R nouchg "$D2" 2>/dev/null
+    # TWOLOCKS (#6149): locks in app and in runtime are both named, so the advice frees both in one go.
+    D3="$(mk_install twolocks)"; in_sb "$D3"; chflags uchg "${D3:?}/app/engine/x.js" "${D3:?}/runtime/bin/node"
+    OUT="$(run_block "$D3")"
+    case "$OUT" in *"RC=1"*) ok "TWOLOCKS: refused" ;; *) bad "TWOLOCKS: not refused: $OUT" ;; esac
+    case "$OUT" in *"nouchg,nouappnd '$D3/app' '$D3/runtime'"*) ok "TWOLOCKS: the advice names both locked parts" ;; *) bad "TWOLOCKS: the advice does not name both parts: $OUT" ;; esac
+    case "$OUT" in *"'$D3/bin'"*) bad "TWOLOCKS: the advice names bin, which has no lock: $OUT" ;; *) ok "TWOLOCKS: and not the part with no lock" ;; esac
+    all_there "$D3" && ok "TWOLOCKS: bin, app and runtime are all still there" || bad "TWOLOCKS: a part was removed"
+    chflags -R nouchg "$D3" 2>/dev/null
     # RELOCK: this fixture's app was WRITABLE before the update, so the refusal leaves it writable.
     [ -w "$D/app" ] && [ -w "$D/app/server.js" ] && ok "RELOCK: an app that was writable is still writable after the refusal" || bad "RELOCK: the refusal locked an app that was not locked"
     # And one that was read-only (what the installer leaves) is read-only again: the lift had opened it to look.

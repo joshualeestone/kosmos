@@ -1364,7 +1364,7 @@ install_kosmos() {
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
   # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
-  local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _app_was_locked=no
+  local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _found="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
   # folder's own mode bit, not `[ -w ]`: that asks whether THIS run may write, which is always yes for root, and a
   # root run would then leave a read-only app open after a refusal (review 4). A sample that cannot be taken
@@ -1376,12 +1376,17 @@ install_kosmos() {
     chmod -R u+rwX "$dest/$part" 2>/dev/null || _lift_failed="$_lift_failed $part"
   done
   if [ "$(uname -s)" = "Darwin" ]; then
+    # Every part is searched, not only up to the first hit, so the advice below names every locked part and the
+    # next try is not refused again on another one (#6149 review 2).
     for part in bin app runtime; do
-      [ -z "$_stuck_at" ] && [ -d "$dest/$part" ] || continue
+      [ -d "$dest/$part" ] || continue
       # /usr/bin/find, not the first find on PATH: a GNU find (Homebrew findutils) has no -flags, and its error
       # would read as "nothing locked" (#6149).
-      _stuck_at="$(/usr/bin/find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
-      [ -z "$_stuck_at" ] || { _stuck_why=locked; _stuck_part="$dest/$part"; }
+      _found="$(/usr/bin/find "$dest/$part" \( -flags +uchg -o -flags +schg -o -flags +uappnd -o -flags +sappnd \) -print 2>/dev/null | sed -n '1p' || true)"
+      [ -n "$_found" ] || continue
+      [ -n "$_stuck_at" ] || _stuck_at="$_found"
+      _stuck_why=locked
+      _stuck_part="$_stuck_part '$dest/$part'"
     done
   fi
   for part in $_lift_failed; do
@@ -1396,9 +1401,9 @@ install_kosmos() {
       # The search above refuses on all four flags, so the line clears both a person can set (locked, append-only)
       # on the one part that is stuck, not the whole Kosmos folder (#6149 review 1).
       info "It is locked. Unlock it with this line in Terminal:"
-      info "  chflags -R nouchg,nouappnd '$_stuck_part'"
+      info "  chflags -R nouchg,nouappnd$_stuck_part"
       info "If it is still refused, the lock was set by an administrator, who can clear it with:"
-      info "  sudo chflags -R noschg,nosappnd '$_stuck_part'"
+      info "  sudo chflags -R noschg,nosappnd$_stuck_part"
       info "then paste the install line again."
     else
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
