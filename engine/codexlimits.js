@@ -6,8 +6,10 @@
  * `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl` carries
  *   "rate_limits": { "primary": { "used_percent": 0.0, "window_minutes": 10080, "resets_at": 1791985721 },
  *                    "secondary": null, "plan_type": "prolite", ... }
- * (measured 2026-10-14 on this computer, a ChatGPT sign-in on the prolite plan). Kosmos runs Codex, so the account's
- * own home holds its latest report. Nothing here asks OpenAI anything.
+ * (measured 2026-10-14 on this computer, a ChatGPT sign-in on the prolite plan). Since #4592 a launched agent writes
+ * its sessions into its own private Codex home (codexruntime.forAgent), not the account's, so the caller passes every
+ * home that writes for the account: the account's own and each of its agents' private ones. Nothing here asks OpenAI
+ * anything. Only the account's own limit bucket counts (limit_id "codex", or none).
  *
  * Read cheaply, and bounded: only the newest seven day folders are listed (sessions/YYYY/MM/DD), their files ranked by
  * when they were last WRITTEN (a long or resumed session keeps writing to a file named for when it started), and only
@@ -34,12 +36,14 @@ function windowOf(w) {
 }
 
 /** The `rate_limits` of one parsed rollout row, as `{ windows, plan }`, or null when the row carries none. */
+/* The row's report on the account's own bucket: `{ windows, plan }`, where windows may be empty (a report that names
+   no current window still counts as the latest report). null when the row carries no rate_limits, or another bucket. */
 function limitsOfRow(row) {
   const p = row && row.type === 'event_msg' && row.payload && typeof row.payload === 'object' ? row.payload : null;
   const rl = p && p.type === 'token_count' ? p.rate_limits : null;
   if (!rl || typeof rl !== 'object' || Array.isArray(rl)) return null;
+  if (rl.limit_id != null && rl.limit_id !== 'codex') return null;
   const windows = [rl.primary, rl.secondary].map(windowOf).filter(Boolean);
-  if (!windows.length) return null;
   return { windows, plan: typeof rl.plan_type === 'string' ? rl.plan_type : null };
 }
 
@@ -62,8 +66,14 @@ function numbered(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory() && /^\d+$/.test(e.name)).map((e) => e.name).sort((a, b) => Number(b) - Number(a)); }
   catch { return []; }
 }
-/** The session files in the newest DAYS_LISTED day folders, most recently written first, at most FILES_MAX. */
-function recentFiles(home) {
+/** The session files in each home's newest DAYS_LISTED day folders, most recently written first across all of them,
+ *  at most FILES_MAX in total. */
+function recentFiles(homes) {
+  const files = [];
+  for (const h of homes) for (const f of filesIn(h)) files.push(f);
+  return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX).map((x) => x.f);
+}
+function filesIn(home) {
   const root = path.join(home, 'sessions'), days = [];
   for (const y of numbered(root)) {
     for (const m of numbered(path.join(root, y))) {
@@ -78,7 +88,7 @@ function recentFiles(home) {
     try { names = fs.readdirSync(dir).filter((n) => /^rollout-.*\.jsonl$/.test(n)); } catch { /* unreadable: skipped */ }
     for (const n of names) { const f = path.join(dir, n); try { files.push({ f, m: fs.statSync(f).mtimeMs }); } catch { /* gone: skipped */ } }
   }
-  return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX).map((x) => x.f);
+  return files;
 }
 /** The last report in one file, `{ windows, plan, at }`, or null. */
 function lastReport(file) {
@@ -98,15 +108,16 @@ function lastReport(file) {
 }
 
 /**
- * The account's latest report: `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }`, or null when
- * no session file in `home` carries one, or every window it reports has already reset.
+ * The account's latest report across `homes` (a path or a list of paths): `{ windows: [{ usedPct, windowMinutes,
+ * resetsAt (ms) }], plan, at (ms) }`, or null when none carries one, or the latest names no window that is current.
  */
-function read(home, now = Date.now()) {
-  if (typeof home !== 'string' || !home) return null;
+function read(homes, now = Date.now()) {
+  const list = (Array.isArray(homes) ? homes : [homes]).filter((h) => typeof h === 'string' && h);
+  if (!list.length) return null;
   let best = null;
   let found = 0;
   try {
-    for (const f of recentFiles(home)) {
+    for (const f of recentFiles([...new Set(list)])) {
       const r = lastReport(f);
       if (!r) continue;
       if (!best || r.at > best.at) best = r;

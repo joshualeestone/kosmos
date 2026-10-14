@@ -125,6 +125,34 @@ test('busy sessions with no report do not hide one that has it; six files is the
   assert.equal(codexlimits.read(h, NOW), null, 'six quiet files newer than it: it is the seventh and is not read');
 });
 
+test('the latest report decides even when it names no current window (an older figure does not come back)', () => {
+  const h = home();
+  writeRollout(h, '14', '10-00-00', [
+    tokenRow('2026-10-14T09:00:00Z', rl(win(33, 10080, NOW + 864e5), null)),
+    tokenRow('2026-10-14T10:00:00Z', rl({ used_percent: 'x', window_minutes: 300, resets_at: S(NOW + 36e5) }, null)),
+  ]);
+  assert.equal(codexlimits.read(h, NOW), null);
+});
+
+test('only the account\'s own bucket counts (limit_id "codex" or none)', () => {
+  const h = home();
+  const other = rl(win(95, 300, NOW + 36e5), null); other.limit_id = 'some-model';
+  const mine = rl(win(22, 10080, NOW + 864e5), null); delete mine.limit_id;
+  writeRollout(h, '14', '10-00-00', [tokenRow('2026-10-14T09:00:00Z', mine), tokenRow('2026-10-14T10:00:00Z', other)]);
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 22, 'another bucket is not the plan limit');
+});
+
+test('several homes: the account folder and its agents\' private ones are read together, latest report wins', () => {
+  const acct = home(), agentA = home(), agentB = home();
+  const f1 = writeRollout(acct, '13', '09-00-00', [tokenRow('2026-10-13T09:00:00Z', rl(win(10, 10080, NOW + 864e5), null))]);
+  const f2 = writeRollout(agentA, '14', '09-00-00', [tokenRow('2026-10-14T09:00:00Z', rl(win(48, 10080, NOW + 864e5), null))]);
+  const f3 = writeRollout(agentB, '14', '08-00-00', [tokenRow('2026-10-14T08:00:00Z', rl(win(30, 10080, NOW + 864e5), null))]);
+  touch(f1, Date.parse('2026-10-13T09:00:00Z')); touch(f2, Date.parse('2026-10-14T09:00:00Z')); touch(f3, Date.parse('2026-10-14T08:00:00Z'));
+  assert.equal(codexlimits.read([acct, agentA, agentB], NOW).windows[0].usedPct, 48);
+  assert.equal(codexlimits.read([acct], NOW).windows[0].usedPct, 10, 'the account folder alone sees only its own');
+  assert.equal(codexlimits.read([], NOW), null);
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB
@@ -139,10 +167,9 @@ test('malformed lines and wrong shapes are skipped, never thrown', () => {
   fs.writeFileSync(path.join(dir, 'rollout-2026-10-14T10-00-00-abc.jsonl'), [
     JSON.stringify(tokenRow('2026-10-14T09:00:00Z', rl(win(33, 10080, NOW + 864e5), null))),
     '{"rate_limits": broken',
-    JSON.stringify(tokenRow('2026-10-14T10:00:00Z', rl({ used_percent: 'x', window_minutes: 300, resets_at: S(NOW + 36e5) }, null))),
     JSON.stringify(tokenRow('not a time', rl(win(80, 10080, NOW + 864e5), null))),
   ].join('\n') + '\n');
-  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 33);
+  assert.equal(codexlimits.read(h, NOW).windows[0].usedPct, 33, 'a broken line and an undated row after it are skipped');
   assert.equal(codexlimits.read(path.join(SB, 'no-such-home'), NOW), null);
   assert.equal(codexlimits.read('', NOW), null);
   assert.equal(codexlimits.read(null, NOW), null);

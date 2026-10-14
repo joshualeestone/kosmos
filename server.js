@@ -11162,6 +11162,23 @@ const server = http.createServer(async (req, res) => {
           const prev = obsByOpenaiDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #6176 slice 2: every Codex home that writes for each OpenAI account. Since #4592 a launched agent writes its
+           sessions into its own private home (codexruntime.forAgent), so the account's limits are read from the account's
+           own folder AND each of its agents' private ones. A job with no configDir runs on the default account. */
+        const codexHomes = (() => {
+          const byDir = new Map(), onDefault = [];
+          try {
+            const runtime = require('./engine/codexruntime');
+            for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
+              const priv = runtime.forAgent(sessionName);
+              if (!home) { onDefault.push(priv); continue; }
+              let key; try { key = path.resolve(home); } catch { continue; }
+              if (!byDir.has(key)) byDir.set(key, []);
+              byDir.get(key).push(priv);
+            }
+          } catch { /* the account folder alone is still read */ }
+          return (a) => { let key = null; try { key = path.resolve(a.dir); } catch { key = null; } return [a.dir, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
+        })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
              yet (the next read shows it). One that finished with no answer is not checking (review round 14: the
@@ -11169,11 +11186,11 @@ const server = http.createServer(async (req, res) => {
           const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
           const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
-          /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its own session files
-             (engine/codexlimits.js), or null: none reported yet, or every window it reported is over. An API key has no
+          /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its session files, in the
+             account's folder or its agents' private ones (engine/codexlimits.js), or null: none reported yet, or every window it reported is over. An API key has no
              plan limits, so its row carries none. */
           let limits = null;
-          if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(a.dir, nowMs); } catch { limits = null; } }
+          if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(codexHomes(a), nowMs); } catch { limits = null; } }
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
             ...(a.authMode === 'chatgpt' ? { limits } : {}),
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };

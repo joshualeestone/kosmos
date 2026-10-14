@@ -16,6 +16,10 @@ Codex writes its own limits into its session files: each `token_count` event in
 `<CODEX_HOME>/sessions/YYYY/MM/DD/rollout-*.jsonl` carries `rate_limits.primary` / `secondary`, each
 `{used_percent, window_minutes, resets_at (epoch seconds)}`, plus `plan_type`. Measured on this computer 2026-10-14:
 a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An OpenAI row's `dir` is its Codex home.
+🛑 Since #4592 a LAUNCHED agent writes its sessions into its own private Codex home (`codexruntime.forAgent`), not
+the account's (status.js reads the same place). So the reader is given every home that writes for the account: the
+account folder and each of its Codex agents' private homes (from `agentsByAccountWalk('codex')`; a null configDir is
+the default account). My first version read only the account folder and would never have seen a Kosmos agent's report.
 
 ## Built
 - `engine/codexlimits.js`: `read(home, now)` lists only the newest seven day folders, ranks their files by when they
@@ -24,7 +28,9 @@ a prolite ChatGPT sign-in, primary 10080 minutes (weekly), secondary null. An Op
   latest time of its own
   `{ windows: [{ usedPct, windowMinutes, resetsAt (ms) }], plan, at (ms) }` with windows past their reset dropped,
   or null. The latest report decides: an earlier one is never used to replace a report that is over.
-- `server.js`: ChatGPT rows (`authMode === 'chatgpt'`) in `/api/accounts` gain `limits`; API-key rows carry no field.
+- `server.js`: ChatGPT rows (`authMode === 'chatgpt'`) in `/api/accounts` gain `limits`, read across the account's
+  homes (one walk per request); API-key rows carry no field. Only `limit_id` "codex" (or none) counts; a file's latest
+  rate_limits row decides even with no current window.
 - `web/index.html`: `acctCodexUsageHtml` (called from `acctUsageHtml` for OpenAI rows) draws the meters;
   `acctWindowName` names a window by its length.
 - Tests: `engine/codexlimits-6176.test.js`, `server.codexlimits-6176.test.js`,

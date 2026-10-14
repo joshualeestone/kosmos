@@ -37,6 +37,15 @@ const CODEX_KEY = nodePath.join(HOME, '.codex-key');
 fs.mkdirSync(CODEX_KEY, { recursive: true });
 fs.writeFileSync(nodePath.join(CODEX_KEY, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-workingkeyworkingKEYX' }));
 
+// A Codex agent on the default Codex home (configDir null), which is the ChatGPT sign-in above. Since #4592 its sessions
+// go to its own private home (codexruntime.forAgent), not the account's.
+const jobfix = require('./test-support/jobfixture');
+const create = require('./engine/create');
+fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+fs.mkdirSync(create.workerDir('codexsub'), { recursive: true });
+fs.writeFileSync(jobfix.jobPath('codexsub'), jobfix.jobFor('codexsub', '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, null, 'codex'), 'utf8');
+require('./engine/store').writeProfile('codexsub', { role: 'writer' });   // registered, so the board knows it when it is not running
+const codexruntime = require('./engine/codexruntime');
 const codexsigninlive = require('./engine/codexsigninlive');
 const openaiAccounts = require('./engine/openaiaccounts');
 const grokAccounts = require('./engine/grokaccounts');
@@ -77,6 +86,17 @@ test('#6176 a ChatGPT row carries its limits in ms; an API-key row carries none'
   });
   assert.ok(key, 'the API-key row is not listed');
   assert.equal('limits' in key, false, 'an API key has no plan limits, so its row carries no limits field');
+});
+
+test('#6176 a report written only in an agent\'s private Codex home reaches its account\'s row', async () => {
+  fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });   // nothing in the account folder itself
+  const priv = codexruntime.forAgent('codexsub');
+  const week = Math.floor(Date.now() / 1000) + 3 * 86400, at = new Date(Date.now() - 60e3).toISOString();
+  writeReport(priv, at, { used_percent: 41, window_minutes: 10080, resets_at: week }, null);
+  const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt');
+  assert.ok(sub && sub.limits, 'the private home was not read: ' + JSON.stringify(sub && sub.limits));
+  assert.equal(sub.limits.windows[0].usedPct, 41);
+  fs.rmSync(nodePath.join(priv, 'sessions'), { recursive: true, force: true });
 });
 
 test('#6176 a ChatGPT row whose last report is over carries limits: null', async () => {

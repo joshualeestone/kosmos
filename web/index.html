@@ -27274,8 +27274,8 @@ function acctBulkTarget(x, fromDir) {
 /* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
    One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
    (#6108). The age says when Codex reported it, which is what the source knows. */
-function acctWindowName(mins) {
-  if (mins === 300) return '5-hour';
+function acctWindowName(m) {
+  const mins = Math.round(m);
   if (mins === 10080) return 'weekly';
   if (mins % 1440 === 0) return (mins / 1440) + '-day';
   if (mins % 60 === 0) return (mins / 60) + '-hour';
