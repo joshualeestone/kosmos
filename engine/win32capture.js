@@ -337,7 +337,10 @@ function make(opts) {
         if (snap.claudeOk || PER_TURN.has(runnerOf.get(name))) { memory.delete(name); runnerOf.delete(name); }
         else failed(name, snap.readWhy, t);
       }
-      if (snap.claudeOk) { remember(good, t); firstGoodRead = true; }
+      /* Any good read ends the board-start window and is remembered, the Claude read or only the per-turn agents' own
+         source: a box where `claude agents --json` never answers must not carry a past session's state forever. */
+      remember(good, t);
+      firstGoodRead = true;
       return;
     }
     /* A failed read says nothing about any agent, so every agent we know counts one failure. */

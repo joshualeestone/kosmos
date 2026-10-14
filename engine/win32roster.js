@@ -183,8 +183,10 @@ function makeCachedRun(opts) {
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const freshMs = Number.isFinite(o.freshMs) ? o.freshMs : FRESH_MS;
   const staleMs = Number.isFinite(o.staleMs) ? o.staleMs : STALE_MS;
-  /* #5949: why a read failed, asked right after it answered null (default: the readers' own). */
-  const problem = typeof o.problem === 'function' ? o.problem : readProblem;
+  /* #5949: why a read failed, asked right after it answered null (default: the readers' own, but only for the
+     readers that set it: a caller's own reader says nothing about why, so it gets no cause rather than another's). */
+  const ownReaders = typeof o.run !== 'function' && typeof o.runAsync !== 'function';
+  const problem = typeof o.problem === 'function' ? o.problem : (ownReaders ? readProblem : () => null);
   const whyOf = (value) => { if (Array.isArray(value)) return null; try { return problem() || null; } catch { return null; } };
   let cache = null;       // { at, value, why }
   let inFlight = false;

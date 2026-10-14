@@ -587,3 +587,57 @@ test('#5949 a streaming agent that has just started is not marked "could not che
   assert.equal(look(), 'idle', 'CONTROL: once its state file is written it reads as usual');
   assert.equal(cap.note('nia:0.0'), null);
 });
+
+test('#5949 a held reading never stands in during a restart, so it cannot clear the restart record (#2019)', () => {
+  const disruption = require('./disruption');
+  const record = { read: () => ({ 'sid-r': { name: 'rho', runner: 'claude' } }) };
+  let answer = [live('sid-r', 'busy')];
+  let t = 1000;
+  const run = () => answer;
+  status.setPaneSource(win32roster.make({ run, record, now: () => t, codexLive: () => [] }));
+  status.setPaneCapture(win32capture.make({ run, record, now: () => t, ttlMs: 1000, log: () => {} }));
+  try {
+    const card = () => status.snapshot().agents.find((a) => a.sessionName === 'rho');
+    assert.equal(card().state, status.STATE.WORKING, 'CONTROL: read working');
+    assert.equal(disruption.begin('rho', 'restart').ok, true, 'CONTROL: a restart is on record');
+    answer = null;   // the read fails during the session churn: the capture holds its last working
+    t += 5000;
+    const during = card();
+    assert.notEqual(during.state, status.STATE.WORKING, 'a look from before the restart does not say it is working');
+    assert.ok(disruption.read('rho'), 'the restart record is still on file');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    try { disruption.clear('rho'); } catch { /* best effort */ }
+  }
+});
+
+test('#5949 a good read of the per-turn agents alone ends the board-start carry (a box where the Claude read never answers)', () => {
+  const store = memoryLastState({ cz: { token: 'busy', at: new Date(1000).toISOString() } });
+  const record = { read: () => ({ 'sid-x': { name: 'cx', runner: 'codex' }, 'sid-z': { name: 'cz', runner: 'codex' } }) };
+  const row = (sid) => ({ pid: 9, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: sid, name: sid });
+  let rows = [row('sid-x')];
+  let t = 2000;
+  const cap = win32capture.make({ run: () => null, record, now: () => t, ttlMs: 1000, lastState: store, streamState: (name) => (name === 'cx' ? 'idle' : null), log: () => {} });
+  const win32live = require('./win32live');
+  const realByName = win32live.byName;
+  win32live.byName = (o) => realByName({ ...o, codexLive: () => rows });
+  try {
+    assert.equal(cap('cx:0.0'), 'idle', 'CONTROL: the codex agent is read, with the Claude read failing');
+    rows = [row('sid-x'), row('sid-z')];   // cz is relaunched: no state file yet
+    t += 5000;
+    assert.equal(cap('cz:0.0'), null, 'a start after the board was already reading does not wear its past session\'s state');
+    assert.notEqual((cap.note('cz:0.0') || {}).held, true);
+  } finally {
+    win32live.byName = realByName;
+  }
+});
+
+test('#5949 a cached read given its own reader reports no cause rather than another reader\'s', () => {
+  const cached = win32roster.makeCachedRun({ run: () => null, runAsync: (cb) => cb(null), now: () => 1000 });
+  assert.equal(cached(), null);
+  assert.equal(cached.problem(), null, 'its reader set no cause, so it has none');
+  const told = win32roster.makeCachedRun({ run: () => null, runAsync: (cb) => cb(null), now: () => 1000, problem: () => 'the status read timed out after 15 s' });
+  assert.equal(told(), null);
+  assert.equal(told.problem(), 'the status read timed out after 15 s', 'CONTROL: a cause it is given is kept');
+});

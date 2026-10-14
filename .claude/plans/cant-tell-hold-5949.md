@@ -111,5 +111,15 @@ in only when that leaves the card unknown. A fresh idle from a Stop hook therefo
 That reported idle is the agent's own word, so it carries no `screenRead` and the code that acts on idle may use it;
 any other reported state keeps `screenRead`, since a limit wait carries the held screen along as `screenState`.
 
+## Restarts, and boxes without a Claude read
+- A held reading never stands in while a restart is on record (#2019): it is from before the restart, and the
+  self-heal would read it as the restart having come back and clear the record, or a shown failure (#4006). The card
+  then reads as it does on main for a failed look.
+- Any good read ends the board-start window and is remembered, including one where only the per-turn agents' own
+  source answered, so a box where `claude agents --json` never answers does not carry a past session's state.
+- A status token Claude Code adds in a later version (not busy or idle) is held like a failed look for up to 15 s and
+  then logged as "a status Kosmos does not know"; before, it showed as unknown at once. A real new state (an
+  input wait, say) would sit behind "remembered" for those seconds.
+
 ## Not done
 A browser check: the change is a hover title and a CSS qualifier behind no click (Browser-check trailer).

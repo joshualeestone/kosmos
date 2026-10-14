@@ -8776,7 +8776,9 @@ function snapshot() {
        reading is first left out (as the failed look it stands in for), and stands in only when nothing else decides. */
     let status = reconcileWith(scrapedNow ? scrapedStatus
       : { ...scrapedStatus, state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' });
-    if (!scrapedNow && status.state === STATE.UNKNOWN) status = reconcileWith(scrapedStatus);
+    /* Nor while a restart is on record (#2019): the held reading is from before the restart, and the self-heal below
+       would take it as the restart having come back and clear the record (or a shown failure, #4006). */
+    if (!scrapedNow && status.state === STATE.UNKNOWN && !disruptionRec) status = reconcileWith(scrapedStatus);
     /* #2019 forward self-heal (challenge iter 2): a disruption record on file
        but a reconciled state that is a confident LIVE reading means the restart
        COMPLETED -- drop the record now rather than waiting out the window. This
