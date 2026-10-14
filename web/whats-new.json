@@ -30,7 +30,7 @@
     {
       "icon": "tasks",
       "title": "A project says when goal planning is stuck",
-      "line": "A project's page says when Kosmos could not reach an agent to plan toward its goal. It tries again later; a project task starts it sooner."
+      "line": "A project's page says when Kosmos could not get an agent to plan toward its goal. It tries again; a project task gets work going sooner."
     }
   ]
 }
