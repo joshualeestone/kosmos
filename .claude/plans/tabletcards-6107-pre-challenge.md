@@ -149,7 +149,7 @@ reading each one's contexts (none opens a touch context in the tablet range).
 #### Iteration 20
 **Reviewer model:** sonnet
 **New findings:** 0 (duplicates: reading order, the ready-flag pin, foldables in the plan)
-**Converged** — no new actionable findings.
+**Converged:** no new actionable findings.
 
 ### Final Ledger (actionable, grouped)
 
