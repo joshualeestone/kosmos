@@ -226,6 +226,8 @@ function chk(ok, label, extra) {
         for (const proj of body.projects || []) if (proj.id === winter.id) proj.goalAskGaveUp = inject ? GAVE : null;
         try { await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } }); } catch { await route.abort().catch(() => {}); }
       });
+      // Review 2: the look this page had, put back after the block, so every later check runs in the look it always did.
+      const lookBefore = await page.evaluate(() => document.documentElement.getAttribute('data-look'));
       await page.evaluate(() => { document.documentElement.setAttribute('data-look', 'new'); });
       await page.evaluate(async (pid) => { await pjReload(); tskGoToProject(pid); }, winter.id);
       await page.waitForFunction(() => { const e = document.getElementById('pj-one-goalask'); return e && !e.hidden; }, null, { timeout: 8000 }).catch(() => {});
@@ -239,15 +241,16 @@ function chk(ok, label, extra) {
         const r = e.getBoundingClientRect(); const h = head.getBoundingClientRect();
         return { w: Math.round(r.width), hw: Math.round(h.width), x: Math.round(r.left - h.left) };
       });
-      /* Measured: this holds with or without the line's flex: 1 0 100% rule (removing it still passes at 390), because a
-         sentence this long cannot fit beside the title row and wraps to its own. The rule is kept for parity with the
-         paused line, so a shorter sentence later still gets its own row; this check pins the outcome, not the rule. */
+      /* Measured: this holds with or without the line's flex: 1 0 100% rule (removing it passed at both 1400 and 390),
+         because a sentence this long cannot sit beside the title row. So this does NOT test the rule; it pins only
+         that, as rendered today, the line is not squeezed. The rule is kept for parity with the paused line. */
       chk(!!row && row.w >= row.hw - 2 && row.x <= 2, `${tag} #6072 the goal-ask line takes its own full-width row (not squeezed beside the title row)`, JSON.stringify(row));
       inject = false;
       await page.evaluate(async (pid) => { await pjReload(); tskGoToProject(pid); }, winter.id);
       await page.waitForFunction(() => { const e = document.getElementById('pj-one-goalask'); return e && e.hidden; }, null, { timeout: 8000 }).catch(() => {});
       chk(await page.isHidden('#pj-one-goalask'), `${tag} #6072 the line goes once the give-up does (control)`, await text(page, '#pj-one-goalask'));
       await page.unroute('**/api/projects');
+      await page.evaluate((v) => { if (v === null) document.documentElement.removeAttribute('data-look'); else document.documentElement.setAttribute('data-look', v); }, lookBefore);
       await openTask(page, launch.id, 1);
       await page.click('#tk-hold');
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Put on hold', null, { timeout: 5000 }).catch(() => {});
