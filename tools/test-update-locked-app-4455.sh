@@ -27,6 +27,8 @@
 #   CONTROL   the old line (a tolerated chmod) on the LOCKED fixture goes on to remove bin: the arm can fail
 #   GNUFIND   the LOCKED fixture with a find first on PATH that knows no -flags: still refused (macOS only)
 #   TWOLOCKS  locks in two parts: the advice names both, and not the third (macOS only)
+#   LINUXSTUB the Linux branch, on any OS, with stub uname and lsattr: a flagged file refuses, an unflagged one does not
+#   REALIMMUTABLE  a real chattr +i file (Linux with passwordless sudo, the CI runner); skipped elsewhere
 #
 # On Linux the Darwin-only block (LOCKED, RELOCK, CONTROL, GNUFIND, TWOLOCKS) skips. The installer turns pipefail on only
 # under bash (its option line tests BASH_VERSION), and Ubuntu's sh is dash, so there NOISY runs without the option
@@ -60,6 +62,7 @@ SB="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-locked-4455.XXXXXX")" || { echo "FAIL: n
 cleanup() {
   # The fixtures lock things on purpose; unlock before removing, or the sandbox outlives the test.
   [ "$(uname -s)" = "Darwin" ] && chflags -R nouchg "${SB:?}" 2>/dev/null
+  [ -n "${IMMUTABLE_FILE:-}" ] && sudo -n chattr -i "$IMMUTABLE_FILE" 2>/dev/null
   /bin/chmod -R u+rwX "${SB:?}" 2>/dev/null
   rm -rf "${SB:?}"
 }
@@ -245,6 +248,44 @@ if [ "$(uname -s)" = "Darwin" ]; then
   fi
 else
   echo "SKIP LOCKED: the locked-file flag is macOS's (this is $(uname -s)); NODIR covers the refusal here"
+fi
+
+# ---- LINUXSTUB (#6149 point 9): the Linux branch, driven on any OS by a stub uname that answers Linux and a stub
+# lsattr that answers for app/ only (lsattr -R <dir>). It flags one file immutable; the CONTROL lsattr flags nothing,
+# so the arm can go either way.
+LS="${SB:?}/linuxstub"; mkdir -p "$LS/hit" "$LS/miss"
+for d in hit miss; do printf '#!/bin/sh\necho Linux\n' > "$LS/$d/uname"; done
+D="$(mk_install linuxstub)"; in_sb "$D"
+printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/x.js" ;; esac\n' "$D" "$D" > "$LS/hit/lsattr"
+printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js" ;; esac\n' "$D" > "$LS/miss/lsattr"
+/bin/chmod +x "$LS/hit/uname" "$LS/hit/lsattr" "$LS/miss/uname" "$LS/miss/lsattr"
+OUT="$(run_block "$D" "$LS/miss")"
+case "$OUT" in *"RC=0"*) ok "CONTROL LINUXSTUB: an lsattr that flags nothing does not refuse" ;; *) bad "CONTROL LINUXSTUB: refused with nothing flagged: $OUT" ;; esac
+D="$(mk_install linuxstub2)"; in_sb "$D"
+printf '#!/bin/sh\ncase "$2" in */app) echo "--------------e------- %s/app/server.js"; echo "----i---------e------- %s/app/engine/x.js" ;; esac\n' "$D" "$D" > "$LS/hit/lsattr"
+OUT="$(run_block "$D" "$LS/hit")"
+case "$OUT" in *"RC=1"*) ok "LINUXSTUB: a file lsattr flags immutable refuses the update" ;; *) bad "LINUXSTUB: not refused: $OUT" ;; esac
+case "$OUT" in *"$D/app/engine/x.js"*) ok "LINUXSTUB: the refusal names the file" ;; *) bad "LINUXSTUB: the file is not named: $OUT" ;; esac
+case "$OUT" in *"sudo chattr -R -i -a '$D/app'"[!\ ]*|*"sudo chattr -R -i -a '$D/app'") ok "LINUXSTUB: it gives the administrator's chattr line for that part only" ;; *) bad "LINUXSTUB: no chattr line: $OUT" ;; esac
+[ "$(refused_key "$D" why)" = immutable ] && ok "LINUXSTUB: the record says why: immutable" || bad "LINUXSTUB: the record's why is '$(refused_key "$D" why)'"
+all_there "$D" && ok "LINUXSTUB: bin, app and runtime are all still there" || bad "LINUXSTUB: a part was removed"
+
+# ---- REALIMMUTABLE (#6149 point 9): a real chattr +i file, where one can be set (Linux, with sudo that asks for no
+# password: the CI runner). Skipped elsewhere, said so.
+if [ "$(uname -s)" = Linux ] && command -v lsattr >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+  D="$(mk_install realimm)"; in_sb "$D"; IMMUTABLE_FILE="$D/app/engine/x.js"
+  if sudo -n chattr +i "$IMMUTABLE_FILE" 2>/dev/null && lsattr "$IMMUTABLE_FILE" 2>/dev/null | awk '{exit !($1 ~ /i/)}'; then
+    ok "CONTROL REALIMMUTABLE: the file is really immutable"
+    OUT="$(run_block "$D")"
+    case "$OUT" in *"RC=1"*) ok "REALIMMUTABLE: a real immutable file refuses the update" ;; *) bad "REALIMMUTABLE: not refused: $OUT" ;; esac
+    case "$OUT" in *"$IMMUTABLE_FILE"*) ok "REALIMMUTABLE: the refusal names the file" ;; *) bad "REALIMMUTABLE: the file is not named: $OUT" ;; esac
+    all_there "$D" && ok "REALIMMUTABLE: bin, app and runtime are all still there" || bad "REALIMMUTABLE: a part was removed"
+    sudo -n chattr -i "$IMMUTABLE_FILE" 2>/dev/null; IMMUTABLE_FILE=""
+  else
+    echo "SKIP REALIMMUTABLE: this filesystem cannot hold the immutable flag (lsattr cannot read it here)"
+  fi
+else
+  echo "SKIP REALIMMUTABLE: needs Linux, lsattr and sudo without a password (the CI runner has them)"
 fi
 
 # ---- DEFAULT: the line that decides whether the app is left read-only, driven with the switch unset and set.

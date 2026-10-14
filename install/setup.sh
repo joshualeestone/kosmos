@@ -1364,7 +1364,8 @@ install_kosmos() {
   # stuck path was printed, and the first version's fallback then threw that path away and the update went on
   # (review 1, measured). What was printed is what counts; the status says nothing. The `|| true` inside each
   # substitution only keeps a failed search from ending the script if this is ever called without `||` after it.
-  # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux.
+  # NOT caught ahead of time: a deny-delete ACL, another user's file in a sticky folder, an immutable file on Linux
+  # where lsattr cannot read the filesystem.
   # A refusal also leaves logs/update-refused for the board (#6149 point 8); a swap that goes through removes it.
   local _lift_failed="" _stuck_at="" _stuck_why="" _stuck_part="" _stuck_names="" _found="" _refusedf="" _p="" _app_was_locked=no
   # Sampled BEFORE the lift, for the refusal below: an app that was read-only is left read-only again. By the
@@ -1391,6 +1392,19 @@ install_kosmos() {
       _stuck_part="$_stuck_part '$dest/$part'"
       _stuck_names="$_stuck_names $part"
     done
+  elif command -v lsattr >/dev/null 2>&1; then
+    # #6149 point 9: Linux's own lock, a file marked immutable or append-only (chattr +i, +a). chmod cannot clear it
+    # and rm cannot remove it, so it is searched for here as the macOS flags are above. A filesystem lsattr cannot
+    # read (tmpfs, some overlays) prints nothing and is not refused, as before.
+    for part in bin app runtime; do
+      [ -d "$dest/$part" ] || continue
+      _found="$(lsattr -R "$dest/$part" 2>/dev/null | awk '$1 ~ /^[-a-zA-Z]+$/ && $1 ~ /[ia]/ { sub(/^[^ ]+ /, ""); print; exit }' || true)"
+      [ -n "$_found" ] || continue
+      [ -n "$_stuck_at" ] || _stuck_at="$_found"
+      _stuck_why=immutable
+      _stuck_part="$_stuck_part '$dest/$part'"
+      _stuck_names="$_stuck_names $part"
+    done
   fi
   for part in $_lift_failed; do
     [ -z "$_stuck_at" ] || break
@@ -1407,6 +1421,10 @@ install_kosmos() {
       info "  chflags -R nouchg,nouappnd$_stuck_part"
       info "If it is still refused, the lock was set by an administrator, who can clear it with:"
       info "  sudo chflags -R noschg,nosappnd$_stuck_part"
+      info "then paste the install line again."
+    elif [ "$_stuck_why" = immutable ]; then
+      info "It is marked immutable or append-only, which only an administrator can clear, with this line:"
+      info "  sudo chattr -R -i -a$_stuck_part"
       info "then paste the install line again."
     else
       info "This account may not change that folder. Give it back to this account, then paste the install line again."
