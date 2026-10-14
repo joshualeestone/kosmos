@@ -1114,7 +1114,7 @@ function staleHeld(projectId, ids, log, now, member) {
        shows, in the order it shows them (server.js). Outside rows count as full slots, which the read's outside cap
        only makes smaller. */
     const covered = new Set();
-    if (answered.size) {
+    if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {
       const firstReply = new Map();
       for (const r of rows) {
         if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member || !answered.has(r.replyTo)) continue;
