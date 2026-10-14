@@ -29,7 +29,7 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 112 ok. Seventy-nine mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 116 ok. Eighty-three mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
@@ -51,7 +51,7 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
   manageruid check, a partial download kept, register without a Listener wait; then register over an existing
   service; then the job-started hook not calling the guard (the reviewer's own mutation), the owner-home check
   removed, the restart trap left armed; then job-completed's RUNNER_TEMP gate opened, its temp path wrong, register
-  without the KOSMOS_ check).
+  without the KOSMOS_ check; then the runner row unsorted, busy read from any runner, an empty df read as 0 GiB).
 - How kosmos-ci gets the script once the owner's home is 700: fetch it raw at the install commit and match its
   sha256 to `git show <commit>:tools/ci-runner-setup.sh` on the owner's side. The two forms gave the same sha256 for
   tools/ci-runner-job-guard.sh at origin/main (measured 06:31).
@@ -97,3 +97,8 @@ Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s wi
 - tar over a self-updated runner (bin/externals symlinked to versioned dirs) replaces the symlinks with plain dirs
   of the new release: measured by a reviewer in a sandbox with bsdtar, not by me; the real 2.338.0 tarball lists
   ./bin/ and ./externals/ as directory entries.
+- The jq programs gh --jq runs are defined once (JQ_VAR, jq_busy, jq_row) and printed by a read-only `jq-programs`
+  stage, which the test runs through /usr/bin/jq against canned API JSON; the gh stub alone never executed them.
+  Live verify against kosmos-ci-mini after the move: row, busy and both variables read correctly (06:37).
+- tmux and pwsh remedies are `brew install` as the Homebrew owner: Baron's build scripts install into ~/.local, which
+  the check does not read, and the engine looks for tmux at the fixed /opt/homebrew/bin path.
