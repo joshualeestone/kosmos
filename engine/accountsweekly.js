@@ -8,7 +8,7 @@
  * weeklyOf and weeklyBlockedOf here.
  *
  * summary() is what /api/status sends. The status poll runs every five seconds, so the summary is kept for CACHE_MS and
- * rebuilt only when it is older or the account list changed. A reading or a reason can therefore be up to CACHE_MS old
+ * rebuilt only when it is older or the account list changed. A reading or a reason (`blocked`) can therefore be up to CACHE_MS old
  * here while /api/accounts reads it live.
  */
 const fs = require('node:fs');
