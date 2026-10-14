@@ -121,8 +121,9 @@ kosmos_setup_floor_tree_ok() {
 # `kosmos_setup_floor_site_untouched_ok <who> <site> <channel>`: a cut's FAIL-FAST, on the pair it re-publishes WITHOUT
 # writing it: a staging cut leaves the prod pair (dist/latest.json, setup), a prod cut leaves the staging pair
 # (dist/latest-staging.json, setup-staging). The pair the cut writes is not checked here (the cut replaces it with
-# the new build, which is how an old one gets fixed). It reads the site CHECKOUT, which may be behind origin/main:
-# the cut's export check before its deploy reads the bytes actually published and stays the authority.
+# the new build, which is how an old one gets fixed). It reads whatever tree it is given (release.sh gives it the
+# site's origin/main, fetched, or the checkout if the fetch fails); the cut's export check before its deploy reads the
+# bytes actually published and stays the authority.
 kosmos_setup_floor_site_untouched_ok() {
   local who="$1" site="$2" channel="$3" ptr inst
   case "$channel" in

@@ -109,6 +109,22 @@ case "$out" in *"setup-staging (about to become /setup) does not know KOSMOS_REA
 stopped_at_floor "$out" "promote, old setup-staging"
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && [ ! -e "$T/site/setup" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 rm -rf "$T/site/.git"
+# CONTROL: the same setup-staging branch with a CURRENT installer gets past the installer check to the next one (the
+# manifest), so the refusal above is the marker check on the right file, not a mis-wired call that refuses everything.
+site; git init -q "$T/site"; printf 'x KOSMOS_READONLY_APP y\n' > "$T/site/setup-staging"
+( cd "$T/site" && shasum -a 256 setup-staging > setup-staging.sha256 )
+sg="$(shasum -a 256 < "$T/site/setup-staging" | awk '{print $1}')"
+printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"
+( cd "$T/site/dist" && shasum -a 256 kosmos-0.7.49-arm64.tar.gz > kosmos-0.7.49-arm64.tar.gz.sha256 )
+asha="$(shasum -a 256 < "$T/site/dist/kosmos-0.7.49-arm64.tar.gz" | awk '{print $1}')"
+printf '{"version":"0.7.49","sha256":"%s","artifact":"kosmos-0.7.49-arm64.tar.gz","setup_sha256":"%s"}' "$asha" "$sg" > "$T/site/dist/latest-staging.json"
+git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"setup floor"*) bad "CONTROL: a current setup-staging was refused by the floor: $out";;
+  *"missing manifest"*) pass "CONTROL: a current setup-staging gets past the installer check to the manifest check";;
+  *) bad "CONTROL: promote with a current setup-staging stopped somewhere unexpected: $out";; esac
+rm -rf "$T/site/.git"
+
 # ...and with no installer named, prod keeps its /setup beside the promoted pointer: an old one is refused too.
 site; git init -q "$T/site"; printf 'an installer from before 0.7.45\n' > "$T/site/setup"
 printf 'a build\n' > "$T/site/dist/kosmos-0.7.49-arm64.tar.gz"
@@ -121,6 +137,13 @@ out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 case "$out" in *"the /setup prod keeps serving does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old committed /setup that prod would keep beside the new pointer";; *) bad "promote and a kept old /setup: $out";; esac
 stopped_at_floor "$out" "promote, kept old /setup"
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
+# CONTROL: the same kept-/setup branch with a CURRENT committed /setup gets past the installer check.
+printf 'x KOSMOS_READONLY_APP\n' > "$T/site/setup"; git -C "$T/site" add -A && git -C "$T/site" commit -q -m current
+out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
+case "$out" in *"setup floor"*) bad "CONTROL: a current kept /setup was refused by the floor: $out";;
+  *"missing manifest"*) pass "CONTROL: a current committed /setup gets past the installer check to the manifest check";;
+  *) bad "CONTROL: promote with a current kept /setup stopped somewhere unexpected: $out";; esac
+printf 'an installer from before 0.7.45\n' > "$T/site/setup"; git -C "$T/site" add -A && git -C "$T/site" commit -q -m old-again
 printf 'x KOSMOS_READONLY_APP\n' > "$T/site/setup"   # a current installer in the working tree only, not committed
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 case "$out" in *"is not committed or differs from its committed copy"*) pass "a /setup that differs from its committed copy is refused (not what prod serves)";; *) bad "promote and an uncommitted /setup: $out";; esac

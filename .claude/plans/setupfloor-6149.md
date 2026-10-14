@@ -1,9 +1,10 @@
 # setupfloor-6149: the rollback floor (#6149 point 1)
 
 ## Why
-#4455 (merged as #6146, in 0.7.49, now on staging) makes the installed app read-only. An installer older than 0.7.45
-does not lift that lock: it removes bin/, fails at the read-only app/, and cannot put the board back, on every Mac and
-Linux install that 0.7.49 touched. The rule ("never serve a /setup or /setup-staging older than 0.7.45") was prose
+#4455 (merged as #6146, in 0.7.49, now served on prod and staging) makes the installed app read-only. An installer
+that cannot lift that lock (any before 0.7.42) removes bin/, fails at the read-only app/, and cannot put the board
+back, on every Mac and Linux install that 0.7.49 touched. The rule's floor is 0.7.45, the first such installer served
+on prod: stricter than needed (0.7.42 to 0.7.44 can lift too), which fails closed. The rule ("never serve a /setup or /setup-staging older than 0.7.45") was prose
 only. Splinter asked for it in the promote and rollback path before Josh's go for 0.7.49's prod promote.
 
 ## What
@@ -26,7 +27,7 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - deploy-site.sh, early on both committed pointers (fail fast), and on its EXPORT right before vercel (the bytes
     it publishes);
   - release.sh, on its own site export right before its vercel deploy (a cut publishes both pointers and both
-    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the site checkout's
+    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the site's origin/main (fetched; the checkout only if the fetch fails),
     pair the cut re-publishes UNTOUCHED (the prod pair for a staging cut, the staging pair for a prod cut: the pair
     a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
   - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
@@ -64,10 +65,13 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   it, so each test would set it itself: a third variable the same tests set adds nothing over the two required.
 
 ## The real site passes (measured 14:16 on the served files, and on chaoskosmos-site origin/main by reviews 4 and 11)
-dist/latest.json 0.7.47 (kosmos-0.7.47-arm64.tar.gz), dist/latest-staging.json 0.7.49, /setup with 7 mentions of
-KOSMOS_READONLY_APP, /setup-staging with 9: no deploy, promote or cut that is valid today is refused by this change.
+Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7.49, /setup 7 marker hits,
+/setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
+deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 and 10), stated rather than closed
+## Known limits (reviews 9 to 18), stated rather than closed
+- A checkout that predates this change has no floor at all: site-autodeploy runs that checkout's own
+  tools/deploy-site.sh. Every checkout that pulls main after the merge has it; until then the hand check stands.
 - release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer
   or installer below the floor that the early checkout check did not see, that tree is on the site's main when the
   cut refuses. It is never served by these tools (site-autodeploy runs deploy-site.sh, which refuses it), but every
