@@ -22,8 +22,11 @@ me="$(basename "$0")"
 printf '%s' "$me" >> "$CALL_LOG"; printf ' %s' "$@" >> "$CALL_LOG"; printf '\n' >> "$CALL_LOG"
 case "$me" in
   launchctl) [ "${FX_LAUNCHCTL_FAIL:-0}" = 1 ] && exit 1; printf 'PID\tStatus\tLabel\n-\t0\tcom.apple.Finder\n123\t0\tapplication.com.apple.Terminal.1234.5678\n'; [ -z "${FX_JOBS:-}" ] || printf '%s\n' "$FX_JOBS" | sed 's/^/-\t0\t/' ;;
-  crontab) [ -z "${FX_CRON:-}" ] && exit 1; printf '%s\n' "$FX_CRON" ;;
+  crontab)
+    [ "${FX_CRON_FAIL:-0}" = 1 ] && { echo "crontab: tmp/tmp.123: Operation not permitted" >&2; exit 1; }
+    [ -z "${FX_CRON:-}" ] && { echo "crontab: no crontab for ${FX_WHO:-agent1}" >&2; exit 1; }; printf '%s\n' "$FX_CRON" ;;
   pgrep)
+    [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
     case "$*" in *Runner.Worker*) [ "${FX_WORKER:-0}" = 1 ] || exit 1; echo 4242; exit 0 ;; esac
     [ -z "${FX_LIVE:-}" ] && exit 1; printf '%s\n' "$FX_LIVE" ;;
   df) printf 'Filesystem 1024-blocks Used Available Capacity Mounted\n/dev/disk3s1 239362496 1 %s 50%% /\n' "${FX_FREE_KIB:-31457280}" ;;
@@ -120,6 +123,12 @@ refuse admin "kosmos-ci is an admin" FX_CI_EXISTS=1 "FX_GROUPS=staff admin"
 refuse shards "KOSMOS_CI_SHELL_SHARDS is '1/2'" FX_SHARDS=1/2
 refuse shards-pair "routes shell shard(s) 1/2 2/2" FX_SHARDS=1/2,2/2
 refuse gh "could not read the repo variables" FX_GH_FAIL=1
+refuse pgrep-fails "could not list processes (pgrep exit 3)" FX_PGREP_FAIL=1
+refuse crontab-unreadable "could not read the crontab" FX_CRON_FAIL=1
+refuse allow-keeps-others "1 non-Apple launchd job(s) still loaded" "FX_JOBS=io.tailscale.ipn.helper
+com.kosmos.board" KOSMOS_CI_ALLOW_JOBS='^io\.tailscale\.'
+has pf-allow-keeps-others "com.kosmos.board" && ! grep REFUSE "$T/pf-allow-keeps-others.out" | grep -q tailscale \
+  && pass "preflight: the allow list keeps only what it matches" || fail "allow list: $(grep REFUSE "$T/pf-allow-keeps-others.out")"
 for v in "" off; do
   run pf-shards-off "$H" FX_SHARDS="$v" -- preflight
   [ "$(rc pf-shards-off)" = 0 ] && has pf-shards-off "set to '$v', which names no shard" && pass "preflight: KOSMOS_CI_SHELL_SHARDS='$v' routes no shard and is said so" \
@@ -187,13 +196,13 @@ run in-env "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- install "$C" "$G"
 [ "$(rc in-env)" = 1 ] && has in-env "KOSMOS_TESTS_IGNORE_SUITE" && pass "install refuses a runner .env with a KOSMOS_ wait control (the suite lock)" \
   || fail "install .env override: rc $(rc in-env): $(tail -1 "$T/in-env.out")"
 # CONTROL and the real path: --apply, with the downloads stubbed. An existing .env key the install does not own survives.
-printf 'LANG=C\nRUNNER_KEEP=1\n' > "$CH/actions-runner/.env"
+printf 'LANG=C\nRUNNER_KEEP=1\n' > "$CH/actions-runner/.env"; chmod 640 "$CH/actions-runner/.env"
 run in-apply "$CH" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$CH" -- --apply install "$C" "$G"
 e="$CH/actions-runner/.env"
 if [ "$(rc in-apply)" = 0 ] && grep -q '^tar xzf actions-runner-osx-arm64-2.999.0.tar.gz' "$T/in-apply.calls" \
    && grep -qx 'RUNNER_KEEP=1' "$e" && grep -qx "ACTIONS_RUNNER_HOOK_JOB_STARTED=$CH/.kosmos-ci/job-started.sh" "$e" \
    && grep -qx 'LANG=en_US.UTF-8' "$e" && [ "$(grep -c '^LANG=' "$e")" = 1 ] && ! grep -q '^KOSMOS_' "$e" \
-   && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ]; then
+   && [ "$(stat -f %Lp "$e")" = 640 ] && [ -x "$CH/.kosmos-ci/job-started.sh" ] && [ -x "$CH/.kosmos-ci/job-cleanup.sh" ] && [ -x "$CH/.kosmos-ci/job-guard.sh" ]; then
   pass "CONTROL: install --apply unpacks, installs the guard and hooks, merges .env keeping other keys"
 else fail "install --apply: rc $(rc in-apply): $(tail -3 "$T/in-apply.out")"; fi
 run in-badsha "$T/cihome2" FX_WHO=kosmos-ci KOSMOS_CI_HOME="$T/cihome2" FX_GUARD_BODY=tampered -- --apply install "$C" "$G"

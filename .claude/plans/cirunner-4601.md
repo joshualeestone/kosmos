@@ -29,14 +29,15 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 69 ok. Thirty-two mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 73 ok. Thirty-six mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
   check, no restart trap after a stop, the runner dir taken from HOME; then a failed restart unreported, the
   package left behind; then an API failure read as a race, labels unguarded, export KOSMOS_ missed; then an
   empty variable read as unset, any value refused; then the runner's own node counted as a leftover, verify
-  blind to .env, a false 'no jobs' line, register before install; then .path not written, .path unchecked).
+  blind to .env, a false 'no jobs' line, register before install; then .path not written, .path unchecked;
+  then an allow list that clears every job, pgrep and crontab failures read as none, .env mode dropped).
 - The jobs' PATH lives in two files: `.env`, and `.path`, which config.sh's env.sh fills from the login shell and
   runsvc.sh exports (actions/runner source). Which wins for a job was not settled from source, so register writes
   .path to the same value after config.sh and verify checks they agree.

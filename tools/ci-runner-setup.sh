@@ -32,8 +32,8 @@
 # in kosmos-ci's own home, so a job the guard admits could rewrite it for later jobs (a persistent runner, as on the
 # mini). Likewise the runner's PATH ends with kosmos-ci's ~/.local/bin (the fallback for a tmux built from source),
 # which a job can write. The guard refuses everything but this repo's own code; that is the boundary.
-# KOSMOS_CI_RUNNER (the kill switch) is READ here, never written. KOSMOS_CI_SHELL_SHARDS must stay unset (#4601:
-# one runner cannot carry a shell shard), and preflight and verify refuse when it is set.
+# KOSMOS_CI_RUNNER (the kill switch) is READ here, never written. KOSMOS_CI_SHELL_SHARDS must route no shard here
+# (#4601: one runner cannot carry a shell shard): preflight and verify refuse when it names one test.yml would route.
 set -euo pipefail
 
 APPLY=0
@@ -126,15 +126,19 @@ preflight() {
   if [ -n "$jobs" ]; then
     problem "$(printf '%s\n' "$jobs" | grep -c .) non-Apple launchd job(s) still loaded for $(id -un) (bootout + disable each, runbook part 3 step 0): $(printf '%s\n' "$jobs" | head -5 | tr '\n' ' ')(KOSMOS_CI_ALLOW_JOBS=<ERE> keeps one deliberately)"
   elif [ "$unknown" = 0 ]; then ok "no non-Apple launchd jobs loaded for $(id -un) (its own domain; the system domain is not read)"; fi
-  # crontab -l fails when there is no crontab at all, which is the clear case.
-  local cron
-  cron="$(crontab -l 2>/dev/null || true)"
-  if [ -n "$(printf '%s\n' "$cron" | grep -v -E '^[[:space:]]*(#|$)' || true)" ]; then problem "crontab still has lines (crontab -r, runbook part 3 step 0)"
+  # crontab -l fails with "no crontab for <user>" when there is none, which is the clear case; any other failure is not.
+  local cron cron_err="" rc=0
+  cron="$(crontab -l 2>&1)" || rc=$?
+  if [ "$rc" != 0 ]; then case "$cron" in *"no crontab"*) cron="" ;; *) cron_err="$cron" ;; esac; fi
+  if [ -n "$cron_err" ]; then problem "could not read the crontab: $cron_err"
+  elif [ -n "$(printf '%s\n' "$cron" | grep -v -E '^[[:space:]]*(#|$)' || true)" ]; then problem "crontab still has lines (crontab -r, runbook part 3 step 0)"
   else ok "crontab empty"; fi
   local live
   # Any command line naming either script (a tail of its log too): a false refusal is the safe side, and it is printed.
-  live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh' || true)"
-  if [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of any user names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
+  # pgrep exits 1 for no match and 2 or more when it failed, which must not read as "none".
+  rc=0; live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh')" || rc=$?
+  if [ "$rc" -ge 2 ]; then problem "could not list processes (pgrep exit $rc): cannot rule out a live suite"
+  elif [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of any user names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
   else ok "no suite live (any user)"; fi
 
   say "the machine"
@@ -265,6 +269,7 @@ install_runner() {
       trap 'echo "install failed after stopping the runner: starting it again on whatever was unpacked; install again" >&2; ./svc.sh start >/dev/null 2>&1 || true' EXIT
     fi
   fi
+  # Unpacked over the old release: tar deletes nothing, and svc.sh's copied runsvc.sh names its node version.
   tar xzf "$tgz"
   chmod +x "$newg" && mv -f "$newg" "$CI_DIR/job-guard.sh"
   echo "runner $ver unpacked in $RUNNER_DIR; job guard installed from $commit, sha256 $got"
@@ -299,6 +304,8 @@ HOOK
     echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=$CI_DIR/job-completed.sh"
     echo "LANG=en_US.UTF-8"   # launchd gives none; the tmux tests need it
     echo "PATH=$RUNNER_PATH"; } > "$RUNNER_DIR/.env.new"
+  # A rename takes the new file's mode, not the old one's: carry the old mode over.
+  [ ! -e "$RUNNER_DIR/.env" ] || chmod "$(stat -f %Lp "$RUNNER_DIR/.env")" "$RUNNER_DIR/.env.new"
   mv -f "$RUNNER_DIR/.env.new" "$RUNNER_DIR/.env"
   echo "hooks and .env written (merged)"
   trap - EXIT
@@ -372,7 +379,7 @@ EOF
   if [ ! -e "$RUNNER_DIR/.path" ]; then ok "no $RUNNER_DIR/.path here"
   elif [ ! -r "$RUNNER_DIR/.path" ]; then echo "note:   cannot read $RUNNER_DIR/.path as $(id -un)"
   elif [ "$(cat "$RUNNER_DIR/.path")" = "$RUNNER_PATH" ]; then ok ".path is the PATH .env sets"
-  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (a login shell's PATH from config.sh?): register again, or write it"; fi
+  else problem "$RUNNER_DIR/.path is not $RUNNER_PATH (a login shell's PATH from config.sh?): as $CI_USER in its Screen Sharing session, write that line to it, then ./svc.sh stop and ./svc.sh start"; fi
   say "what a job left behind (between jobs, $CI_USER should run no tmux or node but the runner's own)"
   local left busy2
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
