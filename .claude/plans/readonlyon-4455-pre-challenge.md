@@ -2,30 +2,32 @@
 pre_challenge: true
 method: challenge-loop
 branch: readonlyon-4455
-diff_hash: a831f73f4e3b86438e8578f362196c7b1547290785046f0bbd233c2d9fba27b5
-validation: passed (full suite on head 5677a00d4, ended 22:10 CDT 2026-10-13: node 20401 tests, 20165 pass, 0 fail, 236 skipped; shell 234 of 234 commands). The helper recorded it under an older hash, see "Validation, and what is wrong with its record" below.
+diff_hash: 06ac52d009eff35e1249541cd320ba8e126d0b481873e6da83876bad56c53d33
+validation: passed on Mortals (mortals-validate.sh at head 08b4211ec, ended 02:00 CDT 2026-10-14: node 20401 tests, 20157 pass, 0 fail, 244 skipped; shell 234 of 234 commands; helper status clean). Not recorded locally by that script, because Mortals spells the diff with 9-character ids and this repo with 10; see "Validation" below.
 subdir_audit: passed
-timestamp: 2026-10-14T03:10:59Z
-iterations: 4
+timestamp: 2026-10-14T07:02:05Z
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 5 (four, then one more after three of iteration 4's small points were applied)
 **Converged:** Yes
-**Total findings:** 10 (0 BLOCKERs, 9 WARNINGs, 1 CONVENTION, 9 NITs)
-**Fixed:** 8 | **Deferred:** 1 | **Duplicate of an earlier finding:** 1 | **Asked (awaiting user):** 0
+**Total findings:** 12 (0 BLOCKERs, 11 WARNINGs, 1 CONVENTION, 12 NITs)
+**Fixed:** 8 | **Deferred:** 2 | **Duplicate of an earlier finding:** 2 | **Asked (awaiting user):** 0
 
 This file was written by the session that followed the one that ran the loop. The ledger below was carried across a restart in a handoff file (icecreamkitty-night-2142.md), not re-derived. The commits it cites were checked against `git log` when this was written.
 
-### Validation, and what is wrong with its record
+### Validation
 
-The full validation's test command joined the machine's queue at 19:17 CDT on head 83e1349de and its turn came at about 21:38, by which time the branch was at 5677a00d4 (committed 21:22). The suite ran on 5677a00d4: the wrapper's last line reads `VALIDATION_EXIT=0 at 22:10 head=5677a00d4`, and the tree was clean when it ended.
+**Of record: Mortals, at 08b4211ec.** `mortals-validate.sh` ran the full validation in its own worktree there and the helper recorded `clean`. The script then refused to copy the entry here: its hash `4f95574abb0f` did not equal this worktree's `06ac52d009ef`. Measured why: the same three-dot diff hashed with 9-character object ids gives `4f95574abb0f` exactly, and this repository abbreviates to 10 (it holds more objects). Same base on both sides (`03ddf79b6147`). So it is the same code spelled two ways (the kosmos#6002 class), not a different diff.
 
-The validation helper takes its diff hash when a run starts and records that hash at the end. So its log holds a `clean` entry for hash 377c94f3ab83 (the 19:17 diff) and none for a831f73f4e3b (the diff this proof covers). That is kosmos#6126, found on this run. The claim "validation: passed" above rests on the suite's own tallies and the wrapper's head line, not on the helper's entry.
+A second run of the same validation was queued on this machine (5 runs back at 02:01); I stopped it once the Mortals result was read, rather than spend half an hour of the shared machine on the same answer. Its log ends `VALIDATION_EXIT=1` because it was stopped; it never started its tests.
 
-A slip, already said on the card (comment 6159686642): three uncommitted edits sat in this worktree from about 21:39:40 to 21:40:09 while the suite was in its first minute (docs/staging-channel.md, release/whats-new-pool.json, tools/test-install.sh). They were taken out. 232 tests had run by then; their names were searched for those three files and none matched. That nothing was affected is argued from test names, not measured.
+**Earlier, at 5677a00d4** (before the three small fixes): the full validation passed here at 22:10 CDT on 10-13 (node 20401, 20165 pass, 0 fail; shell 234 of 234). The helper recorded it under the hash from when the run joined the queue at 19:17, which is kosmos#6126, found on that run. A slip during that run, said on the card (comment 6159686642): three uncommitted edits sat in the worktree for about half a minute as the suite began; 232 tests had run, none concerning those files (argued from test names, not measured). Those same three edits are now committed as 08b4211eca and covered by the Mortals run above.
+
+**The install test** (`tools/test-install.sh`, not part of the validation) ran in full on Mortals at 08b4211eca: 413 passed, 0 failed, `INSTALL_TEST_FULL_EXIT=0` at 00:50 CDT, with the three #4455 checks passing (the default locks the app, `=0` leaves it writable, an update over a writable app locks it).
 
 ### Per-Iteration Breakdown
 
@@ -63,6 +65,17 @@ All Origin values are BRANCH by the fail-safe: no blame lookups were run for thi
 **Self-generated:** 0 of the above
 **Converged**: no new actionable findings.
 
+#### Iteration 5 (after 08b4211eca, the three round-4 points applied post-convergence)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 (not looked up)
+- [WARNING] install/setup.sh:~1349-1395: lift-then-check cannot see chattr +i or deny-delete ACLs --> DEFERRED: by design, already named in the plan (line 75) and in the installer comment at setup.sh:1366
+- [WARNING] docs/staging-channel.md:190: the 0.7.45 rollback floor is documentation only --> DUPLICATE of iteration 1 #4 / iteration 3 #9 (the rollback hazard; doc floor in 5677a00d). Suggestion to enforce via tools/lib/floor-gate.sh goes on the follow-up card.
+- [NIT] release/whats-new-pool.json:~417: platforms mac only while Linux is locked too; rank 16 ties the previous entry (ties are allowed: choose() breaks them by since then title)
+- [NIT] tools/test-update-locked-app-4455.sh:55: `[ Darwin ] && chflags` reads as if it could abort
+- [NIT] the proof file is committed beside the plan (intended: the hook's artifact)
+**Converged**: no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -77,17 +90,16 @@ All Origin values are BRANCH by the fail-safe: no blame lookups were run for thi
 | 8 | 3 | WARNING | install/setup.sh:1376 | BRANCH | Interrupted swap leaves the app writable | DEFERRED | Fails open, heals on the next update |
 | 9 | 3 | WARNING | install/setup.sh:1428 | BRANCH | Rollback hazard | DUPLICATE of 4 | 5677a00d adds the doc floor |
 | 10 | 3 | WARNING | tools/test-install.sh:1232 | BRANCH | macOS default not checked automatically | FIXED | 5677a00d |
+| 11 | 5 | WARNING | install/setup.sh:~1349 | BRANCH | Lift-then-check cannot see chattr +i or deny-delete ACLs | DEFERRED | Named in the plan (line 75) and at setup.sh:1366 |
+| 12 | 5 | WARNING | docs/staging-channel.md:190 | BRANCH | The rollback floor is documentation only | DUPLICATE of 4 | Doc floor in 5677a00d; enforcing it goes on the follow-up card |
 
 ### A check that could not fail, found by running its control
 
 The Linux workflow check's first form was `test A && test B` in one step. Under `bash -e` a failing `test A` in an `&&` list does not stop the step. Control run 38499195513, on a branch with the default turned off, passed. The fixed form (one test a line) is green in run 38499461803, and its control is red in run 38499467680.
 
-### The install test on Mortals
-
-tools/test-install.sh is not part of the validation above. Its full form (without KOSMOS_INSTALL_GATE, which stops before this branch's checks) was green on Mortals at 6c4d1eccd8 and at c373bdb88d: 413 passed, 0 failed. A run at 5677a00d4 was queued at 21:40 and had not had its turn when this file was written; its result goes on the pull request.
-
 ### NITs (non-blocking, across all iterations)
-- Iteration 4 raised nine small points. They are listed on the card (kosmos#4455, comment 6159686642) and are NOT in this branch: a commit here after the validation began would have voided it. Three of them are saved as a patch for a follow-up card.
+- Iteration 4 raised nine small points, listed on the card (kosmos#4455, comment 6159686642). Three are now in the branch (08b4211eca: an honest What's New title, a rollback floor that names the release instead of a version, two checks that assert the file exists). The other six go on a follow-up card.
+- Iteration 5: platforms is mac only while Linux is locked too; a Darwin-only cleanup line reads as if it could abort.
 
 ### Strengths (across all iterations)
 - The default is asserted on both platforms by a check whose control has been seen red (iterations 1 to 3).
