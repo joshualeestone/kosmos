@@ -8,7 +8,7 @@ on the Gemini and Meta runners, and where a message is still shortened, put the 
 When a room post or DM is too long to type whole (messages.spillsAt), the line the agent sees still carries the head,
 the size and the file, and now also the request: for a room post, the sentence that @-mentions this member (by handle
 or display name, and only when the room itself counted it as mentioned) shown quoted as Where it names you: "..."; otherwise
-the post's first question (a ? ending a word, never one in a link) as Its first question: "..."; a sentence already in
+the post's first question (a ? ending a word, never one in a link) as A question in it: "..."; a sentence already in
 the head is skipped for the next one; nothing when there is none. At most 300 characters.
 
 ## What the code says about the Gemini and Meta shortening (read on origin/main, not measured on the test Mac)
@@ -32,7 +32,7 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
   text reaching it has no line breaks (chat.cleanMessage), so a list without punctuation reads as one sentence.
 - (rounds 4-5) A greeting (a mention ending its sentence with at most 4 words before it) also takes the next sentence;
   a greeting inside the head gives way to a later mention, else to the sentence after it. A member mentioned only
-  inside the head gets the first later question instead, under the neutral label Its first question (it may be a
+  inside the head gets the first later question instead, under the neutral label A question in it (it may be a
   question for someone else; the label does not claim it is theirs).
 - (round 7) The greeting rule from rounds 4 and 5 (a short mention sentence also takes the next one) is removed: each
   version quoted unrelated text under a label saying it names the member, and the label (Where it names you, round 6)
