@@ -435,6 +435,7 @@ const SITE_COUNTS = {
   'render-picker-provider-2097.js': [1, 1],
   'render-picture-fit-4885.js': [1, 0],
   'render-pj-clear-2575.js': [0, 1],
+  'render-pj-question-text-6129.js': [0, 1],
   'render-pjadd-back-2850.js': [1, 0],
   'render-pjcreate-nav-3134.js': [0, 1],
   'render-pjmode-style-3495.js': [1, 0],
