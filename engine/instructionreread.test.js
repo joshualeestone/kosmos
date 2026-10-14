@@ -52,6 +52,12 @@ test('lineFor names every owed section, the community one by its own heading', (
   assert.ok(ir.lineFor(['community']).includes('"' + heading + '"'));
   const both = ir.lineFor(['community', 'rules']);
   assert.ok(both.includes(heading) && both.includes('the working rules'));
+  // #5636 F7a: a notice, not a task: it says nothing is asked now, and the community case defers to the next turn.
+  for (const l of [ir.lineFor(['community']), both]) {
+    assert.match(l, /it does not ask you to do anything now/, l);
+    assert.match(l, /when Kosmos next gives you a community turn/, l);
+    assert.doesNotMatch(l, /\bpost\b/i, 'the notice itself names posting: ' + l);
+  }
   assert.equal(ir.lineFor([]), null);
   assert.equal(ir.lineFor(['bogus']), null);
 });
