@@ -1126,13 +1126,14 @@ function tapProbe4663(skip) {
       const tip800 = await tipWalk();
       chk(!tip800.error && tip800.places === 4 && tip800.steps.length === 4 && tip800.steps.every(stepOk(800)),
         `[tablet 800x800] every step of the project tip is a pointing card, on screen, in the tablet layout`, JSON.stringify(tip800));
-      // And the wide single-column layout (Members/Files, room, Tasks), which a touch screen in landscape under 68rem
-      // still gets: 1024x768 is wider than a phone, under the three-column width, and landscape keeps it off the tablet.
-      await phonePage.setViewportSize({ width: 1024, height: 768 });
+      // And the wide single-column layout (Members/Files, room, Tasks), which a touch screen in landscape under 960px
+      // still gets: 900x700 is wider than a phone, landscape (so not the upright-tablet room) and under the one-screen
+      // floor (so not the #6107 landscape-tablet layout either, which starts at 960px).
+      await phonePage.setViewportSize({ width: 900, height: 700 });
       await phonePage.waitForTimeout(100);
       const tipWideOrder = await order();
       const tip1024 = await tipWalk();
-      chk(tipWideOrder === 'members-files,room,tasks' && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(1024)),
+      chk(tipWideOrder === 'members-files,room,tasks' && !tip1024.error && tip1024.places === 4 && tip1024.steps.length === 4 && tip1024.steps.every(stepOk(900)),
         `[wide] every step of the project tip is a pointing card, on screen, in the wide single-column layout`, JSON.stringify({ order: tipWideOrder, tip: tip1024 }));
       await phonePage.setViewportSize({ width: 375, height: 800 });
       await phonePage.waitForTimeout(100);
@@ -1772,6 +1773,9 @@ function tapProbe4663(skip) {
     const tabletPageErrors = watchErrors(tabletPage);
     try {
       await tabletPage.addInitScript(() => {
+        // #6107: a touch tablet held sideways keeps its own layout, defaulting to one screen; this arm measures the
+        // TAB layout at 1180, so it chooses tabs on the tablet first (the one-screen arms below choose it explicitly).
+        try { localStorage.setItem('kosmos-tablet-layout', 'tabs'); } catch { /* a file page may refuse storage */ }
         window.setInterval = () => 0;
         window.fetch = async () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
       });
