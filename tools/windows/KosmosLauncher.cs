@@ -2693,11 +2693,12 @@ class KosmosLauncher
         internal string RollbackVersion;  // the kept build a rollback restores, or null
     }
 
-    // `expect`: for a rollback, the version the person agreed to (the engine refuses any other kept build).
-    // Only a version of the board's shape is passed, so nothing else reaches the command line.
+    // `expect`: for a rollback or an install the person picked, the version they agreed to (the engine does
+    // not restore another kept build, and offers a newer release instead of installing it unseen). Only a
+    // version of the board's shape is passed, so nothing else reaches the command line.
     internal static string ConnectUpdateArguments(string action, int port, string expect)
     {
-        return "--" + action + " --port " + port + (action == "rollback" && IsReleaseVersion(expect) ? " --expect " + expect : "");
+        return "--" + action + " --port " + port + ((action == "rollback" || action == "install") && IsReleaseVersion(expect) ? " --expect " + expect : "");
     }
 
     // The board's own shape of a version, a.b.c with digits only. Anything else is not a version.
@@ -2814,7 +2815,9 @@ class KosmosLauncher
         bool asked = action != "look";
         // An answer that could not look keeps what was known; any other answer says what can be rolled back to now.
         if (answer.Kind != ConnectUpdateKind.Unknown || answer.RollbackVersion != null) s.Rollback = answer.RollbackVersion;
-        s.NextLookMs = answer.Kind == ConnectUpdateKind.Unknown && !asked ? UpdateLookRetryMs : UpdateLookEveryMs;
+        // A look that could not look, or was refused (another update's lock, a resumer still running), is tried
+        // again within the hour rather than tomorrow.
+        s.NextLookMs = (answer.Kind == ConnectUpdateKind.Unknown || answer.Kind == ConnectUpdateKind.Refused) && !asked ? UpdateLookRetryMs : UpdateLookEveryMs;
         if (answer.Kind == ConnectUpdateKind.Newer)
         {
             s.Offer = answer.Version;
@@ -3805,7 +3808,7 @@ class BoardWindowForm : System.Windows.Forms.Form
                     if (!stopped) KosmosLauncher.ShowWindowMessage(KosmosLauncher.BoardStillRunningMessage, true);
                     // #4382: with the stop done, a connect computer looks for an update now and once a day, as the
                     // Mac chains its look after stopBoardIfRunning. The look itself refuses while a board answers.
-                    if (mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();
+                    if (stopped && mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();
                 }));
             }
             catch { /* the window closed meanwhile; the next launch stops it again */ }
@@ -3952,7 +3955,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         else if (action == "rollback") ShowUpdateBar(KosmosLauncher.RollingBackNote, null);
         int boardPort = port;
         string folder = here;
-        string expect = action == "rollback" ? updateState.Rollback : null;
+        string expect = action == "rollback" ? updateState.Rollback : action == "install" ? updateState.Offer : null;
         // The window's own look is given up on after UpdateLookTimeoutMs: this window stops WAITING (its flags
         // are let go, so Run agents is no longer held by them), but nothing is killed, because a kill could land
         // while the engine holds the prepare lock or has written a journal. The engine run finishes or fails on
@@ -4035,6 +4038,8 @@ class BoardWindowForm : System.Windows.Forms.Form
         if (mode != KosmosLauncher.ComputerMode.Connect || updateState.Rollback == null) return;
         if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }
         if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;
+        // The daily look can start while the question is open (a WinForms timer ticks inside the box's loop).
+        if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }
         LookForUpdate("rollback");
     }
 

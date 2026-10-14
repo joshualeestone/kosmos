@@ -75,7 +75,7 @@ test('#4382: the launcher runs the engine file that exists, with the actions tha
 
 test('#4382: a connect launch looks for an update once its stop of the board is done, and again once a day', () => {
   const background = method('void StopBoardInBackground(bool thenSignIn)');
-  inOrder(background, ['KosmosLauncher.StopBoardHere(boardPort, task)', 'BeginInvoke(', 'stopsInFlight--;', 'if (mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();'],
+  inOrder(background, ['KosmosLauncher.StopBoardHere(boardPort, task)', 'BeginInvoke(', 'stopsInFlight--;', 'if (stopped && mode == KosmosLauncher.ComputerMode.Connect) StartUpdateLooks();'],
     'the look starts before the stop is done, or on a computer that runs agents');
   /* Both connect entries go through that stop: a connect launch (OnLoad) and a switch to connect (SwitchToConnect). */
   assert.match(slice('protected override void OnLoad(EventArgs e)', 'try'), /else StopBoardInBackground\(false\);/);
@@ -157,7 +157,8 @@ test('#4382: the window applies the pure decisions, and nothing else installs, r
     'if (next == "restart") { RelaunchAfterClose = "update"; Close(); return; }', 'if (next == "install") LookForUpdate("install");'], 'Update');
   inOrder(method('void RollbackPicked()'), ['updateState.Rollback == null) return;',
     'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }',
-    'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;', 'LookForUpdate("rollback");'], 'Roll back');
+    'if (!KosmosLauncher.askYesNo(KosmosLauncher.RollbackQuestion(updateState.Rollback))) return;',
+    'if (updateLookInFlight) { KosmosLauncher.ShowWindowMessage(KosmosLauncher.StillUpdatingMessage, false); return; }', 'LookForUpdate("rollback");'], 'Roll back, checked again after the question');
   /* The bar is the window's, over the page, never in it (Liu Kang's ruling for the Mac half), and Not now is a field. */
   const bar = method('void ShowUpdateBar(string note, string button)');
   assert.match(bar, /Controls\.Add\(updateBar\);/);
@@ -345,6 +346,8 @@ test('#4382: what each answer does: the same consent as the board, never a resta
     ['state|0.7.50;-;-;-|unknown host down|install', { btn: '-', next: EVERY }],
     ['state|0.7.50;-;-;-|refused an update is already under way|install', { btn: '-' }],
     ['state|0.7.50;-;-;-|board|look', { O: '0.7.50', btn: 'Update' }],
+    /* a refused look (another update's lock, a resumer still running) is tried again within the hour */
+    ['state|0.7.50;-;-;-|refused an earlier update has not finished|look', { O: '0.7.50', next: RETRY }],
     /* current: nothing newer, and the rollback offer follows the answer */
     ['state|0.7.50;-;0.7.46;-|current 0.7.46|look', { O: '-', R: '-', bar: '-', btn: '-' }],
     /* the person picked Update and nothing is newer any more: said, not a bar that silently vanishes */
@@ -364,10 +367,10 @@ test('#4382: what each answer does: the same consent as the board, never a resta
   assert.doesNotMatch(stateOf(got[5]).bar, /Press Update/, 'a note that names a button the bar does not have');
   assert.equal(stateOf(got[6]).msg, 'The roll back did not finish: no.', 'a failed roll back never claims which version is in place');
   assert.notEqual(stateOf(got[9]).bar, '-', 'the person asked and heard nothing');
-  assert.equal(stateOf(got[13]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
-  const args = runProbe(['args|rollback|0.7.46', 'args|look|0.7.46', 'args|rollback|0.7.46 --yes', 'args|rollback|-']);
-  assert.deepEqual(args, ['--rollback --port 16180 --expect 0.7.46', '--look --port 16180', '--rollback --port 16180', '--rollback --port 16180'],
-    'only a rollback names a version, and only a real version reaches the command line');
+  assert.equal(stateOf(got[14]).bar, 'Kosmos is up to date.', 'the person pressed Update and saw nothing happen');
+  const args = runProbe(['args|rollback|0.7.46', 'args|look|0.7.46', 'args|rollback|0.7.46 --yes', 'args|rollback|-', 'args|install|0.7.50']);
+  assert.deepEqual(args, ['--rollback --port 16180 --expect 0.7.46', '--look --port 16180', '--rollback --port 16180', '--rollback --port 16180', '--install --port 16180 --expect 0.7.50'],
+    'a rollback and an install name the version agreed to, a look none, and only a real version reaches the command line');
   const engine = require('./engine/win32connectupdate.js');
   assert.equal(engine.parseArgs(args[0].split(' ')).expect, '0.7.46', 'the engine reads what the launcher sends');
 });
@@ -398,7 +401,8 @@ test('#4382: an update on its way on disk holds Run agents, a stale or finished 
     `disk|${fresh}|-|-`,
     `disk|-|${unfinished}|10`,
     `disk|-|${finished}|10`,
+    `disk|-|{	"finished":	true}|10`,
     `disk|-|${unfinished}|${fresh}`,
   ]);
-  assert.deepEqual(got, ['free', 'busy', 'free', 'busy', 'free', 'free']);
+  assert.deepEqual(got, ['free', 'busy', 'free', 'busy', 'free', 'free', 'free']);
 });

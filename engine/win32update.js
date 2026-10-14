@@ -1798,6 +1798,7 @@ async function waitForOutcome(journalAt, token, seams) {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
         because: 'the update journal records the new build as in place; its finish was not recorded in time',
+        finishUnrecorded: true,
       };
     }
     if (now() >= until) return { outcome: null, because: `no outcome was recorded within ${Math.round((s.waitMs || CLI_WAIT_MS) / 1000)} seconds; read ${statusAt} and ${journalAt}` };

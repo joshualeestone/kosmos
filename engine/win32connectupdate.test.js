@@ -249,7 +249,12 @@ test('#4382: the person picks Update with updates off: it installs, and the boar
   setConsent(false);
   const c = freshCase();
   const sim = stoppedBoard(c);
-  const r = await connectUpdate.run('install', seamsFor(c, site(NEXT), sim));
+  /* The person picked "Update Kosmos to" a version that is no longer the newest: offered, not installed unseen. */
+  const moved = await connectUpdate.run('install', { ...seamsFor(c, site(NEXT), sim), expect: INSTALLED });
+  assert.deepEqual(moved.answer, ['newer', NEXT]);
+  assert.match(moved.note, /not the .* that was picked/);
+  assert.equal(versionIn(c.root), INSTALLED);
+  const r = await connectUpdate.run('install', { ...seamsFor(c, site(NEXT), sim), expect: NEXT });
   assert.deepEqual(r.answer, ['updated', NEXT], c.log.join('\n'));
   assert.equal(versionIn(c.root), NEXT);
   assert.equal(sim.calls.some((call) => call.startsWith('/Run')), false);

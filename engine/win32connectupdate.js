@@ -107,7 +107,8 @@ function connectRollbackOffer(root) {
  * newer than the held one installs as usual. The board's own
  * automatic install has the same gap after its Roll back button; that is not changed here.
  */
-function heldPath(env, home) { return path.join(win32anchor.anchorDir(process.platform, home, env), win32anchor.UPDATE_HELD_NAME); }
+/* Only reached once run() has refused anything but win32, so the anchor is always Windows'. */
+function heldPath(env, home) { return path.join(win32anchor.anchorDir('win32', home, env), win32anchor.UPDATE_HELD_NAME); }
 function readHeld(env, home) {
   try { const v = JSON.parse(fs.readFileSync(heldPath(env, home), 'utf8')).version; return typeof v === 'string' ? v : null; } catch { return null; }
 }
@@ -119,7 +120,8 @@ function writeHeld(env, home, version, log) {
 
 /**
  * One run. Resolves to `{ answer: [word, value?], rollback: <version>|null, note: <text>|null }`. Options:
- * expect (rollback: the version the person agreed to; any other kept build is refused). Seams, each with
+ * expect (the version the person agreed to: for a rollback any other kept build is refused; for an install
+ * a newer release than that is offered, not installed). Seams, each with
  * its production default: platform, env, home, port, root (update.installedRoot), probe
  * (win32handoff.probeBoard), readsConnect (win32apply.readsConnect), decide (update-ifnewer.decide),
  * begin, rollbackToPrevious, wait (waitForOutcome's seams), liveExecutionAllowed (the live-execution
@@ -168,7 +170,7 @@ async function run(action, opts) {
      computer that connects elsewhere. So every run first hands such a journal to begin()'s own resume
      (resumeOnly: it starts the resumer from the old build's code, or clears a journal nobody can finish,
      and never installs anything new), and says so instead of doing what it was asked. */
-  const journalAt = win32apply.journalPathFor(win32anchor.anchorDir(process.platform, home, env));
+  const journalAt = win32apply.journalPathFor(win32anchor.anchorDir(platform, home, env));
   if (win32apply.readJournal(journalAt).state === 'unfinished') {
     const resumed = await (o.begin || win32update.begin)({ ...common, resumeOnly: true });
     note = 'an earlier update had not finished: ' + oneLine((resumed && resumed.because) || 'it was handed to its resumer');
@@ -206,6 +208,11 @@ async function run(action, opts) {
   if (kind === 'source') return done(['unknown', 'this is not an installed copy of Kosmos'], null);
   if (kind !== 'newer') return done(['unknown', oneLine(version || 'the update check gave no answer')]);
   if (action === 'look' && consent !== 'on') return done(['newer', version]);
+  /* The person picked "Update Kosmos to <expect>". A newer release since is offered, not installed unseen. */
+  if (action === 'install' && o.expect && o.expect !== version) {
+    note = `${version} is now the newest, not the ${o.expect} that was picked; it is offered instead`;
+    return done(['newer', version]);
+  }
   const held = readHeld(env, home);
   if (action === 'look' && held && !update.newer(version, held)) {
     note = `${version} is not installed by itself, because it was rolled back from on this computer; it stays on offer`;
@@ -226,7 +233,10 @@ async function run(action, opts) {
     return done(['refused', because]);
   }
   const outcome = await outcomeOf(r.journal, probe, o.wait);
-  if (outcome.outcome === 'updated') return done(['updated', outcome.to || r.version || version]);
+  if (outcome.outcome === 'updated') {
+    if (outcome.finishUnrecorded) note = `${version} is in place, but its helper did not record the finish in time`;
+    return done(['updated', outcome.to || r.version || version]);
+  }
   return done(['failed', version, oneLine(outcome.sentence || outcome.because || `the update ended as ${outcome.outcome || 'unknown'}`)]);
 }
 
@@ -267,7 +277,7 @@ async function cliMain(argv, write, seams) {
   const out = typeof write === 'function' ? write : (s) => process.stdout.write(s);
   const a = parseArgs(argv);
   const port = a.port === null ? win32update.DEFAULT_BOARD_PORT : Number(a.port);
-  if (!a.action || a.unknown || !Number.isInteger(port) || port <= 0 || (a.expect !== null && a.action !== 'rollback')) { out(USAGE + '\n'); return 2; }
+  if (!a.action || a.unknown || !Number.isInteger(port) || port <= 0 || (a.expect !== null && a.action === 'look')) { out(USAGE + '\n'); return 2; }
   /* --yes is the person's opt-in (Kosmos.exe adds it only for a look it runs, or a choice the person
      made), and it stands in for allowLiveExecution(), which only server.js's real start may call. */
   if (!a.yes) { out(`nothing was looked at or changed: add --yes to ${a.action}\n`); return 2; }
