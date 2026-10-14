@@ -701,8 +701,9 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // An automatic idle and a manual one at the same turn end are one turn (within 2 min); 3 min apart are two.
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094]]), NOW).state, 'worked', 'a duplicate idle at the same turn end counted as a later turn');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1092]]), NOW).state, 'stale', 'CONTROL: two turn ends 3 min apart');
-  // The window chains: idles each under 2 min after the one before are one turn end; one 3 min after the last is a second.
-  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094], ['idle', 1093]]), NOW).state, 'worked');
+  // The window chains: idles each 1.5 min after the one before are one turn end even 3 min after the first (measured
+  // from the first instead, the last would be a second turn: stale). One 3 min after the last is a second.
+  assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1093.5], ['idle', 1092]]), NOW).state, 'worked');
   assert.equal(v.workExcused(stale(1100), gpt, hist([['idle', 1095], ['idle', 1094], ['idle', 1093], ['idle', 1090]]), NOW).state, 'stale');
   // An operator's clear is not a turn end; a cut history that starts after the summary is unknown (left stale).
   const gptOp = () => { const a = [{ state: 'idle', at: at(1095) }, { state: 'idle', at: at(40), by: 'operator' }]; a.truncated = false; return a; };
@@ -775,6 +776,14 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
   // 0.7.48: a turn-ends-only runner (codex) says what it can know, not a measurement it cannot make.
   const turns = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0, turnsOnly: true } }] } }).join('\n');
+  // End to end: a codex member through overviewOf's whole chain (idleExcused, quietExcused, workExcused, idleNoted).
+  const codexDesc = { ...described, agents: described.agents.map((m) => ({ ...m, runner: 'codex', state: 'idle' })) };
+  const cx = v.overviewOf(codexDesc, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
+    readReport: () => ({ found: true, state: 'idle', at: new Date(NOW - 320 * 60000).toISOString() }),
+    readHistory: () => { const a = [{ state: 'idle', at: NOW - 320 * 60000 }]; a.truncated = false; return a; } });
+  const cxText = v.renderShow({ project: cx }).join('\n');
+  assert.equal(cx.members[0].summary.turnsOnly, true, JSON.stringify(cx.members[0].summary));
+  assert.match(cxText, /summary: current: no later turn has ended since it was written/, cxText);
   assert.match(turns, /summary: current: no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
