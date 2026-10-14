@@ -27,11 +27,12 @@ Plan on the card: kosmos#4601 comment 6165020833. Source runbook: kosmos#5488 co
 Part 1 (returning the mini) and part 3 (migration). Nothing is run on Agent1s with --apply until migration day.
 
 ## Proof
-- Test: 53 ok. Nineteen mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
+- Test: 55 ok. Twenty-one mutations each red at the case meant to catch it (act always runs, no .env refusal, -admin,
   token in argv, no suite check, dry install downloads; then no app-label filter, unchecked launchctl,
   no autorestart check, no HOME check; then no Runner.Worker check, no stop re-check, .env read error
   swallowed, late --apply accepted, no busy re-read; then no ERE check on the allow list, no created-user
-  check, no restart trap after a stop, the runner dir taken from HOME).
+  check, no restart trap after a stop, the runner dir taken from HOME; then a failed restart unreported, the
+  package left behind).
 - Live dry run on Agent1s, 04:27 CDT: preflight refuses on exactly the three step-0 conditions (72 launchd jobs,
   crontab, live suites) and passes every machine check, autorestart included; verify against kosmos-ci-mini is
   clear on the API rows. The runbook's 81 counts the owner's open GUI apps too (`application.*` labels, 9 here),

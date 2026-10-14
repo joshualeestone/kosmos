@@ -12,8 +12,10 @@
 #                             or a suite are live (runbook part 3, step 0), and checks disk, FileVault, sleep, power restore, tmux,
 #                             pwsh, the CI user. KOSMOS_CI_ALLOW_JOBS (an ERE) lets named launchd jobs stay
 #   create-user               as the machine owner (an admin). Runs preflight first. A STANDARD user kosmos-ci
-#   install <commit> <sha256> as kosmos-ci. The runner, the hooks and the job guard from THAT main commit
-#   register                  as kosmos-ci, in its Screen Sharing session (svc.sh needs the GUI session, not ssh).
+#   install <commit> <sha256> as kosmos-ci, in its Screen Sharing session. The runner, the hooks and the job guard
+#                             from THAT main commit
+#   register                  as kosmos-ci, in its Screen Sharing session. Both stop or start the runner through
+#                             svc.sh, which needs the GUI session, not ssh.
 #                             Reads the registration token from stdin, so it is never in any argv
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels
 #   machine-settings          prints the settings that need an admin in System Settings
@@ -111,7 +113,7 @@ preflight() {
   else ok "crontab empty"; fi
   local live
   live="$(pgrep -fl 'run-tests\.sh|queued-heavy\.sh' || true)"
-  if [ -n "$live" ]; then problem "a suite is live on this Mac (any user): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
+  if [ -n "$live" ]; then problem "a suite looks live on this Mac (a process of any user names run-tests.sh or queued-heavy.sh): $(printf '%s\n' "$live" | head -3 | tr '\n' ' ')"
   else ok "no suite live (any user)"; fi
 
   say "the machine"
@@ -276,7 +278,11 @@ HOOK
   mv -f "$RUNNER_DIR/.env.new" "$RUNNER_DIR/.env"
   echo "hooks and .env written (merged)"
   trap - EXIT
-  if [ "$was_running" = 1 ]; then ./svc.sh start && echo "runner started again"; fi
+  rm -f "$tgz"
+  if [ "$was_running" = 1 ]; then
+    ./svc.sh start || { echo "FAILED to start the runner again (./svc.sh start in $RUNNER_DIR): it is stopped" >&2; exit 1; }
+    echo "runner started again"
+  fi
 }
 
 register() {
