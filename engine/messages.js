@@ -1091,7 +1091,7 @@ const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 /* How many rows `kosmos room` shows when not given -n (server.js reads it from here). */
 const ROOM_READ_ROWS = 40;
 /* The row kinds that read shows (server.js filters a room's rows to these). */
-const ROOM_READ_KINDS = new Set(['post', 'valve', 'note', 'external', 'refused']);
+const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'refused']);
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
@@ -1119,9 +1119,10 @@ function staleHeld(projectId, ids, log, now, member) {
       for (const r of rows) {
         if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member || !answered.has(r.replyTo)) continue;
         const v = Date.parse(r.at);
-        if (!firstReply.has(r.replyTo) || v < firstReply.get(r.replyTo)) firstReply.set(r.replyTo, v);
+        if (Number.isFinite(v) && (!firstReply.has(r.replyTo) || v < firstReply.get(r.replyTo))) firstReply.set(r.replyTo, v);
       }
-      const room = rows.filter((r) => r && r.project === projectId && ROOM_READ_KINDS.has(r.kind))
+      const kinds = new Set(ROOM_READ_KINDS);
+      const room = rows.filter((r) => r && r.project === projectId && kinds.has(r.kind))
         .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
       const firstWanted = room.findIndex((y) => y.kind === 'post' && want.has(y.id));
       room.forEach((x, i) => {
@@ -1130,6 +1131,7 @@ function staleHeld(projectId, ids, log, now, member) {
         const replyAt = firstReply.get(x.id);
         if (!(replyAt > xAt)) return;   // no read before the reply could have shown X
         let after = 0;   // rows after X a read before the reply could have shown; an unreadable time counts
+        // The break assumes string order is time order, as for the board's toISOString stamps.
         for (let j = i + 1; j < room.length && after < ROOM_READ_ROWS; j += 1) {
           if (Date.parse(room[j].at) >= replyAt) break;
           after += 1;

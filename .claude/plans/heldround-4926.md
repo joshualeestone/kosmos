@@ -24,6 +24,10 @@ the member's first reply to X, can have shown (the latest such read), not the 39
 covered, so an older unseen post can still be dropped:
 - a read with a small -n (rows after X and before the member's first reply to X are taken off the window, so a
   default read made after later rows is covered);
+- the member learned X's id without reading the room (a direct message, the person naming it, a quote elsewhere)
+  and replied to it having seen none of the older posts;
+- a read the runner cut short: the server returned the rows, but the tool output limit dropped the oldest before
+  the model saw them;
 - two sends interleaving (the window itself follows the read's order by `at`, so a late-appended row is counted
   where the read shows it). A post restored after its typing failed and then held again is the same shape: Y's send starts first (earlier `at`), X reaches the member first and takes the held list,
   then Y is held. Milliseconds wide.
@@ -32,9 +36,10 @@ this rule exists for readers Kosmos cannot see), and dropping on any later post 
 A reply to the member's own post covers nothing.
 
 Second premise (review 8): seeing an older ask is not answering it. An ask from another sender on another topic,
-shown in the read, is dropped from the reminder though the member's reply was about X. Kept deliberately: it is the
-same rule #6116's dropShown already applies to a token read (an ask the read showed leaves the held list), and the
-post stays in the room. The alternative, same-sender-only, would leave N7's case uncovered whenever the round had
+shown in the read, is dropped from the reminder though the member's reply was about X. Kept deliberately: it drops in the
+same direction as #6116's dropShown (an ask the read showed leaves the held list), and the post stays in the room.
+It is NOT equally grounded: dropShown acts on a read Kosmos observed and the exact ids it returned; N7 infers a read
+from a reply's timestamp. The alternative, same-sender-only, would leave N7's case uncovered whenever the round had
 more than one sender.
 
 The rule covers asks too (@-named, cap-held and limit-held), deliberately: the 19:31 round may have been asks, and a
