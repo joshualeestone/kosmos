@@ -43,3 +43,6 @@ the head is skipped for the next one; nothing when there is none. At most 300 ch
 - (round 10) A question is quoted to every reader the post is to, as the answer line and the hold already decide it:
   an operator post (the whole room), a member it names, or the author of the post it replies to; never a background
   member. A sentence the opening cut only started is quoted whole (its unseen part may hold the request).
+- (round 11) With --no-reply (FYI, no reply requested), a member the post is to still gets A question in it: the
+  label is neutral and does not ask for an answer. A mention within 100 characters of the start of a sentence longer
+  than the cap is quoted from the start, so a request near that sentence's far end can still be cut off.
