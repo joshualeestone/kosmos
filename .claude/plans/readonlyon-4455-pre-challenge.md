@@ -2,32 +2,32 @@
 pre_challenge: true
 method: challenge-loop
 branch: readonlyon-4455
-diff_hash: 06ac52d009eff35e1249541cd320ba8e126d0b481873e6da83876bad56c53d33
-validation: passed on Mortals (mortals-validate.sh at head 08b4211ec, ended 02:00 CDT 2026-10-14: node 20401 tests, 20157 pass, 0 fail, 244 skipped; shell 234 of 234 commands; helper status clean). Not recorded locally by that script, because Mortals spells the diff with 9-character ids and this repo with 10; see "Validation" below.
+diff_hash: edff2f9982b1e3096b2d27bf893eee86f3c95481cc59c34ac77827208d50ca27
+validation: passed (full validation on this machine at head d4f3da5d6, 03:21 to 04:57 CDT 2026-10-14, queue included: node 20529 tests, 20286 pass, 0 fail; shell 234 of 234; the helper recorded clean under edff2f9982b1, this diff)
 subdir_audit: passed
-timestamp: 2026-10-14T07:02:05Z
-iterations: 5
+timestamp: 2026-10-14T09:58:28Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5 (four, then one more after three of iteration 4's small points were applied)
+**Iterations:** 8 (four; one more after three of iteration 4's small points were applied; three more after main was merged in and a Linux step was added)
 **Converged:** Yes
-**Total findings:** 12 (0 BLOCKERs, 11 WARNINGs, 1 CONVENTION, 12 NITs)
-**Fixed:** 8 | **Deferred:** 2 | **Duplicate of an earlier finding:** 2 | **Asked (awaiting user):** 0
+**Total findings:** 17 (0 BLOCKERs, 15 WARNINGs, 2 CONVENTIONs, 20 NITs)
+**Fixed:** 10 | **Deferred:** 3 | **Duplicate of an earlier finding:** 4 | **Asked (awaiting user):** 0
 
 This file was written by the session that followed the one that ran the loop. The ledger below was carried across a restart in a handoff file (icecreamkitty-night-2142.md), not re-derived. The commits it cites were checked against `git log` when this was written.
 
 ### Validation
 
-**Of record: Mortals, at 08b4211ec.** `mortals-validate.sh` ran the full validation in its own worktree there and the helper recorded `clean`. The script then refused to copy the entry here: its hash `4f95574abb0f` did not equal this worktree's `06ac52d009ef`. Measured why: the same three-dot diff hashed with 9-character object ids gives `4f95574abb0f` exactly, and this repository abbreviates to 10 (it holds more objects). Same base on both sides (`03ddf79b6147`). So it is the same code spelled two ways (the kosmos#6002 class), not a different diff.
+**Of record: this machine, at d4f3da5d6** (the final head before this proof). The full validation passed; the run began and ended on the same head, and the helper's recorded hash equals this proof's. A copy queued on Mortals at the same head was stopped before it started its tests once this one passed.
 
-A second run of the same validation was queued on this machine (5 runs back at 02:01); I stopped it once the Mortals result was read, rather than spend half an hour of the shared machine on the same answer. Its log ends `VALIDATION_EXIT=1` because it was stopped; it never started its tests.
+**Earlier passes, at heads since superseded:** 5677a00d4 here (22:10, 10-13), and 08b4211ec on Mortals (02:00, 10-14; refused by mortals-validate.sh only because Mortals abbreviates object ids to 9 characters and this repo to 10, measured: the local diff at core.abbrev=9 gives Mortals' hash exactly; Baron has since fixed the script). After 08b4211ec, main was merged in (a What's New conflict, resolved by keeping both sides; this entry moved to 0.7.49) and a Linux CI step was added, so neither earlier pass covers the final head.
 
-**Earlier, at 5677a00d4** (before the three small fixes): the full validation passed here at 22:10 CDT on 10-13 (node 20401, 20165 pass, 0 fail; shell 234 of 234). The helper recorded it under the hash from when the run joined the queue at 19:17, which is kosmos#6126, found on that run. A slip during that run, said on the card (comment 6159686642): three uncommitted edits sat in the worktree for about half a minute as the suite began; 232 tests had run, none concerning those files (argued from test names, not measured). Those same three edits are now committed as 08b4211eca and covered by the Mortals run above.
+**The install test** (`tools/test-install.sh`, not part of the validation) ran in full on Mortals at 08b4211eca: 413 passed, 0 failed, with the three #4455 checks passing. The commits after it change `release/whats-new-pool.json` (the merge), `.github/workflows/test-linux-setup-4920.yml` and main's own files, none of which `tools/test-install.sh` exercises for this branch; that is argued from the file list, not re-run.
 
-**The install test** (`tools/test-install.sh`, not part of the validation) ran in full on Mortals at 08b4211eca: 413 passed, 0 failed, `INSTALL_TEST_FULL_EXIT=0` at 00:50 CDT, with the three #4455 checks passing (the default locks the app, `=0` leaves it writable, an update over a writable app locks it).
+A slip on 10-13, said on the card (comment 6159686642): three uncommitted edits sat in the worktree for about half a minute as an earlier validation began. Those edits are now commit 08b4211eca and covered by every run since.
 
 ### Per-Iteration Breakdown
 
@@ -76,6 +76,36 @@ All Origin values are BRANCH by the fail-safe: no blame lookups were run for thi
 - [NIT] the proof file is committed beside the plan (intended: the hook's artifact)
 **Converged**: no new actionable findings.
 
+#### Iteration 6 (after b146171800, main merged; the What's New conflict resolved, this entry moved to 0.7.49)
+**Reviewer model:** fable
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
+**Self-generated:** 0 (not looked up)
+- [WARNING] install/setup.sh:1381-1389: the find walk's Linux arm (GNU find -exec test -e {}/. and symbolic -perm) was never run; the shards that run its test go to macOS --> FIXED (655da4ee: the Linux install workflow runs tools/test-update-locked-app-4455.sh)
+- [NIT] a board-driven update's refusal reason lands only in logs/install.log (a follow-up could carry it into install.status)
+- [NIT] an update interrupted between the lift and the swap leaves app/ writable (decided, in the plan)
+- [NIT] the rollback floor is stated in prose in two places
+- [NIT] tools/test-update-locked-app-4455.sh is mode 644 (sh runs it; the folder is already mixed)
+
+#### Iteration 7 (after 655da4ee92, the Linux step added)
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs
+**Self-generated:** 1 (the CONVENTION's line was written by 655da4ee, this loop's own fix)
+- [WARNING] docs/staging-channel.md:190 / install/setup.sh:1426: the rollback floor is prose only --> DUPLICATE of #4 (third time raised; the plan names it the weakest premise and leaves the guard to the release lane)
+- [CONVENTION] .github/workflows/test-linux-setup-4920.yml:11: the comment said the CONTROL arm runs on Linux; it is in the Darwin-only block --> FIXED (d4f3da5d: the claim is removed; the comment says which block skips)
+- [NIT] on Ubuntu sh is dash, so NOISY there does not exercise the pipefail case
+- [NIT] Linux installs get no What's New line (the pool allows mac and windows only)
+
+#### Iteration 8 (after d4f3da5d6b)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 0 (not looked up)
+- [WARNING] release/whats-new-pool.json:453: Linux gets the lock but no What's New line --> DEFERRED: the pool's platforms are mac and windows only (engine/whatsnew.js:44); there is no Linux tag to add. The plan (line 254) records the Mac tag.
+- [WARNING] install/setup.sh:~1375: chattr +i on Linux not caught ahead of time --> DUPLICATE of iteration 5's deferral (plan line 75, setup.sh:1366)
+- [WARNING] install/setup.sh:~1431: false, no and empty count as on, silently --> DUPLICATE of round 4's point 1, decided in the plan (line 267) and on the follow-up list
+- [NIT] a failed find sample re-locks a previously writable app after a refusal (conservative, documented)
+- [NIT] the ORDER check hard-codes the rm -rf line's text
+**Converged**: no new actionable findings.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -92,6 +122,11 @@ All Origin values are BRANCH by the fail-safe: no blame lookups were run for thi
 | 10 | 3 | WARNING | tools/test-install.sh:1232 | BRANCH | macOS default not checked automatically | FIXED | 5677a00d |
 | 11 | 5 | WARNING | install/setup.sh:~1349 | BRANCH | Lift-then-check cannot see chattr +i or deny-delete ACLs | DEFERRED | Named in the plan (line 75) and at setup.sh:1366 |
 | 12 | 5 | WARNING | docs/staging-channel.md:190 | BRANCH | The rollback floor is documentation only | DUPLICATE of 4 | Doc floor in 5677a00d; enforcing it goes on the follow-up card |
+| 13 | 6 | WARNING | install/setup.sh:1381-1389 | BRANCH | The find walk's Linux arm was never run | FIXED | 655da4ee |
+| 14 | 7 | WARNING | docs/staging-channel.md:190 | BRANCH | Rollback floor prose only | DUPLICATE of 4 | Third time raised |
+| 15 | 7 | CONVENTION | .github/workflows/test-linux-setup-4920.yml:11 | SELF | Comment claimed the CONTROL arm runs on Linux | FIXED | d4f3da5d |
+| 16 | 8 | WARNING | release/whats-new-pool.json:453 | BRANCH | Linux gets no What's New line | DEFERRED | The pool has no Linux platform (engine/whatsnew.js:44) |
+| 17 | 8 | WARNING | install/setup.sh:~1431 | BRANCH | false, no, empty count as on | DUPLICATE | Round 4 point 1, in the plan and the follow-up list |
 
 ### A check that could not fail, found by running its control
 
