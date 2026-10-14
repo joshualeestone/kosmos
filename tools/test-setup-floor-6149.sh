@@ -12,6 +12,15 @@ trap 'rm -rf "$T"' EXIT
 fail=0
 pass() { printf 'PASS  %s\n' "$*"; }
 bad()  { printf 'FAIL  %s\n' "$*"; fail=1; }
+# A refusal must STOP at the floor: if the output reaches any later check, the floor only printed (a "|| true"
+# mutant would otherwise pass, since every refusal fixture also lacks what the next check needs).
+stopped_at_floor() {
+  case "$1" in
+    *"refusing to promote a missing artifact"*|*"missing manifest"*|*"does not exist - nothing to point at"*|*"does not verify against its sidecar"*|*"experience gate"*|*"agent-spawn gate"*|*"PROMOTED"*)
+      bad "$2: the script went past the floor (the floor printed but did not stop it)" ;;
+    *) pass "$2: the script stopped at the floor" ;;
+  esac
+}
 
 . "$HERE/lib/setup-floor.sh"
 for v in 0.7.45 0.7.49 0.7.100 0.8.0 1.0.0 0.7.45.1; do
@@ -69,6 +78,7 @@ before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "promote-channel refuses 0.7.44 (rc $rc)" || bad "promote-channel accepted 0.7.44"
 case "$out" in *"setup floor"*) pass "promote-channel's refusal is the floor's";; *) bad "promote-channel refused for another reason: $out";; esac
+stopped_at_floor "$out" "promote, 0.7.44 pointer"
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "nothing in dist/ changed (files and bytes)" || bad "dist/ changed"
 # CONTROL: 0.7.49 gets past the floor (it may stop later for its own reasons, never the floor's).
 site; printf '%s' '{"version":"0.7.49","sha256":"bb","artifact":"kosmos-0.7.49-arm64.tar.gz"}' > "$T/site/dist/latest-staging.json"
@@ -81,6 +91,7 @@ case "$out" in *"setup floor"*) bad "CONTROL: promote-channel's floor refused 0.
 site; printf '%s' "$dup" > "$T/site/dist/latest-staging.json"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 case "$out" in *"names version or artifact more than once"*) pass "promote refuses a staging pointer with doubled keys";; *) bad "promote and doubled keys: $out";; esac
+stopped_at_floor "$out" "promote, doubled keys"
 
 # promote-channel.sh: setup-staging, about to become /setup, must know the read-only app (checked before any write).
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
@@ -95,6 +106,7 @@ git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
 before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"; rc=$?
 case "$out" in *"setup-staging (about to become /setup) does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old setup-staging before it becomes /setup (rc $rc)";; *) bad "promote and an old setup-staging: $out";; esac
+stopped_at_floor "$out" "promote, old setup-staging"
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && [ ! -e "$T/site/setup" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 rm -rf "$T/site/.git"
 # ...and with no installer named, prod keeps its /setup beside the promoted pointer: an old one is refused too.
@@ -107,6 +119,7 @@ git -C "$T/site" add -A && git -C "$T/site" commit -q -m site
 before="$(cd "$T/site/dist" && ls -la && cat ./*)"
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
 case "$out" in *"the /setup prod keeps serving does not know KOSMOS_READONLY_APP"*) pass "promote refuses an old committed /setup that prod would keep beside the new pointer";; *) bad "promote and a kept old /setup: $out";; esac
+stopped_at_floor "$out" "promote, kept old /setup"
 [ "$(cd "$T/site/dist" && ls -la && cat ./*)" = "$before" ] && pass "that refusal wrote nothing" || bad "that refusal wrote something"
 printf 'x KOSMOS_READONLY_APP\n' > "$T/site/setup"   # a current installer in the working tree only, not committed
 out="$(bash "$HERE/promote-channel.sh" "$T/site" 2>&1)"
@@ -117,6 +130,7 @@ rm -rf "$T/site/.git"
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.44 2>&1)"; rc=$?
 [ "$rc" != 0 ] && pass "publish-staging refuses 0.7.44 (rc $rc)" || bad "publish-staging accepted 0.7.44"
 case "$out" in *"setup floor"*) pass "publish-staging's refusal is the floor's";; *) bad "publish-staging refused for another reason: $out";; esac
+stopped_at_floor "$out" "publish-staging, 0.7.44"
 [ ! -e "$T/site/dist/latest-staging.json" ] && pass "no staging pointer was written" || bad "a staging pointer was written"
 site; out="$(bash "$HERE/publish-staging-pointer.sh" "$T/site" 0.7.49 2>&1)"
 case "$out" in *"setup floor"*) bad "CONTROL: publish-staging's floor refused 0.7.49: $out";;
