@@ -15,11 +15,19 @@ converged: true
 **Iterations:** 4 (opus, sonnet, opus, sonnet)
 **Converged:** Yes, iteration 4 returned NO FINDINGS.
 
-- Iteration 1 (BLOCKER): the label keyed on `because`, which the PermissionRequest hook's report overwrites in
-  reconcile. Redesigned: `awaitingApproval` is read from the SCREEN (status.awaitingApprovalOf) before the report.
-- Iteration 2: an oa-sub change was a no-op and was reverted (other-account rows stay "Issue", decided in the plan).
-- Iteration 3: the recorded card fixture lacked the field; added, inventories updated.
-- Iteration 4: NO FINDINGS.
+### Iteration 1 (opus)
+- [BLOCKER] the label keyed on `because`, which the PermissionRequest hook's report overwrites in reconcile, so it
+  would have been a no-op for most agents. FIXED: `awaitingApproval` is read from the SCREEN
+  (status.awaitingApprovalOf) before the report.
+
+### Iteration 2 (sonnet)
+- [WARNING] an oa-sub change was a no-op. FIXED by reverting it (other-account rows stay "Issue", decided in the plan).
+
+### Iteration 3 (opus)
+- [WARNING] the recorded card fixture lacked the new field. FIXED: added, field inventories updated.
+
+### Iteration 4 (sonnet)
+NO FINDINGS.
 
 ## After convergence
 
