@@ -36,6 +36,11 @@ behave exactly as before.
   This was already true of every screen before this change.
 - Measured (2026-10-13, Playwright 1.x): WebKit with hasTouch reports (hover: none) and (pointer: coarse) like
   Chromium, so the WebKit tablet shots do exercise the rule.
+- Deferred (review round 6): a static guard listing every sideways touch context at 960px+ in the browser
+  checks. A scan sees only contexts declared on one line; this morning's misses were contexts resized later
+  (render-mobilenav-4823) and size lists in loops (render-dm-chatfirst-718), so such a guard would read as
+  coverage it does not give. The hand sweep (rounds 5 and 6) covered both shapes; a check added later that turns
+  a touch page sideways at 960px+ gets the one-screen view, which is the product's behaviour there.
 ## Done when
 Shots at ipadminiland and ipad11land show the one-screen view by default with the rail open; a browser check
 pins the default, the per-device toggle (board setting unchanged) and the controls (turned upright, a mouse at
