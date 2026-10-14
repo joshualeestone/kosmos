@@ -888,12 +888,18 @@ function close(projectId, n) {
   return setClosed(projectId, n, new Date().toISOString());
 }
 
-/** Reopen: the undo of the one human verb. */
-function reopen(projectId, n) {
-  return setClosed(projectId, n, null);
+/** Reopen: the undo of the one human verb. #6157: who put it back (`by`, an agent its token named; `person`, the
+ * screen) and why, recorded on the `reopened` line so the history says it. A reason over REOPEN_WHY_MAX is refused, never cut. */
+const REOPEN_WHY_MAX = 300;
+function reopen(projectId, n, { by = null, person = false, why = '' } = {}) {
+  const said = typeof why === 'string' ? why.replace(/\s+/g, ' ').trim() : '';
+  if (said.length > REOPEN_WHY_MAX) throw new Error(`keep the reason to ${REOPEN_WHY_MAX} characters or fewer`);
+  const isPerson = person === true;
+  const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
+  return setClosed(projectId, n, null, { ...(who ? { by: who } : {}), ...(isPerson ? { person: true } : {}), ...(said ? { why: said } : {}) });
 }
 
-function setClosed(projectId, n, closedAt) {
+function setClosed(projectId, n, closedAt, said = {}) {
   let changed;
   // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
   let transition = 0;
@@ -924,7 +930,7 @@ function setClosed(projectId, n, closedAt) {
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
+  if (transition) taskchat.record(projectId, changed.number, transition > 0 ? { kind: 'closed' } : { kind: 'reopened', ...said });   // #6157
   if (heldDropped) taskchat.record(projectId, changed.number, { kind: 'hold-cleared', via: 'close' });
   if (repeatDropped) taskchat.record(projectId, changed.number, { kind: 'repeat-cleared', via: 'close' });
   return changed;
@@ -2094,7 +2100,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
   return out.slice(0, 3);
 }
 
-module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
+module.exports = { create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, waitingOnPerson, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
