@@ -82,6 +82,11 @@ const CONFIRM_EVERY_MS = 60 * 1000;
    it), and it runs on the board's status path, where several agents can change turn every few
    seconds. A carry a few seconds old is as good as a fresh one. */
 const WRITE_EVERY_MS = 5000;
+/* #5949: a short held-and-back pair is written to an agent's log at most once in this long. A read that flaps (fail,
+   good, fail, good) would otherwise write two lines per flap and rotate the supervisor's own lines out of the log
+   people read to diagnose it; the flaps in between are counted and said with the next pair. Giving up (Can't tell)
+   is always written. */
+const QUIET_FLAPS_MS = 5 * 60 * 1000;
 
 /* target is `${session}:${window}.${pane}` (win32roster emits pane "0.0"); the session name is what is
    left after the LAST colon (a Kosmos agent name is a slug with no colon). One parser, both callers. */
@@ -314,6 +319,10 @@ function make(opts) {
      An agent never read well this run starts from its remembered state (see fileLastState), so a
      board that has just started shows that, marked, instead of "Can't tell" before its first look. */
   const memory = new Map();   // name -> { token, at, fails, cause, phase: 'ok' | 'held' | 'unknown', said, carried, sid: the session it was read in }
+  /* name -> { backAt, skipped }: when its last "back" line was written, and the flaps not written since (QUIET_FLAPS_MS).
+     Kept apart from `memory`, which a good read replaces; one small entry per agent ever held this run. */
+  const quiet = new Map();
+  const quietOf = (name) => { let q = quiet.get(name); if (!q) { q = { backAt: -Infinity, skipped: 0 }; quiet.set(name, q); } return q; };
   const runnerOf = new Map();   // name -> the runner its last listing recorded ('' for Claude)
   const PER_TURN = require('./win32codexlive').PER_TURN;
   function noteRead(snap) {
@@ -323,7 +332,12 @@ function make(opts) {
       for (const [name, token] of snap.byName) {
         if (GOOD.has(token)) {
           const m = memory.get(name);
-          if (m && m.said) say(name, 'status-read-back', 'Kosmos can check on it again, after ' + m.fails + ' failed ' + (m.fails === 1 ? 'look' : 'looks'));
+          if (m && m.said === 'held-quiet') {
+            quietOf(name).skipped += 1;   // a flap inside the quiet window: counted, not written
+          } else if (m && m.said) {
+            say(name, 'status-read-back', 'Kosmos can check on it again, after ' + m.fails + ' failed ' + (m.fails === 1 ? 'look' : 'looks'));
+            quietOf(name).backAt = t;
+          }
           memory.set(name, { token, at: t, fails: 0, cause: null, phase: 'ok', said: false, carried: false, sid: snap.sids.get(name) || null });
           good.set(name, token);
         } else {
@@ -390,8 +404,15 @@ function make(opts) {
       }
     } else if (m.phase === 'ok') {
       m.phase = 'held';
+      const q = quietOf(name);
+      if (Number.isFinite(q.backAt) && Number.isFinite(t) && t - q.backAt >= 0 && t - q.backAt < QUIET_FLAPS_MS) {
+        m.said = 'held-quiet';   // it was back only a moment ago: this flap is counted, and said with the next pair
+        return;
+      }
+      const flaps = q.skipped;
+      q.skipped = 0;
       m.said = 'held';
-      say(name, 'status-read-failed', 'Kosmos could not check on it just now' + (m.carried ? ' (Kosmos has just started; this is its state from before)' : '')
+      say(name, 'status-read-failed', (flaps > 0 ? '(it also failed and came back ' + flaps + (flaps === 1 ? ' time' : ' times') + ' since the last line) ' : '') + 'Kosmos could not check on it just now' + (m.carried ? ' (Kosmos has just started; this is its state from before)' : '')
         + ', so its card keeps its last known state (' + (m.token === win32streamstate.BUSY ? 'working' : 'idle') + '), marked as remembered: ' + cause);
     }
   }

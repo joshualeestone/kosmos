@@ -696,3 +696,24 @@ test('#5949 an agent relaunched in a new session mid-run is not held on its old 
   assert.equal(cap('ada:0.0'), null, 'the new session does not show the old one\'s working');
   assert.notEqual((cap.note('ada:0.0') || {}).held, true);
 });
+
+test('#5949 a read that flaps writes one held-and-back pair per quiet window, and counts the flaps between', () => {
+  const w = world();
+  w.look('ada:0.0');   // read well
+  const flap = () => {
+    w.answer = null; w.why = 'the status read timed out after 15 s'; w.look('ada:0.0', 2000);
+    w.answer = [live('sid-a', 'busy'), live('sid-b', 'idle')]; w.why = null; w.look('ada:0.0', 2000);
+  };
+  for (let i = 0; i < 5; i++) flap();
+  const mine = () => w.lines.filter((l) => l.name === 'ada');
+  assert.deepEqual(mine().map((l) => l.event), ['status-read-failed', 'status-read-back'], 'one pair for five flaps in a few seconds');
+  w.t += 5 * 60 * 1000;   // past the quiet window
+  flap();
+  const last = mine();
+  assert.equal(last.length, 4, 'the next flap after the quiet window is written');
+  assert.match(last[2].because, /^\(it also failed and came back 4 times since the last line\) /);
+  /* Giving up is always written, quiet window or not. */
+  w.answer = null;
+  for (let i = 0; i < 4; i++) w.look('ada:0.0', 6000);
+  assert.ok(mine().some((l) => l.event === 'cant-tell'), 'CONTROL: a failure that lasts is said');
+});

@@ -131,5 +131,10 @@ Likewise the Codex live sign-in probe (#2093) runs on an unknown screen only, so
   then logged as "a status Kosmos does not know"; before, it showed as unknown at once. A real new state (an
   input wait, say) would sit behind "remembered" for those seconds.
 
+## A flapping read does not flood the agent's log
+A held-and-back pair is written at most once per agent every 5 minutes (QUIET_FLAPS_MS); flaps inside that window are
+counted and said with the next pair. Otherwise a read that fails and recovers every few seconds would write two lines
+per flap and rotate the supervisor's own lines out of the 256 KB log. Giving up ("Can't tell") is always written.
+
 ## Not done
 A browser check: the change is a hover title and a CSS qualifier behind no click (Browser-check trailer).
