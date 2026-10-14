@@ -72,6 +72,9 @@ const hasGate = typeof page.orgPlaceGated === 'function';
 
 /* ORG_LINE_CLEAR is the 12px rule. It is module-scope since #4499 (orgPlaceGated reads it); read it from the page. */
 const LINE_CLEAR = Number((SCRIPT.match(/const\s+ORG_LINE_CLEAR\s*=\s*([\d.]+)\s*;/) || [])[1]);
+/* ORG_LINE_MARGIN is the extra px the floor adds beyond ORG_LINE_CLEAR, so a funded chart draws >= 12px at the
+   0.7 squeeze. Read from the page so the funded-reaches-margin assertion tracks the real value. */
+const MARGIN = Number((SCRIPT.match(/const\s+ORG_LINE_MARGIN\s*=\s*([\d.]+)\s*;/) || [])[1]);
 
 let TREE = 0;
 function cards(spec) {
@@ -212,25 +215,31 @@ test('NON-BUG IDENTICAL: a chart with no sub-12 first-ring line gets a layout id
   const nonBug = [
     ['lead+10', [['lead']].concat(Array.from({ length: 10 }, (_, i) => ['r' + i, 'lead']))],  // single root, always non-bug
     ['lead+3', [['lead'], ['a', 'lead'], ['b', 'lead'], ['c', 'lead']]],                      // single root, always non-bug
+    ['wide3', [['a'], ['b'], ['c'], ['a1', 'a'], ['b1', 'b'], ['c1', 'c']]],                  // 3 roots spread ~120deg: multi-root, non-bug
     ['rt(1,60,0.3)', randomTree(1, 60, 0.3)],
     ['deepHeavy(8,60)', deepHeavy(8, 60)],
   ];
-  let asserted = 0;
+  let asserted = 0; let multiAsserted = 0;
   for (const [label, spec] of nonBug) {
     const ag = cards(spec);
     const prop = page.orgPlace(page.orgTreeOf(ag), false);
     const gated = page.orgPlaceGated(page.orgTreeOf(ag));
     const clear = page.orgFirstRingClear(prop.placed);
+    let rootCount = 0; for (const s of prop.placed.values()) if (!s.node.parent) rootCount += 1;
     // Only assert identity for charts the gate leaves alone (no bug). If one of these clusters, skip it rather
     // than make a false claim -- the sweep test covers the funded ones.
     if (clear < LINE_CLEAR) continue;
     assert.equal(gated.funded, false, label + ' has no sub-12 first-ring line (clear ' + clear.toFixed(2) + ') yet the gate funded it');
     assert.ok(samePlacement(prop.placed, gated.placed), label + ': a chart with no bug must get the proportional (main) layout exactly, but a position differs');
     asserted += 1;
+    if (rootCount > 1) multiAsserted += 1;
   }
   // The two single-root fixtures (lead+10, lead+3) can never cluster, so at least two must have asserted; a lower
   // count means a fixture that should be non-bug clustered, or the skip swallowed more than the clustering ones.
   assert.ok(asserted >= 2, 'CONTROL: only ' + asserted + ' non-bug fixtures asserted identity; the two single-root fixtures alone should give 2, so the identical-to-main property is under-exercised');
+  // A single root is trivially identical (the gate early-outs); require a MULTI-root non-bug chart to assert too,
+  // so identity is exercised on a real first-ring layout, not only the degenerate case. wide3 is built to qualify.
+  assert.ok(multiAsserted >= 1, 'CONTROL: no multi-root non-bug fixture asserted identity (only single-root, which is trivially identical); the identical-to-main property is not exercised on a real first ring');
 });
 
 test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never disagrees with the full check (#4499 condition 1)', () => {
@@ -263,6 +272,12 @@ test('HONEST FUNDED + CLEARANCE NEVER WORSE BY FULL: the first-ring gate never d
       funded += 1;
       // honest funded: a funded chart has NO sub-12 line ANYWHERE (not just first ring)
       assert.ok(shipW >= LINE_CLEAR - 1e-6, label + ': FUNDED but the full check finds a line at ' + shipW.toFixed(2) + 'px, under ' + LINE_CLEAR + ' (dishonest funded decision)');
+      // AS-DRAWN: a funded chart reaches the floor's ~ORG_LINE_CLEAR+ORG_LINE_MARGIN (18px) first-ring target, so
+      // 12px holds AS DRAWN down to the ORG_SQUEEZE_MIN (0.7) floor (18 * 0.7 = 12.6 >= 12). The gate funds on
+      // natural floClear >= ORG_LINE_CLEAR (robust to floating point), but the water-fill construction delivers
+      // the full margin; this pins that the [ORG_LINE_CLEAR, ORG_LINE_CLEAR+ORG_LINE_MARGIN) band is empty.
+      const shipFC = page.orgFirstRingClear(gated.placed);
+      assert.ok(shipFC >= LINE_CLEAR + MARGIN - 0.1, label + ': FUNDED but first-ring floClear is ' + shipFC.toFixed(2) + 'px, under the floor target ' + (LINE_CLEAR + MARGIN) + ' (as-drawn 12px at the 0.7 squeeze would not hold)');
     }
   }
   assert.ok(checked >= 14, 'CONTROL: only ' + checked + ' charts swept, too few to exercise the shapes across the funded/fallback boundary');

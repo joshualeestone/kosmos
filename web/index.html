@@ -36365,7 +36365,7 @@ function orgPlace(nodes, floored) {
    shapes that no chart this gate funds has ANY sub-ORG_LINE_CLEAR line by the full scan. It is NOT a structural
    guarantee that deeper lines always clear: the sector layout's clear() step can fall back to a loose placement
    that enforces no line clearance, so a deeper sub-ORG_LINE_CLEAR line is possible in general, and the guard,
-   not the layout, is what rules it out for the funded set. */
+   not the layout, is what rules it out for the funded charts it sweeps. */
 function orgFirstRingClear(placed) {
   const roots = [];
   for (const s of placed.values()) if (!s.node.parent) roots.push({ x: Math.cos(s.ang) * s.r, y: Math.sin(s.ang) * s.r });
@@ -36386,10 +36386,10 @@ function orgFirstRingClear(placed) {
    measured, not estimated: lay the chart out both ways and keep the floored one only when it is size-safe. It is
    all-or-nothing per chart: a chart that cannot be cleared size-safely (two heavy roots, or many roots with one
    heavy root) keeps the proportional layout and its first-ring clearance is handled by #4499's size card. The
-   second layout runs only when a chart's first-ring measure actually trips the bug threshold (preClear below
-   ORG_LINE_CLEAR) and the chart has few enough roots to seat the floor, so a chart with no sub-ORG_LINE_CLEAR
-   first-ring line pays one layout pass, not two. A chart that trips the threshold but cannot be helped (a flat
-   fleet, whose floored layout equals its proportional one) does pay the second, diagnostic, pass. */
+   second layout runs only when a chart has few enough roots to seat the floor (checked first) AND its first-ring
+   measure trips the bug threshold (preClear below ORG_LINE_CLEAR), so a chart with no sub-ORG_LINE_CLEAR first-ring
+   line pays one layout pass, not two. A chart that trips the threshold but cannot be helped (a flat fleet, whose
+   floored layout equals its proportional one) does pay the second, diagnostic, pass. */
 function orgPlaceGated(nodes) {
   const pre = orgPlace(nodes, false);
   let roots = 0;
