@@ -1603,7 +1603,9 @@ const closeAll = (page) => page.evaluate(() => {
       if (FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
       return true;
     }, text, { timeout: ms }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: untilCopied ' + JSON.stringify(text)));
-    // #6105: the 2 s Copied revert has run (the timer is gone and both buttons say their own words), not a fixed 2.1 s.
+    /* #6105: no Copied is showing (the timer is gone and both buttons say their own words), not a fixed 2.1 s. Called
+       after a Copied it is the revert; before any Copied it returns at once, so a caller's own wait must have seen the
+       Copied first (press() says so when it did not). */
     const untilReverted = (page) => page.waitForFunction(() => !FEDINV_COPY_TIMER
       && document.getElementById('fedinv-copy').textContent === 'Copy'
       && document.getElementById('fedinv-copy-all').textContent === 'Copy the invitation', null, { timeout: 6000 })
@@ -1659,14 +1661,19 @@ const closeAll = (page) => page.evaluate(() => {
     st = await step(page);
     check('C1 control: the bare Copy writes only the code', st.copied.length === 1 && st.copied[0] === CODE, JSON.stringify(st.copied));
     await copyAll(page);
-    await untilStatus(page, { text: 'Invitation copied.' });   // #5373
-    st = await step(page);
+    /* #6105: the "Copied" state is read INSIDE the wait, the moment the line is up, so a saturated box cannot land the
+       read after the 2 s revert (this arm tests the revert below, so the revert is not frozen here). */
+    st = await page.waitForFunction(() => {
+      if (document.getElementById('fedinv-status').textContent !== 'Invitation copied.') return false;
+      return { copied: window.__copied.slice(), allText: document.getElementById('fedinv-copy-all').textContent,
+        copyText: document.getElementById('fedinv-copy').textContent, status: 'Invitation copied.' };
+    }, null, { timeout: 4000 }).then((h) => h.jsonValue()).catch(async () => { console.log('NOTE  a wait timed out and the arm read anyway: C1 Invitation copied.'); return step(page); });
     const c1 = st.copied[1];
     check('C1 Copy the invitation writes shot 04\'s text exactly, with the name and the address',
       st.copied.length === 2 && c1 === invitation('Maya Chen (' + ADDR + ')'), JSON.stringify(c1));
     check('C1 it says Copied, and the bare Copy is not left saying Copied', st.allText === 'Copied' && st.copyText === 'Copy' && st.status === 'Invitation copied.',
       JSON.stringify({ all: st.allText, copy: st.copyText, status: st.status }));
-    await page.waitForTimeout(2300);
+    await untilReverted(page);   // #6105: the revert by its state, not a fixed 2.3 s a late timer could outlast
     st = await step(page);
     check('C1 the button reverts to "Copy the invitation"', st.allText === 'Copy the invitation' && st.status === '', JSON.stringify({ all: st.allText, status: st.status }));
 
@@ -2048,13 +2055,20 @@ const closeAll = (page) => page.evaluate(() => {
       await p7.page.evaluate(() => {
         const el = document.getElementById('fedinv-status');
         window.__lines = [];
-        window.__lineObs = new MutationObserver(() => window.__lines.push(el.textContent));
+        // #6105 review 1: once the stale write's own Copied is said its revert is frozen too, so a line cleared after it
+        // is a real defect, not the 2 s revert.
+        window.__lineObs = new MutationObserver(() => {
+          window.__lines.push(el.textContent);
+          if (el.textContent === 'Invitation copied.' && FEDINV_COPY_TIMER) { clearTimeout(FEDINV_COPY_TIMER); FEDINV_COPY_TIMER = null; }
+        });
         window.__lineObs.observe(el, { childList: true, characterData: true, subtree: true });
       });
       await p7.page.evaluate(() => window.__holds[0]());   // then the stale one, same text
-      await p7.page.waitForFunction(() => window.__lines.some((t) => t !== ''), null, { timeout: 2000 }).catch(() => {});   // a second Copied, if it speaks
-      const same = await p7.page.evaluate(() => { window.__lineObs.disconnect(); const said = window.__lines.filter((t) => t !== '');
-        return { status: said.length ? said[said.length - 1] : document.getElementById('fedinv-status').textContent, lines: window.__lines }; });
+      await p7.page.waitForFunction(() => window.__lines.some((t) => t !== ''), null, { timeout: 4000 })
+        .catch(() => console.log('NOTE  a wait timed out and the arm read anyway: C7b, no line said after the stale write'));   // a second Copied, if it speaks
+      // The LAST line written stands (a line cleared after the Copied reds); with nothing written, the line as it is.
+      const same = await p7.page.evaluate(() => { window.__lineObs.disconnect();
+        return { status: window.__lines.length ? window.__lines[window.__lines.length - 1] : document.getElementById('fedinv-status').textContent, lines: window.__lines }; });
       check('C7b a stale write of the same text leaves the newer "Invitation copied." standing (control: C7 with the other button)',
         same.status === 'Invitation copied.' && !same.lines.some((t) => t.startsWith('An earlier copy finished late')), JSON.stringify(same));
       // C7c: the same button twice, BOTH refused (both held past the limit), then the stale write lands: it did copy
@@ -2143,7 +2157,7 @@ const closeAll = (page) => page.evaluate(() => {
         await page.waitForFunction((b) => {
           const s = document.getElementById('fedinv-status').textContent;
           return s !== '' && s !== b && !FEDINV_COPY_BUSY;
-        }, before, { timeout: 3000 }).catch(() => {});
+        }, before, { timeout: 3000 }).catch(() => console.log('NOTE  a wait timed out and the arm read anyway: C9 press'));
         return (await step(page)).status;
       };
       const run = async (between) => {
