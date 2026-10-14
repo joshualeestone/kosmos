@@ -496,3 +496,16 @@ test('#6174 the session is found through the pane roster as remove.js does: the 
     assert.ok(!asked.includes('rs-untied'), 'a session not tied to the agent was read');
   } finally { fleet.restore(); }
 });
+
+test('#6174 the account route reads the account it moves FROM before it writes the new one, and hands that to the restart', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
+  const start = src.indexOf("const acctRoute = pathname.match(");
+  assert.ok(start > 0, 'the account route was not found');
+  const route = src.slice(start, src.indexOf('\n  }\n', start));
+  const from = route.indexOf('const fromDir = moveFromDir(name)');
+  const write = route.indexOf('create.setAccount(name');
+  assert.ok(from > 0 && write > 0, 'the from-read or the account write was not found in the route');
+  // Read after the write, `from` would be the new account and the mark would hide on exactly its own row.
+  assert.ok(from < write, 'the account moved from is read after the new one is written');
+  assert.match(route, /restartForMove\(name, fromDir\b/, 'the restart is not given the account read before the move');
+});

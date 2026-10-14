@@ -14,7 +14,10 @@
  * Limits (unmeasured on a real partial move): the mark reads the tmux SESSION, not the process, so a process that
  * restarted inside the same session onto the new account would stay marked until the session changes (the one way it
  * could over-mark); and tmux keeps the session start in whole seconds, so a session recreated within the same second
- * reads as the same one.
+ * reads as the same one. `from` is the account the launch file named before the move, not one read from the process:
+ * after an earlier partial move whose session has since changed, the two can differ, and a move back can then mark an
+ * agent that already runs on the row's account (needs two partial moves in a row). The page asks the person to restart
+ * the agent, since a Kosmos restart reloads the launch job; a restart the old job makes by itself does not.
  *
  * { name: { started, from } } in one small file, atomic tmp + rename; an unreadable or odd file reads as empty.
  */
