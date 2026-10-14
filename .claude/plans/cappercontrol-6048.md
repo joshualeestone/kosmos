@@ -20,7 +20,10 @@ Card: kosmos#6048 (CI job 115702676926, PR #6135). Test-only: tools/test-queued-
 - side5331 appends to <marker>.why: each attempt and its wrapper pid, why an attempt never started (no side turn, an
   empty capper look, a STOP that did not show and the stat it showed), the capper's stat just before the reap, and how
   reap decided with the exit status.
-- The CONTROL's BAD prints that record, whether the teardown said "claim released", and the control's WHOLE log.
+- The CONTROL's BAD prints the control's log, whether the teardown said "claim released", and that record, LAST
+  (review 2: ok() printed only the last 6 lines of $o; it now takes OTAIL, 200 for this arm and reset after). The
+  exited branch records the raw ps stat (an empty answer reads as exited too), and an exit status of 127 says it was not
+  this shell's child.
 
 ## Decided, not missed
 - No behaviour of the arms changes; this is diagnosis, and the card stays open to catch the next recurrence with its

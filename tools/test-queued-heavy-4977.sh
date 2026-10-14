@@ -65,7 +65,7 @@ export KOSMOS_RUN_MARKER_DIR=$S/m QUEUED_HEAVY_LIB=$ROOT KOSMOS_CUT_PROBE=$S/qui
 oks=0; bads=0
 sleep $((U+9)) & H=$!; NOW=$(date +%s)   # the fake heavy holder: lives as long as this test (review 1: was a 15-min fuse)
 hold() { printf '%s-%s-1 %s %s host queued run (not a cut): fake heavy\n' $H $((NOW-300)) $H $((NOW+1800)) > $S/m/machine-claim; }
-ok() { if eval "$2"; then echo "OK   $1"; oks=$((oks+1)); else echo "BAD  $1"; bads=$((bads+1)); printf '%s\n' "${o:-}" | tail -6 | sed 's/^/      | /'; fi; }
+ok() { if eval "$2"; then echo "OK   $1"; oks=$((oks+1)); else echo "BAD  $1"; bads=$((bads+1)); printf '%s\n' "${o:-}" | tail -"${OTAIL:-6}" | sed 's/^/      | /'; fi; }   # OTAIL: kosmos#6048, a longer tail for one arm
 # until_true <seconds> <condition>: poll instead of a fixed sleep (review 1); returns 1 at the deadline.
 until_true() { local end=$(( $(date +%s) + $1 )); while ! eval "$2"; do [ "$(date +%s)" -ge "$end" ] && return 1; sleep 0.3; done; return 0; }
 gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
@@ -74,7 +74,7 @@ gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
 # kosmos#6048: REAP_HOW says which way it decided (notours: ps did not name this shell as the parent, which an empty ps
 # answer also reads as; exited; killed) and REAP_RC the wrapper's exit status where wait got one, so a red can say.
 # The notours branch does not wait: the wrapper may still be ours and running, and that wait would have no bound.
-reap() { local p=$1 i=0 pp; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ "$pp" = "$$" ] || { REAP_HOW="notours(ppid='$pp')"; return 0; }; case "$(ps -o stat= -p "$p" 2>/dev/null)" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW=exited; return 0;; esac; sleep 0.25; i=$((i+1)); done; ours "$p" && kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW=killed; return 1; }
+reap() { local p=$1 i=0 pp st; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ "$pp" = "$$" ] || { REAP_HOW="notours(ppid='$pp')"; return 0; }; st="$(ps -o stat= -p "$p" 2>/dev/null | tr -d ' ')"; case "$st" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="exited(stat='$st')"; return 0;; esac; sleep 0.25; i=$((i+1)); done; ours "$p" && kill -KILL "$p" 2>/dev/null; wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW=killed; return 1; }
 hold
 o=$(/bin/bash $QH --light "a" sh -c 'cut -d" " -f4- $KOSMOS_RUN_MARKER_DIR/light-side-claim' 2>&1)
 o2=$(cd /tmp && QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB KOSMOS_RUN_MARKER_DIR=$S/mlab /bin/bash $QH "lab" sh -c 'cat $KOSMOS_RUN_MARKER_DIR/machine-claim; echo "CL=${KOSMOS_CLAIM_LABEL:-unset}"' 2>&1)
@@ -499,7 +499,7 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
   echo "capper $cap stat $(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' ') before the reap" >> "$m.why"   # kosmos#6048
   kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
-  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}" >> "$m.why"
+  echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)')" >> "$m.why"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
   echo $r > "$m.r"
@@ -522,9 +522,10 @@ ok "#5331: a capper that is not a group leader and is stopped is KILLed by pid, 
 # kosmos#6048: on a BAD the control's whole log and its record (attempts, the capper's state, how reap decided, the wrapper's
 # exit status) are printed, and whether the teardown said "claim released": a 0 without that line is a wrapper that died
 # (or a reap that misread it), not the old teardown releasing.
-o="$(cat $S/m5331c.why 2>/dev/null; echo "teardown said claim released: $(grep -q 'claim released' $S/m5331c.log 2>/dev/null && echo yes || echo no)"; cat $S/m5331c.log 2>/dev/null)"
+o="$(cat $S/m5331c.log 2>/dev/null; echo "teardown said claim released: $(grep -q 'claim released' $S/m5331c.log 2>/dev/null && echo yes || echo no)"; cat $S/m5331c.why 2>/dev/null)"
+OTAIL=200   # review 2 of #6048: ok() prints only the last 6 lines otherwise; the record is last, so a cut drops log lines first
 ok "#5331 CONTROL: with the old teardown the same capper holds it (the arm above is not vacuous) (got $c5331: 0 reaped, 1 hung, 2 never started)" '[ "$c5331" = 1 ] && grep -q "SIDE TURN: running" $S/m5331c.log'
-o=""   # kosmos#5839 review 1: a later arm's BAD must not print this control's log
+o=""; OTAIL=""   # kosmos#5839 review 1: a later arm's BAD must not print this control's log (nor take its long tail)
 # #5467: a WAITING run must not carry its wrapped command in its own command line (a `pgrep -f browser-checks.sh` in a
 # release read a waiter as a running check and waited on it while the waiter waited on the release, 0.7.27). The real
 # run, once its turn comes, IS matched. The control runs a copy without the re-exec: there the waiter is matched, so the
