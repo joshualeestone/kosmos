@@ -28,7 +28,11 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 - Not touched: the S arms' 2.2 s "past the create screen's 2 s revert" sleeps (a different screen, not named failing);
   noted on the card as the same class.
 
-## Proof
-- The check alone (KOSMOS_BC_CI_ALLOWLIST=render-federation-invite-4649) at this head.
-- Load stand-in: the page's two 30 ms say-delays stretched to 400 ms. The new check passes; the OLD check reds under
-  the same stretch (control).
+## Proof (measured 2026-10-13)
+- The check alone (KOSMOS_BC_CI_ALLOWLIST=render-federation-invite-4649) at 0215b69c8: PASS, no retry.
+- Load stand-in: the page's two 30 ms say-delays stretched to 400 ms, COMMITTED in throwaway detached worktrees (never
+  pushed, removed after), because tools/browser-checks.sh freezes the last commit and an uncommitted swap never runs
+  (a first attempt with uncommitted swaps proved nothing and was discarded).
+  - new check (bd769eced): PASS on C6, C7b and C9.
+  - old check (4ab79713a, the merge base): FAIL twice (with its retry) on C6 (`"bare":["","Copy"]`) and C7b
+    (`{"status":""}`), the exact readings the card recorded from the saturated Mortals run. C9 passed there.
