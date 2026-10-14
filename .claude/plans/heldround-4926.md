@@ -19,7 +19,8 @@ then, so they are taken with it and are not held afterwards.
 ## Weakest premise, and the residuals review 1 found
 That the member saw the older posts when it saw X. The window is the most a DEFAULT read showing X can show. Not
 covered, so an older unseen post can still be dropped:
-- a read with a small -n, or a read made after many later rows (it showed X and fewer rows before it);
+- a read with a small -n (rows after X and before the member's first reply to X are taken off the window, so a
+  default read made after later rows is covered);
 - two sends interleaving (the window itself follows the read's order by `at`, so a late-appended row is counted
   where the read shows it). A post restored after its typing failed and then held again is the same shape: Y's send starts first (earlier `at`), X reaches the member first and takes the held list,
   then Y is held. Milliseconds wide.

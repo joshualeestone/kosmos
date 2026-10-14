@@ -229,6 +229,16 @@ test('#4926 N7: one reply to the round\'s newest post (m1032) answers the 8 olde
   assert.ok(!messages.staleHeld('p1', ['m1024'], lateLog, NOW, 'mark').has('m1024'), 'the window was counted in log order');
   // A post at the same instant as the answered one is not before it.
   assert.ok(!messages.staleHeld('p1', ['m1031'], [{ ...post('m1031', 32) }, post('m1032', 32), answer], NOW, 'mark').has('m1031'), 'a post at the same instant was covered');
+  // Rows after the answered post and before the reply narrow the window (a read before the reply showed them instead);
+  // a row after the reply does not.
+  const between = post('m1036', 20);
+  const after = post('m1037', 5);
+  const base = [post('m1024', 40), ...filler.slice(1), post('m1032', 32)];
+  assert.ok(!messages.staleHeld('p1', ['m1024'], [...base, between, answer], NOW, 'mark').has('m1024'), 'a row between the answered post and the reply did not narrow the window');
+  assert.ok(messages.staleHeld('p1', ['m1024'], [...base, answer, after], NOW, 'mark').has('m1024'), 'control: a row after the reply narrowed the window');
+  // A held post whose time does not parse does not switch the rule off for the others.
+  assert.ok(messages.staleHeld('p1', ['m1028', 'm1050'], [...round, { ...post('m1050', 31), at: 'not a time' }, answer], NOW, 'mark').has('m1028'),
+    'an unreadable held post switched N7 off');
   // Rows the room read does not show (a reaction) do not use up the window.
   const unseen = filler.map(() => ({ kind: 'reaction', project: 'p1', from: 'ann', at: ago(35) }));
   assert.ok(messages.staleHeld('p1', ['m1024'], [post('m1024', 40), ...unseen, post('m1032', 32), answer], NOW, 'mark').has('m1024'),
