@@ -170,6 +170,18 @@ test('a private home passed with `since` counts only reports written since then 
   assert.equal(codexlimits.read([{ home: priv, since: null }], NOW).windows[0].usedPct, 88, 'an unknown time is not filtered');
 });
 
+test('a moved agent\'s many pre-move files do not take the slots of the account\'s own report', () => {
+  const acct = home(), priv = home();
+  const mine = writeRollout(acct, '14', '08-00-00', [tokenRow('2026-10-14T08:30:00Z', rl(win(37, 10080, NOW + 864e5), null))]);
+  touch(mine, Date.parse('2026-10-14T08:30:00Z'));
+  const movedAt = Date.parse('2026-10-14T11:00:00Z');
+  for (let i = 0; i < 7; i++) {   // more than FILES_MAX, all written (and reporting) before the move, after the account's own file
+    const f = writeRollout(priv, '14', '10-' + String(i).padStart(2, '0') + '-00', [tokenRow('2026-10-14T10:30:00Z', rl(win(90, 10080, NOW + 864e5), null))]);
+    touch(f, Date.parse('2026-10-14T10:30:00Z') + i * 1000);
+  }
+  assert.equal(codexlimits.read([acct, { home: priv, since: movedAt }], NOW).windows[0].usedPct, 37);
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB

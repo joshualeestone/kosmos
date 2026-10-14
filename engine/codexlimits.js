@@ -72,7 +72,9 @@ function numbered(dir) {
  *  at most FILES_MAX in total. */
 function recentFiles(homes) {
   const files = [];
-  for (const h of homes) for (const f of filesIn(h.home)) files.push({ ...f, since: h.since });
+  // A file last written before its home's `since` cannot hold a report from after it: dropped before ranking, so old
+  // sessions of a moved agent never take the slots of the report that counts.
+  for (const h of homes) for (const f of filesIn(h.home)) if (f.m >= h.since) files.push({ ...f, since: h.since });
   return files.sort((a, b) => b.m - a.m).slice(0, FILES_MAX);
 }
 function filesIn(home) {

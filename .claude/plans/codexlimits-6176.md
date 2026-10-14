@@ -50,12 +50,14 @@ the default account). My first version read only the account folder and would ne
   own sign-in reads that way today: its last report, from Oct 7, reset this morning).
 - `render-accounts-openai.js` needs the runner's seeded board (sb4); run alone against an unseeded board it stops in
   the Add a provider flow, before any OpenAI row exists. It is measured in the full validation, on its own board.
-
 - Agents move between accounts (#2338) but keep one private home, so a private home's reports count only when written
   after the agent's job file last changed (a move rewrites it). Where the job file's time cannot be read (no plist or
   systemd unit, e.g. Windows), the home is not filtered: that keeps the reading, without the move protection.
   Any other rewrite of the job (a rename, a model change) also hides that agent's earlier reports until Codex reports
   again: a missing meter for a while, never a wrong figure.
+- The six files read are shared by all of an account's homes (its folder and every agent's private one). With several
+  busy agents writing sessions that carry no report, an older report in a seventh file is not seen: a missing or older
+  meter, with its age shown, never a wrong one.
 
 ## Weakest premise
 That `rate_limits` keeps this shape across Codex versions. A changed shape reads as no reading (validated, never a

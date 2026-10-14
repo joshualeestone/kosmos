@@ -11192,8 +11192,8 @@ const server = http.createServer(async (req, res) => {
           const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
           /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its session files, in the
-             account's folder or its agents' private ones (engine/codexlimits.js), or null: none reported yet, or every window it reported is over. An API key has no
-             plan limits, so its row carries none. */
+             account's folder or its agents' private ones (engine/codexlimits.js), or null: none reported yet, or every
+             window it reported is over. An API key has no plan limits, so its row carries none. */
           let limits = null;
           if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(codexHomes(a), nowMs); } catch { limits = null; } }
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
