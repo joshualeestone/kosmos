@@ -67,16 +67,17 @@ async function withPrompt(screen, fn) {
   try { return await fn(calls); } finally { chat.resetForTests(); board.restore(); }
 }
 
-test('#6054 status: the real permission prompts read as answerable menus: Yes and No, at their own numbers', () => {
+test('#6054 status: the real permission prompts read as answerable menus: every option at its own number, the lasting ones marked', () => {
   const b = status.claudeAnswerableMenu(BASH);
   assert.ok(b && b.permission, 'the Bash prompt is not answerable');
-  assert.deepEqual(b.options, [{ n: 1, label: 'Yes' }, { n: 4, label: 'No' }]);
+  assert.deepEqual(b.options.map((o) => [o.n, o.lasting === true]), [[1, false], [2, true], [3, true], [4, false]]);
+  assert.equal(b.options[3].label, 'No');
   assert.equal(b.count, 4, 'premise: the prompt draws four options');
   const e = status.claudeAnswerableMenu(EDIT);
   assert.equal(e.question, 'Do you want to create edit-probe.txt?');
-  assert.deepEqual(e.options, [{ n: 1, label: 'Yes' }, { n: 3, label: 'No' }]);
-  // Review 5: the options that save a lasting choice (an allow rule, auto mode, accept edits) are never answerable.
-  for (const m of [b, e]) assert.ok(!m.options.some((o) => /^Yes, and /.test(o.label)), JSON.stringify(m.options));
+  assert.deepEqual(e.options.map((o) => [o.n, o.lasting === true]), [[1, false], [2, true], [3, false]]);
+  // #6172: the options that save a lasting choice (an allow rule, auto mode, accept edits) are served, and every one is marked.
+  for (const m of [b, e]) for (const o of m.options) assert.equal(o.lasting === true, /^Yes, and /.test(o.label), JSON.stringify(o));
   // CONTROL: the question menu's own reader still refuses it (it is not that menu), so the answer comes from the new reader.
   assert.equal(status.claudeQuestionMenu(BASH), null);
 });
@@ -97,7 +98,7 @@ test('#6054: the thread serves the prompt\'s options as pressable, and a press o
   await withPrompt(EDIT, async (calls) => {
     const back = await getThread();
     assert.equal(back.asking, true, 'premise: the agent reads as asking');
-    assert.deepEqual(back.options.map((o) => o.n), [1, 3], JSON.stringify(back.options));
+    assert.deepEqual(back.options.map((o) => o.n), [1, 2, 3], JSON.stringify(back.options));
     assert.ok(back.asked, 'no asked: the page would draw no buttons for the prompt');
     const r = await post({ text: '1', chose: 'Yes', asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -187,11 +188,13 @@ test('#6054 review 1: a wrapped option still gets its button, with its whole lab
   // Both a lasting option (2) and the No option (4) wrap; No is the button, with its whole label.
   const wrapped = BASH.replace('   2. Yes, and don’t ask again for: /usr/bin/uuidgen *', '   2. Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag\n      --and-more *')
     .replace('   4. No', '   4. No, and tell Claude what to do\n      differently (esc)');
-  assert.deepEqual(status.claudePermissionPrompt(wrapped).options, [{ n: 1, label: 'Yes' }, { n: 4, label: 'No, and tell Claude what to do differently (esc)' }]);
+  const read = status.claudePermissionPrompt(wrapped).options;
+  assert.equal(read.find((o) => o.n === 2).label, 'Yes, and don’t ask again for: /usr/bin/uuidgen --a-very-long-flag --and-more *');
+  assert.deepEqual(read.find((o) => o.n === 4), { n: 4, label: 'No, and tell Claude what to do differently (esc)' });
   await withPrompt(wrapped, async (calls) => {
     const back = await getThread();
     assert.ok(back.asked, 'wrapped options left the prompt without buttons');
-    assert.deepEqual(back.options.map((o) => o.n), [1, 4]);
+    assert.deepEqual(back.options.map((o) => o.n), [1, 2, 3, 4]);
     const no = back.options.find((o) => o.n === 4);
     const r = await post({ text: '4', chose: no.label, asked: back.asked });
     assert.equal(r.status, 200, JSON.stringify(r.json));
@@ -376,4 +379,57 @@ test('#6054 review 5: the question menu\'s refusal says buttons only for the sin
   };
   assert.match(await refusalOn(SINGLE), /answer it with the buttons under its question on its page in Kosmos, or by its number in its direct messages$/);
   assert.match(await refusalOn(MULTI), /answer the question in its window first$/, 'the multi-select form (no buttons) was promised buttons');
+});
+
+/* #6172 (a person, via Josh 2026-10-14): the card's own prompt, "2. Yes, and don't ask again for: cd *", from the 2.1.296
+   Bash capture with the command and the rule changed to the ones in the screenshot. */
+const CD = BASH.replace(/\/usr\/bin\/uuidgen \*/, 'cd *').replace(' /usr/bin/uuidgen\n', ' cd /tmp\n');
+
+test('#6172: the "don\'t ask again" option is served as its own button, with the prompt\'s own words, marked lasting', async () => {
+  assert.ok(CD.includes('2. Yes, and don’t ask again for: cd *'), 'fixture: the card\'s option is not on the screen');
+  await withPrompt(CD, async () => {
+    const back = await getThread();
+    assert.ok(back.asked, 'the prompt got no buttons');
+    const two = back.options.find((o) => o.n === 2);
+    assert.deepEqual(two, { n: 2, label: 'Yes, and don’t ask again for: cd *', lasting: true });
+    assert.equal(back.options.find((o) => o.n === 1).lasting, undefined, 'Yes was marked lasting');
+  });
+});
+
+test('#6172: a lasting option sent without the second press is refused and no key goes; with it, its own digit goes', async () => {
+  await withPrompt(CD, async (calls) => {
+    const back = await getThread();
+    const two = back.options.find((o) => o.n === 2);
+    const r = await post({ text: '2', chose: two.label, asked: back.asked });
+    assert.equal(r.status, 409, JSON.stringify(r.json));
+    assert.match(JSON.stringify(r.json), /needs a second press to confirm; nothing was sent/);
+    assert.deepEqual(calls.keys(), [], 'a one-tap press saved an allow rule');
+    // The same press with the page's confirmation goes out as the bare 2, which is what saves Claude Code's rule.
+    const ok = await post({ text: '2', chose: two.label, asked: back.asked, lasting: true });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.deepEqual(calls.keys(), ['2']);
+  });
+});
+
+test('#6172 CONTROL: Yes and No need no second press (lasting is not demanded of every option)', async () => {
+  await withPrompt(CD, async (calls) => {
+    const back = await getThread();
+    const r = await post({ text: '4', chose: 'No', asked: back.asked });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(calls.keys(), ['4']);
+  });
+});
+
+test('#6172: the page arms a lasting choice on its first press and sends it, with lasting, only on the second', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const at = src.indexOf('async function dmChoicePress(btn)');
+  assert.notEqual(at, -1, 'dmChoicePress not found');
+  const fn = src.slice(at, src.indexOf('\n}\n', at));
+  const arm = fn.indexOf("if (opt.lasting === true && !dmChoiceArmed(c, opt.n))");
+  const send = fn.indexOf('await fetch(');
+  assert.ok(arm > 0 && send > arm, 'the arming check is not before the send');
+  assert.match(fn.slice(arm, send), /DM_CHOICE_ARMED = \{ session: c\.session, asked: c\.asked, gen: c\.gen, n: opt\.n, at: Date\.now\(\) \};[\s\S]*?return;/, 'the first press does not stop at arming');
+  assert.match(fn.slice(send), /\.\.\.\(lasting \? \{ lasting: true \} : \{\}\)/, 'the second press does not carry lasting');
+  // The armed state is drawn from DM_CHOICE_ARMED, so a repaint between the presses keeps it.
+  assert.match(src, /class="dmchoice' \+ \(o\.n === armedN \? ' armed' : ''\)/);
 });

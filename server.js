@@ -17606,6 +17606,13 @@ const server = http.createServer(async (req, res) => {
               const e = new Error('that is not one of the numbers on the menu its screen shows now, so we did not send it. Its current question is on this page.');
               e.status = 409; throw e;
             }
+            /* #6172: an option that saves a lasting choice ("Yes, and don't ask again for ...", auto mode, accept edits) goes
+               only with the page's second press (`lasting: true`), so one mis-tap cannot change what the agent may do from
+               now on. Refused before any key, so nothing was answered. */
+            if (opt && opt.lasting && body.lasting !== true) {
+              const e = new Error('that choice changes what this agent may do from now on, so it needs a second press to confirm; nothing was sent');
+              e.status = 409; throw e;
+            }
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }

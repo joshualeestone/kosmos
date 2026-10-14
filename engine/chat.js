@@ -2677,7 +2677,7 @@ function optionsIn(questionText) {
   { const cq = status.claudeQuestionMenu(whole); if (cq) return cq.options.map((o) => ({ n: o.n, label: o.label })); }
   /* #6054: Claude Code's permission prompt, by its own reader too, so the buttons the page draws are the options the key
      path answers (a wrapped label is one whole option here, where the line rule below would refuse the menu). */
-  { const pp = status.claudePermissionPrompt(whole); if (pp) return pp.options.map((o) => ({ n: o.n, label: o.label })); }
+  { const pp = status.claudePermissionPrompt(whole); if (pp) return pp.options.map((o) => ({ n: o.n, label: o.label, ...(o.lasting ? { lasting: true } : {}) })); }   // #6172: lasting ones too
   const found = [];
   let marked = false;
   const lines = whole.split('\n');

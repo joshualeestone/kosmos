@@ -2553,7 +2553,7 @@ function claudePermissionPromptKind(text) {
    over "Esc to cancel · Tab to amend". A bare digit answers at once: 1 approved the write, 3 rejected it ("User
    rejected write to ...") and the agent went back to its prompt. Only the `wording` kind (claudePermissionPromptKind):
    a highlighted option in other wording may be one of Claude Code's own pickers, which is not pressed on a guess.
-   Returns { at, question, options: [{ n, label }], count, permission: true } or null. Refused (null): no footer within
+   Returns { at, question, options: [{ n, label, lasting? }], count, permission: true } or null. Refused (null): no footer within
    the last three non-blank lines, numbering that is not 1..count in order, not exactly one highlighted option, fewer than
    2 or more than 9 options (every answer is ONE key), or a control character in a label. A label wrapped onto
    indented next lines is joined into one whole option (the page shows and the key path checks the whole label). */
@@ -2596,13 +2596,13 @@ function claudePermissionPrompt(text) {
   if (wrap.length) return null;   // indented text directly under the question, above the first option
   if (q < 0 || opts.length < 2 || opts.length > 9 || selected !== 1) return null;
   if (opts.some((o, k) => o.n !== k + 1)) return null;
-  /* Review 5 (decided, reversible): only the options that decide THIS request are answerable, "Yes" and the "No" one.
-     The others ("Yes, and don't ask again for ...", "Yes, and switch to auto mode", "Yes, and switch to accept edits")
-     save a lasting choice in the agent's settings or session, and the rule for those is #5051's: never a one-tap button,
-     so a mis-tap on a phone cannot change what the agent may do from now on. They stay on screen in the question text. */
-  const answerable = opts.filter((o) => o.label === 'Yes' || /^No\b/.test(o.label));
-  if (answerable.length !== 2 || answerable[0].label !== 'Yes') return null;
-  return { at: q, question: lines[q].trim(), options: answerable, count: opts.length, permission: true };
+  /* #6172 (a person, via Josh 10-14): every option the prompt lists is answerable, so "Yes, and don't ask again for ..."
+     can be chosen from the page. The ones other than "Yes" and the "No" one save a lasting choice in the agent's settings
+     or session (an allow rule, auto mode, accept edits), so they are marked `lasting`: the page asks once more before it
+     sends one, and the POST refuses one sent without that confirmation (#6054 review 5's mis-tap guard, kept). */
+  if (opts[0].label !== 'Yes' || opts.filter((o) => /^No\b/.test(o.label)).length !== 1) return null;
+  const options = opts.map((o) => (o.label === 'Yes' || /^No\b/.test(o.label) ? o : { ...o, lasting: true }));
+  return { at: q, question: lines[q].trim(), options, count: opts.length, permission: true };
 }
 /* #6054: a menu the agent page may answer by key: the question menu, or a permission prompt. Only for answering by a
    pressed number. Closing with Escape stays the question menu's alone: on a permission prompt Escape means No. */
