@@ -1114,13 +1114,15 @@ function staleHeld(projectId, ids, log, now, member) {
        shows, in the order it shows them (server.js). Outside rows count as full slots, which the read's outside cap
        only makes smaller. */
     const covered = new Set();
+    const firstReply = new Map();
     if (answered.size && rows.some((r) => r && r.kind === 'post' && r.project === projectId && want.has(r.id))) {
-      const firstReply = new Map();
       for (const r of rows) {
         if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member || !answered.has(r.replyTo)) continue;
         const v = Date.parse(r.at);
         if (Number.isFinite(v) && (!firstReply.has(r.replyTo) || v < firstReply.get(r.replyTo))) firstReply.set(r.replyTo, v);
       }
+    }
+    if (firstReply.size) {
       const kinds = new Set(ROOM_READ_KINDS);
       const room = rows.filter((r) => r && r.project === projectId && kinds.has(r.kind))
         .sort((a, b) => String(a.at || '').localeCompare(String(b.at || '')));   // the read's own order (server.js)
