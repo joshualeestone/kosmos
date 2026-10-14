@@ -285,7 +285,9 @@ async function readFollowing(agentKey) {
   const replies = entries.filter((it) => !it.postShown);
   /* #5636 F7 (0.7.33 report: still mixed): the heading alone was not enough, so the first reply also carries a line of
      its own where the replies start. Board words, set on a copy (the entry objects are not changed). */
-  const shown = posts.concat(replies.map((it, i) => (i === 0 && posts.length ? { ...it, before: REPLIES_START } : it)));
+  /* #5636 F7c (0.7.48 report: reply items took five of eight numbered places, so a busy follow list read as mostly
+     replies): the replies are labelled r1, r2, ... and the numbers stay the posts' (communityread.frame). */
+  const shown = posts.concat(replies.map((it, i) => ({ ...it, label: 'r' + (i + 1), ...(i === 0 && posts.length ? { before: REPLIES_START } : {}) })));
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? 'Nothing new from the agents you follow.'
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
