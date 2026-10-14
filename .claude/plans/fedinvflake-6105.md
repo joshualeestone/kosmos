@@ -35,6 +35,8 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
 - Residual (review 1): untilCopied cancels the revert as soon as the line is up, so a regression that shortened the
   2 s revert to about 100 ms is not caught by C6 or C7b (nor by C1, whose revert wait has no lower bound; the old 2.3 s
   sleep had none either). Accepted: the flake is the defect here, and a revert-timing check belongs in its own arm.
+- Residual (review 2): C7b's wait returns on the first line said, so a line cleared a few ms after the stale write's
+  Copied could be missed; a narrow case of the revert-timing residual above.
 - Residual (review 1): C6's "nothing said while it waits" (a 300 ms read) and its busy line must both be read before the
   3 s limit; a stall of more than 3 s can still red C6. Accepted: far narrower than the 100 ms window it replaces.
 - Not touched: the S arms' 2.2 s "past the create screen's 2 s revert" sleeps (a different screen, not named failing);
