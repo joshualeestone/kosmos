@@ -41,6 +41,9 @@ behave exactly as before.
   (render-mobilenav-4823) and size lists in loops (render-dm-chatfirst-718), so such a guard would read as
   coverage it does not give. The hand sweep (rounds 5 and 6) covered both shapes; a check added later that turns
   a touch page sideways at 960px+ gets the one-screen view, which is the product's behaviour there.
+- Known limit (review round 10): the layout is applied when /api/style answers, so a sideways tablet paints the
+  tabbed board for a moment before one screen, as every screen does with the board's setting today. Applying the
+  tablet's own choice before that read would change the boot order for every screen; not done here.
 ## Done when
 Shots at ipadminiland and ipad11land show the one-screen view by default with the rail open; a browser check
 pins the default, the per-device toggle (board setting unchanged) and the controls (turned upright, a mouse at
