@@ -108,7 +108,7 @@ const SIZES = {
   ipad13: { width: 1024, height: 1366, dpr: 2, label: 'iPad Pro 13-inch', tablet: true },
   /* The landscape sizes (tab8land, ipadminiland, ipad11land) are touch screens held sideways at 960px+, so the board
      opens there on the one-screen view (#6107), as a real tablet does: a screen whose go waits on the tabbed board
-     (#boardbar, the Agents tab panel) shoots that view or times out at those sizes; MSHOTS_TABLET_LAYOUT=tabs shoots the
+     (the Agents tab panel; #boardbar shows in both) shoots that view or times out at those sizes; MSHOTS_TABLET_LAYOUT=tabs shoots the
      tabbed board there instead. They are opt-in, not in the sweep. */
   // claude-setup#100 (/design-shots): a computer screen, so one sanctioned run shoots a change at
   // desktop and phone. No touch and no mobile viewport, and the tap and field-font audits (phone

@@ -56,7 +56,7 @@ test('#2618: the in-tab layout picker and the Styles tab are gone; the header fl
   assert.match(SCRIPT, /STYLE_LAYOUT = r\.layout === 'consolidated' \? 'consolidated' : 'tabs';\n  applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles still applies the saved layout on load (through the #6107 per-device rule)');
 });
 
-test('the root attribute is written from the engine\'s answer, and a click only asks the engine', () => {
+test('the root attribute is written from the engine\'s answer, and a click only asks the engine (off a sideways tablet, #6107)', () => {
   const fn = SCRIPT.slice(SCRIPT.indexOf('function applyLayout('), SCRIPT.indexOf('function applyStyle('));
   assert.match(fn, /document\.documentElement\.setAttribute\('data-layout', want\)/);
   assert.match(fn, /const want = layout === 'consolidated' \? 'consolidated' : 'tabs'/, 'anything but consolidated is the tabs');
@@ -68,6 +68,17 @@ test('the root attribute is written from the engine\'s answer, and a click only 
   assert.match(click, /applyLayout\(\(r && r\.layout\) \|\| want, true\)/, 'the header flipper applies via applyLayout (engine answer, falling back to the pressed segment)');
   assert.doesNotMatch(click, /setAttribute\('data-layout'/, 'the click writes the root attribute directly');
   assert.match(SCRIPT, /applyLayout\(deviceLayout\(STYLE_LAYOUT\), apply\);/, 'paintStyles does not carry the layout');
+});
+
+test('#6107: a sideways tablet still gets its layout when the board read fails, and keeps a press storage refused', () => {
+  // A failed /api/style read on a sideways touch tablet applies the device rule (tabs as the board's answer), so it
+  // does not stay on the tabbed boot paint.
+  assert.match(SCRIPT, /if \(!r && ticket === STYLE_REQ && tabletLandscape\(\)\) \{ applyLayout\(deviceLayout\('tabs'\), apply\); return; \}/, 'the failed-read branch for a sideways tablet is gone');
+  // The press is kept in memory before the storage write, so a refused write still keeps it for the session...
+  assert.match(SCRIPT, /TABLET_LAYOUT_MINE = want;\n\s*try \{ localStorage\.setItem\(TABLET_LAYOUT_KEY, want\); \} catch/, 'the tablet press is no longer kept when storage refuses it');
+  // ...and deviceLayout reads that session choice first.
+  const dl = SCRIPT.slice(SCRIPT.indexOf('function deviceLayout('), SCRIPT.indexOf('function deviceLayout(') + 600);
+  assert.match(dl, /let mine = TABLET_LAYOUT_MINE;/, 'deviceLayout no longer prefers this session\'s press');
 });
 
 test('the mode is gated on width and on the two tabs it merges; Settings stays a whole page', () => {
