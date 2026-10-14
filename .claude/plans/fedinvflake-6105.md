@@ -22,9 +22,21 @@ Card: kosmos#6105 (recurrence of #5373). Test-only change: docs/browser-checks/r
   synchronously in the write's handler). Silence still passes, as the file's own note says it cannot tell silence
   from a second Copied.
 
+## Review 1 (opus) fixes
+- C1 had the same race: its "says Copied" is now read inside the wait (not frozen, because C1 tests the revert next),
+  and the 2.3 s sleep before "reverts" is untilReverted.
+- C7b now freezes the stale write's own Copied too and judges the LAST line written (a line cleared after it reds),
+  with a 4 s wait that logs a NOTE; press() in C9 logs a NOTE when its wait times out; untilReverted's comment says it
+  returns at once when no Copied is showing.
+
 ## Decided, not missed
 - Freezing the revert inside the wait changes page state, but only the timer the arm does not test; the alternative
   (racing a 2 s timer on a box that can stall for seconds) is the flake.
+- Residual (review 1): untilCopied cancels the revert as soon as the line is up, so a regression that shortened the
+  2 s revert to about 100 ms is not caught by C6 or C7b (nor by C1, whose revert wait has no lower bound; the old 2.3 s
+  sleep had none either). Accepted: the flake is the defect here, and a revert-timing check belongs in its own arm.
+- Residual (review 1): C6's "nothing said while it waits" (a 300 ms read) and its busy line must both be read before the
+  3 s limit; a stall of more than 3 s can still red C6. Accepted: far narrower than the 100 ms window it replaces.
 - Not touched: the S arms' 2.2 s "past the create screen's 2 s revert" sleeps (a different screen, not named failing);
   noted on the card as the same class.
 
