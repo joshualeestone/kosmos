@@ -69,3 +69,39 @@ test('#6239: a family\'s accepted words turn on the policy line and the agent-ev
   assert.equal(oe.acceptedConsent({ root: r2, remote: plain }).policyConsented, false, 'CONTROL');
   assert.equal(ae.recordRefusal({ agent: 'Scout', rule: 'quiet-hours' }, { root: r2, remote: plain, platform: 'darwin' }).queued, false, 'CONTROL');
 });
+
+test('#6239 round 1: an automatic accept, or an enroll with no hash of the words shown, never says the words were shown', async (t) => {
+  const bodies = [];
+  const r = root(t);
+  const base = coordinator('family');
+  const c = { macRequest: async (m, route, body) => { if (route === oe.ROUTES.enroll) bodies.push(body); return base.macRequest(m, route, body); } };
+  // A shown join, with the hash: wordsShown goes (CONTROL: the probe can see it).
+  const pv = await oe.preview('RIVE-JOIN-1234', { root: r, remote: c });
+  await oe.enroll('RIVE-JOIN-1234', true, { root: r, remote: c, consentHash: pv.served, consent: pv.consent, orgId: 'o', wordsShown: true });
+  assert.equal(bodies.at(-1).wordsShown, true, 'CONTROL');
+  // wordsShown with no hash, or a malformed one: not sent.
+  for (const consentHash of [undefined, 'not-a-hash']) {
+    const r2 = root(t);
+    const own = coordinator('family');   // its own, so this enroll's world does not replace r's
+    const c2 = { macRequest: async (m, route, body) => { if (route === oe.ROUTES.enroll) bodies.push(body); return own.macRequest(m, route, body); } };
+    await oe.enroll('RIVE-JOIN-1234', true, { root: r2, remote: c2, consentHash, consent: pv.consent, orgId: 'o', wordsShown: true });
+    assert.equal('wordsShown' in bodies.at(-1), false, 'wordsShown sent without the hash of the words: ' + String(consentHash));
+  }
+  // The board's own re-accept of changed words (reacceptWords): never claims a parent saw them. The family's words
+  // changed since (status serves another hash with them), so the board does send an enroll.
+  const changed = { macRequest: async (m, route, body) => {
+    if (route === oe.ROUTES.status) {
+      const st = await c.macRequest(m, route, body);
+      st.data.consent = FAMILY; st.data.consentHash = 'ef'.repeat(32);
+      return st;
+    }
+    return c.macRequest(m, route, body);
+  } };
+  // As the rollup does when the coordinator refuses a report for changed words: the old words are withdrawn first.
+  assert.equal(await oe.consentWithdrawn({ root: r }, pv.served), true, 'CONTROL: the accepted words were withdrawn');
+  const before = bodies.length;
+  await oe.reacceptWords({ root: r, remote: changed, wordsShown: true });
+  const re = bodies.slice(before);
+  assert.ok(re.length >= 1, 'CONTROL: the re-accept sent an enroll: ' + JSON.stringify(re));
+  for (const b of re) assert.equal('wordsShown' in b, false, 'an automatic accept said the words were shown: ' + JSON.stringify(b));
+});

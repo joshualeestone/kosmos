@@ -325,7 +325,8 @@ async function reacceptWords(opts) {
   if (!r.ok) return { ok: false, because: r.because };
   const rec = readEnrollment(opts);
   if (rec && rec.consentHash && rec.consentHash === r.served && acceptedConsent(opts)) return { ok: true, same: true };
-  return enroll(null, true, Object.assign({}, opts, { consentHash: r.served, consent: r.consent, orgId: r.org && r.org.id, computerSalt: r.salt || null, review: true }));
+  // kosmos#6239: an automatic accept never says a person saw the words, whatever the caller's options carry.
+  return enroll(null, true, Object.assign({}, opts, { consentHash: r.served, consent: r.consent, orgId: r.org && r.org.id, computerSalt: r.salt || null, review: true, wordsShown: false }));
 }
 /* The company refused a report because the words it holds for this member changed (rollup 409 org_consent_changed):
    the words on record here are no longer accepted words, so nothing is sent under them. The membership is untouched,
@@ -357,6 +358,8 @@ const SAY = Object.freeze({
   org_already_member: 'You are already in this company. Press Connect Account again to make this Kosmos your work Kosmos.',
   // v1.4: the words changed after this screen showed them (the enroll carried the hash of the old ones). Nothing joined.
   org_consent_changed: 'Your company changed its terms just now. Nothing was joined. Press Connect Account again.',
+  // kosmos#6239: a family joins only after its words are read here; an automatic accept never says they were.
+  org_family_words_unseen: 'A family joins only after a parent or guardian reads and accepts its words on this computer. Nothing was joined. Press Connect Account to read them.',
 });
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
@@ -487,8 +490,10 @@ async function enrollNow(code, accepted, opts) {
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
      contract says boards echo it and never recompute it (the two encodings could drift). */
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
-  /* kosmos#6239: the person read the words on this screen and accepted them there (a family joins only so; the
-     coordinator refuses a family's join without it, org_family_words_unseen). Never set by an automatic accept. */
+  /* kosmos#6239: the screen's request says the words were shown and accepted there (a family joins only so; the
+     coordinator refuses a family's join without it, org_family_words_unseen). As strong as the route's isViaScreen
+     check, no stronger, and it cannot tell a parent from a child at the keyboard (both named in the plan). Never set
+     by an automatic accept (reacceptWords passes no wordsShown), and only with the hash of the words shown. */
   if (opts && opts.wordsShown === true && body.consentHash) body.wordsShown = true;
   // The code first (review 10): a malformed one costs no hardware read.
   if (code != null) {
