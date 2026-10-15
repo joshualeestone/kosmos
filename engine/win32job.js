@@ -400,7 +400,12 @@ function taskXml(spec, env) {
  * idempotent -- re-registering after a spec change is how an account flip or a
  * model change takes effect at the next logon.
  */
-function install(spec) {
+/* #6231 item 7: the pre-work of `install` -- everything up to (not including) the `/Create /F` spawn --
+   extracted so the sync `install` and the async `installSteps` SHARE it and cannot drift (the #6183 "one
+   parse, two call shapes" discipline, applied to the write side). Returns an early `{ ok: false, because }`
+   refusal, or `{ ok: true, args, task, cleanup }`: `args` is the `/Create` argv, `task` the registered name,
+   `cleanup` unlinks the transient xml (the caller runs it in a `finally`, as install()'s own finally did). */
+function installPlan(spec) {
   const s = spec || {};
   if (!s.name || !s.cwd) return { ok: false, because: 'a job needs an agent name and a folder' };
   /* 🔑 #1704: THE WORLD IS DECIDED ONCE, HERE, and the task name, the task line
@@ -442,19 +447,54 @@ function install(spec) {
      in the `finally`. Nothing durable points at it, so it carries none of the
      ephemeral-path hazard the anchor exists to solve. */
   const xmlAt = path.join(os.tmpdir(), 'kosmos-task-' + process.pid + '-' + Date.now() + '.xml');
-  let r;
+  const cleanup = () => { try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ } };
+  const task = taskName(s.name, world);
   try {
-    try {
-      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
-    } catch (e) {
-      return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
-    }
-    r = run(['/Create', '/F', '/TN', taskName(s.name, world), '/XML', xmlAt]);
-  } finally {
-    try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
+    fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
+  } catch (e) {
+    cleanup();
+    return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
   }
+  return { ok: true, args: ['/Create', '/F', '/TN', task, '/XML', xmlAt], task, cleanup };
+}
+
+/* The one parse of a `/Create /F` result ({ ok, out }), shared by the sync `install` and the async
+   `installSteps` so they cannot drift on what counts as a registered job. */
+function installResult(r, task) {
   if (!r.ok) return { ok: false, because: 'we could not register the startup job (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
-  return { ok: true, task: taskName(s.name, world) };
+  return { ok: true, task };
+}
+
+/**
+ * Register (or re-register) the at-logon job for one agent.
+ *
+ * `/F` overwrites an existing task of the same name, which is what makes this
+ * idempotent -- re-registering after a spec change is how an account flip or a
+ * model change takes effect at the next logon.
+ */
+function install(spec) {
+  const plan = installPlan(spec);
+  if (!plan.ok) return plan;
+  let r;
+  try { r = run(plan.args); } finally { plan.cleanup(); }
+  return installResult(r, plan.task);
+}
+
+/* #6231 item 7: `install` as an async step -- the put-back's job write run OFF the board's thread under the
+   async driver (engine/remove.js's runner answers the yielded `{ exec }`), the way `endSteps`/`startSteps` do
+   their own schtasks. Mirrors `install()` command-for-command through the SHARED installPlan/installResult, so
+   the two forms cannot diverge on the pre-work or the parse. Clears PRESENCE_MEMO before the mutating spawn
+   exactly as `run()` does on a non-`/Query` call (the step bypasses `run()`), and only on the spawn path -- an
+   early refuse from installPlan never reaches `run()` in the sync form either. The `finally` unlinks the
+   transient xml on every path past the write, as install()'s own finally does. */
+function* installSteps(spec) {
+  const plan = installPlan(spec);
+  if (!plan.ok) return plan;
+  PRESENCE_MEMO.clear();
+  let r;
+  try { r = win32StepResult(yield { exec: ['schtasks.exe', plan.args, { timeout: SCHTASKS_TIMEOUT_MS }] }); }
+  finally { plan.cleanup(); }
+  return installResult(r, plan.task);
 }
 
 /**
@@ -1078,6 +1118,17 @@ function taskEnabledFromQuery(r) {
   return enabledFromTaskXml(taskXmlFromQuery(r));
 }
 
+/* #6231 item 7: `taskEnabled` as an async step -- the put-back's "keep its switch" read run off the board's
+   thread. Yields the one `/Query /XML` to engine/remove.js's runner and decodes it through the SAME
+   `taskEnabledFromQuery` (= enabledFromTaskXml . taskXmlFromQuery) the sync path uses, so the enabled flag a
+   reinstall preserves cannot differ between the sync and step forms. A read (`/Query`), so it does NOT clear
+   PRESENCE_MEMO -- `run()` clears only on a mutating call, and the sync `taskEnabled` reads through `run` the
+   same way. Same three return shapes as `taskEnabled`. */
+function* taskEnabledSteps(name, worldId) {
+  const r = yield { exec: ['schtasks.exe', ['/Query', '/TN', taskName(name, worldId), '/XML'], { timeout: SCHTASKS_TIMEOUT_MS }] };
+  return taskEnabledFromQuery(win32StepResult(r));
+}
+
 function enabledFromTaskXml(read) {
   if (!read.known || !read.registered) return read;
   const settings = /<Settings>([\s\S]*?)<\/Settings>/.exec(read.xml);
@@ -1101,8 +1152,8 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, disable, enable, end, start, running, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
-  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  install, installSteps, disable, enable, end, start, running, endSteps, startSteps, runningSteps, win32StepResult, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
+  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, taskEnabledSteps, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer, setLiveness, setRunningClock, setPresenceTtl, PRESENCE_TTL_MS,
 };
