@@ -38,7 +38,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 17, with a re-run case) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 18, with a re-run case) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -212,3 +212,10 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
 - Seen once while validating (18:53, load about 7): the first test took 92 s and failed, the length of the 90 s gh
   limit, so a fake gh call hung and the wall clock cut it off as designed. Not reproduced: alone 0.3 s, then three
   full runs 17/17 in about 18 s each. Cause not found; recorded rather than called a flake.
+
+## Review 20 (sonnet), and what changed
+- No BLOCKER. WARNING: the 92 s hang (above) was not reproduced in 30 more single runs and 3 full runs (none over 5 s).
+  The wrapper's only blocking point is waitpid on gh, so a hang means gh itself did not exit, which the deadline then
+  ended as designed. It stays listed on #6266, which stays open until the job is installed and seen working on
+  Mortals. WARNING: the failed-mktemp path is now tested (heartbeat and last-result both left). WARNING: a garbled
+  startedAt is now tested. Left (stated): exit 143 also names a TERM sent to gh from outside as "stopped by a signal".
