@@ -18,11 +18,19 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
   render-allagents-4812 does. Its Escape only put the welcome overlay away when it was already open; when the
   overlay opened later it took focus from the dismiss arm.
 
+- firstRunBoot (also on the load path) reads a refusal's body before giving up, for the same reason.
+- render-streak-6160's refused arm now gets its 403 from the board itself, through route.fetch with another site's
+  Origin (the same proxy shape as the original failure), and asserts every refused request finished. A refusal made
+  up by route.fulfill arrives whole and finished either way, so it could not show the defect (measured: that version
+  of the assertion passed with the fix reverted).
+
 ## Measured
 - render-allagents-4812: main 29 PASS / 1 FAIL (the goto timeout); this branch 58 PASS / 0 FAIL.
 - render-streak-6160 on fresh sandbox boards, before the check change: main passed once and failed once, the branch
   failed twice (both: the dismiss arm, focus on fr-pane-5-h2). One branch run stopped at 28 passes, cause not kept.
   After it: 3 of 3 runs passed, 78 PASS each.
+- The refused arm with the board's own 403: 80 PASS with the fix; with the page fix reverted it fails
+  (sent=5 finished=0).
 - server.streak-6160 and engine streak-6160 tests: 16/16.
 
 ## Calls
