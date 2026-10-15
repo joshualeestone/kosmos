@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgchart-deeptrees-4499
-diff_hash: 471b3b578061e6bedfbd164aed3caf64d418fb481ccb2475cdc83b7941ebe1bc
+diff_hash: 45515ad906c01ff40ca4d0375ce8de3700df64cab21607c63470d2f70dda7b2c
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-15T02:04:01Z
@@ -20,6 +20,13 @@ converged: true
 Model rotation (kosmos#2032): opus, sonnet, opus, sonnet, opus. Convergence witnessed by both models.
 
 The core layout logic (orgPlace / orgFirstRingClear / orgPlaceGated) was confirmed correct by every reviewer; no logic defect was found in any pass. Iterations 2-4 refined comment honesty and test coverage (the kosmos#120 comment-churn pattern: later passes found nits in comments earlier passes wrote -- recorded per-iteration below). The two recurring themes (as-drawn-vs-natural, first-ring-vs-full) are resolved (as-drawn: a probe proved every funded chart reaches ~18px first-ring clearance, so 12px holds as drawn at the 0.7 squeeze; a guard assertion now pins it) and deferred (runtime full-check: a conscious performance tradeoff per the gate design, with the guard's sweep closing the gap).
+
+### Post-convergence changes (recorded for honesty; not loop-reviewed)
+
+Two changes landed after the loop converged, both covered by the diff_hash but not by a blind loop pass:
+
+1. The plan file (ledger #1, FIXED): pure documentation the gate requires; no code.
+2. `docs/browser-checks/render-orgchart-phone-718.js:313` switched from `orgPlace` to `orgPlaceGated` so the check compares against what `paintOrg` now draws. PM-directed (Liu Kang m5510/m5516). Behavior-neutral on its fixture: the 718 desktop board is a flat 5-root fleet, which `orgPlaceGated` never funds (first-ring clearance ~114px, far above 12), so it returns `orgPlace`'s layout unchanged (maxR 120, natural 396). Measured independently by Liu Kang and Sub-Zero; verified by re-running render-orgchart-phone-718 at the new head. Reviewed via the PM + independent-reviewer + browser-check path rather than a blind loop pass.
 
 ### Per-Iteration Breakdown
 
