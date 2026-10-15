@@ -50,3 +50,8 @@ a pull needs --dir; the note on every run tells them which folder was read.
   says every run that reads names the folder. CONVENTION: this plan's test count and its rejected-option reason
   (the daily job pulls into its own temp folder, not this one).
 - tools/test-feedback-triage.sh and tools/test-feedback-digest-daily.sh pass.
+
+## Review 4 (sonnet), and what changed
+- No BLOCKER. WARNING (the pulled folder wins however old) is the stated weakest premise; the note already dates the
+  pulled data (review 3). WARNING: on Windows a --dir naming the store in other capitals or slashes could miss it:
+  samePath now compares realpathSync.native and folds case on Windows. NIT: nextLine moved above fileName's doc block.
