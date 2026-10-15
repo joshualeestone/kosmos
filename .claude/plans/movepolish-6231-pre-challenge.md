@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: movepolish-6231
-diff_hash: 4f1c245c131ebd9f5fc9b5c89e6666434ad76f153b8e4e5317b8bc8c0acf7257
+diff_hash: bef4bb7836990085c0b2a2fd163b57a5f5907e5f855ce53c9a777848cd78e246
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-15T20:59:08Z
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 8 actionable WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, plus NITs (several taken)
 **Fixed:** 8 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-Reviewer models alternated opus (odd iterations) and sonnet (even iterations). Every fix was shown red with the fix removed (unit test `web.account-stopmove-6214.test.js`, named per row). The browser check `render-acct-stopmove-6214` was extended with the four #6231 arms, shown red against origin/main's page in Chromium and WebKit (6 FAIL), and passed on the branch after every round. Full validation was run once, at convergence, at the head this proof names.
+Reviewer models alternated opus (odd iterations) and sonnet (even iterations). Every fix was shown red with the fix removed (unit test `web.account-stopmove-6214.test.js`, named per row). The browser check `render-acct-stopmove-6214` was extended with the four #6231 arms, shown red against origin/main's page in Chromium and WebKit (6 FAIL), and passed on the branch after every round. Full validation passed at convergence (head 3c15fd3978, hash 4f1c245c131e: 20751 pass, 0 fail; audit passed). An earlier run on the same head had one failure, engine/remove.test.js "#4006 burst of failing restarts", a timing test outside this diff that passed alone 3 of 3 and in the second full run. After validation, only this proof and the markdown plan file .claude/plans/movepolish-6231.md were added (the PR gate requires the plan); no code changed, so the hash above is the diff including the plan.
 
 ### Per-Iteration Breakdown
 
