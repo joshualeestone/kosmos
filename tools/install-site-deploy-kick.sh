@@ -27,16 +27,19 @@ if [ "${1:-}" = "--uninstall" ]; then
   "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
   rm -f "$PLIST.new"
-  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/kick.log" "$DIR/last-tick"
-  rmdir "$DIR" 2>/dev/null || true
-  echo "removed $LABEL"
+  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick"
+  rmdir "$DIR" 2>/dev/null || true   # kick.log is kept (review 3): the record of what it did outlives it
+  echo "removed $LABEL$([ -e "$DIR/kick.log" ] && printf '; its log is kept at %s' "$DIR/kick.log")"
   exit 0
 fi
 [ $# -eq 0 ] || { echo "usage: $0 [--uninstall]" >&2; exit 2; }
 [ -f "$SRC" ] || { echo "cannot find $SRC" >&2; exit 1; }
 
 mkdir -p "$DIR" "$(dirname "$PLIST")"
-cp "$SRC" "$DIR/kick.sh.new" && chmod 755 "$DIR/kick.sh.new" && mv "$DIR/kick.sh.new" "$DIR/kick.sh"
+# One step per line (review 3): under set -e a failure inside an && list does not stop the script.
+cp "$SRC" "$DIR/kick.sh.new"
+chmod 755 "$DIR/kick.sh.new"
+mv "$DIR/kick.sh.new" "$DIR/kick.sh"
 cat > "$PLIST.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

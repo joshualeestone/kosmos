@@ -15,9 +15,11 @@ why), without a person dispatching it.
 - tools/site-deploy-kick.sh, run every 15 minutes by launchd on Mortals (the runner box, whose gh login has the
   workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
   job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
-  running, or a deploy run started under 14 minutes ago (a backstop, never an extra tick: the job's one retry and its
-  parking keep their 15-minute pace). A run active over 45 minutes is said, is not waited on (a new dispatch replaces
-  a stuck pending run), and the tick exits 1 so launchctl's last exit code shows it; each tick writes a heartbeat;
+  running, or a deploy run was created or last updated (a finished run: when it ended) under 14 minutes ago (a
+  backstop, never an extra tick: the job's one retry and its parking keep their 15-minute pace). A STUCK run (running
+  45 minutes from its start, the job's timeout; or waiting to start 3 hours, since the shared runner's CI queue can
+  hold a real run a while) is said, is not waited on and does not hold the gap, and the tick exits 1 so launchctl's
+  last exit code shows it; each tick writes a heartbeat;
   --check says what a tick would decide without dispatching. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
   It prints only when it dispatches or cannot read something.
 - tools/install-site-deploy-kick.sh installs it the way the box's other ops jobs are installed: the script copied into
@@ -63,3 +65,14 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   (test oldest-first; mutant red). WARNING: the installer header now says the user needs a desktop session (gui/<uid>).
   NITs taken: the gap is pinned at 830 vs 850 s (mutant at 800 red); mixed runs tested; jq absence skips only off
   macOS; the date fallback is commented. Noted: the heartbeat proves launchd starts it, the log proves what it did.
+
+## Review 3 (opus), and what changed
+- WARNING: the gap counted from a run's creation, so a run that queued long and failed just now was retried at once:
+  it now counts from the later of created and updated (test: created 1000 s, updated 60 s ago; mutant red).
+  WARNING: "stuck" counted queue time against the 45-minute job timeout: a running run counts from its start, a waiting
+  one gets 3 hours (tests both ways; mutants red); a stuck run no longer holds the gap; the comment no longer claims a
+  new dispatch replaces a queued run. WARNING: the garbled-time case parsed on GNU date: an impossible date now.
+  WARNING: the installer's cp && chmod && mv could fail silently under set -e: one step per line. NITs taken: a parse
+  error's line goes to stderr (it was being captured as the value, found while fixing); mktemp failure stops the tick;
+  the log's growth stated truly; --uninstall keeps kick.log and says where. Left: plist values are not XML-escaped
+  (the paths are fixed and plain on Mortals).
