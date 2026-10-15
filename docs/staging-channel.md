@@ -158,7 +158,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
      [ -f "$EXPORT/dist/$f" ] || { echo "export dropped $f (#1669); $S/dist is incomplete"; exit 1; }
    done
-   . "$R/tools/lib/setup-floor.sh"; kosmos_setup_floor_tree_ok "the manual promote export" "$EXPORT"   # kosmos#6149: set -e stops here on a refusal
+   . "$R/tools/lib/setup-floor.sh"; kosmos_setup_floor_tree_ok "the manual promote export" "$EXPORT"   # kosmos#6149: set -e stops here on a refusal (pull $R first: a checkout without the lib stops with "No such file")
    ( cd "$EXPORT" && vercel deploy --prod --yes )   # set -e + the EXIT trap: a failed deploy exits non-zero and cleans up
    DEPLOY
    ```
@@ -213,20 +213,23 @@ app folder (`~/.local/share/kosmos/app`) and the install line again, which nothi
 
 ### Repairing a site the floor refuses
 
-Restore that channel's WHOLE set from a site commit that already published a build at or above the floor on it
-(0.7.49's, or any later one; find it with `git -C <site> log -- dist/latest.json` or `-- dist/latest-staging.json`).
-A set that once served together is consistent by construction, so it passes every check at once: the floor, the
-pointer and its installer (#5032), and its tarball, which `dist` keeps.
+Restore that channel's WHOLE set from a site commit that committed and deployed a build at or above the floor on it
+(find one with `git -C <site> log -- dist/latest.json` or `-- dist/latest-staging.json`). Take the NEWEST such commit:
+a deploy fetches the build's tarball from what live serves (`dist` does not keep old ones in a fresh checkout), so the
+restored build must be one live still has. A set that served together is consistent by construction, so it passes
+the floor and the pointer-installer check (#5032) at once (tools/test-deploy-site-promote.sh arm 40 runs this repair).
 
 - **prod:** `git -C <site> checkout <commit> -- dist/latest.json setup setup.sha256`
 - **staging:** `git -C <site> checkout <commit> -- dist/latest-staging.json setup-staging setup-staging.sha256`
 
 Then **commit and push the site** (release.sh's step 1a-floor reads its `origin/main`, and a deploy serves only what is
-committed), and deploy with the mode that fits, since a run without one is a dry run:
-`tools/deploy-site.sh --promote` when the prod pointer changed; `tools/deploy-site.sh --publish` when only an installer
-or the staging set did, adding `KOSMOS_STAGING_ROLLBACK=<V>` on that one command when the restored staging pointer is
-older than the live one (#4819). Restore both channels in the same commit when both are broken: each cut refuses on the
-other channel's set, and the deploy's export check reads both.
+committed), and deploy, since a run with no mode is a dry run. Usually that is `tools/deploy-site.sh --publish`: a
+refused deploy never ran, so live still serves the good set and the restored pointer equals it. Use `--promote` only
+when the restored prod pointer differs from the live one (live itself went below the floor, by a path around these
+tools). For staging, add `KOSMOS_STAGING_ROLLBACK=<the restored staging version>` on that one command when #4819
+would refuse it: the restored pointer is older than live, the same version with different bytes, or live names no
+build. Restore both channels in the same commit when both are broken: each cut refuses on the other channel's set,
+and the deploy's export check reads both.
 
 
 ## Windows (the same model, two more pointers)
