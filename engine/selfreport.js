@@ -150,7 +150,7 @@ function isAutoProviderBlock(standing) {
     && /^provider api \(/.test(String(standing.on || ''))
     // Review 7: not the usage-limit or sign-in kinds: their own holds (#5805, #5948) decide, and whether a turn that ends
     // on a limit or a sign-in reply fires Stop is not measured.
-    && !/^provider api \((rate_limit|authentication_failed)\)$/.test(String(standing.on || ''));
+    && !/^provider api \((rate_limit|authentication_failed)\)$/i.test(String(standing.on || ''));   // the kind is the hook's own text
 }
 
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
@@ -297,7 +297,7 @@ function record(sessionName, entry) {
          heartbeat while still unresolved (caught in review; #2456 measured
          needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
          turn that ended normally proves the provider answered), unless the block
-         had replaced a deliberate or unmarked wait, which is then shown again (review 3).
+         had replaced a wait on a person, which keeps the block (review 7); not the rate_limit or authentication_failed kinds.
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -324,7 +324,7 @@ function record(sessionName, entry) {
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
       && !standingIsAutoPermissionWait
-      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: handled above (cleared, or the wait shown again)
+      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: handled above (cleared, or the block kept)
     if (standingIsProtectedWait) {
       return {
         recorded: false,

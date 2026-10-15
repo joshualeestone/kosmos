@@ -21,7 +21,8 @@ blocked for days. An agent's own deliberate `blocked`, and every other protected
 - An automatic `working` (PreToolUse heartbeat, mid-turn) still does not clear it: the turn could still fail.
 - Untouched: a deliberate blocked or needs_you (by agent or operator) standing on the card, a legacy unmarked line, and
   the quota hold (a
-  rate_limit report with `until` is held by its own rules; a later normal turn end after the reset is the same proof).
+  rate_limit report with `until` is held by its own rules; review 7: the automatic rate_limit and authentication_failed
+  blocks are excluded from the clear altogether).
 - Parts 2 (overdue summary prompt) and 3 (task on hold while work goes on elsewhere) are separate slices on this card.
 
 ## Weakest premise
@@ -58,7 +59,7 @@ activity log, but no longer red.
   block nobody clears: the turn end that proves the provider answered re-appends the covered line (its own words and
   writer, marked `restored`), so the card shows the question again. Unknown (unreadable record, run past the tail):
   the block stays. Tested (the question's words and `by: agent` come back); skipping the restore fails it.
-- Said explicitly: the #5805 automatic `provider api (rate_limit)` block is now cleared by the next normal turn end
+- (Superseded by review 7: rate_limit is excluded.) Said explicitly: the #5805 automatic `provider api (rate_limit)` block is now cleared by the next normal turn end
   too, which fits limitReleased (an idle card is released); a deliberate report carrying `until` is untouched.
 - Comments: the hook doc lists every refusal again; the new helpers sit after isAutoPermissionWait, so record()'s
   own doc comments are above record() again.
@@ -106,3 +107,7 @@ activity log, but no longer red.
   decide, and whether a turn that ends on a limit or sign-in reply fires Stop is unmeasured. Tested both ways.
 - read() is back to its original run rule (no askedAt); the readTail/latestOf split stays (behaviour-identical) and
   feeds the check of what the block covered.
+
+## Review 8 (sonnet)
+- No logic finding. Stale comments fixed (selfreport.js said the covered wait is shown again; the plan said the
+  rate_limit block clears). The excluded kinds match case-insensitively (the kind is the hook's own text), tested.
