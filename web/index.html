@@ -27266,11 +27266,14 @@ let acctFiveTimer = null, acctFiveMisses = 0;
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
+let acctOnShowTimer = null;   // one pending look at a time: switching to AI Models twice queues one read, not two
 function acctFiveHourOnShow() {
   /* A moment later, and only if nothing has repainted the list meanwhile: opening Settings onto AI Models repaints it
      itself (paintSettings, after its own read), and reading here too would run every account's live check twice. */
   const mine = ACCT_EPOCH;
-  setTimeout(() => {
+  clearTimeout(acctOnShowTimer);
+  acctOnShowTimer = setTimeout(() => {
+    acctOnShowTimer = null;
     if (mine !== ACCT_EPOCH || !acctListShown()) return;
     const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
     if (!shown.length) return;
@@ -27296,7 +27299,11 @@ function acctFiveHourRetry() {
       acctFiveTimer = null;
       if (mine !== ACCT_EPOCH || !acctListShown()) return;
       // Busy (a Check, a half-armed Disconnect): wait another minute without reading, as the main timer does.
-      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses < 10) { acctFiveMisses++; wait(); } return; }
+      if (acctListBusy(document.getElementById('set-accounts'))) {
+        if (acctFiveMisses < 10) { acctFiveMisses++; wait(); return; }
+        acctFiveHourArm(shown.filter((t) => t > Date.now()), true);   // spent: the lines not yet due keep their own reset
+        return;
+      }
       paintAccounts({ followUp: ACCT_FOLLOWUP.max });
     }, 60e3);
   };
@@ -27319,7 +27326,11 @@ function acctFiveHourArm(times, keep) {
     acctFiveTimer = setTimeout(() => {
       acctFiveTimer = null;
       if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
-      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses < 10) { acctFiveMisses++; fire(60e3); } return; }
+      if (acctListBusy(document.getElementById('set-accounts'))) {
+        if (acctFiveMisses < 10) { acctFiveMisses++; fire(60e3); return; }
+        acctFiveHourArm(soon.filter((t) => t > Date.now()), true);   // spent: the lines not yet due keep their own reset
+        return;
+      }
       paintAccounts({ followUp: ACCT_FOLLOWUP.max });
     }, delay);
   };

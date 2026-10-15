@@ -308,6 +308,46 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const open8 = await p8.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(open8.reads === 2 && open8.fives === 1, '[chromium open] opening Settings onto AI Models reads the list once, not twice', JSON.stringify(open8));
     await p8.close();
+    // Switching to AI Models twice in a row with a line past its reset: one read, not one per switch.
+    const p9 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p9.clock.install({ time: new Date(now) });
+    await p9.goto('file://' + PAGE);
+    await p9.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      settingsGo('you');
+    }, rows);
+    await p9.clock.runFor(12 * 60e3); await p9.waitForTimeout(200);
+    await p9.evaluate(() => { settingsGo('accounts'); settingsGo('accounts'); });
+    await p9.clock.runFor(3e3); await p9.waitForTimeout(300);
+    const twice9 = await p9.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(twice9.reads === 2 && twice9.fives === 1, '[chromium open] two switches to AI Models read the list once', JSON.stringify(twice9));
+    await p9.close();
+    // Busy across one line's reset long enough to spend its ten tries: the other line still keeps its own reset.
+    const p10 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p10.clock.install({ time: new Date(now) });
+    await p10.goto('file://' + PAGE);
+    await p10.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p10.clock.runFor(9 * 60e3);
+    await p10.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check'); if (c) c.disabled = true; });
+    await p10.clock.runFor(20 * 60e3); await p10.waitForTimeout(200);   // past the soonest reset, busy for more than ten tries
+    await p10.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check:disabled'); if (c) c.disabled = false; });
+    const spent10 = await p10.evaluate(() => window.__reads);
+    await p10.clock.runFor(2 * 3600e3); await p10.waitForTimeout(300);   // past the other line's reset
+    const later10 = await p10.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(spent10 === 1 && later10.reads >= 2 && later10.fives === 0, '[chromium open] with one line\'s tries spent while busy, the other line\'s reset still brings a read', JSON.stringify({ spent10, later10 }));
+    await p10.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });
