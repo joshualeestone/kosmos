@@ -19,12 +19,22 @@ converged: true
 The per-iteration finding counts lived in the previous session's context and were lost at its handoff (ctx 92%);
 they are not reconstructed here rather than written from memory. What survived, in the plan and the handoff:
 
-- Iteration 5: the line now waits for the Prompter, as the reply nudge and the community turn do (nobody asked for it).
-- Iteration 7 fixed a real bug: the retry book was pruned by hold age, so a group's retry count could restart while
-  its hold was unchanged. The book is now kept per group (owner, project, set of held tasks) and set before the marks
-  are written, as missedtell does.
-- Review decisions recorded in `.claude/plans/holdstale-6209.md` under "Decided in review" (CLI-safe project id,
-  a person's takeover moves the hold time, a never-recorded hold stays silent, the Prompter gate pinned by source).
+### Per-Iteration Breakdown (surviving record only)
+
+#### Iteration 5
+The line now waits for the Prompter, as the reply nudge and the community turn do (nobody asked for it). Fixed.
+
+#### Iteration 7
+A real bug: the retry book was pruned by hold age, so a group's retry count could restart while its hold was
+unchanged. Fixed: the book is kept per group (owner, project, set of held tasks) and set before the marks are
+written, as missedtell does.
+
+#### Iteration 9
+No issues found (zero new findings after dedup). Converged.
+
+Other review decisions are recorded in `.claude/plans/holdstale-6209.md` under "Decided in review" (CLI-safe
+project id, a person's takeover moves the hold time, a never-recorded hold stays silent, the Prompter gate pinned
+by source).
 
 ## Validation
 
