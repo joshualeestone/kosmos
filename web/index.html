@@ -27624,6 +27624,9 @@ function offerStopMove(afterEl, sayEl) {
     const out = await stopAccountMove();
     if (sayEl) { sayEl.hidden = false; sayEl.setAttribute('data-stop-move-said', ''); }   // un-hidden; and a repaint waiting on it gives it a period
     if (out.ok) {
+      /* #6231: the row in Settings, if a move is drawn there, says stopping too. */
+      acctMarkStopping(true);
+      for (const rb of document.querySelectorAll('[data-acct-move-stop]')) { rb.disabled = true; acctStopLabel(rb, true); }
       b.remove();
       if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
         + '. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.';
@@ -27646,6 +27649,12 @@ function acctStopLabel(b, stopping) {
 }
 /* #6231: once a stop is pressed the row's Move button drops its count, which would jump ahead as the put-back agents
    count as finished; the stop button beside it says Stopping. A refused stop puts the count back. */
+/* #6231: mark every running move as stopping (or not), and redraw its Move button's words to match. Used by both the
+   row's stop and the stop offered beside a refused board restart, since either stops the same move. */
+function acctMarkStopping(on) {
+  for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = on;
+  acctMoveCountShow();
+}
 function acctMoveCountShow() {
   for (const [dir, st] of ACCT_MOVE) {
     if (!st || !st.moving) continue;
@@ -27654,13 +27663,11 @@ function acctMoveCountShow() {
   }
 }
 async function acctStopClick(stopBtn) {
-  for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = true;   // a repaint draws it as stopping
+  acctMarkStopping(true);   // a repaint draws it as stopping
   stopBtn.disabled = true; acctStopLabel(stopBtn, true);
-  acctMoveCountShow();
   const out = await stopAccountMove();
   if (out.ok) return;
-  for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = false;
-  acctMoveCountShow();
+  acctMarkStopping(false);
   /* The row may have been repainted while the request was out: put back whichever stop button is drawn now. */
   for (const b of document.querySelectorAll('[data-acct-move-stop]')) { b.disabled = false; acctStopLabel(b, false); }
   const panelSay = document.getElementById('set-accounts-msg');
@@ -28417,6 +28424,7 @@ async function paintAccounts(opts) {
       const guide = new Set((LAST || []).filter((x) => x && x.isGuide).map((x) => x.sessionName));
       /* Progress goes on the button, not the live region, so a screen reader hears the result once, not every step. */
       ACCT_MOVE.set(from, { moving: true, said: '' });
+      const focusAtPress = document.activeElement;   // #6231: the stop takes focus only if it has not moved since
       btn.disabled = true; sel.disabled = true; btn.textContent = 'Moving…';
       if (moveMsg) moveMsg.textContent = '';
       /* try/finally: whatever happens inside, the row is released (never left "Moving…" for the life of the page). */
@@ -28461,10 +28469,11 @@ async function paintAccounts(opts) {
             stopBtn.type = 'button'; stopBtn.setAttribute('data-acct-move-stop', ''); acctStopLabel(stopBtn, false);
             stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
             b.after(stopBtn);
-            /* #6231: the pressed Move button is disabled, so focus fell to the page: give it to the one control the row
-               offers now, which also says it to a screen reader. Not when the person has gone elsewhere. */
+            /* #6231: the pressed Move button is disabled, so focus is on it or on the page (engines differ): give it to
+               the one control the row offers now, which also says it to a screen reader. Only when focus has not moved
+               since the press; clicking plain text after it leaves focus on the page and is not detected. */
             const at = document.activeElement;
-            if (!at || at === document.body || at === b) stopBtn.focus();
+            if (at === b || (at === focusAtPress && (at === btn || at === document.body))) stopBtn.focus({ preventScroll: true });
           }
         }, stoppedAtClick);
       } catch (e) {
