@@ -295,7 +295,7 @@ test('#5531 review 14: a page on another website cannot leave, join or preview (
   assert.deepEqual(sent, [], 'a cross-site request reached the company');
 });
 
-test('#5531 review 26: an unknown join is asked about every few minutes while its marker exists, not only daily (start() source pin)', () => {
+test('#5531 review 26: an unknown join is asked about every few minutes while its marker exists, not only hourly (start() source pin)', () => {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const ms = src.match(/const ORG_UNSURE_MS = ([0-9* ]+);/);
   assert.ok(ms, 'no short follow-up interval for an unknown join');
@@ -590,7 +590,9 @@ test('#6232: an enrolled board asks its company hourly, not daily, and a board i
   const ms = m[1].split('*').reduce((a, x) => a * Number(x.trim()), 1);
   assert.ok(ms <= 60 * 60 * 1000, 'an enrolled board asks its company only every ' + ms / 60000 + ' minutes: a removed member keeps the policy that long');
   assert.ok(ms >= 30 * 60 * 1000, 'an enrolled board asks every ' + ms / 60000 + ' minutes: more often than the coordinator\'s policy-carrying answer is meant for');
-  assert.match(src, /setInterval\(orgEnrollRefresh, ORG_REFRESH_MS\)/, 'the refresh timer no longer uses ORG_REFRESH_MS');
+  // Review 3: checked on the clock every few minutes (a Mac's timers stop while it sleeps), not by a one-hour timer.
+  assert.match(src, /setInterval\(\(\) => \{ orgRefreshIfDue\(\); \}, ORG_REFRESH_CHECK_MS\)/, 'the hourly ask is not checked on the clock');
+  assert.doesNotMatch(src, /setInterval\(orgEnrollRefresh, ORG_REFRESH_MS\)/, 'a one-hour timer is back: a Mac asleep past the hour waits up to another hour');
   // In no company (no enrollment, no pending Leave, no unknown join), with live execution armed: nothing is sent.
   const live = require('./engine/live-execution');
   const { orgEnrollRefresh } = require('./server');
@@ -603,4 +605,30 @@ test('#6232: an enrolled board asks its company hourly, not daily, and a board i
   live.allowLiveExecution();
   try { orgEnrollRefresh(); } finally { live.resetForTests(); }
   assert.equal(calls, 0, 'a board in no company asked a company (every board would, hourly)');
+});
+
+test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the hour asks at the next check; a clock set back is due)', (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const H = 60 * 60 * 1000;
+  try {
+    const at = Date.now();
+    orgEnrollRefresh();
+    assert.equal(calls, 1, 'CONTROL: an enrolled board with live execution did not ask');
+    orgRefreshIfDue(at + H - 60 * 1000);
+    assert.equal(calls, 1, 'asked before the hour was up');
+    orgRefreshIfDue(at + 9 * H);   // a laptop that slept for nine hours: the first check after waking asks
+    assert.equal(calls, 2, 'a board whose hour passed (asleep) did not ask at the next check');
+    orgRefreshIfDue(Date.now() + 60 * 1000);
+    assert.equal(calls, 2, 'asked again a minute after asking');
+    orgRefreshIfDue(Date.now() - 5 * H);   // the clock was set back
+    assert.equal(calls, 3, 'a clock set back held the ask off');
+  } finally { live.resetForTests(); }
 });

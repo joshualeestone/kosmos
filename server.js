@@ -22791,22 +22791,35 @@ let ORG_TICKET = null;
 const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
     daily: a removed member's board kept applying the company's policy for up to a day. For almost every board this is
-    the bound: a rollup (refused org_not_member, after which engine/orgrollup.js refreshes at once) goes out early only
-    when its agents, projects or applied policy version change, not for ordinary work. A board in no company sends nothing (orgEnrollRefresh
-    returns first). The coordinator's status answer carries
-    the signed policy (up to about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs
-    POLICY_TTL_SECS), so not more often than this without a cheaper route. */
+    the bound: a rollup (refused org_not_member, after which engine/orgrollup.js refreshes at once) goes out early
+    only when its agents, projects or applied policy version change, not for ordinary work. A board in no company
+    sends nothing (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to
+    about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs POLICY_TTL_SECS), so not more
+    often than this without a cheaper route. Not covered by the hour: an unreachable coordinator (nothing changes),
+    and a board before live execution is allowed (nothing is sent). */
 const ORG_REFRESH_MS = 60 * 60 * 1000;
-/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
+/** #6232 review 3: the hour is measured on the clock, checked this often, not by a one-hour timer: a Mac's timers stop
+    while it sleeps, so a laptop asleep past the hour would otherwise wait up to another hour after waking. */
+const ORG_REFRESH_CHECK_MS = 5 * 60 * 1000;
+/** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not only hourly (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
+/** When this board last asked its company (a clock time; 0 before the first ask). */
+let ORG_REFRESHED_AT = 0;
 function orgEnrollRefresh() {
   // #5670: a refresh sends to the company, so it waits for live execution, as the rollup tick does (#5532).
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
+    ORG_REFRESHED_AT = Date.now();
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => { companyPolicySync(); return r; });
   } catch { /* best effort */ }
+}
+/* #6232 review 3: ask when an hour has passed on the clock since the last ask. A clock set back counts as due, so a
+   wrong clock can never hold the ask off. */
+function orgRefreshIfDue(now = Date.now()) {
+  if (now - ORG_REFRESHED_AT >= ORG_REFRESH_MS || now < ORG_REFRESHED_AT) return orgEnrollRefresh();
+  return undefined;
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
@@ -22938,7 +22951,7 @@ function start(port = PORT) {
   /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
-  setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
+  setInterval(() => { orgRefreshIfDue(); }, ORG_REFRESH_CHECK_MS).unref();   // #6232 review 3: an hour on the clock
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
@@ -24488,6 +24501,7 @@ module.exports = {
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
+  orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
