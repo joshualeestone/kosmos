@@ -51,7 +51,7 @@ told, and one whose reports overstate work is told early.
   told. The cut tail now counts as a lower bound (start state unknown, so not busy); over the rhythm it is evidence.
 - Fixed: only `working` counts as work; a wait (blocked, needs_you, an automatic provider block or permission prompt)
   does not. Both tested; restoring either old rule fails its test (measured).
-- The not-told test has a positive control. (REVERSED in review 8.) Decided, stated: an agent that worked, then went idle for days, is still
+- The not-told test has a positive control. Decided, stated (REVERSED in review 8): an agent that worked, then went idle for days, is still
   told when it next sits idle (its summary is still owed for that work), as project status also leaves it stale.
 
 ## Review 4 (sonnet), and what changed
@@ -103,3 +103,10 @@ told, and one whose reports overstate work is told early.
 - An agent given up on (MAX_TRIES) is skipped before its history is read. The history read (about 3 to 4 ms for 1 MB,
   measured by the reviewer) otherwise runs only for an idle card with a stale, untold summary.
 - Comments state the rule without review labels; the selfreport note sits above history()'s own comment.
+
+## Review 9 (opus): converged (nits only), and what was stated
+- Measured on real streams by the reviewer: a continuously busy agent is told at about 8 to 12 hours stale, a lighter
+  one after a day or more (counted `working` is about half of wall time). Errs toward silence; the six-day case is told.
+- "Once per summary" keys on the file's write time, so touching the file without a real summary starts a new stretch
+  (at most one extra line). Every delivery attempt is logged (at most MAX_TRIES lines a summary), unlike #5959's
+  narrower log, so a summary that never reaches an agent is visible.
