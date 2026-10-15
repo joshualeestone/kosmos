@@ -23234,7 +23234,16 @@ async function engineRestartClick() {
      guard would otherwise keep it, since nothing it keys on changed). */
   const said = (head) => {
     if (title) title.textContent = head;
-    setTimeout(() => { const sl = document.getElementById('utoast-slot'); if (sl) delete sl.dataset.v; }, ENGINE_SAID_HOLD_MS);
+    /* #6214: not while an offer to stop a move is on screen (the repaint would take it away, and with it the answer to
+       a press still out); bounded, so a toast nobody answers is still repainted in the end. */
+    let holds = 0;
+    const release = () => {
+      const sl = document.getElementById('utoast-slot');
+      if (!sl) return;
+      if (sl.querySelector('[data-stop-move-offer]') && ++holds < 20) { setTimeout(release, ENGINE_SAID_HOLD_MS); return; }
+      delete sl.dataset.v;
+    };
+    setTimeout(release, ENGINE_SAID_HOLD_MS);
   };
   if (btn) { btn.disabled = true; btn.textContent = 'Restarting…'; }
   /* Set before the request, so a status poll that lands while it is in flight cannot repaint an enabled button. */
@@ -23256,8 +23265,14 @@ async function engineRestartClick() {
       /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
       said('Kosmos could not restart itself');
       if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
-      /* #6214: refused because an account move holds the board: say that instead, and offer to stop the move. */
-      if (r.status === 409 && out && out.moveStoppable && small) { small.textContent = String(out.because || ''); offerStopMove(btn || small, small); }
+      /* #6214: refused because an account move holds the board: say that instead, and offer to stop the move. At narrow
+         widths the small line is hidden, so the title says it, and the stop's answer is written there. */
+      if (r.status === 409 && out && out.moveStoppable && (small || title)) {
+        if (small) small.textContent = String(out.because || '');
+        const shown = small && getComputedStyle(small).display !== 'none' ? small : title;
+        if (shown === title && title) title.textContent = 'An account move is running, so Kosmos cannot restart yet';
+        offerStopMove(btn || shown, shown);
+      }
       return;
     }
   } catch (e) {
