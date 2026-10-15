@@ -53,3 +53,11 @@ told, and one whose reports overstate work is told early.
   does not. Both tested; restoring either old rule fails its test (measured).
 - The not-told test has a positive control. Decided, stated: an agent that worked, then went idle for days, is still
   told when it next sits idle (its summary is still owed for that work), as project status also leaves it stale.
+
+## Review 4 (sonnet), and what changed
+- Fixed: each gap between reports counts at most WORK_GAP_CAP_MS (30 minutes): a working Claude agent reports at least
+  once a minute, so an interrupted turn followed by a prompt days later is not days of work. Fixtures now use realistic
+  heartbeats. Tested (removing the cap fails it, measured). A stale comment and a test title fixed.
+- Stated: "once per summary" is permanent until a new summary: an agent that ignores the line, or whose delivery was
+  unconfirmed, is not told again for that summary (as the #5959 model). A held or screen-blocked agent is looked at
+  again every sweep (no try spent).

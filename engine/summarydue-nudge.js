@@ -27,6 +27,9 @@
 const projectview = require('./projectview');
 
 const MAX_TRIES = 3;
+/* Review 4: a working Claude agent reports `working` at least once a minute (the PreToolUse heartbeat), so a gap between
+   reports far longer than that is not known to be work (an interrupted turn sends no Stop); each gap counts at most this. */
+const WORK_GAP_CAP_MS = 30 * 60 * 1000;
 const PRUNE_MS = 30 * 24 * 3600 * 1000;
 
 /* The stretches prompted about: { session: the newest summary's write time }. Under the data root. Unreadable or absent
@@ -65,8 +68,8 @@ function filePrompted() {
 
 /* Review 1: REPORTED work since the summary, needing positive evidence (unlike projectview.workExcused, which leaves a
    summary stale whenever it cannot tell, the right bias for a passive status line and the wrong one for a line typed
-   into the agent). The state at the summary is its last report at or before it; none known counts as NOT busy. A history
-   that is missing, or cut short after the summary, reads as unknown (null). Busy is any report but idle, started and
+   into the agent). The state at the summary is its last report at or before it; none known counts as NOT busy. A missing
+   history reads as unknown (null); one cut short after the summary is a lower bound (review 3). Busy is any report but idle, started and
    stopped, as workExcused counts it. */
 function workedSinceMs(rows, wroteAt, now) {
   if (!Array.isArray(rows) || !Number.isFinite(wroteAt) || !Number.isFinite(now) || wroteAt > now) return null;
@@ -88,7 +91,7 @@ function workedSinceMs(rows, wroteAt, now) {
   let from = wroteAt; let worked = 0;
   for (const r of valid) {
     if (r.at <= wroteAt) continue;
-    if (busy(state)) worked += r.at - from;
+    if (busy(state)) worked += Math.min(r.at - from, WORK_GAP_CAP_MS);
     state = r.state; from = r.at;
   }
   /* Review 2: nothing after the last report counts. A turn that was interrupted or crashed sends no Stop, so its last
@@ -228,4 +231,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES };
+module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES, WORK_GAP_CAP_MS };

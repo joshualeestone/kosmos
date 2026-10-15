@@ -28,6 +28,8 @@ test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force:
 const H = 3600 * 1000;
 const NOW = Date.parse('2026-10-15T12:00:00Z');
 const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+/* A working stretch as a Claude agent reports it: a `working` heartbeat every ten minutes from `from` to `to`. */
+const beats = (from, to) => { const out = []; for (let t = from; t <= to; t += 10 * 60000) out.push({ state: 'working', at: t }); return out; };
 
 function cardsFor(specs) {
   const board = fleet.install(specs.map(([name]) => fleet.agent(name, { state: 'idle' })));
@@ -74,7 +76,7 @@ test('#6209 part 2: an idle agent whose summary is 6 hours old and that worked s
   const [busy, rested] = cardsFor([['sumbusy', 'idle'], ['sumrest', 'idle']]);
   const folders = { [busy.sessionName]: folderWith('sumbusy', 6 * H), [rested.sessionName]: folderWith('sumrest', 6 * H) };
   const histories = {
-    [busy.sessionName]: [{ state: 'working', at: NOW - 7 * H }, { state: 'working', at: NOW - 3 * H }, { state: 'idle', at: NOW - 5 * 60 * 1000 }],   // worked ~6h since
+    [busy.sessionName]: [...beats(NOW - 7 * H, NOW - 10 * 60000), { state: 'idle', at: NOW - 5 * 60 * 1000 }],   // worked ~6h since
     [rested.sessionName]: [{ state: 'idle', at: NOW - 7 * H }],   // idle the whole time
   };
   const prompted = memPrompted();
@@ -90,7 +92,7 @@ test('#6209 part 2: an idle agent whose summary is 6 hours old and that worked s
 
 test('#6209 part 2: a current summary, no summary at all, a working agent and a non-Claude agent are not told', () => {
   const [fresh, none, working, codex] = cardsFor([['sumfresh', 'idle'], ['sumnone', 'idle'], ['sumwork', 'working'], ['sumcodex', 'idle']]);
-  const worked = [{ state: 'working', at: NOW - 9 * H }, { state: 'working', at: NOW - H }];
+  const worked = beats(NOW - 9 * H, NOW - H);
   const folders = {
     [fresh.sessionName]: folderWith('sumfresh', 2 * H),
     [none.sessionName]: path.join(SANDBOX, 'folders', 'sumnone-empty'),
@@ -103,7 +105,7 @@ test('#6209 part 2: a current summary, no summary at all, a working agent and a 
   assert.deepEqual(sent, [], 'one of them was told: ' + JSON.stringify(sent.map((x) => x.s)));
   // CONTROL (review 3): the same history and a stale folder on an idle Claude card IS told, so the inputs can reach a nudge.
   const [ctl] = cardsFor([['sumctl', 'idle']]);
-  const c = run([ctl], { [ctl.sessionName]: folderWith('sumctl', 6 * H) }, { [ctl.sessionName]: [{ state: 'working', at: NOW - 9 * H }, { state: 'working', at: NOW - H }] });
+  const c = run([ctl], { [ctl.sessionName]: folderWith('sumctl', 6 * H) }, { [ctl.sessionName]: beats(NOW - 9 * H, NOW - H) });
   assert.equal(c.sent.length, 1, 'CONTROL: the shared inputs never produce a nudge');
 });
 
@@ -111,7 +113,7 @@ test('#6209 part 2: a new summary that goes stale later is a new stretch and is 
   const [a] = cardsFor([['sumagain', 'idle']]);
   const prompted = memPrompted();
   const folder = folderWith('sumagain', 6 * H);
-  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 30 * H }, { state: 'working', at: NOW - H }, { state: 'working', at: NOW + H }, { state: 'working', at: NOW + 5 * H }] };
+  const hist = { [a.sessionName]: [...beats(NOW - 30 * H, NOW - H), ...beats(NOW + H, NOW + 5 * H + 30 * 60000)] };
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted }).sent.length, 1);
   // A newer summary, itself stale six hours later: told again.
   folderWith('sumagain', 0, '2026-10-15-12.md');
@@ -119,7 +121,7 @@ test('#6209 part 2: a new summary that goes stale later is a new stretch and is 
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted, now: later }).sent.length, 1, 'a new stale summary was not told');
   // An open menu on its screen: nothing typed.
   const [b] = cardsFor([['sumscreen', 'idle']]);
-  const r = run([b], { [b.sessionName]: folderWith('sumscreen', 6 * H) }, { [b.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] }, { screen: () => 'a menu is open on its screen' });
+  const r = run([b], { [b.sessionName]: folderWith('sumscreen', 6 * H) }, { [b.sessionName]: beats(NOW - 8 * H, NOW - H) }, { screen: () => 'a menu is open on its screen' });
   assert.equal(r.sent.length, 0);
   assert.equal(r.out.results[0].act, 'screen');
 });
@@ -141,7 +143,7 @@ test('#6209 review 1: no history, an empty one, or a state carried across a cras
   const crash = [{ state: 'working', at: W0 - H }, { state: 'started', at: W0 + 5 * 24 * H }, { state: 'idle', at: W0 + 5 * 24 * H + 60000 }];
   assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(crash, W0, NOW), null, NOW, null).act, 'none', 'a state carried across a crash read as days of work');
   // CONTROL: real reported work after the summary is told.
-  const worked = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'idle', at: W0 + 7 * H }];
+  const worked = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 7 * H), { state: 'idle', at: W0 + 7 * H + 60000 }];
   const p = nudge.plan({}, summary, nudge.workedSinceMs(worked, W0, NOW), null, NOW, null);
   assert.equal(p.act, 'nudge');
   assert.match(nudge.nudgeText(summary, NOW, p.workedMs), /reported about 6 hours of work since/);
@@ -150,7 +152,7 @@ test('#6209 review 1: no history, an empty one, or a state carried across a cras
 test('#6209 review 1: the on-disk record stops a repeat after a restart; failed deliveries retry and then give up; paused and channel cards are skipped', () => {
   const [a] = cardsFor([['sumdisk', 'idle']]);
   const folders = { [a.sessionName]: folderWith('sumdisk', 6 * H) };
-  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] };
+  const hist = { [a.sessionName]: beats(NOW - 8 * H, NOW - H) };
   const base = { roster: [a], folder: (s) => folders[s], history: (s) => hist[s], screen: () => null, paused: () => ({ paused: false }), now: NOW, DELIVERY };
   const sent = [];
   nudge.sweepOnce({ ...base, book: new Map(), deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; } });
@@ -162,7 +164,7 @@ test('#6209 review 1: the on-disk record stops a repeat after a restart; failed 
   // Deliveries that reach nothing: retried, then left alone after MAX_TRIES.
   const [b] = cardsFor([['sumretry', 'idle']]);
   const fb = { [b.sessionName]: folderWith('sumretry', 6 * H) };
-  const hb = { [b.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] };
+  const hb = { [b.sessionName]: beats(NOW - 8 * H, NOW - H) };
   const book = new Map(); let tries = 0;
   for (let k = 0; k < nudge.MAX_TRIES + 2; k += 1) {
     nudge.sweepOnce({ ...base, roster: [b], folder: (s) => fb[s], history: (s) => hb[s], prompted: memPrompted(), book, deliver: () => { tries += 1; return { state: DELIVERY.COULD_NOT }; } });
@@ -178,13 +180,13 @@ test('#6209 review 1: the on-disk record stops a repeat after a restart; failed 
   assert.deepEqual(out, [], 'a paused or channel-reached agent was typed to');
 });
 
-test('#6209 review 2: a last busy report does not run to now; a cut history is unknown; an operator clear is not a report', () => {
+test('#6209 reviews 2 and 3: a last busy report does not run to now; a cut history is a lower bound; an operator clear is not a report', () => {
   const W0 = NOW - 6 * 24 * H;
   // Worked an hour after the summary, then the turn was interrupted (no Stop): only the reported hour counts, not 6 days.
-  const interrupted = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'working', at: W0 + 2 * H }];
+  const interrupted = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 2 * H)];
   assert.equal(nudge.workedSinceMs(interrupted, W0, NOW), H, 'the last busy report ran to now');
   // Review 3: a history cut short after the summary is a lower bound, not unknown (a days-stale summary must be told).
-  const cut = [{ state: 'working', at: W0 + 5 * 24 * H }, { state: 'working', at: W0 + 5 * 24 * H + 10 * H }];
+  const cut = beats(W0 + 5 * 24 * H, W0 + 5 * 24 * H + 10 * H);
   cut.truncated = true;
   assert.equal(nudge.workedSinceMs(cut, W0, NOW), 10 * H, 'a cut history was read as unknown, silencing a stale summary');
   const empty = []; empty.truncated = true;
@@ -193,14 +195,14 @@ test('#6209 review 2: a last busy report does not run to now; a cut history is u
   const waited = [{ state: 'idle', at: W0 - H }, { state: 'blocked', at: W0 + H }, { state: 'working', at: W0 + 13 * H }, { state: 'idle', at: W0 + 13 * H + 60000 }];
   assert.equal(nudge.workedSinceMs(waited, W0, NOW), 60000, 'a wait was counted as work');
   // An operator clear in the middle is not the agent's report (as projectview.workExcused).
-  const op = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'idle', at: W0 + 2 * H, by: 'operator' }, { state: 'idle', at: W0 + 6 * H }];
-  assert.equal(nudge.workedSinceMs(op, W0, NOW), 5 * H, 'an operator clear ended the agent\'s reported work');
+  const op = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 2 * H - 60000), { state: 'idle', at: W0 + 2 * H, by: 'operator' }, ...beats(W0 + 2 * H + 60000, W0 + 6 * H), { state: 'idle', at: W0 + 6 * H + 60000 }];
+  assert.ok(nudge.workedSinceMs(op, W0, NOW) >= 5 * H, 'an operator clear ended the agent\'s reported work');
 });
 
 test('#6209 review 2: a held delivery spends no try; the tick does nothing when live execution is not allowed', () => {
   const [a] = cardsFor([['sumheld', 'idle']]);
   const folders = { [a.sessionName]: folderWith('sumheld', 6 * H) };
-  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] };
+  const hist = { [a.sessionName]: beats(NOW - 8 * H, NOW - H) };
   const book = new Map(); let asks = 0;
   for (let k = 0; k < nudge.MAX_TRIES + 2; k += 1) {
     nudge.sweepOnce({ roster: [a], folder: (s) => folders[s], history: (s) => hist[s], screen: () => null, paused: () => ({ paused: false }), now: NOW, DELIVERY,
@@ -212,4 +214,14 @@ test('#6209 review 2: a held delivery spends no try; the tick does nothing when 
   const tick = nudge.makeTick({ allowed: () => false, roster: () => { rosterRead = true; return []; }, deliver: () => { throw new Error('typed'); } });
   assert.equal(tick(), null);
   assert.equal(rosterRead, false, 'the tick read the roster with live execution off');
+});
+
+test('#6209 review 4: a gap between working reports counts at most WORK_GAP_CAP_MS (an interrupted turn sends no Stop)', () => {
+  const W0 = NOW - 6 * 24 * H;
+  // Worked 20 minutes, interrupted (no Stop), then prompted two days later and worked 10 more minutes.
+  const gap = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'working', at: W0 + H + 20 * 60000 },
+    { state: 'working', at: W0 + 49 * H }, { state: 'working', at: W0 + 49 * H + 10 * 60000 }, { state: 'idle', at: W0 + 49 * H + 11 * 60000 }];
+  const w = nudge.workedSinceMs(gap, W0, NOW);
+  assert.ok(w <= 20 * 60000 + nudge.WORK_GAP_CAP_MS + 11 * 60000, 'a two-day gap was counted as work: ' + w);
+  assert.equal(nudge.plan({}, { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() }, w, null, NOW, null).act, 'none');
 });
