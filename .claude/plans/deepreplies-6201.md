@@ -186,3 +186,9 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   at again"); the rest is a budget cut. A 429 in round 1 sends no round-2 pages (tested; ignoring it fails, measured).
 - Wording: "reading again right away will not reach them" (true for a window cut too). Stale comments fixed (the
   settling remark, the post-line wording in the header, the marks-file shape with `held`).
+
+## Review 18 (sonnet): CONVERGED
+- No new actionable finding. Its one warning (a page longer than asked keeps its comment pending even when the
+  continuation is read) is not a defect: the rows past the 20th on that page are never read (the service's cursor
+  continues after the page it sent), so "N replies were not reached" is true; kept. The SEEN_MAX comment now says
+  "normally" (older-comments pages can bring more, mostly pruned). Other nits repeat recorded decisions.

@@ -427,7 +427,8 @@ const REPLIES_FIRST_DAYS = 7;
    READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
    What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
    when the 30 cap cut it): deep replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
-   can fetch of a post (about 630), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
+   normally fetches of a post (about 630; older-comments pages can bring more, but their items are mostly at or below the
+   mark and pruned), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
    reviews 1, 5 and 10). The marks file can then hold up to about 26 KB of ids per post. */
 const REPLY_PAGES_MAX = 30;
 /* #6201 review 10: a failed round-2 page holds its post's mark for at most this many reads in a row, so a page that
