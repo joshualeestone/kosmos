@@ -22791,8 +22791,8 @@ let ORG_TICKET = null;
 const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
     daily: a removed member's board kept applying the company's policy for up to a day. The bound, for almost every
-    board, is an hour on the clock plus the five-minute check after an answered ask; an ask without an answer is asked
-    again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner when a send is refused
+    board, is an hour on the clock plus the five-minute check (about 65 minutes) after an answered ask; an ask
+    without an answer is asked again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner when a send is refused
     org_not_member: a rollup (engine/orgrollup.js), which goes out early only when the board's agents, projects or
     applied policy version change, not for ordinary work, or an agent event (engine/agentevents.js), sent only for a
     refusal or a flag; each then refreshes at once. A board in no company sends nothing
@@ -22834,7 +22834,11 @@ function orgEnrollRefresh() {
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
       // Only the latest ask moves the schedule: an older one finishing late changes nothing (reviews 5 and 6).
       if (ORG_ASK_SEQ === ask) {
-        if (r && r.ok === true) ORG_REFRESH_MISSES = 0;
+        // Review 16: an ask that left this board in no company (an ending for want of an id answers ok: false) is
+        // not a miss: there is nothing left to ask about, and a later join starts its retries from 15 minutes.
+        let inCompany = true;
+        try { inCompany = !!(oe.readEnrollment() || oe.leavePending() || oe.joinUnknown()); } catch { inCompany = true; }
+        if ((r && r.ok === true) || !inCompany) ORG_REFRESH_MISSES = 0;
         else {
           // No clear answer: asked again sooner than the hour, the wait doubling with each miss in a row (reviews 4, 5).
           ORG_NEXT_AT = askedAt + Math.min(ORG_REFRESH_RETRY_MS * 2 ** ORG_REFRESH_MISSES, ORG_REFRESH_MS);
