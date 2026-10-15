@@ -343,16 +343,22 @@ function shDetail(cmd, args, timeoutMs) {
 }
 /* #6173: shDetail's answer from execFile, the same four fields read the same way: a process that exited has a numeric
    code, and one that never started (ENOENT) or was killed by the timeout has none, so `ran` keeps its meaning. */
+/* It always answers (#6173 review 5): SIGKILL at the limit, and a last timer 5 s after it, as remove.js's execAsync. */
 function shDetailAsync(cmd, args, timeoutMs) {
   return new Promise((resolve) => {
+    const limit = timeoutMs || 5000;
+    let answered = false, hard = null;
+    const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
     let child;
     try {
-      child = execFile(cmd, args, { encoding: 'utf8', timeout: timeoutMs || 5000 }, (e, stdout, stderr) => {
-        if (!e) { resolve({ ran: true, status: 0, out: stdout, err: '' }); return; }
+      child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
+        if (!e) { answer({ ran: true, status: 0, out: stdout, err: '' }); return; }
         const status = typeof e.code === 'number' ? e.code : null;
-        resolve({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
+        answer({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
       });
-    } catch { resolve({ ran: false, status: null, out: '', err: '' }); return; }
+    } catch { answer({ ran: false, status: null, out: '', err: '' }); return; }
+    hard = setTimeout(() => answer({ ran: false, status: null, out: '', err: '' }), limit + 5000);
+    if (hard.unref) hard.unref();
     if (child && child.stdin) child.stdin.end();
   });
 }
