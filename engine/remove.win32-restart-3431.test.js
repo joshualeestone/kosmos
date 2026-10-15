@@ -245,6 +245,36 @@ test('#6183: an async win32 restart sends every schtasks/taskkill through the as
   }
 });
 
+test('#6183: during an async win32 restart the board keeps turning while the liveness poll waits (a {sleep} is answered by a timer)', async () => {
+  const name = 'winwait';
+  const syncCalls = [];
+  remove.setRunner((file, args) => { syncCalls.push([file].concat(args).join(' ')); return { ok: false, code: 99 }; }); // must never be asked
+  remove.setAsyncRunner(async () => ({ ok: true, stdout: '' }));
+  job.setRunner((args) => (args.includes('/Query') ? { ok: true, out: 'Status: Ready' } : { ok: true, out: '' }));
+  boardShowsLive(name);
+  killReads(name);
+  writeBaseline(name, 100, 'old');
+  // The supervisor comes up only on the SECOND liveness read, so runningSteps yields one { sleep } (the 250 ms
+  // default). NO fake clock here: real time passes, and under the async driver that wait is a setTimeout, so the
+  // board thread is free during it. A 5 ms interval must therefore fire while the restart is in flight.
+  let polls = 0;
+  job.setLiveness(() => (++polls >= 2 ? { pid: process.pid, sessionId: 'new' } : null));
+  remove.setDryRun(false);
+  let fired = 0;
+  const iv = setInterval(() => { fired++; }, 5);
+  try {
+    const out = await remove.restartAsync(name, 'restart', { platform: 'win32', startIfDead: true });
+    clearInterval(iv);
+    assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+    assert.deepEqual(syncCalls, [], 'a command went through the blocking runner: ' + JSON.stringify(syncCalls));
+    assert.ok(polls >= 2, 'the liveness poll must have waited at least one interval (polls=' + polls + ')');
+    assert.ok(fired > 0, 'the board thread did not turn during the async restart: a { sleep } was not answered by a timer');
+  } finally {
+    clearInterval(iv);
+    reset(name);
+  }
+});
+
 test('#6183 control: a synchronous win32 restart holds the board for the whole of its commands', () => {
   const name = 'winsync';
   remove.setRunner((file, args) => { blockMs(25); return { ok: true, stdout: '' }; }); // execFileSync's blocking time, injected

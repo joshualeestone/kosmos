@@ -632,13 +632,18 @@ function jobOps(platform) {
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
-      /* #6183: the same restart acts as STEPS, for the restart body's async driver (the Mac/Linux analog). The
-         sync acts above stay for removeInner and other callers; restartSteps prefers these when present. Each
-         yields its schtasks call (stopNow/startNow) or its liveness waits (loaded yields { sleep } between
-         state-file reads), which remove.js's run()/runAsync answers off the board's thread; the generators
-         normalize that result to win32job's shape and share the sync acts' parsers, so the two cannot drift.
-         Each wraps the generator's { ok } to the Boolean the sync arm returns, since restartSteps records a step
-         ok as `r !== false`. win32 has no diagnose/waitUnloaded step, as the sync arm has none. */
+      /* #6183: the same restart acts as STEPS (the Mac/Linux analog). restartSteps prefers these when present, so
+         BOTH drivers use them: the async restart runs them with runAsync off the board's thread, AND the sync
+         restart drives them with driveSync -- so a win32 restart's schtasks now route through remove.js's
+         run()/runAsync on both paths, where the sync arm above used win32job's/win32stop's own runners. That is the
+         restart executor unifying across the two drivers; the plain sync acts above are NOT the restart's acts any
+         more, they remain only for removeInner and other non-restart callers (world-switch, register), whose
+         behaviour is unchanged. endSteps/startSteps clear PRESENCE_MEMO as win32job.run() does, so presence() is
+         not left stale after a step-driven stop/start. Each step yields its schtasks call (stopNow/startNow) or its
+         liveness waits (loaded yields { sleep } between state-file reads), which the driver answers; the generators
+         normalize the result to win32job's shape and share the sync functions' parsers (endedOk/startedOk/idAccepts),
+         so the two cannot drift. Each wraps the generator's { ok } to the Boolean restartSteps records as `r !== false`.
+         win32 has no diagnose/waitUnloaded step, as the sync arm has none. */
       steps: {
         stopNow: function* (name, job) { const r = yield* win32job.endSteps(name, job && job.worldId); return Boolean(r && r.ok); },
         startNow: function* (name, job) { const r = yield* win32job.startSteps(name, job && job.worldId); return Boolean(r && r.ok); },

@@ -487,6 +487,16 @@ function enable(name, worldId) {
   return { ok: true };
 }
 
+/* The parse `end` reads from a schtasks /End result ({ ok, out }), in ONE place so the sync `end` and the async
+   `endSteps` cannot drift. A task that is not running is the end state we wanted -- the same posture the Mac takes
+   toward launchd's exit 3 ("no such service"). */
+function endedOk(r) {
+  if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
+    return { ok: false, because: 'we could not stop it now (' + (r.out || '').trim().split('\n')[0] + ')' };
+  }
+  return { ok: true };
+}
+
 /**
  * End the RUNNING instance -- launchd's `bootout`, and the other half of a stop.
  *
@@ -498,24 +508,23 @@ function enable(name, worldId) {
  * `remove.js` already documents for the Mac (disable first, so a login in the
  * window between the two cannot bring it back).
  */
-/* The parse `end` reads from a schtasks /End result ({ ok, out }), in ONE place so the sync `end` and the async
-   `endSteps` cannot drift. A task that is not running is the end state we wanted -- the same posture the Mac takes
-   toward launchd's exit 3 ("no such service"). */
-function endedOk(r) {
-  if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
-    return { ok: false, because: 'we could not stop it now (' + (r.out || '').trim().split('\n')[0] + ')' };
-  }
-  return { ok: true };
-}
 function end(name, worldId) {
   return endedOk(run(['/End', '/TN', taskName(name, worldId)]));
 }
 /* #6183: `end` as an async step. Yields the schtasks /End to engine/remove.js's run()/runAsync (off the board's
-   thread under the async driver) and reads the SAME endedOk parse via the result-shape normalizer. Mirrors end()
-   command-for-command. */
+   thread under the async driver) and reads the SAME endedOk parse via the result-shape normalizer. It clears
+   PRESENCE_MEMO up front exactly as run() does on a mutating call (the step bypasses run(), so presence() would
+   otherwise serve a stale answer for the memo's TTL after a step-driven stop). Mirrors end() command-for-command. */
 function* endSteps(name, worldId) {
+  PRESENCE_MEMO.clear();
   const r = yield { exec: ['schtasks.exe', ['/End', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return endedOk(win32StepResult(r));
+}
+
+/* The parse `start` reads from a schtasks /Run result, shared by the sync `start` and the async `startSteps`. */
+function startedOk(r) {
+  if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
+  return { ok: true };
 }
 
 /**
@@ -523,16 +532,13 @@ function* endSteps(name, worldId) {
  * half of a restore. `enable` alone would leave the agent off until the person
  * next signed in, which is not what "start it again" says.
  */
-/* The parse `start` reads from a schtasks /Run result, shared by the sync `start` and the async `startSteps`. */
-function startedOk(r) {
-  if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
-  return { ok: true };
-}
 function start(name, worldId) {
   return startedOk(run(['/Run', '/TN', taskName(name, worldId)]));
 }
-/* #6183: `start` as an async step; mirrors start() command-for-command through remove.js's runner. */
+/* #6183: `start` as an async step; mirrors start() command-for-command through remove.js's runner. Clears
+   PRESENCE_MEMO up front as run() does on a mutating call (the step bypasses run()). */
 function* startSteps(name, worldId) {
+  PRESENCE_MEMO.clear();
   const r = yield { exec: ['schtasks.exe', ['/Run', '/TN', taskName(name, worldId)], { timeout: SCHTASKS_TIMEOUT_MS }] };
   return startedOk(win32StepResult(r));
 }
@@ -565,6 +571,13 @@ function setRunningClock(now, sleep) {
 function sleepSync(ms) {
   try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
   catch { /* no SharedArrayBuffer; the deadline still terminates the loop */ }
+}
+
+/* Whether a liveness identity proves the supervisor came up: a live pid, and (for a restart) a session id
+   different from the pre-restart baseline. ONE place so the sync `running` poll and the async `runningSteps`
+   cannot drift on the acceptance test. #6183. */
+function idAccepts(id, isAlive, before) {
+  return Boolean(id && isAlive(id.pid) && (before == null || id.sessionId !== before.sessionId));
 }
 
 /**
@@ -604,12 +617,6 @@ function sleepSync(ms) {
  * Returns { ok: true } once the supervisor is confirmed up, or
  * { ok: false, because: '<plain sentence>' } on timeout.
  */
-/* Whether a liveness identity proves the supervisor came up: a live pid, and (for a restart) a session id
-   different from the pre-restart baseline. ONE place so the sync `running` poll and the async `runningSteps`
-   cannot drift on the acceptance test. #6183. */
-function idAccepts(id, isAlive, before) {
-  return Boolean(id && isAlive(id.pid) && (before == null || id.sessionId !== before.sessionId));
-}
 function running(name, worldId, opts) {
   const o = opts || {};
   const liveIdentity = o.liveIdentity || livenessFn || require('./win32streamstate').liveIdentity;
@@ -631,8 +638,11 @@ function running(name, worldId, opts) {
    command, so there is nothing to shell: the generator reads it in-line (cheap, non-blocking) and yields
    { sleep: intervalMs } between polls, so the async driver answers each wait with a timer -- off the board's
    thread -- where the sync `running` blocks on sleepSync. The FIRST read happens before any yield, so an
-   already-live pid returns at once with no spurious wait. The deadline uses the same `now` seam; the acceptance
-   test is the shared idAccepts, so it cannot drift from the sync poll. */
+   already-live pid returns at once with no spurious wait. The deadline uses the same `now` seam as sync `running`,
+   but the `sleep` seam (setRunningClock's second argument) is deliberately NOT read here -- the wait is a yielded
+   { sleep } the driver answers, so a test drives this poll's clock through `now` alone. The acceptance test is the
+   shared idAccepts, so it cannot drift from the sync poll. The loop is bounded by its own deadline and, under the
+   async driver, also by the driver's abandon check and the 300 s restart cap. */
 function* runningSteps(name, worldId, opts) {
   const o = opts || {};
   const liveIdentity = o.liveIdentity || livenessFn || require('./win32streamstate').liveIdentity;
