@@ -43,7 +43,13 @@ open after 20 s (worlds/names, remote/computers, engmode, autoupdate, the settin
 removed, register, roles, phone-notify). Without the refusals, one (community/ready) was open. A direct refusal from
 the real board with no proxy also never finishes while its body is unread (3 sent, 0 finished). So any load-time
 refusal holds the page's network open; it predates the streak. This card fixes the two sites it touches; the class is
-its own card (see #6188's comments).
+its own card, #6192.
+
+## Guards
+- The streak site: render-streak-6160's refused arm (the board's own 403), proven red with the page fix reverted.
+- The first-run site: a refused-first-run arm (the board's own 404 passed through as /api/first-run's answer), asserting
+  the read finishes.
+- render-allagents-4812 itself is in docs/browser-checks/gated.txt (line 26), so the runner's gated loop runs it.
 
 ## First run and the dismiss arm
 render-streak-6160 now answers /api/first-run as done in every arm. The overlay and the congrats note do not meet on a

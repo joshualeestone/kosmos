@@ -12,6 +12,8 @@
  *   dismiss    -> the X empties the slot; from the keyboard, focus moves to the K mark
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
+ *   refused    -> the board's own refusal (403 to the streak, 404 to the first-run read): every refused request
+ *                 finishes, so the page's network goes quiet (#6188). First run is answered as done in every other arm.
  *   none       -> count 0: no label, and the K mark is not described by an empty one
  *   click      -> a click on the K mark still goes to Agents
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)
@@ -347,7 +349,7 @@ const read = (pg) => pg.evaluate(() => {
     // page waiting for the network to go quiet waits forever.
     const streakReqs = new Set(); let ended = 0;
     pg.on('request', (q) => { if (q.url().endsWith('/api/streak')) streakReqs.add(q); });
-    for (const ev of ['requestfinished', 'requestfailed']) pg.on(ev, (q) => { if (streakReqs.has(q)) ended++; });
+    pg.on('requestfinished', (q) => { if (streakReqs.has(q)) ended++; });   // an aborted request is not a read body
     await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
@@ -355,9 +357,33 @@ const read = (pg) => pg.evaluate(() => {
     await pg.waitForTimeout(300);
     // Give the last refusal time to arrive and be read: wait until every sent request has ended, up to 5 s.
     for (let i = 0; i < 50 && ended < streakReqs.size; i++) await pg.waitForTimeout(100);
+    // The count depends on each real refusal settling between the clock's ticks (a pending ask skips a tick), so it
+    // is timing-sensitive: a lower count on a slow machine is that, not a change in how often the page asks.
     say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
     say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
     say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
+    await pg.close();
+  }
+
+  // #6188: the first-run read at load, refused by the board, ends too (the page reads the refusal's body). The refusal
+  // is the board's own 404 (a route it does not have), passed through as the answer to /api/first-run.
+  {
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const sent = new Set(); let finished = 0; const statuses = [];
+    pg.on('request', (q) => { if (q.url().endsWith('/api/first-run')) sent.add(q); });
+    pg.on('requestfinished', (q) => { if (sent.has(q)) finished++; });
+    await pg.route('**/api/first-run', async (route) => {
+      try {
+        const resp = await route.fetch({ url: URL.replace(/\/$/, '') + '/api/zz-no-such-route-6188' });
+        statuses.push(resp.status());
+        await route.fulfill({ response: resp });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":3,"congrats":false}' }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    for (let i = 0; i < 80 && (sent.size === 0 || finished < sent.size); i++) await pg.waitForTimeout(100);
+    say(statuses.length >= 1 && statuses.every((x) => x === 404), 'first run refused: the board itself refused (404)', JSON.stringify(statuses));
+    say(sent.size >= 1 && finished === sent.size, 'first run refused: the refused read finished (its body was read, #6188)', 'sent=' + sent.size + ' finished=' + finished);
     await pg.close();
   }
 
