@@ -6,7 +6,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SIDE_MIN_HOLD_S KOSMOS_LIGHT_SIDE_COOKIE \
   KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_QUEUE_CLASS KOSMOS_QUEUE_STARVE_S
-T="$(mktemp -d "${TMPDIR:-/tmp}/test-light-side-4911.XXXXXXXXXX")"
+# NOT ${TMPDIR}: a child of $T serves as a NON-sandbox cwd ($T/elsewhere), but during the suite
+# ${TMPDIR} is itself run-tests.sh's kt<digits> sandbox, so that child would wrongly match it (#4298).
+# A plain /tmp root (as test-cut-guard.sh uses) avoids that; the EXIT trap below removes $T.
+T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
 sleep 600 </dev/null >/dev/null 2>&1 & HOLDER=$!
 sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a
