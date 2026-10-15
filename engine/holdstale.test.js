@@ -135,6 +135,20 @@ test('#6209 part 3: the board runs the sweep on its own minute timer, with the r
   assert.match(body, /holdstale\.sweep\(\{/, 'the timer does not run the sweep');
   assert.match(body, /agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'not gated like the other tells');
   assert.match(body, /sent: AGENT_NUDGE_SENT/, 'not counted against Agent Communication\'s hour');
+  assert.match(body, /if \(!allowed\) return;\s*const rows = messages\.readLog\(\);/, 'the log is read before the typing gate is checked');
+  assert.match(body, /\ballowed,\s/, 'the gate is not handed to the sweep');
+  assert.match(body, /book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE/, 'the sweep does not keep its own tries and idle record');
+});
+
+test('#6209 part 3 review 4: Kosmos\'s hold-stale note does not count as the task\'s last activity', () => {
+  const { id, n } = fixture();
+  const t0 = tasks.lastActivityOf ? tasks.lastActivityOf(id, stored(id, n)) : null;
+  assert.equal(typeof tasks.lastActivityOf, 'function', 'fixture: lastActivityOf is not exported');
+  assert.ok(taskchat.record(id, n, { kind: 'hold-stale', hold: iso(NOW - 3 * HOUR), told: REX, posts: 3, reached: true }));
+  assert.equal(tasks.lastActivityOf(id, stored(id, n)), t0, 'the note moved the task\'s last activity');
+  // CONTROL: a real event does move it.
+  assert.ok(taskchat.record(id, n, { kind: 'said', who: REX, text: 'still on it' }));
+  assert.notEqual(tasks.lastActivityOf(id, stored(id, n)), t0, 'control: a message did not move the last activity');
 });
 
 test('#6209 part 3 review 1: only holders of an OPEN part are asked; one whose part is done is not', () => {
