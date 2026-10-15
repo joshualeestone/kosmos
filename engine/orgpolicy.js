@@ -159,7 +159,8 @@ function inForce() {
   try { const r = refresh(); return r.applied ? r.applied.policy : null; } catch { return current(); }
 }
 
-/* #6233: a refusal names the provider as the Add a provider menu does, never by its internal id ('openai'). Not
+/* #6233: a refusal names the provider in the provider menus' words (the Add a provider menu's vendor names; google in the
+   create menu's "Google Gemini (API key)", see below), never by its internal id ('openai'). Not
    create.providerLabel: that one says 'Anthropic' for any id it does not know, which here would refuse a provider by
    naming another. An id not listed reads as "this provider". */
 const PROVIDER_NAMES = Object.freeze({

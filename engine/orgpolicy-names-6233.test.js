@@ -73,7 +73,7 @@ test('#6233: every provider the board accepts for a new agent has a name (a new 
   const at = src.indexOf("const steps = [];\n  if (provider !== 'anthropic'");
   assert.ok(at >= 0, 'CONTROL: createAgentInner\'s provider accept test moved; find the new list');
   const block = src.slice(at, src.indexOf('{', src.indexOf(')) {', at)));
-  const ids = [...new Set([...block.matchAll(/provider [!=]== '([a-z]+)'/g)].map((m) => m[1]))];
+  const ids = [...new Set([...block.matchAll(/provider [!=]== '([a-z0-9-]+)'/g)].map((m) => m[1]))];
   assert.ok(ids.length >= 7, 'CONTROL: only ' + ids.length + ' provider ids read from the accept test: ' + ids.join(', '));
   for (const id of ids) {
     assert.notEqual(orgpolicy.providerName(id), 'this provider', id + ' is accepted for a new agent but its policy refusal would say "this provider"');
