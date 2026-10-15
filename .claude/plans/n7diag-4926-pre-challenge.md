@@ -23,6 +23,9 @@ Validation: engine/roomhold-n7diag-4926.test.js 5/5, every arm mutation-proven r
 
 ### Per-Iteration Breakdown
 
+The per-round counts and models are as recorded in the 16:22 handoff; each finding's wording is taken from the plan's
+round notes, matched to those counts (the reviewers' own lines were lost to a restart).
+
 #### Iteration 1
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs
