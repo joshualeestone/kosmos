@@ -19,7 +19,7 @@ engine/musefront.js logs one JSON line per turn it hands to Muse (before the tur
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
 post count, each spill's saved-copy size (spillBytes, only for a file directly in a real <workspace>/Inbox) and envelope length
 (envChars, per spill), and a
-60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
+60-character opening only for lines starting with an allowlisted envelope (a colleague's message or room
 post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where .kosmos/.gitignore
 lists both the log and its .1 copy (read as text; a negation reads as not ignored; it creates that .gitignore when there is none). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
@@ -33,7 +33,7 @@ lists both the log and its .1 copy (read as text; a negation reads as not ignore
 Whether N1's posts were over 10000 characters (then the spill is by design on every family, and the other four simply
 received shorter posts), or under it (then something Meta-specific spills): spillBytes (the body's saved size) plus
 envChars (the envelope) against the board's limit answers it: the board measures the whole typed line, so the body
-alone is not enough; chars is the shortened line's length.
+alone is not enough; chars is the shortened line's length (for a digest, the whole digest's).
 
 ## Review 1 (opus), and what changed
 - BLOCKER: the write skipped keepModel's guards, so a fifo at the file could hang the front for good and a link could
@@ -186,3 +186,7 @@ alone is not enough; chars is the shortened line's length.
   the quoted words out of the 60 units: the log now builds its opening from wordsOf (body only) with no whole-line
   fallback, cut on whole characters (tested: an empty reply keeps none; an emoji is never split). NITs: the Inbox is
   lstat'ed only when a spill is present; the held-posts clause is named in the comment; an unused import is gone.
+
+## Review 23 (opus): CONVERGED
+- No BLOCKER, WARNING or CONVENTION. NITs applied: "60 characters (whole code points)" everywhere; a digest's kind is
+  "other", told by digestPosts; a digest's chars is the whole digest. 76/76.
