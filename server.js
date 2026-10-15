@@ -22790,20 +22790,26 @@ let ORG_TICKET = null;
 /** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
 const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
-    daily: a removed member's board kept applying the company's policy for up to a day. For almost every board this is
-    the bound: a rollup (refused org_not_member, after which engine/orgrollup.js refreshes at once) goes out early
-    only when its agents, projects or applied policy version change, not for ordinary work. A board in no company
-    sends nothing (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to
-    about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs POLICY_TTL_SECS), so not more
-    often than this without a cheaper route. Not covered by the hour: an unreachable coordinator (nothing changes),
-    and a board before live execution is allowed (nothing is sent). */
+    daily: a removed member's board kept applying the company's policy for up to a day. The bound, for almost every
+    board, is an hour on the clock plus the five-minute check after an answered ask; an ask without an answer is asked
+    again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner only when a rollup goes out and is
+    refused org_not_member (engine/orgrollup.js then refreshes at once), which happens early only when the board's
+    agents, projects or applied policy version change, not for ordinary work. A board in no company sends nothing
+    (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)
+    and asks to be polled "on the order of hours" (kosmos-relay org.rs POLICY_TTL_SECS), so not more often than this
+    without a cheaper route. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
+    live execution is allowed (nothing is sent). */
 const ORG_REFRESH_MS = 60 * 60 * 1000;
 /** #6232 review 3: the hour is measured on the clock, checked this often, not by a one-hour timer: a Mac's timers stop
     while it sleeps, so a laptop asleep past the hour would otherwise wait up to another hour after waking. */
 const ORG_REFRESH_CHECK_MS = 5 * 60 * 1000;
-/** #6232 review 4: an ask that got no clear answer (company unreachable, an unclear reply, a leave still refused) is
-    asked again after this, not a whole hour later. Not every check: a refused leave would be sent twelve times an hour. */
+/** #6232 review 4: an ask that got no clear answer (company unreachable, an unclear reply, an unconfirmed leave) is
+    asked again after this, not a whole hour later; not every check, which would send twelve asks an hour. Review 5:
+    the wait doubles with each ask in a row that gets no clear answer, up to ORG_REFRESH_MS, so a state that never
+    clears costs no more than the hourly ask; an answered ask starts it over. */
 const ORG_REFRESH_RETRY_MS = 15 * 60 * 1000;
+/** How many asks in a row have had no clear answer (0 after an answered one). */
+let ORG_REFRESH_MISSES = 0;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not only hourly (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 /** When this board last asked its company (a clock time; 0 before the first ask). */
@@ -22818,8 +22824,14 @@ function orgEnrollRefresh() {
     const askedAt = Date.now();
     ORG_REFRESHED_AT = askedAt;
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
-      // No clear answer: the next ask comes after ORG_REFRESH_RETRY_MS, not the full hour (review 4).
-      if (!(r && r.ok === true) && ORG_REFRESHED_AT === askedAt) ORG_REFRESHED_AT = askedAt - ORG_REFRESH_MS + ORG_REFRESH_RETRY_MS;
+      // No clear answer: the next ask comes sooner than the hour, doubling each time (reviews 4 and 5). Only for the
+      // latest ask: an older one finishing late does not move the clock a newer ask set.
+      if (r && r.ok === true) ORG_REFRESH_MISSES = 0;
+      else if (ORG_REFRESHED_AT === askedAt) {
+        const wait = Math.min(ORG_REFRESH_RETRY_MS * 2 ** ORG_REFRESH_MISSES, ORG_REFRESH_MS);
+        ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
+        ORG_REFRESHED_AT = askedAt - ORG_REFRESH_MS + wait;
+      }
       companyPolicySync();
       return r;
     });

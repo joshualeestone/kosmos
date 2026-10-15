@@ -607,28 +607,28 @@ test('#6232: an enrolled board asks its company hourly, not daily, and a board i
   assert.equal(calls, 0, 'a board in no company asked a company (every board would, hourly)');
 });
 
-test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the hour asks at the next check; a clock set back is due)', (t) => {
+test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the hour asks at the next check; a clock set back is due)', async (t) => {
   const live = require('./engine/live-execution');
   const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
   const realRefresh = oe.refresh;
   let calls = 0;
-  oe.refresh = async () => { calls += 1; };
+  oe.refresh = async () => { calls += 1; return { ok: true, enrolled: true }; };   // answered: the hour applies
   t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const H = 60 * 60 * 1000;
   try {
     const at = Date.now();
-    orgEnrollRefresh();
+    await orgEnrollRefresh();
     assert.equal(calls, 1, 'CONTROL: an enrolled board with live execution did not ask');
-    orgRefreshIfDue(at + H - 60 * 1000);
+    await orgRefreshIfDue(at + H - 60 * 1000);
     assert.equal(calls, 1, 'asked before the hour was up');
-    orgRefreshIfDue(at + 9 * H);   // a laptop that slept for nine hours: the first check after waking asks
+    await orgRefreshIfDue(at + 9 * H);   // a laptop that slept for nine hours: the first check after waking asks
     assert.equal(calls, 2, 'a board whose hour passed (asleep) did not ask at the next check');
-    orgRefreshIfDue(Date.now() + 60 * 1000);
+    await orgRefreshIfDue(Date.now() + 60 * 1000);
     assert.equal(calls, 2, 'asked again a minute after asking');
-    orgRefreshIfDue(Date.now() - 5 * H);   // the clock was set back
+    await orgRefreshIfDue(Date.now() - 5 * H);   // the clock was set back
     assert.equal(calls, 3, 'a clock set back held the ask off');
   } finally { live.resetForTests(); }
 });
@@ -653,11 +653,55 @@ test('#6232 review 4: an ask with no clear answer is asked again after the retry
     assert.equal(calls, 1, 'a failed ask was retried sooner than the retry wait (a refused leave would be resent every check)');
     await orgRefreshIfDue(at + 16 * M);
     assert.equal(calls, 2, 'a failed ask waited the whole hour: a removed member keeps the policy that much longer');
+    // Review 5: a second miss in a row waits twice as long (30 minutes from that ask), so a state that never clears
+    // costs no more than the hourly ask in the end.
+    const at1 = Date.now();
+    await orgRefreshIfDue(at1 + 20 * M);
+    assert.equal(calls, 2, 'a second miss in a row was asked again after 15 minutes: the wait does not grow');
+    await orgRefreshIfDue(at1 + 31 * M);
+    assert.equal(calls, 3, 'a second miss in a row waited longer than 30 minutes');
     answer = { ok: true, enrolled: true };   // answered
     const at2 = Date.now();
     await orgEnrollRefresh();
-    assert.equal(calls, 3, 'CONTROL: the answered ask was not sent');
+    assert.equal(calls, 4, 'CONTROL: the answered ask was not sent');
     await orgRefreshIfDue(at2 + 30 * M);
-    assert.equal(calls, 3, 'an answered ask was asked again before the hour');
+    assert.equal(calls, 4, 'an answered ask was asked again before the hour');
+    // An answered ask starts the misses over: the next miss is retried after 15 minutes again.
+    answer = { ok: false, because: 'not checked' };
+    const at3 = Date.now();
+    await orgEnrollRefresh();
+    await orgRefreshIfDue(at3 + 16 * M);
+    assert.equal(calls, 6, 'after an answered ask the next miss did not start again at 15 minutes');
   } finally { live.resetForTests(); }
+});
+
+test('#6232 review 5: an older ask finishing late without an answer does not move the clock a newer ask set', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  const realNow = Date.now;
+  const pending = [];
+  let calls = 0;
+  // The first two asks wait to be answered by hand; any later one (the one the check must NOT send) answers at once.
+  oe.refresh = () => { calls += 1; if (pending.length >= 2) return Promise.resolve({ ok: true, enrolled: true }); return new Promise((res) => pending.push(res)); };
+  t.after(() => { oe.refresh = realRefresh; Date.now = realNow; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  const T = realNow() + 10 * 60 * M;   // ahead of anything an earlier test recorded
+  try {
+    Date.now = () => T;
+    const first = orgEnrollRefresh();
+    Date.now = () => T + 5 * M;
+    const second = orgEnrollRefresh();
+    assert.equal(calls, 2, 'CONTROL: both asks were not sent');
+    pending[1]({ ok: true, enrolled: true });   // the newer ask is answered
+    await second;
+    pending[0]({ ok: false, because: 'not checked' });   // the older one ends late, with no answer
+    await first;
+    Date.now = realNow;
+    await orgRefreshIfDue(T + 5 * M + 30 * M);
+    assert.equal(calls, 2, 'the older ask\'s miss moved the clock the newer, answered ask set');
+  } finally { Date.now = realNow; live.resetForTests(); }
 });
