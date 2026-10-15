@@ -308,3 +308,19 @@ test('#6239: with the person\'s switch OFF the policy still reads as the policy,
     assert.equal(communitysend.switchState(), 'off', 'CONTROL');
   } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
 });
+
+test('#6239: an agent act that meets the policy ends the ON period at once, not at the next sweep (round 8)', () => {
+  const stateFile = communitysend._paths.stateFile();
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  const since = new Date().toISOString();
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    apply(OPEN);
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+    communitysend.willSend('Scout', Date.now(), 'post');
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'CONTROL: allowed, the period stays');
+    apply(STOP);
+    assert.equal(communitysend.willSend('Scout', Date.now(), 'post').why, 'policy');
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the period outlived a refused act');
+  } finally { communitysend.setSwitch(null); apply(OPEN); }
+});

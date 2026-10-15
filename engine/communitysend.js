@@ -278,6 +278,12 @@ function contactWords() {
 function reportPolicyRefusal(agentKey) {
   try { require('./agentevents').recordRefusal({ agent: agentKey, rule: 'outside-contact' }); } catch { /* not reported */ }
 }
+/* Round 8: an agent's act meeting the policy also ends the ON period at once, as turning Community OFF does
+   (endOnPeriodNow), so nothing it makes before the next sweep can go out if the policy lifts in between. */
+function policyRefused(agentKey) {
+  reportPolicyRefusal(agentKey);
+  try { endOnPeriodNow(); } catch { /* the next sweep ends it */ }
+}
 const loggedOnce = new Set();
 function logOnce(key, line) { if (!loggedOnce.has(key)) { loggedOnce.add(key); console.error(line); } }
 function switchFileName() { try { return require('./communityswitch').FILE; } catch { return 'community.json'; } }
@@ -2034,7 +2040,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
   const sw = switchState();
-  if (sw === 'policy') reportPolicyRefusal(agentKey);
+  if (sw === 'policy') policyRefused(agentKey);
   if (sw !== 'on') return local(notOnWords(sw));
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
@@ -2467,7 +2473,7 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // Review 7: its own reason and words (not the person's choice, and not a send record either). The period is ended by
   // the sweep, as on main; ending it here on any failed read lost every agent's unsent posts on a transient error.
   if (sw === 'unreadable') return no('switch');
-  if (sw === 'policy') { reportPolicyRefusal(agentKey); return no('policy'); }
+  if (sw === 'policy') { policyRefused(agentKey); return no('policy'); }
   if (sw === 'policy_unreadable') return no('policy_unreadable');
   if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');

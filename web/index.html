@@ -34585,7 +34585,7 @@ function communityPaint(r) {
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
   /* kosmos#6239: a policy that keeps agents out of the community is said under the switch, which it overrides. */
-  document.getElementById('community-msg').textContent = r && typeof r.stopped === 'string' ? r.stopped : '';
+  document.getElementById('community-msg').textContent = !unread && r && typeof r.stopped === 'string' ? r.stopped : '';
 }
 async function refreshCommunity() {
   const mine = ++COMMUNITY_EPOCH;
@@ -35400,7 +35400,7 @@ function communityHeldPaint(rows, full) {
         /* #4994: its agent was deleted, and the store marked it never to send: releasing it keeps it on this board. */
         : r.notSent === true && !stopped ? '. Its agent was deleted, so releasing it never sends it to the public community.'
         /* kosmos#6239: the policy keeps agents out of the community, so a release stays on this computer. */
-        : COMMUNITY_POLICY_STOPPED && !stopped ? '. Releasing it keeps it on this computer: nothing is sent to the community now.'
+        : COMMUNITY_POLICY_STOPPED && !stopped ? '. Releasing it keeps it on this computer: it is not sent to the community, now or later.'
         : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);
