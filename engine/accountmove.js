@@ -118,9 +118,10 @@ function view(m) {
  * #6214: readAccount(name) -> the account folder the agent's job is saved on now (null: the default account; throws
  * when it cannot be read), and putBack(name, dir) -> create.restoreAccount's answer. Both only for a stop (`stop` below):
  * without readAccount, a stop cannot put an agent back and says so.
- * #6231: leftOnOld(name), optional: an agent left saved on the new account while it still runs on its old one (its
- * put-back failed, or the move ended before it reached it) is noted as running on its old account (#6174's note), as a
- * restart that came back partial is. Never throws into the move.
+ * #6231: leftOnOld(name), optional: an agent left saved on another account while it still runs on its old one (its
+ * put-back failed or threw, a person changed it by hand to a third account during the move, the move ended before it
+ * reached it, or the move's hold failed) is noted as running on its old account (#6174's note), as a restart that came
+ * back partial is. Never throws into the move.
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
 function start(body, deps) {
@@ -285,10 +286,10 @@ function putBack(m, a) {
     if (now !== a.from.dir) leftOnOld(deps, a.name);
     return;
   }
-  /* Linux (#6231): putBack rewrites the unit file and nothing reloads systemd until a restart, as the move's own write
-     does not either. If something else reloads systemd during the move and this agent then crashes and respawns, it
-     comes up on the new account although this says it stays on the old one; that needs a crash during the move. A Mac
-     keeps the definition launchd loaded until the agent's own restart. */
+  /* Linux (#6231): the move's own restarts reload systemd (each runs daemon-reload), which also loads every held agent's
+     rewritten unit, so in a move of two or more agents a held agent that crashes and respawns before its put-back comes
+     up on the new account although this says it stays on the old one. That needs a crash during the move. A Mac keeps
+     the definition launchd loaded until the agent's own restart. */
   let back;
   try { back = deps.putBack(a.name, a.from.dir); }
   catch (err) { failed(String((err && err.message) || err)); return; }

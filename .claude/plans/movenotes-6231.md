@@ -45,6 +45,17 @@ end, web/index.html engineRestartClick), so a later #6214 round can mean a rebas
   change restarted it, the board's time bound clears the note. The rare "put-back threw" fallback notes too.
 - The board's note is skipped when the agent's note changed while its session was read (a later move's own note wins).
 
+## Review 3
+- engine/accountmove-6173.test.js pinned the route's setAccount line exactly and went red when savedAt was added; its
+  pin now allows the save time between the read and the write, and still requires the read first. Lesson recorded:
+  every test naming the touched lines is now run (sweep: 14 files, 313/313), not only #6214's suites.
+- The branch's web/ change carries a Browser-check trailer (the #1720 gate would refuse it once #6214's own check
+  files are no longer in the range after the rebase); the change is a press guard on a timer, driven by
+  web.movesaid-6231.test.js, with no rendered surface changed.
+- A put-back that throws past its own guard (stop()'s fallback) is tested; the race test waits on the session read.
+- Left as is: an agent whose job could not be read is recorded as from the default account (moveFromDir), so a note
+  for it can be hidden by #6174's "moved back" rule; that under-marks, the safe side, as #6174 already does.
+
 ## Weakest premise
 That a session which started before the move saved the new account still runs on the old account. True unless the
 process restarted inside the same tmux session onto the new account, which #6174's note already accepts as an
