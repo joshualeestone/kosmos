@@ -101,6 +101,19 @@ test('#6239: the commands that look after an agent still go in quiet hours', asy
     const v = await chat.deliverAsync('casey', '/pplan homework', board.agents);
     assert.equal(v.quiet, true, 'CONTROL: a skill is work, and is held back');
   });
+  // kosmos#6244: a look-after command with words carries them to the agent, so only the bare command goes.
+  for (const cmd of ['/compact do the homework for me', '/status please start working', '/clear  then write my essay']) {
+    await idleCasey(async (board, calls) => {
+      const v = await chat.deliverAsync('casey', cmd, board.agents);
+      assert.equal(v.quiet, true, cmd + ' got through: ' + JSON.stringify(v));
+      assert.equal(calls.typed().length, 0, cmd + ' was typed');
+    });
+  }
+  await idleCasey(async (board, calls) => {
+    const v = await chat.deliverAsync('casey', '/COMPACT', board.agents);
+    assert.notEqual(v.quiet, true, 'CONTROL: a bare command in any case still goes');
+    assert.ok(calls.typed().length > 0);
+  });
 });
 
 test('#6239: the person\'s Start and Restart are refused in quiet hours; the board\'s own restarts are not', () => {
