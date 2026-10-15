@@ -213,6 +213,10 @@ const SEAMS_5548 = {
   // #5805 slice 3: forgets every first-seen time of a dateless usage-limit line, so each test in
   // engine/limituntil-5805.test.js (and slice 3b's) starts clean. Production never clears them.
   resetLimitFirstSeenForTests: 'engine/status.js',
+  // #6249: the colour capture of the input box (engine/status.unsent-6249.test.js answers it with real screens) and
+  // the reset of each agent's first-seen unsent text. Production captures with tmux and never clears the record.
+  setAnsiCapture: 'engine/status.js',
+  resetUnsentForTests: 'engine/status.js',
   // #5805 slice 2a: whether a kept message is being typed this moment, or was typed and its removal failed, so
   // engine/limitmsg-5805.test.js can see the claim and the done record; the sweep and Send now anyway read the sets
   // themselves (claimedNow / done), never these.
