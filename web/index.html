@@ -27620,26 +27620,33 @@ function offerStopMove(afterEl, sayEl) {
   b.type = 'button';
   b.setAttribute('data-stop-move-offer', '');
   b.textContent = 'Stop the move';
+  /* #6231: how a stop that worked is said here, whichever stop it was (this one, or the row's in Settings). */
+  b.stopped = (out) => {
+    if (sayEl) { sayEl.hidden = false; sayEl.setAttribute('data-stop-move-said', ''); }   // un-hidden; and a repaint waiting on it gives it a period
+    b.remove();
+    if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
+      + '. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.';
+  };
   b.addEventListener('click', async () => {
     b.disabled = true; b.textContent = 'Stopping…';
+    const seen = ACCT_STOP_OK;
     const out = await stopAccountMove();
-    if (sayEl) { sayEl.hidden = false; sayEl.setAttribute('data-stop-move-said', ''); }   // un-hidden; and a repaint waiting on it gives it a period
     if (out.ok) {
+      ACCT_STOP_OK++;
       /* #6231: the row in Settings, if a move is drawn there, says stopping too. */
       acctMarkStopping(true);
       for (const rb of document.querySelectorAll('[data-acct-move-stop]')) { rb.disabled = true; acctStopLabel(rb, true); }
-      b.remove();
-      if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
-        + '. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.';
+      b.stopped(out);
+    } else if (ACCT_STOP_OK !== seen) {
+      b.remove();   // #6231: another stop worked meanwhile, and said so
     } else {
+      if (sayEl) { sayEl.hidden = false; sayEl.setAttribute('data-stop-move-said', ''); }
       b.disabled = false; b.textContent = 'Stop the move';
       if (sayEl) sayEl.textContent = out.said;
     }
   });
   afterEl.parentNode.insertBefore(b, afterEl.nextSibling);
 }
-/* #6214: the moving row's Stop the move. The move's own read reports how it ended, in the row's sentence; only a
-   refusal is said here. */
 /* #6231: the stop button's name says which move: a screen reader hears it on its own, away from the Move button. It
    keeps the visible words at its start, so a voice command that says them still finds it; while stopping, the visible
    "Stopping…" is the name. */
@@ -27648,9 +27655,11 @@ function acctStopLabel(b, stopping) {
   b.textContent = stopping ? 'Stopping…' : 'Stop the move';
   if (stopping) b.removeAttribute('aria-label'); else b.setAttribute('aria-label', ACCT_STOP_NAME);
 }
+/* #6231: how many stops have worked on this page. A stop refused while another one worked (two pressed at once, from
+   the row and beside a refused restart) is about a move that IS stopping, so it must not put the row back. */
+let ACCT_STOP_OK = 0;
 /* #6231: once a stop is pressed the row's Move button drops its count, which would jump ahead as the put-back agents
-   count as finished; the stop button beside it says Stopping. A refused stop puts the count back. */
-/* #6231: mark every running move as stopping (or not), and redraw its Move button's words to match. Used by both the
+   count as finished; the stop button beside it says Stopping. A refused stop puts the count back. Used by both the
    row's stop and the stop offered beside a refused board restart, since either stops the same move. */
 function acctMarkStopping(on) {
   /* Only a move the board has: one still being checked before it is sent is not the move a stop stopped. */
@@ -27672,11 +27681,20 @@ function acctMoveCountShow() {
     if (b) b.textContent = (!st.stopping && st.progress) || 'Moving…';
   }
 }
+/* #6214: the moving row's Stop the move. The move's own read reports how it ended, in the row's sentence; only a
+   refusal is said here. */
 async function acctStopClick(stopBtn) {
   acctMarkStopping(true);   // a repaint draws it as stopping
   stopBtn.disabled = true; acctStopLabel(stopBtn, true);
+  const seen = ACCT_STOP_OK;
   const out = await stopAccountMove();
-  if (out.ok) { clearStopMoveOffers(); return; }   // #6231: an offer beside a refused restart would send a second stop
+  if (out.ok) {
+    ACCT_STOP_OK++;
+    /* #6231: an offer beside a refused restart answers as if it had been pressed, so it cannot send a second stop. */
+    for (const o of document.querySelectorAll('[data-stop-move-offer]')) { if (typeof o.stopped === 'function') o.stopped(out); else o.remove(); }
+    return;
+  }
+  if (ACCT_STOP_OK !== seen) return;   // #6231: another stop worked meanwhile; the move is stopping
   acctMarkStopping(false);
   /* The row may have been repainted while the request was out: put back whichever stop button is drawn now. */
   for (const b of document.querySelectorAll('[data-acct-move-stop]')) { b.disabled = false; acctStopLabel(b, false); }

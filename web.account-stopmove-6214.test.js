@@ -72,7 +72,7 @@ function load(answers, LAST = []) {
     querySelector: (q) => (q === '[data-acct-move="/acct/old"]' ? rowMove : null) };
   const CSS = { escape: (x) => x };
   // eslint-disable-next-line no-new-func
-  const fns = new Function('fetch', 'document', 'LAST', 'ACCT_MOVE', 'CSS', 'ACCT_STOP_NAME', `${SOURCE}\nreturn { stopAccountMove, offerStopMove };`)(
+  const fns = new Function('fetch', 'document', 'LAST', 'ACCT_MOVE', 'CSS', 'ACCT_STOP_NAME', `let ACCT_STOP_OK = 0;\n${SOURCE}\nreturn { stopAccountMove, offerStopMove, okCount: () => ACCT_STOP_OK };`)(
     fetch, document, LAST, ACCT_MOVE, CSS, 'Stop the move to another account');
   return { ...fns, asked, ACCT_MOVE, rowMove, rowStop };
 }
@@ -231,15 +231,16 @@ test('#6214: the row\'s stop marks the move as stopping; a refusal puts the butt
     const panel = { textContent: 'before' };
     const moveBtn = el('button'); moveBtn.textContent = 'Moving 1 of 3…';
     ACCT_MOVE.get('/acct/old').progress = 'Moving 1 of 3…';
-    const document = { querySelectorAll: () => [drawn], querySelector: (q) => (q === '[data-acct-move="/acct/old"]' ? moveBtn : null),
+    const document = { querySelectorAll: (q) => (q === '[data-stop-move-offer]' ? [offer] : [drawn]), querySelector: (q) => (q === '[data-acct-move="/acct/old"]' ? moveBtn : null),
       getElementById: (id) => (id === 'set-accounts-msg' ? panel : null) };
     const CSS = { escape: (x) => x };
     const ACCT_STOP_NAME = 'Stop the move to another account';
     const later = [];
-    const fake = { setTimeout: (fn) => later.push(fn), acctCancelSay: () => {}, stopAccountMove: async () => answer, clearStopMoveOffers: () => { cleared++; } };
+    const offer = el('button'); offer.setAttribute('data-stop-move-offer', ''); offer.stopped = (o) => { cleared++; offer.said = o; };
+    const fake = { setTimeout: (fn) => later.push(fn), acctCancelSay: () => {}, stopAccountMove: async () => answer };
     // eslint-disable-next-line no-new-func
-    const click = new Function('ACCT_MOVE', 'document', 'setTimeout', 'acctCancelSay', 'stopAccountMove', 'CSS', 'ACCT_STOP_NAME', 'clearStopMoveOffers', `${SRC}\nreturn acctStopClick;`)(
-      ACCT_MOVE, document, fake.setTimeout, fake.acctCancelSay, fake.stopAccountMove, CSS, ACCT_STOP_NAME, fake.clearStopMoveOffers);
+    const click = new Function('ACCT_MOVE', 'document', 'setTimeout', 'acctCancelSay', 'stopAccountMove', 'CSS', 'ACCT_STOP_NAME', `let ACCT_STOP_OK = 0;\n${SRC}\nreturn acctStopClick;`)(
+      ACCT_MOVE, document, fake.setTimeout, fake.acctCancelSay, fake.stopAccountMove, CSS, ACCT_STOP_NAME);
     const pressed = el('button');
     const p = click(pressed);
     assert.equal(pressed.disabled, true); assert.equal(pressed.textContent, 'Stopping…');
@@ -249,12 +250,13 @@ test('#6214: the row\'s stop marks the move as stopping; a refusal puts the butt
     assert.equal(ACCT_MOVE.get('/acct/idle').stopping, undefined, 'a row that is not moving is not marked');
     await p;
     later.forEach((fn) => fn());
-    return { ACCT_MOVE, drawn, panel, moveBtn };
+    return { ACCT_MOVE, drawn, panel, moveBtn, offer };
   };
   let r = await run({ ok: true, said: '', waitingFor: 'al' });
   assert.equal(r.ACCT_MOVE.get('/acct/old').stopping, true, 'a stop that worked stays stopping until the move ends');
   assert.equal(r.panel.textContent, 'before', 'the row\'s own sentence reports the end, nothing is said here');
   assert.equal(cleared, 1, '#6231: a stop that worked leaves an offer beside a refused restart, which would send a second stop');
+  assert.equal(r.offer.said.waitingFor, 'al', '#6231: the offer is not answered with the stop that worked');
   r = await run({ ok: false, said: 'No account move is running.' });
   assert.equal(r.ACCT_MOVE.get('/acct/old').stopping, false);
   assert.equal(r.drawn.disabled, false); assert.equal(r.drawn.textContent, 'Stop the move', 'the button drawn now is put back');
@@ -266,20 +268,22 @@ test('#6214: the row\'s stop marks the move as stopping; a refusal puts the butt
 test('#6231: two agents put back for the same reason keep "They"; a different reason keeps the engine\'s words', async () => {
   const MOVE = page.lift(SCRIPT, 'moveAccountAgents');
   const answers = [
-    { status: 202, body: { id: 'm8', done: false, agents: ['al', 'bo', 'cy'].map((name) => ({ name, outcome: 'pending' })) } },
+    { status: 202, body: { id: 'm8', done: false, agents: ['al', 'bo', 'cy', 'di'].map((name) => ({ name, outcome: 'pending' })) } },
     { status: 200, body: { id: 'm8', done: true, stopped: true, agents: [
       { name: 'al', outcome: 'stopped', because: 'you stopped the move before their turn. They stay on old@example.com.' },
       { name: 'bo', outcome: 'stopped', because: 'you stopped the move before their turn. They stay on old@example.com.' },
       { name: 'cy', outcome: 'refused', because: 'their old account is signed out. They stay on new.' },
+      { name: 'di', outcome: 'stopped', because: 'you stopped the move before their turn. They stay on their old account.' },
     ] } },
   ];
   const fetch = async () => { const a = answers.shift(); return { ok: a.status < 300, status: a.status, json: async () => a.body }; };
   const fast = (fn, ms) => setTimeout(fn, ms >= 10e3 ? ms : 0);
   // eslint-disable-next-line no-new-func
   const move = new Function('fetch', 'LAST', 'setTimeout', `${MOVE}\nreturn moveAccountAgents;`)(fetch, CARDS, fast);
-  const note = await move('/acct/old', '/acct/new', ['al', 'bo', 'cy'], null, new Set());
+  const note = await move('/acct/old', '/acct/new', ['al', 'bo', 'cy', 'di'], null, new Set());
   assert.equal(note, 'Not moved (Al, Bo): you stopped the move before their turn. They stay on old@example.com. '
-    + 'Not moved (Cy): their old account is signed out. They stay on new.');
+    + 'Not moved (Cy): their old account is signed out. They stay on new. '
+    + 'Not moved (Di): you stopped the move before its turn. It stays on its old account.');
 });
 
 test('#6231: a stop pressed beside a refused restart marks the Settings row as stopping too; a refused one leaves it', async () => {
@@ -314,4 +318,28 @@ test('#6231: the inserted stop takes focus only when focus has not gone elsewher
   assert.equal(takes(null, null, C), true);
   assert.equal(takes(other, btn, C), false, 'the person tabbed or clicked into another control');
   assert.equal(takes(body, other, C), false, 'focus was elsewhere at the press');
+});
+
+test('#6231: a stop refused while another stop worked leaves the move stopping', async () => {
+  /* The row's stop and the restart offer's stop pressed together: the offer's works, then the row's is refused. */
+  let releaseRow;
+  const answers = [{ status: 200, body: { id: 'm1', stopped: true, waitingFor: '', agents: [] } }];
+  const f = load(answers);
+  const p = parent(); const said = p.append(el('p'));
+  f.offerStopMove(said, said);
+  const SRC = page.liftAll(SCRIPT, ['acctStopLabel', 'acctMarkStopping', 'acctMoveCountShow', 'acctStopClick']);
+  // eslint-disable-next-line no-new-func
+  const make = new Function('ACCT_MOVE', 'document', 'setTimeout', 'acctCancelSay', 'stopAccountMove', 'CSS', 'ACCT_STOP_NAME', 'counter',
+    `let ACCT_STOP_OK = 0;\n${SRC.replace(/ACCT_STOP_OK\+\+;?/g, 'counter.n++;').replace(/ACCT_STOP_OK/g, 'counter.n')}\nreturn acctStopClick;`);
+  const counter = { n: 0 };
+  const panel = { textContent: 'before' };
+  const document = { querySelectorAll: () => [f.rowStop], querySelector: () => f.rowMove, getElementById: () => panel };
+  const click = make(f.ACCT_MOVE, document, () => {}, () => {}, () => new Promise((r) => { releaseRow = r; }), { escape: (x) => x }, 'Stop the move to another account', counter);
+  const pending = click(f.rowStop);
+  counter.n++;   // the offer's stop worked while the row's was out
+  releaseRow({ ok: false, said: 'No account move is running.' });
+  await pending;
+  assert.equal(f.ACCT_MOVE.get('/acct/old').stopping, true, 'a refused second stop put a stopping move back');
+  assert.equal(f.rowStop.disabled, true, 'a refused second stop re-enabled the row\'s stop');
+  assert.equal(panel.textContent, 'before', 'a refused second stop said no move is running over a move that is stopping');
 });
