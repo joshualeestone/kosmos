@@ -53,12 +53,12 @@ const SECTIONS = Object.freeze({
 });
 
 /* kosmos#6263 board review 3: the policy section by the headings this Kosmos's blocks carry (engine/policy.js
-   headingsHere), so a family's agent is sent to the family's headings or "Your AI policy", not to the company's; its
-   file has one of the headings named (or ...). */
+   headingsHere), so a family's agent is sent to the family's headings or "Your AI policy", not to the company's. The
+   agent's file carries one of the headings the line names. */
 function policySection() {
   let names;
   try { names = require('./policy').headingsHere(); } catch { return SECTIONS.policy; }
-  if (names.length < 2) return SECTIONS.policy;
+  if (names.length < 2) return SECTIONS.policy;   // defensive: every kind has four headings today (kosmos#6270)
   const q = names.map((n) => `"${n}"`);
   const rest = q.slice(1);
   const tail = rest.length === 1 ? rest[0] : rest.slice(0, -1).join(', ') + ' or ' + rest[rest.length - 1];
