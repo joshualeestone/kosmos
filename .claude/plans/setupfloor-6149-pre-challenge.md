@@ -2,29 +2,35 @@
 pre_challenge: true
 method: challenge-loop
 branch: setupfloor-6149
-diff_hash: d94b13631ea0216dbdfca7f71d5dc6088b58df826c96dc1f654932322af3a70d
+diff_hash: ea950a013aeec8990802523346b9d7b972ce6162c0fc1166fe5c4dd2e3c3e662
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-15T03:27:44Z
-iterations: 32
+timestamp: 2026-10-15T08:30:50Z
+iterations: 45
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 32
-**Converged:** Yes (iteration 32, sonnet: NITs only)
+**Iterations:** 45
+**Converged:** Yes (iteration 45, opus: NITs only; two applied, test and plan wording only)
 **Fixed:** every BLOCKER, WARNING and CONVENTION across the 32 rounds | **Deferred:** 0 | **Asked:** 0
 Each round's findings, the fix, and its reason are in that round's commit message ("address challenge-loop iteration N
 findings") and in .claude/plans/setupfloor-6149.md (Decided, Known limits).
 
-Validation: Mortals full suite on 8bc9007f75 (this diff, rebased onto main c2442f7b1c), clean: 20660 tests, 0 failed,
-0 cancelled. Mortals hashed with ids at 9 (d55a8feb37e3); mortals-validate's ladder matched it to this diff (local
-d94b13631ea0), and run_or_skip matched it. Main has since gained only #6198 (no shared file).
+Validation: Mortals full suite on d051749544 (this diff), clean: 20664 tests, 0 failed, 0 cancelled. Mortals hashed with
+ids at 9 (4bb331baaa7c); mortals-validate's ladder matched it to this diff (local ea950a013aee), and run_or_skip matched
+it. No file this branch changes was touched by the 71 commits main gained since its base.
 
 DISCLOSED: the FIRST Mortals validation (97ec10391, 18:46) FAILED, 20623 tests, 17 failed, all in
 tools.release-gate.test.js: its sandboxes cut 0.6.x on purpose and step 1a-floor refused them. I had not run that file
 by hand. Fixed in 6bb828de25 and later rounds; every test that runs release.sh was then found and run before re-validating.
+
+
+DISCLOSED, the second: rounds 33 to 45 came AFTER Ice Cream Kitty approved #6200 (she reviewed 33b8da5adf). Her own
+warning (the test knob skipped the installer check) is what round 33 onward was verifying; she re-checked that fix and
+had nothing further. The later rounds changed the library (no grep; positive answers; a non-comment marker; present
+but unreadable files refused) and the doc's repair section, which she has not re-read.
 
 ### Per-Iteration Breakdown (the shape of each round; detail in the commit messages)
 
@@ -56,12 +62,25 @@ by hand. Fixed in 6bb828de25 and later rounds; every test that runs release.sh w
   every tool under LC_ALL=C, arms under both locales (mutant-proven)
 - [WARNING] several comments stated the wrong mechanism (pinned cuts; the strip's reason) --> FIXED
 
-#### Iteration 32
+#### Iterations 33 to 45 (after the first proof; rotating opus, sonnet, haiku)
+- [WARNING] (Kitty) the test knob also skipped the installer check --> FIXED: the knob lowers only the version floor
+- [WARNING] GREP_OPTIONS=-v made the marker check pass an old installer (measured to reach vercel) --> FIXED: no grep
+- [WARNING] an exported awk function / a silent tool passed old pointers --> FIXED: every check needs a positive answer
+- [WARNING] a marker only in a comment passed --> FIXED: non-comment line (trailing comments are a stated limit)
+- [WARNING] recovery advice that did not work if followed (four rounds) --> FIXED: one repair rule, measured on the real
+  site, run end to end by arms 40 and 41 (--promote and --publish)
+- [WARNING] step 1a-floor's main path and its untouched-pair check never ran on real files --> FIXED: release-gate arms
+  on a plain site and on a real clone of a bare origin
+- [WARNING] a read failure counted as an absent file --> FIXED: git cat-file -e; unreadable refuses
+- Iteration 45 (opus): NITs only. Converged.
+
+#### Iteration 32 (the first convergence)
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKER/WARNING (NITs: a duplicated awk compare; the installer grep not under LC_ALL=C, measured
 harmless; an unbacked plan line, removed; rebase before merge, done). Converged.
 
 ### Decided follow-ups (NITs, not fixed here)
+The absent-file skip trusts a negative answer (cat-file -e, [ -f ]); harmless today, the export check is the authority.
 deploy-site's early pointer check could run before its network probes; a [ -f ] guard before sourcing the lib in
 deploy-site; one shared helper for the two numeric compares; a step label so a versions-entry lib load failure logs as
 step 1, not 1a-floor.
