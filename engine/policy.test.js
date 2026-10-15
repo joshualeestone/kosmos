@@ -198,6 +198,11 @@ test('#6273 a stored migrated entry named "Company AI policy" reads as "AI polic
     assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).version, 3);
     assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a rename the person made was reverted on read');
 
+    // Review 2: a record from a LATER build (version 4) is never treated as older than this one.
+    plant([p1, legal]);
+    const v4 = JSON.parse(fs.readFileSync(policy.FILE, 'utf8')); v4.version = 4; fs.writeFileSync(policy.FILE, JSON.stringify(v4));
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a newer build\'s record was renamed as if it were old');
+
     // CONTROL: an entry the person named "Company AI policy" has a random id, and keeps its name.
     plant([{ ...legal, id: 'def456', name: 'Company AI policy' }, legal]);
     assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a name the person chose was rewritten');

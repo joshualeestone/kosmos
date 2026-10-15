@@ -178,7 +178,7 @@ function read() {
      record written before #6273 (review 1: once a version-3 record holds it, the person chose it, so a rename back to
      it sticks). An entry the person named themselves has a random id. Kept when another entry already wears
      MIGRATED_NAME, so no two collide. */
-  const old = rec.version !== RECORD_VERSION && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+  const old = !(Number(rec.version) >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
   if (old && !policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }

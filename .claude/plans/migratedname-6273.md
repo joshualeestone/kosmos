@@ -36,6 +36,9 @@ needs the pre-#685 record, then a rename to that exact string, both before this 
 neutral name, and a rename back then sticks.
 
 ## Not done
+- A downgrade to an older build that then saves writes version 2 again; back on this build, a p1 the person had renamed
+  to "Company AI policy" is renamed to "AI policy" once more (review 2). Accepted: it needs a downgrade plus a save,
+  happens once, and a rename back then sticks.
 - If another entry already wears "AI policy", the migrated entry keeps "Company AI policy" (the case the card is about,
   only in that rare combination). Not renamed to "AI policy (2)": inventing names is worse than keeping one.
 
@@ -53,6 +56,6 @@ random id untouched, no rename when "AI policy" is taken), plus the company fall
 
 MEASURED: the #6273 and migration tests 3/3; both policy test files 15/15; the 13 test files that touch the policy name,
 read or re-read 364/364. Mutants: no rename on read (2 red), any id renamed (control red), no collision guard (red), no version guard (the
-rename-back arm red, review 1).
+rename-back arm red, review 1). Review 2: a version-4 record is not treated as old (arm added).
 Mutant "new migrations named DEFAULT_NAME" survives and is EQUIVALENT: a v1 record migrates with id p1 as its only entry,
 so rename on read fixes it either way.
