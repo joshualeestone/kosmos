@@ -46,10 +46,16 @@ const PHONE_APP_CAN_RECEIVE = true;
 let available = PHONE_APP_CAN_RECEIVE;
 function setAvailableForTests(on) { available = on === true; }
 
-// What a phone hears about: an agent needing the person, or answering them.
-// Room posts would buzz constantly and are not sent (the coordinator accepts
-// 'posted' too; this is the board's choice).
-const KINDS = new Set(['needs_you', 'replied']);
+// What a phone hears about. #6254: `posted` (a room post that names the person,
+// or any other room post when the person opts in) and `ready` (work waiting for
+// their check, from `kosmos task built`) join the two originals. The coordinator
+// accepts all of these; what the board sends is gated per kind below.
+const KINDS = new Set(['needs_you', 'replied', 'posted', 'ready']);
+// #6254: one switch per kind, under the master `on`. Each reads as ITS OWN
+// default when the setting is missing or unreadable, never all-on (and the
+// master is still off by default on top). `postedRoom` (any other room post) is
+// the only default-off one; a busy room is opt-in and coalesced (below).
+const KIND_DEFAULTS = { needsYou: true, replied: true, postedMention: true, ready: true, postedRoom: false };
 // The coordinator mints "knt1_" + random ids; anything else is not a token and
 // is refused before it is stored or put in a header.
 const TOKEN_SHAPE = /^knt1_[A-Za-z0-9_-]{8,200}$/;
@@ -65,6 +71,14 @@ const CAPS = { id: 120, agent: 80, session: 80, project: 120 };
 // At most one needs_you buzz per agent per this long: permission prompts file a
 // needs_you each, and a busy session would otherwise buzz on every one.
 const NEEDS_YOU_COOLDOWN_MS = 5 * 60 * 1000;
+// #6254: per-agent cooldown for `ready` (a task built) and a names-you `posted`,
+// the same shape as needs_you. `replied` keeps NO cooldown (the DM route is
+// unchanged). `postedRoom` is per-ROOM: at most one buzz per room per 10 minutes,
+// so a busy opted-in room cannot flood the phone.
+const READY_COOLDOWN_MS = 5 * 60 * 1000;
+const POSTED_MENTION_COOLDOWN_MS = 5 * 60 * 1000;
+const POSTED_ROOM_COOLDOWN_MS = 10 * 60 * 1000;
+const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry older than this has expired for every class
 
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
 
@@ -75,17 +89,47 @@ function coordinatorUrl(route) {
   return new URL(base.pathname.replace(/\/+$/, '') + route, base).toString();
 }
 
-/** { on, notifyId, token }. Missing file: off. Unreadable, unparseable or not a
-    plain object: off. Only an explicit `on: true` is on. */
+/** #6254: each per-kind switch, resolved to ITS OWN default when the stored
+    `kinds` object is missing or the value is not a boolean. An unreadable file
+    yields all defaults; the master `on` gates them on top, so a corrupt file is
+    never all-on. */
+function resolveKinds(raw) {
+  const k = (raw && typeof raw === 'object' && raw.kinds && typeof raw.kinds === 'object' && !Array.isArray(raw.kinds)) ? raw.kinds : {};
+  const out = {};
+  for (const name of Object.keys(KIND_DEFAULTS)) {
+    out[name] = KIND_DEFAULTS[name] ? k[name] !== false : k[name] === true;
+  }
+  return out;
+}
+
+/** { on, notifyId, token, kinds }. Missing file: off. Unreadable, unparseable or
+    not a plain object: off, with all per-kind switches at their defaults. Only an
+    explicit `on: true` is on. */
 function readState() {
   let parsed;
-  try { parsed = JSON.parse(fs.readFileSync(file(), 'utf8')); } catch { return { on: false, notifyId: null, token: null }; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, notifyId: null, token: null };
+  try { parsed = JSON.parse(fs.readFileSync(file(), 'utf8')); } catch { return { on: false, notifyId: null, token: null, kinds: resolveKinds(null) }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, notifyId: null, token: null, kinds: resolveKinds(null) };
   return {
     on: parsed.on === true,
     notifyId: typeof parsed.notifyId === 'string' ? parsed.notifyId : null,
     token: typeof parsed.token === 'string' && TOKEN_SHAPE.test(parsed.token) ? parsed.token : null,
+    kinds: resolveKinds(parsed),
   };
+}
+
+/** The per-kind switches exactly as stored (booleans only, not resolved to
+    defaults), so a write preserves the ones the person set and leaves the rest
+    implicit at their defaults. */
+function storedKinds() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file(), 'utf8'));
+    if (parsed && typeof parsed === 'object' && parsed.kinds && typeof parsed.kinds === 'object' && !Array.isArray(parsed.kinds)) {
+      const out = {};
+      for (const name of Object.keys(KIND_DEFAULTS)) if (typeof parsed.kinds[name] === 'boolean') out[name] = parsed.kinds[name];
+      return out;
+    }
+  } catch { /* none */ }
+  return {};
 }
 
 function writeState(next) {
@@ -106,9 +150,9 @@ function writeState(next) {
 /** What the Settings screen shows. Never the token. While the ship gate is
     closed it is off and unavailable, whatever the file says. */
 function status() {
-  if (!available) return { available: false, on: false, connected: remote.enrolled() };
+  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds };
   const s = readState();
-  return { available: true, on: s.on, connected: remote.enrolled() };
+  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds };
 }
 
 /** Turn phone notifications on: mint a fresh notify token (minting replaces
@@ -140,7 +184,7 @@ async function doTurnOn() {
   }
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, because: 'Kosmos+ answered in a shape we could not use' };
-  return writeState({ on: true, notifyId, token });
+  return writeState({ on: true, notifyId, token, kinds: storedKinds() });
 }
 
 /** Turn them off. Nothing is sent while off. The token is kept on disk (it can
@@ -149,7 +193,18 @@ async function doTurnOn() {
 async function turnOff() {
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
-  return writeState({ on: false, notifyId: s.notifyId, token: s.token });
+  return writeState({ on: false, notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
+}
+
+/** #6254: set one per-kind sub-switch (the Settings toggles under the master).
+    An unknown kind name is refused. Preserves the master `on`, the token and
+    notifyId, and the other kinds' stored values. */
+function setKind(name, on) {
+  if (!Object.prototype.hasOwnProperty.call(KIND_DEFAULTS, name)) return { ok: false, because: 'unknown notification kind' };
+  const s = readState();
+  const k = storedKinds();
+  k[name] = on === true;
+  return writeState({ on: s.on, notifyId: s.notifyId, token: s.token, kinds: k });
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
@@ -184,7 +239,26 @@ let sender = null;
 function setSender(fn) { sender = typeof fn === 'function' ? fn : null; }
 let clock = () => Date.now();
 function setClock(fn) { clock = typeof fn === 'function' ? fn : () => Date.now(); }
-const lastNeedsYou = new Map();   // session -> when its last needs_you was sent
+const lastSent = new Map();   // "<cooldownClass>:<key>" -> when it last buzzed
+
+/** #6254: which master-kind sub-switch gates an event, and its cooldown (a
+    class + key + window, or no cooldown). `posted` splits by `namesPerson`, a
+    board-side flag the room-post send site sets (it is NOT part of the payload
+    the coordinator sees); a names-you post is per-agent, any other room post is
+    per-ROOM so a busy opted-in room buzzes at most once per window. `replied`
+    keeps no cooldown (the DM route is unchanged). */
+function routeFor(event) {
+  const agentKey = String(event.session || event.agent || '');
+  switch (event.kind) {
+    case 'needs_you': return { sw: 'needsYou', cls: 'needs_you', key: agentKey, ms: NEEDS_YOU_COOLDOWN_MS };
+    case 'replied': return { sw: 'replied', cls: null };
+    case 'ready': return { sw: 'ready', cls: 'ready', key: agentKey, ms: READY_COOLDOWN_MS };
+    case 'posted': return event.namesPerson
+      ? { sw: 'postedMention', cls: 'posted_mention', key: agentKey, ms: POSTED_MENTION_COOLDOWN_MS }
+      : { sw: 'postedRoom', cls: 'posted_room', key: String(event.project || ''), ms: POSTED_ROOM_COOLDOWN_MS };
+    default: return null;
+  }
+}
 
 function defaultSend(url, headers, body) {
   const u = new URL(url);
@@ -213,19 +287,22 @@ function happened(event) {
   try {
     if (!available) return;
     if (!event || !KINDS.has(event.kind)) return;
+    const route = routeFor(event);
+    if (!route) return;
     if (!sender && process.env.NODE_TEST_CONTEXT) return;
     const s = readState();
     if (!s.on || !s.token || !s.notifyId) return;
+    if (!s.kinds[route.sw]) return;   // #6254: this kind's sub-switch is off
     if (!remote.enrolled()) return;
-    if (event.kind === 'needs_you') {
-      const key = String(event.session || event.agent || '');
+    if (route.cls) {
+      const ckey = route.cls + ':' + route.key;
       const now = clock();
-      const last = lastNeedsYou.get(key);
-      if (last !== undefined && now - last < NEEDS_YOU_COOLDOWN_MS) return;
-      if (lastNeedsYou.size > 500) {
-        for (const [k, t] of lastNeedsYou) if (now - t >= NEEDS_YOU_COOLDOWN_MS) lastNeedsYou.delete(k);
+      const last = lastSent.get(ckey);
+      if (last !== undefined && now - last < route.ms) return;
+      if (lastSent.size > 500) {
+        for (const [k, t] of lastSent) if (now - t >= COOLDOWN_PRUNE_MS) lastSent.delete(k);
       }
-      lastNeedsYou.set(key, now);
+      lastSent.set(ckey, now);
     }
     const url = coordinatorUrl(NOTIFY_ROUTE);
     const body = JSON.stringify(payload(s.notifyId, event));
@@ -233,4 +310,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, NEEDS_YOU_COOLDOWN_MS, status, turnOn, turnOff, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastNeedsYou.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
