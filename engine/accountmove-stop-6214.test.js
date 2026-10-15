@@ -173,7 +173,7 @@ test('#6214: the board wires the stop route, the strict account read and the put
      account (moveFromDir folds that into null). */
   assert.match(call, /readAccount: \(n\) => \{\n\s+const job = create\.readJob\(create\.cleanName\(n\)\);\n\s+if \(!job\) throw new Error\('its launch job could not be read'\);\n\s+return job\.configDir \|\| null;\n\s+\},/,
     'the move cannot read an agent\'s account strictly');
-  assert.match(call, /putBack: \(n, dir\) => create\.setAccount\(n, dir\),/, 'a stop cannot put an agent back');
+  assert.match(call, /putBack: \(n, dir\) => create\.restoreAccount\(n, dir\),/, 'a stop cannot put an agent back, or puts it back through setAccount\'s destination checks');
   /* The stop route is matched before the read route, whose pattern would otherwise take "stop" for a move id (and as a
      GET it would not, but a later method change must not make it). */
   const stopAt = server.indexOf("if (pathname === '/api/agents/account-moves/stop' && req.method === 'POST') {");
@@ -197,4 +197,15 @@ test('#6214: once a stopped move ends, nothing holds the board, so an Update is 
   await out.done;
   assert.equal(accountmove.busy(), false, 'moveHoldsBoard reads busy(): false here is what lets Update through');
   assert.equal(d.held.size, 0, 'no agent is left held in the engine either');
+});
+
+test('#6214: a put-back whose account has no name the board can read says "their old account"', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/codex/old' } });
+  d.putBack = (n, dir) => { d.putBacks.push([n, dir]); d.saved[n] = dir; return { outcome: 'created', because: null, account: null }; };
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  const s = accountmove.stop();
+  assert.equal(s.body.agents[1].outcome, 'stopped');
+  assert.equal(s.body.agents[1].because, 'you stopped the move before their turn. They stay on their old account.');
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
 });

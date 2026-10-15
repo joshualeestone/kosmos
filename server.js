@@ -13771,7 +13771,7 @@ const server = http.createServer(async (req, res) => {
             if (!job) throw new Error('its launch job could not be read');
             return job.configDir || null;
           },
-          putBack: (n, dir) => create.setAccount(n, dir),
+          putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
         });
         sendJson(res, started.status, started.body);
       })
