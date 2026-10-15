@@ -10702,7 +10702,7 @@ const server = http.createServer(async (req, res) => {
       // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
       const why = waitsForPrint === 'error' ? 'printError' : waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
       sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
-       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
+       stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
   }
@@ -10758,7 +10758,8 @@ const server = http.createServer(async (req, res) => {
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true,
-            wordsShown: spent.family === true && body.wordsShown === true } : undefined);   // kosmos#6239
+            wordsShown: spent.family === true && body.wordsShown === true,   // kosmos#6239
+            orgKind: spent.family === true ? 'family' : 'company' } : undefined);   // kosmos#6251: its sentences in the org's kind
           /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next hourly refresh.
              Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
              policy applied when the fetch lands, and an agent made before then is not checked against it. */

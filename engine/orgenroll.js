@@ -347,11 +347,13 @@ function cleanRole(r) { return ROLES.has(r) ? r : null; }
 /* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last
    line of `because`, so the code is found anywhere in it; anything unrecognised keeps its own words. */
 const SAY = Object.freeze({
-  org_code_unknown: 'That code is not one your company made. Check it, or ask your company for a new one.',
-  org_code_used: 'That code has already been used. Ask your company for a new one.',
-  org_code_expired: 'That code has expired. Ask your company for a new one.',
-  org_other_org: 'This Kosmos+ account is already in another company.',
-  org_wrong_domain: "Your company only takes accounts with its own email address, and this account's address is different.",
+  /* kosmos#6251: a code refused before anything is joined names no org to this board, so these are said for a company
+     and a family alike (a parent joining a child's computer was told "ask your company"). */
+  org_code_unknown: 'That code is not one Kosmos+ knows. Check it, or ask whoever sent it for a new one.',
+  org_code_used: 'That code has already been used. Ask whoever sent it for a new one.',
+  org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
+  org_other_org: 'This Kosmos+ account is already in another company or family account.',
+  org_wrong_domain: "That code is only for accounts with their own email address, and this account's address is different.",
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
@@ -361,6 +363,26 @@ const SAY = Object.freeze({
   // kosmos#6239: a family joins only after its words are read here; an automatic accept never says they were.
   org_family_words_unseen: 'A family joins only after a parent or guardian reads and accepts its words on this computer. Nothing was joined. Press Connect Account to read them.',
 });
+/* kosmos#6251: the sentences a family hears instead, where this board knows the org is a family (its record, or the
+   previewed org). Every other code is said as above. */
+const FAMILY_SAY = Object.freeze({
+  org_not_member: 'You are not in a family account.',
+  org_last_admin: 'You are the last admin of your family, so you cannot leave until someone else in the family is made an admin.',
+  org_bad_world: 'This Kosmos could not be named to your family. Try again.',
+  org_already_member: 'You are already in this family. Press Connect Account again to make this Kosmos the family\'s Kosmos on this computer.',
+  org_consent_changed: 'The family\'s words changed just now. Nothing was joined. Press Connect Account to read them again.',
+});
+/* kosmos#6251: what this board knows of an org's kind. Anything but a family (none, an older coordinator) is a
+   company's, as the coordinator reads it. */
+function kindOf(k) { return k === 'family' ? 'family' : 'company'; }
+/* A sentence written for a company, said for the org's kind: "your company" becomes "your family". One copy of each
+   sentence, so the two kinds cannot drift apart. */
+function inKind(kind, text) {
+  if (kindOf(kind) !== 'family') return text;
+  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's");
+}
+/* A public code's sentence in the org's kind. */
+function sayCode(c, kind) { return (kindOf(kind) === 'family' && FAMILY_SAY[c]) || SAY[c]; }
 /* Only the PUBLIC codes count: a field such as org_id elsewhere in the line must not be read as the error. */
 const CODES = Object.freeze(Object.keys(SAY).concat(['org_not_accepted']));
 function codeOf(because) {
@@ -370,9 +392,9 @@ function codeOf(because) {
 }
 /* A public code becomes its sentence. Anything else (a tunnel's stderr line, a spawn error naming a path) goes to the
    log, cleaned and bounded, and the person reads a fixed sentence: raw transport text never reaches the page. */
-function sayFor(because, fallback, secret) {
+function sayFor(because, fallback, secret, kind) {
   const c = codeOf(because);
-  if (c && SAY[c]) return SAY[c];
+  if (c && SAY[c]) return sayCode(c, kind);
   if (because) {
     const { externalName } = require('./externalname');
     let line = String(because);
@@ -423,6 +445,7 @@ async function preview(code, opts) {
    nothing: accepting goes through enroll with no code, which the coordinator records as a re-acceptance of the same
    world. Answered only while the company names THIS world here, for the company on this board's own record. */
 async function reviewHere(opts) {
+  const KIND = recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   const rec = readEnrollment(opts);
   if (!rec || !isEnrolledHere(opts)) return { ok: false, because: 'This Kosmos is not your work Kosmos, so there is nothing to review here.' };
   // Only for a Kosmos that sends nothing (orgreview review 3): one that reports has its words on record, and the plan
@@ -431,23 +454,23 @@ async function reviewHere(opts) {
      never by a consent hash alone: a Kosmos joined before its words were kept here, or whose words were withdrawn, has
      a hash and no words, and Review is its way back. */
   const acc = acceptedConsent(opts);
-  if (acc && acc.reports.length > 0) return { ok: false, because: 'This Kosmos already has its company\'s words accepted here.' };
+  if (acc && acc.reports.length > 0) return { ok: false, because: inKind(KIND, 'This Kosmos already has its company\'s words accepted here.') };
   const st = await signed('POST', ROUTES.status, {}, opts);
-  if (!st.ok) return { ok: false, because: 'Your company could not be asked through Kosmos+ just now. Try again in a minute.' };
+  if (!st.ok) return { ok: false, because: inKind(KIND, 'Your company could not be asked through Kosmos+ just now. Try again in a minute.') };
   const d = st.data;
   const org = d && d.member === true ? cleanOrg(d.org) : null;
   const role = d ? cleanRole(d.role) : null;
   const consent = d ? cleanConsent(d.consent) : null;
   // The words must be this record's company's, for this world: never another company's consent shown as this one's.
   if (!org || !rec.org || org.id !== rec.org.id || statusVerdict(d, readWorldId(opts)) !== 'here') {
-    return { ok: false, because: 'Your company does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.' };
+    return { ok: false, because: inKind(KIND, 'Your company does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.') };
   }
-  if (!role || !consent) return { ok: false, because: 'Your company\'s answer was not complete. Try again in a minute.' };
+  if (!role || !consent) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete. Try again in a minute.') };
   /* Accepting records the words on the company's side only when the enroll carries the hash it served (contract v1.4;
      a codeless enroll records exactly the hash sent). With none to echo, Accept could not make this Kosmos report, so
      it is not offered (review 1). */
   const served = servedHash(d);
-  if (!served) return { ok: false, because: 'Your company\'s words could not be confirmed on this computer, so they cannot be accepted here yet. Try again later.' };
+  if (!served) return { ok: false, because: inKind(KIND, 'Your company\'s words could not be confirmed on this computer, so they cannot be accepted here yet. Try again later.') };
   // #5532: the salt the company serves for the computer print rides the review too, so an Accept pins a print as a join does.
   return { ok: true, move: true, review: true, org, role, consent, served, salt: servedSalt(d) };
 }
@@ -455,27 +478,32 @@ async function reviewHere(opts) {
 /* enroll, leave and refresh read and write the same record: one at a time, so the hourly pass can never act on a
    record a leave has just cleared and is about to restore (or the reverse). */
 let queue = Promise.resolve();
+/* kosmos#6251: the kind of the org this board's record names, or of a leave still pending, or null. */
+function recKind(opts) { const r = readEnrollment(opts); return r && r.org ? r.org.kind : null; }
+function pendingKind(opts) { const r = pendingRecord(opts); return r && r.org ? r.org.kind : null; }
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
 
 /* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this
    Kosmos) is undone with a leave, and each says only what happened (reviews 12, 19). */
 async function undoFirstJoin(lead, opts) {
+  const KIND = opts && opts.orgKind;   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   // The print was pinned with this join's salt (#5532): a leave without it would be refused as a copy (org_device_changed).
   // Pinned only if the join actually sent a print (review 17): a computer with no readable id sent none, and waiting for
   // one would leave the undo pending forever.
   const pf = opts && opts.computerSalt && opts.orgId ? pinnedWait(printFields(opts.computerSalt, opts.orgId), opts.printSent === true) : { send: 'none', fields: {} };
   const undo = pf.send === 'later' || pf.send === 'error' ? { ok: false, because: 'no print yet' } : await signed('POST', ROUTES.leave, pf.fields, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
-  if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.' }; }
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: inKind(KIND, lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.') }; }
   setLeavePending(true, opts, null, true, opts && opts.consentHash);   // an undo, retried on the next pass if this file, at least, can be written
   // A code: the code may be spent, so no ticket is kept for it and the page goes back to the code field (review 25).
-  return { ok: false, code: 'org_undo_pending', because: lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.' };
+  return { ok: false, code: 'org_undo_pending', because: inKind(KIND, lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.') };
 }
 
 /* Enroll THIS world. Sends nothing unless the person accepted. `code` is required for a first join and omitted when an
    existing member moves the enrollment to this world. */
 async function enroll(code, accepted, opts) { return oneAtATime(() => enrollNow(code, accepted, opts)); }
 async function enrollNow(code, accepted, opts) {
+  const KIND = (opts && opts.orgKind) || recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   if (accepted !== true) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
   /* A review's Accept is for a Kosmos already enrolled HERE. If its record went while the words were open (another
      Kosmos took the enrollment and a refresh cleared it), the person read review words, never move words: refuse
@@ -521,7 +549,7 @@ async function enrollNow(code, accepted, opts) {
      on these words: the person read a first-join consent, not "make this Kosmos your work Kosmos, and your other work
      Kosmos stops". The page checks the code again, and the preview then shows the move wording (review 15). */
   if (!r.ok && body.code && codeOf(r.because) === 'org_already_member') {
-    return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
+    return { ok: false, code: 'org_already_member', because: sayCode('org_already_member', KIND) };
   }
   /* A review's Accept (this world already named here before it was pressed) is never a join, so none of the join words
      below fit it (orgreview reviews 1 and 2): every refusal is said in review words, and say Kosmos tries again on its own
@@ -530,27 +558,27 @@ async function enrollNow(code, accepted, opts) {
   const review = asReview;   // no code, so always a move; checked against this world's record before sending (above)
   if (!r.ok && review) {
     const c = codeOf(r.because);
-    if (c === 'org_consent_changed') return { ok: false, code: c, because: 'Your company changed its terms again since Kosmos read them. Nothing changed here; Kosmos tries again on its own.' };
+    if (c === 'org_consent_changed') return { ok: false, code: c, because: inKind(KIND, 'Your company changed its terms again since Kosmos read them. Nothing changed here; Kosmos tries again on its own.') };
     // No longer in that company: a Review would be refused too, so do not send the person there (review 3).
-    if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: 'Your company says this account is no longer in it. Nothing changed on this computer.' };
-    if (c) return { ok: false, code: c, because: 'Your company did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.' };
-    if (r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; Kosmos tries again on its own.' };
-    return { ok: false, because: 'It is not known whether accepting reached your company. Nothing changed on this computer; Kosmos tries again on its own.' };
+    if (c === 'org_not_member' || c === 'org_other_org') return { ok: false, code: c, because: inKind(KIND, 'Your company says this account is no longer in it. Nothing changed on this computer.') };
+    if (c) return { ok: false, code: c, because: inKind(KIND, 'Your company did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.') };
+    if (r.notSent) return { ok: false, because: inKind(KIND, 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent; Kosmos tries again on its own.') };
+    return { ok: false, because: inKind(KIND, 'It is not known whether accepting reached your company. Nothing changed on this computer; Kosmos tries again on its own.') };
   }
   const secretCode = typeof code === 'string' ? code.trim() : null;
   // A move refused because the words changed: no code was typed, so say how to see them again (consenthash review 2).
-  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: 'Your company changed its terms just now. Nothing moved. Press Connect Account again.' };
-  if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode) };   // refused with a reason: nothing bound
+  if (!r.ok && move && codeOf(r.because) === 'org_consent_changed') return { ok: false, code: 'org_consent_changed', because: inKind(KIND, 'Your company changed its terms just now. Nothing moved. Press Connect Account again.') };
+  if (!r.ok && codeOf(r.because)) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'Joining did not go through Kosmos+ just now. Nothing was joined; try again in a minute.', secretCode, KIND) };   // refused with a reason: nothing bound
   /* Refused on this computer before anything was sent (not connected to Kosmos+, a register or Forget out, no
      Kosmos+ here): certainly nothing was joined, and the ticket stays (review 27). */
-  if (!r.ok && r.notSent) return { ok: false, because: 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent, so nothing was joined; try again in a minute.' };
+  if (!r.ok && r.notSent) return { ok: false, because: inKind(KIND, 'This Kosmos could not reach your company through Kosmos+ just now. Nothing was sent, so nothing was joined; try again in a minute.') };
   if (!r.ok) {
     /* #5531 review 19: no reason (a tunnel timeout) says nothing about whether the company already bound this world.
        Ask once. Bound here: the person accepted, so it is recorded as a join. Bound to this world elsewhere: undone.
        Anything else stays UNKNOWN, kept on disk for the follow-up (every two minutes while it lasts): a status read
        straight after a timeout can come before the company saved the join, so "not bound" now is not "not bound"
        (reviews 25, 27). */
-    sayFor(r.because, '', secretCode);   // the raw line goes to the log, cleaned
+    sayFor(r.because, '', secretCode, KIND);   // the raw line goes to the log, cleaned
     const st = await signed('POST', ROUTES.status, {}, opts);
     const d0 = st.ok ? st.data : null;
     /* "Here" counts as THIS join only for the company whose consent was accepted. A pending leave keeps this world's
@@ -562,8 +590,8 @@ async function enrollNow(code, accepted, opts) {
     if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', Object.assign({}, opts, { printSent: !!body.computerPrint }));
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
-      setJoinUnknown({ consentHash: hash, move, orgId: wantOrg, computerSalt: body.computerSalt || null, printPinned: !!body.computerPrint }, opts);
-      return { ok: false, unknown: true, code: 'org_join_unknown', because: 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.' };
+      setJoinUnknown({ consentHash: hash, move, orgId: wantOrg, computerSalt: body.computerSalt || null, printPinned: !!body.computerPrint, orgKind: KIND }, opts);
+      return { ok: false, unknown: true, code: 'org_join_unknown', because: inKind(KIND, 'It is not known yet whether joining went through. This Kosmos will ask your company again in a few minutes; if joining went through, this screen will show it.') };
     }
     r = { ok: true, data: st.data };
   }
@@ -580,8 +608,8 @@ async function enrollNow(code, accepted, opts) {
   const otherOrg = !!(org && opts && typeof opts.orgId === 'string' && opts.orgId && org.id !== opts.orgId);
   if (!org || !role || !en || en.world !== world || en.thisComputer !== true || otherOrg) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
-    if (review) return { ok: false, because: 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.' };
-    if (move) return { ok: false, because: NOCONFIRM + ' Press Connect Account again in a minute.' };
+    if (review) return { ok: false, because: inKind(KIND, 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.') };
+    if (move) return { ok: false, because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
     return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
@@ -606,8 +634,8 @@ async function enrollNow(code, accepted, opts) {
          Leave (review 12). A FIRST join is undone with a leave. A MOVE is not: the person was a member before, and a
          leave would end that membership too (review 13). Each says only what actually happened. */
       const NOWRITE = "This Kosmos's data folder could not be written.";
-      if (review) return { ok: false, because: NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.' };
-      if (move) return { ok: false, because: NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.' };
+      if (review) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.') };
+      if (move) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
       return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
     }
   }
@@ -653,7 +681,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true, orgKind: info.orgKind === 'family' ? 'family' : null }) + '\n');
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
@@ -705,6 +733,7 @@ async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
    consent they were shown. A first join bound to this world elsewhere: undone, as the answered path does. Not bound:
    the marker goes. Unclear: kept for the next pass. */
 async function settleUnknownJoin(unsure, opts) {
+  const KIND = unsure.orgKind || recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   const world = readWorldId(opts);
   const st = await signed('POST', ROUTES.status, {}, opts);
   const d = st.ok ? st.data : null;
@@ -721,12 +750,12 @@ async function settleUnknownJoin(unsure, opts) {
     return { ok: true, enrolled: false };
   }
   const verdict = statusVerdict(d, world);
-  if (verdict === 'unclear') return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
+  if (verdict === 'unclear') return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
   if (verdict !== 'here' && !old) return { ok: false, enrolled: false, because: 'Too soon to say the join was not made.' };   // kept
   setJoinUnknown(null, opts);
   if (verdict === 'here') {
     const org = cleanOrg(d.org), role = cleanRole(d.role);
-    if (!org || !role) return { ok: false, enrolled: false, because: "Your company's answer was not complete." };
+    if (!org || !role) return { ok: false, enrolled: false, because: inKind(KIND, "Your company's answer was not complete.") };
     const rec = { org, role, world, enrolledAt: new Date().toISOString() };
     if (unsure.consentHash) rec.consentHash = unsure.consentHash;
     if (unsure.computerSalt) rec.computerSalt = unsure.computerSalt;   // #5532: the salt the join's print was made with
@@ -780,6 +809,7 @@ function retireWorldId(opts) {
 }
 
 async function leaveNow(opts, retry) {
+  const KIND = recKind(opts) || pendingKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   /* Leave ends the whole membership, so only the world the company enrolls (or one whose leave is unconfirmed) sends
      it. A world the company already stopped naming, or a stale record naming another world, clears locally and sends
      NOTHING: the membership may now be another world's or another computer's, and must not be ended from here. */
@@ -819,7 +849,7 @@ async function leaveNow(opts, retry) {
   }
   if (verdict !== 'here' && !undoSend) {
     setLeavePending(true, opts, before, undo);
-    return { ok: false, pending: true, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
+    return { ok: false, pending: true, because: inKind(KIND, 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.') };
   }
   // #5532: the print the company pinned, or the leave is refused as a copy's. A read still retrying keeps it pending.
   // From the pending-leave file, else the record's own (that file is written best-effort; review 13).
@@ -827,7 +857,7 @@ async function leaveNow(opts, retry) {
   const pf = from ? pinnedWait(printFields(from.salt, from.orgId), from.pinned === true) : { send: 'none', fields: {} };
   if (pf.send === 'later' || pf.send === 'error') {
     setLeavePending(true, opts, before, undo);
-    return { ok: false, pending: true, because: 'Leaving could not be sent yet. This Kosmos has stopped reporting, and it will tell your company again.' };
+    return { ok: false, pending: true, because: inKind(KIND, 'Leaving could not be sent yet. This Kosmos has stopped reporting, and it will tell your company again.') };
   }
   const r = await signed('POST', ROUTES.leave, pf.fields, opts);
   const code = r.ok ? null : codeOf(r.because);
@@ -864,12 +894,12 @@ async function leaveNow(opts, retry) {
     }
     setLeavePending(!kept, opts, back, undo, hashBefore);
     // Told "stopped" (or "not reporting") earlier: say once that it reports again, in words for what was refused (reviews 27, 31).
-    if (kept && retry) setLeaveRefused((back.org && back.org.name) || 'your company', opts, undo ? 'undo' : 'leave');
-    return { ok: false, still: true, code, because: SAY.org_last_admin };
+    if (kept && retry) setLeaveRefused((back.org && back.org.name) || inKind(KIND, 'your company'), opts, undo ? 'undo' : 'leave');
+    return { ok: false, still: true, code, because: sayCode('org_last_admin', KIND) };
   }
   setLeavePending(true, opts, before, undo);
   // The person's sentence, whatever the raw reason: they must hear that this Kosmos stopped and the leave will be sent.
-  return { ok: false, pending: true, code, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
+  return { ok: false, pending: true, code, because: inKind(KIND, 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.') };
 }
 
 /* On start and hourly (#6232; server.js ORG_REFRESH_MS):
@@ -880,6 +910,7 @@ function pendingAt(opts) {
   try { return Date.parse(JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).at || ''); } catch { return NaN; }
 }
 async function refreshNow(opts) {
+  const KIND = recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   /* A join whose outcome is unknown and NEWER than a pending leave is settled first: the person joined again after
      that leave, and if the join landed, sending the old leave would end the membership they just accepted (review 35).
      Settled as made: recorded, and the old leave dropped (as a successful join does). Not made: the leave goes on. */
@@ -903,26 +934,26 @@ async function refreshNow(opts) {
   if (!readWorldId(opts)) {
     if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) {
       clearEnrollment(opts);
-      setStopped((before.org && before.org.name) || 'your company', opts);   // the screen says once that it stopped (review 22)
+      setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts);   // the screen says once that it stopped (review 22)
       tellEnded(opts);   // #6232
     }
     return { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false };
   }
   const r = await signed('POST', ROUTES.status, {}, opts);
-  if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked'), enrolled: !!before };
+  if (!r.ok || !r.data || typeof r.data !== 'object') return { ok: false, because: sayFor(r && r.because, 'not checked', null, KIND), enrolled: !!before };
   const d = r.data;
   const world = readWorldId(opts);
   /* Stop only on a CLEAR answer (statusVerdict 'gone' or 'notHere'). Any other shape changes nothing, like an
      unreachable coordinator: one odd reply must not end an enrollment the company still holds, with no way back. */
   const verdict = statusVerdict(d, world);
   if (verdict !== 'here') {
-    if (verdict === 'unclear') return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
-    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); tellEnded(opts); }
+    if (verdict === 'unclear') return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
+    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || inKind(KIND, 'your company'), opts); retireWorldId(opts); tellEnded(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);
   const role = cleanRole(d.role);
-  if (!org || !role) return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
+  if (!org || !role) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete.'), enrolled: !!before };
   const rec = { org, role, world, enrolledAt: (before && before.enrolledAt) || new Date().toISOString() };
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
@@ -988,6 +1019,6 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
