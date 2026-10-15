@@ -170,10 +170,13 @@ function shortOf(text) {
 /* #5636 F7a and #6065 N1: one line per message this front runs into Muse, in the agent's own folder
    (.kosmos/muse-turns.log), so a report from a Meta seat can say what reached the agent and when. Both findings were
    Meta-only and left no trace on the board: a community reminder the board logged once a day arriving again, and long
-   room posts arriving shortened. Each line records the time, the kind (operator, background, other), the length, the
+   room posts arriving shortened. One line per turn (a busy digest is one line, digestPosts saying how many posts; a
+   line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
+   front (arrived), the kind (operator, background, other), the UTF-16 length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
-   spilled to a file (engine/messages.js spillLine), its word count. The opening words are kept for every kind except
-   the person's own messages, whose words stay out of the log. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 characters) are kept for
+   colleagues' and Kosmos's lines; any line holding the person's envelope (their messages, a stop note quoting them)
+   keeps none. Not guarded, as in keepModel: a hard link at the file, and a swap between the checks and the open. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -181,7 +184,7 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
-function turnRecord(text, at) {
+function turnRecord(text, at, arrived = null) {
   const t = String(text);
   const kind = kindOf(t);
   const sent = SENT_RE.exec(t);
@@ -189,7 +192,7 @@ function turnRecord(text, at) {
   const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
-  const rec = { at, kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
+  const rec = { at, arrived, kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
     digestPosts: digest ? Number(digest[1]) : null };
   // The person's words stay out: their own messages, and any line that quotes them (a stop note carries their envelope).
   if (kind !== 'operator' && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
@@ -198,7 +201,7 @@ function turnRecord(text, at) {
 /* The same guards keepModel uses (review 1): never a relative workspace, never through a `.kosmos` that is a link,
    never into a link or fifo at the file, and a non-blocking, no-follow open, so nothing planted there can hang this
    front or redirect the write. */
-function logTurn(workspace, text, at) {
+function logTurn(workspace, text, at, arrived = null) {
   try {
     if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
     const file = turnLogFile(workspace);
@@ -207,10 +210,13 @@ function logTurn(workspace, text, at) {
     let st = null;
     try { st = fs.lstatSync(file); } catch { st = null; }
     if (st && !st.isFile()) return;
-    if (st && st.size > TURN_LOG_MAX) { fs.renameSync(file, file + '.1'); }   // the bound: about twice TURN_LOG_MAX in all
+    if (st && st.size > TURN_LOG_MAX) {
+      // The bound: about twice TURN_LOG_MAX in all. A rename that fails (a folder at .1) must not end the logging.
+      try { fs.renameSync(file, file + '.1'); } catch { try { fs.truncateSync(file, 0); } catch { return; } }
+    }
     const c = fs.constants;
     const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
-    try { fs.writeSync(fd, JSON.stringify(turnRecord(text, at)) + '\n'); } finally { fs.closeSync(fd); }
+    try { fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n'); } finally { fs.closeSync(fd); }
   } catch { /* the turn runs whatever the log does */ }
 }
 
@@ -254,6 +260,18 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
   /* #4612 review: when each queued copy of the person's DM reached this front, oldest first per text (the same words
      can be sent twice, and the envelope's time has minute resolution or none). */
   const dmReceivedAt = new Map();
+  /* #5636 F7a / #6065 N1: when each waiting line reached this front, oldest first per text (any kind), so the turn log
+     can say when a line arrived as well as when it ran: a line that waited behind a long turn is not a late send. */
+  const arrivedAt = new Map();
+  let lastArrived = null;   // the arrival of the line next() last took first
+  function arrive(text, at) { const l = arrivedAt.get(text) || []; l.push(at); arrivedAt.set(text, l); }
+  function takeArrived(text) {
+    const l = arrivedAt.get(text);
+    if (!l || !l.length) return null;
+    const a = l.shift();
+    if (!l.length) arrivedAt.delete(text);
+    return a;
+  }
   function received(text, at) {
     if (!answersTheDm(text)) return;
     const l = dmReceivedAt.get(text) || [];
@@ -309,9 +327,11 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
      many). At most DIGEST_MAX go in (review round 1: one argv string); the rest are counted, not sent. */
   function next() {
     const first = queue.shift();
+    lastArrived = takeArrived(first);   // a digest is dated by its first (oldest) post
     if (kindOf(first) !== 'background') return first;
     const rest = [];
     for (let i = queue.length - 1; i >= 0; i--) if (kindOf(queue[i]) === 'background') rest.unshift(queue.splice(i, 1)[0]);
+    for (const r of rest) takeArrived(r);
     if (!rest.length) return first;
     const all = [first, ...rest];
     const kept = all.slice(-DIGEST_MAX);   // the newest, which the room has not moved past yet
@@ -328,7 +348,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     try {
       while (queue.length) {
         const prompt = next();
-        try { log(workspace, prompt, new Date().toISOString()); } catch { /* #5636 F7a / #6065 N1: never stops a turn */ }
+        try { log(workspace, prompt, new Date().toISOString(), lastArrived); } catch { /* #5636 F7a / #6065 N1: never stops a turn */ }
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
         // #4612: an answer to the person's DM still pending rides on this turn's working reports.
@@ -387,6 +407,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     const at = new Date().toISOString();
     if (isStopRequest(text) && (running || queue.length)) { stopFor(text, at); noteSoon(); return; }
     received(text, at);
+    arrive(text, at);
     if (kindOf(text) === 'operator') {
       // Behind the person's own earlier messages, ahead of everyone else's.
       let at = 0;
@@ -443,7 +464,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
       return;
     }
     const waiting = queue.splice(0, queue.length);
-    for (const t of waiting) takeReceived(t);   // dropped unread: their receipt times go with them
+    for (const t of waiting) { takeReceived(t); takeArrived(t); }   // dropped unread: their receipt times go with them
     const mine = waiting.filter((t) => kindOf(t) === 'operator');
     const others = waiting.length - mine.length;
     const ended = !!stopTurn;
@@ -457,6 +478,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     STOP_NOTES.add(note);
     queue.push(note);
     received(note, at);   // dated by the stop request's arrival
+    arrive(note, at);
   }
 
   function feed(chunk) {

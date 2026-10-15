@@ -29,7 +29,7 @@ function harness(answers, opts = {}) {
     return Promise.resolve(a);
   };
   const logged = [];   // #5636 F7a / #6065 N1: kept in memory, so no test writes a log into a real folder
-  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, log: (w, t, at) => logged.push({ w, t, at }), ...opts });
+  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, log: (w, t, at, arrived) => logged.push({ w, t, at, arrived, turnsBefore: calls.length }), ...opts });
   return { f, calls, reports, out: () => out, pending, stops, logged };
 }
 const OK = (text) => ({ ok: true, text, because: null });
@@ -890,7 +890,20 @@ test('#5636 F7a: every message the front runs is handed to the log, once, before
   h.f.feed('second\r');
   await within(h.f.drained(), 'the turns never finished');
   assert.deepEqual(h.logged.map((l) => [l.w, l.t]), [['/w', 'first'], ['/w', 'second']]);
-  assert.ok(h.logged.every((l) => /^\d{4}-\d{2}-\d{2}T/.test(l.at)), 'each line is dated');
+  // Before: when each line was logged, only the earlier turns had run.
+  assert.deepEqual(h.logged.map((l) => l.turnsBefore), [0, 1]);
+  assert.ok(h.logged.every((l) => /^\d{4}-\d{2}-\d{2}T/.test(l.at) && /^\d{4}-\d{2}-\d{2}T/.test(l.arrived)), 'each line is dated twice');
+});
+
+test('#5636 F7a: a line that waited behind a long turn keeps the time it arrived, before the time it ran', async () => {
+  const h = harness(['hold', OK('two')]);
+  h.f.feed('long job\r');
+  h.f.feed('waiting line\r');
+  await new Promise((r) => setTimeout(r, 40));
+  h.pending[0]({ ok: true, text: 'done', because: null });
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.find((l) => l.t === 'waiting line');
+  assert.ok(Date.parse(w.arrived) + 30 <= Date.parse(w.at), 'arrived ' + w.arrived + ' ran ' + w.at);
 });
 
 test('#5636 F7a: a community reminder records its Sent stamp; an unstamped one records none', () => {
@@ -945,7 +958,7 @@ test('#5636 F7a: a stop note is logged once, and the person\'s words in it stay 
   assert.ok(!JSON.stringify(r).includes('privately'), 'the person\'s dropped words are not in the record');
 });
 
-test('#5636 F7a: the log is called before the turn runs, once per message even when Muse is busy, and a throwing log stops nothing', async () => {
+test('#5636 F7a: a throwing log stops nothing, and is called once per message', async () => {
   const order = [];
   const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });
   const run = h.f;
@@ -1004,5 +1017,11 @@ test('#5636 F7a: logTurn appends JSON lines in .kosmos, moves a full file aside,
     assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'C');
     // A folder that cannot be written: no throw.
     assert.doesNotThrow(() => front.logTurn(pathx.join(file, 'not-a-dir'), 'x', 'D'));
+    // A folder at .1 blocks the move aside: the log is cut instead, and still written.
+    fsx.rmSync(file + '.1', { force: true });
+    fsx.mkdirSync(file + '.1');
+    fsx.writeFileSync(file, 'x'.repeat(front.TURN_LOG_MAX + 1));
+    front.logTurn(ws, 'still', 'E');
+    assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'E', 'logging went on past a blocked rotation');
   } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
