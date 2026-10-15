@@ -78,7 +78,9 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 27), stated rather than closed
+## Known limits (reviews 9 to 28), stated rather than closed
+- site-autodeploy.sh's KOSMOS_AUTODEPLOY_DEPLOY test seam runs a given command instead of deploy-site.sh, so no floor
+  check runs under it (pre-existing; test-site-autodeploy-5589.sh uses it). Never set it on a real autodeploy.
 - The tree checks read the committed setup, setup-staging and dist/latest*.json; they do not read vercel.json. A
   redirect or rewrite of /setup or a Mac pointer added there (the site already redirects /dist/latest-win.json)
   would serve something else past every check. None exists today for those paths.
@@ -101,7 +103,7 @@ deploy, promote or cut that is valid today is refused by this change.
   export, before vercel): the same class as release.sh's step 7b. Never served (the site does not deploy main by
   itself, and site-autodeploy runs deploy-site.sh, which refuses it), but site deploys stay refused until fixed.
 - deploy-site's early committed latest.json check is not separately pinned: its export check refuses the same
-  pointer with the same words, so deleting the early one only loses the fail-fast (the staging one is pinned, arm 39).
+  pointer (same refusal text, a different label; arm 35 matches the common text), so deleting the early one only loses the fail-fast (the staging one is pinned, arm 39).
 - release.sh step 1a reads origin/main after a fetch (a stale checkout once refused a valid cut in review 15's
   reading); if the fetch fails it reads the checkout and says so.
 - deploy-site's own #4819 refusal is shadowed for a malformed staging artifact by the floor's earlier refusal in
