@@ -9,7 +9,7 @@
  *
  * Payload (v1): { typ: 'org_policy', v: 1, org, version, iat, exp, policy: { providers_allowed, models_allowed,
  * backup: { required, max_age_hours }, telemetry: { required }, ai_policy: { name, text } } }. A null list means "not
- * restricted". Providers are named by the board's own ids (anthropic, openai, google, xai, antigravity, meta), the
+ * restricted". Providers are named by the board's own ids (anthropic, openai, google, xai, antigravity, meta, alibaba), the
  * ones create.js uses, and models by their Kosmos key or full id (opus or claude-opus-...); either matches. When a
  * provider has a model list, a model must be named or be the provider's known default (create.policyAllows).
  *
@@ -165,7 +165,8 @@ function inForce() {
 const PROVIDER_NAMES = Object.freeze({
   anthropic: 'Anthropic Claude',
   openai: 'OpenAI',
-  google: 'Google Gemini',
+  // The create menu's words: "Google Gemini" alone would read as all of Gemini, beside a subscription row it may allow.
+  google: 'Google Gemini (API key)',
   antigravity: 'Google Gemini (Google subscription)',
   xai: 'xAI Grok',
   meta: 'Meta Muse',
@@ -246,4 +247,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

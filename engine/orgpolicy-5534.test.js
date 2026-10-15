@@ -138,7 +138,7 @@ test('a malformed policy is refused rather than half-applied; no bundle means no
 
 test('allows: providers and models outside the policy are refused with a sentence; null lists do not restrict', () => {
   assert.equal(orgpolicy.allows({ provider: 'anthropic', model: 'opus' }, POLICY).ok, true, 'CONTROL');
-  assert.match(orgpolicy.allows({ provider: 'google' }, POLICY).because, /does not allow Google Gemini for new agents/);
+  assert.match(orgpolicy.allows({ provider: 'google' }, POLICY).because, /does not allow Google Gemini \(API key\) for new agents/);
   assert.match(orgpolicy.allows({ provider: 'anthropic', model: 'haiku' }, POLICY).because, /does not allow the model haiku on Anthropic Claude/);
   assert.equal(orgpolicy.allows({ provider: 'openai', model: 'anything' }, POLICY).ok, true, 'no model list for openai: any model');
   assert.equal(orgpolicy.allows({ provider: 'google' }, { ...POLICY, providers_allowed: null }).ok, true);
@@ -160,7 +160,7 @@ test('allows applies a bundle the tunnel wrote since, with no refresh call (noth
   try {
     assert.equal(orgpolicy.allows({ provider: 'google' }).ok, true, 'CONTROL: no bundle, no policy');
     place(sign(bundle({ exp: Math.floor(Date.now() / 1000) + 3600 })));
-    assert.match(String(orgpolicy.allows({ provider: 'google' }).because), /does not allow Google Gemini for new agents/, 'a fresh bundle was not applied');
+    assert.match(String(orgpolicy.allows({ provider: 'google' }).because), /does not allow Google Gemini \(API key\) for new agents/, 'a fresh bundle was not applied');
     assert.equal(orgpolicy.allows({ provider: 'anthropic', model: 'opus' }).ok, true, 'CONTROL: an allowed provider and model');
   } finally {
     fs.rmSync(orgpolicy.PINNED(), { force: true });
