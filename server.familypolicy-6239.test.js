@@ -174,5 +174,13 @@ test('#6239: a shared room under the policy says it is closed, and a post there 
   const r = await call('POST', '/api/project/' + encodeURIComponent(pid) + '/room', { text: 'Who has chapter three?' }, SCREEN);
   assert.ok(r.status < 300, JSON.stringify(r.json));
   assert.match(await roomText(), /That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers\./);
+  // Round 4: a policy that cannot be read is said as that, in the room view.
+  const bundle = fs.readFileSync(orgpolicy.BUNDLE()); const good = fs.readFileSync(orgpolicy.APPLIED());
+  try {
+    fs.rmSync(orgpolicy.BUNDLE()); fs.writeFileSync(orgpolicy.APPLIED(), '{ not json');
+    const faulted = await roomText();
+    assert.match(faulted, /it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer\./);
+    assert.doesNotMatch(faulted, /but the policy set for this Kosmos keeps it closed/);
+  } finally { fs.writeFileSync(orgpolicy.BUNDLE(), bundle); fs.writeFileSync(orgpolicy.APPLIED(), good); }
   apply({ outside_contact: { enabled: true } });
 });

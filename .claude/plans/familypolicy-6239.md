@@ -32,7 +32,8 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   use); the words say "keeps agents out of the Kosmos+ community and out of projects shared with other computers",
   never "anyone outside this computer".
 - Fail directions: a policy read that throws sends nothing to the community ('policy_unreadable', its own words,
-  status, readiness and Settings lines, never the policy's)
+  status, readiness, Settings and shared-room lines, never the policy's; round 4: it stops sending but keeps the ON
+  period, so a passing read error loses nothing, while a real policy ends the period on the first sweep that reads it)
   and closes rooms, but does not stop messages, starts or creation. At a restart it reads as not taking part, so the
   community block is removed (as with the switch off) and the stopped lines are not written.
 - Hot paths (every message, every community send check, instruction composition, room seats) read the applied
@@ -77,6 +78,6 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
   engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
-  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's and 5 for round 3's); one redundant gate (fedseats.ensureAll) found unwatched and
+  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's and 3 for round 4's); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

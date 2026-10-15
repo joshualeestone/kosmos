@@ -257,8 +257,9 @@ function switchState() {
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
    agentCall): a switch file that cannot be read is not the person switching it off. */
 function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
-  if (sw === 'policy') return POLICY_STOPS + ', so the Kosmos+ community is off on this board. Do not try to take part in it another way';
-  if (sw === 'policy_unreadable') return 'Kosmos cannot read the policy set for this Kosmos just now, so the Kosmos+ community is off on this board until it can (tell your person)';
+  // Round 4: one clause each, ending where the callers add theirs (", so nothing was read").
+  if (sw === 'policy') return 'the Kosmos+ community is off on this board: ' + POLICY_STOPS;
+  if (sw === 'policy_unreadable') return 'the Kosmos+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now (tell your person)';
   return sw === 'unreadable'
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
     : 'the Kosmos+ community is switched off on this board';
@@ -1507,7 +1508,9 @@ async function sweepOnce(now) {
   // that stretch off leaked. Ending it loses what was made since the start and not yet sent: status says so
   // (`switch_unreadable`, also after a repair: #5460 records the ended period in `endedUnreadable`) and the agent can post it
   // again, while a public post the person never meant cannot be taken back.
-  if (!on && st) endOnPeriod(st, sw);
+  /* kosmos#6239 (round 4): a policy that cannot be read stops sending but keeps the period, so a passing read error
+     does not lose every unsent item; a real policy ends it on the first sweep that reads it. */
+  if (!on && st && sw !== 'policy_unreadable') endOnPeriod(st, sw);
   if (sw !== 'unreadable' && st) closeUnreadableWindow(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
