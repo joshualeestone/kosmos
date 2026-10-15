@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: bulkmove-6173
-diff_hash: e96f0e90ddce34fc67603657e51bda7ffd02a1f3b209651859a15b645b00e020
-validation: passed (full tools/run-tests.sh on 596440e34: rc 0, node 20444 pass 0 fail 252 skipped, shell 236/236; browser check render-account-usage-6108 432 PASS 0 FAIL)
+diff_hash: abb766db4edbc11b249c99cf62beabf2908a667daa69fbce2426ac8c757710ea
+validation: passed (full tools/run-tests.sh on e4daf1d7c after the rebase onto main 3db9fd64e: rc 0, node 20505 pass 0 fail 252 skipped, shell 236/236; earlier on 596440e34 the same, and browser check render-account-usage-6108 432 PASS 0 FAIL)
 subdir_audit: passed
-timestamp: 2026-10-15T03:44:36Z
+timestamp: 2026-10-15T06:51:19Z
 iterations: 7
 converged: true
 ---
@@ -55,3 +55,11 @@ converged: true
 **After convergence:** a queued test set failed 5 move tests (the per-agent cap delayed the first restart by a tick): fixed in the code, 48/48. Rebased onto main (80 commits, no conflicts). The full suite then failed only fixture-discipline (the new page test hand-built roster rows): fixed with real fleet cards, 27/27. Browser check render-account-usage-6108 on the rebased head: 432 PASS, 0 FAIL.
 
 **Weakest premise:** the async driver is proven against a scripted launchd and fake tmux, not a real launchd. The order of calls, the turning timer and the caps are measured; a real launchd's answers are reasoned.
+
+## After the PR opened
+
+**Independent review (Sub-Zero), item B: BLOCKER (Liu Kang m5550).** Deleting a leftover read no move hold, only a live session, so in a move's restart gap a held agent looked like a leftover and its folder could go to the Trash. Fixed: plan() and del() both refuse while the move holds the agent. Its test was RED before the fix (00:12, "the plan offered to delete an agent a move holds") and green after (delete-leftover, web.delete-leftover and remove 148/148). Item A (create's bootouts): safe.
+
+**Rebased onto main after #6191 (#6174) merged.** Two server.js conflicts in the one-agent Move route, both sides kept; every #6191 addition present at the head. Gap closed: a bulk move now writes #6191's note too, with async session reads (Liu Kang m5607). The pin names the three synchronous calls it catches (m5626); Sub-Zero proved it red on each. Sub-Zero re-reviewed the resolved head: clean.
+
+**Validation at e4daf1d7c:** full suite rc 0, node 20505 pass 0 fail, shell 236/236.
