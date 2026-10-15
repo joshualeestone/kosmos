@@ -14,3 +14,8 @@ HTTP server open, so it cannot).
   red.
 
 ## Review
+### Round 1 (Sonnet, blind): CONVERGED, no blocker or warning
+Confirmed: server.js is the only caller of start(); the per-agent timer is the module's only timer (the move cap is a
+Date.now() check); the child test hangs without the unref (reviewer ran it: ETIMEDOUT) and a child crash fails the status
+assert. Windows CI does not run this file. NITs taken: the redundant elapsed-time assert dropped; the comment names the
+card instead of describing the old state. NITs left: in-body requires (harmless), the defensive unref guard.

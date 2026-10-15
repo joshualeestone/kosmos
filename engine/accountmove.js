@@ -189,7 +189,7 @@ function start(body, deps) {
             timer = setTimeout(() => resolve({ outcome: 'partial', steps: [],
               because: `its restart did not answer within ${Math.round(agentCap / 1000)} seconds.` }), agentCap);
             /* Unref'd: on the board the server keeps the process alive, so it still fires; on its own it must not hold a
-               process open for 330 s (engine/accountmove-6173.test.js never exited when run alone). */
+               process open for 330 s (#6226). */
             if (timer && typeof timer.unref === 'function') timer.unref();
           });
           /* Called at once (not a tick later), and a throw from the call itself is a failed restart like a rejection. */
