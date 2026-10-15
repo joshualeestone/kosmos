@@ -8,9 +8,10 @@ unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SID
   KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_QUEUE_CLASS KOSMOS_QUEUE_STARVE_S
 # NOT ${TMPDIR}: a child of $T serves as a NON-sandbox cwd ($T/elsewhere), but during the suite
 # ${TMPDIR} is itself run-tests.sh's kt<digits> sandbox, so that child would wrongly match it (#4298).
-# A plain /tmp root (as test-cut-guard.sh uses) avoids that. /tmp is OUTSIDE the leak guard's scan
-# (the blind spot #4298 is about), so the trap below removes $T on a normal exit and on INT/TERM/HUP,
-# routed through exit so the EXIT cleanup still runs. An uncaught signal (e.g. SIGQUIT) or SIGKILL escapes.
+# A plain /tmp root (as test-cut-guard.sh's secondary roots do) avoids that. /tmp is OUTSIDE the leak
+# guard's scan (the blind spot #4298 is about); the EXIT trap below removes $T and kills the holders.
+# bash runs the EXIT trap on a normal exit and on any catchable signal (measured), so only an uncatchable
+# SIGKILL or a signal arriving mid-trap can leave them. The INT/TERM/HUP trap only sets the exit code.
 T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
 # Arm the cleanup BEFORE spawning the holders, so a signal in that window still removes $T.
 trap 'rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
