@@ -13,7 +13,7 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: no jq on PATH"; exit 0; }
 
 fail() { echo "FAIL: $1"; exit 1; }
 
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-feedback-digest-daily.XXXXXXXXXX")"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/reports" "$T/state"
 export KOSMOS_ENGINE="$REPO/engine" KOSMOS_NODE="$NODE_BIN" FEEDBACK_DIGEST_STATE="$T/state"

@@ -8,7 +8,7 @@
 # test-install.sh that loads the lib late or not at all fails.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-T="$(mktemp -d)"
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-install-static-control-4641.XXXXXXXXXX")"
 trap 'rm -rf "${T:?}"' EXIT
 
 bash "$HERE/tools/test-install-static.sh" > "$T/clean.log" 2>&1 || { cat "$T/clean.log"; echo "control: the untouched setup.sh did not pass" >&2; exit 1; }

@@ -7,7 +7,7 @@ FAILS=0
 ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
-SB="$(mktemp -d)"
+SB="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-codex-isolation-4592.XXXXXXXXXX")"
 trap 'rm -rf "${SB:-}"' EXIT
 PERSON_HOME="$SB/person-codex"
 DATA_PARENT="$SB/data"

@@ -16,7 +16,7 @@
 # The installed supervisor always has an engine-path pointer. The fixture uses
 # the real sandboxed engine so a Codex launch can resolve its private home; the
 # model vector remains the only assertion this file makes.
-AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
+AGENT_WORKFORCE_DATA="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-model-2140.XXXXXXXXXX")"; export AGENT_WORKFORCE_DATA
 trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SBC:-}" "${SBE:-}" "${SBCL:-}"' EXIT
 
 set -u
@@ -54,7 +54,7 @@ run_arm() {
 MODEL_ID='gpt-4o-2024-08-06'   # a dated snapshot: proves the exact id survives verbatim
 
 # --- Arm 1: codex + a chosen model -> `-m <id>` verbatim ----------------------
-SBC="$(mktemp -d)"; make_sandbox "$SBC"
+SBC="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-model-2140.XXXXXXXXXX")"; make_sandbox "$SBC"
 run_arm "$SBC" oa-model "$MODEL_ID" codex
 A="$SBC/new-session.args"
 if [ -s "$A" ]; then ok "codex+model: the supervisor reached new-session"; else bad "codex+model: new-session never reached: $(tail -3 "$SBC/out.log")"; fi
@@ -68,7 +68,7 @@ docbytes_ok() { awk -v want='project_doc_max_bytes=524288' 'prev=="-c" && $0==wa
 if docbytes_ok "$A"; then ok "codex+model: -c project_doc_max_bytes=524288 reached the launch"; else bad "codex+model: the AGENTS.md limit override is missing: $(tr '\n' ' ' < "$A")"; fi
 
 # --- Arm 2: codex + empty model -> NO model flag (auto) -----------------------
-SBE="$(mktemp -d)"; make_sandbox "$SBE"
+SBE="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-model-2140.XXXXXXXXXX")"; make_sandbox "$SBE"
 run_arm "$SBE" oa-auto "" codex
 E="$SBE/new-session.args"
 if [ -s "$E" ]; then ok "codex+auto: the supervisor reached new-session"; else bad "codex+auto: new-session never reached: $(tail -3 "$SBE/out.log")"; fi
@@ -79,7 +79,7 @@ if docbytes_ok "$E"; then ok "codex+auto: -c project_doc_max_bytes=524288 reache
 # --- Arm 3 (CONTROL): claude + a model -> `--model <id>`, never -m ------------
 # The discriminator: the codex `-m` above is codex-SPECIFIC, not a coincidence
 # that any runner would produce. A claude agent on the SAME MODEL uses --model.
-SBCL="$(mktemp -d)"; make_sandbox "$SBCL"
+SBCL="$(mktemp -d "${TMPDIR:-/tmp}/test-supervisor-model-2140.XXXXXXXXXX")"; make_sandbox "$SBCL"
 run_arm "$SBCL" cl-model "$MODEL_ID" claude
 C="$SBCL/new-session.args"
 if [ -s "$C" ]; then ok "claude+model: the supervisor reached new-session"; else bad "claude+model: new-session never reached: $(tail -3 "$SBCL/out.log")"; fi

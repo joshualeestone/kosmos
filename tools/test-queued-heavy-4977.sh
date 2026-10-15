@@ -10,7 +10,7 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 U=$((1000000 + $$ * 10))   # sleep lengths U+1..U+9 belong to this run alone: live pids are unique, so two copies differ by >= 10
 REAL_QH="$HERE/queued-heavy.sh"
-S=$(mktemp -d); mkdir -p $S/m $S/tmp
+S=$(mktemp -d "${TMPDIR:-/tmp}/test-queued-heavy-4977.XXXXXXXXXX"); mkdir -p $S/m $S/tmp
 export TMPDIR=$S/tmp   # review 2: the wrapper's own mktemp files stay inside this test's dir
 BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 2: a pid in BG is stopped only while it still runs this test's shim or wrapper (a pid reused by another agent's

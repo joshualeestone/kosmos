@@ -13,7 +13,7 @@ passes=0
 ok()  { echo "  PASS  $1"; passes=$((passes + 1)); }
 bad() { echo "  FAIL  $1"; fails=$((fails + 1)); }
 
-WORK="$(mktemp -d)"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/test-codesign-retry-5149.XXXXXXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 export KOSMOS_CODESIGN_TS_DELAYS="0 0 0"
 

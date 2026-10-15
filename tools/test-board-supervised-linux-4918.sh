@@ -14,7 +14,7 @@ ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; fails=1; }
 
 # Pull the functions and seam from install/kosmos
-SNIP="$(mktemp)"
+SNIP="$(mktemp "${TMPDIR:-/tmp}/test-board-supervised-linux-4918.XXXXXXXXXX")"
 awk '/^SYSTEMCTL=/{print}
      /^_kosmos_board_systemd_unit\(\) \{/{u=1}
      u{print} u&&/^\}/{u=0}
@@ -26,7 +26,7 @@ awk '/^SYSTEMCTL=/{print}
 grep -q '^_kosmos_board_systemd_unit()' "$SNIP" && grep -q '^_kosmos_board_supervised()' "$SNIP" \
   || { echo "FAIL  could not extract the systemd functions from install/kosmos"; rm -f "$SNIP"; exit 1; }
 
-STUBDIR="$(mktemp -d)"
+STUBDIR="$(mktemp -d "${TMPDIR:-/tmp}/test-board-supervised-linux-4918.XXXXXXXXXX")"
 cat > "$STUBDIR/systemctl" <<'SC'
 #!/bin/bash
 case "$*" in
@@ -88,7 +88,7 @@ if [ -n "$NODE_BIN" ]; then
     && ok "unit: install/kosmos matches engine/linuxboard.js ($bash_unit)" \
     || bad "unit: mismatch install/kosmos ($bash_unit) vs linuxboard.js ($js_unit)"
   # #4918 review 10: a home reached through ".." and a RELATIVE home name the same unit in both (path.resolve).
-  _rd="$(mktemp -d)"; mkdir -p "$_rd/a" "$_rd/kosmos-home"
+  _rd="$(mktemp -d "${TMPDIR:-/tmp}/test-board-supervised-linux-4918.XXXXXXXXXX")"; mkdir -p "$_rd/a" "$_rd/kosmos-home"
   for _home in "$_rd/a/../kosmos-home" "$_rd/kosmos-home/" ; do
     js_u="$("$NODE_BIN" -e 'console.log(require("./engine/linuxboard").boardUnitName(process.argv[1]))' "$_home")"
     sh_u="$(KOSMOS_HOME="$_home" _kosmos_board_systemd_unit)"

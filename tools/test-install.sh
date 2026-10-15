@@ -99,7 +99,7 @@ _ti_box_clear() {
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
 kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
-SB="$(mktemp -d)"
+SB="$(mktemp -d "${TMPDIR:-/tmp}/test-install.XXXXXXXXXX")"
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per

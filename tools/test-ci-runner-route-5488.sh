@@ -10,7 +10,7 @@
 set -u
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 WF="$HERE/../.github/workflows/test.yml"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-ci-runner-route-5488.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
