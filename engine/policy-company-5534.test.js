@@ -97,6 +97,23 @@ test('#5534 slice 3: company text an agent cannot be handed is not handed out', 
   orgpolicy.clear();
 });
 
+/* #6273: a nameless company policy falls back to DEFAULT_NAME; a migrated #479 record of the person's own used to wear
+   the same name, so one stack held two "### Company AI policy" headings, one of them owned by no company. */
+test('#6273 the company\'s nameless policy and a person\'s migrated one never share a heading', () => {
+  policy.clear(); orgpolicy.clear();
+  try {
+    fs.mkdirSync(path.dirname(policy.FILE), { recursive: true });
+    fs.writeFileSync(policy.FILE, JSON.stringify({ version: 2, policies: [
+      { id: 'p1', name: 'Company AI policy', text: 'Cite your sources.', source: 'pasted', savedAt: '2026-08-23T00:00:00Z' },
+    ] }, null, 2) + '\n');
+    applyCompany({ text: 'Be careful.' });
+    const eff = policy.effective();
+    assert.deepEqual(eff.policies.map((p) => p.name), [policy.DEFAULT_NAME, policy.MIGRATED_NAME], 'the two policies are not told apart');
+    const body = policy.bodyFor(eff.policies);
+    assert.equal(body.split('### Company AI policy').length - 1, 1, 'the stack heads two policies "Company AI policy"');
+  } finally { policy.clear(); orgpolicy.clear(); }
+});
+
 test('#5534 slice 3: the person\'s add is judged with the company text, since every agent is handed both', () => {
   policy.clear();
   applyCompany({ name: 'Acme', text: 'z'.repeat(policy.TEXT_MAX) });

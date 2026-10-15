@@ -72,6 +72,13 @@ const BLOCK_MAX = 128 * 1024;
    actually saved, and they can rename it. */
 const DEFAULT_NAME = 'Company AI policy';
 
+/* #6273: the name a migrated #479 record wears. The #685 model above held while no company policy existed. Since #5534
+   the company's real policy arrives separately (companyEntry) and falls back to DEFAULT_NAME, so the person's own
+   migrated entry wearing the same name could put two "### Company AI policy" headings in one stack, one of them owned
+   by nobody's company. Every entry in policy.json is the person's own (problem() takes only a pasted or URL source),
+   so it now wears the neutral name; DEFAULT_NAME stays the company policy's fallback, where it is true. */
+const MIGRATED_NAME = 'AI policy';
+
 function clean(value) {
   const s = String(value == null ? '' : value)
     .replace(/[ \t]+/g, ' ')
@@ -112,7 +119,7 @@ function entriesOf(rec) {
     return rec.policies;
   }
   if (rec && typeof rec === 'object' && typeof rec.text === 'string') {
-    return [{ id: MIGRATED_ID, name: DEFAULT_NAME, text: rec.text, source: rec.source, savedAt: rec.savedAt }];
+    return [{ id: MIGRATED_ID, name: MIGRATED_NAME, text: rec.text, source: rec.source, savedAt: rec.savedAt }];
   }
   return null;
 }
@@ -161,6 +168,11 @@ function read() {
       savedAt: (typeof e.savedAt === 'string') ? e.savedAt : null,
     });
   }
+  /* #6273: a record migrated before the name changed still holds "Company AI policy" on its p1 entry. Renamed on read
+     (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name: an entry the
+     person named themselves has a random id. Kept when another entry already wears MIGRATED_NAME, so no two collide. */
+  const old = policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+  if (old && !policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }
 
@@ -193,7 +205,7 @@ function refuseOversizedStack(policies) {
  *
  * A new policy is NAMED, always. The nameless form that served the
  * single-policy screen went with that screen (#701, Mona Lisa's word);
- * DEFAULT_NAME remains only as the name the migrated #479 record wears.
+ * MIGRATED_NAME is the name the migrated #479 record wears (#6273); DEFAULT_NAME is the company policy's fallback.
  */
 function add({ id, name, text, source } = {}) {
   const current = read();
@@ -424,5 +436,5 @@ function syncEveryone(roster) {
 module.exports = {
   add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone,
   COMPANY_ID,
-  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
+  START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, MIGRATED_NAME, FILE,
 };
