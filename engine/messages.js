@@ -2703,7 +2703,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       return sent;
     };
     // A throw or rejection from the typing path is not a told member either: put the held ids back.
-    const putBack = (err) => { roomhold.restore(name, projectId, heldIds); throw err; };
+    const putBack = (err) => {
+      // #4926 N7 (round 3): typing started and threw, so the held posts may have been pasted; they go back regardless.
+      if (typingStarted.has(name)) logCarried('may-have');
+      roomhold.restore(name, projectId, heldIds);
+      throw err;
+    };
     /* #4588 PR B: the person's own post is typed at once (never held); a colleague's post, addressed or not, is an
        automatic sender from this member's side, so it goes through the gate that holds it while a Gemini (Antigravity)
        member is paused on the shared Google quota.

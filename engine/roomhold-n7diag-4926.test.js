@@ -1,8 +1,8 @@
 'use strict';
 /* kosmos#4926 N7 (still on 0.7.50, the Meta seat only): a post told to a member at its turn end "again as new" after it
    answered it. Two causes fit, and the board log could tell neither: the member answered without citing the post (so
-   staleHeld never counts it answered), or something else re-told it. This diagnostic says, on each "told of" line, what
-   the member had posted in the room after each post: cited, uncited, or none. */
+   staleHeld never counts it answered), or something else re-told it. This diagnostic lists, on every line that tells a
+   held post (or could not, or may have), the member's own later posts in that room by id and what each replies to. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -60,6 +60,9 @@ test('#4926 N7: the told line lists them by id, never text; a refused one, or no
   assert.match(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.PLACED }), /delivery=placed\n$/, 'CONTROL: no diagnostic, no suffix');
   assert.doesNotMatch(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.COULD_NOT, after }), /since each/);
   assert.match(roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }, chat.DELIVERY.PLACED), /^room-hold: meta told of 1 held post\(s\) in proj-1 on an arrival there, delivery=placed; since each, the member's own posts here: m6: none\n$/);
+  // Round 3: typing threw after it started: they may have been pasted, and were put back.
+  assert.match(roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }, 'may-have'),
+    /^room-hold: meta may have been told of 1 held post\(s\) in proj-1 on an arrival there \(typing threw after it started\), put back; since each, the member's own posts here: m6: none\n$/);
   // Round 2: an arrival held or refused did not tell them (they were put back): never logged as told.
   for (const st of ['held', chat.DELIVERY.COULD_NOT, undefined]) {
     const line = roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }, st);
@@ -90,6 +93,7 @@ test('#4926 N7: the arrival path logs the held posts it carries (source pin)', (
   // Written with the outcome, never before typing (round 2).
   assert.match(SRC, /logCarried\('held'\);/);
   assert.match(SRC, /outcomes\[name\] = sent\.state;\n      logCarried\(sent\.state\);/);
+  assert.match(SRC, /if \(typingStarted\.has\(name\)\) logCarried\('may-have'\);\n      roomhold\.restore\(name, projectId, heldIds\);/, 'a throw after typing started is not logged');
 });
 
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {
