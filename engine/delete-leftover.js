@@ -243,6 +243,11 @@ function plan(name, opts) {
   const clean = realCaseName(create.cleanName(name), platform);
   const unsafe = remove.unsafeToActOn(clean);
   if (unsafe) return { ok: false, because: unsafe };
+  /* #6173 (Liu Kang m5550): an agent an account move holds is not a leftover. Its restart closes the window before it
+     loads the new job, and in that gap there is no live session while the folder and job file are all there, which is
+     exactly what a leftover looks like. Refused in the move's own sentence before anything below is read. */
+  const held = remove.moveRefusal(clean);
+  if (held) return { ok: false, because: held.because };
   const shown = status.readIdentity(clean).displayName || clean;
 
   let live = null;
@@ -415,6 +420,10 @@ function writeTrashInfo(from, to) {
 /** The act. Re-plans first, so nothing is deleted that the plan would not
     have offered a moment ago. `typed` must match when the plan asks for it. */
 function del(name, opts) {
+  /* #6173: asked again here, not only through the re-plan below: the person sees the plan and confirms it in a separate
+     request, and a move can start in between. */
+  const held = remove.moveRefusal(realCaseName(create.cleanName(name), (opts && opts.platform) || process.platform));
+  if (held) return { outcome: OUTCOME.REFUSED, because: held.because };
   /* The re-plan must ask the SAME platform the caller planned against, or a
      test (and a Mac driving the win32 arm) plans one act and performs another. */
   const p = plan(name, opts && opts.platform ? { platform: opts.platform } : undefined);
