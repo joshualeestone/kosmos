@@ -94,3 +94,10 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   older comments not reached.
 - Weakest premise now: that the set of a post's items above its mark stays within SEEN_MAX. One read fetches at most
   630 of a post; ids the next reads cannot see are kept until overflow, then dropped first.
+
+## Review 6 (sonnet)
+- Fixed: a replies page longer than asked (the service caps it, so unlikely) is cut at 20 and its rest is said as not
+  reached (tested; removing the flag fails it).
+- Duplicates of decisions above, kept: tails of threads past the budget can be missed (weakest premise, said on the
+  post); one failed page still holds the whole post for that read (unchanged); "seen" could exceed SEEN_MAX only if the
+  readable set drifts over many reads of a mark that cannot move (weakest premise of review 5).
