@@ -1,7 +1,7 @@
 # policyname-6233: a policy refusal names the provider as the screen does (#6233)
 
 ## Finished looks like
-Under a company policy, every refusal names the provider as the Add a provider menu does ("OpenAI", "Google Gemini"),
+Under a company policy, every refusal names the provider in the provider menus' words ("OpenAI", "Google Gemini (API key)"),
 none prints an internal id ('openai', 'google'), and a test reds on the raw id.
 
 ## The call
@@ -23,8 +23,10 @@ Anthropic, and drifting a name from the menu each fail it. 14 existing assertion
 discover.adopt, register, worldstarts, server.switch-model-5429 1 each) now pin the names.
 
 ## Weakest premise
-That the Add a provider menu is "the name the screen uses". The create menu says "Anthropic / Claude" and "OpenAI /
-Codex" for the same two; the refusal follows the Add a provider menu, which names the vendor, as the card asks.
+That the menus' words are "the name the screen uses". Two menus name providers: the Add a provider menu (vendor names)
+and the create menu ("Anthropic / Claude", "OpenAI / Codex", and two Gemini rows). The refusal uses the Add a provider
+words, except google, which takes the create menu's "Google Gemini (API key)" so it is told apart from the
+subscription row beside it (review 1). The test finds each name on some menu row, not on a particular menu.
 
 ## Review 1 (opus), and what changed
 - google is "Google Gemini (API key)": "Google Gemini" alone read as a ban on all of Gemini beside the create menu's
@@ -33,3 +35,7 @@ Codex" for the same two; the refusal follows the Add a provider menu, which name
   create.js but not to the map reds instead of quietly saying "this provider".
 - The menu check is exact (a "coming soon" row allowed); header comment lists alibaba; plan count corrected.
 - Not in scope, noted on the card: the model sentence still names the model by its key ("haiku"), not the picker's label.
+
+## Review 2 (sonnet), and what changed
+- Comment, plan and test title no longer say every name is the Add a provider menu's: google follows the create menu.
+- The accept-list read takes ids with digits or hyphens too.
