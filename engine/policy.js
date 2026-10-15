@@ -283,6 +283,13 @@ function heading(plural, hasOrgEntry, kind) {
   return plural ? '## Your AI policies' : '## Your AI policy';
 }
 
+/* kosmos#6263 board review 3: every heading a block can carry on this Kosmos, without "## ", from heading() itself, so
+   the re-read line (engine/instructionreread.js) names the section the agent actually has. */
+function headingsHere(kind = orgKindNow()) {
+  const all = [heading(false, true, kind), heading(true, true, kind), heading(false, false, kind), heading(true, false, kind)];
+  return [...new Set(all.map((h) => h.replace(/^## /, '')))];
+}
+
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy, kind = orgKindNow()) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
@@ -439,7 +446,7 @@ function syncEveryone(roster) {
 }
 
 module.exports = {
-  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone,
+  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone, headingsHere,
   COMPANY_ID,
   START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
 };

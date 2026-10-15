@@ -51,6 +51,18 @@ const SECTIONS = Object.freeze({
   policy: 'the section headed "Your company\'s AI policy" (or "Your company\'s AI policies")',
 });
 
+/* kosmos#6263 board review 3: the policy section by the headings this Kosmos's blocks carry (engine/policy.js
+   headingsHere), so a family's agent is sent to "Your family's AI policy" or "Your AI policy", never to a heading its
+   file does not have. A company's and no org's line is SECTIONS.policy, byte for byte. */
+function policySection() {
+  let names;
+  try { names = require('./policy').headingsHere(); } catch { return SECTIONS.policy; }
+  if (names.length < 2) return SECTIONS.policy;
+  const q = names.map((n) => `"${n}"`);
+  const rest = q.slice(1);
+  const tail = rest.length === 1 ? rest[0] : rest.slice(0, -1).join(', ') + ' or ' + rest[rest.length - 1];
+  return `the section headed ${q[0]} (or ${tail})`;
+}
 function file() { return path.join(require('./store').ROOT, 'instruction-reread.json'); }
 /* When a re-read line was typed into each agent, the last day of them: the community turn treats the turn such a line
    woke as Kosmos's own, never as the agent's work (communityturn.workedSince). { session: [ms, ...] }. One writer: the
@@ -180,7 +192,7 @@ function oweEach(told, owed, section, now = Date.now()) {
 function lineFor(sections, { communityStopped = false } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
-  const list = named.map((s) => SECTIONS[s]);
+  const list = named.map((s) => (s === 'policy' ? policySection() : SECTIONS[s]));
   const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
   /* kosmos#5636 F7a: the line is a notice, not a task. Suspected, not confirmed (see the plan): on a 0.7.48 test board
      an agent got a prompt to post with no community turn that day, plausibly from reading the community section's

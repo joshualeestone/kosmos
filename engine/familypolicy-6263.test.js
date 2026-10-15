@@ -82,3 +82,25 @@ test('#6263 board review 1: on a family\'s Kosmos the person\'s own policies are
   assert.ok(coStack.startsWith("## Your company's AI policies\n"), coStack);
   enrolledAs(null);
 });
+
+test('#6263 board review 3: the re-read line names exactly the headings a block can carry here; a company\'s line is unchanged', () => {
+  const reread = require('./instructionreread');
+  const MINE = { source: 'pasted', name: 'Mine', text: 'Be brief.', savedAt: '2026-10-15T00:00:00Z' };
+  enrolledAs('company');
+  const coLine = reread.lineFor(['policy']);
+  assert.ok(coLine.includes(reread.SECTIONS.policy), coLine);
+  enrolledAs(null);
+  assert.equal(reread.lineFor(['policy']), coLine, 'a Kosmos in no org changed its line');
+  enrolledAs('family');
+  const famLine = reread.lineFor(['policy']);
+  assert.ok(!/company/i.test(famLine), famLine);
+  // Every block this Kosmos can build has a heading the line names, and the line names nothing else.
+  const blocks = [policy.blockBody(ENTRY), policy.stackedBody([ENTRY, MINE]), policy.blockBody(MINE), policy.stackedBody([MINE, { ...MINE, name: 'Also' }])];
+  const named = [...famLine.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  for (const b of blocks) {
+    const h = b.split('\n')[0].replace(/^## /, '');
+    assert.ok(named.includes(h), `the line does not name "${h}": ${famLine}`);
+  }
+  assert.equal(named.length, new Set(blocks.map((b) => b.split('\n')[0])).size, famLine);
+  enrolledAs(null);
+});

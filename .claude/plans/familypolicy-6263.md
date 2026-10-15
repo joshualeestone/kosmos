@@ -44,3 +44,12 @@ A family's policy is said as the family's, everywhere the board words an org's p
   the key keyed on the entry alone).
 - A block reads the kind once and passes it to its heading and every line (blockBody, stackedBody, the oversize check).
 - Kept (NIT): DEFAULT_NAME "Company AI policy" (a #479 migration name); the create step label's inKind is untested.
+
+## Round 3 (opus) fixes
+- The re-read line owed after a policy change names the headings this Kosmos's blocks carry (policy.js headingsHere,
+  from heading() itself): a family's agent is sent to "Your family's AI policy" or "Your AI policy" and the plurals,
+  never to a heading its file lacks; a company's and no org's line is unchanged. Tested against every block shape; red
+  without it.
+- server.js uses orgenroll.kindOf for the kind it sends and keys on (one mapping).
+- Narrowed, as the code does: in a stack that holds the family's policy the heading is the family's, over the person's
+  own entries too; each entry's own line still says who added it ("Added by the person you work for").
