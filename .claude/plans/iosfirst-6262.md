@@ -20,8 +20,14 @@ Apple's systems by this branch; the App Store Connect key 3M63HJVBV7 was used fo
 
 ## Calls
 - **The guard is an allow-list of one team, not a deny-list of Stone.** The card asks for "the new team as the one
-  team allowed io.kosmos.app". A deny-list would let a third team (a contributor's own) strand the id too.
+  team allowed io.kosmos.app". It applies to that exact id only: any other id, under any team, still passes, which
+  is how a contributor builds with their own id and team (README, signing section). The id is already registered
+  under the new team, so another team cannot take it; the guard stops a build of io.kosmos.app signed by a team
+  whose APNs key, app record and profiles are not Kosmos's.
   Rejected: keeping the Stone refusal and adding the new team beside it (two rules for one fact).
+- **No second guard outside archive.sh for io.kosmos.app under another team** in an Xcode-menu or hand-run
+  archive. Advisory iOS CI runs test-archive-config.sh, whose last cases check the real Signing.xcconfig, but it
+  is path-filtered and not required. Accepted: such an archive cannot upload without the new team's key anyway.
 - **io.kosmos.app.preview is left buildable under any team.** Nothing refuses it now, and refusing it buys nothing:
   it was never registered, and building it creates nothing. Rejected: refusing the preview id (a rule about an id
   nobody uses).
