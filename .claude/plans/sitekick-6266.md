@@ -14,8 +14,10 @@ why), without a person dispatching it.
 ## Call
 - tools/site-deploy-kick.sh, run every 15 minutes by launchd on Mortals (the runner box, whose gh login has the
   workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
-  job's own last-deployed. It does nothing when the job is paused, main is the parked sha, or a deploy run is already
-  queued or running. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
+  job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
+  running, or a deploy run started under 14 minutes ago (a backstop, never an extra tick: the job's one retry and its
+  parking keep their 15-minute pace). A run active over 45 minutes is said each tick; each tick writes a heartbeat;
+  --check says what a tick would decide without dispatching. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
   It prints only when it dispatches or cannot read something.
 - tools/install-site-deploy-kick.sh installs it the way the box's other ops jobs are installed: the script copied into
   ~/.local/libexec/kosmos-site-deploy-kick/, a LaunchAgent run with /bin/bash every 900 s. --uninstall removes both.
@@ -25,12 +27,14 @@ why), without a person dispatching it.
   GitHub's best effort).
 
 ## Not yet done (after merge, branches only until UNHOLD)
-- Install on Mortals: `bash tools/install-site-deploy-kick.sh` from a checkout of main, as mortalkombat. Then check
-  `launchctl print gui/$(id -u)/com.stonesyndicate.kosmos-site-deploy-kick` and the first log line.
+- Install on Mortals: `bash tools/install-site-deploy-kick.sh` from a checkout of main, as mortalkombat. Then: kick.sh
+  --check (what it would decide), `launchctl print ... | grep -E 'state|last exit code'`, and last-tick advancing
+  after 15 minutes (proves launchd runs it with a working gh, not only this shell).
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js 4/4 with a fake gh and a sandboxed state folder: one dispatch when behind;
+- tools.site-deploy-kick-6266.test.js (now 6) with a fake gh that checks every call's exact arguments and applies the
+  script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
   and --uninstall removes both. The test caught a redirect-order bug (a missing state file printed an error).
@@ -40,3 +44,13 @@ why), without a person dispatching it.
 ## Weakest premise
 Mortals' gh login keeps the workflow scope. If it is lost, every tick prints "could not dispatch" in the job's log,
 which nobody reads; the GitHub schedule and push runs still work as before.
+
+## Review 1 (opus), and what changed
+- WARNING: it could dispatch minutes after a failed run, spending the job's one retry early: now it waits until no run
+  started in the last 14 minutes (test; mutant red). WARNING: the fake gh ignored --jq: it now checks exact argv and
+  runs the filter with jq (it caught an argument count I had wrong in the fake). WARNING: a stuck queued run silenced
+  it: a run active over 45 minutes is said each tick (test; mutant red). WARNING: nothing proved it runs under
+  launchd: heartbeat file, --check, and post-install checks in the installer header. NITs taken: an in-progress run's
+  comment; the installer retries a failed bootstrap once and says what to run; uninstall removes leftover .new files
+  and the heartbeat; the libexec pattern names the job it copies; the test checks RunAtLoad, HOME, PATH and a second
+  install; the log's growth is stated.
