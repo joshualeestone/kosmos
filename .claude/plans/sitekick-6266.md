@@ -38,7 +38,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 17) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 17, with a re-run case) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -190,3 +190,11 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   test now sends TERM to the perl wrapper alone and asserts gh is gone (mutant without the handler red). NIT taken:
   reviews 12 and 13 marked superseded. Left (stated): cut counts bytes; plist values unescaped; a future-dated run
   holds the tick back until clocks agree (fails safe).
+
+## Review 17 (opus), and what changed
+- No BLOCKER. WARNING: a re-run keeps its run's createdAt (GitHub moves only startedAt to the new attempt), so a
+  re-run of a run over 3 hours old was called stuck the moment it started: the attempt's age now counts from the later
+  of createdAt and startedAt (equal on a first attempt, as measured on 30 runs). Test: a re-run of a 6-hour-old run
+  started 10 minutes ago is waited on (mutant red). NITs taken: why() says "perl or gh" for 127; the --check header
+  and its installed-copy line say what they show. Left: the source record has no branch name (the header asks for a
+  checkout of main).

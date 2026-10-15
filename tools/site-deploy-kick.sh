@@ -25,7 +25,7 @@
 #     retry alarm (4 ticks) sooner. Rare, as the schedule itself is (six times on 2026-10-15);
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
 # A STUCK run is not counted as active (one would otherwise silence this backstop for good): one not finished
-# 3 hours after it was created. One limit from creation, because GitHub stamps a run's startedAt at creation too
+# 3 hours after it was created (for a re-run, after its attempt started). One limit from creation, because GitHub stamps a run's startedAt at creation too
 # (measured on chaoskosmos-site 2026-10-15: equal on every run), so queue time and running time cannot be told apart;
 # 3 hours is the job's 45-minute timeout plus a long wait behind CI on the shared runner. It gets a
 # line, the tick still asks (a new dispatch replaces a stuck pending run; behind a stuck queued one it waits its turn),
@@ -43,7 +43,8 @@
 # in kick.log, last-result and launchctl's last exit code; GitHub's push and schedule runs keep working regardless.
 # Fails closed: with no state folder (the job has never run here, or this looks in the wrong place), the
 # pause, the parked sha and last-deployed cannot be read, so it asks nothing, says so, and exits 1.
-# --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing, and the kosmos
+# --check prints what a tick would do (main, last deployed, the active-run count or the gap, the decision) and
+# dispatches nothing, and (for the installed copy) the kosmos
 # commit the installer copied it from.
 # Env (tests point these at fakes): KOSMOS_SITE_REPO, KOSMOS_AUTODEPLOY_STATE, KOSMOS_GH, KOSMOS_KICK_HEARTBEAT,
 # KOSMOS_KICK_GH_TIMEOUT (seconds per gh call, default 90),
@@ -99,13 +100,13 @@ trap 'rc_=$?; [ -n "$ERR" ] && rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%
 ERR="$(mktemp "${TMPDIR:-/tmp}/kick-err.XXXXXX" 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
 why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"
   [ "$rc" = 142 ] && l="${l:+$l; }timed out after ${GH_MAX_S} s"
-  [ "$rc" = 127 ] && l="${l:+$l; }gh could not be run ($GH: not found or not executable)"
+  [ "$rc" = 127 ] && l="${l:+$l; }perl or gh could not be run ($GH: not found or not executable?)"
   [ "$rc" = 126 ] && l="${l:+$l; }could not start gh (fork failed)"
   [ "$rc" = 125 ] && l="${l:+$l; }lost track of the gh process"
   [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
-if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi
+if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "the installed copy in $(dirname "$BEAT") is from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi
 if [ "$CHECK" = 1 ] && [ -r "$RESULT" ]; then note "last tick: $(head -n 1 "$RESULT")"; fi
 note "each gh call is limited to ${GH_MAX_S} s"
 if [ ! -d "$STATE" ]; then say "no deploy state folder at $STATE (the deploy job has not run here, or it keeps its state elsewhere); nothing asked"; exit 1; fi
@@ -124,16 +125,20 @@ parked="$(tr -d '[:space:]' 2>/dev/null < "$STATE/parked" || true)"
 # "" (not null; measured 2026-10-15), so it is mapped to "-": an empty field would let `read` shift the rest.
 # The newest 20 runs hold the newest active one (the job runs one at a time and a superseded pending run is
 # cancelled); after many pushes during one long run, that run may fall out of the window and go unreported if stuck.
-runs="$(ghb run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt] | @tsv' 2>"$ERR")" \
+runs="$(ghb run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt,startedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt, (if (.startedAt // "") == "" then .createdAt else .startedAt end)] | @tsv' 2>"$ERR")" \
   || { say "could not list site deploy runs$(why); nothing asked"; exit 1; }
 active=0; newest=""; stuck=""
 # Its own line goes to stderr: stamp runs inside $( ), whose stdout is the value (launchd logs both).
 stamp() { local v; v="$(epoch "$1")"; case "$v" in ''|*[!0-9]*) say "site deploy run time read as '${1:0:40}'; nothing asked" >&2; exit 1 ;; esac; printf '%s' "$v"; }
-while IFS=$'\t' read -r status concl created updated; do
+while IFS=$'\t' read -r status concl created updated started; do
   [ -n "${status:-}" ] || continue
   # The parent sets LAST_LINE itself: stamp's own say runs in the $( ) subshell.
   c="$(stamp "$created")" || { LAST_LINE="site deploy run time read as '${created:0:40}'; nothing asked"; exit 1; }
   u="$(stamp "$updated")" || { LAST_LINE="site deploy run time read as '${updated:0:40}'; nothing asked"; exit 1; }
+  s0="$(stamp "$started")" || { LAST_LINE="site deploy run time read as '${started:0:40}'; nothing asked"; exit 1; }
+  # A re-run keeps its run's createdAt but moves startedAt to its own start (equal on a first attempt): the later
+  # of the two is when this attempt was made.
+  [ "$s0" -gt "$c" ] && c=$s0
   this_stuck=""
   if [ "$status" != completed ]; then
     [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created ($(( (NOW - c) / 60 )) minutes)"
