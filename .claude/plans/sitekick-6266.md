@@ -38,7 +38,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 15) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 16) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -47,8 +47,8 @@ why), without a person dispatching it.
   web.machine-absence-claims, caches.fsync, shell-shard: pass.
 
 ## Weakest premise
-Mortals' gh login keeps the workflow scope. If it is lost, every tick prints "could not dispatch" in the job's log,
-which nobody reads; the GitHub schedule and push runs still work as before.
+Mortals' gh login keeps the workflow scope. If it is lost, every tick prints "could not read site main" (or, with only the
+workflow scope lost, "could not dispatch") in kick.log, last-result and launchctl's last exit code; the GitHub schedule and push runs still work as before.
 
 ## Review 1 (opus), and what changed
 - (Superseded by reviews 3 and 4: the 45-minute stuck rule below became 3 hours from creation.)
@@ -170,3 +170,15 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   /bin has one. CONVENTION: the comments' "review N" tags (history a reader cannot see) are replaced by their reasons;
   the history stays here. NITs taken: the 3-hour limit pinned at 10700 vs 10900 s; the TERM test always cleans up its
   fake; --uninstall says "nothing to remove" when nothing was installed. Left (stated): -dirty covers only the script.
+
+## Review 15 (opus), and what changed
+- No BLOCKER. WARNING (unmeasured but well-founded): launchd stops a job by TERM to its main process and then cleans up
+  the job's process group, by force; a forced kill runs no handler, so gh in its OWN group would be orphaned and could
+  still dispatch after an uninstall. gh now stays in the tick's process group; perl kills gh's pid at the deadline
+  (gh has no helpers to take down) and passes TERM/INT/HUP on. Test: SIGKILL the tick's group, gh is gone (the
+  own-group design fails it). WARNING: the source-commit test accepted "unknown": it now requires this checkout's sha
+  (with an optional -dirty). NITs taken: --check prints the gh limit and a 0 limit is shown refused (test); the log's
+  worst case (about 40 KB a day); the fake gh's pid read is inside the test's try, with cleanup; the weakest premise's
+  wording. Left: cut -c1-160 counts bytes (can split a character in gh's error; cosmetic).
+- Re-measured against the real gh (GH_HOST=10.255.255.1, limit 3 s): cut off in 5 s, "timed out after 3 s", no
+  gh process left.

@@ -36,7 +36,7 @@
 # Each tick writes the time to its heartbeat file (it proves launchd STARTED the tick, not that gh worked; the log
 # says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it
 # asks, cannot read something, or sees a stuck run (at most two lines); the log is not rotated (about 10 to 20 KB a
-# day at worst; kept by --uninstall).
+# day, about 40 KB at the very worst: a stuck run plus a failed dispatch every tick; kept by --uninstall).
 #
 # Not covered (the job's schedule run still covers it): live gone back to an older commit while main is unchanged;
 # this compares main with last-deployed only. Accepted: a lost gh login or workflow scope fails every tick, seen only
@@ -59,16 +59,16 @@ GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
 case "$GH_MAX_S" in ''|*[!0-9]*|0*) GH_MAX_S=90 ;; esac   # never 0: perl's alarm 0 would mean no limit at all
 # gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
-# unroutable host ran its own 30 s dial timeout past a 3 s alarm). So gh runs in its own process group, the deploy
-# job's grouped_timeout shape (tools/site-autodeploy.sh), in full: handlers before the fork pass a TERM,
-# INT or HUP on to the gh group (launchd stopping the job, a person's Ctrl-C), the group is set from both sides, at
-# the deadline the group gets TERM then KILL and perl exits 142, and the alarm is cancelled once gh has been reaped.
+# unroutable host ran its own 30 s dial timeout past a 3 s alarm). So perl forks gh, waits, and at the deadline sends
+# gh TERM then KILL and exits 142, cancelling the alarm once gh is reaped. gh STAYS in the tick's process group (unlike
+# the deploy job's grouped_timeout, whose git has helpers to take down): launchd cleans up a stopped job by its process
+# group, which a hard kill must reach, and a person's Ctrl-C reaches the foreground group. A TERM, INT or HUP that
+# reaches perl is passed on to gh too.
 ghb() {
   perl -e 'my $t = shift; my $p;
-    $SIG{$_} = sub { if ($p) { kill "TERM", -$p; sleep 2; kill "KILL", -$p } exit 143 } for qw(TERM INT HUP);
-    $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
-    setpgrp($p, $p);
-    $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
+    $SIG{$_} = sub { if ($p) { kill "TERM", $p; sleep 2; kill "KILL", $p } exit 143 } for qw(TERM INT HUP);
+    $p = fork; defined $p or exit 126; if (!$p) { exec { $ARGV[0] } @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", $p; sleep 2; kill "KILL", $p; waitpid($p, 0); exit 142 };
     alarm $t; my $w = waitpid($p, 0); alarm 0; my $s = $?;
     exit 125 if $w != $p;
     exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$GH_MAX_S" "$GH" "$@"
@@ -107,6 +107,7 @@ NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
 if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi
 if [ "$CHECK" = 1 ] && [ -r "$RESULT" ]; then note "last tick: $(head -n 1 "$RESULT")"; fi
+note "each gh call is limited to ${GH_MAX_S} s"
 if [ ! -d "$STATE" ]; then say "no deploy state folder at $STATE (the deploy job has not run here, or it keeps its state elsewhere); nothing asked"; exit 1; fi
 if [ -e "$STATE/paused" ]; then note "paused ($STATE/paused): would ask nothing"; exit 0; fi
 main="$(ghb api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
