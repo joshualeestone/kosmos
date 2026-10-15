@@ -596,5 +596,22 @@ run_deploy_real "$S39" "$L39" --promote
   && pass "#6149: a committed staging pointer below the floor is refused" || bad "#6149 staging below floor (rc=$RC) out=$out"
 [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L39/dist/latest.json")" = 0.7.47 ] \
   && pass "#6149: that refusal deployed nothing (LIVE still serves 0.7.47)" || bad "#6149 staging refusal still changed LIVE"
+# 40) The REPAIR docs/staging-channel.md gives, end to end under the real floor: a prod set below the floor is committed
+#     on top of a good one and refused; restoring the whole set from the good commit, exactly as the doc says
+#     (git checkout <commit> -- dist/latest.json setup setup.sha256), deploys and serves the good build.
+read -r S40 L40 <<<"$(above)"
+( cd "$S40" && shasum -a 256 setup > setup.sha256 ); git -C "$S40" add -A; git -C "$S40" commit -q -m "the good set" --allow-empty
+GOOD40="$(git -C "$S40" rev-parse HEAD)"
+write_ptr "$S40/dist/latest.json" 0.7.38 "$(sha_of "$L40/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.38-arm64.tar.gz
+printf 'an installer from before 0.7.42\n' > "$S40/setup"; ( cd "$S40" && shasum -a 256 setup > setup.sha256 )
+git -C "$S40" add -A && git -C "$S40" commit -q -m "a prod set below the floor"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)"; } \
+  && pass "#6149 repair: the broken prod set is refused by the floor" || bad "#6149 repair: broken set (rc=$RC) out=$out"
+git -C "$S40" checkout -q "$GOOD40" -- dist/latest.json setup setup.sha256 && git -C "$S40" commit -q -m "restore the good prod set"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 0 ] && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L40/dist/latest.json")" = 0.7.49 ]; } \
+  && pass "#6149 repair: restoring the whole set from the good commit deploys it under the real floor (LIVE serves 0.7.49)" || bad "#6149 repair: restored set (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
