@@ -83,6 +83,8 @@ function record(dir, reading, now, opt = {}) {
   /* #6176: a stored reset further out than this window can be (a bad file) is not a window to compare against, or every
      real reading after it would be refused as older until that impossible time passed. */
   if (cur && opt.maxAheadSeconds && typeof cur.resetsAt === 'number' && cur.resetsAt > now / 1000 + opt.maxAheadSeconds) cur = null;
+  // And an incoming one like that is not recorded: it would replace a good reading with one nothing will show.
+  if (opt.maxAheadSeconds && reading.resetsAt > now / 1000 + opt.maxAheadSeconds) return false;
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
     const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
     if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;

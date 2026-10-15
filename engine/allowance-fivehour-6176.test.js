@@ -97,6 +97,15 @@ test('a stored reset further out than a five-hour window does not block the next
   assert.equal(r.resetsAt, NOW_S + 3600);
 });
 
+test('an incoming reading whose reset no five-hour window could have does not replace a good one', () => {
+  const dir = freshDir();
+  run(dir, payload({ used_percentage: 30, resets_at: NOW_S + 3600 }));
+  run(dir, payload({ used_percentage: 5, resets_at: NOW_S + 9 * 3600 }));
+  const r = JSON.parse(fs.readFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), 'utf8'));
+  assert.equal(r.usedPct, 30, 'a reading nothing would show replaced a good one');
+  assert.equal(allowance.readFiveHour(dir).usedPct, 30);
+});
+
 test('readFiveHour refuses what it cannot trust', () => {
   const dir = freshDir();
   assert.equal(allowance.readFiveHour(dir), null, 'never recorded');
