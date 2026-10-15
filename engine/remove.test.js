@@ -3184,6 +3184,12 @@ test('#6173 review 1: the real execFile half of the async driver keeps the exit 
   const missing = await exec(nodePath.join(os.tmpdir(), 'no-such-launchctl-6173'), []);
   assert.equal(missing.ok, false);
   assert.equal(missing.code, null, 'a command that is not there has no exit code');
+  /* Review 5: a process that ignores SIGTERM still ends at its limit (SIGKILL), so a hold waiting on it ends too. */
+  const t0 = Date.now();
+  const stubborn = await exec(...node('process.on("SIGTERM", () => {}); setTimeout(() => {}, 30000)'), { timeout: 300 });
+  assert.ok(Date.now() - t0 < 6000, `a command that ignored SIGTERM ran ${Date.now() - t0} ms past a 300 ms limit`);
+  assert.equal(stubborn.ok, false);
+  assert.equal(stubborn.code, null, 'a command that ignored SIGTERM was not ended at its limit');
   const slow = await exec(...node('setTimeout(() => {}, 5000)'), { timeout: 200 });
   assert.equal(slow.ok, false);
   assert.equal(slow.code, null, 'a command killed at its time limit has no exit code');

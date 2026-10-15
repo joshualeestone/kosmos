@@ -343,16 +343,26 @@ function runAsync(file, args, opts) {
   return execAsync(file, args, opts);
 }
 /* The live half of runAsync, apart so a test can run a real process through it (the gate keeps runAsync off it there). */
+/* ⚠️ IT ALWAYS ANSWERS (#6173 review 5). An abandoned restart keeps its hold until its in-flight command ends, and a
+   held agent holds board restarts and updates, so "every command is bounded" has to be true: the limit kills with
+   SIGKILL (a SIGTERM can be ignored), and a last timer answers even if the process's pipes never close (a child that
+   left a grandchild holding them), so the answer comes within the limit plus 5 s whatever the process does. */
+const EXEC_HARD_GRACE_MS = 5000;
 function execAsync(file, args, opts) {
   return new Promise((resolve) => {
     const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
+    const limit = (opts && opts.timeout) || 20000;
+    let answered = false, hard = null;
+    const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
     let child;
     try {
-      child = execFile(file, args, { encoding: 'utf8', timeout: (opts && opts.timeout) || 20000 }, (err, stdout, stderr) => {
-        if (!err) { resolve({ ok: true, stdout }); return; }
-        resolve({ ok: false, code: typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
+      child = execFile(file, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+        if (!err) { answer({ ok: true, stdout }); return; }
+        answer({ ok: false, code: typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
       });
-    } catch (err) { resolve({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
+    } catch (err) { answer({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
+    hard = setTimeout(() => answer({ ok: false, code: null, stdout: '', stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
+    if (hard.unref) hard.unref();
     if (child && child.stdin) child.stdin.end();
   });
 }
@@ -2444,7 +2454,7 @@ function restart(name, cause, opts) {
    ended (each is bounded by its own execFile limit), so nothing can interleave with a command still in flight. */
 const ASYNC_RESTART_CAP_MS = 300 * 1000;
 function asyncRestartCapMs() {
-  const v = Number(process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS);   // a test's seam; production keeps 180 s
+  const v = Number(process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS);   // a test's seam; production keeps 300 s
   return Number.isFinite(v) && v > 0 ? v : ASYNC_RESTART_CAP_MS;
 }
 
