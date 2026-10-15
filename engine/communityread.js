@@ -457,8 +457,9 @@ const SEEN_MAX = 700;
    holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
    to it that read, as it was before #6204). The one exception: a page holding a new reply the 30-cap left unshown is
    read again from that page. At most THREADS_MAX per post, this read's first: the most comments one read can see
-   (round 1's page and every round-2 page an older-comments page), so this read's places always fit. A post's mark never passes the last reply read in a thread the budget or the window cut (the unread
-   rest sorts after it), so a tail read later is still new; a FAILED page keeps #6201's bounded hold instead
+   (round 1's page and every round-2 page an older-comments page), so this read's places always fit. A post's mark
+   never passes the last reply read in a thread the budget, the window or a 429 left waiting (the unread rest sorts
+   after it), so a tail read later is still new; a thread whose OWN page failed keeps #6201's bounded hold instead
    (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
 const THREADS_MAX = COMMENTS_ASKED * (1 + REPLY_PAGES_MAX);
 const LOW_ID = '00000000-0000-0000-0000-000000000000';
@@ -824,7 +825,7 @@ function readOf(c) { return c.replies.length + (c.skipped || 0); }
    comment itself: every reply sorts after its comment). */
 function lastRead(c) {
   if (!(c.pages && c.pages.length) && c.resume) return { ts: c.resume.at, id: c.resume.id };
-  const r = c.replies.filter((x) => x.ts);
+  const r = c.replies.filter((x) => validAt(x.ts));
   return r.length ? r[r.length - 1] : c;
 }
 /* #6204: where each thread this read did not finish goes on next time: a page holding a new reply the 30-cap left
@@ -971,9 +972,11 @@ async function repliesFor(sessionName, opts) {
       return;
     }
     const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
-    if (!list) { c.pending = true; c.pageFailed = true; c.waitCursor = task.cursor; th.partial = true; return; }
+    /* #6204 review 5: ownFail is a failure of this thread's own page (an error answer or rows that cannot be read); a 429
+       or no answer is the service's, and a thread left waiting by it still caps the mark. */
+    if (!list) { c.pending = true; c.pageFailed = true; c.ownFail = !!r.status && r.status !== 429; c.waitCursor = task.cursor; th.partial = true; return; }
     let page;
-    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; c.pageFailed = true; c.waitCursor = task.cursor; th.partial = true; return; }
+    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; c.pageFailed = c.ownFail = true; c.waitCursor = task.cursor; th.partial = true; return; }
     if (list.length > 20) c.pending = c.pageCut = true;   // review 6: a page longer than asked is cut here, so its rest is said as not reached
     const had = new Set(c.replies.map((x) => x.id));
     const added = page.filter((x) => !had.has(x.id));
@@ -1077,7 +1080,7 @@ async function repliesFor(sessionName, opts) {
     const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || (th.olderFailed && !th.olderCut));
     const willHold = th.partial && onlyFailed && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
     // #6204: a thread the budget or the window cut is gone on with next time, from where this read stopped.
-    const goesOn = !willHold && !th.olderUnread && th.comments.every((c) => !c.pending || (c.waitCursor && !c.pageFailed && !c.pageCut));
+    const goesOn = !willHold && !th.olderUnread && th.comments.every((c) => !c.pending || (c.waitCursor && !c.ownFail && !c.pageCut));
     lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
       + (willHold ? ' not reached in this read; they will be looked at again next time)'
         : goesOn ? ' not reached in this read; the next read goes on from where this one stopped)'
@@ -1124,13 +1127,13 @@ async function repliesFor(sessionName, opts) {
       if (!x) { next[pid] = { ...next[pid], held: heldNext, threads: threadsNext }; continue; }   // nothing shown: mark stays
       top = top && byPos(top, x) < 0 ? top : x;
     }
-    /* #6204: never past the last reply read in a thread this read did not finish: its unread rest sorts after that reply,
-       so the lowest id at its time keeps every one of them after the mark (one already shown above the old mark is in "seen"; one at or below it is
-       filtered as before). */
+    /* #6204: never past the last reply read in a thread this read did not finish (unless its own page failed): its
+       unread rest sorts after that reply, so the lowest id at its time keeps every one of them after the mark (one
+       already shown above the old mark is in "seen"; one at or below it is filtered as before). */
     for (const c of th.comments) {
-      if (!c.waitCursor || c.pageFailed || !top) continue;
+      if (!c.waitCursor || c.ownFail || !top) continue;
       const last = lastRead(c);
-      if (!Number.isFinite(last.ts)) continue;   // an item with no readable time cannot place a cap
+      if (!validAt(last.ts)) continue;   // an item with no readable time cannot place a cap
       const cap = { ts: last.ts, id: LOW_ID };
       if (byPos(cap, top) < 0) top = cap;
     }
