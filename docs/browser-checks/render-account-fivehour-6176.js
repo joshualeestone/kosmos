@@ -196,6 +196,28 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await p2.clock.runFor(61e3); await p2.waitForTimeout(300);
     const retried = await p2.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(failed.reads === 2 && failed.fives === 2 && retried.reads === 3 && retried.fives === 1, '[chromium open] a failed read at the reset is tried again a minute later, and the line goes', JSON.stringify({ failed, retried }));
+    // A background read that fails BEFORE the reset (another check's follow-up, say) must not cancel the reset's read.
+    const p4 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p4.clock.install({ time: new Date(now) });
+    await p4.goto('file://' + PAGE);
+    await p4.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        return window.__reads === 2 ? Promise.resolve({ ok: false, status: 503, json: async () => ({}) }) : Promise.resolve({ ok: true, json: async () => ({ accounts }) });
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p4.clock.runFor(2 * 60e3);
+    await p4.evaluate(() => paintAccounts({ followUp: ACCT_FOLLOWUP.max }));   // read 2 fails, two minutes in
+    await p4.clock.runFor(9 * 60e3); await p4.waitForTimeout(300);
+    const early = await p4.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(early.reads === 3 && early.fives === 1, '[chromium open] a background read that fails before the reset does not cancel the read at the reset', JSON.stringify(early));
+    await p4.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });

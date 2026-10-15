@@ -45,3 +45,8 @@ shows its age, and a reading from a window that has reset is not drawn at all.
   after the five-hour line and the note (never between the meters and their note), and a five-hour-only row offers it too.
 - Every reason a reading stops updating has its plural words for two readings (linked-settings was missing).
 - The move menu offers no target at its five-hour limit until that resets (a reading past its reset does not count).
+- A background read that fails before a reset no longer cancels the read at the reset: the timer is set again from the
+  resets on screen, and a list busy at that moment is tried again a minute later within the same ten tries.
+- Decided, not built: the move menu still labels a target with its weekly figure only. A target near its five-hour
+  limit is left in, because that limit resets within hours (moved agents would wait, not fail); a target AT it is left
+  out. Rejected: naming the five-hour figure in every option, which doubles the label for a few hours' difference.

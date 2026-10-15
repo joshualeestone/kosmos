@@ -27267,24 +27267,39 @@ let acctFiveTimer = null, acctFiveMisses = 0;
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
-  const due = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].some((el) => Number(el.dataset.resets) <= Date.now());
-  if (!due || acctFiveMisses >= 10) return;
+  const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+  const due = shown.some((t) => t <= Date.now());
+  /* A background read that failed BEFORE any reset still cancelled the timer (it raised ACCT_EPOCH): set it again from
+     the resets on screen, so the line still goes when its window does. */
+  if (!due) { acctFiveHourArm(shown, true); return; }
+  if (acctFiveMisses >= 10) return;
   acctFiveMisses++;
   clearTimeout(acctFiveTimer);
   const mine = ACCT_EPOCH;
   acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH && acctListShown()) paintAccounts({ followUp: ACCT_FOLLOWUP.max }); }, 60e3);
 }
 function acctFiveHourRepaint(list) {
-  clearTimeout(acctFiveTimer); acctFiveTimer = null; acctFiveMisses = 0;
-  const soon = (list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt).filter((t) => Number.isFinite(t) && t > Date.now());
+  acctFiveMisses = 0;
+  acctFiveHourArm((list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt), false);
+}
+/* The one timer: read the list again just after the soonest reset still ahead. `keep` keeps the miss count (a re-arm
+   after a failed read, not a fresh paint). A list busy at that moment (a menu open, a press under way) is tried again
+   a minute later within the same ten-try budget, rather than handed to a follow-up that can run out. */
+function acctFiveHourArm(times, keep) {
+  clearTimeout(acctFiveTimer); acctFiveTimer = null;
+  if (!keep) acctFiveMisses = 0;
+  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
   if (!soon.length) return;
   const mine = ACCT_EPOCH;
-  acctFiveTimer = setTimeout(() => {
-    acctFiveTimer = null;
-    if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
-    if (acctListBusy(document.getElementById('set-accounts'))) { acctFollowUp(ACCT_FOLLOWUP.max, 1); return; }
-    paintAccounts({ followUp: ACCT_FOLLOWUP.max });
-  }, Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
+  const fire = (delay) => {
+    acctFiveTimer = setTimeout(() => {
+      acctFiveTimer = null;
+      if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
+      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses++ < 10) fire(60e3); return; }
+      paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+    }, delay);
+  };
+  fire(Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
 }
 /* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
    it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.
@@ -27402,7 +27417,7 @@ function acctUsageHtml(a, list) {
     const fband = fp >= ACCT_HIGH_PCT ? 'high' : fp >= ACCT_WARN_PCT ? 'warn' : 'ok';
     const sameDay = new Date(f.resetsAt).toDateString() === new Date().toDateString();
     const fresets = new Date(f.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-    const fage = agoWords(Date.now() - f.at);
+    const fage = agoWords(Math.max(0, Date.now() - f.at));
     five = '<div class="acct-usage-meter acct-usage-five" data-resets="' + Math.round(f.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + fband + '" style="width:' + fp + '%"></i></span>'
       + '<p class="acct-usage-line">' + fp + '% of its 5-hour limit used · resets ' + esc(fresets) + (fage ? ' · Kosmos last saw it change ' + esc(fage) : '') + '</p></div>'
       + (fp >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (fband === 'high' ? ' high' : '') + '">' + (fp >= 100 ? 'At its 5-hour limit until ' + esc(fresets) + '.' : 'Close to its 5-hour limit.') + '</p>' : '');
