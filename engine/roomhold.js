@@ -491,6 +491,8 @@ function afterNote(after) {
    or refused (the ids were put back), so a telling is never counted that did not happen. */
 function carriedLine(name, projectId, ids, after, state) {
   const DELIVERY = require('./chat').DELIVERY;
+  // Round 3: typing started and threw, so they may have reached the member, and were put back to be told again.
+  if (state === 'may-have') return `room-hold: ${name} may have been told of ${ids.length} held post(s) in ${projectId} on an arrival there (typing threw after it started), put back${afterNote(after)}\n`;
   const told = state && state !== 'held' && state !== DELIVERY.COULD_NOT;
   return told
     ? `room-hold: ${name} told of ${ids.length} held post(s) in ${projectId} on an arrival there, delivery=${state}${afterNote(after)}\n`
