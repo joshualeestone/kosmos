@@ -19993,9 +19993,12 @@ const server = http.createServer(async (req, res) => {
         let shared = '';
         try {
           if (fedseats.linkFor(id)) {
-            shared = fedseats.contactStopped()   // kosmos#6239: the room is closed under the policy, so it says that instead
+            const cs = fedseats.contactState();   // kosmos#6239: a room closed under the policy, or a fault, says so instead
+            shared = cs === 'policy'
               ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
-              : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
+              : cs === 'unreadable'
+                ? '[kosmos] This room is shared with another computer, but it is closed for now: Kosmos cannot read the policy set for this Kosmos, so nothing posted here leaves this computer.\n'
+                : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
           }
         }
         catch (err) { fedseats.logUnreadable(err); }
@@ -22780,8 +22783,11 @@ function federateOut(projectId, delivery, operator) {
   }
   if (!link) return;
   // kosmos#6239: the room is closed under the policy (fedseats.ensure lets its seat go), so the post stays here, said.
-  if (fedseats.contactStopped()) {
-    messages.roomNote(projectId, 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.');
+  const cs = fedseats.contactState();
+  if (cs !== 'open') {
+    messages.roomNote(projectId, cs === 'policy'
+      ? 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.'
+      : 'That post stayed on this computer: Kosmos cannot read the policy set for this Kosmos just now, so this room is closed until it can.');
     return;
   }
   const text = typeof delivery.text === 'string' ? delivery.text : '';

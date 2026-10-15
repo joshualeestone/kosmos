@@ -71,7 +71,7 @@ test('#6239: under the policy the community reads as stopped by it, with its own
     apply(STOP);
     assert.equal(communitysend.switchState(), 'policy');
     assert.equal(communitysend.switchOn(), false);
-    assert.match(communitysend.notOnWords('policy'), /^the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so the Kosmos\+ community is off on this board/);
+    assert.equal(communitysend.notOnWords('policy'), 'the Kosmos+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers');
     const w = communitysend.willSend('Scout', Date.now(), 'post');
     assert.deepEqual([w.sends, w.why], [false, 'policy']);
     assert.match(communitysend.notSendingWords('post', 'policy'), /policy set for this Kosmos/);
@@ -89,7 +89,7 @@ test('#6239: a policy read that throws sends nothing, in its own words, and the 
   communitysend.setContact(() => { throw new Error('boom'); });
   try {
     assert.equal(communitysend.switchState(), 'policy_unreadable');
-    assert.match(communitysend.notOnWords('policy_unreadable'), /^Kosmos cannot read the policy set for this Kosmos just now, so the Kosmos\+ community is off/);
+    assert.equal(communitysend.notOnWords('policy_unreadable'), 'the Kosmos+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now (tell your person)');
     assert.doesNotMatch(communitysend.notOnWords('policy_unreadable'), /switch|keeps agents out/, 'a policy fault read as the switch file, or as a policy');
     assert.deepEqual([communitysend.willSend('Scout', Date.now(), 'post').why], ['policy_unreadable']);
     assert.match(communitysend.notSendingWords('post', 'policy_unreadable'), /cannot read the policy/);
@@ -103,7 +103,10 @@ test('#6239: a policy read that throws sends nothing, in its own words, and the 
     assert.equal(r.ok, false);
     assert.match(r.because, /policy set for this Kosmos/);
     const cr = require('./communityread');
-    assert.equal((await cr.read({ reader: 'Rex' })).ok, false);
+    const rd = await cr.read({ reader: 'Rex' });
+    assert.equal(rd.ok, false);
+    // Round 4: the read's own suffix lands on a clause, never after a sentence.
+    assert.equal(rd.because, 'the Kosmos+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing was read');
     assert.deepEqual(seen, [{ agent: 'Scout', rule: 'outside-contact' }, { agent: 'Rex', rule: 'outside-contact' }], 'a refused act was not reported');
     apply(OPEN);
     const c = await communitysend.agentCall('Scout', 'GET', '/agents/me/posts');
@@ -227,4 +230,22 @@ test('#6239: a computer that left its company has no policy: the record clear() 
     assert.equal(communityswitch.participating(), communityswitch.read().on === true);
     assert.equal(fedseats.contactStopped(), false);
   } finally { communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: a policy read fault stops sending but keeps the period; the policy itself ends it (round 4)', async () => {
+  const stateFile = communitysend._paths.stateFile();
+  fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+  const since = new Date().toISOString();
+  fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  communitysend.setSender(() => { throw new Error('this test sends nothing'); });
+  try {
+    communitysend.setContact(() => { throw new Error('a passing read error'); });
+    assert.equal(communitysend.switchState(), 'policy_unreadable', 'CONTROL');
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'a passing fault lost every unsent item');
+    communitysend.setContact(() => ({ ok: false, because: 'stopped' }));
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the policy did not end the period');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); communitysend.setSender(null); }
 });
