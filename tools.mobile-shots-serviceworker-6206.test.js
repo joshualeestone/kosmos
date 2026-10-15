@@ -120,7 +120,9 @@ function unflaggedStubbers(raw) {
     for (const n of Object.keys(fnBody)) if (!stubbingHelpers.has(n) && [...stubbingHelpers].some((h) => calls(fnBody[n], h))) { stubbingHelpers.add(n); grew = true; }
   }
   const body = {};
-  for (const m of code.matchAll(/(^|[\s,[])\{[\s]*name:[\s]*'([a-z0-9-]+)'/g)) body[m[2]] = extent(code, m.index + m[1].length, true);
+  /* A screen is { name: '...', owner: ... }, the shape the declared count below uses: a screen's own fixture rows
+     ({ name: 'laptop', address: ... } in #6211's settings-accounts-other) are not screens. */
+  for (const m of code.matchAll(/(^|[\s,[])\{[\s]*name:[\s]*'([a-z0-9-]+)',[\s]*owner:/g)) body[m[2]] = extent(code, m.index + m[1].length, true);
   const stubs = (n, seen = new Set()) => {
     if (seen.has(n) || !body[n]) return false;
     seen.add(n);
