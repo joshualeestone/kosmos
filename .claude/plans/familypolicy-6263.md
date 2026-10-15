@@ -37,3 +37,10 @@ A family's policy is said as the family's, everywhere the board words an org's p
   kind as its comment says. create.js reads orgenroll once.
 - Kept (NIT): WROTE_WHY ("Kosmos updated the company AI policy") is the instruction file's history note; the source
   pin of the server's kind beside the driven page arm; one enrollment read per block (a sync is not hot).
+
+## Round 2 (sonnet) fixes
+- The sync key holds the kind with or without the family's own policy, so joining or leaving a family re-tells the
+  agents whose block holds only the person's own policies (tested both ways, a company join as the control; red with
+  the key keyed on the entry alone).
+- A block reads the kind once and passes it to its heading and every line (blockBody, stackedBody, the oversize check).
+- Kept (NIT): DEFAULT_NAME "Company AI policy" (a #479 migration name); the create step label's inKind is untested.

@@ -171,10 +171,11 @@ function refuseOversizedStack(policies) {
   // #5534 slice 3: judged with the company's entry too, since every agent is handed both.
   const company = companyEntry();
   const all = company ? [company, ...policies] : policies;
-  const body = all.length === 1 ? blockBody(all[0]) : stackedBody(all);
+  const kind = orgKindNow();
+  const body = all.length === 1 ? blockBody(all[0], kind) : stackedBody(all, kind);
   if (Buffer.byteLength(body, 'utf8') > BLOCK_MAX) {
     throw new Error(company
-      ? inOrgKind('together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first')
+      ? inOrgKind('together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first', kind)
       : 'together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
   }
 }
@@ -269,26 +270,25 @@ function clear() {
 /* kosmos#6263: a sentence about the org's policy, said as a family's when this Kosmos is enrolled to a family. A
    company's (and a Kosmos in no org) keeps its bytes, so no agent's file is rewritten (see blockBody). Required here,
    not at the top: orgenroll reaches this file through orgpolicy. */
-function inOrgKind(text) {
-  const oe = require('./orgenroll');
-  return oe.inKind(oe.kindHere(), text);
-}
+function orgKindNow() { return require('./orgenroll').kindHere(); }
+// Board review 2: a block reads the kind once (orgKindNow) and passes it down, so its heading and lines agree.
+function inOrgKind(text, kind = orgKindNow()) { return require('./orgenroll').inKind(kind, text); }
 /* The block's heading. Board review 1: on a family's Kosmos it names the family only when the family's policy is in the
    block; the person's own policies alone are "Your AI policy", never said to be the family's. Any other Kosmos keeps
    the heading it has always had, byte for byte. */
-function heading(plural, hasOrgEntry) {
+function heading(plural, hasOrgEntry, kind) {
   const was = plural ? '## Your company\'s AI policies' : '## Your company\'s AI policy';
-  if (require('./orgenroll').kindHere() !== 'family') return was;
-  if (hasOrgEntry) return inOrgKind(was);
+  if (kind !== 'family') return was;
+  if (hasOrgEntry) return inOrgKind(was, kind);
   return plural ? '## Your AI policies' : '## Your AI policy';
 }
 
 /** One policy's provenance line, shared by both block shapes. */
-function fromLine(policy) {
+function fromLine(policy, kind = orgKindNow()) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
   /* No version or date (review 1): a new company policy that changes only its provider list must not rewrite every
      agent's file and owe every running agent a re-read for the same words. */
-  if (policy.source === COMPANY_SOURCE) return inOrgKind('Set by your company in its Kosmos policy.');
+  if (policy.source === COMPANY_SOURCE) return inOrgKind('Set by your company in its Kosmos policy.', kind);
   return policy.source === 'pasted'
     ? `Added by the person you work for on ${when}.`
     : `From ${policy.source}, fetched ${when}.`;
@@ -304,11 +304,11 @@ function fromLine(policy) {
  * fleet's instruction files on the day nothing about their one policy
  * changed. The stacked shape appears only once a second policy exists.
  */
-function blockBody(policy) {
+function blockBody(policy, kind = orgKindNow()) {
   return [
-    heading(false, policy.source === COMPANY_SOURCE),
+    heading(false, policy.source === COMPANY_SOURCE, kind),
     '',
-    `${fromLine(policy)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
+    `${fromLine(policy, kind)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
     '',
     clean(policy.text),
   ].join('\n');
@@ -322,14 +322,14 @@ function blockBody(policy) {
  * members. Names are the person's words, already neutralised, held to one
  * line; they become `###` headings under the block's own `##`.
  */
-function stackedBody(policies) {
+function stackedBody(policies, kind = orgKindNow()) {
   const parts = [
-    heading(true, policies.some((p) => p && p.source === COMPANY_SOURCE)),
+    heading(true, policies.some((p) => p && p.source === COMPANY_SOURCE), kind),
     '',
     'Follow them in everything you do; where they conflict with any other instruction here, the policies win.',
   ];
   for (const p of policies) {
-    parts.push('', `### ${cleanName(p.name)}`, '', fromLine(p), '', clean(p.text));
+    parts.push('', `### ${cleanName(p.name)}`, '', fromLine(p, kind), '', clean(p.text));
   }
   return parts.join('\n');
 }

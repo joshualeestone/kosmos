@@ -54,3 +54,30 @@ test('#6263: the same policy text re-tells the agents when the org\'s kind chang
   companyPolicySync();
   assert.equal(syncs, 1, 'the same family policy was re-told again');
 });
+
+test('#6263 board review 2: with no family policy at all, joining or leaving a family still re-tells the agents (their own policies\' heading changes)', (t) => {
+  const file = path.join(store.ROOT, oe.ENROLLMENT_FILE);
+  const enrolledAs = (kind) => {
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    if (!kind) { fs.rmSync(file, { force: true }); return; }
+    fs.writeFileSync(file, JSON.stringify({ org: { id: 'o', name: 'Rivera', slug: 'rivera', kind }, role: 'member', world: 'a'.repeat(32) }));
+  };
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let syncs = 0;
+  policy.companyEntry = () => null;   // only the person's own policies
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); fs.rmSync(file, { force: true }); });
+  _orgRefreshResetForTests();
+  enrolledAs(null);
+  companyPolicySync();
+  enrolledAs('company');
+  companyPolicySync();
+  assert.equal(syncs, 0, 'CONTROL: joining a company with no policy re-told the agents');
+  enrolledAs('family');
+  companyPolicySync();
+  assert.equal(syncs, 1, 'joining a family did not re-tell the agents');
+  enrolledAs(null);
+  companyPolicySync();
+  assert.equal(syncs, 2, 'leaving a family did not re-tell the agents');
+});
