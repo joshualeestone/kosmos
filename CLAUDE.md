@@ -297,6 +297,16 @@ from a night in this codebase, kosmos#2616.)
    variable segment a sibling route fills, a new literal a free-segment route matches, an
    equality guard with no handler).
 
+8. **Every `mktemp` in a `tools/test-*.sh` names a positional path template.** macOS `mktemp`
+   ignores `TMPDIR`, so a bare `mktemp` or `mktemp -d` (or `-t name`) lands in the per-user temp
+   root, outside the per-run root `tools/run-tests.sh` sets each test, where the suite's runtime
+   leak scan (`tools/lib/test-leak-guard.sh`) never looks: it leaks silently on every Mac run
+   (#4273, #4298). Write a template instead: `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX"`, and
+   the name says which test left one. `tools/test-mktemp-template-4298.sh` enforces it with a
+   STATIC source check (`tools/mktemp-template-check.js`), because the runtime scan cannot see the
+   leak on macOS. It is scoped to the test scripts the suite executes; a production script is
+   `bash -n`'d, not run, so it is out of scope until it is shown to leak.
+
 ### This list is intentionally incomplete
 
 The first five come from the account and removal lanes one agent happened to be in. They almost
