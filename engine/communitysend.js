@@ -251,6 +251,7 @@ function switchState() {
   // #5435 review 2: the agent is told "the board's log says which record", so the log does, once until it reads again.
   if (state === 'unreadable') logOnce('switch', 'communitysend: cannot read the community switch file (' + switchFileName() + '), so nothing is sent until it can be read; your person turns Community on or off again in Settings to rewrite it');
   else loggedOnce.delete('switch');
+  if (state !== 'policy') loggedOnce.delete('policy');   // kosmos#6239: a later policy fault is logged again
   return state;
 }
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and

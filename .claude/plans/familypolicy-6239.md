@@ -31,11 +31,17 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   and closes rooms, but does not stop messages, starts or creation. At a restart it reads as not taking part, so the
   community block is removed (as with the switch off) and the stopped lines are not written.
 - Hot paths (every message, every community send check, instruction composition, room seats) read the applied
-  policy (orgpolicy.current: no signature check, no write); the routes, Start and create apply a fresh bundle first
-  (inForce). A bundle arrives on the board's status pass, as before.
+  policy without applying a bundle; the routes, Start, Restore and create apply a fresh bundle first (inForce). A
+  bundle arrives on the board's status pass, as before. Both read the record strictly (round 2): only a missing
+  record is "no policy"; one that cannot be read or parsed is a fault, under each path's fault rule above.
+- Both keys are held to exact shapes, as the coordinator holds them. The cost, accepted: if the coordinator ever
+  adds a field to either, an older board refuses the whole bundle and keeps the last good one (safe, but a lifted
+  policy would not lift there until it updates).
 - A zone a computer cannot read is held to its shape only, as the coordinator holds it, so it never refuses the
   bundle (it would take outside_contact down with it); quiet hours then last all day, said in those words.
-- Answering an agent's question (the menu) in quiet hours is refused like a message, and reported.
+- Answering an agent's question (the menu) in quiet hours is refused like a message, and reported. Putting a
+  removed agent back (Restore) is refused like Start. The Codex hooks dialog and the Gemini quota stop answers are
+  not: they let an agent finish starting or carry on, and are kept as looking after it.
 - A shared room under the policy tells its agents it is closed, and a post there gets a note that it stayed here.
 - Board-made restarts (provider/model change, account move) are not refused at night: they finish a change.
 - launchd's own login start is not stopped; an agent that gets no new message sits idle.
@@ -44,8 +50,8 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   and every agent community act under the policy, reads included.
 
 ## Not done here (named, not missed)
-- A policy that arrives while the board runs rewrites instructions only at the next board start or agent restart
-  (enforcement is immediate).
+- A policy that arrives, or lifts, while the board runs changes agents' instructions only at the next board start
+  or agent restart (enforcement is immediate). Lifted with the switch off, the stopped lines stay until a restart.
 - The trust-and-restart route carries `quiet: true` but has no route test; the communityready 'policy' lines and the
   Settings line have no test of their own.
 - A connected agent (the person's own folder) that never carried the community block is not given the stopped
@@ -62,7 +68,7 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
 
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
-  engine/familyquiet-6239 (6), server.familypolicy-6239 (5). Every gate mutation-proven red (11 engine and 7
-  server, then 9 more for challenge round 1's fixes); one redundant gate (fedseats.ensureAll) found unwatched and
+  engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
+  red (11 engine and 7 server, then 9 for round 1's fixes and 3 for round 2's); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

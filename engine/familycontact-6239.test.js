@@ -186,3 +186,24 @@ test('#6239: no shared-room seat under the policy; a running one is let go and t
   assert.equal(spawned.length, 2, 'the room did not come back once allowed');
   fedseats.stopAll();
 });
+
+test('#6239: a policy record that cannot be read closes contact instead of reading as no policy (round 2)', () => {
+  apply(STOP);
+  const file = orgpolicy.APPLIED();
+  const good = fs.readFileSync(file, 'utf8');
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    fs.writeFileSync(file, '{ not json');
+    assert.throws(() => orgpolicy.contactAllows(), 'a corrupt record read as no policy');
+    assert.equal(communitysend.switchState(), 'policy');
+    assert.equal(communityswitch.participating(), false);
+    assert.equal(fedseats.contactStopped(), true);
+    // A read that fails (here EISDIR), not only one that does not parse.
+    fs.rmSync(file); fs.mkdirSync(file);
+    assert.throws(() => orgpolicy.contactAllows(), 'an unreadable record read as no policy');
+    assert.equal(communitysend.switchState(), 'policy');
+    fs.rmSync(file, { recursive: true });
+    assert.deepEqual(orgpolicy.contactAllows(), { ok: true }, 'CONTROL: no record at all is no policy');
+    assert.equal(communitysend.switchState(), 'on', 'CONTROL');
+  } finally { communitysend.setSwitch(null); fs.rmSync(file, { recursive: true, force: true }); fs.writeFileSync(file, good); apply(OPEN); }
+});

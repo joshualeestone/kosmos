@@ -2101,7 +2101,19 @@ function remove(name, opts) {
   if (busy) return busy;
   return markDryRun(removeInner(name, opts));
 }
-function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts.platform)); }
+function restore(name, opts) {
+  /* kosmos#6239 (round 2): putting a removed agent back starts it, so a restore the person asked for (`quiet: true`)
+     is refused in the policy's quiet hours, as Start is (restart above). */
+  if (opts && opts.quiet === true) {
+    let q = { ok: true };
+    try { const op = require('./orgpolicy'); op.inForce(); q = op.quietAllows(); /* a fresh bundle first, then the strict read */ } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not put back: ${q.because}`, quiet: true };
+    }
+  }
+  return markDryRun(restoreInner(name, opts && opts.platform));
+}
 
 /**
  * Start an agent's session over, so it reads its instructions again.
@@ -2459,7 +2471,7 @@ function restart(name, cause, opts) {
      an account move) are not: they finish a change already made. A policy read that throws does not refuse. */
   if (opts && opts.quiet === true) {
     let q = { ok: true };
-    try { const op = require('./orgpolicy'); q = op.quietAllows(op.inForce()); } catch { q = { ok: true }; }
+    try { const op = require('./orgpolicy'); op.inForce(); q = op.quietAllows(); /* a fresh bundle first, then the strict read */ } catch { q = { ok: true }; }
     if (q.ok !== true) {
       try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
       return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${q.because}`, quiet: true };

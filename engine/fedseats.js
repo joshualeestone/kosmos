@@ -1128,6 +1128,8 @@ async function ensure(projectId, edges) {
       edge = got.none ? { own: link.ref } : got.edge;
     }
     if (s.stopped || s.child) return s.status;
+    // kosmos#6239 (round 2): the policy may have arrived during the awaits above.
+    if (contactStopped()) { stop(projectId); return null; }
     spawnFor(projectId, edge);
     return statusOf(projectId);
   } finally {
