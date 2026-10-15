@@ -327,9 +327,7 @@ test('a move whose restart never answers does not hold a process open (its cap t
       hold: () => {}, release: () => {},
     });
   `;
-  const t0 = Date.now();
   const r = spawnSync(process.execPath, ['-e', script], { timeout: 20000 });
   assert.equal(r.error, undefined, 'the process was still open after 20 s: a cap timer keeps it alive');
   assert.equal(r.status, 0, String(r.stderr));
-  assert.ok(Date.now() - t0 < 20000);
 });
