@@ -200,3 +200,8 @@ is for the first run after merge.
   its cleanup removed start()'s registration). It now relies on start()'s own (test.before); removing that line
   fails it (measured). It also removes the ending's stopped note. Engine comment: rollups and agent events cannot
   reach the pending-Leave ending.
+
+## Review 20 (sonnet): no code defect
+- The comment says what the bound relies on (the coordinator call's 20 s timeout, engine/remote.js) and that the
+  ending's hand-over runs while the refresh queue is held (one roster pass per ending); the polling citation points
+  at the doc comment, not the constant. Review numbers in comments kept: the repo's comments use them throughout.
