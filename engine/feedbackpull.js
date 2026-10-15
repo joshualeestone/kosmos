@@ -12,7 +12,8 @@
  * NOTHING joined the last two: the blobs sit in the store and triage cannot see
  * them. THIS is that join. `pull` lists the feedback blobs, fetches each JSON
  * record, and writes it as a `.md` file (feedback.js's exact frontmatter+body
- * shape) into a directory `kosmos feedback triage --dir` then reads unchanged.
+ * shape) into a directory `kosmos feedback triage` then reads unchanged (with no
+ * --dir when it is this default folder, #6265).
  *
  * 🔑 TOKEN VIA secrets-map, NOT env or a hard-coded path. The blob token is a
  * credential; it is read through `secrets-map.sh value <target>` so the map is

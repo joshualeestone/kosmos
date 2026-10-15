@@ -273,28 +273,12 @@ function list() {
     .reverse();
 }
 
-/**
- * The reports `kosmos feedback triage` reads (#2246): the store, or a directory of
- * collected or tester reports (`--dir`), optionally only those on or after
- * `since`. ONE reader for both CLIs (install/kosmos and the Windows
- * tools/windows/kosmos-cli.js), so the two cannot disagree about which reports a
- * digest covers (win32-cli-verbs).
- *
- * Returns { ok, reports: [{date, body}], notes, because }. `notes` are the
- * per-file skips (a subdirectory named x.md, a file that cannot be read), which
- * the caller prints and carries on past; `ok:false` is a refusal (a bad --since,
- * an unreadable --dir), whose `because` the caller prints before exiting 2.
- *
- * A --dir file named `YYYY-MM-DD.md` takes its day from the name; any other name
- * (a pulled `<date>__<install>.md`) takes it from the frontmatter, and one with
- * neither has a null date, which a --since filter skips because it cannot confirm
- * the day.
- */
 /* kosmos#6265: the folder `kosmos feedback pull` writes the collected reports into. Read lazily, so this module does
    not load the pull's code until a triage runs. */
 function pulledDir() { return require('./feedbackpull').defaultDir(); }
+/* Review 1: a regular .md file, not anything named like one (a subdirectory x.md is skipped by the reader). */
 function hasReports(folder) {
-  try { return fs.readdirSync(folder).some((n) => /\.md$/.test(n)); } catch { return false; }
+  try { return fs.readdirSync(folder, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/.test(e.name)); } catch { return false; }
 }
 /* The reports in one folder of .md files, oldest first (a pulled folder, or a --dir). */
 function readFolder(folder, since, reports, notes) {
@@ -309,6 +293,24 @@ function readFolder(folder, since, reports, notes) {
   }
   return true;
 }
+/**
+ * The reports `kosmos feedback triage` reads (#2246), optionally only those on or
+ * after `since`: a directory (`--dir`); with none, the folder `kosmos feedback pull`
+ * fills when it holds a report file, else this computer's own store (#6265). ONE reader for both CLIs (install/kosmos and the Windows
+ * tools/windows/kosmos-cli.js), so the two cannot disagree about which reports a
+ * digest covers (win32-cli-verbs).
+ *
+ * Returns { ok, reports: [{date, body}], notes, read, because }. `read` is the folder
+ * read. `notes` are the per-file skips (a subdirectory named x.md, a file that cannot
+ * be read) and one line naming the folder read, which the caller prints on stderr and
+ * carries on past; `ok:false` is a refusal (a bad --since,
+ * an unreadable --dir), whose `because` the caller prints before exiting 2.
+ *
+ * A --dir file named `YYYY-MM-DD.md` takes its day from the name; any other name
+ * (a pulled `<date>__<install>.md`) takes it from the frontmatter, and one with
+ * neither has a null date, which a --since filter skips because it cannot confirm
+ * the day.
+ */
 function reportsForTriage(opts) {
   const o = opts || {};
   const since = o.since || '';
