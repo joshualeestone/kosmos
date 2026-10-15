@@ -496,8 +496,9 @@ test('#4833 slice 2 review 1 / #6201: a third or later reply is read through the
     ['/posts/' + RP(7) + '/comments/' + CID(1) + '/replies']: () => ({ status: 200, json: { next_cursor: 'MORE', replies: [] } }),
   });
   const cut = await cr.readReplies('Ivy4833', { now: NOW });
-  // #6201: an empty page adds nothing, so its cursor is not followed again, and the 25 the service counts are said, on the post.
-  assert.ok(cut.text.includes('(on your post ' + RP(7) + ': 25 replies could not be read, as the thread is longer than a read reaches, so new ones there are not listed)'), cut.text);
+  // #6201 review 2: an empty page adds nothing, so its cursor is not followed; the comment was read to its end, so the 25
+  // the service counts are NOT said as unreached (nothing was left waiting) and the post can settle.
+  assert.ok(!/not reached in this read/.test(cut.text), 'a comment read to its end was said to be unreached: ' + cut.text);
   // Review 2: holding the mark could not reach the rest either (the same pages come back), so it moves.
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
 });
@@ -586,18 +587,22 @@ test('#4833 slice 2 review 2: at most REPLIES shown per read, the rest counted, 
 
 test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its post: older comments, and replies the service counts but does not list', async () => {
   on();
-  const say = /could not be read, as the thread is longer than a read reaches/;
+  const say = /not reached in this read/;
   clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lng4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { next_cursor: 'N', comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
-  // #6201: the older page is asked for; the fixture answers the same comments again, so nothing new, and it is said.
-  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments could not be read, as the thread/, 'older comments not reached were not said');
+  // #6201 review 2: the older page is asked for; the fixture answers the same comments again (nothing new), so its
+  // cursor is not followed and nothing is left waiting: not said.
+  assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'an older page that brought nothing new was said as unreached');
   clearSeen();
   const four = [1, 2, 3, 4].map((n) => comment({ id: CID(n), created_at: T(n), reply_count: 5, replies: [], replies_cursor: 'C' + n }));
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: four } }),
     ...Object.fromEntries([1, 2, 3, 4].map((n) => ['/posts/' + RP(4) + '/comments/' + CID(n) + '/replies', () => ({ status: 200, json: { replies: [] } })])) });
-  // #6201: all four comments' pages are read now; each answers none of the 5 the service counts, so 20 are said.
-  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: 20 replies could not be read, as the thread/, 'replies counted but not listed were not said');
+  // #6201 review 2: all four comments' pages are read; each lists none of the 5 the service counts and has no cursor
+  // after: read to the end, so not said (only pages left waiting are "not reached").
+  assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
+  // Said when the window leaves pages waiting:
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, and new ones among them will not be listed\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1804,7 +1809,7 @@ test('#6201: a new reply on a comment\'s SECOND replies page is listed (the newe
   const r = await cr.readReplies('Deep6201', { now: NOW });
   assert.ok(asked.some((u) => u.includes('/replies?limit=20&cursor=P2')), 'the second replies page was not read');
   assert.match(r.text, /the deep new reply/, 'a reply on the second page was not listed');
-  assert.ok(!/could not be read, as the thread/.test(r.text), 'a thread read to its end was said to be cut');
+  assert.ok(!/not reached in this read/.test(r.text), 'a thread read to its end was said to be cut');
 });
 
 test('#6201: a new reply under an OLDER comment (past the first comments page) is listed', async () => {
@@ -1821,7 +1826,7 @@ test('#6201: a new reply under an OLDER comment (past the first comments page) i
   const r = await cr.readReplies('Old6201', { now: NOW });
   assert.ok(asked.some((u) => u.includes('/comments?order=newest&limit=' + cr.COMMENTS_ASKED + '&cursor=OLD')), 'the older comments page was not read');
   assert.match(r.text, /reply under an old comment/, 'a reply under an older comment was not listed');
-  assert.ok(!/could not be read, as the thread/.test(r.text), 'CONTROL: a thread read to its end was said to be cut');
+  assert.ok(!/not reached in this read/.test(r.text), 'CONTROL: a thread read to its end was said to be cut');
 });
 
 test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at most REPLY_PAGES_AT_ONCE at a time, and says how many replies are left on the post', async () => {
@@ -1846,7 +1851,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies could not be read, as the thread is longer than a read reaches, so new ones there are not listed)'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, and new ones among them will not be listed)'), r.text.slice(-400));
 });
 
 test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_MAX) is read to the end over several reads, never repeating one', async () => {
@@ -1880,5 +1885,9 @@ test('#6201 review 1: no new batch starts past round 2\'s time window; what is l
   });
   const r = await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 });
   assert.equal(asked.filter((u) => u.includes('/replies?')).length, 0, 'a batch started after the time window');
-  assert.match(r.text, /: 9 replies could not be read, as the thread/, 'what the window left was not counted');
+  assert.match(r.text, /: 9 replies were not reached in this read/, 'what the window left was not counted');
+  // One reply is said in the singular.
+  clearSeen();
+  serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6201(701), created_at: T(1), reply_count: 1, replies_cursor: 'w', replies: [] })] } }) });
+  assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was not reached in this read/);
 });
