@@ -2363,6 +2363,33 @@ test('#6204 review 3: a replies cursor that cycles back to one already read is n
   assert.match(r.text, /past what a read reaches, so new ones among them may be missed/);
 });
 
+test('#6204 review 4: every place one read can need fits, and a saved place that is not well formed is not used', async () => {
+  // One read sees at most round 1's comments page and REPLY_PAGES_MAX older-comments pages.
+  assert.ok(cr.THREADS_MAX >= cr.COMMENTS_ASKED * (1 + cr.REPLY_PAGES_MAX), 'a read can need more places than are kept');
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Bad6204', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(4));
+  await cr.readReplies('Bad6204', { now: NOW });
+  const j = JSON.parse(fs.readFileSync(seenPath('Bad6204'), 'utf8'));
+  const t = j.posts[RP(4)].threads;
+  const ids = Object.keys(t);
+  assert.equal(ids.length, 8, 'CONTROL: the first read did not save a place for each cut thread');
+  const good = ids[7];
+  // Spoil every place but one, a different way each, and add one keyed by a non-id.
+  t[ids[0]].cursor = 'bad cursor/..'; t[ids[1]].pos = -1; t[ids[2]].pos = 1.5; t[ids[3]].at = 'yesterday';
+  t[ids[4]].id = 'nope'; t[ids[5]] = null; t[ids[6]].cursor = 7; t['not-an-id'] = { ...t[good] };
+  fs.writeFileSync(seenPath('Bad6204'), JSON.stringify(j));
+  f.asked.length = 0;
+  await cr.readReplies('Bad6204', { now: NOW + 1000 });
+  const firsts = new Map();
+  for (const u of f.asked.filter((x) => x.includes('/replies?'))) {
+    const c = new URL(u).pathname.split('/')[4];
+    if (!firsts.has(c)) firsts.set(c, new URL(u).searchParams.get('cursor'));
+  }
+  for (const c of ids.slice(0, 7)) assert.match(firsts.get(c) || 'p0', /p0$/, 'a spoiled place was used for ' + c);
+  assert.equal(firsts.get(good), t[good].cursor, 'the well-formed place was not used');
+});
+
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Stk6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
