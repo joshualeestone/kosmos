@@ -64,7 +64,8 @@ function load(answers, LAST = []) {
     return { ok: a.status >= 200 && a.status < 300, status: a.status, json: async () => { if (a.badJson) throw new Error('not json'); return a.body; } };
   };
   /* #6231: a moving row in Settings, which a stop pressed anywhere marks as stopping. */
-  const ACCT_MOVE = new Map([['/acct/old', { moving: true, said: '', progress: 'Moving 1 of 3…' }]]);
+  const ACCT_MOVE = new Map([['/acct/old', { moving: true, said: '', progress: 'Moving 1 of 3…', onBoard: true }],
+    ['/acct/checking', { moving: true, said: '' }]]);   // still being checked before it is sent: not the move a stop stopped
   const rowMove = el('button'); rowMove.textContent = 'Moving 1 of 3…';
   const rowStop = el('button'); rowStop.textContent = 'Stop the move'; rowStop.setAttribute('aria-label', 'Stop the move to another account');
   const document = { createElement: (t) => el(t), querySelectorAll: (q) => (q === '[data-acct-move-stop]' ? [rowStop] : []),
@@ -175,7 +176,7 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   assert.match(paint, /const focusAtPress = document\.activeElement;/, 'the press does not record where focus was');
   assert.match(paint, /const already = !!\(cur && cur\.stopping\);\n\s+stopBtn\.disabled = already; acctStopLabel\(stopBtn, already\);/,
     'a stop drawn after a stop was pressed elsewhere comes up enabled');
-  assert.match(paint, /const at = document\.activeElement;\n\s+if \(!already && \(at === b \|\| \(at === focusAtPress && \(at === btn \|\| at === document\.body\)\)\)\) stopBtn\.focus\(\{ preventScroll: true \}\);/,
+  assert.match(paint, /const at = document\.activeElement;\n\s+if \(!already && acctStopTakesFocus\(at, focusAtPress, \[btn, b, sel\]\)\) stopBtn\.focus\(\{ preventScroll: true \}\);/,
     'the stop the Move press inserts is not focused, so a screen reader never hears it');
   /* The 15 s repaint waits while an offer is on screen, so a press still out is not answered into a removed node. */
   assert.match(restart, /if \(sl\.querySelector\('\[data-stop-move-offer\]'\) && \+\+holds < 20\) \{ setTimeout\(release, ENGINE_SAID_HOLD_MS\); return; \}/);
@@ -223,8 +224,9 @@ test('#6214: after a stop, the row says who moved, who was put back and who coul
 
 test('#6214: the row\'s stop marks the move as stopping; a refusal puts the button back and says why', async () => {
   const SRC = page.liftAll(SCRIPT, ['acctStopLabel', 'acctMarkStopping', 'acctMoveCountShow', 'acctStopClick']);
+  let cleared = 0;
   const run = async (answer) => {
-    const ACCT_MOVE = new Map([['/acct/old', { moving: true, said: '' }], ['/acct/idle', { moving: false, said: 'x' }]]);
+    const ACCT_MOVE = new Map([['/acct/old', { moving: true, said: '', onBoard: true }], ['/acct/idle', { moving: false, said: 'x' }]]);
     const drawn = el('button'); drawn.textContent = 'Stop the move';
     const panel = { textContent: 'before' };
     const moveBtn = el('button'); moveBtn.textContent = 'Moving 1 of 3…';
@@ -234,10 +236,10 @@ test('#6214: the row\'s stop marks the move as stopping; a refusal puts the butt
     const CSS = { escape: (x) => x };
     const ACCT_STOP_NAME = 'Stop the move to another account';
     const later = [];
-    const fake = { setTimeout: (fn) => later.push(fn), acctCancelSay: () => {}, stopAccountMove: async () => answer };
+    const fake = { setTimeout: (fn) => later.push(fn), acctCancelSay: () => {}, stopAccountMove: async () => answer, clearStopMoveOffers: () => { cleared++; } };
     // eslint-disable-next-line no-new-func
-    const click = new Function('ACCT_MOVE', 'document', 'setTimeout', 'acctCancelSay', 'stopAccountMove', 'CSS', 'ACCT_STOP_NAME', `${SRC}\nreturn acctStopClick;`)(
-      ACCT_MOVE, document, fake.setTimeout, fake.acctCancelSay, fake.stopAccountMove, CSS, ACCT_STOP_NAME);
+    const click = new Function('ACCT_MOVE', 'document', 'setTimeout', 'acctCancelSay', 'stopAccountMove', 'CSS', 'ACCT_STOP_NAME', 'clearStopMoveOffers', `${SRC}\nreturn acctStopClick;`)(
+      ACCT_MOVE, document, fake.setTimeout, fake.acctCancelSay, fake.stopAccountMove, CSS, ACCT_STOP_NAME, fake.clearStopMoveOffers);
     const pressed = el('button');
     const p = click(pressed);
     assert.equal(pressed.disabled, true); assert.equal(pressed.textContent, 'Stopping…');
@@ -252,6 +254,7 @@ test('#6214: the row\'s stop marks the move as stopping; a refusal puts the butt
   let r = await run({ ok: true, said: '', waitingFor: 'al' });
   assert.equal(r.ACCT_MOVE.get('/acct/old').stopping, true, 'a stop that worked stays stopping until the move ends');
   assert.equal(r.panel.textContent, 'before', 'the row\'s own sentence reports the end, nothing is said here');
+  assert.equal(cleared, 1, '#6231: a stop that worked leaves an offer beside a refused restart, which would send a second stop');
   r = await run({ ok: false, said: 'No account move is running.' });
   assert.equal(r.ACCT_MOVE.get('/acct/old').stopping, false);
   assert.equal(r.drawn.disabled, false); assert.equal(r.drawn.textContent, 'Stop the move', 'the button drawn now is put back');
@@ -288,10 +291,27 @@ test('#6231: a stop pressed beside a refused restart marks the Settings row as s
   assert.equal(f.rowMove.textContent, 'Moving…', 'the row\'s Move button keeps a count that jumps ahead');
   assert.equal(f.rowStop.disabled, true); assert.equal(f.rowStop.textContent, 'Stopping…');
   assert.equal(f.rowStop.hasAttribute('aria-label'), false);
+  assert.equal(f.ACCT_MOVE.get('/acct/checking').stopping, undefined, 'a move the board does not have yet is marked stopping');
   f = load([{ status: 409, body: { because: 'No account move is running.' } }]);
   p = parent(); said = p.append(el('p'));
   f.offerStopMove(said, said);
   await p.kids[1].click();
   assert.equal(f.ACCT_MOVE.get('/acct/old').stopping, undefined, 'a refused stop marks the row');
   assert.equal(f.rowMove.textContent, 'Moving 1 of 3…'); assert.equal(f.rowStop.disabled, false);
+});
+
+test('#6231: the inserted stop takes focus only when focus has not gone elsewhere since the Move press', () => {
+  const body = { tag: 'body' };
+  // eslint-disable-next-line no-new-func
+  const takes = new Function('document', `${page.lift(SCRIPT, 'acctStopTakesFocus')}\nreturn acctStopTakesFocus;`)({ body });
+  const btn = { b: 1 }, b = { b: 2 }, sel = { s: 1 }, other = { o: 1 };
+  const C = [btn, b, sel];
+  assert.equal(takes(btn, btn, C), true, 'Chromium: focus stays on the disabled Move button');
+  assert.equal(takes(body, btn, C), true, 'keyboard press in an engine that drops a disabled control\'s focus to the page');
+  assert.equal(takes(sel, sel, C), true, 'WebKit mouse press: focus stays on the menu');
+  assert.equal(takes(body, sel, C), true);
+  assert.equal(takes(b, body, C), true, 'a repaint drew a new Move button');
+  assert.equal(takes(null, null, C), true);
+  assert.equal(takes(other, btn, C), false, 'the person tabbed or clicked into another control');
+  assert.equal(takes(body, other, C), false, 'focus was elsewhere at the press');
 });

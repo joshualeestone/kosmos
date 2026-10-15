@@ -27653,8 +27653,17 @@ function acctStopLabel(b, stopping) {
 /* #6231: mark every running move as stopping (or not), and redraw its Move button's words to match. Used by both the
    row's stop and the stop offered beside a refused board restart, since either stops the same move. */
 function acctMarkStopping(on) {
-  for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = on;
+  /* Only a move the board has: one still being checked before it is sent is not the move a stop stopped. */
+  for (const st of ACCT_MOVE.values()) if (st && st.moving && (st.onBoard || !on)) st.stopping = on;
   acctMoveCountShow();
+}
+/* #6231: whether the stop the Move press inserts takes focus. Only when focus has not gone anywhere since the press:
+   at the press it was on the Move button, its menu or the page, and now it is on one of those (a disabled control keeps
+   focus in some engines and drops it to the page in others) or on the Move button a repaint drew since. Clicking plain
+   text after the press leaves focus on the page and is not told apart. */
+function acctStopTakesFocus(at, atPress, controls) {
+  const ours = (e) => !e || e === document.body || controls.includes(e);
+  return ours(atPress) && ours(at);
 }
 function acctMoveCountShow() {
   for (const [dir, st] of ACCT_MOVE) {
@@ -27667,7 +27676,7 @@ async function acctStopClick(stopBtn) {
   acctMarkStopping(true);   // a repaint draws it as stopping
   stopBtn.disabled = true; acctStopLabel(stopBtn, true);
   const out = await stopAccountMove();
-  if (out.ok) return;
+  if (out.ok) { clearStopMoveOffers(); return; }   // #6231: an offer beside a refused restart would send a second stop
   acctMarkStopping(false);
   /* The row may have been repainted while the request was out: put back whichever stop button is drawn now. */
   for (const b of document.querySelectorAll('[data-acct-move-stop]')) { b.disabled = false; acctStopLabel(b, false); }
@@ -28474,11 +28483,10 @@ async function paintAccounts(opts) {
             stopBtn.disabled = already; acctStopLabel(stopBtn, already);
             stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
             b.after(stopBtn);
-            /* #6231: the pressed Move button is disabled, so focus is on it or on the page (engines differ): give it to
-               the one control the row offers now, which also says it to a screen reader. Only when focus has not moved
-               since the press; clicking plain text after it leaves focus on the page and is not detected. */
+            /* #6231: the pressed Move button is disabled: give focus to the one control the row offers now, which also
+               says it to a screen reader, unless the person has gone elsewhere since the press. */
             const at = document.activeElement;
-            if (!already && (at === b || (at === focusAtPress && (at === btn || at === document.body)))) stopBtn.focus({ preventScroll: true });
+            if (!already && acctStopTakesFocus(at, focusAtPress, [btn, b, sel])) stopBtn.focus({ preventScroll: true });
           }
         }, stoppedAtClick);
       } catch (e) {
