@@ -214,7 +214,7 @@ PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "{\"ver
   && bad "an awk that prints nothing let an old pointer pass" || pass "an awk that prints nothing refuses an old pointer (every check needs a positive answer)"
 PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_ok t 0.6.1' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
   && bad "an awk that prints nothing let 0.6.1 pass the version floor" || pass "an awk that prints nothing refuses 0.6.1 at the version floor"
-bash -c 'awk() { return 0; }; export -f awk; bash -c ". \"\$1\"; kosmos_setup_floor_ok t 0.6.1" _ "$1"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
+bash -c 'awk() { echo atleast; }; export -f awk; bash -c ". \"\$1\"; kosmos_setup_floor_ok t 0.6.1" _ "$1"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
   && bad "an exported awk function let 0.6.1 pass" || pass "an exported awk function does not answer for awk (cleared on load)"
 mkdir -p "$T/stubtr"; printf '#!/bin/sh\ncat >/dev/null\nexit 0\n' > "$T/stubtr/tr"; chmod +x "$T/stubtr/tr"
 PATH="$T/stubtr:$PATH" bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "{\"version\":\"0.7.49\",\"artifact\":\"kosmos-0.7.49-arm64.tar.gz\"}"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \

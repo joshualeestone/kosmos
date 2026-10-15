@@ -401,7 +401,15 @@ win_zip_version() { printf '%s' "$1" | sed -n 's/^kosmos-\(.*\)-win-x64\.zip$/\1
 # kosmos#6149 point 1: the rollback floor. The COMMITTED Mac pointers are what this deploy serves, so neither may name
 # a build older than the setup floor (tools/lib/setup-floor.sh); the installers are checked with them on the export.
 . "$REPO/tools/lib/setup-floor.sh"   # as this script's other libs (a failed . fails closed: set -eu ends the run)
-CSJ=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) || CSJ=""
+# Absent is not unreadable: a pointer the commit HAS but that could not be read is refused, not skipped.
+CSJ=""
+if git -C "$SITE" cat-file -e "$H:dist/latest-staging.json" 2>/dev/null; then
+  CSJ=$(git -C "$SITE" show "$H:dist/latest-staging.json" 2>/dev/null) && [ -n "$CSJ" ] \
+    || { echo "deploy-site: $H has dist/latest-staging.json but it could not be read -- refusing (setup floor, kosmos#6149); nothing was deployed"; exit 1; }
+fi
+if git -C "$SITE" cat-file -e "$H:dist/latest.json" 2>/dev/null && [ -z "$CJ" ]; then
+  echo "deploy-site: $H has dist/latest.json but it could not be read -- refusing (setup floor, kosmos#6149); nothing was deployed"; exit 1
+fi
 [ -z "$CJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest.json" "$CJ" || exit 1
 [ -z "$CSJ" ] || kosmos_setup_floor_pointer_ok "the committed dist/latest-staging.json" "$CSJ" || exit 1
 
