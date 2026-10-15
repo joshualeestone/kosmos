@@ -152,48 +152,23 @@ function isAutoProviderBlock(standing) {
 
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
    idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait). */
-function hidesWait(row) {
-  if (!row || !WAITING_ON_A_PERSON.includes(row.state)) return false;
-  return !(row.state === 'needs_you' && row.by === 'auto');
+function hidesWait(w) {
+  if (!w || !w.found || !WAITING_ON_A_PERSON.includes(w.state)) return false;
+  return !(w.state === 'needs_you' && w.by === 'auto');
 }
 
-/* #6209 review 1: the line an automatic provider block replaced (the newest line before the trailing run of such
-   blocks), from the record's tail: { row } (null when the record holds nothing before the run), or { unknown: true }
-   when the record cannot be read or the run reaches the front of a cut tail. An incoming automatic blocked may
-   overwrite a deliberate wait (it is left unguarded), so the block's clear must not erase that wait too. */
+/* #6209: what the trailing run of automatic provider blocks covered, read exactly as read() would have read the record
+   just before the run (reviews 1 and 5: one window and one set of rules, so project carry, the cut-tail rule, until
+   and askedAt agree): { wait } (read()'s reading, found or not), or { unknown: true } when the record cannot be read
+   or the run reaches the front of a cut tail. */
 function lineUnderProviderBlock(sessionName) {
-  let text;
-  let cut = false;
-  try {
-    const file = fileFor(sessionName);
-    const size = fs.statSync(file).size;
-    const start = Math.max(0, size - TAIL_BYTES);
-    const fd = fs.openSync(file, 'r');
-    try {
-      const buf = Buffer.alloc(size - start);
-      fs.readSync(fd, buf, 0, buf.length, start);
-      text = buf.toString('utf8');
-    } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
-    if (start > 0) { cut = true; text = text.slice(text.indexOf('\n') + 1); }
-  } catch { return { unknown: true }; }
-  const rows = [];
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    try { const row = JSON.parse(line); if (row && typeof row === 'object' && STATES.includes(row.state)) rows.push(row); } catch { /* skip */ }
-  }
+  const tail = readTail(sessionName);
+  if (!tail.rows) return { unknown: true };
+  const rows = tail.rows;
   let i = rows.length - 1;
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
-  if (i >= 0) {
-    // Review 4: the covered wait's own run start (the same state and words before it), for the restored line's askedAt.
-    const same = (a, b) => a.state === b.state && (a.because || '') === (b.because || '') && (a.project || '') === (b.project || '');
-    let j = i;
-    while (j > 0 && same(rows[j - 1], rows[i])) j -= 1;
-    const first = rows[j];
-    const askedAt = typeof first.askedAt === 'string' && Number.isFinite(Date.parse(first.askedAt)) ? first.askedAt
-      : (typeof first.at === 'string' && Number.isFinite(Date.parse(first.at)) ? first.at : null);
-    return { row: rows[i], askedAt };
-  }
-  return cut ? { unknown: true } : { row: null };
+  if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
+  return { wait: latestOf(rows.slice(0, i + 1), tail.cut) };
 }
 
 /* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
@@ -336,18 +311,22 @@ function record(sessionName, entry) {
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }
-      if (under.row && hidesWait(under.row)) {
+      if (hidesWait(under.wait)) {
+        const w = under.wait;
+        /* Review 5: a wait whose asking time is not known (its run reaches the front of a cut tail) cannot be shown
+           again without re-dating it, so the block stays (fails closed). */
+        if (!w.askedAt) {
+          return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over a wait whose start is not known, so an automatic idle did not overwrite it' };
+        }
         try {
-          /* Review 4: only the wait's own fields (no instance, until, left, waiting or final from the old line), and its
-             ORIGINAL asking time (askedAt, which read() honours), so the wait is not re-dated: its age, the stale-report
-             reminder's clock and a person's notice of it stay as they were. */
-          const r = under.row;
-          const back = { v: 1, state: r.state, because: r.because || null, on: r.on || null, owner: r.owner || null,
-            project: r.project || null, by: r.by === 'agent' || r.by === 'operator' ? r.by : null,
-            at: new Date().toISOString(), askedAt: under.askedAt || null, restored: 'provider block over' };
-          if (!back.by) delete back.by;   // an unmarked (legacy) wait stays unmarked
+          /* Reviews 4 and 5: the wait as read() reads it: its own words, on, owner, until and writer, its ORIGINAL asking
+             time (askedAt, which read() honours), and its project only when it stated one (a carried project still
+             carries); never the old line's instance, left, waiting or final. */
+          const back = { v: 1, state: w.state, because: w.because, on: w.on, owner: w.owner, until: w.until,
+            project: w.projectInferred ? null : w.project, at: new Date().toISOString(), askedAt: w.askedAt, restored: 'provider block over' };
+          if (w.by) back.by = w.by;   // an unmarked (legacy) wait stays unmarked
           fs.appendFileSync(fileFor(sessionName), JSON.stringify(back) + '\n');
-          return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + under.row.state + ' it had covered is shown again' };
+          return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + w.state + ' it had covered is shown again' };
         } catch {
           return { recorded: false, skipped: 'waiting', because: 'the provider answered again, but the wait it had covered could not be shown again, so the block stays' };
         }
@@ -468,7 +447,9 @@ function record(sessionName, entry) {
  * rule): a defaulted `at` would give a stale report a fresh timestamp,
  * which is exactly the lie the decay rule exists to catch.
  */
-function read(sessionName) {
+/* #6209 review 5: the record's tail as rows, shared by read() and lineUnderProviderBlock so both see one window.
+   { rows, cut } or { found: false, because }. */
+function readTail(sessionName) {
   let file;
   try { file = fileFor(sessionName); } catch { return { found: false, because: NO_READING.NEVER_REPORTED }; }
   let fd;
@@ -494,6 +475,23 @@ function read(sessionName) {
   } finally {
     try { fs.closeSync(fd); } catch { /* already gone */ }
   }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    let row;
+    try { row = JSON.parse(line); } catch { continue; } // one bad line must not eat the record
+    if (!row || typeof row !== 'object') continue;
+    if (!STATES.includes(row.state)) {
+      process.stderr.write('selfreport: unknown state ' + JSON.stringify(row.state) + ', line skipped\n');
+      continue;
+    }
+    rows.push(row);
+  }
+  return { rows, cut };
+}
+
+/* #6209 review 5: what read() reports for these rows (the tail, or a prefix of it), pure. */
+function latestOf(rows, cut) {
   let latest = null;
   /* #763: the project carried forward. A report that names a project sets the
      agent's current one; later reports that name none inherit it (the
@@ -512,15 +510,7 @@ function read(sessionName) {
   let runAt = null;
   let parsed = 0;
   let runFromFirst = false;   // the run began at the first line read: when the tail is cut, its start is unknown
-  for (const line of text.split('\n')) {
-    if (!line.trim()) continue;
-    let row;
-    try { row = JSON.parse(line); } catch { continue; } // one bad line must not eat the record
-    if (!row || typeof row !== 'object') continue;
-    if (!STATES.includes(row.state)) {
-      process.stderr.write('selfreport: unknown state ' + JSON.stringify(row.state) + ', line skipped\n');
-      continue;
-    }
+  for (const row of rows) {
     /* Later lines simply replace earlier ones; a `started` needs no reset
        logic for "latest", but it matters that it REPLACES rather than
        merges: nothing from the previous run may leak into this one. */
@@ -586,6 +576,12 @@ function read(sessionName) {
        is unexplainable (Splinter, 2026-08-24 23:05). */
     projectInferred: project !== null && !(typeof latest.project === 'string' && latest.project),
   };
+}
+
+function read(sessionName) {
+  const tail = readTail(sessionName);
+  if (!tail.rows) return tail;
+  return latestOf(tail.rows, tail.cut);
 }
 
 /* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that

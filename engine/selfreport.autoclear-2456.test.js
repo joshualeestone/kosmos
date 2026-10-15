@@ -257,3 +257,36 @@ test('#6209 review 4: a days-old question re-shown after a provider block keeps 
   assert.equal(shown.askedAt, old, 'the re-shown question was re-dated to now');
   assert.ok(!shown.instance, 'the re-shown line carried the old run\'s instance');
 });
+
+test('#6209 review 5: the re-shown wait reads as read() read it: the carried project keeps the run, until is kept', () => {
+  const who = 'project-run-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const first = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+  const again = new Date(Date.now() - 1 * 3600 * 1000).toISOString();
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', because: 'need the key', on: 'deploy', until: '2026-12-01T10:00:00Z', project: 'p-a', by: 'agent', at: first }) + '\n');
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', because: 'need the key', on: 'deploy', until: '2026-12-01T10:00:00Z', by: 'agent', at: again }) + '\n');
+  assert.equal(selfreport.read(who).askedAt, first, 'fixture: read() treats the repeat (carried project) as one run');
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).restored, true);
+  const shown = selfreport.read(who);
+  assert.equal(shown.askedAt, first, 'the re-shown wait took the repeat\'s time, not the run\'s');
+  assert.equal(shown.until, '2026-12-01T10:00:00Z', 'the agent\'s own until was dropped');
+  assert.equal(shown.project, 'p-a');
+});
+
+test('#6209 review 5: a wait whose start is past the front of a cut tail keeps the block (its asking time is not known)', () => {
+  const who = 'cut-question-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const at = new Date().toISOString();
+  const q = JSON.stringify({ v: 1, state: 'needs_you', because: 'the same question', by: 'agent', at }) + '\n';
+  let text = '';
+  while (text.length < selfreport.TAIL_BYTES + 4 * q.length) text += q;
+  text += JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', by: 'auto', at }) + '\n';
+  fs.writeFileSync(file, text);
+  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(end.recorded, false);
+  assert.notEqual(end.restored, true, 'a wait with an unknown start was re-shown (and so re-dated)');
+  assert.equal(selfreport.read(who).state, 'blocked');
+});

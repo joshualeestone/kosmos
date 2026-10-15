@@ -19,7 +19,7 @@
 #   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you; DOES
 #                        clear a standing auto needs_you, a permission prompt, once
 #                        the turn moves on, and (#6209) an auto provider blocked,
-#                        unless that block had replaced a deliberate wait; #900/#1949/#2456)
+#                        or shows again the deliberate wait it had covered; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #   PostToolUseFailure -> no report: `kosmos tool-failed`, a digest of the failed call the
