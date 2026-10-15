@@ -1045,6 +1045,29 @@ test('#5636 F7a: a throwing log stops nothing, and is called once per message', 
   assert.equal(order.length, 2, 'one log call per message');
 });
 
+test('#5636 F7a: the log writes only where git ignores it, and never into a hard link', () => {
+  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
+  try {
+    front.logTurn(ws, 'first', 'A');
+    const ig = pathx.join(ws, '.kosmos', '.gitignore');
+    assert.deepEqual(fsx.readFileSync(ig, 'utf8').trim().split('\n'), ['muse-turns.log', 'muse-turns.log.1'], 'it names its own files');
+    assert.ok(fsx.existsSync(front.turnLogFile(ws)), 'and the line is written');
+    // Someone else's .gitignore that does not name the log: not edited, and nothing written.
+    fsx.writeFileSync(ig, 'notes/\n');
+    fsx.rmSync(front.turnLogFile(ws));
+    front.logTurn(ws, 'second', 'B');
+    assert.equal(fsx.readFileSync(ig, 'utf8'), 'notes/\n', 'their file is untouched');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written where git might carry it');
+    // A hard link at the file: the other name never receives a line.
+    fsx.writeFileSync(ig, 'muse-turns.log\n');
+    const other = pathx.join(ws, 'other.txt');
+    fsx.writeFileSync(other, '');
+    fsx.linkSync(other, front.turnLogFile(ws));
+    front.logTurn(ws, 'third', 'C');
+    assert.equal(fsx.readFileSync(other, 'utf8'), '', 'a hard link received nothing');
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
+});
+
 test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or link, or for a relative workspace', () => {
   const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
   const elsewhere = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-other-'));

@@ -176,7 +176,11 @@ function shortOf(text) {
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
    spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 UTF-16 units) are kept for
    colleagues' and Kosmos's lines, so a colleague's words (quoted or pasted, even a secret) can reach this 0600 file in
-   the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none. Not guarded, as in keepModel: a hard link at the file, and a swap between the checks and the open. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
+   The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
+   where git ignores it: it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
+   one exists that does not name them (someone else's file is not edited). A hard link at the file is refused after the open
+   (a link count above one); a swap between the checks and the open is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -198,9 +202,20 @@ function turnRecord(text, at, arrived = null) {
   if (kind !== 'operator' && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
   return rec;
 }
-/* The same guards keepModel uses (review 1): never a relative workspace, never through a `.kosmos` that is a link,
-   never into a link or fifo at the file, and a non-blocking, no-follow open, so nothing planted there can hang this
-   front or redirect the write. */
+/* Guards (review 1, 5): never a relative workspace, never through a `.kosmos` that is a link, never into a link or
+   fifo at the file, a non-blocking, no-follow open so nothing planted there can hang this front, and no write into a
+   file with another name (a hard link). keepModel needs no link-count check: it writes a temp and renames. */
+const TURN_LOG_IGNORE = 'muse-turns.log\nmuse-turns.log.1\n';
+function turnLogIgnored(dir) {
+  const ig = path.join(dir, '.gitignore');
+  let st = null;
+  try { st = fs.lstatSync(ig); } catch { st = null; }
+  if (!st) {
+    try { fs.writeFileSync(ig, TURN_LOG_IGNORE, { flag: 'wx', mode: 0o600 }); return true; } catch { return false; }
+  }
+  if (!st.isFile()) return false;
+  try { return fs.readFileSync(ig, 'utf8').split(/\r?\n/).includes('muse-turns.log'); } catch { return false; }
+}
 function logTurn(workspace, text, at, arrived = null) {
   try {
     if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
@@ -210,13 +225,17 @@ function logTurn(workspace, text, at, arrived = null) {
     let st = null;
     try { st = fs.lstatSync(file); } catch { st = null; }
     if (st && !st.isFile()) return;
+    if (!turnLogIgnored(dir)) return;   // never into a file git would carry out of the person's repository
     if (st && st.size > TURN_LOG_MAX) {
       // The bound: about twice TURN_LOG_MAX in all. A rename that fails (a folder at .1) must not end the logging.
       try { fs.renameSync(file, file + '.1'); } catch { try { fs.truncateSync(file, 0); } catch { return; } }
     }
     const c = fs.constants;
     const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
-    try { fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n'); } finally { fs.closeSync(fd); }
+    try {
+      const f = fs.fstatSync(fd);
+      if (f.isFile() && f.nlink === 1) fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n');
+    } finally { fs.closeSync(fd); }
   } catch { /* the turn runs whatever the log does */ }
 }
 

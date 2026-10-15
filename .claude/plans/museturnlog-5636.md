@@ -46,8 +46,8 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   post) beside `at` (tested: a waiting line's arrival precedes its run). WARNING: test titles over-claimed: the order
   is now asserted (each line logged before its own turn), and the busy claim is gone from the title. WARNING: a folder
   at .1 stopped logging for good: the file is cut instead, and logging goes on (tested). WARNING/NITs: the comment
-  states the 60-character colleague opening, one line per turn, and the unguarded hard-link and swap windows (as in
-  keepModel). (the suite then: 61 tests).
+  states the 60-character colleague opening, one line per turn, and the unguarded swap window (the hard-link claim was
+  wrong; corrected in review 5). (the suite then: 61 tests).
 
 ## Review 3 (opus), and what changed
 - BLOCKERS: Escape cleared the DM receipt times but not the arrival map, and the second-stop path dropped lines
@@ -60,3 +60,12 @@ received shorter posts), or under it (then something Meta-specific spills): the 
 - No BLOCKER. WARNINGs: the digest's folded-post cleanup and the first stop's drop had no test that failed without
   them, and the digest's date (its oldest post) was unasserted: three tests now drive them (each mutation measured to
   fail). The comment says a colleague's words, even a pasted secret, can reach the 0600 file.
+
+## Review 5 (opus), and what changed
+- No BLOCKER. WARNING: the folder may be the person's git repository (as the Inbox's .gitignore notes), so colleague
+  openings could ride a `git add .`. The log now writes only where git ignores it: it creates .kosmos/.gitignore naming
+  its two files when none exists, and writes nothing when one exists that does not name them (tested both).
+  WARNING: the comment and this plan claimed keepModel parity for hard links, which was false (keepModel renames a
+  temp): the open is now refused for a link count above one (tested). 66/66; both new guards mutation-checked.
+- NITs noted, not taken: the fifo/link tests reach the lstat guard, not the open flags (the flags only matter in the
+  swap window, stated as unguarded); a colleague quoting a stamped reminder logs a `sent` (kind and opening tell it).
