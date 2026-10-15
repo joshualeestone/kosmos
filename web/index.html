@@ -30438,15 +30438,15 @@ function oaStart() {
   OA_TIMER = setInterval(oaRound, OA_STATUS_EVERY_MS);
 }
 /* ===== kosmos#6178: the accounts on your other computers, in Settings > AI Models =====
-   🔑 THE SAME READ AS #4812, NOTHING NEW ON THE WIRE. Each other computer's own /api/status, asked by this browser
-   with its own sign-in for that computer (oaReadOne), now also carries `accountsWeekly` (that computer's Claude accounts
-   and their weekly usage, server.js) and each agent's `account.dir`. Nothing about one computer passes through our
+   🔑 THE SAME READ AS #4812. Each other computer's own /api/status, asked by this browser with its own sign-in for that
+   computer (oaReadOne). Its sibling answer (server.js statusForSibling) carries `accountsWeekly` keyed by an opaque id,
+   and each agent's `acct` (that id) and `runner`: no folder paths. Nothing about one computer passes through our
    server, and a computer that has not let this browser in shows nothing but that.
    🔑 OWN STORE, SAME LIFETIME. AO_SEEN beside OA_SEEN, written by oaReadOne's guarded aoKeep call: a fresh answer
    replaces it, "not let in" forgets it, and no answer keeps the last one (shown with its age), as #4812 does for agents.
    ⚠️ The other computer's answer is untrusted: every field is checked here and every string goes in through
    textContent. */
-const AO_SEEN = new Map();   // address -> { accounts: [...] | null (an older Kosmos) | false (it could not read them), agents: [{ name, dir }], unknown, skew, at }
+const AO_SEEN = new Map();   // address -> { accounts: [...] | null (an older Kosmos) | false (it could not read them), agents: [{ name, acct }], unknown, skew, at }
 const AO_MAX_ACCOUNTS = 50;
 const AO_MAX_AGENTS = 500;
 
@@ -30456,12 +30456,12 @@ function aoStr(v, max) { return typeof v === 'string' && v ? v.slice(0, max || 2
 function aoAccountsOf(body) {
   if (body && body.accountsWeekly === null) return false;
   if (!body || !Array.isArray(body.accountsWeekly)) return null;
-  return body.accountsWeekly.filter((e) => e && typeof e === 'object' && aoStr(e.dir, 4096)).slice(0, AO_MAX_ACCOUNTS).map((e) => {
+  return body.accountsWeekly.filter((e) => e && typeof e === 'object' && aoStr(e.key, 16)).slice(0, AO_MAX_ACCOUNTS).map((e) => {
     const when = (v) => Number.isFinite(v) && v > 0 && v < 1e13;   // epoch ms a Date can show (1e13 is the year 2286)
     const w = e.weekly && typeof e.weekly === 'object' && Number.isFinite(e.weekly.usedPct)
       && when(e.weekly.resetsAt) && when(e.weekly.at) ? e.weekly : null;
     return {
-      dir: aoStr(e.dir, 4096), email: aoStr(e.email), label: aoStr(e.label), organization: aoStr(e.organization),
+      key: aoStr(e.key, 16), email: aoStr(e.email), label: aoStr(e.label), organization: aoStr(e.organization),
       isDefault: e.isDefault === true,
       weekly: w ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
       blocked: ['windows', 'own-statusline', 'unreadable-settings', 'not-wired'].includes(e.blocked) ? e.blocked : null,
@@ -30471,17 +30471,16 @@ function aoAccountsOf(body) {
 /* That computer's agents with the account each runs on (its folder, which matches an accountsWeekly entry there). */
 function aoAgentsOf(body) {
   if (!body || !Array.isArray(body.agents)) return [];
-  return body.agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
-    && a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))
-    .slice(0, AO_MAX_AGENTS)
-    .map((a) => ({ name: aoStr(a.name) || aoStr(a.sessionName), dir: aoStr(a.account.dir, 4096) }));
+  return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
+    && aoStr(a.acct, 16))
+    .map((a) => ({ name: aoStr(a.name) || aoStr(a.sessionName), acct: aoStr(a.acct, 16) }));
 }
 /* How many of that computer's CLAUDE agents it could not tie to an account. Only runner 'claude': a Codex, Gemini or
    Grok agent has no Claude account to tie, and a card with no runner is one that computer holds no record of. */
 function aoUnknownOf(body) {
   if (!body || !Array.isArray(body.agents)) return 0;
   return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
-    && a.runner === 'claude' && !(a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))).length;
+    && a.runner === 'claude' && !aoStr(a.acct, 16)).length;
 }
 /* That computer's clock against this page's: its answer's checkedAt against this read's time. The difference also holds
    the read's own round trip (under OA_READ_LIMIT_MS), so one under AO_SKEW_MIN_MS is taken as none. 0 when it sent none. */
@@ -30588,7 +30587,7 @@ function aoGroup(c, seen, ao, now) {
         row.appendChild(meter);
         if (u.frozen) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.frozen));
       } else row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
-      const names = ao.agents.filter((a) => a.dir === e.dir).map((a) => a.name);
+      const names = ao.agents.filter((a) => a.acct === e.key).map((a) => a.name);
       const some = ao.unknown > 0 ? ' (some could not be checked)' : '';   // the row's own words for an incomplete list
       row.appendChild(aoEl('p', 'acct-agents-line', names.length
         ? 'Its agents on ' + c.name + ': ' + names.join(', ') + some

@@ -92,3 +92,42 @@ test('#6178 a Claude list that cannot be read is sent as null ("could not read")
   const ok = await (await fetch(base + '/api/status')).json();
   assert.ok(Array.isArray(ok.accountsWeekly), 'CONTROL: with the list readable again it is a list');
 });
+
+/* The real producer against the real consumer: a sibling read (a browser on another of the person's computers sends
+   Sec-Fetch-Site: same-site) goes through statusForSibling (#4973), and the page's own parsers, lifted from
+   web/index.html, must join what it sends. The first build was tested only against hand-written answers and the
+   sibling cut sent none of it (found in review). */
+test('#6178 a sibling read carries the accounts and the join, with no folder path, and the page parses it', async () => {
+  accountsweekly.resetForTests();
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6178s' } }));
+  const at = Date.now() - 3600e3;
+  fs.writeFileSync(path.join(def, statusline.FILE), JSON.stringify({ usedPct: 71, resetsAt: FUTURE, at }));
+  lead('sib-on-default', null);
+  const res = await fetch(base + '/api/status', { headers: { 'sec-fetch-site': 'same-site' } });
+  assert.equal(res.status, 200);
+  const raw = await res.text();
+  assert.ok(!raw.includes(SANDBOX) && !raw.includes(os.homedir()), 'a sibling answer carries a folder path of this computer');
+  const sib = JSON.parse(raw);
+  assert.ok(!('engine' in sib) && !('updateLog' in sib), 'CONTROL: this is the cut-down sibling answer (#4973)');
+  assert.ok(Array.isArray(sib.accountsWeekly), 'the sibling answer carries no accountsWeekly: ' + Object.keys(sib).join(','));
+  assert.equal(typeof sib.checkedAt, 'string');
+  const entry = sib.accountsWeekly.find((e) => e.email === 'person@example.com');
+  assert.ok(entry && /^a\d+$/.test(entry.key) && !('dir' in entry), 'the account is not keyed by an opaque id: ' + JSON.stringify(entry));
+  assert.equal(entry.weekly.usedPct, 71);
+  const agent = sib.agents.find((a) => a.sessionName === 'sib-on-default');
+  assert.ok(agent && agent.acct === entry.key && agent.runner === 'claude', 'the agent does not carry its account key and runner: ' + JSON.stringify(agent));
+
+  const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const slice = (name) => { const i = PAGE.indexOf('function ' + name + '('); assert.ok(i >= 0, name + ' moved'); return PAGE.slice(i, PAGE.indexOf('\n}\n', i) + 2); };
+  const constLine = (name) => { const i = PAGE.indexOf('const ' + name + ' = '); assert.ok(i >= 0, name + ' moved'); return PAGE.slice(i, PAGE.indexOf('\n', i) + 1); };
+  const page = new Function(constLine('AO_MAX_ACCOUNTS') + constLine('AO_MAX_AGENTS') + slice('aoStr') + slice('aoAccountsOf') + slice('aoAgentsOf') + slice('aoUnknownOf')
+    + '\nreturn { aoAccountsOf, aoAgentsOf, aoUnknownOf };')();
+  const accounts = page.aoAccountsOf(sib);
+  const agents = page.aoAgentsOf(sib);
+  const mine = accounts.find((e) => e.email === 'person@example.com');
+  assert.ok(mine && mine.weekly && mine.weekly.usedPct === 71, 'the page did not parse the account: ' + JSON.stringify(accounts));
+  assert.deepEqual(agents.filter((a) => a.acct === mine.key).map((a) => a.name).length >= 1, true, 'the page could not join the agent to its account');
+  assert.equal(page.aoUnknownOf(sib), 0, 'a joined Claude agent was counted as could not be checked');
+});

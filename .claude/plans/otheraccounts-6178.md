@@ -12,14 +12,16 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
   for /api/status, cached 15 s (the other computers' read interval) and keyed on the account list. A reading can be
   that old there while /api/accounts reads it live. On a read error it sends null, which the page words as "could not
   read its accounts", never as "no account".
-- `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]`. It reuses
-  the poll's one Claude list read (`claudeKnown`). Each agent already carries `account.dir`, which is the join.
+- `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]` (the full answer; the sibling answer keys it instead, below). It reuses
+  the poll's one Claude list read (`claudeKnown`).
 
-- Who can read it: the same audience as before. /api/status is behind the board token; through the tunnel the token is
-  added only for a device that computer admitted, or for a sibling read from one of the account's own computers in a
-  browser that computer admitted (kosmos-relay siblingcors-4812). Every such reader can already read /api/accounts,
-  which carries the same accounts with more. New on /api/status itself: the accounts no agent runs on, and organization
-  (agents' account rows already carried email and dir).
+- Who can read it. Another computer's browser reads /api/status as a sibling read (Sec-Fetch-Site same-site), and
+  #4973 cuts that answer down (server.js statusForSibling) so this computer's paths and user name stay here. #6178
+  widens the cut on purpose and no further: `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
+  label, organization, isDefault, weekly and blocked; each agent's `acct` (that id) and `runner`; `checkedAt`. No folder
+  path goes out. The reader is a browser that computer already admitted (kosmos-relay siblingcors-4812).
+- Found in review 15, and the reason the server test sends a real sibling read: the first build added the fields to the
+  full answer only, and every test handed the page a hand-written answer, so the sibling cut dropped all of it unseen.
 
 ## Page
 - `#set-other-wrap` under the account list. `aoPaint` draws it from `AO_SEEN`, which `oaReadOne` (#4812) fills through

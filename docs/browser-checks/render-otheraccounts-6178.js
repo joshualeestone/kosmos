@@ -66,16 +66,15 @@ const COMPUTERS = {
   ],
 };
 const HOSTILE = '<img src=x onerror="window.__aoPwned=1">';
-const MAIN = '/Users/p/.claude', WORK = '/Users/p/.claude-work';
 const SIBLING = {
   agents: [
-    { sessionName: 'angel', name: 'Angel', state: 'working', account: { dir: MAIN, email: 'person@example.com' } },
-    { sessionName: 'evil', name: HOSTILE, state: 'idle', account: { dir: WORK, email: HOSTILE } },
-    { sessionName: 'guide', name: 'Guide', isGuide: true, account: { dir: MAIN } },
+    { sessionName: 'angel', name: 'Angel', state: 'working', runner: 'claude', acct: 'a0' },
+    { sessionName: 'evil', name: HOSTILE, state: 'idle', runner: 'claude', acct: 'a1' },
+    { sessionName: 'guide', name: 'Guide', isGuide: true, acct: 'a0' },
   ],
   accountsWeekly: [
-    { dir: MAIN, email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: Date.now() + 3 * 864e5, at: Date.now() - 3600e3 }, blocked: null },
-    { dir: WORK, email: HOSTILE, weekly: null, blocked: 'not-wired' },
+    { key: 'a0', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: Date.now() + 3 * 864e5, at: Date.now() - 3600e3 }, blocked: null },
+    { key: 'a1', email: HOSTILE, weekly: null, blocked: 'not-wired' },
   ],
 };
 const OLD = { agents: [{ sessionName: 'bo', name: 'Bo', state: 'idle' }] };

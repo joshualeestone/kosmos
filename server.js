@@ -4502,7 +4502,8 @@ function withPreviews(rows) {
    guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
    crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
-   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
+   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business (#6178
+   adds the accounts' weekly usage, keyed without their folders). A
    request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
    sibling read (no header) is closed by the relay, not here: it withholds the board token without the header
    (kosmos-relay proxy.rs board_token_allowed) and the board then refuses it. A change to either reopens that. */
@@ -4515,10 +4516,32 @@ function statusForSibling(json) {
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
+  /* #6178: each Claude account's weekly usage for Settings > AI Models there, keyed by an opaque per-answer id
+     ("a0", "a1", ...), never by its folder: a folder path names this Mac's user, which #4973 keeps here. Each agent
+     carries that id (acct) and its runner, so the page can join them; null accountsWeekly is "could not read them". */
+  const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : (full && full.accountsWeekly === null ? null : []);
+  const keyOf = new Map();
+  const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir)
+    .map((e, i) => {
+      const key = 'a' + i;
+      keyOf.set(e.dir, key);
+      const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
+      return {
+        key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true,
+        weekly: w && [w.usedPct, w.resetsAt, w.at].every((n) => typeof n === 'number' && Number.isFinite(n)) ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
+        blocked: str(e.blocked) || null,
+      };
+    });
   return JSON.stringify({
+    checkedAt: str(full && full.checkedAt),
+    accountsWeekly,
     // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
     agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
-      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
+      .map((a) => ({
+        sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
+        runner: str(a.runner) || null,
+        acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,
+      })),
   });
 }
 

@@ -1601,12 +1601,12 @@ const SCREENS = [
     const studio = {
       checkedAt: new Date(now).toISOString(),
       agents: [
-        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', account: { dir: '/home/p/.claude', email: 'person@example.com' } },
-        { sessionName: 'ben', name: 'Ben', state: 'idle', runner: 'claude', account: { dir: '/home/p/.claude-work', email: 'work@example.com' } },
+        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', acct: 'a0' },
+        { sessionName: 'ben', name: 'Ben', state: 'idle', runner: 'claude', acct: 'a1' },
       ],
       accountsWeekly: [
-        { dir: '/home/p/.claude', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: now + 3 * 864e5, at: now - 3600e3 }, blocked: null },
-        { dir: '/home/p/.claude-work', email: 'work@example.com', weekly: null, blocked: null },
+        { key: 'a0', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: now + 3 * 864e5, at: now - 3600e3 }, blocked: null },
+        { key: 'a1', email: 'work@example.com', weekly: null, blocked: null },
       ],
     };
     await page.route(HOME + '/**', async (r) => {

@@ -77,16 +77,16 @@ function load({ protocol = 'https:', hostname = 'laptop.kosmosplus.com', list = 
 }
 const STATUS = {
   agents: [
-    card('ann', { name: 'Ann', runner: 'claude', account: { dir: '/Users/p/.claude', email: 'p@example.com' } }),
-    card('bo', { name: 'Bo', runner: 'claude', account: { dir: '/Users/p/.claude-work', email: 'w@example.com' } }),
-    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', account: { dir: '/Users/p/.claude' } }),
-    card('nobody', { name: 'Nobody', runner: 'claude', account: null }),
-    card('cody', { name: 'Cody', runner: 'codex', account: null }),
-    card('stray', { name: 'Stray', runner: null, account: null }),
+    card('ann', { name: 'Ann', runner: 'claude', acct: 'a0' }),
+    card('bo', { name: 'Bo', runner: 'claude', acct: 'a1' }),
+    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', acct: 'a0' }),
+    card('nobody', { name: 'Nobody', runner: 'claude', acct: null }),
+    card('cody', { name: 'Cody', runner: 'codex', acct: null }),
+    card('stray', { name: 'Stray', runner: null, acct: null }),
   ],
   accountsWeekly: [
-    { dir: '/Users/p/.claude', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
-    { dir: '/Users/p/.claude-work', email: 'w@example.com', weekly: null, blocked: 'not-wired' },
+    { key: 'a0', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
+    { key: 'a1', email: 'w@example.com', weekly: null, blocked: 'not-wired' },
   ],
 };
 const text = (n) => n.textContent;
@@ -96,7 +96,7 @@ test('#6178 the other computer\'s accounts are kept checked: bad entries dropped
   const got = api.aoAccountsOf({ accountsWeekly: [
     ...STATUS.accountsWeekly,
     { email: 'no-dir@example.com' },
-    { dir: '/x', weekly: { usedPct: 'lots', resetsAt: 1, at: 1 }, blocked: '<script>' },
+    { key: 'a9', weekly: { usedPct: 'lots', resetsAt: 1, at: 1 }, blocked: '<script>' },
     null,
   ] });
   assert.equal(got.length, 3, 'an entry with no folder was kept: ' + JSON.stringify(got));
@@ -104,7 +104,7 @@ test('#6178 the other computer\'s accounts are kept checked: bad entries dropped
   assert.equal(got[2].weekly, null, 'a non-number reading was kept');
   assert.equal(got[2].blocked, null, 'a reason this page does not know was kept');
   assert.equal(api.aoAccountsOf({ agents: [] }), null, 'an older Kosmos (no accountsWeekly) must read as unknown, not as no accounts');
-  assert.deepEqual(api.aoAgentsOf(STATUS).map((a) => [a.name, a.dir]), [['Ann', '/Users/p/.claude'], ['Bo', '/Users/p/.claude-work']],
+  assert.deepEqual(api.aoAgentsOf(STATUS).map((a) => [a.name, a.acct]), [['Ann', 'a0'], ['Bo', 'a1']],
     'the guide or an agent with no account was listed');
 });
 
@@ -211,7 +211,7 @@ test('#6178 an old reading that will not update says so, as its own row does', (
   const { api } = load();
   const now = Date.now();
   const c = { name: 'studio', address: 'studio.kosmosplus.com' };
-  const e = { dir: '/d', email: 'p@example.com', weekly: { usedPct: 40, resetsAt: FUTURE, at: now - 864e5 }, blocked: 'own-statusline' };
+  const e = { key: 'a0', email: 'p@example.com', weekly: { usedPct: 40, resetsAt: FUTURE, at: now - 864e5 }, blocked: 'own-statusline' };
   const t = text(api.aoGroup(c, { state: 'ok', at: now }, { accounts: [e], agents: [], at: now }, now));
   assert.match(t, /40% of its weekly limit used/, 'CONTROL: the reading is shown');
   assert.match(t, /This is the last reading Kosmos saw\. It will not update, because this account is set up its own way\./, 'an old reading was shown as current');
@@ -354,7 +354,7 @@ test('#6178 ages and reset times are said in this page\'s clock, not the other c
   assert.equal(u.pct, 50, 'a reading that has not reset by its own clock was dropped');
   assert.match(u.line, /Kosmos last saw it change 2 minutes ago/, 'the age was not said in this page\'s clock: ' + u.line);
   assert.equal(api.aoUsageWords(e, now, 0).pct, null, 'CONTROL: read in this clock unshifted, the reading looks a week old');
-  assert.equal(api.aoAccountsOf({ accountsWeekly: [{ dir: '/d', weekly: { usedPct: 1, resetsAt: 1e300, at: now } }] })[0].weekly, null,
+  assert.equal(api.aoAccountsOf({ accountsWeekly: [{ key: 'a0', weekly: { usedPct: 1, resetsAt: 1e300, at: now } }] })[0].weekly, null,
     'a reset time no Date can show was kept');
 });
 
@@ -389,9 +389,9 @@ test('#6178 two accounts on one email are told apart by organization or label', 
   const now = Date.now();
   const c = { name: 'studio', address: 'studio.kosmosplus.com' };
   const accts = [
-    { dir: '/a', email: 'p@example.com', organization: 'Acme', weekly: null, blocked: null },
-    { dir: '/b', email: 'p@example.com', organization: null, label: 'Personal', weekly: null, blocked: null },
-    { dir: '/c', email: 'q@example.com', organization: null, weekly: null, blocked: null },
+    { key: 'a0', email: 'p@example.com', organization: 'Acme', weekly: null, blocked: null },
+    { key: 'a1', email: 'p@example.com', organization: null, label: 'Personal', weekly: null, blocked: null },
+    { key: 'a2', email: 'q@example.com', organization: null, weekly: null, blocked: null },
   ];
   const names = api.aoGroup(c, { state: 'ok', at: now }, { accounts: accts, agents: [], unknown: 0, at: now }, now)
     .querySelectorAll('.ao-acct-name').map((n) => n.textContent);
