@@ -35334,7 +35334,9 @@ async function streakCheck() {
   streakAsking = true;
   try {
     const r = await fetch('/api/streak', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ today }), cache: 'no-store' });
-    if (!r.ok) { streakMisses++; return; }
+    // A refusal's body is read too (#6188): left unread, the request never finishes, and a page waiting for the
+    // network to go quiet (a check's networkidle) waits forever.
+    if (!r.ok) { streakMisses++; await r.text().catch(() => {}); return; }
     const got = await r.json();
     if (got && Number.isInteger(got.count) && got.count > 0) { streakDay = today; streakMisses = 0; } else streakMisses++;   // a reply with no count is not a settled day
     paintStreak(got);
