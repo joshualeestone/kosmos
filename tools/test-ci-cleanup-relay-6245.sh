@@ -18,7 +18,8 @@ HOOK="$T/job-cleanup.sh"
 # The function ends at its case's esac and a closing brace; the hook bodies inside it have their own column-0 braces.
 ( src="$(perl -0ne 'print $1 if /(^hook_body\(\) \{.*?^  esac\n\}\n)/ms' "$HERE/tools/ci-runner-setup.sh")"; eval "$src"; hook_body cleanup ) > "$HOOK"
 chmod 755 "$HOOK"
-head -1 "$HOOK" | grep -qx '#!/bin/bash' && grep -q 'actions-runner-relay' "$HOOK" && pass "the hook body extracted from ci-runner-setup.sh" || { fail "could not extract the hook"; exit 1; }
+# Refuse to run a hook that has no --list: running it bare would end every node of this uid on this machine.
+head -1 "$HOOK" | grep -qx '#!/bin/bash' && grep -q 'actions-runner-relay' "$HOOK" && grep -q '"${1:-}" = --list' "$HOOK" && pass "the hook body extracted from ci-runner-setup.sh" || { fail "could not extract the hook"; exit 1; }
 
 # Real node processes (a copied system binary is killed by macOS code signing), each tagged on its command line.
 NODE="$(command -v node)" || { fail "no node on PATH"; exit 1; }

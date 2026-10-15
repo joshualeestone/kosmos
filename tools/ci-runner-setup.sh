@@ -101,7 +101,9 @@ hook_body() {
 # kosmos#6245: ONE exception. The kosmos-relay repo's runner also lives under this user, in ~/actions-runner-relay,
 # and its service host is node too: a plain pkill ended it (and any relay job mid-run) every time a kosmos job did.
 # A process whose ancestry reaches a command in that folder is the relay runner's, running now, and is spared. A
-# leftover that detached (its parent is launchd) is ended, whoever started it, so kosmos jobs leave nothing behind.
+# leftover that detached (its parent is launchd) is ended, whoever started it. Two limits, accepted on this single-tenant
+# runner: a kosmos job could get a leftover spared by naming that folder in its command line, and a relay job's own
+# detached process (a tmux server always detaches) is ended like any other, so relay jobs must not rely on one.
 # --list prints what would be ended and ends nothing (the test reads it; it never kills on the machine it runs on).
 RELAY_DIR="$HOME/actions-runner-relay/"
 mine=" $$ "; p=$$
@@ -110,7 +112,7 @@ spared() {
   local p=$1 n=0 c
   case "$mine" in *" $p "*) return 0 ;; esac
   while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$n" -lt 64 ]; do
-    c=$(ps -o command= -p "$p" 2>/dev/null) || return 1
+    c=$(ps -ww -o command= -p "$p" 2>/dev/null) || return 1
     case "$c" in *"$RELAY_DIR"*) return 0 ;; esac
     p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); n=$((n + 1))
   done
