@@ -290,8 +290,6 @@ function readOwn(since, reports) {
     reports.push({ date, body: readBody(date) });
   }
 }
-/* Review 4: the OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that
-   names the store with other capitals or slashes is still the store. */
 /* #6265: a path as a pasteable command argument for the shell that will read it: PowerShell on Windows (an inner '
    doubled; a backslash is a plain path character), a POSIX shell elsewhere (an inner ' closed and reopened). A path
    starting with - gets ./ so it cannot read as an option. Used by both suggested commands (review 9). */
@@ -302,7 +300,9 @@ function shellArg(p, platform = process.platform) {
   if (plain.test(s)) return s;
   return platform === 'win32' ? "'" + s.replace(/'/g, "''") + "'" : "'" + s.replace(/'/g, "'\\''") + "'";
 }
-function samePath(a, b) {   // also feedbackpull.nextLine's comparison, so the two cannot disagree
+/* The OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that names
+   the store with other capitals or slashes is still the store. Also feedbackpull.nextLine's comparison. */
+function samePath(a, b) {
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
   return fold(a) === fold(b);

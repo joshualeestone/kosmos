@@ -118,7 +118,7 @@ test('#6265 review 3: the pulled note says how old the newest pulled report is',
   assert.ok(feedback.reportsForTriage({}).notes.some((n) => n.includes('newest dated 2026-10-12')));
 });
 
-test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', { skip: process.platform === 'win32' ? 'a symlink needs elevated rights on Windows' : false }, () => {
+test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', () => {
   reset();
   const real = path.join(SANDBOX, 'real-report.md');
   fs.writeFileSync(real, '---\ndate: 2026-10-13\n---\nlinked\n');
