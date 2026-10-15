@@ -29,7 +29,8 @@ decides.
    into `collected-feedback` under the data root. With no `--dir`, triage reads
    that folder when it holds any reports, and otherwise this machine's own
    reports (the local feedback store, `engine/feedback.js`). Every run that reads
-   says on stderr which folder it read (kosmos#6265). `--dir` reads another folder.
+   says on stderr which folder it read (kosmos#6265). `--dir` reads another folder; `--dir` naming this
+   machine's own store reads it as the default does.
    Only `*.md` files are read; a report with any other extension is skipped
    without a note.
 

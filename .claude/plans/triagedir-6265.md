@@ -13,7 +13,8 @@ feedbackpull.defaultDir() (`<data>/collected-feedback`). Nothing said which fold
   reportsForTriage's notes on stderr (install/kosmos, tools/windows/kosmos-cli.js), so the change is in the engine
   only. --dir is unchanged except for a note naming it. The result also carries `read` (the folder).
 - Rejected: changing pull to write into the own-reports store (it would mix this computer's own reports with
-  collected ones, whose names and frontmatter differ). Rejected: refusing with no --dir (the person ran the
+  collected ones, whose names and frontmatter differ; the daily digest job pulls into its own temp folder, so it is
+  not affected either way). Rejected: refusing with no --dir (the person ran the
   plain command; reading the obvious folder and saying so is kinder).
 
 ## Evidence
@@ -55,3 +56,10 @@ a pull needs --dir; the note on every run tells them which folder was read.
 - No BLOCKER. WARNING (the pulled folder wins however old) is the stated weakest premise; the note already dates the
   pulled data (review 3). WARNING: on Windows a --dir naming the store in other capitals or slashes could miss it:
   samePath now compares realpathSync.native and folds case on Windows. NIT: nextLine moved above fileName's doc block.
+
+## Review 5 (opus), and what changed
+- No BLOCKER. WARNING: --since leaving nothing in the pulled folder gave an empty digest with no word why: the note
+  says "none on or after <since>" and names --dir for the own store. WARNING: --dir naming a missing own store no
+  longer refused: refused again (test); its order is the store's, newest first (the digest does not depend on order).
+  NITs taken: nextLine compares paths as triage does and quotes a path with a space; the pull comment in
+  install/kosmos and the doc mention the own-store case. CONVENTION: the rejected-option reason now in the Call.

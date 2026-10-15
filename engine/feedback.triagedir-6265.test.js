@@ -133,3 +133,20 @@ test('#6265 review 3: a pull into the default folder ends with the plain triage 
   assert.equal(feedbackpull.nextLine(PULLED), 'next: kosmos feedback triage');
   assert.equal(feedbackpull.nextLine('/somewhere/else'), 'next: kosmos feedback triage --dir /somewhere/else');
 });
+
+test('#6265 review 5: --since that leaves nothing in the pulled folder says so; a missing own store is still refused', () => {
+  reset();
+  pulled(feedbackpull.fileName({ date: '2026-10-09', install: 'a' }), '---\ndate: 2026-10-09\n---\nx\n');
+  const got = feedback.reportsForTriage({ since: '2026-10-14' });
+  assert.equal(got.read, PULLED);
+  assert.equal(got.reports.length, 0);
+  assert.ok(got.notes.some((n) => n.includes('none on or after 2026-10-14')), got.notes.join('\n'));
+  fs.rmSync(OWN, { recursive: true, force: true });
+  const missing = feedback.reportsForTriage({ dir: OWN });
+  assert.equal(missing.ok, false, 'a --dir naming a store that is not there was not refused');
+  assert.match(missing.because, /cannot read --dir/);
+});
+
+test('#6265 review 5: a pull into another folder with a space quotes it on the next line', () => {
+  assert.equal(feedbackpull.nextLine('/some where'), 'next: kosmos feedback triage --dir "/some where"');
+});

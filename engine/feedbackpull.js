@@ -188,7 +188,12 @@ function toMarkdown(rec) {
 
 /* kosmos#6265: the line a pull ends with. The default folder is what a plain `kosmos feedback triage` reads. */
 function nextLine(dir) {
-  return 'next: kosmos feedback triage' + (dir && path.resolve(dir) !== path.resolve(defaultDir()) ? ' --dir ' + dir : '');
+  /* Review 5: the same comparison triage makes (the OS's spelling, case folded on Windows), and a path with a space
+     quoted so the line can be pasted. */
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+  if (!dir || fold(dir) === fold(defaultDir())) return 'next: kosmos feedback triage';
+  return 'next: kosmos feedback triage --dir ' + (/\s/.test(dir) ? '"' + dir + '"' : dir);
 }
 
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by
