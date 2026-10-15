@@ -22863,7 +22863,8 @@ function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REF
    restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
    (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents. Known and older than this
    (review 11): an agent that cannot be told at that moment keeps the old text until the board restarts, because a
-   board in no company asks nothing more that would retry it. */
+   board in no company asks nothing more that would retry it. Not an ending, so not told here (review 13): an answer
+   naming another company swaps the applied policy inside a refresh; the hourly ask's companyPolicySync hands that over. */
 function orgEnrollmentEnded(root) {
   if (root !== require('./engine/store').ROOT) return;
   companyPolicySync();

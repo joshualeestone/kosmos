@@ -1193,8 +1193,10 @@ test('#6232 review 10: an enrollment ending tells onEnrollmentEnded once, with t
 test('#6232 review 11: a Leave the company refuses (last admin) tells no listener; a listener that throws does not stop an ending', async (t) => {
   const { a } = sandbox(t);
   const ended = [];
-  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  // The throwing listener first (review 13): listeners run in the order added, so only a later one can show that one
+  // listener's throw does not stop the rest.
   const offThrow = org.onEnrollmentEnded(() => { throw new Error('a broken listener'); });
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
   t.after(() => { off(); offThrow(); });
   const state = {};
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
@@ -1209,4 +1211,21 @@ test('#6232 review 11: a Leave the company refuses (last admin) tells no listene
   await org.refresh({ root: a, remote: fakeRemote(state) });
   assert.equal(org.isEnrolledHere({ root: a }), false, 'a throwing listener stopped the ending');
   assert.deepEqual(ended, [a], 'the ending did not reach the other listener');
+});
+
+test('#6232 review 13: an enrollment ending because this Kosmos has no id of its own tells the listener too', async (t) => {
+  const { a } = sandbox(t);
+  const ended = [];
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  t.after(off);
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll');
+  const idFile = 'org-world-id';   // engine/orgenroll.js WORLD_ID_FILE
+  assert.ok(fs.existsSync(path.join(a, idFile)), 'CONTROL: no world id file at ' + idFile);
+  fs.rmSync(path.join(a, idFile), { force: true });
+  const r = await org.refresh({ root: a, remote: fakeRemote(state) });
+  assert.match(String(r.because), /no id of its own/, 'CONTROL: the refresh did not take the no-id path: ' + JSON.stringify(r));
+  assert.equal(org.readEnrollment({ root: a }), null, 'CONTROL: the stale record was not cleared');
+  assert.deepEqual(ended, [a], 'an ending for want of an id did not tell the listener');
 });

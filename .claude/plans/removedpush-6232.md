@@ -149,3 +149,11 @@ is for the first run after merge.
   REMOVED: the ask always runs companyPolicySync, which changes nothing when the listener already handed it over.
   Tested by outcome: an ending told to the listener hands it over once; one not told still hands it over (restoring
   the skip fails it, measured).
+
+## Review 13 (opus): no code defect; two test gaps closed
+- The throwing-listener test registered it after the recording one, so it could not catch a single try around the
+  loop: now registered first (one try around the loop fails it, measured).
+- The "no id of its own" ending had no test: added (removing its tellEnded fails it, measured).
+- Stated: an answer naming another company swaps the policy without an ending, so the hourly ask hands that over.
+- Possible follow-up, older than this: an applied policy with no enrollment file (a crash between writes) is never
+  lifted, since a board in no company asks nothing.
