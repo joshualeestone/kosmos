@@ -9,6 +9,9 @@ origin/familypolicy-6263 (5bb8af0dc9), which adds the family rule this widens; r
   policies" on every Kosmos. Before, only a family's Kosmos did this; a company's and a Kosmos in no org headed the
   person's own pasted policy "Your company's AI policy", under a line saying "Added by the person you work for".
 - `aboutPolicies()` (create's step label) follows the same rule, as its comment says it does.
+- `WROTE_WHY` (the reason tellAgent records with each write) is "Kosmos updated the AI policies", not "...the company
+  AI policy": this branch sends one write to every agent, and that label would repeat the misattribution.
+- `server.js` companyPolicySync: its comment no longer says a company's and no org's blocks never change.
 - `engine/instructionreread.js`: `SECTIONS.policy` is now reached only when `policy.headingsHere()` throws (every kind
   now has four headings, so the `names.length < 2` branch is unreachable in practice); it names all four.
 - Tests: the pins of the old heading in `familypolicy-6263.test.js` and `policy.test.js` follow the rule.

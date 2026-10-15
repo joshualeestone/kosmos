@@ -22982,8 +22982,9 @@ function companyPolicySync() {
     const c = policyEngine.companyEntry();
     /* kosmos#6263: the kind too, since a family's block is worded by it, with or without the family's own policy (board
        reviews 1 and 2): joining or leaving a family, or a record gaining its kind, re-tells the agents even when only the
-       person's own policies are in the block. A company's and no org's blocks are unchanged, so their re-tell writes
-       nothing (tellAgent writes only a changed block). */
+       person's own policies are in the block. Joining or leaving a company changes nothing in a block that holds only
+       the person's own policies ("Your AI policy" either way, kosmos#6270), so that re-tell writes nothing (tellAgent
+       writes only a changed block). */
     const kind = oe.kindNow();
     const now = JSON.stringify([c ? [c.name, c.text] : null, kind]);
     // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
