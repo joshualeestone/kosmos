@@ -25,6 +25,7 @@ const FAKE_GH = path.join(SANDBOX, 'gh');
 /* Exact argv per call; anything else exits 3 so a changed query fails the test. The run list's --jq is applied by jq. */
 fs.writeFileSync(FAKE_GH, `#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
+[ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
@@ -56,7 +57,8 @@ function state(files = {}) {
   return d;
 }
 const runs = (list) => JSON.stringify(list.map(([status, ago]) => ({ status, createdAt: iso(ago) })));
-const needJq = { skip: JQ ? false : 'jq is not installed here' };
+/* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip (review 2). */
+const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
 test('#6266: site main ahead, the last run over 14 minutes ago and finished: one dispatch on main, said once; heartbeat written', needJq, () => {
   const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]) });
@@ -90,11 +92,31 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 900]]) }).dispatched, 1);
 });
 
-test('#6266: a run stuck queued or running over 45 minutes is said each tick, and still asks nothing', needJq, () => {
+test('#6266: a run stuck over 45 minutes is said, does not silence the backstop, and the tick exits 1', needJq, () => {
   const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 3000]]) });
-  assert.equal(r.dispatched, 0);
-  assert.match(r.out, /a site deploy run has been queued since .* \(over 45 minutes\)/);
-  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 2000]]) }).out, '', 'CONTROL: 33 minutes is not stuck');
+  assert.equal(r.dispatched, 1, 'one stuck run silenced the backstop');
+  assert.equal(r.status, 1, 'launchctl\'s last exit code should show a stuck run');
+  assert.match(r.out, /a site deploy run has been queued since .* \(over 45 minutes\); not waiting on it/);
+  const q = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 2000]]) });
+  assert.equal(q.dispatched, 0, 'CONTROL: 33 minutes is not stuck, it is waited on');
+  assert.equal(q.out, '');
+});
+
+test('#6266: the 14-minute gap is measured from the newest run by time, whatever order gh lists them in', needJq, () => {
+  for (const [ago, want] of [[830, 0], [850, 1]]) {
+    assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', ago]]) }).dispatched, want, ago + ' s');
+  }
+  // Oldest first: the newest (300 s) still holds the tick back.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 5000], ['completed', 300]]) }).dispatched, 0);
+  // An active run behind older finished ones still holds it.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 5000], ['in_progress', 1200]]) }).dispatched, 0);
+});
+
+test('#6266: a gh failure carries its own first line into the log, so a lost login reads as one', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 3600]]), FAKE_DISPATCH_FAIL: '1', FAKE_STDERR: 'HTTP 403: Resource not accessible by integration' });
+  assert.equal(r.status, 1);
+  assert.match(r.out, /could not dispatch the site deploy for main aaaaaaaaa \(gh: HTTP 403: Resource not accessible by integration\)/);
+  assert.match(kick(state(), { FAKE_API_FAIL: '1', FAKE_STDERR: 'gh auth login required' }).out, /could not read site main \(owner\/site\) \(gh: gh auth login required\)/);
 });
 
 test('#6266: anything it cannot read asks nothing and exits 1 with a line saying what', needJq, () => {

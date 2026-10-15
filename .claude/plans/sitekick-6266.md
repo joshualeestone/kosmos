@@ -16,7 +16,8 @@ why), without a person dispatching it.
   workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
   job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
   running, or a deploy run started under 14 minutes ago (a backstop, never an extra tick: the job's one retry and its
-  parking keep their 15-minute pace). A run active over 45 minutes is said each tick; each tick writes a heartbeat;
+  parking keep their 15-minute pace). A run active over 45 minutes is said, is not waited on (a new dispatch replaces
+  a stuck pending run), and the tick exits 1 so launchctl's last exit code shows it; each tick writes a heartbeat;
   --check says what a tick would decide without dispatching. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
   It prints only when it dispatches or cannot read something.
 - tools/install-site-deploy-kick.sh installs it the way the box's other ops jobs are installed: the script copied into
@@ -33,7 +34,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 6) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 8) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -54,3 +55,11 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   comment; the installer retries a failed bootstrap once and says what to run; uninstall removes leftover .new files
   and the heartbeat; the libexec pattern names the job it copies; the test checks RunAtLoad, HOME, PATH and a second
   install; the log's growth is stated.
+
+## Review 2 (sonnet), and what changed
+- WARNING: gh's own error was thrown away: its first line now goes into the log line (a lost login reads as one;
+  test). WARNING: a zombie run silenced the backstop for good: a run active over 45 minutes is no longer waited on,
+  is said, and the tick exits 1 (test; mutant red). WARNING: the gap trusted gh's order: it uses the newest by time
+  (test oldest-first; mutant red). WARNING: the installer header now says the user needs a desktop session (gui/<uid>).
+  NITs taken: the gap is pinned at 830 vs 850 s (mutant at 800 red); mixed runs tested; jq absence skips only off
+  macOS; the date fallback is commented. Noted: the heartbeat proves launchd starts it, the log proves what it did.
