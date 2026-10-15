@@ -55,16 +55,19 @@ function ensureRuntimeDir() {
   try { if (fs.statSync(rd).isDirectory()) process.env.XDG_RUNTIME_DIR = rd; } catch { /* none: as before */ }
 }
 
+/* 30 s: a stop waits on the supervisor's sleep (up to 10 s; review 6). ONE value for every systemctl --user call,
+   the sync runner below and the async step generators alike, so the two restart paths cannot drift on it. */
+const SYSTEMCTL_TIMEOUT_MS = 30000;
+
 /* The real systemctl/loginctl runner, ONE definition, shared with linuxboard.js. A test that forgot its seam never
-   reaches the host's systemd (live-execution #1598, test half; production unchanged; review 1). 30 s: a stop waits
-   on the supervisor's sleep (up to 10 s; review 6). */
+   reaches the host's systemd (live-execution #1598, test half; production unchanged; review 1). */
 function realRunner(cmd, args) {
   if (require('./live-execution').inTestProcess()) require('./live-execution').refuseOrWarn('engine/linuxjob.js', cmd, args);
   /* #4918 review 12: systemctl --user finds the user manager through XDG_RUNTIME_DIR, which a board started from cron
      or after its login session ended does not have. The standard place is /run/user/<uid>; use it when it exists. */
   ensureRuntimeDir();
   try {
-    const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdout = execFileSync(cmd, args, { encoding: 'utf8', timeout: SYSTEMCTL_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'pipe'] });
     return { ok: true, stdout };
   } catch (err) {
     return {
@@ -507,25 +510,25 @@ function stoppedOrNotLoaded(r) {
    (unitName) and parsers (stoppedOrNotLoaded, the is-active test), so the two cannot drift. The sync functions are
    unchanged, for their own callers. The sandbox gate (sandboxedWithoutSystemd) is applied here too: a sandboxed board
    yields no command and the step reads the SAME refusal the sync runner would return, so it never acts on a real unit
-   by name. The command's exit code/output and the 30 s timeout are exactly the sync path's (via remove.js's run). */
+   by name. The command's exit code/output and the SYSTEMCTL_TIMEOUT_MS timeout are exactly the sync path's (via remove.js's run). */
 const SANDBOX_REFUSED = { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
 function* stopSteps(name, worldId) {
   const u = unitName(name, worldId);
-  const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'stop', u], { timeout: 30000 }] };
+  const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'stop', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return stoppedOrNotLoaded(out);   // same classification as stopNow = stoppedOrNotLoaded(stop())
 }
 function* startOnlySteps(name, worldId) {
   // The unit appends to <workdir>/start.log; systemd cannot create the folder (startOnly, review 18).
   try { fs.mkdirSync(require('./create').workerDir(name), { recursive: true }); } catch { /* the start will say */ }
   const sandbox = sandboxedWithoutSystemd();
-  const reload = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'daemon-reload'], { timeout: 30000 }] };
+  const reload = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'daemon-reload'], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   if (!reload || !reload.ok) return false;   // startNow only reads .ok; a failed reload is a failed start, as startOnly's own early return is
-  const started = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'start', unitName(name, worldId)], { timeout: 30000 }] };
+  const started = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'start', unitName(name, worldId)], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return Boolean(started && started.ok);
 }
 function* loadedSteps(name, worldId) {
   const u = unitName(name, worldId);
-  const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: 30000 }] };
+  const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   /* A dry run answers as loaded, the way jobOps' sync `loaded` short-circuits on DRY_RUN and the Mac's ok-means-loaded
      does (a dry run returns ok with no stdout, which the active test below would otherwise read as not-loaded). The
      command is still yielded, so an injected runner (a test, a real board) answers it as usual. */
@@ -536,8 +539,8 @@ function* loadedSteps(name, worldId) {
 function* statusSteps(name, worldId) {
   const u = unitName(name, worldId);
   const sandbox = sandboxedWithoutSystemd();
-  const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: 30000 }] };
-  const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-enabled', u], { timeout: 30000 }] };
+  const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-enabled', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return {
     active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),
     enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
