@@ -838,7 +838,7 @@ async function repliesFor(sessionName, opts) {
     return tasks;
   });
   for (let k = 0; perPost.some((t) => k < t.length); k += 1) for (const t of perPost) if (k < t.length) queue.push(t[k]);
-  /* Review 11: the first wave is every post's newest REPLY_PAGES_PER_POST waiting threads at once (one burst, as before
+  /* Review 11: the first wave holds every post's newest REPLY_PAGES_PER_POST waiting threads at once (one burst, as before
      #6201 read them), so a slow service that the start window cuts after one wave still gives each post what it had;
      later waves go deeper, REPLY_PAGES_AT_ONCE at a time. */
   const firstWave = perPost.reduce((n, t) => n + Math.min(t.length, REPLY_PAGES_PER_POST), 0);
@@ -974,7 +974,9 @@ async function repliesFor(sessionName, opts) {
     const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || th.olderFailed);
     const willHold = th.partial && onlyFailed && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
     lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
-      + (willHold ? ' not reached in this read; they will be looked at again next time)' : ' not reached in this read, so new ones among them may be missed)'), '');
+      + (willHold ? ' not reached in this read; they will be looked at again next time)'
+        // Review 15: a budget or window cut recurs (paging restarts each read), so it says reading again will not help.
+        : ' past what a read reaches, so new ones among them may be missed (reading again will not reach them))'), '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');

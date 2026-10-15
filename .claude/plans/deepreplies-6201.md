@@ -13,7 +13,8 @@ budget is said on its own post with the number of replies left unread, instead o
   are on the LAST page), and a post with older comments has them paged too (their unshown replies join the queue).
   Posts take turns (each post's newest waiting thread, then each post's second, ...; review 7).
 - Whatever the budget or window leaves waiting, per post: "(on your post <id>: N replies [and its older comments]
-  were not reached in this read, so new ones among them may be missed)". N is reply_count minus read; a lagging count is said as "some replies".
+  were past what a read reaches, so new ones among them may be missed (reading again will not reach them))", or,
+  while a failed page holds the mark, "... not reached in this read; they will be looked at again next time)". N is reply_count minus read; a lagging count is said as "some replies".
 
 ## Decided
 - The mark still moves for a post read in part (review 2 of #4833 slice 2): holding it would re-read the same first
@@ -163,3 +164,10 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   that also had a budget-cut thread says new ones may be missed (tested; dropping the condition fails it, measured).
 - Fixed: the first-wave test's window is 25 ms against 30 ms pages (headroom for a stalled machine).
 - Duplicate: a repeat is possible past SEEN_MAX ids above one mark (weakest premise).
+
+## Review 15 (opus)
+- Fixed: a budget or window cut recurs (paging restarts each read), so its line no longer implies a later read helps:
+  "N replies were past what a read reaches, so new ones among them may be missed (reading again will not reach them)".
+  This matters because the reply nudge tells agents to read again until nothing new shows. The held-failure wording is
+  unchanged. Tests match either wording where the case is not about it; the exact budget-cut sentence and both hold
+  wordings are pinned.

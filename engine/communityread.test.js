@@ -497,7 +497,7 @@ test('#4833 slice 2 review 1 / #6201: a third or later reply is read through the
   });
   const cut = await cr.readReplies('Ivy4833', { now: NOW });
   // #6201 review 11: an empty page that still says there is more (a next cursor) is not the end: the 25 are said.
-  assert.match(cut.text, /: 25 replies were not reached in this read/, 'an empty page with a next cursor was taken as the end');
+  assert.match(cut.text, /: 25 replies were (?:not reached in this read|past what a read reaches)/, 'an empty page with a next cursor was taken as the end');
   // Review 2: holding the mark could not reach the rest either (the same pages come back), so it moves.
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
 });
@@ -592,7 +592,7 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { next_cursor: 'N', comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   // #6201 review 3: the fixture answers every older page with the same rows and the same cursor; a page with rows is
   // followed (bad rows cannot end paging early), so the budget ends it and the older comments are said as not reached.
-  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments were not reached in this read/, 'older comments left waiting were not said');
+  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments were (?:not reached in this read|past what a read reaches)/, 'older comments left waiting were not said');
   clearSeen();
   const four = [1, 2, 3, 4].map((n) => comment({ id: CID(n), created_at: T(n), reply_count: 5, replies: [], replies_cursor: 'C' + n }));
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: four } }),
@@ -601,7 +601,7 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   // after: read to the end, so not said (only pages left waiting are "not reached").
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
   // Said when the window leaves pages waiting:
-  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, so new ones among them may be missed\)/);
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were past what a read reaches, so new ones among them may be missed \(reading again will not reach them\)\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -766,7 +766,7 @@ test('#4833 slice 2 review 5 / #6201: a reply page that fails holds the post\'s 
   const one = (await cr.readReplies('Rpf4833', { now: NOW })).text;
   // #6201 review 9: what round 1 read is shown, the failed thread is said as not reached, and the mark holds.
   assert.ok(one.includes('| top'), 'a failed reply page hid the post\'s round-1 items');
-  assert.match(one, /: 1 reply was not reached in this read/, 'the failed thread was not said');
+  assert.match(one, /: 1 reply was (?:not reached in this read|past what a read reaches)/, 'the failed thread was not said');
   assert.ok(!/could not be reached/.test(one), 'one failed page still blacked out the whole post');
   replies = { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: T(10), body: 'r3' })] } };
   const two = (await cr.readReplies('Rpf4833', { now: NOW + 1000 })).text;
@@ -1854,7 +1854,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, so new ones among them may be missed)'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were past what a read reaches, so new ones among them may be missed (reading again will not reach them))'), r.text.slice(-400));
 });
 
 test('#6201: a thread whose new items are 200 deep replies is read to the end over several reads, never repeating one (SEEN_MAX holds them)', async () => {
@@ -1887,11 +1887,11 @@ test('#6201: no new batch starts past round 2\'s time window; what is left is co
   });
   const r = await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 });
   assert.equal(asked.filter((u) => u.includes('/replies?')).length, 0, 'a batch started after the time window');
-  assert.match(r.text, /: 9 replies were not reached in this read/, 'what the window left was not counted');
+  assert.match(r.text, /: 9 replies were (?:not reached in this read|past what a read reaches)/, 'what the window left was not counted');
   // One reply is said in the singular.
   clearSeen();
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6201(701), created_at: T(1), reply_count: 1, replies_cursor: 'w', replies: [] })] } }) });
-  assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was not reached in this read/);
+  assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was (?:not reached in this read|past what a read reaches)/);
 });
 
 test('#6201: a deep reply stamped just before the newest that shows up only on a later read is still shown', async () => {
@@ -1938,7 +1938,7 @@ test('#6201: a post that keeps hitting the page budget moves on by 30 new each r
   for (let k = 0; k < 12; k += 1) { lastText = (await cr.readReplies('Bud6201', { now: NOW + k * 1000 })).text; shown.push(...ids(lastText)); }
   assert.ok(shown.length > 120, 'fixture: not past the old 120-id list');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice on a budget-limited post');
-  assert.match(lastText, /were not reached in this read/, 'CONTROL: the post was not budget-limited');
+  assert.match(lastText, /were (?:not reached in this read|past what a read reaches)/, 'CONTROL: the post was not budget-limited');
   // Progress: 30 new ones every read (the mark stays at round 1's newest here; "seen" holds the rest).
   assert.equal(shown.length, 12 * 30, 'a read did not move on by 30 new replies');
 });
@@ -1967,7 +1967,7 @@ test('#6201: a replies page longer than asked is cut, and its rest is said as no
       replies: Array.from({ length: 25 }, (_, k) => comment({ id: D6201(5100 + k), parent_id: D6201(5000), created_at: T(2) })) } }),
   });
   const r = await cr.readReplies('Cut6201', { now: NOW });
-  assert.match(r.text, /: 5 replies were not reached in this read/, 'the cut rest of a long page was not said');
+  assert.match(r.text, /: 5 replies were (?:not reached in this read|past what a read reaches)/, 'the cut rest of a long page was not said');
 });
 
 test('#6201: posts take turns for the page budget, so a busy newer post cannot starve the older ones', async () => {
@@ -2027,7 +2027,7 @@ test('#6201 review 10: a page that fails on every read holds the mark at most MA
   // Review 11: six reads, so a hold that starts over after MARK_HOLD_MAX (held back to 0, then held again) would show.
   for (let k = 0; k < cr.MARK_HOLD_MAX + 3; k += 1) {
     const r = await cr.readReplies('Per6201', { now: NOW + k * 1000 });
-    assert.match(r.text, /: 1 reply was not reached in this read/, 'read ' + (k + 1) + ' did not say the failing thread');
+    assert.match(r.text, /: 1 reply was (?:not reached in this read|past what a read reaches)/, 'read ' + (k + 1) + ' did not say the failing thread');
     // Review 13: while the mark is held the line says it will be read again; once the hold has run out, that it may be missed.
     assert.match(r.text, k < cr.MARK_HOLD_MAX ? /will be looked at again next time/ : /may be missed/, 'read ' + (k + 1) + ': the line did not match the hold');
     held.push(markOf().held); ids.push(markOf().id);
@@ -2070,7 +2070,7 @@ test('#6201 review 11: after the service says 429 no new wave starts, and what w
   const r = await cr.readReplies('Lim6201', { now: NOW });
   // The first wave goes out together (REPLY_PAGES_AT_ONCE here); after its 429s no further wave starts.
   assert.equal(asked, cr.REPLY_PAGES_AT_ONCE, 'pages were still asked after the service said 429: ' + asked);
-  assert.match(r.text, /: 400 replies were not reached in this read/, r.text.slice(-300));
+  assert.match(r.text, /: 400 replies were (?:not reached in this read|past what a read reaches)/, r.text.slice(-300));
 });
 
 test('#6201 review 13: an older-comments page that fails says the older comments and holds the mark; a bad cursor on a page with rows is said', async () => {
@@ -2089,7 +2089,7 @@ test('#6201 review 13: an older-comments page that fails says the older comments
       replies: Array.from({ length: 20 }, (_, k) => comment({ id: D6201(9700 + k), parent_id: D6201(9600), created_at: T(2) })) } }),
   });
   const two = await cr.readReplies('Old6201b', { now: NOW });
-  assert.match(two.text, /: 10 replies were not reached in this read/, 'a bad next cursor on a page with rows ended the thread silently');
+  assert.match(two.text, /: 10 replies were (?:not reached in this read|past what a read reaches)/, 'a bad next cursor on a page with rows ended the thread silently');
 });
 
 test('#6201 review 14: a post with both a failed page and a budget-cut thread says they may be missed, not that all will be read again', async () => {
@@ -2105,6 +2105,6 @@ test('#6201 review 14: a post with both a failed page and a budget-cut thread sa
     return { status: 200, json: { next_cursor: 'm' + m[1].slice(-1) + 'x', replies: [comment({ id: D6201(9900 + Number(m[1].slice(-1)) * 10 + (u.searchParams.get('cursor').length)), parent_id: m[1], created_at: T(2) })] } };
   });
   const r = await cr.readReplies('Mix6201', { now: NOW, round2Ms: 25 });   // one wave: the others' next pages are left waiting
-  assert.match(r.text, /were not reached in this read, so new ones among them may be missed/, r.text.slice(-300));
+  assert.match(r.text, /were past what a read reaches, so new ones among them may be missed/, r.text.slice(-300));
   assert.ok(!/will be looked at again/.test(r.text), 'budget-cut threads were promised a re-read');
 });
