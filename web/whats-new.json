@@ -1,33 +1,30 @@
 {
-  "version": "0.7.50",
+  "version": "0.7.51",
   "highlights": [
     {
-      "icon": "phone",
-      "title": "Kosmos has its own iPad layouts",
-      "line": "Sideways at full width, an iPad shows Agents and Projects side by side (View is set per iPad); upright, most put agent cards two across."
-    },
-    {
-      "icon": "tasks",
-      "title": "Decision tasks say who needs you",
-      "line": "A task in Needs Your Decision now names the agent waiting on you, when one is, and why."
-    },
-    {
       "icon": "spark",
-      "title": "A restart after an update stops taking focus",
-      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it no longer takes focus.",
-      "platforms": [
-        "mac"
-      ]
+      "title": "Plan limits in Settings",
+      "line": "Settings, AI Models now shows a Claude account's five-hour limit, and a ChatGPT sign-in's plan limits as Codex last reported them."
     },
     {
       "icon": "list",
-      "title": "The Agents list fits a narrow window",
-      "line": "In a narrow browser window, the Agents list shows each running agent's role and AI model under its name, not cut short."
+      "title": "Accounts on your other computers",
+      "line": "Settings, AI Models also lists your other computers: each one's Claude accounts, their weekly usage and the agents on them."
+    },
+    {
+      "icon": "swarm",
+      "title": "Move several agents, or stop a move",
+      "line": "Moving several agents to another account no longer freezes the board, and a running move can be stopped; agents it had not reached stay put."
+    },
+    {
+      "icon": "shield",
+      "title": "Every permission choice is a button",
+      "line": "An agent's permission question shows every choice it offers; one that changes what the agent may do from now on takes a second press."
     },
     {
       "icon": "list",
-      "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new fold into one row in its history; the task says when something last changed."
+      "title": "An agent needs no project",
+      "line": "An agent on no project is no longer flagged: the No project tile is gone, and a new team's Project is optional."
     }
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.49",
+  "lastProd": "0.7.50",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -91,7 +91,8 @@
       "icon": "list",
       "rank": 10,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "Idle agents hear which scheduled run is due",
@@ -436,7 +437,8 @@
       "icon": "list",
       "rank": 9.2,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "Agents are told how to finish a task",
@@ -492,7 +494,8 @@
       "icon": "phone",
       "rank": 3,
       "since": "0.7.49",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "Decision tasks say who needs you",
@@ -500,7 +503,8 @@
       "icon": "tasks",
       "rank": 6,
       "since": "0.7.50",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.50"
     },
     {
       "title": "A restart after an update stops taking focus",
@@ -511,6 +515,47 @@
       ],
       "rank": 9,
       "since": "0.7.50",
+      "status": "shown",
+      "shownIn": "0.7.50"
+    },
+    {
+      "title": "Plan limits in Settings",
+      "line": "Settings, AI Models now shows a Claude account's five-hour limit, and a ChatGPT sign-in's plan limits as Codex last reported them.",
+      "icon": "spark",
+      "rank": 2,
+      "since": "0.7.51",
+      "status": "pending"
+    },
+    {
+      "title": "Accounts on your other computers",
+      "line": "Settings, AI Models also lists your other computers: each one's Claude accounts, their weekly usage and the agents on them.",
+      "icon": "list",
+      "rank": 4,
+      "since": "0.7.51",
+      "status": "pending"
+    },
+    {
+      "title": "Move several agents, or stop a move",
+      "line": "Moving several agents to another account no longer freezes the board, and a running move can be stopped; agents it had not reached stay put.",
+      "icon": "swarm",
+      "rank": 5,
+      "since": "0.7.51",
+      "status": "pending"
+    },
+    {
+      "title": "Every permission choice is a button",
+      "line": "An agent's permission question shows every choice it offers; one that changes what the agent may do from now on takes a second press.",
+      "icon": "shield",
+      "rank": 6,
+      "since": "0.7.51",
+      "status": "pending"
+    },
+    {
+      "title": "An agent needs no project",
+      "line": "An agent on no project is no longer flagged: the No project tile is gone, and a new team's Project is optional.",
+      "icon": "list",
+      "rank": 8,
+      "since": "0.7.51",
       "status": "pending"
     }
   ]
