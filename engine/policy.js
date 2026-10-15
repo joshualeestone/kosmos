@@ -1,7 +1,7 @@
 'use strict';
 
 /* Why this module writes an agent's file, for the stale marker (#323). */
-const WROTE_WHY = 'Kosmos updated the company AI policy';
+const WROTE_WHY = 'Kosmos updated the AI policies';
 
 /**
  * The company's AI policies, held once and handed to every agent (#479,
@@ -300,9 +300,8 @@ function clear() {
   }
 }
 
-/* kosmos#6263: a sentence about the org's policy, said as a family's when this Kosmos is enrolled to a family. A
-   company's (and a Kosmos in no org) keeps its bytes, so no agent's file is rewritten (see blockBody). Required here,
-   not at the top: orgenroll reaches this file through orgpolicy. */
+/* kosmos#6263: a sentence about the org's policy, said as a family's when this Kosmos is enrolled to a family, and
+   unchanged for a company's. Required here, not at the top: orgenroll reaches this file through orgpolicy. */
 function orgKindNow() { return require('./orgenroll').kindHere(); }
 // Board review 2: a block reads the kind once (orgKindNow) and passes it down, so its heading and lines agree.
 function inOrgKind(text, kind = orgKindNow()) { return require('./orgenroll').inKind(kind, text); }
