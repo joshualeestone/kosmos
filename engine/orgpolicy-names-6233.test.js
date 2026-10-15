@@ -2,7 +2,7 @@
 
 /**
  * #6233 (found in the #5622 Enterprise run): a company policy refusal names the provider as the screen does
- * ("OpenAI", "Google Gemini"), never by its internal id ('openai', 'google'), and an id it does not know never
+ * ("OpenAI", "Google Gemini (API key)"), never by its internal id ('openai', 'google'), and an id it does not know never
  * reads as another vendor.
  *   node --test engine/orgpolicy-names-6233.test.js
  */
@@ -24,8 +24,9 @@ const SCREEN = {
   alibaba: 'Alibaba Qwen',
 };
 
-/* A policy that allows only `other`, with a model list on `id` too (for the two model sentences). */
+/* A policy that allows another provider than `id` (the provider-not-allowed sentence). */
 const policyAgainst = (id) => ({ providers_allowed: [id === 'anthropic' ? 'openai' : 'anthropic'] });
+/* A policy that allows `id` with a list of models on it (the two model sentences). */
 const policyModels = (id) => ({ providers_allowed: [id], models_allowed: { [id]: ['only-this-one'] } });
 
 test('#6233: every refusal names the provider as the screen does, never by its id', () => {
