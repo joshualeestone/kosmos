@@ -621,8 +621,9 @@ async function readRepliesLocked(sessionName, opts) {
 function readingNow(sessionName) { return (replyReadRunning === 'read' && replyReadSession === sessionName) || (readingSessions.get(sessionName) || 0) > 0; }
 
 /* ===== #4951: which COMMENTS on this agent's own posts it owes an answer and has not read yet, for the reply nudge. =====
-   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order, round 2 and 30-item cap), so the
-   cap falls where the read's does; of that set only comments ON the post are owed (review 14: a reply under a comment is
+   The agent's own read's set (the same posts, marks, own-name rule, (time, id) order and 30-item cap) as far as it reads:
+   its round 2 is the first hidden page of the newest REPLY_PAGES_PER_POST comments, not the read's whole queue (#6201),
+   so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's does; of that set only comments ON the post are owed (review 14: a reply under a comment is
    not, communityblock's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
    past the cap come back as `more` (review 16). The posts are read one at a time, paced; it MOVES NO MARK (only the
    agent's own read does); it shares the one-read-per-board lock and never starts ahead of, and steps aside for, a
@@ -800,7 +801,8 @@ async function repliesFor(sessionName, opts) {
     try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
     // #6201: older comments are paged in round 2 through the service's cursor (a longer list than asked is cut here).
     const commentsCursor = typeof t.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(t.json.next_cursor) ? t.json.next_cursor : '';
-    const cutHere = list.length > COMMENTS_ASKED;   // review 5: a page longer than asked is cut here, so its rest is unread
+    // Review 5: a page longer than asked is cut here, so its rest is unread; review 7: so is a cursor not in the service's shape.
+    const cutHere = list.length > COMMENTS_ASKED || (!!t.json.next_cursor && !commentsCursor);
     let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
     for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
     return { post: p, comments, r1top, commentsCursor, olderPending: cutHere };
@@ -812,11 +814,15 @@ async function repliesFor(sessionName, opts) {
      post (failed), as before; a cursor not in the service's plain shape is not used. */
   const queue = [];
   const repliesTask = (th, c, cursor) => ({ th, c, cursor });
-  for (const th of threads) {
-    if (th.failed || th.gone) continue;
-    for (const c of th.comments) if (c.replyCount > c.replies.length && c.repliesCursor) queue.push(repliesTask(th, c, c.repliesCursor));
-    if (th.commentsCursor) queue.push({ th, comments: true, cursor: th.commentsCursor });
-  }
+  /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
+     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
+     #6201. A post's older comments come after its own threads. */
+  const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
+    const tasks = th.comments.filter((c) => c.replyCount > c.replies.length && c.repliesCursor).map((c) => repliesTask(th, c, c.repliesCursor));
+    if (th.commentsCursor) tasks.push({ th, comments: true, cursor: th.commentsCursor });
+    return tasks;
+  });
+  for (let k = 0; perPost.some((t) => k < t.length); k += 1) for (const t of perPost) if (k < t.length) queue.push(t[k]);
   let pagesRead = 0;
   const round2Start = Date.now();
   // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer).
@@ -826,7 +832,6 @@ async function repliesFor(sessionName, opts) {
     if (th.failed) return;
     const base = '/posts/' + encodeURIComponent(th.post.remoteId) + '/comments';
     if (task.comments) {
-      th.commentsCursor = '';
       const r = await getJson(base + '?order=newest&limit=' + COMMENTS_ASKED + '&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
       const list = r.status === 200 && r.json && Array.isArray(r.json.comments) ? r.json.comments : null;
       if (!list) { th.failed = true; return; }
@@ -840,10 +845,9 @@ async function repliesFor(sessionName, opts) {
         if (c.replyCount > c.replies.length && c.repliesCursor) queue.push(repliesTask(th, c, c.repliesCursor));
       }
       if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
-        th.commentsCursor = r.json.next_cursor;   // still more: said below if it is not reached
         // Followed while the service's page had rows (as replies above; the budget bounds a cursor that does not advance).
         if (list.length) queue.push({ th, comments: true, cursor: r.json.next_cursor });
-      }
+      } else if (r.json.next_cursor) th.olderPending = true;   // review 7: a cursor not in the service's shape is said, not dropped
       return;
     }
     const { c } = task;

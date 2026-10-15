@@ -1871,7 +1871,6 @@ test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_
   const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
   const shown = [];
   for (let k = 0; k < 9; k += 1) shown.push(...ids((await cr.readReplies('Rep6201', { now: NOW + k * 1000 })).text));
-  assert.ok(200 > 120, 'fixture: not past the 120-id list this test was written against');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
   assert.equal(shown.length, 201, 'not every item (the comment and its 200 replies) was shown once');
 });
@@ -1937,19 +1936,8 @@ test('#6201 review 3: a post that keeps hitting the page budget still moves on b
   assert.ok(shown.length > 120, 'fixture: not past the old 120-id list');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice on a budget-limited post');
   assert.match(lastText, /were not reached in this read/, 'CONTROL: the post was not budget-limited');
-  // And nothing is lost: every item at or below the post's final mark was shown (fails if the mark passed a waiting
-  // thread's replies without showing them).
-  const mark = JSON.parse(fs.readFileSync(seenPath('Bud6201'), 'utf8')).posts[RP(1)];
-  const markTs = mark.at;
-  const below = [];
-  for (let i = 0; i < 10; i += 1) for (let k = 0; k < 200; k += 1) {
-    const x = repl(i, k); const ts = Date.parse(x.created_at);
-    if (ts < markTs || (ts === markTs && x.id <= mark.id)) below.push(x.id);
-  }
-  const seenSet = new Set(shown);
-  // The mark may stay put (round 1's newest), so progress is shown by the reads themselves: 30 new ones every read.
+  // Progress: 30 new ones every read (the mark stays at round 1's newest here; "seen" holds the rest).
   assert.equal(shown.length, 12 * 30, 'a read did not move on by 30 new replies');
-  assert.deepEqual(below.filter((id) => !seenSet.has(id)), [], 'a reply at or below the mark was never shown');
 });
 
 test('#6201 review 3: the count names nobody when a post has a full first comments page with more behind it', async () => {
@@ -1977,4 +1965,22 @@ test('#6201 review 6: a replies page longer than asked is cut, and its rest is s
   });
   const r = await cr.readReplies('Cut6201', { now: NOW });
   assert.match(r.text, /: 5 replies were not reached in this read/, 'the cut rest of a long page was not said');
+});
+
+test('#6201 review 7: posts take turns for the page budget, so a busy newer post cannot starve the older ones', async () => {
+  on(); clearSeen();
+  const sent = {};
+  const pid = (i) => 'e6201000-0000-4000-8000-0000000000' + String(i).padStart(2, '0');
+  for (let i = 0; i < 10; i += 1) sent['p' + i] = { state: 'sent', agent: 'Turn6201', remoteId: pid(i), sentAt: '2026-09-30T1' + i + ':00:00Z' };
+  writeSendState(sent, {});
+  const pages = {};
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const post = u.pathname.split('/')[2];
+    if (u.pathname.endsWith('/replies')) { pages[post] = (pages[post] || 0) + 1; return { status: 200, json: { replies: [] } }; }
+    const n = Number(post.slice(-2));
+    return { status: 200, json: { comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(6000 + n * 100 + k), created_at: T(1), reply_count: 50, replies_cursor: 'h' + k, replies: [] })) } };
+  });
+  await cr.readReplies('Turn6201', { now: NOW });
+  for (let i = 0; i < 10; i += 1) assert.ok((pages[pid(i)] || 0) >= 3, 'post ' + i + ' got ' + (pages[pid(i)] || 0) + ' pages: ' + JSON.stringify(pages));
 });

@@ -13,7 +13,7 @@ budget is said on its own post with the number of replies left unread, instead o
   are on the LAST page), and a post with older comments has them paged too (their unshown replies join the queue).
   Newest comments first, so the budget goes to the likeliest new replies.
 - Whatever the budget or window leaves waiting, per post: "(on your post <id>: N replies [and its older comments]
-  were not reached in this read, so new ones among them may not be listed)". N is exact (reply_count minus read).
+  were not reached in this read, so new ones among them may be missed)". N is exact (reply_count minus read).
 
 ## Decided
 - The mark still moves for a post read in part (review 2 of #4833 slice 2): holding it would re-read the same first
@@ -101,3 +101,10 @@ missed on every read. The post's line says so. Resumable cursors stored with the
 - Duplicates of decisions above, kept: tails of threads past the budget can be missed (weakest premise, said on the
   post); one failed page still holds the whole post for that read (unchanged); "seen" could exceed SEEN_MAX only if the
   readable set drifts over many reads of a mark that cannot move (weakest premise of review 5).
+
+## Review 7 (opus)
+- Fixed: posts take turns for the page budget (each post's newest waiting thread, then each post's second, ...), so a
+  busy newer post cannot starve the older ones (10 posts each get at least 3 pages, as before #6201; tested).
+- Fixed: a cursor not in the service's shape is said as older comments not reached, not dropped; dead cursor state
+  removed; the freshReplies header says its round 2 is not the read's; a check that could never fail is removed.
+- Kept (rare): a person counted as owed when the agent's answer sits on a page the budget cut and the count lagged.
