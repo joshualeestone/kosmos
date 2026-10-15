@@ -51,6 +51,9 @@ were never reached.
   holding its mark that long.
 - Iteration 5 NIT: `lastRead` falls back to round 1's replies (not the saved place) when this read's pages carried no
   timed reply. It errs low (more ids wait in "seen"), so it is left; a change to it had no test that could see it.
+- Iteration 6: a finished thread restarted from its start can be cut again; that is the design (its new place and the
+  cap carry its tail to the next read). A refused saved place restarts the thread and loses its progress (safe, rare,
+  bounded). The marks file can grow by about 90 KB per post at worst (310 places); said in the SEEN_MAX comment.
 - `threadsOf` refuses a non-id key; a mutation shows that is redundant (such a place matches no comment and is dropped
   at the next write), kept as cheap defence.
 

@@ -431,7 +431,9 @@ const REPLIES_FIRST_DAYS = 7;
    replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
    normally fetches of a post (about 630; older-comments pages can bring more, but their items are mostly at or below the
    mark and pruned), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
-   reviews 1, 5 and 10). The marks file can then hold up to about 26 KB of ids per post. */
+   reviews 1, 5 and 10). The marks file can then hold up to about 26 KB of ids per post, and #6204's saved places up to
+   THREADS_MAX more entries per post of at most about 300 bytes each (a cursor is up to 200 characters), so about 90 KB
+   more per post at the very worst; the file is written whole on every read. */
 const REPLY_PAGES_MAX = 30;
 /* #6201 review 10: a failed round-2 page holds its post's mark for at most this many reads in a row, so a page that
    fails every time cannot pin the mark while "seen" fills; after that the mark moves as usual and the failing thread is
