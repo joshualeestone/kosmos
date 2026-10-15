@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: noproject-6180
-diff_hash: d22d0367ca0b45b033d89d910d5f49e2b870e69faf714c0b57092b4786fbb568
+diff_hash: 639541b405b85106471de1bf6fb085ad1e855035b0373eeb4a39fecb4b645ef0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-15T02:15:30Z
+timestamp: 2026-10-15T04:35:22Z
 iterations: 4
 converged: true
 ---
@@ -27,3 +27,8 @@ fails identically on clean origin/main (#6187, caused by #6188); per-check trail
 
 ### Per-Iteration Breakdown
 See .claude/plans/noproject-6180.md, "Review", rounds 1 to 4.
+
+### Revalidation after merging origin/main (2026-10-14 23:34 CDT)
+origin/main was merged in at eedb2841f to pick up #6198 (the render-allagents-4812 fix CI was failing on). Three files
+auto-merged (docs/browser-checks/README.md, server.test.js, web/index.html), so the diff hash moved to 639541b405b8 and the
+full suite ran again on the merged tree: node 20,666 / 0 fail, shell 236 of 236, `validation PASSED ... hash=639541b405b8`.
