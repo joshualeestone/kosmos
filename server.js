@@ -275,7 +275,7 @@ const promptrequest = require('./engine/promptrequest');
    not-consumed, not dropped-as-stale. */
 const FILE_ACCESS_CONSUME_PROBE_MS = 5000;
 const updates = require('./engine/update');
-updates.setAutoDefer(() => accountmove.busy());   // #6173: the automatic install waits for an account move to finish
+updates.setAutoDefer(() => moveHoldsBoard());   // #6173: the automatic install waits for an account move to finish
 const usage = require('./engine/usage');
 
 // Single source of truth for the version. With no support function, "what
@@ -322,6 +322,8 @@ let engineRestartAsked = false;   // #4408: a restart from the button is already
 let worldSwitchRestarting = false;   // #6173: a Kosmos switch is about to restart the board
 /* #6173: the board is about to restart (an update, the restart button, a Kosmos switch): no account move may start. */
 function boardRestartingSoon() { return updates.alreadyInstalling() || engineRestartAsked || worldSwitchRestarting; }
+/* #6173: a board restart now would cut an account move, or a restart it gave up on whose last command is still running. */
+function moveHoldsBoard() { return accountmove.busy() || removal.restartingNow(); }
 /* #4408 (an external tester on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
    installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
    and the board told a real person it was running old code. So each loaded file's content is hashed when
@@ -5742,7 +5744,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
-    if (accountmove.busy()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }   // #6173
+    if (moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }   // #6173
     /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
        racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer,
        before the (blocking, on Windows) restart check below. */
@@ -6985,7 +6987,7 @@ const server = http.createServer(async (req, res) => {
         const isNoop = bootedId != null && bootedId === id;
         /* #6173: a real switch restarts the board, and an account move's restart cut between bootout and bootstrap
            leaves that agent unloaded. Refused before anything is paused. */
-        if (!isNoop && accountmove.busy()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }
+        if (!isNoop && moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }
         let pause = { paused: [], notPaused: [], stoppedNow: [] };
         if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
           /* Refuse a pause for a world that does not exist rather than stop agents
@@ -7085,7 +7087,10 @@ const server = http.createServer(async (req, res) => {
             let r = null;
             try { r = require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
-            if (!r || !r.ok) worldSwitchRestarting = false;   // it did not go: moves may run again
+            if (!r || !r.ok) { worldSwitchRestarting = false; return; }   // it did not go: moves may run again
+            /* A detached restart that then fails leaves this process serving (review 4): the same watchdog as the
+               restart button, so moves are not refused for the life of the process. */
+            setTimeout(() => { worldSwitchRestarting = false; }, ENGINE_RESTART_CHECK_MS).unref();
           }, 500);
         }
       })
@@ -9094,6 +9099,9 @@ const server = http.createServer(async (req, res) => {
         }
         /* #1373: the account the person picked rides through. Absent, the
            engine states a default and names it, exactly as before. */
+        /* #6173 review 4: refused BEFORE the write while an account move holds this agent: a provider or model write
+           between the move's account write and its restart made the move's "runs on <account> now" false. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
         const wrote = create.setProvider(name, body && body.provider, {
           accountDir: body && typeof body.account === 'string' ? body.account : null,
           model: wantModel,   // #5534: the company policy is asked about the model the switch will run
@@ -9320,6 +9328,9 @@ const server = http.createServer(async (req, res) => {
             } catch { /* a validator crash is not a reason to block a change (#1916) */ }
           }
         }
+        /* #6173 review 4: refused BEFORE the write while an account move holds this agent: a provider or model write
+           between the move's account write and its restart made the move's "runs on <account> now" false. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
         const wrote = create.setModel(name, body && body.model);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
           sendJson(res, 400, { outcome: 'refused', because: wrote.because });
@@ -13717,7 +13728,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   const acctMoveRead = pathname.match(/^\/api\/agents\/account-moves\/([^/]+)$/);
-  if (acctMoveRead && (req.method === 'GET' || req.method === 'HEAD')) {
+  if (acctMoveRead && req.method === 'GET') {
     const id = decodeSegment(acctMoveRead[1]);
     const m = id === null ? null : accountmove.read(id);
     if (!m) { sendJson(res, 404, { error: 'this board does not know that move; it may have restarted since' }); return; }
@@ -14885,7 +14896,7 @@ const server = http.createServer(async (req, res) => {
        and points at git. Two true things beat one, and the truer one goes first. */
     const platRefusal = updates.selfInstallRefusal();
     if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
-    if (accountmove.busy()) { sendJson(res, 409, { error: accountmove.boardBusyBecause() }); return; }   // #6173: the install restarts the board
+    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause() }); return; }   // #6173: the install restarts the board
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
@@ -14939,6 +14950,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/update/rollback' && req.method === 'POST') {
     const rollback = updates.rollbackOffer();
     if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+    if (moveHoldsBoard()) { sendJson(res, 409, { error: accountmove.boardBusyBecause() }); return; }   // #6173 review 4: a rollback restarts the board too
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;

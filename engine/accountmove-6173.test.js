@@ -165,11 +165,32 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
     'a Kosmos switch does not mark the board as about to restart before its restart is scheduled (review 3)');
   assert.match(server, /if \(boardRestartingSoon\(\)\) \{ sendJson\(res, 409, \{ outcome: 'refused', because: accountmove\.boardGoingBecause\(\) \}\); return; \}/,
     'the one-agent Move can start under a board restart');
-  /* The three things that restart the board refuse while a move runs, and the automatic install waits. */
-  const refusals = server.match(/if \(accountmove\.busy\(\)\) \{ sendJson\(res, 409, \{ (?:ok: false, because|error): accountmove\.boardBusyBecause\(\) \}\); return; \}/g) || [];
-  assert.equal(refusals.length, 2, 'the restart button and the update route each refuse during a move');
-  assert.match(server, /if \(!isNoop && accountmove\.busy\(\)\) \{ sendJson\(res, 409, \{ ok: false, because: accountmove\.boardBusyBecause\(\) \}\); return; \}/, 'a Kosmos switch restarts the board under a move');
-  assert.match(server, /updates\.setAutoDefer\(\(\) => accountmove\.busy\(\)\)/, 'the automatic install does not wait for a move');
+  /* Everything that restarts the board refuses while a move (or a restart it gave up on) holds it, and the refusal
+     comes BEFORE the act in its own route (review 4: a text match alone would pass a check moved after the act). */
+  assert.match(server, /function moveHoldsBoard\(\) \{ return accountmove\.busy\(\) \|\| removal\.restartingNow\(\); \}/);
+  const guardThenAct = (routeHead, guard, act, what) => {
+    const at = server.indexOf(routeHead);
+    assert.ok(at > 0, `${what}: its route is not in server.js`);
+    const body = server.slice(at, at + 12000);
+    const g = body.indexOf(guard), a = body.indexOf(act);
+    assert.ok(g > 0, `${what} does not refuse during a move`);
+    assert.ok(a > g, `${what} acts before it checks for a move`);
+  };
+  const busyRefusal = "if (moveHoldsBoard()) { sendJson(res, 409, { ";
+  guardThenAct("pathname === '/api/engine/restart' && req.method === 'POST'", busyRefusal, "engineRestartAsked = true;", 'the restart button');
+  guardThenAct("pathname === '/api/update/rollback' && req.method === 'POST'", busyRefusal, 'updates.beginRollback(', 'the rollback');
+  guardThenAct("pathname === '/api/worlds/active' && req.method === 'POST'", 'if (!isNoop && moveHoldsBoard())', 'worldstarts.pauseForSwitch(', 'a Kosmos switch');
+  guardThenAct('const platRefusal = updates.selfInstallRefusal();', busyRefusal, 'updates.beginInstall()', 'the Update button');
+  assert.match(server, /updates\.setAutoDefer\(\(\) => moveHoldsBoard\(\)\)/, 'the automatic install does not wait for a move');
+  assert.match(server, /setTimeout\(\(\) => \{ worldSwitchRestarting = false; \}, ENGINE_RESTART_CHECK_MS\)\.unref\(\);/,
+    'a switch whose detached restart failed leaves moves refused for the life of the board (review 4)');
+  /* The provider and model writes refuse a held agent before they write. */
+  const heldGuard = "{ const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }";
+  for (const write of ['const wrote = create.setProvider(name, body && body.provider, {', 'const wrote = create.setModel(name, body && body.model);']) {
+    const at = server.indexOf(write);
+    assert.ok(at > 0, `${write} is not in server.js`);
+    assert.ok(server.slice(at - 400, at).includes(heldGuard), `${write} writes an agent a move holds`);
+  }
 });
 
 test('#6173 review 2: a move is refused while the board is about to restart, and nothing is saved', () => {
@@ -211,16 +232,16 @@ test('#6173 Liu Kang m5496: the move\'s overall cap starts no further agent; the
 
 test('#6173 Liu Kang m5496: one agent whose restart never settles is given up at the agent cap, and the move goes on', async () => {
   const d = deps();
-  d.agentCapMs = 40;
+  d.agentCapMs = 2000;
   const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo'] }, d);   // al's promise is never settled
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 2100));
   assert.deepEqual(d.order, ['al', 'bo'], 'the move waited on a restart past its cap');
   assert.deepEqual([...d.held], ['bo'], 'al stayed held after it was given up');
   d.pending.get('bo').resolve({ outcome: RESTARTED });
   await out.done;
   const end = accountmove.read(out.body.id);
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'changed']);
-  assert.match(end.agents[0].because, /its restart did not answer within 0 seconds\./);
+  assert.match(end.agents[0].because, /its restart did not answer within 2 seconds\./);
   assert.equal(accountmove.busy(), false);
 });
 

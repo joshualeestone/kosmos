@@ -3257,7 +3257,7 @@ test('#6173 Liu Kang m5496: an async restart whose command never answers is give
   const name = madeAgent('neveranswers');
   boardShows(name, name);
   const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
-  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '300';
+  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '2000';
   const answer = scriptedLaunchd();
   const calls = [];
   let lateAnswer;
@@ -3271,15 +3271,20 @@ test('#6173 Liu Kang m5496: an async restart whose command never answers is give
     await withWaits(async () => {
       const t0 = Date.now();
       const out = await mac.restartAsync(name, 'account');
-      assert.ok(Date.now() - t0 < 2000, 'the cap did not end the restart');
+      assert.ok(Date.now() - t0 < 4000, 'the cap did not end the restart');
       assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'a restart given up on was not said as partial');
-      assert.match(out.because, /did not finish within 0 seconds, so we stopped waiting for it/);
-      assert.equal(remove.heldByMove(name), false, 'the agent stayed held after its restart was given up');
+      assert.match(out.because, /did not finish within 2 seconds, so we stopped waiting for it/);
       assert.equal(disruption.read(name).failed, true, 'the card was not told the restart did not come back');
+      /* Review 4: the stuck bootout is still running, so the agent stays held until it ends. */
+      assert.equal(remove.heldByMove(name), true, 'the agent was let go while its last command was still running');
+      assert.equal(remove.restartingNow(), true, 'a board restart would not wait for the command still running');
+      remove.setRunner(scriptedLaunchd());
+      assert.equal(mac.restart(name).outcome, remove.OUTCOME.REFUSED, 'a sync restart ran beside the stuck bootout');
       const before = calls.length;
       lateAnswer();   // the stuck bootout answers after all
       await new Promise((r) => setTimeout(r, 50));
       assert.deepEqual(calls.slice(before), [], 'a restart given up on went on to send commands (a bootstrap after its release)');
+      assert.equal(remove.heldByMove(name), false, 'the agent stayed held after its last command ended');
     });
   } finally {
     if (was === undefined) delete process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS; else process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = was;
@@ -3294,7 +3299,7 @@ test('#6173 review 3: a command that FAILS after the cap (a rejection, not an an
   const name = madeAgent('failsaftercap');
   boardShows(name, name);
   const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
-  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '300';
+  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '2000';
   const answer = scriptedLaunchd();
   const calls = [];
   let lateFailure;
@@ -3314,6 +3319,42 @@ test('#6173 review 3: a command that FAILS after the cap (a rejection, not an an
       assert.deepEqual(calls.slice(before), [], 'a restart given up on went on after a late failure (the throw path skipped the check)');
     });
   } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS; else process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = was;
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#6173 review 4: a restart given up on DURING its unload wait sends no further print or bootstrap', async () => {
+  const name = madeAgent('stuckinunload');
+  boardShows(name, name);
+  const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
+  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '2000';
+  let unloadWas;
+  const calls = [];
+  remove.setRunner(scriptedLaunchd());
+  remove.setAsyncRunner(async (file, args) => {
+    calls.push(args[0]);
+    if (args[0] === 'has-session') return { ok: false, code: 1 };
+    if (args[0] === 'print') return { ok: true, stdout: 'state = SIGTERMed' };   // launchd never lets the old job go
+    return { ok: true, stdout: '' };
+  });
+  try {
+    unloadWas = process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS;
+    process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = '20000';   // a wait far longer than the cap
+    const out = await mac.restartAsync(name, 'account');
+    assert.equal(out.outcome, remove.OUTCOME.PARTIAL);
+    assert.ok(calls.includes('print'), 'the control: the restart never reached its unload wait');
+    await new Promise((r) => setTimeout(r, 300));   // past an unload poll (100 ms) or two
+    const before = calls.length;
+    await new Promise((r) => setTimeout(r, 400));
+    assert.deepEqual(calls.slice(before), [], 'the unload wait kept polling launchd after its restart was given up');
+    assert.ok(!calls.includes('bootstrap'), 'a restart given up on in its unload wait went on to bootstrap');
+    assert.equal(remove.heldByMove(name), false, 'the agent stayed held after its unload wait stopped');
+  } finally {
+    if (unloadWas === undefined) delete process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS; else process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = unloadWas;
     if (was === undefined) delete process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS; else process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = was;
     remove.setRunner(null);
     remove.setAsyncRunner(null);
