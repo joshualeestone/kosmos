@@ -91,7 +91,7 @@ deploy, promote or cut that is valid today is refused by this change.
 - release.sh's frozen-installer check runs after step 2's version-bump push (the freeze follows the bump). Step 1a
   checked the checkout's install/setup.sh before that push; only a fast-forward between step 1 and the freeze that
   brought in an installer without the marker refuses here, with the bump already on origin. Nothing is built or
-  served. (A pinned cut resets the checkout first, so step 1a already reads the pinned tree's installer.)
+  served.
 - A checkout that predates this change has no floor at all: site-autodeploy runs that checkout's own
   tools/deploy-site.sh. Every checkout that pulls main after the merge has it; until then the hand check stands.
 - release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer
