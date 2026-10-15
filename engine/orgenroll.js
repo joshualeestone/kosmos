@@ -481,7 +481,14 @@ async function reviewHere(opts) {
 let queue = Promise.resolve();
 /* kosmos#6251: the kind of the org this board's record names, or of a leave still pending, or null. */
 function recKind(opts) { const r = readEnrollment(opts); return r && r.org ? r.org.kind : null; }
-function pendingKind(opts) { const r = pendingRecord(opts); return r && r.org ? r.org.kind : null; }
+/* The kind of a pending leave: its record's, else the kind it was written with (an undo has no record; review 4). */
+function pendingKind(opts) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8'));
+    if (j && j.rec && j.rec.org) return j.rec.org.kind;
+    return j && (j.orgKind === 'family' || j.orgKind === 'company') ? j.orgKind : null;
+  } catch { return null; }
+}
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
 
 /* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this
@@ -665,7 +672,10 @@ function setLeavePending(on, opts, rec, undo, consentHash) {
   const printFrom = rec && rec.computerSalt && rec.org ? { salt: rec.computerSalt, orgId: rec.org.id, pinned: rec.printPinned === true }
     // an undo: pinned only when the join sent its print (review 17)
     : opts && typeof opts.computerSalt === 'string' && typeof opts.orgId === 'string' ? { salt: opts.computerSalt, orgId: opts.orgId, pinned: opts.printSent === true } : prior;
-  try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts), printFrom: printFrom || null }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
+  /* kosmos#6251 board review 4: the kind its sentences are said in. An undo has no record, so the join's own kind (the
+     call's), else the one this file already holds, so a retry of a family's undo is still said as a family's. */
+  const orgKind = rec && rec.org ? kindOf(rec.org.kind) : opts && opts.orgKind ? kindOf(opts.orgKind) : on ? pendingKind(opts) : null;
+  try { if (on) writeWhole(file, JSON.stringify({ at: new Date().toISOString(), rec: rec || null, undo: undo === true, consentHash: hash, world: readWorldId(opts), printFrom: printFrom || null, orgKind: orgKind || null }) + '\n'); else fs.rmSync(file, { force: true }); } catch { /* best effort */ }
 }
 function pendingPrintFrom(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')); return j && j.printFrom && typeof j.printFrom.salt === 'string' && j.world === readWorldId(opts) ? j.printFrom : null; } catch { return null; }
@@ -682,7 +692,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true, orgKind: kindOf(info.orgKind) }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true, orgKind: kindOf(info.orgKind) }) + '\n');   // a join with no known kind is recorded as a company's (unknown reads as a company)
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }
@@ -911,7 +921,6 @@ function pendingAt(opts) {
   try { return Date.parse(JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).at || ''); } catch { return NaN; }
 }
 async function refreshNow(opts) {
-  const KIND = recKind(opts);   // kosmos#6251: the org's kind, as this board knows it, for every sentence below
   /* A join whose outcome is unknown and NEWER than a pending leave is settled first: the person joined again after
      that leave, and if the join landed, sending the old leave would end the membership they just accepted (review 35).
      Settled as made: recorded, and the old leave dropped (as a successful join does). Not made: the leave goes on. */
@@ -927,6 +936,8 @@ async function refreshNow(opts) {
     return { ok: r.ok, enrolled: false, stopped: true, pending: !!r.pending, because: r.because };
   }
   const before = readEnrollment(opts);
+  // kosmos#6251 (board review 4): the kind of the record read here, after the paths above that settle or leave first.
+  const KIND = before && before.org ? before.org.kind : null;
   if (before && joinUnknown(opts)) setJoinUnknown(null, opts);   // a record settles it: no follow-up beside one (review 27)
   const unsure = before ? null : joinUnknown(opts);
   if (unsure) return settleUnknownJoin(unsure, opts);

@@ -195,3 +195,17 @@ test('#6251 board review 3: a lost join settled later says the org\'s answer was
     assert.equal(s.because, `Your ${kind}'s answer was not complete.`, JSON.stringify(s));
   }
 });
+
+test('#6251 board review 4: a family\'s undone join that could not be confirmed is retried in the family\'s words, with no record left', async (t) => {
+  for (const kind of ['family', 'company']) {
+    const r = root(t);
+    const c = scripted(kind, { [oe.ROUTES.enroll]: notConfirmed, [oe.ROUTES.leave]: { ok: false, because: 'the tunnel program did not answer in time' } });
+    const en = await oe.enroll('RIVE-JOIN-1234', true, { root: r, remote: c, consentHash: HASH, consent: WORDS, orgId: 'o', orgKind: kind });
+    assert.equal(en.code, 'org_undo_pending', JSON.stringify(en));
+    assert.equal(oe.readEnrollment({ root: r }), null, 'an undo keeps no record');
+    assert.equal(oe.leavePending({ root: r }), true);
+    const again = await oe.leave({ root: r, remote: c });   // the retry: no record, no kind on the call
+    assert.equal(again.pending, true, JSON.stringify(again));
+    assert.match(again.because, new RegExp('it will tell your ' + kind + ' again\\.$'), again.because);
+  }
+});

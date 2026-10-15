@@ -53,3 +53,10 @@ coordinator half changes nothing a family's computer shows. This branch is where
 - The test's em dash check is written as an escape (my heredoc had turned it into the character).
 - Kept (NIT): the page's title and button source pins beside O15f; the two rewrite copies compared over one sentence
   per rule; "your work Kosmos" in family copy (follow-up, #6263).
+
+## Round 4 (sonnet) fixes
+- A pending leave keeps the kind it was written with, so an undone family join that could not be confirmed is
+  retried in a family's words with no record left (tested; red when the stored kind is not read).
+- refresh reads the kind from the record it reads, after the paths that settle or leave first.
+- Stated at the site: a join with no known kind is recorded as a company's.
+- Kept (NIT): the no-op plusOrgIn on the joined line's first part; the preview's sayFor with no kind (its codes fit both).
