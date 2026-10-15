@@ -246,7 +246,7 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
    thinking or a subagent's run, none of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
    minutes if it cannot be read. */
 function workingCapMs(member) {
-  if (!member || (member.runner !== 'claude' && member.runner !== 'antigravity')) return Infinity;
+  if (!member || member.runner !== 'claude') return Infinity;
   let cap = 30 * 60 * 1000;
   try { const c = require('./summarydue-nudge').WORK_GAP_CAP_MS; if (Number.isFinite(c) && c > 0) cap = c; } catch { /* 30 minutes */ }
   return cap;
@@ -304,12 +304,12 @@ function workExcused(summary, member, readHistory, nowMs) {
   for (const r of valid) { if (r.at <= wroteAt) { state = r.state; stateAt = r.at; } }
   /* kosmos#5635 F2 (0.7.50 five-family report, Josh 2026-10-15, the Claude seat): its reports went working, idle,
      working within two seconds and then nothing for 18 hours, and that last `working` counted all 18 as work. A Claude
-     member heartbeats `working` on its tool calls (once a minute at most), and so does an Antigravity one on the Mac
-     (its PreInvocation hook reports working before every model call, engine/agyhooks.js), so a working report with nothing after it
+     member heartbeats `working` on its tool calls (once a minute at most), so a working report with nothing after it
      says little past that; for it, a working stretch counts at most to that report's time plus workingCapMs (30 min, the
-     cap summarydue-nudge.js already puts on a working gap). Only those two: Gemini, Grok and Muse file one automatic working at a
-     turn's START (status.js #5949), so capping theirs would drop hours of real work. (Kosmos does not run Antigravity
-     agents on Windows yet.) Waits
+     cap summarydue-nudge.js already puts on a working gap). Only Claude: other runners can file one automatic working at a turn's
+     START, so capping theirs would drop hours of real work. Antigravity heartbeats like Claude only on a Mac with its
+     hooks installed (not in a git project; not on Windows), which this reader cannot tell apart, so it is not capped:
+     an interrupted Antigravity turn can still count a night as work (a known gap, review 5). Waits
      (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
      takes (only reported work counts): one tool call or a stretch of thinking longer than 30 min with no heartbeat
      between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. */

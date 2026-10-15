@@ -42,3 +42,9 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
   uncapped (grok) member. WARNING: Antigravity on the Mac heartbeats working before every model call
   (engine/agyhooks.js), the same shape as Claude, so it is capped too; Gemini, Grok and Muse still file working only
   at a turn's start and stay uncapped. NIT: a subagent's tool calls most likely heartbeat, so its run is usually counted.
+
+## Review 5 (sonnet), and what changed: Antigravity cap REVERTED
+- Review 4 capped Antigravity because it heartbeats on the Mac. Review 5: only with its hooks installed (never in a
+  git project) and not on Windows, where it files one working per turn; the reader cannot tell these apart, so a cap
+  would cut real hours. Back to Claude only. Known gap, stated in the code: an interrupted Antigravity turn can still
+  count a night as work. Controls: antigravity, gemini, muse and grok each stay stale on the F2 night.
