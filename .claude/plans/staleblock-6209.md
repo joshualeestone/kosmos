@@ -50,7 +50,7 @@ activity log, but no longer red.
 - Helpers moved above the #2808 comment (which describes isAutoPermissionWait again); the check became hidesWait;
   isAutoProviderBlock no longer exported.
 - Known and accepted: read() and the check read the file separately (an append between them can only make one clear
-  early or late; the next turn end settles it). An authentication_failed block is cleared by a turn that ended
+  early or late; the next turn end settles it). (Superseded by review 7: authentication_failed is excluded.) An authentication_failed block is cleared by a turn that ended
   normally too, which is right (the turn succeeded); the sign-in hold rules (#5948) read the screen, not this line.
 
 ## Review 3 (opus), and what changed
@@ -111,3 +111,9 @@ activity log, but no longer red.
 ## Review 8 (sonnet)
 - No logic finding. Stale comments fixed (selfreport.js said the covered wait is shown again; the plan said the
   rate_limit block clears). The excluded kinds match case-insensitively (the kind is the hook's own text), tested.
+
+## Review 9 (opus)
+- Test added: an automatic working over a clearable kind (server_error) is refused, so widening the clear to working
+  fails a test. Refusal sentence says "over another wait" (a usage-limit block under a transient one is covered on
+  purpose). read()'s doc comment is above read() again; the shell guard summary names the exclusion; a review-2 line
+  marked superseded.
