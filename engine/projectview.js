@@ -240,13 +240,16 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
-/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work: the board's decay. Infinity for any other
-   runner (see workExcused). Read lazily from status.js, 5 minutes if it cannot be read. */
+/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work. Infinity for any other runner (see
+   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min), so the two
+   readers of these rows agree; the board's 5-minute decay (status.js) undercounted a long tool call, a long stretch of
+   thinking or a subagent's run, none of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
+   minutes if it cannot be read. */
 function workingCapMs(member) {
   if (!member || member.runner !== 'claude') return Infinity;
-  let decay = 5 * 60 * 1000;
-  try { const d = require('./status').REPORT_WORKING_DECAY_MS; if (Number.isFinite(d) && d > 0) decay = d; } catch { /* the board's 5 minutes */ }
-  return decay;
+  let cap = 30 * 60 * 1000;
+  try { const c = require('./summarydue-nudge').WORK_GAP_CAP_MS; if (Number.isFinite(c) && c > 0) cap = c; } catch { /* 30 minutes */ }
+  return cap;
 }
 
 function workExcused(summary, member, readHistory, nowMs) {
@@ -301,12 +304,13 @@ function workExcused(summary, member, readHistory, nowMs) {
   for (const r of valid) { if (r.at <= wroteAt) { state = r.state; stateAt = r.at; } }
   /* kosmos#5635 F2 (0.7.50 five-family report, Josh 2026-10-15, the Claude seat): its reports went working, idle,
      working within two seconds and then nothing for 18 hours, and that last `working` counted all 18 as work. A Claude
-     member heartbeats `working` on its tool calls, so a working report says nothing past the board's own decay
-     (status.js REPORT_WORKING_DECAY_MS, 5 min: "a claim nobody is standing behind"); for it, a working stretch counts at
-     most to that report's time plus the decay. Only Claude: Antigravity and the Windows per-turn runners file one
+     member heartbeats `working` on its tool calls (once a minute at most), so a working report with nothing after it
+     says little past that; for it, a working stretch counts at most to that report's time plus workingCapMs (30 min, the
+     cap summarydue-nudge.js already puts on a working gap). Only Claude: Antigravity and the Windows per-turn runners file one
      automatic working at a turn's START (status.js #5949), so capping theirs would drop hours of real work. Waits
      (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
-     takes (only reported work counts): a single tool call longer than the decay is counted only to the decay. */
+     takes (only reported work counts): one tool call, a stretch of thinking or a subagent's run longer than 30 min with
+     no heartbeat between is counted only to the cap. */
   const cap = workingCapMs(member);
   const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
   let from = wroteAt;
