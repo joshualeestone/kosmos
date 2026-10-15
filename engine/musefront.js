@@ -192,14 +192,24 @@ function shortOf(text) {
 const TURN_LOG_MAX = 256 * 1024;
 const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
 /* The full text of a spilled message is a file in the agent's own Inbox; its size in bytes (never fewer than its
-   characters) is what tells whether the original was over the board's spill limit, which the shortened line cannot. */
-const SPILL_FILE_RE = /; the full text is in your own folder at ([^)\n]*[\/\\]Inbox[\/\\][^)\n]+)\)/g;
-function spillSizes(t) {
-  return Array.from(String(t).matchAll(SPILL_FILE_RE), (m) => {
-    try { const st = fs.lstatSync(m[1]); return st.isFile() ? st.size : null; } catch { return null; }
-  });
+   characters) is what tells whether the original was over the board's spill limit, which the shortened line cannot.
+   The path comes from the line, which a colleague can write, so it is looked at only when it is exactly a file
+   directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
+const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
+function spills(t, workspace) {
+  const inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
+  const words = [], bytes = [];
+  for (const m of String(t).matchAll(SPILL_ALL_RE)) {
+    words.push(Number(m[1]));
+    let size = null;
+    const p = m[2];
+    if (inbox && path.dirname(p) === inbox && !path.basename(p).includes('..') && path.normalize(p) === p) {
+      try { const st = fs.lstatSync(p); size = st.isFile() ? st.size : null; } catch { size = null; }
+    }
+    bytes.push(size);
+  }
+  return { words, bytes };
 }
-const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 /* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
    reminders ("Kosmos here:" with a colon; today's producers put no words of the person's in their first 60 units, though
@@ -209,19 +219,19 @@ function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-t
 const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
 function clipOpening(text) { const one = String(text).replace(/\s+/g, ' '); return one.length > 60 ? one.slice(0, 57) + '...' : one; }
 const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
-function turnRecord(text, at, arrived = null) {
+function turnRecord(text, at, arrived = null, workspace = null) {
   const t = String(text);
   const kind = kindOf(t);
   const sent = SENT_RE.exec(t);
-  // Every spill in the line (a busy digest can hold several); null when none.
-  const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
+  // Every spill in the line (a busy digest can hold several), words and saved size from one match; null when none.
+  const sp = spills(t, workspace);
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
   // tz: this front's offset from UTC in minutes at `at` (the board's clock stamps Sent; they share a machine, and
   // differ only if the two processes run with different TZ settings), so a Sent stamp (local wall-clock time) lines up with at /
   // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
-  const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
-    spillBytes: spills.length ? spillSizes(t) : null,
+  const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: sp.words.length ? sp.words : null,
+    spillBytes: sp.words.length ? sp.bytes : null,
     digestPosts: digest ? Number(digest[1]) : null };
   /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
      (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
@@ -278,7 +288,7 @@ function logTurn(workspace, text, at, arrived = null) {
       const f = fs.fstatSync(fd);
       if (f.isFile() && f.nlink === 1) {
         if (cut) fs.ftruncateSync(fd, 0);
-        fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n');
+        fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived, workspace)) + '\n');
       }
     } finally { fs.closeSync(fd); }
   } catch { /* the turn runs whatever the log does */ }
