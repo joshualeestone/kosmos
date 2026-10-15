@@ -2070,7 +2070,10 @@ test('#6201 review 11: after the service says 429 no new wave starts, and what w
   const r = await cr.readReplies('Lim6201', { now: NOW });
   // The first wave goes out together (REPLY_PAGES_AT_ONCE here); after its 429s no further wave starts.
   assert.equal(asked, cr.REPLY_PAGES_AT_ONCE, 'pages were still asked after the service said 429: ' + asked);
-  assert.match(r.text, /: 400 replies were (?:not reached in this read|past what a read reaches)/, r.text.slice(-300));
+  // Review 16: a 429 passes, so what it left (the failed pages and the ones still waiting) holds the mark and is promised
+  // a re-read, not told that reading again will not help.
+  assert.match(r.text, /: 400 replies were not reached in this read; they will be looked at again next time/, r.text.slice(-300));
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('Lim6201'), 'utf8')).posts[RP(9)].held, 1, 'a 429 did not hold the mark');
 });
 
 test('#6201 review 13: an older-comments page that fails says the older comments and holds the mark; a bad cursor on a page with rows is said', async () => {
@@ -2107,4 +2110,23 @@ test('#6201 review 14: a post with both a failed page and a budget-cut thread sa
   const r = await cr.readReplies('Mix6201', { now: NOW, round2Ms: 25 });   // one wave: the others' next pages are left waiting
   assert.match(r.text, /were past what a read reaches, so new ones among them may be missed/, r.text.slice(-300));
   assert.ok(!/will be looked at again/.test(r.text), 'budget-cut threads were promised a re-read');
+});
+
+test('#6201 review 16: a bystander post whose next page a 429 stopped holds its mark and is promised a re-read', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'By6201', remoteId: RP(1), sentAt: '2026-09-30T11:00:00Z' },
+    b: { state: 'sent', agent: 'By6201', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const a = comment({ id: D6201(9950), created_at: T(1), reply_count: 5, replies_cursor: 'a0', replies: [] });
+  const b = comment({ id: D6201(9960), created_at: T(1), reply_count: 40, replies_cursor: 'b0', replies: [] });
+  serve({
+    ['/posts/' + RP(1) + '/comments']: () => ({ status: 200, json: { comments: [a] } }),
+    ['/posts/' + RP(1) + '/comments/' + D6201(9950) + '/replies']: () => ({ status: 429, json: null }),
+    ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [b] } }),
+    ['/posts/' + RP(2) + '/comments/' + D6201(9960) + '/replies']: (u) => ({ status: 200, json: { next_cursor: u.searchParams.get('cursor') === 'b0' ? 'b1' : null,
+      replies: Array.from({ length: 20 }, (_, k) => comment({ id: D6201(9970 + k + (u.searchParams.get('cursor') === 'b0' ? 0 : 20)), parent_id: D6201(9960), created_at: T(2) })) } }),
+  });
+  const r = await cr.readReplies('By6201', { now: NOW });
+  const line = (r.text.split('\n').find((l) => l.startsWith('(on your post ' + RP(2) + ':')) || '');
+  assert.match(line, /: 20 replies were not reached in this read; they will be looked at again next time/, 'the bystander: ' + line);
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('By6201'), 'utf8')).posts[RP(2)].held, 1, 'the bystander post did not hold its mark');
 });
