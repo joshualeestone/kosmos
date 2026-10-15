@@ -22790,9 +22790,10 @@ let ORG_TICKET = null;
 /** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
 const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
-    daily: a removed member's board kept applying the company's policy for up to a day. A board doing work learns sooner
-    still (its next rollup is refused org_not_member, and engine/orgrollup.js refreshes at once); this bounds an idle
-    one. A board in no company sends nothing (orgEnrollRefresh returns first). The coordinator's status answer carries
+    daily: a removed member's board kept applying the company's policy for up to a day. For almost every board this is
+    the bound: a rollup (refused org_not_member, after which engine/orgrollup.js refreshes at once) goes out early only
+    when its agents or projects change, not for ordinary work. A board in no company sends nothing (orgEnrollRefresh
+    returns first). The coordinator's status answer carries
     the signed policy (up to about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs
     POLICY_TTL_SECS), so not more often than this without a cheaper route. */
 const ORG_REFRESH_MS = 60 * 60 * 1000;
@@ -22934,12 +22935,12 @@ function start(port = PORT) {
   /* #5359: read when this board was last alive BEFORE it says it is alive now, so a restart of the computer under a
      running Kosmos is noticed; then say so once a minute. Best effort: a courtesy, never a reason not to start. */
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
-  /* #5531: an enrolled work Kosmos asks its company on start and daily whether it is still the enrolled world, and
+  /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
   orgEnrollRefresh();
   setInterval(orgEnrollRefresh, ORG_REFRESH_MS).unref();
-  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the daily pass.
-  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the daily pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
+  // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
+  setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();

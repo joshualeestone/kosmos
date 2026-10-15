@@ -45,7 +45,7 @@ const SETTLE_AFTER_MS = 2 * 60 * 1000;
 const JOIN_UNKNOWN_FILE = 'org-join-unknown.json';   // { at, consentHash, move }: a join whose outcome is not known yet (review 25)
 const LEAVE_REFUSED_FILE = 'org-leave-refused.json';   // { at, name }: a retried leave was refused as the last admin (the screen says so once)
 const STOPPED_FILE = 'org-stopped.json';   // { at, name }: the company stopped naming this world (the screen says so once)
-const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and daily
+const LEAVE_PENDING_FILE = 'org-leave-pending';   // a leave the company has not confirmed yet; retried on start and hourly
 const NAME_MAX = 120;      // a company name or slug, as the page shows it
 const LINE_MAX = 300;      // one consent line
 const LINES_MAX = 12;      // lines in one consent list
@@ -142,7 +142,7 @@ function readWorldId(opts) {
   try { const have = fs.readFileSync(path.join(storeRoot(opts), WORLD_ID_FILE), 'utf8').trim(); return WORLD_ID.test(have) ? have : null; } catch { return null; }
 }
 /* "Is this the work Kosmos": true only for the world whose own record names its own id. NOT the sender gate (that is
-   mayReport, below, which also needs the consent recorded here). As fresh as the last refresh (daily), so the
+   mayReport, below, which also needs the consent recorded here). As fresh as the last refresh (hourly, #6232), so the
    coordinator must also refuse a report from a world it no longer names (E0.3, E0.6). */
 function isEnrolledHere(opts) {
   const rec = readEnrollment(opts);
@@ -246,7 +246,7 @@ function cleanConsent(c) {
   return (out.reports.length || out.backsUp.length) && out.readers.length ? out : null;
 }
 /* #5532: what the person accepted, kept BY ITS HASH in its own file, so every path that carries the hash (a lost answer
-   settled later, an undo refused and rebuilt, the daily refresh) finds the same words without carrying them. The
+   settled later, an undo refused and rebuilt, the hourly refresh) finds the same words without carrying them. The
    rollup sends only report lines found here for the hash on the enrollment record; no file, or another hash, sends
    nothing. Written before the enroll is sent, from the words the screen showed (the server's ticket). */
 const CONSENT_FILE = 'org-consent.json';
@@ -437,7 +437,7 @@ async function reviewHere(opts) {
   return { ok: true, move: true, review: true, org, role, consent, served, salt: servedSalt(d) };
 }
 
-/* enroll, leave and refresh read and write the same record: one at a time, so the daily pass can never act on a
+/* enroll, leave and refresh read and write the same record: one at a time, so the hourly pass can never act on a
    record a leave has just cleared and is about to restore (or the reverse). */
 let queue = Promise.resolve();
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
@@ -628,7 +628,7 @@ function pendingUndo(opts) {
   try { return JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8')).undo === true; } catch { return false; }
 }
 /* A join that got no answer, and a status that could not say: the company may hold this world while nothing here
-   follows it up. This marker makes the next start or daily pass ask once more (#5531 review 25). */
+   follows it up. This marker makes the next start or hourly pass ask once more (#5531 review 25). */
 function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
@@ -678,7 +678,7 @@ function leavePending(opts) { return fs.existsSync(path.join(storeRoot(opts), LE
    - The company refused for good while you are still in it (org_last_admin): the record comes back, and the page
      keeps showing you joined, because you are.
    - Already not a member (org_not_member): left.
-   - No answer: a pending leave is kept, and the next start or daily pass sends it again. */
+   - No answer: a pending leave is kept, and the next start or hourly pass sends it again. */
 async function leave(opts) { return oneAtATime(() => leaveNow(opts)); }
 
 /* A join whose outcome was unknown (review 25): ask once. Bound here: the person accepted, so it is recorded with the
@@ -764,7 +764,7 @@ async function leaveNow(opts, retry) {
      it. A world the company already stopped naming, or a stale record naming another world, clears locally and sends
      NOTHING: the membership may now be another world's or another computer's, and must not be ended from here. */
   if (!isEnrolledHere(opts) && !leavePending(opts)) {
-    /* The id goes too, as on every other ending: kept, the next daily pass could find the company naming this world and
+    /* The id goes too, as on every other ending: kept, the next hourly pass could find the company naming this world and
        quietly take the enrollment back with no consent shown here (#5531 review 18). */
     clearEnrollment(opts); setStopped(null, opts); retireWorldId(opts);
     return { ok: true, localOnly: true };
@@ -939,7 +939,7 @@ function takePolicy(d, opts, orgId) {
    the company has saved none). It is written where engine/orgpolicy.js reads it and applied there, which verifies it
    AGAIN against the pinned coordinator key and refuses a forged, tampered, expired or older one, keeping the last good
    one in force. { version, refused } or null when the answer carried no policy. Never throws: a policy that cannot be
-   saved or applied leaves the enrollment as it is, and the next refresh (on start and daily) tries again. */
+   saved or applied leaves the enrollment as it is, and the next refresh (on start and hourly) tries again. */
 function applyPolicy(token, opts, orgId) {
   if (typeof token !== 'string' || !token) return null;
   if (token.length > 64 * 1024) return { version: null, refused: 'the policy is larger than this Kosmos accepts' };
