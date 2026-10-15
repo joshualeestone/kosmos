@@ -6,18 +6,16 @@ The Claude seat's summary read "behind" after a quiet night. Board record: summa
 after any busy report as work until the next report, so the trailing `working` counted ~18 h.
 
 ## Call
-In workExcused, for a Claude member only, a `working` stretch counts at most to that report's time plus the board's decay
-(status.js REPORT_WORKING_DECAY_MS, 5 min, read lazily; the board already calls an older working "a claim nobody is
-standing behind"). A Claude turn heartbeats working once a minute while it runs tools (install/kosmos-report-hook.sh
-throttle), and selfreport.history returns every row, so a live turn always has a row inside the decay.
+In workExcused, for a Claude member only, a `working` stretch counts at most to that report's time plus 30 min
+(summarydue-nudge.js WORK_GAP_CAP_MS, read lazily: the cap the nudge already puts on a working gap, so the two readers of
+these rows agree). A Claude turn heartbeats working once a minute while it runs tools (install/kosmos-report-hook.sh), and
+selfreport.history returns every row. Review 2 moved the cap from the board's 5-min decay to 30 min: 5 undercounted a long
+tool call, thinking, or a subagent run, none of which heartbeats, toward current (the wrong direction for this function).
 Not capped: other runners (Antigravity and the Windows per-turn runners file one automatic working at a turn's START,
-status.js #5949: capping would drop hours of real work); waits (needs_you, blocked: long by nature); the stretch before
-any report is known (unchanged, counts as before).
-Known cost, in the direction Josh's 0.7.48 rule already takes (only reported work counts): one tool call, or thinking
-with no tool, longer than the decay counts only to the decay.
-Rejected: changing idleExcused/idleNoted (first attempt; review 1 found the board reads such a Claude member UNKNOWN, not
-idle, so it never fired for the real case, and it was the wrong rule: workExcused is the one that counted the 18 h).
-Weakest premise: the heartbeat interval (60 s) staying well under the decay (5 min).
+status.js #5949); waits (needs_you, blocked); the stretch before any report is known (as before).
+Known cost: a stretch of over 30 min with no tool call counts 30. The 18 h case counts under an hour: current.
+Rejected: the idleExcused/idleNoted change (first attempt; never fired, the board reads such a member unknown).
+Weakest premise: no real Claude work goes 30 min without a tool call or a turn end.
 
 ## Evidence
 - engine/projectview.test.js 38/38. New test: the F2 timeline (a heartbeat before the summary, then working, idle,
@@ -30,3 +28,7 @@ Weakest premise: the heartbeat interval (60 s) staying well under the decay (5 m
 ## Review
 - Round 1 (Opus, on the first attempt in idleExcused): BLOCKER, the fix never fired (member reads unknown); WARNING, a
   turn-start working would excuse hours. Both answered by moving the rule to workExcused, Claude only.
+- Round 2 (Opus): no blocker. W1: the operator-clear assertion became vacuous under the heartbeat fixture; the filter is
+  re-pinned on grok (mutant: filter removed, that test red). W2/NIT: the 5-min cap undercounted toward current and
+  disagreed with summarydue-nudge's 30-min gap cap; now the same 30 min. Mutants: no cap -> F2 test red; no operator
+  filter -> the grok clear test red. 38/38.

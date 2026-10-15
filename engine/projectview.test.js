@@ -667,6 +667,10 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // The agent keeps heartbeating working through the clear (it never stopped), as a real Claude turn does (#5635 F2 0.7.50).
   const cleared = () => { const a = [...beats(400, 0).map(([state, m]) => ({ state, at: at(m) })), { state: 'idle', at: at(325), by: 'operator' }].sort((x, y) => x.at - y.at); a.truncated = false; return a; };
   assert.equal(v.workExcused(stale(331), idleNow, cleared, NOW).state, 'stale', 'an operator clear read as the agent stopping');
+  // Review 2 (#5635 F2 0.7.50): the heartbeats above make that stale with or without the operator filter, so the filter is
+  // pinned here on a runner whose working is not capped (grok): working from 400 to now, cleared by a person at 325.
+  const clearedOnly = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
+  assert.equal(v.workExcused(stale(331), Object.assign({}, idleNow, { runner: 'grok' }), clearedOnly, NOW).state, 'stale', 'an operator clear read as the agent stopping (grok)');
   assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['idle', 325]]), NOW).state, 'worked', 'CONTROL: the agent\'s own idle');
   // CONTROL: more than four hours of work since: stale. 331 min, idle for only 60 of them.
   assert.equal(v.workExcused(stale(331), claude, hist([...beats(400, 200), ['idle', 200], ...beats(140, 0)]), NOW).state, 'stale');
@@ -793,7 +797,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 
-test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after it counts only the board decay, not 18 hours', () => {
+test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after it counts at most 30 minutes, not 18 hours', () => {
   const at = (minAgo) => NOW - minAgo * 60000;
   const hist = (rows) => () => rows.map(([state, minAgo]) => ({ state, at: at(minAgo) }));
   const raw = { id: 'f2', name: 'F2', folder: '/p/f2', agents: ['mark'], tasks: [] };
@@ -807,7 +811,7 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   const rows = [['working', wrote + 1], ['working', last + 0.3], ['idle', last + 0.02], ['working', last]];
   const r = v.workExcused(summary, claude, hist(rows), NOW);
   assert.equal(r.state, 'worked', 'the idle night still counted as work: ' + JSON.stringify(r));
-  assert.ok(r.workMinutes <= 2 * 5 + 1, 'more than two decays of work counted: ' + r.workMinutes);
+  assert.ok(r.workMinutes <= 2 * 30 + 1, 'more than two 30-minute caps of work counted: ' + r.workMinutes);
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
   assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
