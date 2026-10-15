@@ -34,6 +34,14 @@ familykind-6239 (org kind, a family's words, a family joins only with wordsShown
   "Nothing was joined" over a join that went through); a join clears the message line and puts focus on the joined
   view's sentence. One sentence for org_family_words_unseen on the route and the engine.
 
+## Round 3 (opus) fixes
+- The panel shows every part of the words the parent accepts: the backup lines too (or the family's own "Nothing is
+  backed up."), with empty headings hidden. Before this, Accept said the words were shown while backup lines were not.
+- Any refusal with a code (which spends the ticket) closes the words; org_bad_world (which keeps it) does not.
+- Another code typed over the words closes them; the panel's label is short ("The family's words").
+- Decided, not changed: the never line shows the family's own list (the coordinator always sends "keys and
+  passwords"); with none, nothing is invented.
+
 ## Not done here
 - What `wordsShown` proves: the screen's request says the words were shown, as strong as isViaScreen (no agent token,
   a same-origin header), the same as #5791's ticket. A local process that leaves its token off could claim it. And it

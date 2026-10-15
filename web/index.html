@@ -19524,10 +19524,12 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <!-- kosmos#6239 (Josh 10-15 10:42): a FAMILY account's words are read and accepted here before this computer
                joins; a company joins with none (#5791). Filled from the family's own words (the coordinator's). -->
-          <div id="plus-org-family" role="group" aria-labelledby="plus-org-family-lead" hidden>
+          <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
             <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
-            <p class="fhint">What the family will see from this computer:</p>
+            <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
             <ul class="fhint" id="plus-org-family-reports"></ul>
+            <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
+            <ul class="fhint" id="plus-org-family-backsup"></ul>
             <p class="fhint" id="plus-org-family-readers-head">Who can see it:</p>
             <ul class="fhint" id="plus-org-family-readers"></ul>
             <p class="fhint" id="plus-org-family-never"></p>
@@ -50887,6 +50889,12 @@ function plusOrgFamilyShow(code, p) {
   const lead = p.org && p.org.name ? p.org.name + ' is a family account.' : 'This is a family account.';
   document.getElementById('plus-org-family-lead').textContent = lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
   fill('plus-org-family-reports', c.reports);
+  /* Round 3: every part of the words the parent accepts is shown (the hash covers them all), backups included, or the
+     family's own "nothing" when it says it backs up nothing. */
+  const backs = Array.isArray(c.backsUp) ? c.backsUp : [];
+  fill('plus-org-family-backsup', backs.length ? backs : (c.backsUpNone === true ? ['Nothing is backed up.'] : []));
+  document.getElementById('plus-org-family-backsup-head').hidden = !(backs.length || c.backsUpNone === true);
+  document.getElementById('plus-org-family-reports-head').hidden = !(Array.isArray(c.reports) && c.reports.length);
   fill('plus-org-family-readers', c.readers);
   document.getElementById('plus-org-family-readers-head').hidden = !(Array.isArray(c.readers) && c.readers.length);
   const never = Array.isArray(c.never) && c.never.length ? 'Never sent: ' + c.never.join(', ') + '.' : '';
@@ -50912,8 +50920,9 @@ async function plusOrgFamilyAccept() {
     if (!r.ok) {
       msg.textContent = r.because || 'Connecting did not go through.';
       if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
-      // Round 1: a ticket that ran out cannot be accepted again: Connect fetches the words afresh.
-      if (r.code === 'org_ticket') { plusOrgFamilyHide(); document.getElementById('plus-org-check').focus(); }
+      /* Round 1 and 3: a refusal with a code spends the ticket (the route keeps it only for none, or org_bad_world), so
+         these words cannot be accepted again: Connect fetches them afresh. */
+      if (r.code && r.code !== 'org_bad_world') { plusOrgFamilyHide(); document.getElementById('plus-org-check').focus(); }
       return;
     }
     plusOrgFamilyHide();
@@ -50937,6 +50946,8 @@ function plusOrgFamilyNotNow() {
   document.getElementById('plus-org-code').focus();
 }
 document.getElementById('plus-org-family-no').addEventListener('click', plusOrgFamilyNotNow);
+// Round 3: another code typed over the words closes them (Accept would join the code they came from).
+document.getElementById('plus-org-code').addEventListener('input', () => { if (PLUS_ORG_FAMILY && !PLUS_ORG.busy) plusOrgFamilyHide(); });
 document.getElementById('plus-org-family').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); plusOrgFamilyNotNow(); } });
 function plusOrgCancel() {
   PLUS_ORG.open = false;
