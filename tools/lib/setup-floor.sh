@@ -8,8 +8,13 @@
 # the lock (the marker, below). There is no override: serving such an installer breaks installs, so the fix is a
 # newer build, never a flag.
 #
-# Usage: source this file, then `kosmos_setup_floor_ok <label> <version>` (exit 0 = at or above the floor; 1 = refused,
-# with the reason on stderr). A version that is not plain numbers and dots is refused: the floor cannot be checked.
+# Usage: source this file, then call one check; each returns 0 (passes) or 1 (refused, the reason on stderr):
+#   kosmos_setup_floor_ok <label> <version>              a version at or above the floor (publish-staging-pointer.sh)
+#   kosmos_setup_floor_pointer_ok <label> <json>          a pointer (promote-channel.sh, deploy-site.sh's early check)
+#   kosmos_setup_floor_installer_ok <label> <file>        an installer (promote-channel.sh, release.sh step 1a and 2b)
+#   kosmos_setup_floor_tree_ok <who> <dir>                a site tree's pointers and installers (the exports)
+#   kosmos_setup_floor_site_untouched_ok <who> <site> <channel>   the pair a cut re-publishes untouched (release.sh)
+# A version that is not plain numbers and dots is refused: the floor cannot be checked.
 KOSMOS_SETUP_FLOOR_REAL="0.7.45"
 # Tests whose fixtures predate the floor (0.6.x builds) lower it, and only with BOTH KOSMOS_SETUP_FLOOR_TEST=1 and a
 # plain-number KOSMOS_SETUP_FLOOR_LOWER; anything else (one of them alone, a non-numeric value) leaves the real floor.
