@@ -953,10 +953,11 @@ DEPLOYED=0
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
-# kosmos#6149: the installer this cut publishes is the FROZEN tree's (step 1a-floor checked the checkout's, which a
-# pinned or behind-main cut does not ship): check it here, after the freeze and before the build and the site push.
-# Step 2's version-bump push comes BEFORE this (the freeze follows it): for an unpinned cut step 1a already checked the
-# checkout's copy before that push; for a pinned one the bump can be on origin when this refuses (a stated limit).
+# kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
+# shared checkout can be fast-forwarded between step 1 and the sha capture (see above), so check it here too, after
+# the freeze and before the build and the site push.
+# Step 2's version-bump push comes BEFORE this (the freeze follows it): a refusal here, after a fast-forward brought
+# in an installer without the marker, leaves the bump on origin (a stated limit).
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
@@ -1676,8 +1677,8 @@ _site_export="$BUILD_ROOT/site-export"
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
 # kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
 # staging cut does not touch: none of them may be older than the setup floor.
-# (setup-floor.sh was loaded at step 1a-floor; REPO is the frozen tree now, so it is NOT sourced again: a pinned cut
-# whose frozen sha predates the library would otherwise fail here, after the build and the push.)
+# (setup-floor.sh was loaded at step 1a-floor and is not sourced again: its functions are already defined, and REPO
+# is the frozen tree now.)
 kosmos_setup_floor_tree_ok "the release's site export" "$_site_export" || { echo "nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.

@@ -35,14 +35,13 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
   - release.sh refuses the test knob outright (no test drives a cut with it), and at step 1a also checks the cut's
     own install/setup.sh (the checkout's), then, right after the freeze (step 2b), the FROZEN install/setup.sh it
-    actually publishes (a pinned or behind-main cut ships the frozen one): both before anything is built (the frozen
-    one after step 2's bump push, see Known limits).
+    actually publishes (the shared checkout can be fast-forwarded between step 1 and the freeze): both before
+    anything is built (the frozen one after step 2's bump push, see Known limits).
     release.sh checks the version the cut names ONLY under KOSMOS_ALLOW_VERSION_JUMP: otherwise #4075's forward-only
     rule refuses a cut older than the checkout's package.json, which is past 0.7.45 in any checkout carrying this
     step. An unconditional check reddened 17 tests of tools.release-gate.test.js (its fixtures cut 0.6.x on purpose)
     in the Mortals validation of 97ec10391.
-    The library is loaded once, at step 1a; after the freeze REPO is the frozen tree, which a pinned cut's older sha
-    may not hold, so it is never sourced from there.
+    The library is loaded once, at step 1a, and never re-sourced from the frozen tree (its functions are defined).
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
   only the staging-pointer arm of the test is specific to it.
 - NOT covered, and said so in docs/staging-channel.md: a rollback done in Vercel itself (Instant Rollback,
@@ -78,7 +77,9 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 28), stated rather than closed
+## Known limits (reviews 9 to 30), stated rather than closed
+- The site repo's own vercel-prod-deploy gate hook accepts any site_deploy_export output, so a hand export followed by
+  a hand vercel deploy passes it without the floor (the hand-deploy class; DEPLOY.md and the README show the way).
 - site-autodeploy.sh's KOSMOS_AUTODEPLOY_DEPLOY test seam runs a given command instead of deploy-site.sh, so no floor
   check runs under it (pre-existing; test-site-autodeploy-5589.sh uses it). Never set it on a real autodeploy.
 - The tree checks read the committed setup, setup-staging and dist/latest*.json; they do not read vercel.json. A
@@ -87,9 +88,10 @@ deploy, promote or cut that is valid today is refused by this change.
 - Without the version-jump override, release.sh relies on #4075 to keep a cut's own version above the floor, which
   assumes the checkout's package.json is past 0.7.45. Only a hand revert breaks that; such a cut would push its site
   commit (step 7b) before the export check refused it. Nothing is served.
-- release.sh's frozen-installer check runs after step 2's version-bump push (the freeze follows the bump). An
-  unpinned cut's step 1a already checked the same install/setup.sh before that push; a PINNED cut whose frozen
-  installer cannot lift the lock refuses with its bump already on origin. Nothing is built or served.
+- release.sh's frozen-installer check runs after step 2's version-bump push (the freeze follows the bump). Step 1a
+  checked the checkout's install/setup.sh before that push; only a fast-forward between step 1 and the freeze that
+  brought in an installer without the marker refuses here, with the bump already on origin. Nothing is built or
+  served. (A pinned cut resets the checkout first, so step 1a already reads the pinned tree's installer.)
 - A checkout that predates this change has no floor at all: site-autodeploy runs that checkout's own
   tools/deploy-site.sh. Every checkout that pulls main after the merge has it; until then the hand check stands.
 - release.sh pushes its site commit (step 7b) BEFORE its export check: if the fresh-main rebase pulled in a pointer

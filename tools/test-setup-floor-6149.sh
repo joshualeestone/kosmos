@@ -59,6 +59,10 @@ kosmos_setup_floor_pointer_ok t "$dupv" 2>/dev/null && bad "a doubled version ke
 kosmos_setup_floor_pointer_ok t "$dupa" 2>/dev/null && bad "a doubled artifact key alone passed" || pass "a doubled artifact key alone is refused"
 esc1='{"version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","\u0061rtifact":"kosmos-0.6.1-arm64.tar.gz","sha256":"bb"}'
 esc2='{"version":"0.7.49","\u0076ersion":"0.6.1","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
+nl1="$(printf '{"version":"0.7.49","sha256":"bb","artifact":"kosmos-0.7.49-arm64.tar.gz",\n"version"\n:"0.6.1","artifact"\n:"kosmos-0.6.1-arm64.tar.gz"}')"
+kosmos_setup_floor_pointer_ok t "$nl1" 2>/dev/null && bad "a doubled key with its colon on the next line passed" || pass "a doubled key with its colon on the next line is refused (a JSON parser reads it)"
+nl2="$(printf '{"version":"0.7.49",\n"sha256":"bb",\n"artifact":"kosmos-0.7.49-arm64.tar.gz"}')"
+kosmos_setup_floor_pointer_ok t "$nl2" 2>/dev/null && pass "CONTROL: a pretty-printed pointer with one key each passes" || bad "a multi-line pointer with one key each was refused"
 kosmos_setup_floor_pointer_ok t "$esc1" 2>/dev/null && bad "an escaped doubled artifact key passed" || pass "an escaped (hidden) second artifact key is refused"
 kosmos_setup_floor_pointer_ok t "$esc2" 2>/dev/null && bad "an escaped doubled version key passed" || pass "an escaped (hidden) second version key is refused"
 for art in kosmos-arm64.tar.gz kosmos-0.7.49.tar.gz kosmos-0.7.49-.tar.gz not-a-build.zip; do
