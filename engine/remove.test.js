@@ -3252,3 +3252,40 @@ test('#6173 Liu Kang m5486: an agent that stops while queued in a move is not st
     disruption.clear(name);
   }
 });
+
+test('#6173 Liu Kang m5496: an async restart whose command never answers is given up at its cap, sends nothing after, and is not held', async () => {
+  const name = madeAgent('neveranswers');
+  boardShows(name, name);
+  const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
+  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '300';
+  const answer = scriptedLaunchd();
+  const calls = [];
+  let lateAnswer;
+  remove.setRunner(scriptedLaunchd());
+  remove.setAsyncRunner((file, args) => {
+    calls.push(args[0]);
+    if (args[0] === 'bootout') return new Promise((r) => { lateAnswer = () => r(answer(file, args)); });   // stuck
+    return Promise.resolve(answer(file, args));
+  });
+  try {
+    await withWaits(async () => {
+      const t0 = Date.now();
+      const out = await mac.restartAsync(name, 'account');
+      assert.ok(Date.now() - t0 < 2000, 'the cap did not end the restart');
+      assert.equal(out.outcome, remove.OUTCOME.PARTIAL, 'a restart given up on was not said as partial');
+      assert.match(out.because, /did not finish within 0 seconds, so we stopped waiting for it/);
+      assert.equal(remove.heldByMove(name), false, 'the agent stayed held after its restart was given up');
+      assert.equal(disruption.read(name).failed, true, 'the card was not told the restart did not come back');
+      const before = calls.length;
+      lateAnswer();   // the stuck bootout answers after all
+      await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(calls.slice(before), [], 'a restart given up on went on to send commands (a bootstrap after its release)');
+    });
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS; else process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = was;
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});

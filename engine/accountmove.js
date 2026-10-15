@@ -23,6 +23,13 @@ const crypto = require('node:crypto');
 const MAX_NAMES = 200;
 const KEEP_MS = 10 * 60 * 1000;   // a finished move stays readable this long, then is forgotten
 const KEEP_MAX = 20;
+/* Liu Kang m5496: a move holds updates, board restarts and the Kosmos switch, so it must END. Two bounds:
+   - each agent: remove.restartAsync caps itself at 180 s; AGENT_CAP_MS is a backstop above it, for a restart whose
+     promise never settles at all, so one agent can never hold the move longer than this.
+   - the whole move: after MOVE_CAP_MS no further agent is started; the ones not reached are said as not restarted.
+   So a move ends within MOVE_CAP_MS + AGENT_CAP_MS (63.5 minutes), and releases every hold when it does. */
+const AGENT_CAP_MS = 210 * 1000;
+const MOVE_CAP_MS = 60 * 60 * 1000;
 const BUSY = 'Another account move is still running. Try again when it has finished.';
 /* #6173 review 2: what a board restart (a Kosmos switch, the restart button, an update) says while a move runs. A board
    that restarts between an agent's bootout and its bootstrap leaves that agent unloaded (the #3418 class). */
@@ -152,13 +159,22 @@ function start(body, deps) {
     return { status: 202, body: view(m), done: Promise.resolve() };
   }
   running = m.id;
+  const agentCap = Number.isFinite(deps.agentCapMs) ? deps.agentCapMs : AGENT_CAP_MS;   // tests shorten these
+  const moveCap = Number.isFinite(deps.moveCapMs) ? deps.moveCapMs : MOVE_CAP_MS;
   const done = (async () => {
     try {
       for (const a of pending) {
+        if (Date.now() - m.startedAt >= moveCap) break;   // the rest are said below as not reached
         try {
           let back;
-          try { back = await deps.restartAsync(a.name, 'account'); }
+          let timer = null;
+          const late = new Promise((resolve) => {
+            timer = setTimeout(() => resolve({ outcome: 'partial', steps: [],
+              because: `its restart did not answer within ${Math.round(agentCap / 1000)} seconds.` }), agentCap);
+          });
+          try { back = await Promise.race([Promise.resolve().then(() => deps.restartAsync(a.name, 'account')), late]); }
           catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+          finally { clearTimeout(timer); }
           let said;
           /* A sentence that cannot be worded ends this agent as not confirmed and moves on to the next one. */
           try { said = sentence(a.name, a.wrote, back, deps.RESTARTED); }
@@ -168,11 +184,12 @@ function start(body, deps) {
       }
     } finally {
       for (const a of pending) deps.release(a.name);
-      /* Only an unexpected throw leaves one pending here: say so rather than leave it reading as still going. */
+      /* The move's time cap, or an unexpected throw, leaves one pending here: say so rather than leave it reading as
+         still going. */
       for (const a of pending) {
         if (a.outcome !== 'pending') continue;
         let said;
-        try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move stopped before it reached this agent.' }, deps.RESTARTED); }
+        try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move ended (it ran out of time, or failed) before it reached this agent.' }, deps.RESTARTED); }
         catch { said = { outcome: 'partial', because: 'The move stopped before it reached this agent.' }; }
         a.outcome = said.outcome; a.because = said.because;
       }
