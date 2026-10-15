@@ -179,7 +179,8 @@ function shortOf(text) {
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
    where git ignores it: it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
-   one exists that does not name them (someone else's file is not edited). A hard link at the file is refused after the open
+   one exists that does not name both (someone else's file is not edited). A busy digest's opening comes from its first
+   post (the text after its header), not from the header. A hard link at the file is refused after the open
    (a link count above one); a swap between the checks and the open is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
@@ -214,7 +215,9 @@ function turnLogIgnored(dir) {
     try { fs.writeFileSync(ig, TURN_LOG_IGNORE, { flag: 'wx', mode: 0o600 }); return true; } catch { return false; }
   }
   if (!st.isFile()) return false;
-  try { return fs.readFileSync(ig, 'utf8').split(/\r?\n/).includes('muse-turns.log'); } catch { return false; }
+  // Exact lines, not a git check: both names must be listed (the .1 copy is the same text), so "/muse-turns.log" or
+  // "*.log" reads as not ignored and nothing is written (fail closed).
+  try { const lines = fs.readFileSync(ig, 'utf8').split(/\r?\n/); return lines.includes('muse-turns.log') && lines.includes('muse-turns.log.1'); } catch { return false; }
 }
 function logTurn(workspace, text, at, arrived = null) {
   try {
@@ -224,7 +227,7 @@ function logTurn(workspace, text, at, arrived = null) {
     try { if (fs.lstatSync(dir).isSymbolicLink()) return; } catch { fs.mkdirSync(dir, { recursive: true }); }
     let st = null;
     try { st = fs.lstatSync(file); } catch { st = null; }
-    if (st && !st.isFile()) return;
+    if (st && (!st.isFile() || st.nlink !== 1)) return;   // a hard link is refused before rotation could touch it
     if (!turnLogIgnored(dir)) return;   // never into a file git would carry out of the person's repository
     if (st && st.size > TURN_LOG_MAX) {
       // The bound: about twice TURN_LOG_MAX in all. A rename that fails (a folder at .1) must not end the logging.

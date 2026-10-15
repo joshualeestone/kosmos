@@ -69,3 +69,10 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   temp): the open is now refused for a link count above one (tested). 66/66; both new guards mutation-checked.
 - NITs noted, not taken: the fifo/link tests reach the lstat guard, not the open flags (the flags only matter in the
   swap window, stated as unguarded); a colleague quoting a stamped reminder logs a `sent` (kind and opening tell it).
+
+## Review 6 (sonnet), and what changed
+- No BLOCKER. WARNING: an existing .gitignore naming only muse-turns.log let rotation move the text into an unignored
+  .1: both names are now required (tested). WARNING: the cut-on-blocked-rotation ran before the link-count check, so
+  a hard link could have its other name emptied: the link count is checked at the lstat, before any rotation (tested).
+  WARNINGs (comment): the ignore check is exact-line, not git (fail closed for /x or *.log); a digest's opening is its
+  first post.
