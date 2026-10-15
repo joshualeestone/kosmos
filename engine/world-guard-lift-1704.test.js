@@ -108,8 +108,21 @@ function macWorld() {
 }
 
 /** A Task Scheduler that answers every act with success and records it. */
+// #6183: the win32 RESTART routes its commands through remove.js's run() (the step generators), so a taskkill
+// from a restart lands on remove.setRunner (below) while a taskkill from the SYNC remove/restore path lands on
+// win32stop.setRunner (windowsSessionsLive). Both push into this one array so `killed` captures either source.
+let win32Killed = [];
 function winWorld({ taskExists = true, onRun = null, onCreate = null } = {}) {
   const calls = [];
+  /* #6183: the win32 restart's schtasks (/End, /Run via the step generators) and its session-close taskkill now
+     go through remove.js's run(), not win32job's/win32stop's own runners. Record them here so the restart's
+     commands still land in `calls` (schtasks) and `win32Killed` (taskkill); win32job.setRunner below still records
+     /Query and the SYNC remove/restore acts. This also injects a remove runner, so setDryRun(false) does not throw. */
+  remove.setRunner((file, args) => {
+    if (file === 'taskkill.exe') { win32Killed.push(args.join(' ')); return { ok: true, stdout: '' }; }
+    calls.push(['schtasks', ...args].join(' '));
+    return { ok: true, stdout: 'SUCCESS' };
+  });
   win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
   win32job.setRunner((args) => {
     calls.push(['schtasks', ...args].join(' '));
@@ -248,10 +261,12 @@ function windowsSessionsLive() {
   win32sessions.record('sess-test-ava', { name: 'ava', runner: 'claude' });
   status.setPaneSource(win32roster.make({ run: () => LIVE }));
   win32stop.setLive(() => win32live.byName({ run: () => LIVE }));
-  const killed = [];
-  win32stop.setRunner((args) => { killed.push(args.join(' ')); return { ok: true, out: '' }; });
+  win32Killed = [];
+  // The SYNC remove/restore session kill routes through win32stop's own runner; the restart's kill routes
+  // through remove.setRunner (winWorld). Both record into win32Killed (#6183).
+  win32stop.setRunner((args) => { win32Killed.push(args.join(' ')); return { ok: true, out: '' }; });
   win32stop.setAlive(() => false);   // the look-again: the killed pid is gone
-  return killed;
+  return win32Killed;
 }
 
 test('Windows: restart, remove and restore in a named Kosmos act only on its keyed task and its OWN live session', () => {
