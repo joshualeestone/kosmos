@@ -29,6 +29,11 @@ familykind-6239 (org kind, a family's words, a family joins only with wordsShown
   it now sets `wordsShown: false` (found by the new test; mutation-proven, as is the no-hash guard).
 - org_family_words_unseen has its own sentence (SAY).
 
+## Round 2 (sonnet) fixes
+- Not now and Escape do nothing while Accept is in flight (the join may already have happened; it no longer says
+  "Nothing was joined" over a join that went through); a join clears the message line and puts focus on the joined
+  view's sentence. One sentence for org_family_words_unseen on the route and the engine.
+
 ## Not done here
 - What `wordsShown` proves: the screen's request says the words were shown, as strong as isViaScreen (no agent token,
   a same-origin header), the same as #5791's ticket. A local process that leaves its token off could claim it. And it
