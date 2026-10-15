@@ -403,7 +403,7 @@ async function runCli(argv, opts) {
     const t = a.shift();
     if (t === '--help' || t === '-h') {
       process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>]\n'
-        + 'Pulls collected feedback reports into <path> (default: the data root) as triage-readable .md files.\n');
+        + 'Pulls collected feedback reports into <path> (default: collected-feedback under the data root, which triage reads with no --dir) as triage-readable .md files.\n');
       return 0;
     }
     if (t === '--dir') {

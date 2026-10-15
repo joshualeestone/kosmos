@@ -4552,6 +4552,7 @@ cmd_feedback() {
       say "       kosmos feedback list"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
+      say "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)"
       exit 2
       ;;
     *)
