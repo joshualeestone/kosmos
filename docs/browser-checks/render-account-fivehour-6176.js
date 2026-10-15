@@ -218,6 +218,33 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const early = await p4.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(early.reads === 3 && early.fives === 1, '[chromium open] a background read that fails before the reset does not cancel the read at the reset', JSON.stringify(early));
     await p4.close();
+    // The read at the reset comes back while the list is busy (a Check started during that read) for longer than the
+    // follow-up waits: the line still goes once the list is free. The busy mark is a real disabled Check button.
+    const p5 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p5.clock.install({ time: new Date(now) });
+    await p5.goto('file://' + PAGE);
+    await p5.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        if (window.__reads === 2) { const c = document.querySelector('#set-accounts .acct-check'); if (c) c.disabled = true; }   // a Check starts while this read is out
+        return Promise.resolve({ ok: true, json: async () => ({ accounts }) });
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    const hasCheck = await p5.evaluate(() => !!document.querySelector('#set-accounts .acct-check'));
+    await p5.clock.runFor(10 * 60e3 + 5e3); await p5.waitForTimeout(200);   // the read at the reset, busy when it returns
+    const atReset = await p5.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    await p5.clock.runFor(5 * 60e3); await p5.waitForTimeout(200);   // longer than the follow-up's wait (about 3.5 minutes)
+    await p5.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check:disabled'); if (c) c.disabled = false; });
+    await p5.clock.runFor(2 * 60e3); await p5.waitForTimeout(300);
+    const freed = await p5.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(hasCheck && atReset.reads === 2 && atReset.fives === 2 && freed.fives === 1, '[chromium open] a read at the reset that comes back to a busy list still clears the line once it is free', JSON.stringify({ hasCheck, atReset, freed }));
+    await p5.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });
