@@ -22818,6 +22818,7 @@ const ORG_UNSURE_MS = 2 * 60 * 1000;
     earlier by a retry could not show. */
 let ORG_ASKED_AT = 0;
 let ORG_NEXT_AT = 0;
+let ORG_ASK_SEQ = 0;
 function orgEnrollRefresh() {
   // #5670: a refresh sends to the company, so it waits for live execution, as the rollup tick does (#5532).
   if (!liveExecution.liveExecutionAllowed()) return;
@@ -22827,11 +22828,12 @@ function orgEnrollRefresh() {
     // Recorded before the ask, so the five-minute check does not send another while it is in flight (refresh runs one
     // at a time, so an ask from another caller queues rather than overlapping).
     const askedAt = Date.now();
+    const ask = ++ORG_ASK_SEQ;   // review 10: which ask is the latest, exactly (two in one millisecond are still two)
     ORG_ASKED_AT = askedAt;
     ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
       // Only the latest ask moves the schedule: an older one finishing late changes nothing (reviews 5 and 6).
-      if (ORG_ASKED_AT === askedAt) {
+      if (ORG_ASK_SEQ === ask) {
         if (r && r.ok === true) ORG_REFRESH_MISSES = 0;
         else {
           // No clear answer: asked again sooner than the hour, the wait doubling with each miss in a row (reviews 4, 5).
@@ -22847,33 +22849,19 @@ function orgEnrollRefresh() {
 /* #6232 review 3: ask once the due time has passed on the clock. A clock set back before the last ask counts as due,
    so a wrong clock cannot hold the ask off. `now` is for the comparison only (tests); an ask records the real time. */
 function orgRefreshIfDue(now = Date.now()) {
-  /* Review 7: a removal caught by a refused rollup or agent event ends the enrollment and the applied policy there
-     (they call oe.refresh themselves), and every later ask returns before companyPolicySync because nothing is
-     enrolled, so the agents kept the company's AI policy text until a restart. While agents hold a company text, each
-     check reads the current one and, when it differs, hands it over. Not while none is held, so a board in no company
-     does nothing here. Review 8: each change is handed over once, and again only hourly while some agent could not be
-     told, counting every hand-over (this check's and the hourly ask's; companyPolicySync records each), so a stuck
-     agent costs one roster pass and one warning an hour. Review 9: "held" includes the retry mark the boot leaves when
-     an agent could not be told then, not only a recorded text. */
-  if (COMPANY_POLICY_SEEN !== undefined && COMPANY_POLICY_SEEN !== null) {
-    let held = COMPANY_POLICY_SEEN;
-    try { const c = policyEngine.companyEntry(); held = c ? JSON.stringify([c.name, c.text]) : null; } catch { /* unread: leave it */ }
-    if (held !== COMPANY_POLICY_SEEN
-      && (held !== COMPANY_CHECK_TRIED || now - COMPANY_CHECK_AT >= ORG_REFRESH_MS || now < COMPANY_CHECK_AT)) companyPolicySync();
-  }
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
-/** Review 8: the company text the five-minute check last handed over, and when (so a change is tried once, then
-    hourly while an agent stays untold). */
-let COMPANY_CHECK_TRIED;
-let COMPANY_CHECK_AT = 0;
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
-function _orgRefreshResetForTests(opts) {
-  ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0;
-  COMPANY_POLICY_SEEN = undefined; COMPANY_CHECK_TRIED = undefined; COMPANY_CHECK_AT = 0;
-  // As the boot leaves it when some agent could not be told the company text (server start, bootPolicyAllTold).
-  if (opts && opts.bootRetry === true) COMPANY_POLICY_SEEN = COMPANY_POLICY_RETRY;
+function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; COMPANY_POLICY_SEEN = undefined; }
+/* #6232 review 10: when this board's own enrollment ends by any path (the hourly ask, or a rollup or agent event the
+   company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
+   caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
+   restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
+   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents. */
+function orgEnrollmentEnded(root) {
+  if (root !== require('./engine/store').ROOT) return;
+  companyPolicySync();
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
@@ -22897,9 +22885,6 @@ function companyPolicySync() {
     }
     if (COMPANY_POLICY_SEEN === undefined) { COMPANY_POLICY_SEEN = now; return; }
     if (now === COMPANY_POLICY_SEEN) return;
-    // #6232 review 9: every hand-over is recorded, so the five-minute check counts the hourly ask's too.
-    COMPANY_CHECK_TRIED = now;
-    COMPANY_CHECK_AT = Date.now();
     const told = policyEngine.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
@@ -23007,6 +22992,7 @@ function start(port = PORT) {
   try { const rn = require('./engine/restartnote'); rn.atStart({ startedBy: BOARD_STARTED_BY, personMark: BOARD_PERSON_MARK }); rn.startBeating(); } catch { /* best effort */ }
   /* #5531: an enrolled work Kosmos asks its company on start and hourly (#6232) whether it is still the enrolled world, and
      stops reporting at once if not. Only a world with an enrollment asks: one that never joined sends nothing. */
+  try { require('./engine/orgenroll').onEnrollmentEnded(orgEnrollmentEnded); } catch { /* best effort */ }   // #6232 review 10
   orgEnrollRefresh();
   setInterval(() => { orgRefreshIfDue(); }, ORG_REFRESH_CHECK_MS).unref();   // #6232 review 3: an hour on the clock
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
@@ -24561,7 +24547,8 @@ module.exports = {
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
   _orgRefreshResetForTests, // #6232 review 6: tests only
-  companyPolicySync, // #6232 review 7: handing agents the company's AI policy, tested by behaviour
+  companyPolicySync, // #5534: handing agents the company's AI policy, tested by behaviour (#6232)
+  orgEnrollmentEnded, // #6232 review 10
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test

@@ -45,11 +45,9 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
 - review 5: an older ask ending late without an answer does not move the clock a newer, answered ask set.
 - review 6: right after a miss, a clock set back by less than the retry wait still asks; each test starts the
   schedule over (_orgRefreshResetForTests).
-- review 7: after a removal clears the policy elsewhere, the next check hands the agents the change; a board whose
-  agents hold no company text does nothing on a check (no read, no repeated warning).
-- review 8: an agent that cannot be told is retried hourly from the check, not every five minutes.
-- review 9: after a boot that could not tell every agent (the retry mark), a removal still reaches the agents; the
-  hourly ask's hand-over counts toward the hour, so a stuck agent is retried once an hour, not twice.
+- review 10 (replacing the review 7 to 9 tests): an enrollment ending tells onEnrollmentEnded once with that Kosmos's
+  root, and not for a refresh or a Leave with nothing enrolled; the board's listener hands its own agents the change
+  and ignores another Kosmos's ending; start() registers it.
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -121,3 +119,16 @@ is for the first run after merge.
   policy text is too long (24 a day at most). Bounded; printing once per policy version is a possible follow-up.
 - This part (the agents' copy of the policy text) drew findings in reviews 7, 8 and 9; each was a real gap in a state
   the previous fix did not cover. The state is now: hand-over on change, recorded in one place, hourly retry.
+
+## Review 10 (sonnet), and what changed: the review 7 to 9 approach was REMOVED
+- Reviews 7, 8, 9 and 10 each found a real gap in re-handing the agents their policy text from the five-minute check
+  (a no-company board, stuck agents retried every check, the boot's retry mark, retries doubled, a no-company board
+  in the retry mark syncing hourly). A rule that draws a finding every round is the wrong rule, so it is gone: no sync
+  from the check, no COMPANY_CHECK_* state, no boot-retry test hook.
+- Instead the event that matters is told: engine/orgenroll.js clearEnrollment (which every end of an enrollment passes
+  through, #5534) calls onEnrollmentEnded listeners with the root when a record was there; the board registers one at
+  start that runs companyPolicySync for its own root. So a removal caught by a refused rollup or agent event reaches
+  the agents at that moment, and nothing runs while no enrollment ends. companyPolicySync itself is unchanged (its
+  retry for an agent that could not be told stays as it was: the next ask that reaches it, or a restart).
+- Which ask is the latest is a counter, not a millisecond time (two asks in one millisecond are still two).
+- Measured: never telling, telling with nothing enrolled, ignoring the root, and ignoring the counter each fail.

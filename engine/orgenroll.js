@@ -130,11 +130,17 @@ function writeWhole(file, text) {
 }
 const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
 
+/* #6232 review 10: told when an enrollment ends here (with that Kosmos's root), so the board hands its agents the change
+   whichever path ended it. A listener's failure never stops an ending. */
+const ENDED_LISTENERS = new Set();
+function onEnrollmentEnded(fn) { if (typeof fn === 'function') ENDED_LISTENERS.add(fn); return () => ENDED_LISTENERS.delete(fn); }
 function clearEnrollment(opts) {
+  const had = (() => { try { return fs.existsSync(path.join(storeRoot(opts), ENROLLMENT_FILE)); } catch { return false; } })();
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
   // #5534 review 1: every end of an enrollment comes through here, so the company's policy ends with it.
   try { policyMod(opts).clear(); } catch { /* best effort */ }
   eventsStopped(opts);   // #5683 review 38/40: once the record is gone (synchronous: no tick runs in between)
+  if (had) for (const fn of ENDED_LISTENERS) { try { fn(storeRoot(opts)); } catch { /* a listener never stops an ending */ } }
 }
 
 /* This world's id if it was ever minted; never mints (the gate and a page read must not write). */
@@ -966,6 +972,7 @@ function applyPolicy(token, opts, orgId) {
 }
 
 module.exports = {
+  onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
