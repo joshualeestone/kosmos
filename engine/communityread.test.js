@@ -602,7 +602,7 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   // after: read to the end, so not said (only pages left waiting are "not reached").
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
   // Said when the window leaves pages waiting:
-  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, so new ones among them may not be listed\)/);
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, so new ones among them may be missed\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1851,7 +1851,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, so new ones among them may not be listed)'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, so new ones among them may be missed)'), r.text.slice(-400));
 });
 
 test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_MAX) is read to the end over several reads, never repeating one', async () => {
