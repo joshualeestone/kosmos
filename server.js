@@ -4516,10 +4516,12 @@ function statusForSibling(json) {
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
-  /* #6178: each Claude account's weekly usage for Settings > AI Models there, keyed by an opaque per-answer id
-     ("a0", "a1", ...), never by its folder: a folder path names this Mac's user, which #4973 keeps here. Each agent
-     carries that id (acct) and its runner, so the page can join them; null accountsWeekly is "could not read them". */
-  const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : (full && full.accountsWeekly === null ? null : []);
+  /* #6178: each Claude account's weekly usage for Settings > AI Models there. THIS SENDS each account's email, label
+     and organization to that browser (one this computer admitted, from the account's own computers: the relay's
+     siblingcors-4812 rule, not this code). Keyed by an opaque per-answer id ("a0", "a1", ...), never by its folder: a
+     folder path names this Mac's user, which #4973 keeps here. Each agent carries that id (acct) and its runner, so the
+     page can join them; null accountsWeekly is "could not read them", and so is a missing one. */
+  const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
   const keyOf = new Map();
   const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir)
     .map((e, i) => {
