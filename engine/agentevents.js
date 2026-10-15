@@ -516,6 +516,10 @@ const SANDBOX_TARGETS = new Set(['board-files', 'agent-config', 'other-agent']);
    when something new starts). The coordinator's line is added in its own change; until it is served and accepted,
    this module reads nothing. One phrase, matched case-blind, so a reworded sentence around it still counts. */
 const EVENTS_CONSENT_PHRASE = "stopped by your company's rules";
+/* kosmos#6239: a family's words say "stopped by the family's rules" (kosmos-relay org.rs family_consent). Either names
+   these events. */
+const EVENTS_CONSENT_PHRASES = Object.freeze([EVENTS_CONSENT_PHRASE, "stopped by the family's rules"]);
+const namesEvents = (line) => { const l = String(line).toLowerCase(); return EVENTS_CONSENT_PHRASES.some((p) => l.includes(p)); };
 
 /* The enrollment and the words a state was kept under: one key, built in one place (challenge-loop iteration 1: it
    was joined with '|' in two places and split in a third, so an id holding '|' compared wrongly). A JSON array, so no
@@ -1287,7 +1291,7 @@ async function tickOnce(opts) {
     /* Challenge-loop iteration 1: the rollup's own rule (orgrollup.js), that a missing consent is never a yes, applied
        to these events: the accepted words must name them, or nothing is read. */
     const words = oe.acceptedConsent(eo);
-    if (!words || !words.reports.some((l) => l.toLowerCase().includes(EVENTS_CONSENT_PHRASE))) {
+    if (!words || !words.reports.some(namesEvents)) {
       /* Words read and without the line stop reporting as a Leave does, so words that name the events again start
          clean (challenge loop after the rebase: A, then B without the line, then A again sent B's refusals). Words that
          could not be read mark nothing. */
@@ -1887,7 +1891,7 @@ function recordRefusal({ agent, rule } = {}, opts) {
     const eo = { root: o.root, remote: o.remote };
     if (!oe.mayReport(eo)) return { queued: false, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
     const words = oe.acceptedConsent(eo);
-    if (!words || !words.reports.some((l) => l.toLowerCase().includes(EVENTS_CONSENT_PHRASE))) {
+    if (!words || !words.reports.some(namesEvents)) {
       return { queued: false, because: 'the words accepted here do not name these events' };
     }
     const rec = oe.readEnrollment(eo);
@@ -1919,7 +1923,7 @@ function takeBoard(root, enrolledAs, sinceMs) {
   return { events, taken: true, commit: () => writeBoard(root, { events: [], last: b.last }) };
 }
 
-module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, recordRefusal, BOARD_RULES, BOARD_SESSION, BOARD_FILE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
+module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, EVENTS_CONSENT_PHRASES, recordRefusal, BOARD_RULES, BOARD_SESSION, BOARD_FILE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
   manipulationOf, manipulationCheckOn, MANIPULATION_RULE: 'manipulation-check',
   _enrollmentKey: enrollmentKey,   // #5683 slice 3's tests write a state under the real key
   _defaultSources: defaultSources, _callFiles: () => [...CALLS.keys()] };   // the guard check's round-trip test (review 17)

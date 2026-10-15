@@ -10731,7 +10731,9 @@ const server = http.createServer(async (req, res) => {
               consent: r.consent,   // #5532: the words shown, remembered by their hash so the rollup sends only the accepted report lines
               computerSalt: r.salt || null,   // #5532 (v1.5): the salt the join's computer print is made with
               review: r.review === true,   // a review's Accept: a lost answer is never taken as accepted (orgreview review 1)
-              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null };   // WHICH company they were for (review 37)
+              orgId: r.org && typeof r.org.id === 'string' ? r.org.id : null,   // WHICH company they were for (review 37)
+              // kosmos#6239: a family's words are read and accepted on the screen before this computer joins.
+              family: !!(r.org && r.org.kind === 'family') };
             r.ticket = ORG_TICKET.value;
             if (!r.served) console.error('orgenroll: no consent hash to echo (none served, malformed, or for words cleaned before showing); a join records none, and this Kosmos will not report');
           }
@@ -10746,9 +10748,16 @@ const server = http.createServer(async (req, res) => {
               return;
             }
           }
+          /* kosmos#6239: a family joins only after its words were shown and accepted on this screen (the page says so
+             with wordsShown); checked before the ticket is spent, so the person can read and accept them. */
+          if (body.accepted === true && ORG_TICKET && ORG_TICKET.family === true && body.wordsShown !== true) {
+            sendJson(res, 200, { ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent or guardian reads and accepts its words on this screen. Nothing was joined.' });
+            return;
+          }
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
-          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
+          r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true,
+            wordsShown: spent.family === true && body.wordsShown === true } : undefined);   // kosmos#6239
           /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next hourly refresh.
              Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
              policy applied when the fetch lands, and an agent made before then is not checked against it. */
@@ -10777,7 +10786,7 @@ const server = http.createServer(async (req, res) => {
           const keep = ['ok', 'because', 'code', 'declined', 'still', 'pending', 'localOnly', 'move', 'review', 'ticket', 'role', 'consent', 'enrolledAt'];
           const out = {};
           for (const k of keep) if (k in r) out[k] = r[k];
-          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug };
+          if (r.org && typeof r.org === 'object') out.org = { name: r.org.name, slug: r.org.slug, kind: r.org.kind === 'family' ? 'family' : 'company' };   // kosmos#6239: kind
           r = out;
         }
         sendJson(res, 200, r);

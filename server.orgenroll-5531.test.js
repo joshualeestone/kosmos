@@ -505,7 +505,8 @@ test('#5531 follow-up: a joined Kosmos with no consent recorded reviews the word
   const pv = await call('/api/org/preview', { body: { review: true }, headers: SCREEN });
   assert.equal(pv.json.ok, true, JSON.stringify(pv.json));
   assert.equal(pv.json.review, true);
-  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme' }, 'the page got more than the company\'s name and slug');
+  // kosmos#6239: and its kind (a family's words are shown before it joins); never its id.
+  assert.deepEqual(pv.json.org, { name: 'Acme', slug: 'acme', kind: 'company' }, 'the page got more than the company\'s name, slug and kind');
   assert.ok(typeof pv.json.ticket === 'string' && pv.json.ticket, 'no ticket for the review');
   const ok = await call('/api/org/enroll', { body: { accepted: true, ticket: pv.json.ticket }, headers: SCREEN });
   assert.equal(ok.json.ok, true, JSON.stringify(ok.json));
