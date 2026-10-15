@@ -35,25 +35,10 @@ function withTimeout(promise, ms, label) {
   return Promise.race([settled, bomb]);
 }
 
-/* The pids node spawned directly (parent pid === `ppid`), read from ps. Used to force-kill a wedged engine by
-   its own pid. `ps -A -o pid=,ppid=` is portable across macOS and Linux (-A = all processes on both; -e means
-   "environment" on macOS, so it is NOT used); any failure returns []. */
-function childPidsOf(ppid) {
-  try {
-    const out = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    const kids = [];
-    for (const line of out.split('\n')) {
-      const m = line.trim().match(/^(\d+)\s+(\d+)$/);
-      if (m && Number(m[2]) === Number(ppid)) kids.push(Number(m[1]));
-    }
-    return kids;
-  } catch {
-    return [];
-  }
-}
-
-/* The pid -> ppid map of every process (`ps -A -o pid=,ppid=`, portable as above), or an empty Map on failure.
-   Used to walk an engine's whole process tree. */
+/* The pid -> ppid map of every process, read from ps ONCE and parsed in one place (childPidsOf derives from it,
+   so the read and the `/^(\d+)\s+(\d+)$/` parse are never duplicated). `ps -A -o pid=,ppid=` is portable across
+   macOS and Linux (-A = all processes on both; -e means "environment" on macOS, so it is NOT used); any failure
+   yields an empty map, so childPidsOf returns [] and descendantPids returns just the roots. */
 function psParentMap() {
   const map = new Map();
   try {
@@ -62,8 +47,16 @@ function psParentMap() {
       const m = line.trim().match(/^(\d+)\s+(\d+)$/);
       if (m) map.set(Number(m[1]), Number(m[2]));
     }
-  } catch { /* ps failed: empty map, so descendantPids returns just the roots */ }
+  } catch { /* ps failed: empty map */ }
   return map;
+}
+
+/* The pids `ppid` spawned directly (its children), from one psParentMap read. Used to force-kill a wedged engine
+   by its own pid. Empty on any ps failure. */
+function childPidsOf(ppid) {
+  const kids = [];
+  for (const [pid, pp] of psParentMap()) if (pp === Number(ppid)) kids.push(pid);
+  return kids;
 }
 
 /* Each pid in `roots` plus all its descendants, from a pid -> ppid map. An engine the launch added spawns the

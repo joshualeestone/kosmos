@@ -2553,8 +2553,15 @@ async function run() {
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
-              // #6205 (review): a timed-out close means this browser is wedged; stop the engine so the next newContext does not hang.
-              if (!(await closeContextBounded(ctx))) { wedged = true; break; }
+              // #6205 (review): a timed-out close means this browser is wedged. Count it as an error (so a partial
+              // shot set with screens dropped cannot read as green, like the newContext-wedge path above), log it,
+              // and stop the engine so the next newContext does not hang.
+              if (!(await closeContextBounded(ctx))) {
+                console.log('FLAG  mobile-shots: ' + en + ' context close wedged after ' + file + '; abandoning this engine');
+                errors++;
+                wedged = true;
+                break;
+              }
             }
           }
         }
