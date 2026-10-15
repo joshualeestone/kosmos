@@ -23255,6 +23255,8 @@ async function engineRestartClick() {
       /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
       said('Kosmos could not restart itself');
       if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
+      /* #6214: refused because an account move holds the board: say that instead, and offer to stop the move. */
+      if (r.status === 409 && out && out.moveStoppable && small) { small.textContent = String(out.because || ''); offerStopMove(btn || small, small); }
       return;
     }
   } catch (e) {
@@ -23758,6 +23760,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const rollingBack = UPD_CONFIRM_MODE === 'rollback';
   const endpoint = rollingBack ? '/api/update/rollback' : '/api/update';
   err.hidden = true;
+  { const offer = err.nextElementSibling; if (offer && offer.hasAttribute('data-stop-move-offer')) offer.remove(); }   // #6214: a fresh press
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
   let res = null;
   let body = null;
@@ -23787,6 +23790,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     err.textContent = said;
     err.hidden = false;
     go.disabled = false;
+    if (res && res.status === 409 && body && body.moveStoppable) offerStopMove(err, err);   // #6214
     return;
   }
   UPDATING_NOW = true;
@@ -27517,6 +27521,8 @@ function acctUsageHtml(a, list) {
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
       + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      /* #6214: a running move can be stopped; the board finishes the agent it is restarting and puts the rest back. */
+      + (busy ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : '') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
       + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
@@ -27547,6 +27553,47 @@ function acctMoveNote(cards) {
    restarts them one at a time without holding the request, and this reads the move's record until it is done. An
    agent the record never confirms (no answer in time, or a board that restarted and lost the move: 404) is said as
    not confirmed yet, never as moved. */
+/* #6214: stop the running account move, whichever page started it. Answers { ok, said, waitingFor }: `said` is what to
+   tell the person when it did not stop (no move running, or the board could not be reached). */
+async function stopAccountMove() {
+  try {
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    const timer = ctl ? setTimeout(() => ctl.abort(), 10e3) : null;
+    let res;
+    try { res = await fetch('/api/agents/account-moves/stop', { method: 'POST', ...(ctl ? { signal: ctl.signal } : {}) }); }
+    finally { if (timer) clearTimeout(timer); }
+    const out = await res.json().catch(() => null);
+    if (res.ok) return { ok: true, said: '', waitingFor: (out && out.waitingFor) || '' };
+    return { ok: false, said: (out && (out.because || out.error)) || 'The move could not be stopped. Try again in a moment.' };
+  } catch {
+    return { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' };
+  }
+}
+/* #6214: where a board restart (Update, Roll back, Restart Kosmos, a Kosmos switch) was refused because an account move
+   holds the board, offer to stop the move right there: put one "Stop the move" button after `afterEl` (once), and write
+   how it went into `sayEl`. */
+function offerStopMove(afterEl, sayEl) {
+  if (!afterEl || !afterEl.parentNode) return;
+  const next = afterEl.nextElementSibling;
+  if (next && next.hasAttribute('data-stop-move-offer')) return;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.setAttribute('data-stop-move-offer', '');
+  b.textContent = 'Stop the move';
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Stopping…';
+    const out = await stopAccountMove();
+    if (out.ok) {
+      b.remove();
+      if (sayEl) sayEl.textContent = 'The move is stopping' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
+        + '. The agents it had not reached stay on their old account. Try again in a minute.';
+    } else {
+      b.disabled = false; b.textContent = 'Stop the move';
+      if (sayEl) sayEl.textContent = out.said;
+    }
+  });
+  afterEl.parentNode.insertBefore(b, afterEl.nextSibling);
+}
 async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtClick) {
   let moved = 0; const movedStopped = [];
   const wasStopped = stoppedAtClick instanceof Set ? stoppedAtClick : new Set();
@@ -28277,6 +28324,21 @@ async function paintAccounts(opts) {
   for (const sel of box.querySelectorAll('[data-acct-move-to]')) {
     const btn = box.querySelector('[data-acct-move="' + CSS.escape(sel.dataset.acctMoveTo) + '"]');
     sel.addEventListener('change', () => { if (sel.value) ACCT_PICK.set(sel.dataset.acctMoveTo, sel.value); else ACCT_PICK.delete(sel.dataset.acctMoveTo); if (btn) btn.disabled = !sel.value; });
+  }
+  for (const stopBtn of box.querySelectorAll('[data-acct-move-stop]')) {
+    stopBtn.addEventListener('click', async () => {
+      for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = true;   // a repaint draws it as stopping
+      stopBtn.disabled = true; stopBtn.textContent = 'Stopping…';
+      const out = await stopAccountMove();
+      /* The move's own read reports how it ended, in the row's sentence; only a refusal is said here. */
+      if (!out.ok) {
+        for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = false;
+        stopBtn.disabled = false; stopBtn.textContent = 'Stop the move';
+        const panelSay = document.getElementById('set-accounts-msg');
+        acctCancelSay();
+        if (panelSay) { panelSay.textContent = ''; setTimeout(() => { panelSay.textContent = out.said; }, 150); }
+      }
+    });
   }
   for (const btn of box.querySelectorAll('[data-acct-move]')) {
     btn.addEventListener('click', async () => {
@@ -29956,7 +30018,10 @@ async function worldswSwitch(id, name, agents) {
       // 404 also refetches (the world was deleted), rebuilding the rows; the focus restore
       // is shared by every branch (see the catch above).
       if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
-      else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
+      else if (res.status === 409) {
+        say(because || 'Another Kosmos operation is in progress. Try again in a moment.');
+        if (body && body.moveStoppable) offerStopMove(bmsg, bmsg);   // #6214
+      }
       /* #3055: a 403 here means the board did not accept this browser's sign-in for the
          switch -- the per-world board-token mismatch after a switch (each Kosmos has its
          own board token, and the browser is still holding a different world's). Say that
