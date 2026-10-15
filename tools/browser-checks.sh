@@ -957,15 +957,15 @@ free_port() {
 }
 pick_ports() {
   local picked=() p n
-  while [ "${#picked[@]}" -lt 20 ]; do
+  while [ "${#picked[@]}" -lt 21 ]; do
     p="$(free_port)"
     for n in ${picked[@]+"${picked[@]}"}; do [ "$n" = "$p" ] && p=""; done
     [ -n "$p" ] && picked+=("$p")
   done
-  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"; P_CAT="${picked[19]}"
+  P1="${picked[0]}"; P2="${picked[1]}"; P3="${picked[2]}"; P4="${picked[3]}"; P5="${picked[4]}"; P6="${picked[5]}"; P7="${picked[6]}"; P8="${picked[7]}"; P9="${picked[8]}"; P10="${picked[9]}"; P11="${picked[10]}"; P12="${picked[11]}"; P13="${picked[12]}"; P14="${picked[13]}"; P15="${picked[14]}"; P16="${picked[15]}"; P17="${picked[16]}"; P18="${picked[17]}"; P19="${picked[18]}"; P20="${picked[19]}"; P_CAT="${picked[20]}"
 }
 pick_ports
-log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19, catalogue $P_CAT (chosen by the OS, #633)"
+log "ports for this run: $P1 $P2 $P3 $P4 $P5 $P6 $P7 $P8 $P9 $P10 $P11 $P12 $P13 $P14 $P15 $P16 $P17 $P18 $P19 $P20, catalogue $P_CAT (chosen by the OS, #633)"
 
 # #4632: the roles and teams catalogue a board downloads when the role picker opens. Every board
 # here gets it from this local server, which serves the genuine published files (signed with the
@@ -1795,6 +1795,23 @@ if boot_board_org "$sbl" "$P19" "$ORG_LANES_TREE"; then
   run_one "render-org-lanes-4472" env KOSMOS_URL="http://127.0.0.1:$P19" SHOT_DIR="$RUN_DIR/shots-org-lanes" node docs/browser-checks/render-org-lanes-4472.js
 else
   FAILED+=("render-org-lanes-4472 (lanes org board did not boot)")
+fi
+
+# --- kosmos#6196: ONE heavy root (r0, 100 reports) plus 19 light roots. r0's leaf count gives it a huge angular
+# --- slice, so the 19 light roots cram into near-equal slices and bump to outer lanes (r = 120, 178, ...), where a
+# --- light root's hub line grazes an inner light root's face -- the #4499 bug. (An even 14-root board does NOT
+# --- cluster: equal slices leave 52px of clearance, so it stayed green pre-#4499 and was vacuous -- measured
+# --- 2026-10-15, hence this heavy-root shape.) render-org-first-ring-6196 checks every first-ring hub line clears
+# --- every face by the 12px rule at the phone squeeze, at a desktop and a phone width: the in-browser guard for the
+# --- #4499 fix. Its own board: no org board above has a wide-enough first ring (lanes has one root). Pre-#4499 the
+# --- ungated placement grazes ~6.3px (measured via the page's own orgPlace), and a tree's settle preserves that (no
+# --- flat-only clearance force), so the check reds pre-#4499 and greens once orgPlaceGated floors it to ~18px.
+ORG_WIDE_TREE="$(node -e 'const t = []; for (let i = 0; i < 20; i += 1) t.push(["r" + i, ""]); for (let j = 0; j < 100; j += 1) t.push(["h" + j, "r0"]); process.stdout.write(JSON.stringify(t))')"
+sbw="$(new_sandbox)"
+if boot_board_org "$sbw" "$P20" "$ORG_WIDE_TREE"; then
+  run_one "render-org-first-ring-6196" env KOSMOS_URL="http://127.0.0.1:$P20" SHOT_DIR="$RUN_DIR/shots-org-first-ring" node docs/browser-checks/render-org-first-ring-6196.js
+else
+  FAILED+=("render-org-first-ring-6196 (wide org board did not boot)")
 fi
 
 # --- render-update-toast: SELF-CONTAINED, so it sits outside the board groups.
