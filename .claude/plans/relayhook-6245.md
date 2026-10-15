@@ -23,3 +23,11 @@ Weakest premise: that every relay-runner process keeps an ancestor whose command
 - tools/test-ci-runner-setup-4601.sh: all passed.
 
 ## Review
+### Round 1 (Opus, blind): no blocker
+Confirmed: the ancestor exemption is exactly pkill's (only the hook's own ancestors); RunnerService/Listener/Worker of the
+kosmos runner survive; Bash 3.2 fine; hook_body stays the single source for install and the byte compare; the test only
+uses --list and its control really removes the exception.
+WARNINGs (low), taken as comment lines: the exemption can be spoofed by a kosmos job naming the folder in argv, and a
+relay job's detached process (tmux always detaches) is still ended. Taken NITs: `ps -ww` (no COLUMNS truncation); the
+test refuses a hook with no --list. Left NITs: the walk fails toward killing if an ancestor exits mid-walk; HOME unset
+falls back to the old behaviour; 64-hop cap; the trap's "Terminated" notice.
