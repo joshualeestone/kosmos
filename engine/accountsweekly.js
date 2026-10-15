@@ -26,17 +26,23 @@ function weeklyOf(a, nowMs) {
   } catch { return null; }
 }
 
-/** Why there can be NO reading for this account, when that is known: 'windows', 'own-statusline', 'not-wired' or
-    'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works. */
+/** Why there can be NO reading for this account, when that is known: 'windows', 'own-statusline', 'not-wired',
+    'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works. */
 function weeklyBlockedOf(a, platform = process.platform) {
   if (!a || a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
   if (platform === 'win32') return 'windows';
+  const sp = path.join(a.dir, 'settings.json');
+  const linkedAway = () => {   // #6175: the same test the set-up route makes before it writes
+    try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }
+    try { return path.dirname(fs.realpathSync(sp)) !== fs.realpathSync(a.dir); } catch { return true; }   // a link to nothing
+  };
+  const unwired = () => (linkedAway() ? 'linked-settings' : 'not-wired');
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
+    const j = JSON.parse(fs.readFileSync(sp, 'utf8'));
     const sl = j && j.statusLine;
-    if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
+    if (sl === undefined || sl === null) return unwired();   // nothing records a reading here
     return require('./allowance').isOurs(sl) ? null : 'own-statusline';
-  } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
+  } catch (e) { return e && e.code === 'ENOENT' ? unwired() : 'unreadable-settings'; }   // missing (or a link to nothing): nothing records one; unreadable: Kosmos cannot tell
 }
 
 let cached = null;   // { key, at, value }
