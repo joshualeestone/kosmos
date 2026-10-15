@@ -40,7 +40,7 @@ function parent() {
   };
 }
 
-function load(answers) {
+function load(answers, LAST = []) {
   const asked = [];
   const fetch = async (url, init) => {
     asked.push({ url, method: (init && init.method) || 'GET' });
@@ -51,7 +51,7 @@ function load(answers) {
   };
   const document = { createElement: (t) => el(t) };
   // eslint-disable-next-line no-new-func
-  const fns = new Function('fetch', 'document', `${SOURCE}\nreturn { stopAccountMove, offerStopMove };`)(fetch, document);
+  const fns = new Function('fetch', 'document', 'LAST', `${SOURCE}\nreturn { stopAccountMove, offerStopMove };`)(fetch, document, LAST);
   return { ...fns, asked };
 }
 
@@ -59,6 +59,13 @@ test('#6214: stopAccountMove posts to the stop route and says whose restart it w
   const { stopAccountMove, asked } = load([{ status: 200, body: { id: 'm1', stopped: true, waitingFor: 'bo', agents: [] } }]);
   assert.deepEqual(await stopAccountMove(), { ok: true, said: '', waitingFor: 'bo' });
   assert.deepEqual(asked, [{ url: '/api/agents/account-moves/stop', method: 'POST' }]);
+});
+
+test('#6214: the restart it waits for is named as the person knows the agent, not by its session', async () => {
+  const { stopAccountMove } = load([{ status: 200, body: { stopped: true, waitingFor: 's-bo' } }], [{ sessionName: 's-bo', name: 'Bo' }]);
+  assert.equal((await stopAccountMove()).waitingFor, 'Bo');
+  const unknown = load([{ status: 200, body: { stopped: true, waitingFor: 's-zz' } }], [{ sessionName: 's-bo', name: 'Bo' }]);
+  assert.equal((await unknown.stopAccountMove()).waitingFor, 's-zz', 'an agent not on the board keeps the board\'s word');
 });
 
 test('#6214: a refused stop says the board\'s own words; a board that does not answer is said plainly', async () => {
@@ -148,7 +155,7 @@ test('#6214: after a stop, the row says who moved, who was put back and who coul
       { name: 'al', outcome: 'changed', because: 'Al runs on new now.' },
       { name: 'bo', outcome: 'stopped', because: 'you stopped the move before their turn. They stay on old@example.com.' },
       { name: 'cy', outcome: 'stopped', because: 'you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.' },
-      { name: 'di', outcome: 'partial', because: 'We saved new@example.com, but could not start it again: you stopped the move before its turn, and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.' },
+      { name: 'di', outcome: 'partial', because: 'We saved new@example.com, but you stopped the move before its turn and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.' },
     ] } },
   ];
   const fetch = async () => { const a = answers.shift(); return { ok: a.status < 300, status: a.status, json: async () => a.body }; };
@@ -158,7 +165,7 @@ test('#6214: after a stop, the row says who moved, who was put back and who coul
   const move = new Function('fetch', 'LAST', 'setTimeout', `${MOVE}\nreturn moveAccountAgents;`)(fetch, LAST, fast);
   const note = await move('/acct/old', '/acct/new', ['al', 'bo', 'cy', 'di'], null, new Set());
   assert.equal(note, 'Moved 1 agent. It restarts on the new account. '
-    + 'Not restarted yet (Di): We saved new@example.com, but could not start it again: you stopped the move before its turn, and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts. '
+    + 'Not restarted yet (Di): We saved new@example.com, but you stopped the move before its turn and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts. '
     + 'Not moved (Bo): you stopped the move before their turn. They stay on old@example.com. '
     + 'Not moved (Cy): you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.');
 });

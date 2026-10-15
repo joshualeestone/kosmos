@@ -27564,7 +27564,12 @@ async function stopAccountMove() {
     try { res = await fetch('/api/agents/account-moves/stop', { method: 'POST', ...(ctl ? { signal: ctl.signal } : {}) }); }
     finally { if (timer) clearTimeout(timer); }
     const out = await res.json().catch(() => null);
-    if (res.ok) return { ok: true, said: '', waitingFor: (out && out.waitingFor) || '' };
+    if (res.ok) {
+      /* The board names the agent by its session; the person knows it by its name. */
+      const w = (out && out.waitingFor) || '';
+      const card = w && Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === w) : null;
+      return { ok: true, said: '', waitingFor: (card && card.name) || w };
+    }
     return { ok: false, said: (out && (out.because || out.error)) || 'The move could not be stopped. Try again in a moment.' };
   } catch {
     return { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' };

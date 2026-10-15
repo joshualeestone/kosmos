@@ -169,7 +169,7 @@ function start(body, deps) {
 
   const pending = m.agents.filter((a) => a.outcome === 'pending');
   if (!pending.length) {
-    m.done = true; m.finishedAt = Date.now();
+    m.done = true; m.finishedAt = Date.now(); m.deps = null;
     return { status: 202, body: view(m), done: Promise.resolve() };
   }
   /* Every agent this move will restart is held from a sync restart until its own turn is over (#6173 review 1): one
@@ -185,7 +185,7 @@ function start(body, deps) {
       catch { said = { outcome: 'partial', because: 'We saved the account, but the move could not start its restart.' }; }
       a.outcome = said.outcome; a.because = said.because;
     }
-    m.done = true; m.finishedAt = Date.now();
+    m.done = true; m.finishedAt = Date.now(); m.deps = null;
     return { status: 202, body: view(m), done: Promise.resolve() };
   }
   running = m.id;
@@ -249,11 +249,13 @@ function start(body, deps) {
    block, so nothing on the board can change it in between. */
 function putBack(m, a) {
   const deps = m.deps;
+  /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
+     was tried. The new account is saved and the agent still runs on its old one, as a partial says. */
   const failed = (why) => {
-    let said;
-    try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: `you stopped the move before its turn, and we could not put it back on its old account (${why}).` }, deps.RESTARTED); }
-    catch { said = { outcome: 'partial', because: 'You stopped the move before its turn, and we could not put it back on its old account.' }; }
-    a.outcome = said.outcome; a.because = said.because;
+    const acct = (a.wrote && a.wrote.account) || {};
+    const who = acct.name || acct.email || acct.label || 'the new account';
+    a.outcome = 'partial';
+    a.because = `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
   };
   if (!a.from || !a.from.ok || !a.to || !a.to.ok || typeof deps.putBack !== 'function') { failed('we could not read which account it was on'); return; }
   let now;
