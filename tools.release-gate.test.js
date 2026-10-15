@@ -518,6 +518,10 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      place (green: no check is quarantined on main) rather than refusing on a missing file. */
   fs.copyFileSync(path.join(__dirname, 'browser-checks-quarantine-guard.test.js'), path.join(dir, 'browser-checks-quarantine-guard.test.js'));
   fs.cpSync(path.join(__dirname, 'docs', 'browser-checks'), path.join(dir, 'docs', 'browser-checks'), { recursive: true });
+  /* #6149: step 1a-floor checks the cut's own install/setup.sh knows the read-only app, so the sandbox carries the
+     real installer and the arms past step 1 exercise that check in place rather than refusing on a missing file. */
+  fs.mkdirSync(path.join(dir, 'install'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'install', 'setup.sh'), path.join(dir, 'install', 'setup.sh'));
   fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
   // For the version the arms CUT: the next patch of `version` (0.6.02 -> 0.6.03), padding kept.
   const parts = String(version).split('.');

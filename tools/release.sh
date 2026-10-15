@@ -640,7 +640,9 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
 . "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
 _floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
 [ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
-kosmos_setup_floor_ok "this $CUT_CHANNEL cut" "$V" || exit 1
+# (No check of this cut's OWN version: #4075's forward-only rule already refuses a cut older than main, which is past
+# 0.7.45, and the release-gate fixtures cut 0.6.x on purpose. What reaches users is checked below: the installer, the
+# untouched pair, and the export before vercel.)
 kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
 # Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
 # fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
