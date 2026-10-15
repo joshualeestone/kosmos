@@ -21,3 +21,19 @@ coordinator half changes nothing a family's computer shows. This branch is where
 - Org policy sentences (orgpolicy.js, policy.js, agentevents' "your company's rules") are not in this branch: they are
   about what a policy allows, a separate surface; named as a follow-up on #6251.
 - An unknown or missing kind reads as a company's, as the coordinator does.
+
+## Round 1 (opus) fixes
+- preview's already-member refusal is said in the status read's org's words (a failed read: a company's), and its
+  incomplete-answer sentence goes through inKind.
+- The page's plusOrgIn has the same two rules as the engine's inKind, and the test compares them over a sentence
+  for each rule, so a rule added to one copy is seen.
+- An unknown join stores its kind for a company too, so a company join on a board holding a family record settles
+  in a company's words.
+- An org's own name never goes through the rewrite (worded text first, the name joined after).
+- server.js says the unseen-words refusal from oe.SAY (one copy).
+- render-orgenroll-5531.js: the empty-code line updated, and O15f drives a family's joined view in a real page
+  (title, sentence, Leave button) beside the company control O15.
+
+## Not done here
+- Family copy keeps "your work Kosmos" in the derived sentences, while FAMILY_SAY's hand-written ones avoid it. A
+  wording pass for a family's whole panel is a follow-up on #6251.

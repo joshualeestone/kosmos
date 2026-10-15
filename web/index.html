@@ -50790,7 +50790,7 @@ var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null }
    company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
 function plusOrgIn(org, text) {
   if (!(org && org.kind === 'family')) return text;
-  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || ''));
+  return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's");
 }
 function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy) return;
@@ -50837,7 +50837,7 @@ function plusOrgPaint() {
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
   // (#5791), and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ' + (st.org.name || 'your company') + '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
+  if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -50974,7 +50974,7 @@ function plusOrgLeaveArm(on) {
   const st = PLUS_ORG.state || {};
   document.getElementById('plus-org-leave-row').hidden = on;
   document.getElementById('plus-org-leave-ask').hidden = !on;
-  if (on) document.getElementById('plus-org-leave-sure').textContent = plusOrgIn(st.org, 'Leave ' + ((st.org && st.org.name) || 'your company') + '? This Kosmos stops reporting to it now. Backups already taken stay with your company, under its rules.');
+  if (on) document.getElementById('plus-org-leave-sure').textContent = 'Leave ' + ((st.org && st.org.name) || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '? This Kosmos stops reporting to it now. Backups already taken stay with your company, under its rules.');   // the org's own name is never rewritten
 }
 async function plusOrgLeave() {
   const yes = document.getElementById('plus-org-leave-yes');

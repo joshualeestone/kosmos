@@ -430,13 +430,14 @@ async function preview(code, opts) {
     const role = d ? cleanRole(d.role) : null;
     const consent = d ? cleanConsent(d.consent) : null;
     if (org && role && consent) return { ok: true, move: true, org, role, consent, served: servedHash(d), salt: servedSalt(d) };
-    return { ok: false, code: 'org_already_member', because: SAY.org_already_member };
+    // kosmos#6251 board review 1: in the org's words when the status read named it; unknown reads as a company's.
+    return { ok: false, code: 'org_already_member', because: sayCode('org_already_member', org && org.kind) };
   }
   if (!r.ok) return { ok: false, code: codeOf(r.because), because: sayFor(r.because, 'The code could not be checked through Kosmos+ just now. Nothing was joined; try again in a minute.', code.trim()) };
   const org = cleanOrg(r.data && r.data.org);
   const role = cleanRole(r.data && r.data.role);
   const consent = cleanConsent(r.data && r.data.consent);
-  if (!org || !role || !consent) return { ok: false, because: 'Your company\'s answer was not complete, so nothing was joined.' };
+  if (!org || !role || !consent) return { ok: false, because: inKind(org && org.kind, 'Your company\'s answer was not complete, so nothing was joined.') };
   return { ok: true, org, role, consent, served: servedHash(r.data), salt: servedSalt(r.data) };
 }
 
@@ -681,7 +682,7 @@ function setJoinUnknown(info, opts) {
   const file = path.join(storeRoot(opts), JOIN_UNKNOWN_FILE);
   try {
     if (!info) { fs.rmSync(file, { force: true }); return; }
-    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true, orgKind: info.orgKind === 'family' ? 'family' : null }) + '\n');
+    writeWhole(file, JSON.stringify({ at: new Date().toISOString(), consentHash: info.consentHash || null, move: info.move === true, orgId: typeof info.orgId === 'string' ? info.orgId : null, computerSalt: typeof info.computerSalt === 'string' ? info.computerSalt : null, printPinned: info.printPinned === true, orgKind: kindOf(info.orgKind) }) + '\n');
   } catch { /* best effort */ }
 }
 function joinUnknownAge(opts) { const j = joinUnknown(opts); const t = j ? Date.parse(j.at || '') : NaN; return Number.isFinite(t) && t <= Date.now() ? Date.now() - t : null; }

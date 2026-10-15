@@ -14,11 +14,14 @@ test('#6251: plusOrgIn words a sentence for a family exactly as the engine\'s in
   const src = fn('function plusOrgIn(org, text)');
   assert.ok(src.length > 50, 'plusOrgIn is gone');
   const plusOrgIn = new Function(src + '\nreturn plusOrgIn;')();
-  const s = "Leave Rivera? Backups already taken stay with your company, under its rules. Your company's terms.";
-  assert.equal(plusOrgIn({ kind: 'company' }, s), s);
-  assert.equal(plusOrgIn(null, s), s, 'no org reads as a company');
-  assert.equal(plusOrgIn({ kind: 'family' }, s), oe.inKind('family', s), 'the page and the engine word a family differently');
-  assert.ok(!/company/i.test(plusOrgIn({ kind: 'family' }, s)));
+  // Board review 1: every phrase either rewrites, so a rule added to one copy and not the other is seen.
+  for (const s of ["Backups already taken stay with your company, under its rules.", "Your company's terms.",
+    "This Kosmos already has its company's words accepted here.", 'Your company asks it to report nothing.']) {
+    assert.equal(plusOrgIn({ kind: 'company' }, s), s);
+    assert.equal(plusOrgIn(null, s), s, 'no org reads as a company');
+    assert.equal(plusOrgIn({ kind: 'family' }, s), oe.inKind('family', s), 'the page and the engine word a family differently: ' + s);
+    assert.ok(!/company/i.test(plusOrgIn({ kind: 'family' }, s)), s);
+  }
 });
 
 test('#6251: the joined panel\'s title and Leave button follow the record\'s kind, and /api/org reports it', () => {
@@ -26,7 +29,10 @@ test('#6251: the joined panel\'s title and Leave button follow the record\'s kin
   assert.match(paint, /plus-org-title'\)\.textContent = here && st\.org\.kind === 'family' \? 'Your family' : 'Your company'/);
   assert.match(paint, /plus-org-leave'\)\.textContent = here && st\.org\.kind === 'family' \? 'Leave family' : 'Leave company'/);
   assert.match(paint, /textContent = plusOrgIn\(st\.org, 'This Kosmos is your work Kosmos for '/, 'the joined line is not worded by kind');
-  assert.match(fn('function plusOrgLeaveArm(on)'), /textContent = plusOrgIn\(st\.org, 'Leave '/, 'the leave question is not worded by kind');
+  const arm = fn('function plusOrgLeaveArm(on)');
+  assert.match(arm, /\|\| plusOrgIn\(st\.org, 'your company'\)\) \+ plusOrgIn\(st\.org, '\? This Kosmos stops reporting/, 'the leave question is not worded by kind');
+  // Board review 1: the org's own name is never put through the rewrite.
+  assert.doesNotMatch(arm + paint, /plusOrgIn\([^)]*\.name/, 'an org name goes through plusOrgIn');
   assert.match(SERVER, /org: rec && rec\.org \? \{ name: rec\.org\.name, slug: rec\.org\.slug, kind: rec\.org\.kind === 'family' \? 'family' : 'company' \}/,
     '/api/org does not report the kind the page words by');
 });

@@ -142,7 +142,7 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
     const empty = await text(page, 'plus-org-msg');
     const posted16 = await sentSince(m16);
     chk(!c1.out && c1.opener && c1.code === '' && c1.focus === 'plus-org-open' && !c2.out && c2.opener && c2.code === ''
-        && empty === 'Type or paste the code your company sent you.' && posted16.length === 0,
+        && empty === 'Type or paste the code you were sent.' && posted16.length === 0,   // kosmos#6251: a company's or a family's
       'O16 Cancel and Escape close and clear, focus returns to the button; an empty code says what to do; nothing is posted', JSON.stringify({ c1, c2, empty, posted16 }));
 
     // O3: the company refuses the code at the preview: its sentence under the field, and no enroll.
@@ -308,6 +308,13 @@ const text = (pg, id) => pg.evaluate((i) => document.getElementById(i).textConte
         && /Your company asks it to report nothing\.$/.test(o15.noReports.say)
         && Object.values(o15).every((v) => JSON.stringify(v.buttons) === '["Leave company"]'),
       'O15 a joined Kosmos says which wait it is in, and offers only Leave company', JSON.stringify(o15));
+    // O15f (kosmos#6251): a family's joined view is about the family: its title, its Leave button and its sentences.
+    // CONTROL: O15 above, the same states for a company, still say company.
+    const o15f = await joinedAs({ org: { name: 'Rivera', slug: 'rivera', kind: 'family' }, reporting: false, reportingWait: 'noReports' });
+    const o15fTitle = await page.evaluate(() => document.getElementById('plus-org-title').textContent);
+    chk(/Your family asks it to report nothing\.$/.test(o15f.say) && !/company/i.test(o15f.say)
+        && JSON.stringify(o15f.buttons) === '["Leave family"]' && o15fTitle === 'Your family',
+      'O15f a family\'s joined Kosmos says family in its title, its sentence and its Leave button', JSON.stringify({ o15f, o15fTitle }));
     await page.evaluate(() => { PLUS_ORG.state = { enrolled: false, org: null, role: null }; plusOrgPaint(); });
 
     // O17 (review 1): on a FRESH page, before any click. (a) /api/org fails: still only the button. (b) This Kosmos is
