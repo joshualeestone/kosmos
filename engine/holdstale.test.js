@@ -124,7 +124,7 @@ test('#6209 part 3: held, not spent, while the owner has only just gone idle or 
   r = pass(id, rows, holdAt(3 * HOUR), { idleSeen: new Map([[REX, { since: NOW - 10000, at: NOW }]]) });
   assert.equal(r.sent.length, 0, 'typed into an owner that had only just gone idle');
   assert.equal(stored(id, n).holdStaleTold, undefined, 'a held line was marked told');
-  // Review 5: a busy (working) owner is held, nothing typed and nothing marked.
+  // A busy (working) owner is held, nothing typed and nothing marked.
   const busyRoster = BASE.map((c) => (c.sessionName === REX ? { ...c, state: 'working' } : c));
   r = pass(id, rows, holdAt(3 * HOUR), { roster: busyRoster });
   assert.equal(r.sent.length, 0, 'typed into a working owner');
