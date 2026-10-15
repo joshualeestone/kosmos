@@ -811,7 +811,8 @@ const COMMUNITY_STOPPED = 'The policy set for this Kosmos does not allow agents 
    refused: it only takes contact away. A policy read that throws refuses. */
 function federationPolicyStop() {
   try {
-    const c = require('./engine/orgpolicy').contactAllows();
+    const op = require('./engine/orgpolicy');
+    const c = op.contactAllows(op.inForce());   // fresh: a route, not a hot path
     return c.ok === true ? null : 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
@@ -9456,7 +9457,7 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
      (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
   const communityStopped = () => {
-    try { return require('./engine/orgpolicy').contactAllows().ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
+    try { const op = require('./engine/orgpolicy'); return op.contactAllows(op.inForce()).ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -17749,6 +17750,8 @@ const server = http.createServer(async (req, res) => {
             }
             if (opt && !files.recs.length && !answered) {
               const r = await chat.answerQuestionMenu(name, opt.n, roster, { question: cq.question, label: chose || opt.label, ...(cq.permission ? { identity: body.asked } : {}) });
+              // kosmos#6239: refused for quiet hours is the person's act, reported like a refused message.
+              if (!r.ok && r.quiet === true) { try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ } }
               if (!r.ok) { const e = new Error(r.because); e.status = 409; throw e; }
               qmenuAnswer = r;
             } else if (chose || askedGiven) {
@@ -19987,7 +19990,13 @@ const server = http.createServer(async (req, res) => {
         /* #3311: agents read this view before they post. In a shared project every
            post here leaves this computer, so it says so first, every time. */
         let shared = '';
-        try { if (fedseats.linkFor(id)) shared = '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n'; }
+        try {
+          if (fedseats.linkFor(id)) {
+            shared = fedseats.contactStopped()   // kosmos#6239: the room is closed under the policy, so it says that instead
+              ? '[kosmos] This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer.\n'
+              : '[kosmos] This room is shared with people outside this computer: every post here is sent to them. Do not post file paths, keys or anything private.\n';
+          }
+        }
         catch (err) { fedseats.logUnreadable(err); }
         /* #5800: who can release it and how. The time is roomHeld's until, an estimate (see there). */
         const onHold = held
@@ -22769,6 +22778,11 @@ function federateOut(projectId, delivery, operator) {
     return;
   }
   if (!link) return;
+  // kosmos#6239: the room is closed under the policy (fedseats.ensure lets its seat go), so the post stays here, said.
+  if (fedseats.contactStopped()) {
+    messages.roomNote(projectId, 'That post stayed on this computer: the policy set for this Kosmos does not allow agents to reach anyone outside this computer.');
+    return;
+  }
   const text = typeof delivery.text === 'string' ? delivery.text : '';
   if (!text.trim()) {
     // kosmos#4699: an own room's far side is the person's other computers, not "the external project".

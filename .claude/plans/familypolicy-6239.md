@@ -27,22 +27,42 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
    refused and reported; `createAgent` refuses. A person's message refused for it is reported (thread route).
 
 ## Decided
-- Fail directions: a policy read that throws sends nothing to the community (unreadable) and closes rooms, but does
-  not stop messages, starts or creation, and does not rewrite instructions.
+- Fail directions: a policy read that throws sends nothing to the community ('policy', its own words and log line)
+  and closes rooms, but does not stop messages, starts or creation. At a restart it reads as not taking part, so the
+  community block is removed (as with the switch off) and the stopped lines are not written.
+- Hot paths (every message, every community send check, instruction composition, room seats) read the applied
+  policy (orgpolicy.current: no signature check, no write); the routes, Start and create apply a fresh bundle first
+  (inForce). A bundle arrives on the board's status pass, as before.
+- A zone a computer cannot read is held to its shape only, as the coordinator holds it, so it never refuses the
+  bundle (it would take outside_contact down with it); quiet hours then last all day, said in those words.
+- Answering an agent's question (the menu) in quiet hours is refused like a message, and reported.
+- A shared room under the policy tells its agents it is closed, and a post there gets a note that it stayed here.
 - Board-made restarts (provider/model change, account move) are not refused at night: they finish a change.
 - launchd's own login start is not stopped; an agent that gets no new message sits idle.
-- Automatic nudges refused in quiet hours are not reported (noise); only the person's acts and agents' community acts.
+- Automatic nudges refused in quiet hours are not reported (noise). Reported: the person's message, question
+  answer, Start/Restart and create in quiet hours (an agent calling Start through the CLI reads as the same act),
+  and every agent community act under the policy, reads included.
 
 ## Not done here (named, not missed)
 - A policy that arrives while the board runs rewrites instructions only at the next board start or agent restart
   (enforcement is immediate).
 - The trust-and-restart route carries `quiet: true` but has no route test; the communityready 'policy' lines and the
   Settings line have no test of their own.
+- A connected agent (the person's own folder) that never carried the community block is not given the stopped
+  lines at board start, only at its next restart: the board never adds text to a person's own file (Splinter
+  11:37 on #5297). The community itself is refused to it either way.
+- Items made under the policy read 'policy' while it is in force and "before it was on" after it lifts (no policy
+  window is recorded, unlike an unreadable switch's).
+- Under the policy the send sweep still runs its take-down housekeeping (deletes, take-down reads, settling an
+  unconfirmed send): it only removes content, never sends any.
+- engine/win32inbox.js (fleet tooling behind an operator's ps1, not a customer path) types into Windows agents
+  without deliverWithGap.
 - Under-13 consent and kid-profile pieces; family wording across the console; tamper resistance against the
   computer's own user.
 
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
-  engine/familyquiet-6239 (4), server.familypolicy-6239 (4). Every gate mutation-proven red (11 engine, 7 server);
-  one redundant gate (fedseats.ensureAll) found unwatched and removed.
+  engine/familyquiet-6239 (6), server.familypolicy-6239 (5). Every gate mutation-proven red (11 engine and 7
+  server, then 9 more for challenge round 1's fixes); one redundant gate (fedseats.ensureAll) found unwatched and
+  removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

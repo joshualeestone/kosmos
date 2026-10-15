@@ -147,3 +147,25 @@ test('#6239: a person\'s message refused for quiet hours is reported; an automat
     board.restore();
   }
 });
+
+test('#6239: a shared room under the policy says it is closed, and a post there says it stayed on this computer', async () => {
+  const federation = require('./engine/federation');
+  const made = projects.create({ name: 'Book club', agents: [], roster: [], made: { via: 'screen', by: null } });
+  const pid = made && made.project ? made.project.id : made && made.id;
+  const born = (projects.readAll().find((p) => p.id === pid) || {}).createdAt;
+  federation.recordLink(pid, { role: 'member', edge_id: 'edge-6239', project_name: 'Book club', project_created: born });
+  const roomText = async () => {
+    const res = await fetch(base + '/api/project/' + encodeURIComponent(pid) + '/room?as=text', { headers: SCREEN });
+    return res.text();
+  };
+  apply({ outside_contact: { enabled: true } });
+  assert.match(await roomText(), /This room is shared with people outside this computer: every post here is sent to them/, 'CONTROL: the shared line while allowed');
+  apply({ outside_contact: { enabled: false } });
+  const closed = await roomText();
+  assert.match(closed, /This room is shared with another computer, but the policy set for this Kosmos keeps it closed: nothing posted here leaves this computer\./);
+  assert.doesNotMatch(closed, /every post here is sent to them/);
+  const r = await call('POST', '/api/project/' + encodeURIComponent(pid) + '/room', { text: 'Who has chapter three?' }, SCREEN);
+  assert.ok(r.status < 300, JSON.stringify(r.json));
+  assert.match(await roomText(), /That post stayed on this computer: the policy set for this Kosmos does not allow agents to reach anyone outside this computer\./);
+  apply({ outside_contact: { enabled: true } });
+});

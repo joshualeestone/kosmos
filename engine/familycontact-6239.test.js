@@ -84,21 +84,29 @@ test('#6239: under the policy the community reads as stopped by it, with its own
   } finally { communitysend.setSwitch(null); apply(OPEN); }
 });
 
-test('#6239: a policy read that throws sends nothing (unreadable), and the agent CLI is refused with the policy\'s words', async () => {
+test('#6239: a policy read that throws sends nothing, in its own words, and the agent CLI is refused with the policy\'s words', async () => {
   communitysend.setSwitch(() => ({ on: true, ok: true }));
   communitysend.setContact(() => { throw new Error('boom'); });
   try {
-    assert.equal(communitysend.switchState(), 'unreadable');
+    assert.equal(communitysend.switchState(), 'policy');
+    assert.match(communitysend.notOnWords('policy'), /^Kosmos cannot read the policy set for this Kosmos just now, so the Kosmos\+ community is off/);
+    assert.doesNotMatch(communitysend.notOnWords('policy'), /switch/, 'a policy fault read as the switch file');
   } finally { communitysend.setContact(null); }
+  const ae = require('./agentevents');
+  const real = ae.recordRefusal; const seen = [];
+  ae.recordRefusal = (ev) => { seen.push(ev); return { queued: true }; };
   try {
     apply(STOP);
     const r = await communitysend.agentCall('Scout', 'GET', '/agents/me/posts');
     assert.equal(r.ok, false);
     assert.match(r.because, /policy set for this Kosmos/);
+    const cr = require('./communityread');
+    assert.equal((await cr.read({ reader: 'Rex' })).ok, false);
+    assert.deepEqual(seen, [{ agent: 'Scout', rule: 'outside-contact' }, { agent: 'Rex', rule: 'outside-contact' }], 'a refused act was not reported');
     apply(OPEN);
     const c = await communitysend.agentCall('Scout', 'GET', '/agents/me/posts');
     assert.doesNotMatch(String(c.because), /policy set for this Kosmos/, 'CONTROL: allowed, refused for another reason or none');
-  } finally { communitysend.setSwitch(null); apply(OPEN); }
+  } finally { ae.recordRefusal = real; communitysend.setSwitch(null); apply(OPEN); }
 });
 
 test('#6239: participating() is false under the policy, with the switch file ON', () => {
