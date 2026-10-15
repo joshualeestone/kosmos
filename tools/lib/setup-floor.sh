@@ -2,7 +2,7 @@
 #
 # #4455 (merged as #6146, in 0.7.49) makes the installed app read-only. An installer that cannot lift that lock
 # removes bin/ on update, fails at the read-only app/, and cannot put the board back, on every install 0.7.49
-# touched. Installers from 0.7.42 on can lift it (#4449); 0.7.45 is the first such installer served on prod. So no Mac
+# touched. Installers cut after #4449 can lift it; 0.7.45 is the first such installer served on prod. So no Mac
 # pointer (dist/latest.json, dist/latest-staging.json) may name a build older than KOSMOS_SETUP_FLOOR (0.7.45,
 # stricter than needed, which fails closed), and no /setup or /setup-staging may be an installer that cannot lift
 # the lock (the marker, below). There is no override for real use (only the test knob below, which only lowers the
@@ -115,7 +115,7 @@ kosmos_setup_floor_pointer_ok() {
 # The installer's own bytes. A pointer's version says nothing about the /setup or /setup-staging served beside it,
 # and a hand rollback can commit an old one next to a new pointer. The switch (KOSMOS_READONLY_APP) and the lift came
 # in one change (card #4449, PR #4476), so an installer that names it can lift the read-only app; a string check, not
-# a proof. The measurements behind it are in .claude/plans/setupfloor-6149.md (0.7.42 on carry it; the prod /setup
+# a proof. The measurements behind it are in .claude/plans/setupfloor-6149.md (every installer cut after #4449 carries it; the prod /setup
 # served before 0.7.45 does not). The pointers' floor stays 0.7.45, the first PROD-served such installer.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
@@ -134,7 +134,7 @@ kosmos_setup_floor_installer_ok() {
   # verdict must be PRINTED, so a broken or shadowed awk refuses rather than passes.
   case "$(LC_ALL=C awk -v m="$KOSMOS_SETUP_FLOOR_MARKER" '!/^[[:space:]]*#/ && index($0, m) { print "found"; exit }' "$file" 2>/dev/null)" in
     found) ;;
-    *) echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before 0.7.42 (or one that dropped it) and would break every install a read-only build has touched -- refusing" >&2
+    *) echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer cut before #4449 (or one that dropped it) and would break every install a read-only build has touched -- refusing" >&2
        return 1 ;;
   esac
 }

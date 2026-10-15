@@ -191,9 +191,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
-installer that cannot lift a read-only app (none before 0.7.42 can; 0.7.45 is the first one served to people on
+installer that cannot lift a read-only app (none cut before #4449, which added the lift, can; 0.7.45 is the first one served to people on
 prod) removes `bin/` on update, fails at `app/`, and cannot put the board back, because `bin/kosmos` is gone. So a
-ROLLBACK of `/setup` or `/setup-staging` to a build older than 0.7.45 (the floor; 0.7.42 to 0.7.44 can lift too, the
+ROLLBACK of `/setup` or `/setup-staging` to a build older than 0.7.45 (the floor; some earlier installers can lift too, the
 floor is stricter on purpose) breaks the next update of every Mac and Linux install a later build has touched. The
 tools refuse it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and
 release.sh will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
@@ -225,8 +225,9 @@ the floor and the pointer-installer check (#5032) at once (tools/test-deploy-sit
 Then **commit and push the site** (release.sh's step 1a-floor reads its `origin/main`, and a deploy serves only what is
 committed), and deploy, since a run with no mode is a dry run. Usually that is `tools/deploy-site.sh --publish`: a
 refused deploy never ran, so live still serves the good set and the restored pointer equals it. Use `--promote` only
-when the restored prod pointer differs from the live one (live itself went below the floor, by a path around these
-tools). For staging, add `KOSMOS_STAGING_ROLLBACK=<the restored staging version>` on that one command when #4819
+when the restored prod pointer differs from the live one (live itself went below the floor). That cannot repair a
+rollback done in Vercel to an older deployment: it does not serve the newer tarball the deploy needs, so redeploy a
+current build from a fresh cut instead. For staging, add `KOSMOS_STAGING_ROLLBACK=<the restored staging version>` on that one command when #4819
 would refuse it: the restored pointer is older than live, the same version with different bytes, or live names no
 build. Restore both channels in the same commit when both are broken: each cut refuses on the other channel's set,
 and the deploy's export check reads both.

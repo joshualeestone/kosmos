@@ -2,9 +2,9 @@
 
 ## Why
 #4455 (merged as #6146, in 0.7.49, now served on prod and staging) makes the installed app read-only. An installer
-that cannot lift that lock (any before 0.7.42) removes bin/, fails at the read-only app/, and cannot put the board
+that cannot lift that lock (any cut before #4449) removes bin/, fails at the read-only app/, and cannot put the board
 back, on every Mac and Linux install that 0.7.49 touched. The rule's floor is 0.7.45, the first such installer served
-on prod: stricter than needed (0.7.42 to 0.7.44 can lift too), which fails closed. The rule ("never serve a /setup or /setup-staging older than 0.7.45") was prose
+on prod: stricter than needed (some earlier installers can lift too: 0.7.40's staging installer already had the lift), which fails closed. The rule ("never serve a /setup or /setup-staging older than 0.7.45") was prose
 only. Splinter asked for it in the promote and rollback path before Josh's go for 0.7.49's prod promote.
 
 ## What
@@ -53,7 +53,7 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 - No override for real use: the fix for an old build is a newer build, never a flag.
 
 ## Decided
-- The pointer floor is 0.7.45, the first PROD-served installer that can lift the lock; 0.7.42 to 0.7.44 can lift
+- The pointer floor is 0.7.45, the first PROD-served installer that can lift the lock; some earlier installers can lift
   too (the marker check accepts them), so 0.7.45 is stricter than needed, which fails closed.
 - The floor is unconditional, not "only once 0.7.49 is served": a rollback of staging to 0.7.47 would disarm a
   conditional floor, and the next step down would break installs that had 0.7.49.
@@ -114,8 +114,9 @@ deploy, promote or cut that is valid today is refused by this change.
   site deploy then stays refused until a fix lands. Checking inside site_commit_on_fresh_main before the push would
   close it; not done here, to keep tools/lib/site-deploy.sh out of this change.
 - release.sh's export check is tested by source (its order above vercel and its failure tail), not run: a cut
-  cannot reach step 8 in the suite. Step 1a-floor IS run, by two arms of tools.release-gate.test.js through the real
-  release.sh: the version-jump refusal, and a control that passes the own-installer and untouched-pair checks.
+  cannot reach step 8 in the suite. Step 1a-floor IS run through the real release.sh by four arms of
+  tools.release-gate.test.js: the version-jump refusal and its control, and an untouched staging pair without the
+  marker refused (real files on the sandbox site) and its current-installer control.
 - docs/staging-channel.md's manual fallback commits and pushes the pointer BEFORE its floor check (which runs on the
   export, before vercel): the same class as release.sh's step 7b. Never served (the site does not deploy main by
   itself, and site-autodeploy runs deploy-site.sh, which refuses it), but site deploys stay refused until fixed.

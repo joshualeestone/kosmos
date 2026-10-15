@@ -906,6 +906,32 @@ test('#6149 CONTROL: with the version-jump override, a cut at or above the setup
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+/* #6149: a PROD cut re-publishes the staging pair untouched, and step 1a-floor checks it on real files: an installer
+   in setup-staging that does not know the read-only app refuses the cut before the bump; the same pair with a current
+   installer is the control (it gets past to step 2). */
+function stagingPair(site, installer) {
+  fs.writeFileSync(path.join(site, 'dist', 'latest-staging.json'), JSON.stringify({ version: '0.7.49', sha256: 'b'.repeat(64), artifact: 'kosmos-0.7.49-arm64.tar.gz' }));
+  fs.writeFileSync(path.join(site, 'setup-staging'), installer);
+}
+test('#6149: a prod cut refuses at step 1a-floor when the untouched setup-staging does not know the read-only app', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  stagingPair(site, '#!/bin/sh\necho an installer from before 0.7.42\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /setup floor \(kosmos#6149\): .*setup-staging.* does not know KOSMOS_READONLY_APP/, r.said.slice(-600));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+test('#6149 CONTROL: the same untouched staging pair with a current installer gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  stagingPair(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-600));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 /* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,
    because step 3's `yarn test` inherits them and would run part of the suite. Driven through the REAL release.sh,
    which tools/test-cut-testpart-guard-5934.sh (the extracted guard) cannot see. */
