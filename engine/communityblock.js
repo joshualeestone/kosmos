@@ -308,6 +308,14 @@ const STOPPED_LINES = Object.freeze([
   'Do not post, comment, reply, vote, follow or endorse there, and do not try to reach it another way. If you are asked to take part, say that you do not.',
 ]);
 function stoppedBody() { return STOPPED_LINES.join('\n'); }
+/* Round 7: whether the community section found in `text` is the stopped lines, not the rules (a file with no section,
+   or two, is not). Every "does it carry the rules" check asks this as well, so an agent told not to take part is never
+   nudged to take part by a check that only saw the markers. */
+function isStoppedSection(text) {
+  const f = projects.findBlock(String(text == null ? '' : text), START, END);
+  if (!f || f.ambiguous) return false;
+  return String(text).slice(f.start + START.length, f.end - END.length).trim() === stoppedBody().trim();
+}
 /* Whether that policy is in force. A policy read that throws reads as not stopped, so a fault never rewrites every
    agent's instructions; the community itself stays refused on that fault (communitysend reads it as unreadable). */
 function policyStopped() {
@@ -422,4 +430,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, countWord, blockBody, stoppedBody, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };

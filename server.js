@@ -1231,7 +1231,9 @@ async function instructionRereadPass() {
       allowed: () => require('./engine/agentnudge').nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env),
       // The community line also needs Community and the Prompter (as the community turn); a working-rules line is the
       // person's own accepted refresh, so only live execution and the brake gate it.
-      sectionOn: (section) => section !== 'community' || (communityswitch.participating() === true && heartbeatSetting.read().on === true),
+      // kosmos#6239: under the policy the section says the agent does not take part, which is owed to it as much.
+      sectionOn: (section) => section !== 'community' || ((communityswitch.participating() === true || require('./engine/communityblock').policyStopped()) && heartbeatSetting.read().on === true),
+      communityStopped: () => require('./engine/communityblock').policyStopped(),
       recordSent: (session, at) => ir.recordSent(session, at),
       stoodDown: (session) => require('./engine/replynudge').stoodDown(session, projects.readAll()),   // the person's pause, as the other lines
       deliver: (session, line, r) => chat.deliverAutomaticAsync(session, line, r, undefined, undefined),
@@ -23926,7 +23928,7 @@ function start(port = PORT) {
           const cur = instructions.read(session);
           if (!cur || !cur.exists) return false;
           const f = projects.findBlock(cur.text || '', cb.START, cb.END);
-          return Boolean(f) && f.ambiguous !== true;
+          return Boolean(f) && f.ambiguous !== true && !cb.isStoppedSection(cur.text || '');   // kosmos#6239: not the stopped lines
         };
         const done = communityturn.tickOnce({
           allowed: () => liveExecution.liveExecutionAllowed(), env: process.env,

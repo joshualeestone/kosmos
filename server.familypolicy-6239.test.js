@@ -184,3 +184,11 @@ test('#6239: a shared room under the policy says it is closed, and a post there 
   } finally { fs.writeFileSync(orgpolicy.BUNDLE(), bundle); fs.writeFileSync(orgpolicy.APPLIED(), good); }
   apply({ outside_contact: { enabled: true } });
 });
+
+test('#6239: the community turn never treats the stopped lines as the rules (round 7, source pin)', () => {
+  const SRC = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const a = SRC.indexOf('const inCommunity = (session) => {');
+  assert.notEqual(a, -1, 'CONTROL: the community turn\'s check moved; find it');
+  const fn = SRC.slice(a, SRC.indexOf('};', a));
+  assert.match(fn, /return Boolean\(f\) && f\.ambiguous !== true && !cb\.isStoppedSection\(cur\.text \|\| ''\);/);
+});

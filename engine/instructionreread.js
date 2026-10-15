@@ -177,7 +177,7 @@ function oweEach(told, owed, section, now = Date.now()) {
 }
 
 /* The one line for an agent's debt, naming every section it owes. */
-function lineFor(sections) {
+function lineFor(sections, { communityStopped = false } = {}) {
   const named = (Array.isArray(sections) ? sections : []).filter((s) => Object.prototype.hasOwnProperty.call(SECTIONS, s));
   if (!named.length) return null;
   const list = named.map((s) => SECTIONS[s]);
@@ -190,10 +190,13 @@ function lineFor(sections) {
      this notice, and the new community text applies the next time the agent takes part. It names no community duty, so
      it sends nobody to check one. No double quotes in the text added here (the section names carry them by design): the #5304 test
      reads quoted text as section headings. */
-  const community = named.includes('community')
-    ? 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
-      + 'its new text applies the next time you take part. '
-    : '';
+  /* kosmos#6239: under a policy that keeps agents out of the community, the section now says the agent does not take
+     part, so the line says that, not "the next time you take part". */
+  const community = !named.includes('community') ? ''
+    : communityStopped === true
+      ? 'Its Kosmos+ community section now says you do not take part in the community: from now on, do not. '
+      : 'Do not take part in the Kosmos+ community now because of this notice, even with a daily minimum still open there; '
+        + 'its new text applies the next time you take part. ';
   return 'Kosmos here: your instructions file has changed since you started. Read ' + what + ' in it now. '
     + 'What it says now replaces anything you read there when you started. '
     + community
@@ -263,7 +266,9 @@ async function passOnce(o) {
       let ok = false;
       try { ok = o.allowed() === true; } catch { ok = false; }
       if (!ok) break;
-      const line = lineFor(on);
+      let stoppedNow = false;
+      if (typeof o.communityStopped === 'function') { try { stoppedNow = o.communityStopped() === true; } catch { stoppedNow = false; } }
+      const line = lineFor(on, { communityStopped: stoppedNow });
       /* The pass awaits each send, so the reading above can be seconds old: read the roster again and check THIS card
          is still idle just before typing (and hand chat that fresh roster). */
       if (tried >= (Number.isInteger(o.max) ? o.max : MAX_PER_PASS)) break;
