@@ -10748,8 +10748,9 @@ const server = http.createServer(async (req, res) => {
               return;
             }
           }
-          /* kosmos#6239: a family joins only after its words were shown and accepted on this screen (the page says so
-             with wordsShown); checked before the ticket is spent, so the person can read and accept them. */
+          /* kosmos#6239: a family joins only when the screen's request says its words were shown and accepted (the page
+             sends wordsShown after showing them); checked before the ticket is spent, so the person can read and accept.
+             As strong as isViaScreen above, as #5791's ticket is: it cannot prove a parent rather than a child pressed. */
           if (body.accepted === true && ORG_TICKET && ORG_TICKET.family === true && body.wordsShown !== true) {
             sendJson(res, 200, { ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent or guardian reads and accepts its words on this screen. Nothing was joined.' });
             return;

@@ -19524,11 +19524,11 @@ window.kosmosMeasureScrollbarWidth();
           </div>
           <!-- kosmos#6239 (Josh 10-15 10:42): a FAMILY account's words are read and accepted here before this computer
                joins; a company joins with none (#5791). Filled from the family's own words (the coordinator's). -->
-          <div id="plus-org-family" hidden>
-            <p class="fhint" id="plus-org-family-lead"></p>
+          <div id="plus-org-family" role="group" aria-labelledby="plus-org-family-lead" hidden>
+            <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
             <p class="fhint">What the family will see from this computer:</p>
             <ul class="fhint" id="plus-org-family-reports"></ul>
-            <p class="fhint">Who can see it:</p>
+            <p class="fhint" id="plus-org-family-readers-head">Who can see it:</p>
             <ul class="fhint" id="plus-org-family-readers"></ul>
             <p class="fhint" id="plus-org-family-never"></p>
             <div class="frow">
@@ -50877,6 +50877,7 @@ async function plusOrgConnect() {
   const msg = document.getElementById('plus-org-msg');
   const code = document.getElementById('plus-org-code').value.trim();
   if (PLUS_ORG.busy) return;   // one at a time; a second press leaves the message as it is (review 29)
+  plusOrgFamilyHide();   // kosmos#6239 round 1: no earlier family's words stay up over a new code
   msg.textContent = '';
   if (!code) { msg.textContent = 'Type or paste the code your company sent you.'; return; }
   const btn = document.getElementById('plus-org-check');
@@ -50912,14 +50913,16 @@ function plusOrgFamilyShow(code, p) {
     ul.replaceChildren();
     for (const line of Array.isArray(lines) ? lines : []) { const li = document.createElement('li'); li.textContent = String(line); ul.append(li); }
   };
-  const name = p.org && p.org.name ? p.org.name : 'This family';
-  document.getElementById('plus-org-family-lead').textContent = name + ' is a family account. As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  const lead = p.org && p.org.name ? p.org.name + ' is a family account.' : 'This is a family account.';
+  document.getElementById('plus-org-family-lead').textContent = lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
   fill('plus-org-family-reports', c.reports);
   fill('plus-org-family-readers', c.readers);
+  document.getElementById('plus-org-family-readers-head').hidden = !(Array.isArray(c.readers) && c.readers.length);
   const never = Array.isArray(c.never) && c.never.length ? 'Never sent: ' + c.never.join(', ') + '.' : '';
   document.getElementById('plus-org-family-never').textContent = never;
   document.getElementById('plus-org-family').hidden = false;
-  document.getElementById('plus-org-family-accept').focus();
+  // Round 1: the words first, not the Accept button, so a screen reader reads them before anything can be pressed.
+  document.getElementById('plus-org-family-lead').focus();
 }
 function plusOrgFamilyHide() {
   PLUS_ORG_FAMILY = null;
@@ -50938,6 +50941,8 @@ async function plusOrgFamilyAccept() {
     if (!r.ok) {
       msg.textContent = r.because || 'Connecting did not go through.';
       if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
+      // Round 1: a ticket that ran out cannot be accepted again: Connect fetches the words afresh.
+      if (r.code === 'org_ticket') { plusOrgFamilyHide(); document.getElementById('plus-org-check').focus(); }
       return;
     }
     plusOrgFamilyHide();
@@ -50950,7 +50955,14 @@ async function plusOrgFamilyAccept() {
   if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
 document.getElementById('plus-org-family-accept').addEventListener('click', plusOrgFamilyAccept);
-document.getElementById('plus-org-family-no').addEventListener('click', () => { plusOrgFamilyHide(); document.getElementById('plus-org-msg').textContent = 'Nothing was joined.'; });
+/* Not now, and Escape inside the words: nothing is joined, and focus goes back to the code field (round 1). */
+function plusOrgFamilyNotNow() {
+  plusOrgFamilyHide();
+  document.getElementById('plus-org-msg').textContent = 'Nothing was joined.';
+  document.getElementById('plus-org-code').focus();
+}
+document.getElementById('plus-org-family-no').addEventListener('click', plusOrgFamilyNotNow);
+document.getElementById('plus-org-family').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); plusOrgFamilyNotNow(); } });
 function plusOrgCancel() {
   PLUS_ORG.open = false;
   plusOrgFamilyHide();   // kosmos#6239
@@ -50994,7 +51006,7 @@ async function plusOrgLeave() {
 }
 document.getElementById('plus-org-check').addEventListener('click', plusOrgConnect);
 document.getElementById('plus-org-cancel').addEventListener('click', plusOrgCancel);
-document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
+document.getElementById('plus-org-open').addEventListener('click', () => { PLUS_ORG.open = true; plusOrgFamilyHide(); plusOrgPaint(); document.getElementById('plus-org-code').focus(); });
 document.getElementById('plus-org-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); plusOrgConnect(); } else if (e.key === 'Escape') { e.preventDefault(); plusOrgCancel(); } });
 document.getElementById('plus-org-leave').addEventListener('click', () => plusOrgLeaveArm(true));
 document.getElementById('plus-org-leave-no').addEventListener('click', () => plusOrgLeaveArm(false));

@@ -36,7 +36,7 @@ function harness(answer) {
 const PREVIEW = { ok: true, ticket: 't1', org: { name: 'The Rivera family', kind: 'family' }, role: 'member',
   consent: { reports: ['line one <b>not html</b>', 'line two'], readers: ['the family\'s admins'], never: ['keys and passwords'] } };
 
-test('#6239: the family\'s words are shown as text, line by line, with Accept and join focused', () => {
+test('#6239: the family\'s words are shown as text, line by line, with focus on the words', () => {
   const h = harness({ ok: true });
   h.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
   assert.equal(h.el('plus-org-family').hidden, false, 'the words are not shown');
@@ -44,7 +44,14 @@ test('#6239: the family\'s words are shown as text, line by line, with Accept an
   assert.deepEqual(h.el('plus-org-family-readers').children.map((c) => c.textContent), PREVIEW.consent.readers);
   assert.equal(h.el('plus-org-family-never').textContent, 'Never sent: keys and passwords.');
   assert.match(h.el('plus-org-family-lead').textContent, /^The Rivera family is a family account\. As this child.s parent or guardian, read what joining shares, then accept to connect this computer\.$/);
-  assert.equal(h.el('plus-org-family-accept').focused, true);
+  // Round 1: focus goes to the words, never to Accept first (a screen reader reads them before anything is pressed).
+  assert.equal(h.el('plus-org-family-lead').focused, true, 'focus did not go to the words');
+  assert.equal(h.el('plus-org-family-accept').focused, false, 'focus went to Accept before the words');
+  assert.equal(h.el('plus-org-family-readers-head').hidden, false);
+  const bare = harness({ ok: true });
+  bare.api.plusOrgFamilyShow('X', { ...PREVIEW, org: { kind: 'family' }, consent: { reports: ['a'], readers: [], never: [] } });
+  assert.match(bare.el('plus-org-family-lead').textContent, /^This is a family account\. /);
+  assert.equal(bare.el('plus-org-family-readers-head').hidden, true, 'a "Who can see it" heading over nothing');
 });
 
 test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusal is said and nothing is painted as joined', async () => {
@@ -60,6 +67,11 @@ test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusa
   await no.api.plusOrgFamilyAccept();
   assert.equal(no.el('plus-org-msg').textContent, 'That code has already been used.');
   assert.equal(no.ctx.PLUS_ORG.state, null, 'a refused join was painted as joined');
+  assert.equal(no.el('plus-org-family').hidden, false, 'CONTROL: an ordinary refusal leaves the words up to try again');
+  const late = harness({ ok: false, code: 'org_ticket', because: 'Nothing was joined. Press Connect Account again.' });
+  late.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
+  await late.api.plusOrgFamilyAccept();
+  assert.equal(late.el('plus-org-family').hidden, true, 'a ticket that ran out left the words up to press again');
   // A member moving computers: no code, the same wordsShown.
   const mv = harness({ ok: true });
   mv.api.plusOrgFamilyShow('X', { ...PREVIEW, move: true });
@@ -76,5 +88,11 @@ test('#6239: Connect stops after a family preview to show the words; Cancel and 
   assert.doesNotMatch(c, /wordsShown/, 'the company path claims words were shown');
   assert.match(fn('function plusOrgCancel()'), /plusOrgFamilyHide\(\);/);
   assert.match(PAGE, /getElementById\('plus-org-family-accept'\)\.addEventListener\('click', plusOrgFamilyAccept\)/);
-  assert.match(PAGE, /getElementById\('plus-org-family-no'\)\.addEventListener\('click', \(\) => \{ plusOrgFamilyHide\(\); /);
+  assert.match(PAGE, /getElementById\('plus-org-family-no'\)\.addEventListener\('click', plusOrgFamilyNotNow\)/);
+  assert.match(PAGE, /getElementById\('plus-org-family'\)\.addEventListener\('keydown', \(e\) => \{ if \(e\.key === 'Escape'\) \{ e\.preventDefault\(\); plusOrgFamilyNotNow\(\); \} \}\)/);
+  const nn = fn('function plusOrgFamilyNotNow()');
+  assert.match(nn, /plusOrgFamilyHide\(\);[\s\S]*getElementById\('plus-org-code'\)\.focus\(\)/, 'Not now leaves focus nowhere');
+  assert.match(c, /if \(PLUS_ORG\.busy\) return;[^\n]*\n  plusOrgFamilyHide\(\);/, 'an earlier family\'s words stay up over a new code');
+  assert.match(PAGE, /getElementById\('plus-org-open'\)\.addEventListener\('click', \(\) => \{ PLUS_ORG\.open = true; plusOrgFamilyHide\(\);/);
+  assert.match(PAGE, /<div id="plus-org-family" role="group" aria-labelledby="plus-org-family-lead" hidden>/);
 });

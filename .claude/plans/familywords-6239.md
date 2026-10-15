@@ -21,7 +21,19 @@ familykind-6239 (org kind, a family's words, a family joins only with wordsShown
   guide} (+ internal) by createdbeacon-3038.test.js, nothing about a person (Josh 10:45).
 - One kid per computer in v1 (a board has one person, engine/you.js).
 
+## Round 1 (opus) fixes
+- Focus goes to the family's words (the lead, `tabindex="-1"`, the panel a labelled group), never to Accept first;
+  Not now and Escape inside the panel return focus to the code field; a new code, or reopening, closes old words; a
+  ticket that ran out closes them; copy with no org name or no readers no longer reads oddly.
+- `reacceptWords` copied its caller's options into its enroll, so an automatic accept could say the words were shown:
+  it now sets `wordsShown: false` (found by the new test; mutation-proven, as is the no-hash guard).
+- org_family_words_unseen has its own sentence (SAY).
+
 ## Not done here
+- What `wordsShown` proves: the screen's request says the words were shown, as strong as isViaScreen (no agent token,
+  a same-origin header), the same as #5791's ticket. A local process that leaves its token off could claim it. And it
+  cannot tell a parent from a child at the keyboard. Both for Josh and the lawyer before anything public.
+- The joined view (GET /api/org) does not carry the kind yet; #6251 needs it for the family wording.
 - When a family's words change, the board's automatic re-accept (reacceptWords) cannot accept for the parent (the
   coordinator refuses it without wordsShown), so reports stop until a parent reads them: Settings has no screen for
   that yet (#5791 removed the review screen). Fails closed; a follow-up.
@@ -29,6 +41,6 @@ familykind-6239 (org kind, a family's words, a family joins only with wordsShown
 - No browser check drives the family panel (a page test runs its functions against a stand-in document).
 
 ## Validation
-- New: engine/familywords-6239 (2), server.familywords-6239 (2), web.familywords-6239 (3); every change
-  mutation-proven red (6 engine/server, 2 page). Org-related neighbour tests: 499 pass (two pins of the org shape
+- New: engine/familywords-6239 (3), server.familywords-6239 (2), web.familywords-6239 (3); every change
+  mutation-proven red (6 engine/server and 2 page, then 2 more in round 1). Org-related neighbour tests: 499 pass (two pins of the org shape
   now include its kind).
