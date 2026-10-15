@@ -820,8 +820,8 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   const r = v.workExcused(summary, claude, hist(rows), NOW);
   assert.equal(r.state, 'worked', 'the idle night still counted as work: ' + JSON.stringify(r));
   // The heartbeat before the summary counts to its cap (29 min after the summary), the trailing working its 30: about an
-  // hour, pinned on both sides so a different cap is seen.
-  assert.ok(r.workMinutes >= 55 && r.workMinutes <= 61, 'not about two 30-minute caps of work: ' + r.workMinutes);
+  // hour (2 x 30 less under a minute), pinned to the minute so a cap off by one is seen.
+  assert.ok(r.workMinutes >= 59 && r.workMinutes <= 60, 'not about two 30-minute caps of work: ' + r.workMinutes);
   // Review 5: only Claude is capped; every other runner (including Antigravity, whose heartbeat depends on platform and
   // hooks) keeps the old reading, so the same night stays stale for each.
   for (const runner of ['antigravity', 'gemini', 'muse']) {
