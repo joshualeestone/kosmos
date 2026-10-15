@@ -1120,6 +1120,14 @@ test('#5636 F7a: the log writes only where git ignores it, and never into a hard
       front.logTurn(ws, 'negated', 'B3');
       assert.ok(!fsx.existsSync(front.turnLogFile(ws)), neg + ' un-ignores it, so nothing is written');
     }
+    // A .gitignore that is a link (to a file naming both) is refused: nothing written.
+    const realIg = pathx.join(ws, 'real-gitignore');
+    fsx.writeFileSync(realIg, 'muse-turns.log\nmuse-turns.log.1\n');
+    fsx.rmSync(ig);
+    fsx.symlinkSync(realIg, ig);
+    front.logTurn(ws, 'linked ignore', 'B1');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'a linked .gitignore is not trusted');
+    fsx.unlinkSync(ig);
     // One that names only the main file: the .1 copy would not be ignored, so nothing is written.
     fsx.writeFileSync(ig, 'muse-turns.log\n');
     front.logTurn(ws, 'only one name', 'B2');

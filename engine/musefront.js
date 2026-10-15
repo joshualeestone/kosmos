@@ -197,7 +197,10 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
    notes) is over chat.MAX_TEXT less the room for a kept note, so the line also records envChars, one per spill (that post's envelope through its
    first "]", read on the post's own line, so a digest's header is not counted): envChars + spillBytes near or over 10000 is the shared rule, by design; well under it would be
    something Meta-specific. (The board also counts a reply's quote and any catch-up or held-posts note, which
-   chars shows but envChars does not, so allow a few hundred characters of slack before calling it Meta-specific.)
+   chars shows but envChars does not, so allow a few hundred characters of slack before calling it Meta-specific.
+   Bytes only bound characters from above: a post in non-Latin script or emoji can be well over 10000 bytes and well
+   under 10000 characters, so a high spillBytes on such a post proves nothing; open the saved copy. A workspace path
+   holding ")" ends the match early, so its size reads null, the same as a missing copy.)
    The path comes from the line, which a colleague can write, so it is looked at only when it is exactly a file
    directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
 const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
