@@ -140,13 +140,18 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
 test('#6178 two accounts on one folder: the sibling answer sends one, with that folder\'s agents', () => {
   const { statusForSibling } = require('./server');
   assert.equal(typeof statusForSibling, 'function', 'statusForSibling is not exported for this test');
+  /* A real card (fixture-discipline: test-support/fleet), with the two fields this cut reads set on it. */
+  const fleet = require('./test-support/fleet');
+  const board = fleet.install([fleet.agent('s', { state: 'idle' })]);
+  const real = JSON.parse(JSON.stringify(board.agents[0]));
+  board.restore();
   const full = JSON.stringify({
     checkedAt: new Date().toISOString(),
     accountsWeekly: [
       { dir: '/x/.claude', email: 'one@example.com', weekly: null, blocked: null },
       { dir: '/x/.claude', email: 'two@example.com', weekly: null, blocked: null },
     ],
-    agents: [{ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', account: { dir: '/x/.claude' } }],
+    agents: [Object.assign(real, { runner: 'claude', account: { dir: '/x/.claude' } })],
   });
   const sib = JSON.parse(statusForSibling(full, 'same-site'));
   assert.deepEqual(Object.keys(JSON.parse(statusForSibling(full, 'cross-site'))), ['agents'], 'CONTROL: a cross-site read got the accounts');
