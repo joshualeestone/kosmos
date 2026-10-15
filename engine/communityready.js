@@ -30,6 +30,7 @@ const UNCONFIRMED_WORDS = 'sent, but Kosmos could not confirm it arrived';
 /* Why a line was held (chat.deliverAutomatic's heldBy / heldFor). A reason outside this set gets TURN_WORDS.held. */
 const HELD_WORDS = Object.freeze({
   menu: 'not sent: a question on its screen was waiting for an answer',
+  input: 'not sent: its input box held text that had not been sent',   // #6249
   limit: 'not sent: it had reached its provider\'s usage limit',
   quota: 'not sent: the Google quota its provider shares was used up',
   cap: 'not sent: your person\'s limit on how many agents work at once was reached',

@@ -17884,6 +17884,8 @@ const server = http.createServer(async (req, res) => {
               ? 'held: nothing was typed while the Gemini agents are at the limit set for working at once, so nothing was kept'
               : delivery.heldBy === 'menu'   // #5743
                 ? 'held: nothing was typed while it waits for an answer on its screen, so nothing was kept'
+              : delivery.heldBy === 'input'   // #6249
+                ? 'held: nothing was typed while its input box holds text not yet sent, so nothing was kept'
                 : delivery.heldFor === 'signin'   // #5948
                   ? 'held: nothing was typed while it is signed out, so nothing was kept'
                 : delivery.heldBy === 'limit'   // #5805
