@@ -519,8 +519,8 @@
       "shownIn": "0.7.50"
     },
     {
-      "title": "Plan limits in Settings",
-      "line": "Settings, AI Models now shows a Claude account's 5-hour limit, and a ChatGPT sign-in's limits as Codex last reported them.",
+      "title": "ChatGPT plan limits in Settings",
+      "line": "Settings, AI Models now shows a ChatGPT sign-in's limits as Codex last reported them, one meter per limit.",
       "icon": "spark",
       "rank": 2,
       "since": "0.7.51",
@@ -528,9 +528,9 @@
     },
     {
       "title": "Accounts on your other computers",
-      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts, weekly usage and agents.",
+      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts and the agents on them.",
       "icon": "list",
-      "rank": 4,
+      "rank": 5,
       "since": "0.7.51",
       "status": "pending"
     },
@@ -538,7 +538,7 @@
       "title": "Stop an account move",
       "line": "A move of several agents to another account can now be stopped; agents it had not reached keep their old account.",
       "icon": "swarm",
-      "rank": 5,
+      "rank": 7,
       "since": "0.7.51",
       "status": "pending"
     },
@@ -546,15 +546,29 @@
       "title": "Every permission choice is a button",
       "line": "A Claude agent's permission question shows every choice as a button; one that changes what it may do from now on needs a second press.",
       "icon": "shield",
+      "rank": 4,
+      "since": "0.7.51",
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "title": "An agent needs no project",
+      "line": "Agents do not need a project: one taken off its last project is no longer flagged, and a new team's Project is optional.",
+      "icon": "list",
       "rank": 6,
       "since": "0.7.51",
       "status": "pending"
     },
     {
-      "title": "An agent needs no project",
-      "line": "Agents do not need a project: the No project tile on the Agents board is gone, and a new team's Project is optional.",
-      "icon": "list",
-      "rank": 8,
+      "title": "Claude's 5-hour limit in Settings",
+      "line": "Settings, AI Models now shows a Claude account's 5-hour limit under its weekly one: how much is used and when it resets.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 3,
       "since": "0.7.51",
       "status": "pending"
     }
