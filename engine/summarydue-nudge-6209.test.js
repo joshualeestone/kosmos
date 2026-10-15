@@ -146,7 +146,7 @@ test('#6209 review 1: no history, an empty one, or a state carried across a cras
   const worked = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 7 * H), { state: 'idle', at: W0 + 7 * H + 60000 }];
   const p = nudge.plan({}, summary, nudge.workedSinceMs(worked, W0, NOW), null, NOW, null);
   assert.equal(p.act, 'nudge');
-  assert.match(nudge.nudgeText(summary, NOW, p.workedMs), /reported about 6 hours of work since/);
+  assert.match(nudge.nudgeText(summary, NOW, p.workedMs), /about 6 hours of work has been reported on this card since/);
 });
 
 test('#6209 review 1: the on-disk record stops a repeat after a restart; failed deliveries retry and then give up; paused and channel cards are skipped', () => {
@@ -226,11 +226,18 @@ test('#6209 review 4: a gap between working reports counts at most WORK_GAP_CAP_
   assert.equal(nudge.plan({}, { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() }, w, null, NOW, null).act, 'none');
 });
 
-test('#6209 review 5: a new session starts the count again; the rhythm is the threshold (3.5 h not told, 4.5 h told)', () => {
+test('#6209 reviews 5 and 6: work counts across a restart (the summary is the card\'s); the rhythm is the threshold (3.5 h not told, 4.5 h told)', () => {
   const W0 = NOW - 24 * H;
   const summary = { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() };
   const restarted = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 6 * H), { state: 'started', at: W0 + 7 * H }, { state: 'idle', at: W0 + 7 * H + 60000 }];
-  assert.equal(nudge.workedSinceMs(restarted, W0, NOW), 0, 'work from a session before a restart was counted');
+  assert.equal(nudge.workedSinceMs(restarted, W0, NOW), 5.5 * H, 'a restart wiped the work reported on the card');
+  // A card whose role writes no summaries is never told, even with a stale file and the work.
+  const [setup] = cardsFor([['sumsetup', 'idle']]);
+  const r = run([{ ...setup, role: [...require('../engine/roles').NO_SUMMARY][0] }], { [setup.sessionName]: folderWith('sumsetup', 6 * H) }, { [setup.sessionName]: beats(NOW - 9 * H, NOW - H) });
+  assert.deepEqual(r.sent, [], 'a NO_SUMMARY role was told to write summaries');
+  const ctl = run([setup], { [setup.sessionName]: folderWith('sumsetup', 6 * H) }, { [setup.sessionName]: beats(NOW - 9 * H, NOW - H) });
+  assert.equal(ctl.sent.length, 1, 'CONTROL: the same card without the role is told');
+  assert.match(ctl.sent[0].text || JSON.stringify(ctl.sent[0]), /reported on this card/);
   const under = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 3.5 * H)];
   const over = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 4.5 * H)];
   assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(under, W0, NOW), null, NOW, null).act, 'none', '3.5 hours of work was told');
