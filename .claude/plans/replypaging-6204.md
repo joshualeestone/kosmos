@@ -10,7 +10,8 @@ were never reached.
 - Each post's mark keeps `threads`: per comment id the read did not finish, `{ cursor, pos, at, id, waited }`: the
   cursor to go on from, how many replies come before it, the last reply read, and how many reads in a row the thread
   got no page. Checked as read back (`threadsOf`); at most
-  THREADS_MAX (100) per post, this read's threads first.
+  THREADS_MAX per post (COMMENTS_ASKED x (1 + REPLY_PAGES_MAX) = 310, the most comments one read can see, so this
+  read's places always fit; review 4), this read's threads first.
 - Round 2 starts a comment's paging at its saved cursor (`pagingOf`). Replies before it are counted (`readOf`) so the
   "N replies were not reached" numbers stay right.
 - Where a thread goes on next time (`placesOf`): a page holding a new reply the 30-cap left unshown is read again; else
@@ -41,6 +42,14 @@ were never reached.
 - Iteration 2: a failed page whose hold is spent (MARK_HOLD_MAX) lets the mark pass its thread, so replies on it may be
   missed when it recovers. Same as main, bounded on purpose by #6201 review 10, and said as "may be missed".
 
+- Iteration 4: while a long thread is cut, the mark is held at its last read reply, so new items shown on that post
+  meanwhile wait in "seen". SEEN_MAX (700) overflows only if one post shows more than 700 new items (at most 30 a read,
+  so 23 or more reads) while a thread holds its mark, after which an item can be shown twice. Rejected fix: a per-thread
+  floor instead of a mark cap (a larger redesign of how "new" is judged). Would change my mind: a busy post measured
+  holding its mark that long.
+- `threadsOf` refuses a non-id key; a mutation shows that is redundant (such a place matches no comment and is dropped
+  at the next write), kept as cheap defence.
+
 ## Weakest premise
 That the service's replies cursor is a durable keyset position (valid across reads, and still reaching replies added
 after it). The feed cursor is (encode_token); the replies cursor is assumed the same. If not, a refused cursor falls
@@ -57,6 +66,7 @@ service.
 - A saved place on an older comment not reached caps the mark (its tail is still shown), and is dropped once the
   comment is gone.
 - A cursor cycle A, B, A is read twice and said.
+- THREADS_MAX covers one read's comments; spoiled places (bad cursor, pos, at, id, null) are not used, a good one is.
 - A changed cursor spelling: every saved place refused, nothing lost.
 - A cursor naming its own page: read once, said.
 - Mutations (17): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
