@@ -742,11 +742,14 @@ enum QuitBehavior {
     static let closingWindowQuits = false
 }
 
-// Logs to a file rather than relying on stdout, which `open -a` detaches
-// from the launching shell (testing-only path; the real app has no need
-// for this once it's driven by the installer rather than by hand).
+// #5481: every line goes to macOS's unified log (NSLog), which is the only record on a person's Mac: the file below
+// is the test harness's ($KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log), and on a real Mac that folder does not
+// exist, so before this every native diagnostic was written nowhere. Read it with:
+//   log show --last 1d --predicate 'process == "Kosmos"'
+// The file stays for the tests, which set KOSMOS_APP_LOG and read it.
 let logFilePath = ProcessInfo.processInfo.environment["KOSMOS_APP_LOG"] ?? "/tmp/kosmos-app-test/app.log"
 func logLine(_ s: String) {
+    NSLog("%@", s)
     let line = s + "\n"
     if let data = line.data(using: .utf8) {
         if let fh = FileHandle(forWritingAtPath: logFilePath) {
@@ -1908,11 +1911,9 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             }
             let said = "voice: ended, " + error.domain + " " + String(error.code)
                 + (under.map { ", under " + $0.domain + " " + String($0.code) } ?? "") + " -> " + (reason.isEmpty ? "(our own stop)" : reason)
-            /* #5311: logLine writes to the test harness's log only when /tmp/kosmos-app-test exists, so on a person's
-               computer this error was recorded nowhere. NSLog reaches the unified log, every time (the installed app's
-               process is "Kosmos": log show --predicate 'process == "Kosmos"'). Domain and code only, never words. */
-            NSLog("%@", said)
-            if !reason.isEmpty {
+            /* #5311: this must reach the unified log every time, our own stop included. Domain and code only, never
+               words. #5481: logLine now writes the unified log itself, so it is logged once either way. */
+            if reason.isEmpty { NSLog("%@", said) } else {
                 logLine(said)
                 emit(["kind": "error", "reason": reason])
             }
