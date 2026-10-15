@@ -447,6 +447,7 @@ test('#4569 review round 5: a stop note Muse refuses as busy (the stopped turn s
   await within(h.f.drained(), 'the retried note never finished');
   const notes = h.calls.filter((c) => /^\[Kosmos: your operator asked you to stop/.test(c.prompt));
   assert.equal(notes.length, 3, 'the note was not tried again after a busy answer');
+  assert.equal(h.logged.filter((l) => /^\[Kosmos: your operator asked you to stop/.test(l.t)).length, 1, '#5636: a retried note is one log line');
   assert.ok(!h.out().includes(run.BUSY), 'a busy answer the retry recovered from was printed as a failure');
   assert.match(h.out(), /Stopped\./);
   // CONTROL: an ordinary message refused as busy is not retried (only a stop note is).
@@ -926,6 +927,22 @@ test('#6065 N1: a spilled room post records its word count, from the real spill 
   assert.equal(r.kind, 'background');
   assert.equal(r.chars, spilled.length, 'UTF-16 length, the measure chat.MAX_TEXT uses');
   assert.equal(front.turnRecord('[background from your colleague Mona in room x] short', 'T').spillWords, null, 'control');
+});
+
+test('#6065 N1: a spill records the size of its saved copy, from the agent\'s own Inbox', () => {
+  const dir = mkTemp('museturns-inbox-');
+  const inbox = pathx.join(dir, 'Inbox');
+  fsx.mkdirSync(inbox);
+  const file = pathx.join(inbox, '7.txt');
+  const long = Array.from({ length: 2400 }, (_, i) => 'word' + i).join(' ') + '.';
+  fsx.writeFileSync(file, long + '\n');
+  const line = '[background from your colleague Mona in room x] ' + require('./messages').spillLine(long, file);
+  const r = front.turnRecord(line, 'T');
+  assert.deepEqual(r.spillBytes, [Buffer.byteLength(long + '\n')]);
+  assert.ok(r.spillBytes[0] > 10000, 'over the limit: the spill was by design');
+  // A copy that is gone records null, not a guess.
+  fsx.rmSync(file);
+  assert.deepEqual(front.turnRecord(line, 'T').spillBytes, [null]);
 });
 
 test('#6065 N1: a busy digest records how many posts it held and every spill in it', () => {

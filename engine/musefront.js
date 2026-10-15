@@ -175,7 +175,9 @@ function shortOf(text) {
    line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
    front (arrived), the kind (operator, background, other), the UTF-16 length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
-   spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 UTF-16 units) are kept only for
+   spilled to a file (engine/messages.js spillLine), every word count and the size of each saved copy (spillBytes, read
+   from the agent's own Inbox; the line itself is the shortened one, so its length cannot say how long the post was).
+   A short colleague post's opening can run into its attachment trailer (a file path), which is not the person's words. The opening words (60 UTF-16 units) are kept only for
    lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this file (created 0600) in
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
@@ -189,6 +191,14 @@ function shortOf(text) {
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
 const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
+/* The full text of a spilled message is a file in the agent's own Inbox; its size in bytes (never fewer than its
+   characters) is what tells whether the original was over the board's spill limit, which the shortened line cannot. */
+const SPILL_FILE_RE = /; the full text is in your own folder at ([^)\n]*[\/\\]Inbox[\/\\][^)\n]+)\)/g;
+function spillSizes(t) {
+  return Array.from(String(t).matchAll(SPILL_FILE_RE), (m) => {
+    try { const st = fs.lstatSync(m[1]); return st.isFile() ? st.size : null; } catch { return null; }
+  });
+}
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 /* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
@@ -211,6 +221,7 @@ function turnRecord(text, at, arrived = null) {
   // differ only if the two processes run with different TZ settings), so a Sent stamp (local wall-clock time) lines up with at /
   // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
   const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
+    spillBytes: spills.length ? spillSizes(t) : null,
     digestPosts: digest ? Number(digest[1]) : null };
   /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
      (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
