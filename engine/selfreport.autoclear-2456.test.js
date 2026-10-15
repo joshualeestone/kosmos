@@ -290,3 +290,20 @@ test('#6209 review 5: a wait whose start is past the front of a cut tail keeps t
   assert.notEqual(end.restored, true, 'a wait with an unknown start was re-shown (and so re-dated)');
   assert.equal(selfreport.read(who).state, 'blocked');
 });
+
+test('#6209 review 6: a block line carrying another project cannot re-label the re-shown wait; askedAt counts only on a restored line', () => {
+  const who = 'project-relabel-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const at = new Date(Date.now() - 3600 * 1000).toISOString();
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'q', project: 'p-a', by: 'agent', at }) + '\n');
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'q', by: 'agent', at }) + '\n');   // carried p-a
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', project: 'p-b', by: 'auto', at }) + '\n');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).restored, true);
+  assert.equal(selfreport.read(who).project, 'p-a', 'the re-shown wait took the block line\'s project');
+  // A line that is not a restore cannot set the asking time by carrying askedAt.
+  const other = 'askedat-forge-6209';
+  const f2 = selfreport.fileFor(other);
+  fs.appendFileSync(f2, JSON.stringify({ v: 1, state: 'needs_you', because: 'z', by: 'agent', at, askedAt: '2020-01-01T00:00:00Z' }) + '\n');
+  assert.equal(selfreport.read(other).askedAt, at, 'an askedAt on an ordinary line set the run\'s start');
+});
