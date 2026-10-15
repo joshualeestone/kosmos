@@ -219,19 +219,22 @@ function providerName(provider) {
  */
 function allows({ provider, model } = {}, policy = inForce()) {
   if (!policy) return { ok: true };
+  // kosmos#6263: a family's policy is said as the family's (required here: orgenroll requires this file).
+  const oe = require('./orgenroll');
+  const say = (text) => oe.inKind(oe.kindHere(), text);
   // A model may come as several names for one model (its Kosmos key and its full id); any one listed allows it.
   const names = (Array.isArray(model) ? model : [model]).filter((x) => typeof x === 'string' && x !== '');
   const providers = policy.providers_allowed;
   if (Array.isArray(providers) && !providers.includes(provider)) {
-    return { ok: false, because: `your company's policy does not allow ${providerName(provider)} for new agents` };
+    return { ok: false, because: say(`your company's policy does not allow ${providerName(provider)} for new agents`) };
   }
   const models = policy.models_allowed && policy.models_allowed[provider];
   if (Array.isArray(models) && !names.length) {
     // No model named and none known for it (a vendor's own default): no list can name it, so it is not allowed.
-    return { ok: false, because: `your company's policy allows only some models on ${providerName(provider)}: choose one of them` };
+    return { ok: false, because: say(`your company's policy allows only some models on ${providerName(provider)}: choose one of them`) };
   }
   if (Array.isArray(models) && !names.some((n) => models.includes(n))) {
-    return { ok: false, because: `your company's policy does not allow the model ${names[0]} on ${providerName(provider)}` };
+    return { ok: false, because: say(`your company's policy does not allow the model ${names[0]} on ${providerName(provider)}`) };
   }
   return { ok: true };
 }

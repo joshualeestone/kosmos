@@ -18304,7 +18304,8 @@ const server = http.createServer(async (req, res) => {
       let company = null;
       try {
         const c = policyEngine.companyEntry();
-        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240) };
+        // kosmos#6263: whose policy it is, so the page says a family's as the family's.
+        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindHere() === 'family' ? 'family' : 'company' };
       } catch { company = null; }
       sendJson(res, 200, r.state === 'saved'
         ? { state: 'saved', policies: policySummaries(r), because: null, company }

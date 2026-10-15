@@ -31,8 +31,11 @@ async function paint(answer) {
   const fetch = async () => ({ json: async () => answer });
   const polCard = (p) => { const c = el('div'); c.className = 'polcard'; c.textContent = 'MINE ' + p.name; return c; };
   const pjSentence = (s) => s;
-  const run = new Function('document', 'fetch', 'polCard', 'pjSentence', REGION + '\nreturn paintPolicy();');
-  await run(document, fetch, polCard, pjSentence);
+  // kosmos#6263: the page's own plusOrgIn, which words the company lines by the entry's kind.
+  const at = PAGE.indexOf('function plusOrgIn(org, text)');
+  const plusOrgIn = new Function(PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2) + '\nreturn plusOrgIn;')();
+  const run = new Function('document', 'fetch', 'polCard', 'pjSentence', 'plusOrgIn', REGION + '\nreturn paintPolicy();');
+  await run(document, fetch, polCard, pjSentence, plusOrgIn);
   return box;
 }
 const COMPANY = { name: 'Acme legal', chars: 40, opening: 'Never paste client names into a prompt.' };
@@ -59,4 +62,12 @@ test('#5534 slice 4: with only the company\'s policy the screen does not say the
   // CONTROL: the person's own alone keep the one-policy sentence.
   const one = await paint({ state: 'saved', policies: [{ id: 'a', name: 'Branding' }], because: null, company: null });
   assert.match(one.children[0].textContent, /Every agent gets it;/);
+});
+
+test('#6263: a family\'s policy entry is said as the family\'s, from the kind the board sent; a company\'s as before', async () => {
+  const fam = await paint({ state: 'saved', policies: [], company: { ...COMPANY, kind: 'family' } });
+  assert.match(fam.text, /Set by your family in its Kosmos policy\. Only your family can change or remove it\./);
+  assert.doesNotMatch(fam.text, /company/i);
+  const co = await paint({ state: 'saved', policies: [], company: { ...COMPANY, kind: 'company' } });
+  assert.match(co.text, /Set by your company in its Kosmos policy\. Only your company can change or remove it\./);
 });

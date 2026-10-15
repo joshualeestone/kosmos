@@ -482,6 +482,8 @@ let queue = Promise.resolve();
 /* kosmos#6251: the kind of the org this board's record names, or of a leave still pending, or null. */
 function recKind(opts) { const r = readEnrollment(opts); return r && r.org ? r.org.kind : null; }
 /* The kind of a pending leave: its record's, else the kind it was written with (an undo has no record; review 4). */
+/* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's), or null. */
+function kindHere(opts) { try { return recKind(opts); } catch { return null; } }
 function pendingKind(opts) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8'));
@@ -1031,6 +1033,6 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
