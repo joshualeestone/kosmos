@@ -824,7 +824,7 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   assert.ok(r.workMinutes >= 59 && r.workMinutes <= 60, 'not about two 30-minute caps of work: ' + r.workMinutes);
   // Review 5: only Claude is capped; every other runner (including Antigravity, whose heartbeat depends on platform and
   // hooks) keeps the old reading, so the same night stays stale for each.
-  for (const runner of ['antigravity', 'gemini', 'muse', undefined]) {
+  for (const runner of ['antigravity', 'gemini', 'muse']) {
     assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner }), hist(rows), NOW).state, 'stale', runner + ' was capped');
   }
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.

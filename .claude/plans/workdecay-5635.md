@@ -41,7 +41,7 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
 ## Review 4 (opus, Angel after the hand-over), and what changed
 - No BLOCKER. WARNING: the out-of-order assertion passed with the sort removed once the cap existed: it now uses an
   uncapped (grok) member. WARNING: Antigravity on the Mac heartbeats working before every model call
-  (engine/agyhooks.js), the same shape as Claude, so it is capped too; Gemini, Grok and Muse still file working only
+  (engine/agyhooks.js), the same shape as Claude, so it is capped too (REVERTED in review 5); Gemini, Grok and Muse still file working only
   at a turn's start and stay uncapped. NIT: a subagent's tool calls most likely heartbeat, so its run is usually counted.
 
 ## Review 5 (sonnet), and what changed: Antigravity cap REVERTED
@@ -72,3 +72,9 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
 - No BLOCKER. WARNING: workingCapMs sat between workExcused and its doc block; moved above it. WARNING: a Claude
   member without a working report hook files working by hand, and each is now capped too: stated as a cost. NIT: a
   member with no runner is in the uncapped controls.
+
+## Review 10 (opus), and what changed
+- No BLOCKER. WARNING: the outage bullet said the last report holds however long the outage; for Claude it now holds
+  at most WORK_GAP_CAP_MS, so hours worked through an outage read as half an hour (toward current): stated there.
+  NITs: the no-runner control proved nothing (untimed returns early), dropped; cost sentence names WORK_GAP_CAP_MS;
+  review 4's Antigravity line marked reverted.
