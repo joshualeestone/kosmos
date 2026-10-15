@@ -19504,6 +19504,8 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
+          <!-- kosmos#6239: a family's changed words wait for a parent; this opens them (plusOrgFamilyReview). -->
+          <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
             <p class="fhint" id="plus-org-leave-sure"></p>
@@ -19522,21 +19524,22 @@ window.kosmosMeasureScrollbarWidth();
             <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
             <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
-          <!-- kosmos#6239 (Josh 10-15 10:42): a FAMILY account's words are read and accepted here before this computer
-               joins; a company joins with none (#5791). Filled from the family's own words (the coordinator's). -->
-          <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
-            <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
-            <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
-            <ul class="fhint" id="plus-org-family-reports"></ul>
-            <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
-            <ul class="fhint" id="plus-org-family-backsup"></ul>
-            <p class="fhint" id="plus-org-family-readers-head">Who can see it:</p>
-            <ul class="fhint" id="plus-org-family-readers"></ul>
-            <p class="fhint" id="plus-org-family-never"></p>
-            <div class="frow">
-              <button class="btn uprime" type="button" id="plus-org-family-accept">Accept and join</button>
-              <button class="btn" type="button" id="plus-org-family-no">Not now</button>
-            </div>
+        </div>
+        <!-- kosmos#6239 (Josh 10-15 10:42): a FAMILY account's words are read and accepted here before this computer
+             joins, and again after they change (Read the family's words, in the joined view); a company joins with
+             none (#5791). Filled from the family's own words (the coordinator's). -->
+        <div id="plus-org-family" role="group" aria-label="The family's words" hidden>
+          <p class="fhint" id="plus-org-family-lead" tabindex="-1"></p>
+          <p class="fhint" id="plus-org-family-reports-head">What the family will see from this computer:</p>
+          <ul class="fhint" id="plus-org-family-reports"></ul>
+          <p class="fhint" id="plus-org-family-backsup-head">Backed up from this computer:</p>
+          <ul class="fhint" id="plus-org-family-backsup"></ul>
+          <p class="fhint" id="plus-org-family-readers-head">Who can see it:</p>
+          <ul class="fhint" id="plus-org-family-readers"></ul>
+          <p class="fhint" id="plus-org-family-never"></p>
+          <div class="frow">
+            <button class="btn uprime" type="button" id="plus-org-family-accept">Accept and join</button>
+            <button class="btn" type="button" id="plus-org-family-no">Not now</button>
           </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
@@ -50822,6 +50825,8 @@ function plusOrgIn(org, text) {
   if (!(org && org.kind === 'family')) return text;
   return String(text).replace(/\b([Yy])our company('s)?\b/g, (m, y, s) => y + 'our family' + (s || '')).replace(/\bits company's\b/g, "its family's");
 }
+// kosmos#6239: the family's words on screen, or null. Here, not beside plusOrgFamilyShow, because plusOrgPaint reads it.
+var PLUS_ORG_FAMILY = null;
 function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state stays when the state turns out changed
   if (PLUS_ORG.busy) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
@@ -50867,7 +50872,12 @@ function plusOrgPaint() {
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
   // (#5791), and the joined view says so (review 34).
-  if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
+  /* kosmos#6239: a family's words that changed wait for a parent (wordsNeeded, from /api/org): the joined view says so
+     and offers them, unless they are already open. */
+  const wordsRow = document.getElementById('plus-org-words-row');
+  if (wordsRow) wordsRow.hidden = !(here && st.wordsNeeded === true && !PLUS_ORG_FAMILY);
+  if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words changed, so it reports nothing until a parent or guardian reads and accepts them.';
+  else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
    every /api path the page fetches against a board route, and a URL held in a variable cannot be checked). */
@@ -50916,7 +50926,6 @@ async function plusOrgConnect() {
   if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
 /* kosmos#6239: the family's words, as the coordinator served them, for a parent or guardian to read and accept. */
-let PLUS_ORG_FAMILY = null;
 function plusOrgFamilyShow(code, p) {
   PLUS_ORG_FAMILY = { code, p };
   const c = p.consent && typeof p.consent === 'object' ? p.consent : {};
@@ -50926,7 +50935,12 @@ function plusOrgFamilyShow(code, p) {
     for (const line of Array.isArray(lines) ? lines : []) { const li = document.createElement('li'); li.textContent = String(line); ul.append(li); }
   };
   const lead = p.org && p.org.name ? p.org.name + ' is a family account.' : 'This is a family account.';
-  document.getElementById('plus-org-family-lead').textContent = lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  /* A review (the family's words changed after this computer joined) asks to accept them again, not to join. */
+  document.getElementById('plus-org-family-lead').textContent = p.review === true
+    ? lead + ' Its words changed. As this child\u2019s parent or guardian, read them, then accept so this computer reports to the family again.'
+    : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  const acceptBtn = document.getElementById('plus-org-family-accept');
+  if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
   fill('plus-org-family-reports', c.reports);
   /* Round 3: every part of the words the parent accepts is shown (the hash covers them all), backups included, or the
      family's own "nothing" when it says it backs up nothing. */
@@ -50961,7 +50975,11 @@ async function plusOrgFamilyAccept() {
       if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
       /* Round 1 and 3: a refusal with a code spends the ticket (the route keeps it only for none, or org_bad_world), so
          these words cannot be accepted again: Connect fetches them afresh. */
-      if (r.code && r.code !== 'org_bad_world') { plusOrgFamilyHide(); document.getElementById('plus-org-check').focus(); }
+      if (r.code && r.code !== 'org_bad_world') {
+        plusOrgFamilyHide();
+        // A review's words come back from the joined view's own button, not from Connect.
+        if (f.p.review === true) { plusOrgPaint(); plusOrgFocus('plus-org-words'); } else document.getElementById('plus-org-check').focus();
+      }
       return;
     }
     plusOrgFamilyHide();
@@ -50977,13 +50995,38 @@ async function plusOrgFamilyAccept() {
   if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
 document.getElementById('plus-org-family-accept').addEventListener('click', plusOrgFamilyAccept);
-/* Not now, and Escape inside the words: nothing is joined, and focus goes back to the code field (round 1). */
+/* Not now, and Escape inside the words: nothing is joined, and focus goes back to the code field (round 1). A review
+   (words that changed after joining) accepts nothing, and focus goes back to the joined view's button. */
 function plusOrgFamilyNotNow() {
   if (PLUS_ORG.busy) return;   // round 2: an Accept in flight may already have joined, so nothing says otherwise
+  const review = !!(PLUS_ORG_FAMILY && PLUS_ORG_FAMILY.p && PLUS_ORG_FAMILY.p.review === true);
   plusOrgFamilyHide();
+  if (review) {
+    document.getElementById('plus-org-msg').textContent = 'Nothing was accepted. This computer still reports nothing to the family.';
+    plusOrgPaint();
+    plusOrgFocus('plus-org-words');
+    return;
+  }
   document.getElementById('plus-org-msg').textContent = 'Nothing was joined.';
   document.getElementById('plus-org-code').focus();
 }
+function plusOrgFocus(id) { const el = document.getElementById(id); if (el && el.getClientRects().length) el.focus(); }
+/* kosmos#6239: Read the family's words, in the joined view of a family whose words changed (wordsNeeded): the words the
+   family serves now (preview { review: true }), shown as at joining; Accept sends a codeless enroll with wordsShown. */
+async function plusOrgFamilyReview() {
+  const msg = document.getElementById('plus-org-msg');
+  if (PLUS_ORG.busy) return;
+  const btn = document.getElementById('plus-org-words');
+  PLUS_ORG.busy = true; btn.disabled = true; msg.textContent = '';
+  try {
+    const p = await plusOrgPost('preview', { review: true });
+    if (!p.ok) { msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
+    if (!(p.org && p.org.kind === 'family')) { msg.textContent = 'Kosmos takes your company\u2019s terms on itself; there is nothing to read here.'; return; }
+    plusOrgFamilyShow(null, p);
+    plusOrgPaint();   // the words row folds while the words are open
+  } finally { PLUS_ORG.busy = false; btn.disabled = false; }
+}
+document.getElementById('plus-org-words').addEventListener('click', plusOrgFamilyReview);
 document.getElementById('plus-org-family-no').addEventListener('click', plusOrgFamilyNotNow);
 // Round 3: another code typed over the words closes them (Accept would join the code they came from).
 document.getElementById('plus-org-code').addEventListener('input', () => { if (PLUS_ORG_FAMILY && !PLUS_ORG.busy) plusOrgFamilyHide(); });

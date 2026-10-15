@@ -97,7 +97,9 @@ test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusa
   assert.equal(late.el('plus-org-family').hidden, true, 'a ticket that ran out left the words up to press again');
   // Round 2: Not now while Accept is in flight says nothing (the join may already have happened).
   const busy = harness({ ok: true });
-  const notNow = new Function('PLUS_ORG', 'plusOrgFamilyHide', 'document', fn('function plusOrgFamilyNotNow(') + '\nreturn plusOrgFamilyNotNow;');
+  // familyreaccept-6239: Not now also reads the words on screen (a review's Not now differs); none here is a join's.
+  const notNowFn = new Function('PLUS_ORG', 'PLUS_ORG_FAMILY', 'plusOrgFamilyHide', 'document', 'plusOrgPaint', 'plusOrgFocus', fn('function plusOrgFamilyNotNow(') + '\nreturn plusOrgFamilyNotNow;');
+  const notNow = (org, hide, doc) => notNowFn(org, null, hide, doc, () => {}, () => {});
   let hid = 0;
   const nn = notNow({ busy: true }, () => { hid += 1; }, busy.ctx.document);
   nn();
