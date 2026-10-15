@@ -36,7 +36,7 @@ test('#6178 summary: one entry per Claude account, with its reading; an API key 
   assert.equal(out[0].weekly.usedPct, 40);
   assert.equal(out[0].weekly.resetsAt, FUTURE * 1000, 'resetsAt is not in ms');
   assert.equal(out[1].weekly, null, 'an account with no reading was given one');
-  assert.equal(out[1].blocked, aw.weeklyBlockedOf({ dir: b }), 'the summary\'s reason is not the helper\'s');   // per platform: weeklyBlockedOf's own test pins each
+  assert.equal(out[1].blocked, aw.weeklyBlockedOf({ dir: b }), 'the summary\'s reason is not the helper\'s');   // weeklyBlockedOf's own test pins each reason
 });
 
 test('#6178 summary is kept for CACHE_MS, and an account change does not wait for it', () => {
@@ -54,13 +54,12 @@ test('#6178 summary is kept for CACHE_MS, and an account change does not wait fo
 
 test('#6178 weeklyBlockedOf names why there can be no reading', () => {
   const d = acct('e');
-  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'not-wired');
-  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'win32'), 'windows');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'not-wired');
   fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ statusLine: { type: 'command', command: 'mine' } }));
-  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'own-statusline');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'own-statusline');
   fs.writeFileSync(path.join(d, 'settings.json'), '{not json');
-  assert.equal(aw.weeklyBlockedOf({ dir: d }, 'darwin'), 'unreadable-settings');
-  assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }, 'darwin'), null, 'a key account was given a reason');
+  assert.equal(aw.weeklyBlockedOf({ dir: d }), 'unreadable-settings');
+  assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }), null, 'a key account was given a reason');
 });
 
 test('#6178 an account that becomes an API key says so at once, not after the cache', () => {
