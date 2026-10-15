@@ -26,3 +26,14 @@ A family's policy is said as the family's, everywhere the board words an org's p
 - web.familypolicy-6263.test.js 1/1: the card and line go through plusOrgIn; the board sends the kind.
 - Mutations, each red: allows() ignoring the kind; the block ignoring it; the card ignoring it.
 - The policy and create tests named by what this touches: 354/354 (with #6251's).
+
+## Round 1 (opus) fixes
+- On a family's Kosmos the heading names the family only when the family's policy is in the block; the person's own
+  policies alone are "## Your AI policy" / "## Your AI policies" (a child's pasted policy is never said to be the
+  family's). Any other Kosmos keeps its heading byte for byte. Tested both kinds and no org; red without the rule.
+- companyPolicySync's record includes the kind, so the same text re-tells the agents when a record gains a family
+  kind; a company gaining its kind re-tells nothing (server.familypolicy-6263.test.js, red without the kind).
+- kindHere sits above oneAtATime with its own comment (it had split pendingKind from its doc); it returns null for no
+  kind as its comment says. create.js reads orgenroll once.
+- Kept (NIT): WROTE_WHY ("Kosmos updated the company AI policy") is the instruction file's history note; the source
+  pin of the server's kind beside the driven page arm; one enrollment read per block (a sync is not hot).

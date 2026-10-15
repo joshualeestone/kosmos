@@ -482,8 +482,6 @@ let queue = Promise.resolve();
 /* kosmos#6251: the kind of the org this board's record names, or of a leave still pending, or null. */
 function recKind(opts) { const r = readEnrollment(opts); return r && r.org ? r.org.kind : null; }
 /* The kind of a pending leave: its record's, else the kind it was written with (an undo has no record; review 4). */
-/* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's), or null. */
-function kindHere(opts) { try { return recKind(opts); } catch { return null; } }
 function pendingKind(opts) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8'));
@@ -491,6 +489,9 @@ function pendingKind(opts) {
     return j && (j.orgKind === 'family' || j.orgKind === 'company') ? j.orgKind : null;
   } catch { return null; }
 }
+/* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's): 'family',
+   'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
+function kindHere(opts) { return recKind(opts) || null; }
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
 
 /* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this

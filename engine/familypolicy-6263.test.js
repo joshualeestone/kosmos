@@ -63,3 +63,22 @@ test('#6263: a family agent\'s policy block names the family; a company agent\'s
   assert.ok(policy.stackedBody([ENTRY]).startsWith("## Your family's AI policies\n"));
   enrolledAs(null);
 });
+
+test('#6263 board review 1: on a family\'s Kosmos the person\'s own policies are "Your AI policy", never said to be the family\'s; elsewhere as before', () => {
+  const MINE = { source: 'pasted', name: 'Mine', text: 'Be brief.', savedAt: '2026-10-15T00:00:00Z' };
+  enrolledAs('company');
+  const coMine = policy.blockBody(MINE);
+  const coStack = policy.stackedBody([MINE, { ...MINE, name: 'Also mine' }]);
+  enrolledAs(null);
+  assert.equal(policy.blockBody(MINE), coMine, 'a Kosmos in no org changed a pasted block');
+  assert.ok(coMine.startsWith("## Your company's AI policy\n\nAdded by the person you work for"), coMine);
+  enrolledAs('family');
+  const famMine = policy.blockBody(MINE);
+  assert.ok(famMine.startsWith('## Your AI policy\n\nAdded by the person you work for'), famMine);
+  assert.ok(policy.stackedBody([MINE, { ...MINE, name: 'Also mine' }]).startsWith('## Your AI policies\n'));
+  assert.ok(!/family|company/i.test(policy.stackedBody([MINE, { ...MINE, name: 'Also mine' }]).split('\n')[0]));
+  // With the family's own policy in the stack, the heading is the family's.
+  assert.ok(policy.stackedBody([ENTRY, MINE]).startsWith("## Your family's AI policies\n"));
+  assert.ok(coStack.startsWith("## Your company's AI policies\n"), coStack);
+  enrolledAs(null);
+});
