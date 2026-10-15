@@ -834,7 +834,7 @@ function composerHolds(text, wire) {
 function composerIsAll(text, wire) {
   const t = squash(text);
   const w = squash(wire);
-  return !!t && (t === w || (t.length >= 40 && w.endsWith(t)));
+  return !!t && (t === w || (t.length >= Math.max(40, Math.ceil(w.length * 0.6)) && w.endsWith(t)));   // round 7: most of it
 }
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
@@ -851,7 +851,6 @@ const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empt
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
-const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos pressed Enter on that one, so this one was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
@@ -1946,12 +1945,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      person's own typing. Pasted behind it, one Enter would send both as one message (case 1 on the card: a reminder
      left there at 09:14 and a ruling pasted after it at 09:49). Nothing is typed, so this is COULD_NOT; `inputHeld`
      says why. A box that cannot be read (a menu, a dialog) is left to the gates above, as before. */
+  let earlierSubmitted = false;
   if (composerReadable(allowed.card)) {
-    const box = readComposer(target);
+    let box = readComposer(target);
     if (box.ok && box.text) {
-      /* Round 1: the text is the line the board itself left there unsent (remembered, and still all of it ours):
-         press Enter on it, once, and ask for this line again in a moment, so the two are never sent as one and the
-         earlier one is read first. Anything else in the box is never submitted. */
+      /* Round 1, reworked in round 7: the text is the line the board itself left there unsent (remembered, and still
+         all of it ours): press Enter on it once, watch the box empty (as after any Enter), and then type this line as
+         usual, so the two go in order and never as one. If it does not empty, the text is still there and this line is
+         refused with the sentence that says so. Anything else in the box is never submitted. */
       const kept = unsentWires.get(target);
       const earlier = kept && Date.now() - kept.at <= UNSENT_REMEMBER_MS ? kept.wire : null;
       if (kept && !earlier) unsentWires.delete(target);
@@ -1959,11 +1960,17 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         unsentWires.delete(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
-          return { state: DELIVERY.COULD_NOT, because: EARLIER_SENT_BECAUSE, busy: true, earlierSubmitted: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+          const steps = submitConfirmSteps(allowed.card, target, earlier, false);
+          let step = steps.next();
+          while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
+          if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; box = { ok: true, text: '' }; }
+          else box = readComposer(target);
         }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
-      return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, busy: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+      if (box.ok && box.text) {
+        return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, busy: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+      }
     }
   }
 
@@ -2105,7 +2112,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     };
   }
   const isQueued = paneState === status.STATE.WORKING && !paneBackgroundWait && (allowed.card.runner === 'antigravity');
-  return { state: DELIVERY.PLACED, queued: isQueued, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+  return { state: DELIVERY.PLACED, queued: isQueued, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED), ...(earlierSubmitted ? { earlierSubmitted: true } : {}) };
 };
   /* #6249: `placed` is no longer only "tmux took the Enter": on a Claude Code pane the box is watched until it empties
      (submitConfirmSteps), and a line left in it is said as UNCONFIRMED with `unsubmitted: true`. Not a fourth state:
@@ -2382,11 +2389,11 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
   return inputHold(v);
 }
-/* #6249 round 4: for an automatic sender, text in the box (inputHeld, or the earlier line just pressed) is a HOLD, the
+/* #6249 round 4: for an automatic sender, text in the box (inputHeld) is a HOLD, the
    #5743 shape: a room keeps the post for the member's next arrival and the sweeps wait, rather than drop it as a line
    that reached nothing. A person's own send (deliver, deliverAsync) keeps the plain refusal and its sentence. */
 function inputHold(v) {
-  if (!v || v.state !== DELIVERY.COULD_NOT || !(v.inputHeld === true || v.earlierSubmitted === true)) return v;
+  if (!v || v.state !== DELIVERY.COULD_NOT || v.inputHeld !== true) return v;
   return { ...v, held: true, heldBy: 'input' };
 }
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post

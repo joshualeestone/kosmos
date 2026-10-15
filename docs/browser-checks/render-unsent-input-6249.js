@@ -3,7 +3,7 @@
 
 /**
  * #6249: an agent whose input box has held unsent text for a few minutes says so on its card, "Text has been sitting
- * unsent in its input box for about N minutes. Open it to send it with Enter, or clear it." (engine/status.js
+ * unsent in its input box for about N minutes, and Kosmos's messages to it wait behind it. Open it to send it with Enter, or clear it." (engine/status.js
  * unsentInputOf sets the card's unsentInput.since).
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width, and
@@ -61,7 +61,7 @@ const BASE = require('./fixtures/agent-card.json');
       }, BASE);
       if (r.error) { chk(false, tag + ' ' + r.error); await page.close(); continue; }
       const [left, clear] = r.texts;
-      chk(/Text has been sitting unsent in its input box for about 7 minutes\./.test(left) || /sitting unsent in its input box/.test(r.title),
+      chk(/Text has been sitting unsent in its input box for about 7 minutes, and Kosmos's messages to it wait behind it\./.test(left) || /sitting unsent in its input box/.test(r.title),
         tag + ' an idle card with text left in its box says so, with the minutes', left);
       chk(r.visible, tag + ' the sentence is drawn with a size (not clipped away)');
       chk(!/input box/.test(clear), tag + ' NEGATIVE: an idle card with an empty box says nothing about it', clear);
