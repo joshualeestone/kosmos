@@ -23273,7 +23273,8 @@ async function engineRestartClick() {
       if (r.status === 409 && out && out.moveStoppable && (small || title)) {
         if (small) small.textContent = String(out.because || '');
         const shown = small && getComputedStyle(small).display !== 'none' ? small : title;
-        if (shown === title && title) title.textContent = 'An account move is running, so Kosmos cannot restart yet';
+        /* #6231: the title says why at every width, not only where the small line is hidden. */
+        if (title) title.textContent = 'An account move is running, so Kosmos cannot restart yet';
         offerStopMove(btn || shown, shown);
       }
       return;
@@ -27541,10 +27542,10 @@ function acctUsageHtml(a, list) {
     ? '<div class="acct-move"><select' + (busy ? ' disabled' : '') + ' data-acct-move-to="' + esc(a.dir) + '"' + described + ' aria-label="Move the agents on ' + who + ' to another account">'
       + '<option value="">Move ' + (names.length === 1 ? 'it' : 'them') + ' to…</option>'
       + targets.map((x) => '<option value="' + esc(x.dir) + '"' + (x.dir === picked ? ' selected' : '') + '>' + esc(nameOf(x)) + (x.weekly && Number.isFinite(x.weekly.usedPct) ? ' (' + Math.round(x.weekly.usedPct) + '% used)' : '') + '</option>').join('')
-      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc(st.progress || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
+      + '</select><button type="button" data-acct-move="' + esc(a.dir) + '"' + described + (busy || !picked ? ' disabled' : '') + '>' + (busy ? esc((!st.stopping && st.progress) || 'Moving…') : 'Move<span class="vh"> the agents on ' + who + '</span>') + '</button>'
       /* #6214: a running move can be stopped once the board has it; the board finishes the agent it is restarting and puts
          the rest back. */
-      + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : '') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
+      + (busy && st.onBoard ? '<button type="button" data-acct-move-stop' + (st.stopping ? ' disabled' : ' aria-label="' + ACCT_STOP_NAME + '"') + '>' + (st.stopping ? 'Stopping…' : 'Stop the move') + '</button>' : '')
       + (names.length ? '<p class="acct-move-note" id="' + noteId + '">' + acctMoveNote(sessions.map((n) => known.get(n))) + '</p>' : '') + '</div>'   // said before the click; a busy row repainted to no agents says nothing
     : '';
   /* After a move focus goes to the menu or the list, never here (it would read this a second time over the panel's
@@ -27635,14 +27636,33 @@ function offerStopMove(afterEl, sayEl) {
 }
 /* #6214: the moving row's Stop the move. The move's own read reports how it ended, in the row's sentence; only a
    refusal is said here. */
+/* #6231: the stop button's name says which move: a screen reader hears it on its own, away from the Move button. It
+   keeps the visible words at its start, so a voice command that says them still finds it; while stopping, the visible
+   "Stopping…" is the name. */
+const ACCT_STOP_NAME = 'Stop the move to another account';
+function acctStopLabel(b, stopping) {
+  b.textContent = stopping ? 'Stopping…' : 'Stop the move';
+  if (stopping) b.removeAttribute('aria-label'); else b.setAttribute('aria-label', ACCT_STOP_NAME);
+}
+/* #6231: once a stop is pressed the row's Move button drops its count, which would jump ahead as the put-back agents
+   count as finished; the stop button beside it says Stopping. A refused stop puts the count back. */
+function acctMoveCountShow() {
+  for (const [dir, st] of ACCT_MOVE) {
+    if (!st || !st.moving) continue;
+    const b = document.querySelector('[data-acct-move="' + CSS.escape(dir) + '"]');
+    if (b) b.textContent = (!st.stopping && st.progress) || 'Moving…';
+  }
+}
 async function acctStopClick(stopBtn) {
   for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = true;   // a repaint draws it as stopping
-  stopBtn.disabled = true; stopBtn.textContent = 'Stopping…';
+  stopBtn.disabled = true; acctStopLabel(stopBtn, true);
+  acctMoveCountShow();
   const out = await stopAccountMove();
   if (out.ok) return;
   for (const st of ACCT_MOVE.values()) if (st && st.moving) st.stopping = false;
+  acctMoveCountShow();
   /* The row may have been repainted while the request was out: put back whichever stop button is drawn now. */
-  for (const b of document.querySelectorAll('[data-acct-move-stop]')) { b.disabled = false; b.textContent = 'Stop the move'; }
+  for (const b of document.querySelectorAll('[data-acct-move-stop]')) { b.disabled = false; acctStopLabel(b, false); }
   const panelSay = document.getElementById('set-accounts-msg');
   acctCancelSay();
   if (panelSay) { panelSay.textContent = ''; setTimeout(() => { panelSay.textContent = out.said; }, 150); }
@@ -27704,7 +27724,13 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
   if (moved) parts.push('Moved ' + moved + (moved === 1 ? ' agent. It restarts on the new account.' : ' agents. They restart on the new account.'));
   if (movedStopped.length) parts.push('Moved ' + movedStopped.join(', ') + ' (stopped). ' + (movedStopped.length === 1 ? 'It is' : 'They are') + ' not running now.');
   for (const [why, who] of restarting) parts.push('Not restarted yet (' + who.join(', ') + ')' + (why ? ': ' + end(why) : '.'));   // the engine's sentence says what was saved and why
-  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(why));
+  /* #6231: the engine says a stopped agent's sentence for any number of agents ("They stay on ..."); one agent reads
+     better as "It". Only the stop's own sentences: any other reason keeps the engine's words. */
+  const oneStopped = (t) => (/^you stopped the move before their turn\b/.test(t)
+    ? t.replace(/^you stopped the move before their turn\b/, 'you stopped the move before its turn').replace(/\. They stay on /, '. It stays on ')
+      .replace(/\btheir account had been changed\b/, 'its account had been changed').replace(/\btheir old account\b/, 'its old account')
+    : t);
+  for (const [why, who] of misses) parts.push('Not moved (' + who.join(', ') + '): ' + end(who.length === 1 ? oneStopped(why) : why));
   if (silent.length) parts.push('No answer yet for ' + silent.join(', ') + '. Check ' + (silent.length === 1 ? 'its' : 'their') + ' account in a moment.');
   return parts.join(' ');
 }
@@ -28426,15 +28452,19 @@ async function paintAccounts(opts) {
           const b = document.querySelector('[data-acct-move="' + CSS.escape(from) + '"]');   // the current button, after any repaint
           const t = 'Moving ' + done + ' of ' + all + '…';
           const cur = ACCT_MOVE.get(from); if (cur && cur.moving) { cur.progress = t; cur.onBoard = true; }   // a repaint mid-move draws the same count
-          if (b) b.textContent = t;
+          if (b) b.textContent = cur && cur.stopping ? 'Moving…' : t;   // #6231: no count once a stop is pressed
           /* #6214: the board has the move now, so it can be stopped. Offered here, not at the press: a stop sent before the
              move reached the board would be told no move is running. And here, not only at the next repaint, which may
              not come until the move ends. */
           if (b && !(b.nextElementSibling && b.nextElementSibling.hasAttribute('data-acct-move-stop'))) {
             const stopBtn = document.createElement('button');
-            stopBtn.type = 'button'; stopBtn.setAttribute('data-acct-move-stop', ''); stopBtn.textContent = 'Stop the move';
+            stopBtn.type = 'button'; stopBtn.setAttribute('data-acct-move-stop', ''); acctStopLabel(stopBtn, false);
             stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
             b.after(stopBtn);
+            /* #6231: the pressed Move button is disabled, so focus fell to the page: give it to the one control the row
+               offers now, which also says it to a screen reader. Not when the person has gone elsewhere. */
+            const at = document.activeElement;
+            if (!at || at === document.body || at === b) stopBtn.focus();
           }
         }, stoppedAtClick);
       } catch (e) {
