@@ -456,11 +456,11 @@ const SEEN_MAX = 700;
    read to its end keeps no place and is paged from its start next time, as before #6204, so a read that can afford it
    holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
    to it that read, as it was before #6204). The one exception: a page holding a new reply the 30-cap left unshown is
-   read again from that page. At most THREADS_MAX per post, this
-   read's first. A post's mark never passes the last reply read in a thread the budget or the window cut (the unread
+   read again from that page. At most THREADS_MAX per post, this read's first: the most comments one read can see
+   (round 1's page and every round-2 page an older-comments page), so this read's places always fit. A post's mark never passes the last reply read in a thread the budget or the window cut (the unread
    rest sorts after it), so a tail read later is still new; a FAILED page keeps #6201's bounded hold instead
    (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
-const THREADS_MAX = 100;
+const THREADS_MAX = COMMENTS_ASKED * (1 + REPLY_PAGES_MAX);
 const LOW_ID = '00000000-0000-0000-0000-000000000000';
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
@@ -1125,7 +1125,8 @@ async function repliesFor(sessionName, opts) {
       top = top && byPos(top, x) < 0 ? top : x;
     }
     /* #6204: never past the last reply read in a thread this read did not finish: its unread rest sorts after that reply,
-       so the lowest id at its time keeps every one of them after the mark (any shown at that time are in "seen"). */
+       so the lowest id at its time keeps every one of them after the mark (one already shown above the old mark is in "seen"; one at or below it is
+       filtered as before). */
     for (const c of th.comments) {
       if (!c.waitCursor || c.pageFailed || !top) continue;
       const last = lastRead(c);
@@ -1165,4 +1166,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
