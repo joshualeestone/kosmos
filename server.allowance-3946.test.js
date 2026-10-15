@@ -486,14 +486,15 @@ test('#6173: the several-agents move notes the same way (restartForMoveAsync): r
   const thrown = await restartForMoveAsync('ra-throw', '/acct/a', { sessionOf: (x) => x, startedAt: () => 7e6, restartAsync: async () => { throw new Error('gone'); } });
   assert.equal(thrown.outcome, 'partial');
   assert.deepEqual(accountmoving.notes()['ra-throw'], { started: 7e6, from: '/acct/a' });
-  /* Liu Kang m5607: nothing in it reads tmux synchronously (the sync helper or the sync roster), so a bulk move of N
-     agents does not hold the board for N pairs of reads. */
+  /* Liu Kang m5607 / m5626: neither function calls the three synchronous reads the one-agent path uses
+     (sessionStartFor, paneRoster(), sessionStartedAtFromTmux), so a bulk move of N agents does not hold the board for
+     N pairs of them. What this pins and no more: a direct execFileSync of tmux written into either would pass it. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
   const body = (fn) => { const i = src.indexOf('function ' + fn + '('); return src.slice(i, src.indexOf('\n}\n', i)); };
   for (const fn of ['restartForMoveAsync', 'sessionStartForAsync']) {
     const b = body(fn);
     assert.ok(b.length > 50, 'CONTROL: ' + fn + ' was not found');
-    assert.doesNotMatch(b, /sessionStartFor\(|paneRoster\(\)|sessionStartedAtFromTmux\(/, fn + ' reads tmux synchronously');
+    assert.doesNotMatch(b, /sessionStartFor\(|paneRoster\(\)|sessionStartedAtFromTmux\(/, fn + ' calls sessionStartFor, paneRoster() or sessionStartedAtFromTmux (a synchronous read)');
   }
 });
 
