@@ -11182,10 +11182,18 @@ const server = http.createServer(async (req, res) => {
               byDir.get(key).push(priv);
             }
           } catch { /* the account folder alone is still read */ } };
-          return (a) => { walk(); let key = null; try { key = path.resolve(a.dir); } catch { key = null; } /* The account's own folder counts only since its sign-in file was last written: a re-sign-in under another login
-             leaves the old login's sessions there. (A token refresh also rewrites it: a missing meter for a while, never a wrong one.) */
-            let since = null; try { since = fs.statSync(path.join(a.dir, 'auth.json')).mtimeMs; } catch { since = null; }
-            return [{ home: a.dir, since }, ...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])]; };
+          return (a) => {
+            walk();
+            let key = null; try { key = path.resolve(a.dir); } catch { key = null; }
+            /* Every home counts only since the account's sign-in file was last written: a re-sign-in under another login
+               leaves the old login's sessions in the account folder AND in its agents' private homes. An agent's home
+               also waits for its own job's last change (a move). A token refresh rewrites auth.json too: a missing
+               meter for a while, never a wrong one. */
+            let signedIn = null; try { signedIn = fs.statSync(path.join(a.dir, 'auth.json')).mtimeMs; } catch { signedIn = null; }
+            const later = (x) => (x == null ? signedIn : (signedIn == null ? x : Math.max(x, signedIn)));
+            const agents = [...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])].map((h) => ({ home: h.home, since: later(h.since) }));
+            return [{ home: a.dir, since: signedIn }, ...agents];
+          };
         })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show

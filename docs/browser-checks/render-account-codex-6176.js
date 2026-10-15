@@ -77,6 +77,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             warns: u ? [...u.querySelectorAll('.acct-usage-warn')].map((x) => x.textContent.trim()) : [],
             nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [],
             usage: !!u,
+            move: !!b.querySelector('.acct-move'),   // Claude's move control (#6108): never on an OpenAI row
           } : null;
         }
         out.sideways = document.documentElement.scrollWidth > window.innerWidth + 1;
@@ -89,7 +90,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(two && new RegExp('^64% of its 5-hour limit used · resets ' + T + ' · Codex last reported it 2 minutes ago$').test(two.meters[0] && two.meters[0].line || ''), tag + ' the 5-hour line: figure, reset time, and when Codex reported it', JSON.stringify(two && two.meters[0] && two.meters[0].line));
       say(two && /^30% of its weekly limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) /.test(two.meters[1] && two.meters[1].line || ''), tag + ' the weekly line names its reset day', JSON.stringify(two && two.meters[1] && two.meters[1].line));
       say(r.day && /^10% of its 1-day limit used/.test(r.day.meters[0] && r.day.meters[0].line || ''), tag + ' a 1440-minute window is a 1-day limit', JSON.stringify(r.day && r.day.meters));
-      say(r.warn && r.warn.warns.length === 1 && r.warn.warns[0] === 'Close to its 5-hour limit.', tag + ' at 82% it warns, with no move', JSON.stringify(r.warn && r.warn.warns));
+      say(r.warn && r.warn.warns.length === 1 && r.warn.warns[0] === 'Close to its 5-hour limit.' && !r.warn.move && !r.full.move, tag + ' at 82% it warns, with no move (no move control on a warning or full row)', JSON.stringify(r.warn && { warns: r.warn.warns, move: r.warn.move, fullMove: r.full && r.full.move }));
       say(r.full && r.full.warns.length === 1 && new RegExp('^At its weekly limit until (Mon|Tue|Wed|Thu|Fri|Sat|Sun) ' + T + '\\.$').test(r.full.warns[0]), tag + ' at 100% it says until when', JSON.stringify(r.full && r.full.warns));
       say(r.over && r.over.meters.length === 1 && /weekly/.test(r.over.meters[0].line), tag + ' a window whose reset has passed is not drawn', JSON.stringify(r.over && r.over.meters));
       say(r.none && r.none.meters.length === 0 && r.none.nones[0] === 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.', tag + ' no report: said plainly', JSON.stringify(r.none));

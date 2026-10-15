@@ -149,8 +149,22 @@ test('#6176 the account folder counts only since its sign-in: an older login\'s 
   fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });
 });
 
+test('#6176 a private home counts only since the account\'s sign-in: an agent\'s report from an older login is not this one\'s', async () => {
+  for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
+  const week = Math.floor(Date.now() / 1000) + 3 * 86400;
+  writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 44, window_minutes: 10080, resets_at: week }, null);
+  const auth = nodePath.join(CODEX_WORK, 'auth.json'), t0 = fs.statSync(auth).mtime;
+  fs.utimesSync(auth, new Date(), new Date());   // signed in again just now, under another login
+  const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
+  assert.equal(work.limits, null, 'an agent\'s report from before the sign-in was shown');
+  fs.utimesSync(auth, t0, t0);
+  fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
+});
+
 test('#6176 a ChatGPT row whose last report is over carries limits: null', async () => {
-  writeReport(CODEX, new Date(Date.now() - 6 * 3600e3).toISOString(), { used_percent: 90, window_minutes: 300, resets_at: Math.floor(Date.now() / 1000) - 60 }, null);
+  for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
+  // Written AFTER the sign-in (three hours ago), so only the window being over can keep it off the row.
+  writeReport(CODEX, new Date(Date.now() - 3600e3).toISOString(), { used_percent: 90, window_minutes: 300, resets_at: Math.floor(Date.now() / 1000) - 60 }, null);
   const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt');
   assert.equal(sub.limits, null);
 });
