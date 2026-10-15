@@ -207,10 +207,30 @@ its export first). Nor is a redirect or rewrite in the site's `vercel.json`: the
 `setup-staging` and pointers, so a rule serving `/setup` or a Mac pointer from elsewhere would go around them (none
 exists today; `/dist/latest-win.json` is already redirected). Nor is site-autodeploy's `KOSMOS_AUTODEPLOY_DEPLOY`
 test seam, which runs a given command instead of deploy-site.sh: never set it on a real autodeploy. Never use any of
-them for the site once 0.7.49 is out: roll back only to a build at or above 0.7.45, by committing that pointer and
-its installer and running `deploy-site.sh --promote` (without a flag it is a dry run), which checks them; below
+them for the site once 0.7.49 is out: roll back only to a build at or above 0.7.45, as the repairs below do; below
 that, cut a newer build instead. The way out for a person an old installer reached anyway is `chmod -R u+w` on the
 app folder (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
+
+### Repairing a site the floor refuses
+
+Each repair ends the same way: **commit and push the site**, because release.sh's step 1a-floor reads the site's
+`origin/main`, and a deploy serves only what is committed. Then deploy with the flag named, since a run without one is
+a dry run.
+
+1. **A staging pointer below the floor:** `tools/publish-staging-pointer.sh <V>` for a build at or above it whose
+   tarball is still in `dist` (0.7.49's are). Commit, push, then `tools/deploy-site.sh --publish`, adding
+   `KOSMOS_STAGING_ROLLBACK=<V>` on that one command when `<V>` is older than the live staging pointer (#4819).
+2. **A prod pointer below the floor:** promote a staging build at or above it (`tools/promote-channel.sh`), commit,
+   push, then `tools/deploy-site.sh --promote` (the pointer moved, so `--promote` is the mode).
+3. **An old `/setup`:** if `/setup-staging` is current, a promote of a staging pointer that names it (its
+   `setup_sha256`) copies it to `/setup`. Otherwise restore `setup` and `setup.sha256` from the site commit that wrote
+   the current `dist/latest.json` (deploy-site compares that pair with the pointer's `setup_sha256`, so a fresh
+   `install/setup.sh` is refused), commit, push, then `tools/deploy-site.sh --publish` (the pointer did not move, so
+   `--promote` would refuse).
+4. **An old `/setup-staging`:** a staging cut writes a new one. If every cut is refused (an old `/setup` too), restore
+   `setup-staging` and `setup-staging.sha256` from the commit that wrote the current `dist/latest-staging.json`
+   (promote-channel compares that pair with the staging pointer), commit, push, then `tools/deploy-site.sh --publish`.
+
 
 ## Windows (the same model, two more pointers)
 

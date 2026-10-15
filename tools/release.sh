@@ -661,7 +661,7 @@ if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --v
 else
   echo "(could not fetch the site's origin/main; checking the checkout at $SITE as it is)"
 fi
-_floor_hint="(fix what it named, then COMMIT AND PUSH the site, since this step reads its origin/main: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, or, if BOTH installers are old so every cut refuses here, each pointer's own installer put back: for prod, setup and setup.sha256 from the site commit that wrote dist/latest.json (deploy-site.sh checks that pair against the pointer); for staging, setup-staging and setup-staging.sha256 from the commit that wrote dist/latest-staging.json (promote-channel.sh checks that pair))"
+_floor_hint="(fix what it named as docs/staging-channel.md, 'Repairing a site the floor refuses', says, then commit and push the site: this step reads its origin/main)"
 kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
 [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"
 # ---- (end of step 1a-floor's checks; the lines down to step 1b's banner still log under the 1a-floor label) ----

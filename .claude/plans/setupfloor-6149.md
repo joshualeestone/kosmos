@@ -81,15 +81,9 @@ deploy, promote or cut that is valid today is refused by this change.
 
 ## Known limits (reviews 9 to 35), stated rather than closed
 - If BOTH channels' pointers or both installers are below the floor, every cut refuses (each checks the other
-  channel's pair). Both POINTERS old: publish-staging-pointer.sh of a build at or above the floor whose tarball is
-  still in dist (0.7.49's are) repairs staging, then a promote repairs prod. Both INSTALLERS old: neither tool writes
-  an installer (promote refuses an old one), so put back each pointer's own installer: for prod, setup and setup.sha256
-  from the site commit that wrote dist/latest.json (deploy-site's #5032 check compares that pair with the pointer's
-  setup_sha256, so a fresh install/setup.sh would be refused); for staging, setup-staging and setup-staging.sha256
-  from the commit that wrote dist/latest-staging.json (deploy-site does not compare that pair; promote-channel does,
-  at the next promote). Then commit, push and run deploy-site.sh --promote. Either repair must
-  be committed and pushed: release.sh's step 1a-floor reads the site's origin/main (its refusal hint says all this). The
-  floor only reaches either state through a path around these tools (a hand deploy, a Vercel rollback).
+  channel's pair). The repairs need no cut; docs/staging-channel.md, "Repairing a site the floor refuses", is the one
+  place they are written (each step traced against deploy-site's modes, #5032 and #4819), and release.sh's refusal
+  points there.
 - A NUL byte in a pointer is dropped by command substitution before the ASCII check sees it. The installer's own
   $(curl ...) capture drops it too (so it reads what the check read), and JSON.parse rejects the pointer, so the
   app's update path fails closed rather than installing something old.
