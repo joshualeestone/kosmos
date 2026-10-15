@@ -135,8 +135,7 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
   and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is
   registered there). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
-  `xcodebuild` never reaches it. (`tools/test-cut-sign-preflight.sh` separately fails if
-  `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.)
+  `xcodebuild` never reaches it.
   `archive.sh --check-config` runs only those checks; `tools/test-archive-config.sh` (in iOS CI) shows each
   can refuse.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
