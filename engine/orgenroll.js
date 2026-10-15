@@ -492,6 +492,8 @@ function pendingKind(opts) {
 /* kosmos#6263: the kind of the org this Kosmos is enrolled to, for sentences elsewhere (a policy's): 'family',
    'company', or null when it is enrolled to none or its record names no kind (both read as a company's). */
 function kindHere(opts) { return recKind(opts) || null; }
+/* The same, as the two words a reader or a key wants: 'family', else 'company' (one copy of that mapping). */
+function kindNow(opts) { return kindOf(kindHere(opts)); }
 function oneAtATime(fn) { const run = queue.then(fn, fn); queue = run.catch(() => {}); return run; }
 
 /* A first join the company made but this Kosmos will not keep (it cannot record it, or the company did not confirm this
@@ -1034,6 +1036,6 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindOf, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindNow, kindOf, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
