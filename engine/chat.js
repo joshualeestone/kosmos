@@ -1971,8 +1971,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
           const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS);
           let step = steps.next();
           while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
-          if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; box = { ok: true, text: '' }; }
-          else box = readComposer(target);
+          if (step.value && step.value.outcome === 'sent') earlierSubmitted = true;
+          box = readComposer(target);   // round 10: always read it again: a person may have started typing meanwhile
         }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */

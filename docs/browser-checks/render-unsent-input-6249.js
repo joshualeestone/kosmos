@@ -3,7 +3,7 @@
 
 /**
  * #6249: an agent whose input box has held unsent text for a few minutes says so on its card, "Text has been sitting
- * unsent in its input box for about N minutes, and Kosmos's messages to it may wait behind it. Open it to send it with Enter, or clear it." (engine/status.js
+ * unsent in its input box for about N minutes, and Kosmos's messages to it may wait behind it. Open it to send it with Enter." (engine/status.js
  * unsentInputOf sets the card's unsentInput.since).
  *
  * Drives the real card() builder with the golden card shape, in Chromium and WebKit, at desktop and phone width, and
