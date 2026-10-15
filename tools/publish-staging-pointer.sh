@@ -37,6 +37,10 @@ if [ -z "$V" ]; then
   V="${base#kosmos-}"; V="${V%-$ARCH.tar.gz}"
 fi
 [ -n "$V" ] || { echo "publish-staging: could not determine the version" >&2; exit 1; }
+# kosmos#6149 point 1: the staging pointer never names a build older than the setup floor (the installer beside it is
+# checked by promote-channel, deploy-site and release.sh, which publish it).
+. "$(dirname "$0")/lib/setup-floor.sh" || { echo "publish-staging: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
+kosmos_setup_floor_ok "the staging pointer" "$V" || exit 1
 
 ARTIFACT="kosmos-$V-$ARCH.tar.gz"
 MANIFEST="kosmos-$V-$ARCH.manifest.json"

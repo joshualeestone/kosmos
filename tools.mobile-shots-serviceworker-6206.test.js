@@ -102,6 +102,22 @@ function extent(code, from, isBlock) {
   return code.slice(from);
 }
 
+/* The entries of SCREENS, counted by structure (each top-level { ... } of the array), independent of the reader's
+   { name, owner } pattern, so the two can disagree when a screen is written in a shape the reader does not see (Angel,
+   review of #6215: with both keyed on owner:, the comparison could never fail). */
+function screensArrayEntries(raw) {
+  const code = codeOnly(raw);
+  const at = code.search(/\bconst SCREENS = \[/);
+  if (at < 0) return -1;
+  const arr = extent(code, code.indexOf('[', at), true);
+  let n = 0;
+  for (let i = 1; i < arr.length - 1; i += 1) {
+    const c = arr[i];
+    if (c === '{') { n += 1; i += extent(arr, i, true).length - 1; }
+    else if (!/[\s,]/.test(c)) return -1;   // a spread or a call in the array: not countable this way, say so
+  }
+  return n;
+}
 function unflaggedStubbers(raw) {
   const code = codeOnly(raw);
   const fnBody = {};
@@ -120,7 +136,10 @@ function unflaggedStubbers(raw) {
     for (const n of Object.keys(fnBody)) if (!stubbingHelpers.has(n) && [...stubbingHelpers].some((h) => calls(fnBody[n], h))) { stubbingHelpers.add(n); grew = true; }
   }
   const body = {};
-  for (const m of code.matchAll(/(^|[\s,[])\{[\s]*name:[\s]*'([a-z0-9-]+)'/g)) body[m[2]] = extent(code, m.index + m[1].length, true);
+  /* A screen is { name: '...', owner: ... }: a screen's own fixture rows ({ name: 'laptop', address: ... } in #6211's
+     settings-accounts-other) are not screens. The declared count (screensArrayEntries) is structural and independent of
+     this shape, so a screen written in another key order is caught as a mismatch rather than skipped. */
+  for (const m of code.matchAll(/(^|[\s,[])\{[\s]*name:[\s]*'([a-z0-9-]+)',[\s]*owner:/g)) body[m[2]] = extent(code, m.index + m[1].length, true);
   const stubs = (n, seen = new Set()) => {
     if (seen.has(n) || !body[n]) return false;
     seen.add(n);
@@ -141,7 +160,7 @@ test('#6206: every mobile-shots screen that stubs with .route turns the service 
   for (const n of ['allow-card', 'connect-sheet', 'settings-accounts-landed']) assert.ok(stubbing.includes(n), 'the reader missed ' + n);
   // CONTROL: it found every screen the file declares, and the helpers known to stub.
   const { screens, helpers } = unflaggedStubbers(SRC);
-  const declared = (SRC.match(/\{ name: '[a-z0-9-]+', owner:/g) || []).length;
+  const declared = screensArrayEntries(SRC);
   assert.ok(declared > 50 && screens.length === declared, 'screens found ' + screens.length + ', declared ' + declared);
   for (const h of ['openConsAgents', 'connectPending', 'joinWaiting', 'orgConnected', 'stubRebootNote']) assert.ok(helpers.includes(h), 'the reader missed helper ' + h);
 });

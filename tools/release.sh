@@ -631,6 +631,44 @@ if git -C "$REPO" rev-parse --verify --quiet origin/main >/dev/null 2>&1; then
 fi
 git -C "$REPO" log --oneline -8 | cat
 
+step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (kosmos#6149) =="
+# A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
+# fail-fast, seconds in, on the site's origin/main (fetched; the checkout if the fetch fails), so a site below the floor
+# refuses before anything is built; the export check before the deploy reads the bytes actually published and is the
+# authority. Every floor refusal here (the knob, the override-only version check, the own installer, the untouched
+# pair) ends in exit 1, and
+# tools/test-setup-floor-6149.sh pins each by source.
+. "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
+_floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
+[ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
+# This cut's OWN version: #4075's forward-only rule refuses a cut older than this checkout's package.json, which is
+# ASSUMED past 0.7.45 wherever this step exists (only a hand revert of package.json breaks that; the export check
+# before vercel still refuses then, a stated limit), so only its override can name a version below the floor. Check that case
+# (the release-gate fixtures cut 0.6.x without the override, on purpose). What reaches users is checked below too: the
+# installer, the untouched pair, and the export before vercel.
+[ "$_allow_jump" != 1 ] || kosmos_setup_floor_ok "this cut's version (KOSMOS_ALLOW_VERSION_JUMP is set)" "$V" || exit 1
+kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
+# Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
+# fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
+_floor_site="$SITE"; _floor_tmp=""
+if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --verify origin/main >/dev/null; then
+  _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
+  mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
+  for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
+    if git -C "$SITE" cat-file -e "origin/main:$_f" 2>/dev/null; then   # present: it must read, or the cut refuses
+      git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || { echo "the site's origin/main has $_f but it could not be read -- refusing (setup floor, kosmos#6149)"; rm -rf "$_floor_tmp"; exit 1; }
+    else
+      echo "(the site's origin/main has no $_f: nothing to check for it here)"
+    fi
+  done
+  _floor_site="$_floor_tmp"
+else
+  echo "(could not fetch the site's origin/main; checking the checkout at $SITE as it is)"
+fi
+_floor_hint="(fix what it named as docs/staging-channel.md, 'Repairing a site the floor refuses', says, then commit and push the site: this step reads its origin/main)"
+kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
+[ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"
+# ---- (end of step 1a-floor's checks; the lines down to step 1b's banner still log under the 1a-floor label) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then
 # refuses with "no versions entry" instead of naming the stranded commits --
@@ -919,6 +957,12 @@ DEPLOYED=0
 trap '_rc=$?; cut_record_done "$_rc"; command -v kosmos_release_machine >/dev/null 2>&1 && kosmos_release_machine || true; [ "$DEPLOYED" = 1 ] || release_site_restore "$SITE" "$V" "$_pair_had" "$_ptr_had" "$BUILD_ROOT" "$_staging_ptr_had"; release_thaw "$MAIN_REPO" "$BUILD"; rm -rf "$BUILD_ROOT"' EXIT
 REPO="$BUILD"
 release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
+# kosmos#6149: the installer this cut publishes is the FROZEN tree's. Step 1a-floor checked the checkout's copy, and the
+# shared checkout can be fast-forwarded between step 1 and the sha capture (see above), so check it here too, after
+# the freeze and before the build and the site push.
+# Step 2's version-bump push comes BEFORE this (the freeze follows it): a refusal here, after a fast-forward brought
+# in an installer without the marker, leaves the bump on origin (a stated limit).
+kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded
 # mid-run on 2026-08-24, per step 2b), so the file 1b-ii read is checked again as FROZEN. A refusal here
@@ -1635,6 +1679,11 @@ _site_export="$BUILD_ROOT/site-export"
 # it LANDING. The card that prompted both was filed by a careful reader who had
 # only this line to go on.
 site_deploy_export "$SITE" "$_site_export" "$SITE_SHA" || { echo "could not export the site for deploy; nothing was deployed"; exit 1; }
+# kosmos#6149: this deploy publishes BOTH pointers and BOTH installers at the site commit, including the prod ones a
+# staging cut does not touch: none of them may be older than the setup floor.
+# (setup-floor.sh was loaded at step 1a-floor and is not sourced again: its functions are already defined, and REPO
+# is the frozen tree now.)
+kosmos_setup_floor_tree_ok "the release's site export" "$_site_export" || { echo "nothing was deployed"; exit 1; }
 # The filter that ACTUALLY ships is the export's; 3c read HEAD's early, and
 # the sha can have moved since. Same evaluator, same refusal, on the real file.
 set +e; _dep_dropped="$(pkg_upload_filter_excludes "$_site_export/.vercelignore")"; _dep_frc=$?; set -e

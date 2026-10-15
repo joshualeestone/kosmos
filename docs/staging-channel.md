@@ -158,6 +158,7 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
      [ -f "$EXPORT/dist/$f" ] || { echo "export dropped $f (#1669); $S/dist is incomplete"; exit 1; }
    done
+   . "$R/tools/lib/setup-floor.sh"; kosmos_setup_floor_tree_ok "the manual promote export" "$EXPORT"   # kosmos#6149: set -e stops here on a refusal (pull $R first: a checkout without the lib stops with "No such file")
    ( cd "$EXPORT" && vercel deploy --prod --yes )   # set -e + the EXIT trap: a failed deploy exits non-zero and cleans up
    DEPLOY
    ```
@@ -190,13 +191,47 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 ## A floor under the installer: never serve one from before 0.7.45 (kosmos#4455)
 
 From the release that carries kosmos#4455, the installer leaves the installed `app/` read-only by default. An
-installer from before 0.7.45 cannot lift a read-only app: its update removes `bin/`, fails at `app/`, and cannot
-put the board back, because `bin/kosmos` is gone. So a ROLLBACK of `/setup` or `/setup-staging` to a build older
-than 0.7.45 breaks the next update of every Mac and Linux install a later build has touched. Nothing in the
-tools refuses such a rollback. The way out for a person it happens to is `chmod -R u+w` on the app folder
-(`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them. If an
-installer that old must be served, serve it only after confirming no install was updated by the release that
-carries kosmos#4455, or a later one.
+installer that cannot lift a read-only app (none cut before #4449, which added the lift, can; 0.7.45 is the first one served to people on
+prod) removes `bin/` on update, fails at `app/`, and cannot put the board back, because `bin/kosmos` is gone. So a
+ROLLBACK of `/setup` or `/setup-staging` to a build older than 0.7.45 (the floor; some earlier installers can lift too, the
+floor is stricter on purpose) breaks the next update of every Mac and Linux install a later build has touched. The
+tools refuse it (kosmos#6149, `tools/lib/setup-floor.sh`): publish-staging-pointer, promote-channel, deploy-site and
+release.sh will not publish a Mac pointer below 0.7.45; deploy-site and release.sh will not publish a `/setup` or
+`/setup-staging` that does not name `KOSMOS_READONLY_APP`, and promote-channel will not make such an installer
+prod's `/setup` (the switch and the lift came in one change, so an installer that names it can lift the lock; a
+string check, not a proof).
+NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
+Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and any other hand-run `vercel deploy
+--prod` (the site's README still shows one; the manual release.sh step-8 fallback above runs the floor's check on
+its export first). Nor is a redirect or rewrite in the site's `vercel.json`: the checks read the committed `setup`,
+`setup-staging` and pointers, so a rule serving `/setup` or a Mac pointer from elsewhere would go around them (none
+exists today; `/dist/latest-win.json` is already redirected). Nor is site-autodeploy's `KOSMOS_AUTODEPLOY_DEPLOY`
+test seam, which runs a given command instead of deploy-site.sh: never set it on a real autodeploy. Never use any of
+them for the site once 0.7.49 is out: roll back only to a build at or above 0.7.45, as the repairs below do; below
+that, cut a newer build instead. The way out for a person an old installer reached anyway is `chmod -R u+w` on the
+app folder (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
+
+### Repairing a site the floor refuses
+
+Restore that channel's WHOLE set from a site commit that committed and deployed a build at or above the floor on it
+(find one with `git -C <site> log -- dist/latest.json` or `-- dist/latest-staging.json`). Take the NEWEST such commit:
+a deploy fetches the build's tarball from what live serves (`dist` does not keep old ones in a fresh checkout), so the
+restored build must be one live still has. A set that served together is consistent by construction, so it passes
+the floor and the pointer-installer check (#5032) at once (tools/test-deploy-site-promote.sh arm 40 runs this repair).
+
+- **prod:** `git -C <site> checkout <commit> -- dist/latest.json setup setup.sha256`
+- **staging:** `git -C <site> checkout <commit> -- dist/latest-staging.json setup-staging setup-staging.sha256`
+
+Then **commit and push the site** (release.sh's step 1a-floor reads its `origin/main`, and a deploy serves only what is
+committed), and deploy, since a run with no mode is a dry run. Usually that is `tools/deploy-site.sh --publish`: a
+refused deploy never ran, so live still serves the good set and the restored pointer equals it. Use `--promote` only
+when the restored prod pointer differs from the live one (live itself went below the floor). That cannot repair a
+rollback done in Vercel to an older deployment: it does not serve the newer tarball the deploy needs, so redeploy a
+current build from a fresh cut instead. For staging, add `KOSMOS_STAGING_ROLLBACK=<the restored staging version>` on that one command when #4819
+would refuse it: the restored pointer is older than live, the same version with different bytes, or live names no
+build. Restore both channels in the same commit when both are broken: each cut refuses on the other channel's set,
+and the deploy's export check reads both.
+
 
 ## Windows (the same model, two more pointers)
 

@@ -15,6 +15,9 @@
 #
 #   bash tools/test-deploy-site-promote.sh
 set -uo pipefail
+# kosmos#6149: these fixtures are 0.6.x builds, older than the setup floor (0.7.45), so the floor is lowered here.
+# tools/test-setup-floor-6149.sh tests the floor itself; this file tests deploy-site's other behaviour.
+export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 DEPLOY="$HERE/deploy-site.sh"
@@ -144,7 +147,7 @@ make_scenario() {  # [committed_sha_override]
   ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
   # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
@@ -155,7 +158,7 @@ make_scenario() {  # [committed_sha_override]
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   local csha="${1:-$newsha}"
   write_ptr "$s/dist/latest.json" "$NEW" "$csha" "$NEWART"            # COMMITTED = NEW
@@ -263,7 +266,7 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
   # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
@@ -272,7 +275,7 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   write_ptr "$s/dist/latest.json" "$OLD" "$oldsha" "$OLDART"           # COMMITTED = OLD (rollback)
   printf 'WINZIP\n' > "$s/dist/$WINZIP"
@@ -396,7 +399,9 @@ read -r S20 L20 <<<"$(make_scenario)"
 write_ptr "$S20/dist/latest-staging.json" 0.6.32 "$(printf 'x' | shasum -a 256 | awk '{print $1}')" not-a-build.zip
 git -C "$S20" add dist/latest-staging.json && git -C "$S20" commit -q -m "malformed staging"
 run_deploy "$S20" "$L20" --promote
-{ [ "$RC" = 1 ] && has "$out" "repair the committed pointer" && [ ! -e "$S20/dist/$NEWART" ]; } \
+# kosmos#6149: the setup floor now refuses the malformed artifact name first (fail closed), before any fetch too.
+# (deploy-site's own #4819 refusal is now shadowed for this shape by the floor's, which fires first.)
+{ [ "$RC" = 1 ] && has "$out" "names artifact not-a-build.zip" && [ ! -e "$S20/dist/$NEWART" ]; } \
   && pass "mac staged: a malformed committed staging pointer refuses before any fetch" || bad "mac staged malformed (rc=$RC) out=$out"
 
 # 17) THE INCIDENT'S PATH: a plain site-copy --publish (live latest.json == committed), from a checkout
@@ -417,7 +422,7 @@ run_deploy "$S18" "$L18" --publish
 # #5032: the pointer NAMES its installer (setup_sha256). Every deploy refuses a committed /setup that is
 # not that installer. Scenarios 1-18 above use pointers with no field, so they are the "not checked" control.
 with_setup() {  # <site> <installer-text>: commit a setup pair with that text, and make the committed pointer name <named-sha> (arg 3, default the pair's own)
-  local s="$1"; printf '%s\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
+  local s="$1"; printf '%s KOSMOS_READONLY_APP\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
   local named="${3:-$(sha_of "$s/setup")}"
   node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$s/dist/latest.json" "$named"
   git -C "$s" add setup setup.sha256 dist/latest.json && git -C "$s" commit -q -m "pointer names its installer"
@@ -425,12 +430,12 @@ with_setup() {  # <site> <installer-text>: commit a setup pair with that text, a
 # 19) a promote whose committed /setup IS the installer the pointer names: deploys, and serves it.
 read -r S19 L19 <<<"$(make_scenario)"; with_setup "$S19" "NEW-INSTALLER"
 run_deploy "$S19" "$L19" --promote
-{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = NEW-INSTALLER ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
+{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = "NEW-INSTALLER KOSMOS_READONLY_APP" ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
 # 20) a promote whose committed /setup is NOT that installer (promote-channel's copy not committed, or a
 #     rollback that kept the newer installer): refused before anything is served.
 read -r S20 L20 <<<"$(make_scenario)"; with_setup "$S20" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
 run_deploy "$S20" "$L20" --promote
-{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = setup-script ]; } \
+{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = "setup-script KOSMOS_READONLY_APP" ]; } \
   && pass "#5032: a promote whose /setup is not the pointer's installer is refused, nothing served" || bad "#5032 mismatched promote (rc=$RC) out=$out"
 # 21) the same mismatch on a site-copy --publish (committed pointer == live): refused too.
 read -r S21 L21 <<<"$(make_scenario)"; with_setup "$S21" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"; cp "$S21/dist/latest.json" "$L21/dist/latest.json"
@@ -443,24 +448,24 @@ run_deploy "$S22" "$L22" --promote
 
 # 23) a committed /setup-staging pair is served and edge-checked after the deploy (review 3: run, not grepped).
 read -r S23 L23 <<<"$(make_scenario)"; with_setup "$S23" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S23" add setup-staging setup-staging.sha256 && git -C "$S23" commit -q -m "staging installer"
 run_deploy "$S23" "$L23" --promote
-{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = NEXT-STAGING-INSTALLER ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
+{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = "NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP" ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
 # 24) ...and a served /setup-staging.sha256 that does not describe the served script is refused.
 read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
 out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "is not the committed setup-staging"; } && pass "#5032: a served /setup-staging that is not the committed one is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
 # 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
 read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
 run_deploy "$S25" "$L25" --promote
-{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = setup-script ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
+{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = "setup-script KOSMOS_READONLY_APP" ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
 
 # 26) the served script is the committed one, but its served sidecar names other bytes: refused at the edge.
 read -r S26 L26 <<<"$(make_scenario)"; with_setup "$S26" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S26" add setup-staging setup-staging.sha256 && git -C "$S26" commit -q -m "staging installer"
 out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L26" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S26" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging.sha256 that names other bytes is refused at the edge" || bad "#5032 lying staging sidecar (rc=$RC) out=$out"
@@ -537,5 +542,93 @@ read -r S34 L34 <<<"$(make_scenario)"
 run_deploy "$S34" "$L34" --promote
 { [ "$RC" = 75 ] && has "$out" "could not read the live pointers at the start"; } \
   && pass "#5589: a pointer answering 5xx through every retry counts as unread (exit 75)" || bad "#5589 persistent 503 (rc=$RC) out=$out"
+# 35) kosmos#6149: with the REAL setup floor (0.7.45; this file lowers it for its 0.6.x fixtures), the committed
+#     0.6.31 pointer is refused before anything is deployed: LIVE still serves OLD. The control is arm 1 above (the
+#     same make_scenario deploys under the file's lowered floor), and arm 38 below under the real floor.
+read -r S35 L35 <<<"$(make_scenario)"
+out="$(env -u KOSMOS_SETUP_FLOOR_TEST -u KOSMOS_SETUP_FLOOR_LOWER PATH="$BIN:$PATH" LIVE_DIR="$L35" HOST_URL="$HOSTURL" \
+  KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S35" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+  bash "$DEPLOY" --promote 2>&1)"; RC=$?
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)" && has "$out" "older than 0.7.45"; } \
+  && pass "#6149: the real floor refuses a committed pointer below 0.7.45" || bad "#6149 real floor (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L35/dist/latest.json")" = "$OLD" ] \
+  && pass "#6149: the refusal deployed nothing (LIVE still serves $OLD)" || bad "#6149 refusal still changed LIVE"
+# 36) kosmos#6149: a committed pointer whose version is not its tarball's is refused (the tarball is what installs).
+read -r S36 L36 <<<"$(make_scenario)"
+write_ptr "$S36/dist/latest.json" "$NEW" "$(sha_of "$L36/dist/$NEWART")" "kosmos-0.6.29-arm64.tar.gz"
+git -C "$S36" add -A && git -C "$S36" commit -q -m "a pointer naming another version's tarball"
+run_deploy "$S36" "$L36" --promote
+{ [ "$RC" = 1 ] && has "$out" "says version $NEW but names artifact kosmos-0.6.29-arm64.tar.gz"; } \
+  && pass "#6149: a pointer naming another version's tarball is refused" || bad "#6149 version/artifact mismatch (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L36/dist/latest.json")" = "$OLD" ] \
+  && pass "#6149: that refusal deployed nothing" || bad "#6149 mismatch refusal still changed LIVE"
+# 37-39) kosmos#6149 under the REAL floor, on a scenario above it (live 0.7.47, committed 0.7.49).
+run_deploy_real() {  # <site> <live> <flag...> ; like run_deploy, without the lowered floor
+  local s="$1" live="$2"; shift 2
+  out="$(env -u KOSMOS_SETUP_FLOOR_TEST -u KOSMOS_SETUP_FLOOR_LOWER PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
+    KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" \
+    bash "$DEPLOY" "$@" 2>&1)"
+  RC=$?
+}
+above() { OLD=0.7.47 NEW=0.7.49 OLDART=kosmos-0.7.47-arm64.tar.gz NEWART=kosmos-0.7.49-arm64.tar.gz make_scenario; }
+# 37) The committed /setup does not know the read-only app (an installer from before 0.7.45): refused, nothing deployed.
+read -r S37 L37 <<<"$(above)"
+printf 'setup-script\n' > "$S37/setup"; ( cd "$S37" && shasum -a 256 setup > setup.sha256 ); git -C "$S37" commit -qam "an installer from before 0.7.45"
+run_deploy_real "$S37" "$L37" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup does not know KOSMOS_READONLY_APP"; } \
+  && pass "#6149: an installer from before 0.7.45 beside a 0.7.49 pointer is refused" || bad "#6149 old installer (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L37/dist/latest.json")" = 0.7.47 ] \
+  && pass "#6149: that refusal deployed nothing (LIVE still serves 0.7.47)" || bad "#6149 old-installer refusal still changed LIVE"
+# 38) CONTROL: the same scenario with an installer that knows it deploys under the real floor.
+read -r S38 L38 <<<"$(above)"
+printf 'setup-script KOSMOS_READONLY_APP\n' > "$S38/setup"; ( cd "$S38" && shasum -a 256 setup > setup.sha256 )
+git -C "$S38" add -A && git -C "$S38" commit -q -m "a current installer"
+run_deploy_real "$S38" "$L38" --promote
+{ [ "$RC" = 0 ] && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L38/dist/latest.json")" = 0.7.49 ]; } \
+  && pass "#6149 CONTROL: a 0.7.49 pointer with a current installer deploys under the real floor" || bad "#6149 control (rc=$RC) out=$out"
+# 39) The committed STAGING pointer below the floor (prod above it): refused, and the refusal names the staging pointer.
+read -r S39 L39 <<<"$(above)"
+printf 'setup-script KOSMOS_READONLY_APP\n' > "$S39/setup"
+write_ptr "$S39/dist/latest-staging.json" 0.7.44 "$(sha_of "$L39/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.44-arm64.tar.gz
+git -C "$S39" add -A && git -C "$S39" commit -q -m "a staging pointer below the floor"
+run_deploy_real "$S39" "$L39" --promote
+{ [ "$RC" = 1 ] && has "$out" "the committed dist/latest-staging.json names 0.7.44"; } \
+  && pass "#6149: a committed staging pointer below the floor is refused" || bad "#6149 staging below floor (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L39/dist/latest.json")" = 0.7.47 ] \
+  && pass "#6149: that refusal deployed nothing (LIVE still serves 0.7.47)" || bad "#6149 staging refusal still changed LIVE"
+# 40) The REPAIR docs/staging-channel.md gives, end to end under the real floor: a prod set below the floor is committed
+#     on top of a good one and refused; restoring the whole set from the good commit, exactly as the doc says
+#     (git checkout <commit> -- dist/latest.json setup setup.sha256), deploys and serves the good build.
+read -r S40 L40 <<<"$(above)"
+( cd "$S40" && shasum -a 256 setup > setup.sha256 ); git -C "$S40" add -A; git -C "$S40" commit -q -m "the good set" --allow-empty
+GOOD40="$(git -C "$S40" rev-parse HEAD)"
+write_ptr "$S40/dist/latest.json" 0.7.38 "$(sha_of "$L40/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.38-arm64.tar.gz
+printf 'an installer from before 0.7.42\n' > "$S40/setup"; ( cd "$S40" && shasum -a 256 setup > setup.sha256 )
+git -C "$S40" add -A && git -C "$S40" commit -q -m "a prod set below the floor"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)"; } \
+  && pass "#6149 repair: the broken prod set is refused by the floor" || bad "#6149 repair: broken set (rc=$RC) out=$out"
+git -C "$S40" checkout -q "$GOOD40" -- dist/latest.json setup setup.sha256 && git -C "$S40" commit -q -m "restore the good prod set"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 0 ] && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L40/dist/latest.json")" = 0.7.49 ]; } \
+  && pass "#6149 repair: restoring the whole set from the good commit deploys it under the real floor (LIVE serves 0.7.49)" || bad "#6149 repair: restored set (rc=$RC) out=$out"
+
+# 41) The doc's USUAL case, on arm 40's site: live now serves the good set, so after another broken set is refused and
+#     the same restore is committed, the pointer equals live: --promote refuses ("equals LIVE") and --publish deploys.
+GOODLIVE41="$(cat "$L40/dist/latest.json")"
+write_ptr "$S40/dist/latest.json" 0.7.38 "$(sha_of "$L40/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.38-arm64.tar.gz
+printf 'an installer from before 0.7.42\n' > "$S40/setup"; ( cd "$S40" && shasum -a 256 setup > setup.sha256 )
+git -C "$S40" add -A && git -C "$S40" commit -q -m "a prod set below the floor, again"
+run_deploy_real "$S40" "$L40" --publish
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)"; } \
+  && pass "#6149 repair (usual case): the broken set is refused, nothing deployed" || bad "#6149 repair usual: broken set (rc=$RC) out=$out"
+git -C "$S40" checkout -q "$GOOD40" -- dist/latest.json setup setup.sha256 && git -C "$S40" commit -q -m "restore the good prod set, again"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 1 ] && has "$out" "already equals LIVE"; } \
+  && pass "#6149 repair (usual case): --promote refuses, the restored pointer equals live" || bad "#6149 repair usual: --promote (rc=$RC) out=$out"
+run_deploy_real "$S40" "$L40" --publish
+{ [ "$RC" = 0 ] && [ "$(cat "$L40/dist/latest.json")" = "$GOODLIVE41" ]; } \
+  && pass "#6149 repair (usual case): --publish deploys the restored set, as the doc says" || bad "#6149 repair usual: --publish (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

@@ -123,6 +123,10 @@ function sandboxEnv(dir, extra) {
   delete env.KOSMOS_TEST_PART;
   delete env.KOSMOS_TEST_PART_LOCAL;
   delete env.KOSMOS_SHELL_SHARD;
+  /* #6149: release.sh refuses the setup floor's test knob outright; these sandbox arms stop before step 1a-floor, so this
+     is hygiene here (run_git, whose arms do reach it, strips it too). */
+  delete env.KOSMOS_SETUP_FLOOR_TEST;
+  delete env.KOSMOS_SETUP_FLOOR_LOWER;
   return { ...env, ...(extra || {}) };
 }
 
@@ -518,6 +522,10 @@ function git_sandbox(version, { diverge = 'none', whatsNewFor = null } = {}) {
      place (green: no check is quarantined on main) rather than refusing on a missing file. */
   fs.copyFileSync(path.join(__dirname, 'browser-checks-quarantine-guard.test.js'), path.join(dir, 'browser-checks-quarantine-guard.test.js'));
   fs.cpSync(path.join(__dirname, 'docs', 'browser-checks'), path.join(dir, 'docs', 'browser-checks'), { recursive: true });
+  /* #6149: step 1a-floor checks the cut's own install/setup.sh knows the read-only app, so the sandbox carries the
+     real installer and the arms past step 1 exercise that check in place rather than refusing on a missing file. */
+  fs.mkdirSync(path.join(dir, 'install'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'install', 'setup.sh'), path.join(dir, 'install', 'setup.sh'));
   fs.mkdirSync(path.join(dir, 'web'), { recursive: true });
   // For the version the arms CUT: the next patch of `version` (0.6.02 -> 0.6.03), padding kept.
   const parts = String(version).split('.');
@@ -658,6 +666,13 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
+      /* #6149: these arms cut 0.6.x, below the setup floor. Under KOSMOS_ALLOW_VERSION_JUMP=1 release.sh checks the cut's
+         own version against the floor, so a shell that exported it (an operator's; release.sh itself unsets it before
+         step 3, so a cut never passes it here) would stop every arm past step 1 at 1a-floor: measured, 17 red. The
+         floor's test knob is refused outright by release.sh. The arm that tests the override passes it in `env`. */
+      KOSMOS_ALLOW_VERSION_JUMP: undefined,
+      KOSMOS_SETUP_FLOOR_TEST: undefined,
+      KOSMOS_SETUP_FLOOR_LOWER: undefined,
       /* #3955: the highlights opt-out is set only by the arm that tests it; an operator's exported
          one would otherwise let every arm past the check it is meant to exercise. */
       KOSMOS_CUT_NO_WHATS_NEW: noWhatsNew ? '1' : undefined,
@@ -868,6 +883,89 @@ test('a clean tree in step with origin gets past the guard', () => {
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #6149: under KOSMOS_ALLOW_VERSION_JUMP (which turns #4075's forward-only rule off) a cut naming a version below the
+   setup floor is refused at step 1a-floor, before anything is bumped; without the override #4075 stands in for it, and
+   the arm above (0.6.03, no override) is the control that the floor does not refuse the fixtures' own versions. */
+test('#6149: with the version-jump override, a cut below the setup floor is refused at step 1a-floor, before the bump', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
+  assert.match(r.said, /setup floor \(kosmos#6149\): this cut's version \(KOSMOS_ALLOW_VERSION_JUMP is set\) names 0\.6\.03/, r.said.slice(-600));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#6149 CONTROL: with the version-jump override, a cut at or above the setup floor gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.7.49');
+  const r = run_git(dir, '0.7.50', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-600));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #6149: a PROD cut re-publishes the staging pair untouched, and step 1a-floor checks it on real files: an installer
+   in setup-staging that does not know the read-only app refuses the cut before the bump; the same pair with a current
+   installer is the control (it gets past to step 2). */
+function stagingPair(site, installer) {
+  fs.writeFileSync(path.join(site, 'dist', 'latest-staging.json'), JSON.stringify({ version: '0.7.49', sha256: 'b'.repeat(64), artifact: 'kosmos-0.7.49-arm64.tar.gz' }));
+  fs.writeFileSync(path.join(site, 'setup-staging'), installer);
+}
+test('#6149: a prod cut refuses at step 1a-floor when the untouched setup-staging does not know the read-only app', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  stagingPair(site, '#!/bin/sh\necho an installer from before 0.7.42\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /setup floor \(kosmos#6149\): .*setup-staging.* does not know KOSMOS_READONLY_APP/, r.said.slice(-600));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+test('#6149 CONTROL: the same untouched staging pair with a current installer gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  stagingPair(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-600));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #6149: the MAIN path of step 1a-floor reads the site's origin/main after a fetch (the arms above use a plain-directory
+   site, so they reach only the fallback). Here the site is a real clone of a bare origin: its working copy is clean and
+   carries no staging pair, while origin/main holds one; the floor must read origin/main's. */
+function siteWithOrigin(site, installer) {
+  const g = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-origin-'));
+  g(bare, 'init', '-q', '--bare', '--initial-branch=main');
+  g(site, 'init', '-q', '--initial-branch=main'); g(site, 'add', '-A');
+  g(site, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'site');
+  g(site, 'remote', 'add', 'origin', bare); g(site, 'push', '-q', 'origin', 'main');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-other-'));
+  g(other, 'clone', '-q', bare, '.');
+  stagingPair(other, installer);
+  g(other, 'add', '-A'); g(other, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'a staging pair, pushed elsewhere');
+  g(other, 'push', '-q', 'origin', 'main');
+  fs.rmSync(other, { recursive: true, force: true });
+  return bare;
+}
+test('#6149: step 1a-floor reads the site origin/main after a fetch: a bad staging pair there refuses the cut', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const bare = siteWithOrigin(site, '#!/bin/sh\necho an installer cut before #4449\n');
+  assert.ok(!fs.existsSync(path.join(site, 'setup-staging')), 'the checkout itself must not hold the pair');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /setup floor \(kosmos#6149\): .*setup-staging.* does not know KOSMOS_READONLY_APP/, r.said.slice(-800));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
+  for (const d of [dir, site, bare]) fs.rmSync(d, { recursive: true, force: true });
+});
+test('#6149 CONTROL: a current staging pair on the site origin/main gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const bare = siteWithOrigin(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-800));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  for (const d of [dir, site, bare]) fs.rmSync(d, { recursive: true, force: true });
 });
 
 /* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,

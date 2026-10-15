@@ -87,6 +87,9 @@
 #
 #   bash tools/test-deploy-site-served-win-3600.sh
 set -uo pipefail
+# kosmos#6149: these fixtures are 0.6.x builds, older than the setup floor (0.7.45), so the floor is lowered here.
+# tools/test-setup-floor-6149.sh tests the floor itself; this file tests deploy-site's other behaviour.
+export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/.." && pwd)
@@ -248,7 +251,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   printf 'PKG-BYTES\n' > "$live/dist/Kosmos.pkg"
   ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
   printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
   write_ptr "$live/dist/latest.json" "$V" "$realsha" "$ART"
 
@@ -256,7 +259,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   git init -q --initial-branch=main "$s"
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   write_ptr "$s/dist/latest.json" "$V" "$realsha" "$ART"
   printf 'WINZIP-%s\n' "$WV_OLD" > "$s/dist/$WZ_OLD"
