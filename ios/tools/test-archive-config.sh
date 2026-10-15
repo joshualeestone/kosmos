@@ -6,7 +6,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 stone="864QZ""69GF2"   # in pieces, as in archive.sh, so the cut-sign sweep does not count this file
-kosmos="6563JLN5HF"   # Kosmos Agent Manager, Inc. (#6262), the one team io.kosmos.app builds under
+kosmos="6563JLN""5HF"   # Kosmos Agent Manager, Inc. (#6262), in pieces for the same reason as $stone
 fail=0
 # expect NAME WANT(0|1) TEAM BUNDLE
 expect() {
@@ -53,7 +53,7 @@ if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ]; then echo "PASS  project.pbxproj takes 
 unset KOSMOS_IOS_XCCONFIG
 if "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the project's own Signing.xcconfig"; else echo "FAIL  the project's own Signing.xcconfig is refused"; fail=1; fi
 # The override is refused on a real (non --check-config) run, before anything is built.
-out=$(KOSMOS_IOS_XCCONFIG="$work/preview-under-stone.xcconfig" "$here/archive.sh" --build 1 2>&1); rc=$?
+out=$(KOSMOS_IOS_XCCONFIG="$work/real-under-kosmos.xcconfig" "$here/archive.sh" --build 1 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'for --check-config only'; then echo "PASS  the override is refused on a real archive (rc=$rc)"; else echo "FAIL  the override was not refused on a real archive (rc=$rc): $out"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"

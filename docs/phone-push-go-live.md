@@ -58,15 +58,15 @@ in Step 4.
 These have to exist before anything else. None of them is something an agent can create.
 
 **Apple.** Everything Apple for Kosmos comes from a new Apple Developer organisation,
-**Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which is waiting for Apple's approval
-(Liu Kang, from Splinter and Josh, 2026-09-24). **It is approved, Team ID `6563JLN5HF`, and
-`io.kosmos.app` is registered there with Push Notifications on (2026-10-15, kosmos #6262).** The
-interim Stone Syndicate preview app (`io.kosmos.app.preview`, #4089) was never created and is dropped;
-`ios/Signing.xcconfig` now builds `io.kosmos.app` under `6563JLN5HF`. Development keeps testing
+**Kosmos Agent Manager, Inc.** (the Kosmos legal entity), which waited for Apple's approval
+(Liu Kang, from Splinter and Josh, 2026-09-24). **It is approved, and `io.kosmos.app` is registered
+there with Push Notifications on (2026-10-15, kosmos #6262).** The interim Stone Syndicate preview
+app (`io.kosmos.app.preview`, #4089) was never created and is dropped; `ios/Signing.xcconfig` now
+builds `io.kosmos.app` under the new team, and holds its Team ID. Development keeps testing
 against Kano's mock APNs until the APNs key exists.
 
-1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Done: Team ID `6563JLN5HF`
-   (#6262).
+1. **Apple approves the Kosmos Agent Manager, Inc. developer org.** Done; its Team ID is
+   `DEVELOPMENT_TEAM` in `ios/Signing.xcconfig` (#6262).
 2. **Register the App ID `io.kosmos.app` under that org, with Push Notifications turned on.**
    Done 2026-10-15 (#6262). The App Store Connect app record is not created yet.
    - The bundle id is set in `ios/Signing.xcconfig` (`KOSMOS_BUNDLE_ID`), and `io.kosmos.app` is
@@ -139,7 +139,7 @@ the box (`deploy/deploy-coordinator.sh`: "Not #KEY= for KOSMOS_APNS_*"). Names a
    settings, never later.
    Check: the rendered env contains `KOSMOS_APNS_BUNDLE_IDS=io.kosmos.app`.
 2. **The team and the key must match.** `KOSMOS_APNS_TEAM_ID` is Kosmos Agent Manager, Inc.'s Team ID,
-   the team that signs `io.kosmos.app` (not the interim value in `ios/Signing.xcconfig`).
+   the team that signs `io.kosmos.app` (`DEVELOPMENT_TEAM` in `ios/Signing.xcconfig`).
    `KOSMOS_APNS_KEY_ID` and the .p8 must be a key made in that same team. A mismatch gets
    `InvalidProviderToken` from Apple on every send.
    Check: the Key ID and the Team ID both come from the same step 1 account.
@@ -269,10 +269,10 @@ refused even registering an identifier; Admin, or App Manager with access to Cer
 Identifiers & Profiles, covers the automatic signing
 archive.sh uses).
 
-**Done now, before Apple's approval (kosmos #4089):**
-- **The Team ID has one home, `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Kosmos Agent Manager,
-  Inc.'s `6563JLN5HF`). The Xcode
-  project and the archive script both read it from there.
+**Done (kosmos #4089, #6262):**
+- **Xcode reads the Team ID from `ios/Signing.xcconfig`** (`DEVELOPMENT_TEAM`, Kosmos Agent
+  Manager, Inc.'s), and the archive script reads it there too. The archive script also holds that
+  team id as the only team it allows `io.kosmos.app` under, so a team change edits both.
 - **`ios/tools/archive.sh --build <N>`** archives, exports for App Store Connect
   (`ios/tools/ExportOptions.plist`) and checks the exported `.ipa`. `--upload` then sends that same
   checked file. Details are in `ios/README.md`, "Signing, archive and upload".
@@ -284,18 +284,17 @@ archive.sh uses).
   built app carries both. It also compiles on Agent1s, which has an iOS 26.5 simulator runtime
   (#6262).
 
-**Waits on Apple approving the org (#3643):**
-- **Create the real app record for `io.kosmos.app` under the new org** [Josh: the seller name is
-  permanent, Step 1 item 2]. Not a transfer: the preview app cannot be transferred.
-- **Change `DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** to the Kosmos Agent
-  Manager, Inc. Team ID and `io.kosmos.app`
-  [Josh supplies the id; fleet makes the change]. Two lines; signing is `Automatic`. Signing under
-  any other team gives device tokens the coordinator's key cannot send to.
-- **An App Store Connect API key under the new org** for the upload (`ASC_KEY_PATH`, `ASC_KEY_ID`,
-  `ASC_ISSUER_ID`), filed with `/add-secret` [Josh creates it, Admin or App Manager with access to Certificates, Identifiers & Profiles, for automatic
-  signing]. Without one,
-  `archive.sh` still exports and checks, and the checked `.ipa` goes up through Apple's Transporter
-  app.
+**Still to do under the new org:**
+- **Create the app record for `io.kosmos.app`** [Josh: the seller name is permanent, Step 1
+  item 2].
+- Done (#6262): **`DEVELOPMENT_TEAM` and `KOSMOS_BUNDLE_ID` in `ios/Signing.xcconfig`** are the new
+  team and `io.kosmos.app`. Signing under any other team gives device tokens the coordinator's key
+  cannot send to, and `archive.sh` refuses it.
+- Done (2026-10-15): **an App Store Connect API key under the new org** (Admin), filed with
+  `/add-secret` under the target `app-store-connect` (Key ID 3M63HJVBV7). `archive.sh --upload`
+  takes it as `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`. With that key, a real `archive.sh`
+  run creates the team's distribution certificate and App Store profile itself
+  (`-allowProvisioningUpdates`).
 
 **Setup (one time):**
 - The entitlement file `ios/Kosmos.entitlements` already asks for push
@@ -306,11 +305,14 @@ archive.sh uses).
 - **Version.** The code says `0.1.0`, build `1` (`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`).
   The version the store shows at submission is Josh's call. The build number must go up on every
   upload.
-- **Export compliance (encryption).** Not set in the code on purpose: it is a declaration to Apple
-  that Josh makes, in App Store Connect on upload (or later as `ITSAppUsesNonExemptEncryption` in
-  the build settings). The facts, read from `ios/Kosmos/` on 2026-09-25: the app talks to the
-  network only over HTTPS through Apple's own `URLSession` and `WKWebView`, keeps the session in the
-  iOS Keychain, and contains no encryption code of its own.
+- **Export compliance (encryption).** Set in the code since #6262: `ITSAppUsesNonExemptEncryption
+  = false` in `ios/Kosmos-Info.plist`, so a TestFlight upload does not stop at Apple's question. It
+  is the first slice item of #6262's plan (Splinter's brief). It is a declaration to Apple, so it is
+  Josh's to change: every build carries its own answer, and removing the key makes App Store
+  Connect ask again on the next upload. The facts it rests on, read from `ios/Kosmos/` on 2026-09-25
+  and again on 2026-10-15: the app talks to the network only over HTTPS through Apple's own
+  `URLSession` and `WKWebView`, keeps the session in the iOS Keychain (`import Security`, the
+  system's storage, in `SessionKeychain.swift`), and contains no encryption code of its own.
 - **Push entitlement.** `ios/Kosmos.entitlements` says `aps-environment = development`, and the
   export for distribution is expected to set `production`. `archive.sh` checks the exported `.ipa`
   and stops before upload if it does not (`ios/tools/check-ipa-entitlements.sh`; by hand, unzip the
