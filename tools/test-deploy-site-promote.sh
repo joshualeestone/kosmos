@@ -147,7 +147,7 @@ make_scenario() {  # [committed_sha_override]
   ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
   # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
@@ -158,7 +158,7 @@ make_scenario() {  # [committed_sha_override]
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   local csha="${1:-$newsha}"
   write_ptr "$s/dist/latest.json" "$NEW" "$csha" "$NEWART"            # COMMITTED = NEW
@@ -266,7 +266,7 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   # #2511/#1666: deploy-site's post-deploy edge-check re-fetches the (setup, setup.sha256) pair and
   # refuses a mismatch (the pair the .pkg postinstall verifies). Publish a matching setup.sha256.
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
@@ -275,7 +275,7 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   write_ptr "$s/dist/latest.json" "$OLD" "$oldsha" "$OLDART"           # COMMITTED = OLD (rollback)
   printf 'WINZIP\n' > "$s/dist/$WINZIP"
@@ -422,7 +422,7 @@ run_deploy "$S18" "$L18" --publish
 # #5032: the pointer NAMES its installer (setup_sha256). Every deploy refuses a committed /setup that is
 # not that installer. Scenarios 1-18 above use pointers with no field, so they are the "not checked" control.
 with_setup() {  # <site> <installer-text>: commit a setup pair with that text, and make the committed pointer name <named-sha> (arg 3, default the pair's own)
-  local s="$1"; printf '%s\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
+  local s="$1"; printf '%s KOSMOS_READONLY_APP\n' "$2" > "$s/setup"; ( cd "$s" && shasum -a 256 setup > setup.sha256 )
   local named="${3:-$(sha_of "$s/setup")}"
   node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$s/dist/latest.json" "$named"
   git -C "$s" add setup setup.sha256 dist/latest.json && git -C "$s" commit -q -m "pointer names its installer"
@@ -430,12 +430,12 @@ with_setup() {  # <site> <installer-text>: commit a setup pair with that text, a
 # 19) a promote whose committed /setup IS the installer the pointer names: deploys, and serves it.
 read -r S19 L19 <<<"$(make_scenario)"; with_setup "$S19" "NEW-INSTALLER"
 run_deploy "$S19" "$L19" --promote
-{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = NEW-INSTALLER ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
+{ [ "$RC" = 0 ] && [ "$(cat "$L19/setup")" = "NEW-INSTALLER KOSMOS_READONLY_APP" ]; } && pass "#5032: a promote whose /setup is the pointer's installer deploys and serves it" || bad "#5032 matching promote (rc=$RC) out=$out"
 # 20) a promote whose committed /setup is NOT that installer (promote-channel's copy not committed, or a
 #     rollback that kept the newer installer): refused before anything is served.
 read -r S20 L20 <<<"$(make_scenario)"; with_setup "$S20" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"
 run_deploy "$S20" "$L20" --promote
-{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = setup-script ]; } \
+{ [ "$RC" = 1 ] && has "$out" "names installer" && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L20/dist/latest.json")" = "$OLD" ] && [ "$(cat "$L20/setup")" = "setup-script KOSMOS_READONLY_APP" ]; } \
   && pass "#5032: a promote whose /setup is not the pointer's installer is refused, nothing served" || bad "#5032 mismatched promote (rc=$RC) out=$out"
 # 21) the same mismatch on a site-copy --publish (committed pointer == live): refused too.
 read -r S21 L21 <<<"$(make_scenario)"; with_setup "$S21" "OLD-INSTALLER" "$(printf 'NEW-INSTALLER\n' | shasum -a 256 | awk '{print $1}')"; cp "$S21/dist/latest.json" "$L21/dist/latest.json"
@@ -448,24 +448,24 @@ run_deploy "$S22" "$L22" --promote
 
 # 23) a committed /setup-staging pair is served and edge-checked after the deploy (review 3: run, not grepped).
 read -r S23 L23 <<<"$(make_scenario)"; with_setup "$S23" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S23/setup-staging"; ( cd "$S23" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S23" add setup-staging setup-staging.sha256 && git -C "$S23" commit -q -m "staging installer"
 run_deploy "$S23" "$L23" --promote
-{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = NEXT-STAGING-INSTALLER ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
+{ [ "$RC" = 0 ] && [ "$(cat "$L23/setup-staging")" = "NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP" ]; } && pass "#5032: a committed /setup-staging pair deploys and passes its edge check" || bad "#5032 setup-staging edge (rc=$RC) out=$out"
 # 24) ...and a served /setup-staging.sha256 that does not describe the served script is refused.
 read -r S24 L24 <<<"$(make_scenario)"; with_setup "$S24" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S24/setup-staging"; ( cd "$S24" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S24" add setup-staging setup-staging.sha256 && git -C "$S24" commit -q -m "staging installer"
 out="$(MANGLE_ROOT_ON_DEPLOY=setup-staging PATH="$BIN:$PATH" LIVE_DIR="$L24" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S24" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "is not the committed setup-staging"; } && pass "#5032: a served /setup-staging that is not the committed one is refused at the edge" || bad "#5032 setup-staging mangled (rc=$RC) out=$out"
 # 25) a pointer naming an installer over a commit with no setup.sha256: refused before anything is served.
 read -r S25 L25 <<<"$(make_scenario)"; with_setup "$S25" "NEW-INSTALLER"; git -C "$S25" rm -q setup.sha256 && git -C "$S25" commit -q -m "no sidecar"
 run_deploy "$S25" "$L25" --promote
-{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = setup-script ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
+{ [ "$RC" = 1 ] && has "$out" "has no setup or setup.sha256" && [ "$(cat "$L25/setup")" = "setup-script KOSMOS_READONLY_APP" ]; } && pass "#5032: a pointer naming an installer over a commit with no sidecar is refused" || bad "#5032 missing sidecar (rc=$RC) out=$out"
 
 # 26) the served script is the committed one, but its served sidecar names other bytes: refused at the edge.
 read -r S26 L26 <<<"$(make_scenario)"; with_setup "$S26" "NEW-INSTALLER"
-printf 'NEXT-STAGING-INSTALLER\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+printf 'NEXT-STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$S26/setup-staging"; ( cd "$S26" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 git -C "$S26" add setup-staging setup-staging.sha256 && git -C "$S26" commit -q -m "staging installer"
 out="$(LIE_SIDECAR_ON_DEPLOY=setup-staging.sha256 PATH="$BIN:$PATH" LIVE_DIR="$L26" HOST_URL="$HOSTURL" KOSMOS_DEPLOY_RETRY_SLEEP=0 KOSMOS_SITE="$S26" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" KOSMOS_WIN_ZIP="$WINZIP" bash "$DEPLOY" --promote 2>&1)"; RC=$?
 { [ "$RC" = 1 ] && has "$out" "does NOT match its served /setup-staging.sha256"; } && pass "#5032: a served /setup-staging.sha256 that names other bytes is refused at the edge" || bad "#5032 lying staging sidecar (rc=$RC) out=$out"
@@ -573,6 +573,7 @@ run_deploy_real() {  # <site> <live> <flag...> ; like run_deploy, without the lo
 above() { OLD=0.7.47 NEW=0.7.49 OLDART=kosmos-0.7.47-arm64.tar.gz NEWART=kosmos-0.7.49-arm64.tar.gz make_scenario; }
 # 37) The committed /setup does not know the read-only app (an installer from before 0.7.45): refused, nothing deployed.
 read -r S37 L37 <<<"$(above)"
+printf 'setup-script\n' > "$S37/setup"; ( cd "$S37" && shasum -a 256 setup > setup.sha256 ); git -C "$S37" commit -qam "an installer from before 0.7.45"
 run_deploy_real "$S37" "$L37" --promote
 { [ "$RC" = 1 ] && has "$out" "setup does not know KOSMOS_READONLY_APP"; } \
   && pass "#6149: an installer from before 0.7.45 beside a 0.7.49 pointer is refused" || bad "#6149 old installer (rc=$RC) out=$out"

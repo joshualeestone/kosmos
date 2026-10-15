@@ -15,8 +15,8 @@
 #
 #   bash tools/test-setup-staging-5032.sh
 set -uo pipefail
-# kosmos#6149: these fixtures' installers are stand-ins (they do not carry KOSMOS_READONLY_APP), so the setup floor is
-# lowered here, which skips its installer check. tools/test-setup-floor-6149.sh tests the floor itself.
+# kosmos#6149: these fixtures' versions are below the setup floor, so it is lowered here; their stand-in installers
+# carry KOSMOS_READONLY_APP, since the installer check runs under any floor. tools/test-setup-floor-6149.sh tests the floor.
 export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -43,7 +43,7 @@ grep -qF 'KOSMOS_VERIFY_SETUP="$SETUP_FILE"' "$REPO/tools/release.sh" && pass "r
 # ---- release.sh: the pointer's setup_sha256 comes from the build's own installer pair (the block, RUN) ----
 BLK="$(awk '/^KM_SETUP_SHA="\$\(awk/{p=1} p{print} p&&/does not name dist\/setup.s bytes/{exit}' "$REPO/tools/release.sh")"
 [ -n "$BLK" ] && pass "release: found the installer-sha block" || bad "release: no installer-sha block"
-F="$T/fixrepo"; mkdir -p "$F/dist"; printf 'BUILT-INSTALLER\n' > "$F/dist/setup"; ( cd "$F/dist" && shasum -a 256 setup > setup.sha256 )
+F="$T/fixrepo"; mkdir -p "$F/dist"; printf 'BUILT-INSTALLER KOSMOS_READONLY_APP\n' > "$F/dist/setup"; ( cd "$F/dist" && shasum -a 256 setup > setup.sha256 )
 WANT="$(shasum -a 256 < "$F/dist/setup" | awk '{print $1}')"
 got="$( REPO="$F"; eval "$BLK" && printf '%s' "$KM_SETUP_SHA" )" ; rc=$?
 [ "$rc" = 0 ] && [ "$got" = "$WANT" ] && pass "release: KM_SETUP_SHA is the built installer's sha (not the artifact's)" || bad "release: KM_SETUP_SHA wrong (rc=$rc got=$got want=$WANT)"
@@ -88,33 +88,33 @@ newsite() {
   local d; d="$(mktemp -d "$T/site.XXXXXX")"; mkdir -p "$d/dist"
   git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
   echo '{"version":"1.0.0"}' > "$d/dist/latest.json"
-  printf 'PROD-INSTALLER\n' > "$d/setup"; ( cd "$d" && shasum -a 256 setup > setup.sha256 )
+  printf 'PROD-INSTALLER KOSMOS_READONLY_APP\n' > "$d/setup"; ( cd "$d" && shasum -a 256 setup > setup.sha256 )
   git -C "$d" add dist/latest.json setup setup.sha256; git -C "$d" commit -qm init
   printf '%s' "$d"
 }
 # A first staging cut wrote an UNTRACKED pair and aborted: removed.
-S="$(newsite)"; printf 'NEVER-SERVED\n' > "$S/setup-staging"; echo x > "$S/setup-staging.sha256"
+S="$(newsite)"; printf 'NEVER-SERVED KOSMOS_READONLY_APP\n' > "$S/setup-staging"; echo x > "$S/setup-staging.sha256"
 release_site_restore "$S" 1.0.1 1 >/dev/null
 [ ! -e "$S/setup-staging" ] && [ ! -e "$S/setup-staging.sha256" ] && pass "restore: an untracked setup-staging pair is removed" || bad "restore left an untracked setup-staging pair"
-[ "$(cat "$S/setup")" = PROD-INSTALLER ] && pass "restore: CONTROL /setup is left alone" || bad "restore touched /setup"
+[ "$(cat "$S/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && pass "restore: CONTROL /setup is left alone" || bad "restore touched /setup"
 # Untracked here but ALREADY on origin/main with the same bytes (a cut that died after its 7b push): kept.
 # With other bytes (an older copy on origin/main): removed, or the next pull would refuse to overwrite it.
 OR="$T/origin-site.git"; git init -q --bare "$OR"
 S="$(newsite)"; git -C "$S" remote add origin "$OR"
-printf 'PUSHED-STAGING\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
+printf 'PUSHED-STAGING KOSMOS_READONLY_APP\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
 git -C "$S" add setup-staging setup-staging.sha256; git -C "$S" commit -qm pushed; git -C "$S" push -q origin HEAD:main; git -C "$S" fetch -q origin
 git -C "$S" rm -q --cached setup-staging setup-staging.sha256; git -C "$S" commit -qm "local checkout without it"
 release_site_restore "$S" 1.0.3 1 >/dev/null
-[ "$(cat "$S/setup-staging" 2>/dev/null)" = PUSHED-STAGING ] && pass "restore: an untracked pair origin/main already holds (same bytes) is kept" || bad "restore removed a pair origin/main holds"
-printf 'NEWER-NEVER-SERVED\n' > "$S/setup-staging"
+[ "$(cat "$S/setup-staging" 2>/dev/null)" = "PUSHED-STAGING KOSMOS_READONLY_APP" ] && pass "restore: an untracked pair origin/main already holds (same bytes) is kept" || bad "restore removed a pair origin/main holds"
+printf 'NEWER-NEVER-SERVED KOSMOS_READONLY_APP\n' > "$S/setup-staging"
 release_site_restore "$S" 1.0.4 1 >/dev/null
 [ ! -e "$S/setup-staging" ] && pass "restore: CONTROL an untracked pair whose bytes differ from origin/main's is removed" || bad "restore kept bytes origin/main does not hold"
 # A later staging cut changed a TRACKED pair and aborted: put back to the committed bytes.
-S="$(newsite)"; printf 'SERVED-STAGING\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
+S="$(newsite)"; printf 'SERVED-STAGING KOSMOS_READONLY_APP\n' > "$S/setup-staging"; ( cd "$S" && shasum -a 256 setup-staging > setup-staging.sha256 )
 git -C "$S" add setup-staging setup-staging.sha256; git -C "$S" commit -qm staging
-printf 'ABORTED-STAGING\n' > "$S/setup-staging"; echo y > "$S/setup-staging.sha256"
+printf 'ABORTED-STAGING KOSMOS_READONLY_APP\n' > "$S/setup-staging"; echo y > "$S/setup-staging.sha256"
 release_site_restore "$S" 1.0.2 1 >/dev/null
-[ "$(cat "$S/setup-staging")" = SERVED-STAGING ] && git -C "$S" diff --quiet -- setup-staging.sha256 && pass "restore: a changed tracked setup-staging pair is put back" || bad "restore did not put back the tracked setup-staging pair"
+[ "$(cat "$S/setup-staging")" = "SERVED-STAGING KOSMOS_READONLY_APP" ] && git -C "$S" diff --quiet -- setup-staging.sha256 && pass "restore: a changed tracked setup-staging pair is put back" || bad "restore did not put back the tracked setup-staging pair"
 
 # ---- promote-channel.sh: the staging installer moves onto /setup with the pointer ----
 V=9.9.9; ART="kosmos-$V-arm64.tar.gz"
@@ -127,7 +127,7 @@ promote_site() {   # a git site: committed prod installer, a published staging p
   printf '{"files":[]}\n' > "$s/dist/kosmos-$V-arm64.manifest.json"
   bash "$HERE/publish-staging-pointer.sh" "$s" >/dev/null 2>&1
   if [ "${1:-}" = yes ]; then
-    printf 'STAGING-INSTALLER\n' > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+    printf 'STAGING-INSTALLER KOSMOS_READONLY_APP\n' > "$s/setup-staging"; ( cd "$s" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
     git -C "$s" add setup-staging setup-staging.sha256; git -C "$s" commit -qm "staging installer"
     name_installer "$s" "$(shasum -a 256 < "$s/setup-staging" | awk '{print $1}')"   # the staging pointer names it, as release.sh writes it
   fi
@@ -135,7 +135,7 @@ promote_site() {   # a git site: committed prod installer, a published staging p
 }
 name_installer() { node -e 'const f=process.argv[1];const p=JSON.parse(require("fs").readFileSync(f,"utf8"));p.setup_sha256=process.argv[2];require("fs").writeFileSync(f,JSON.stringify(p)+"\n")' "$1/dist/latest-staging.json" "$2"; }
 Sp="$(promote_site yes)"
-[ "$(cat "$Sp/setup")" = PROD-INSTALLER ] && pass "promote: CONTROL before the promote /setup is the prod installer" || bad "promote fixture: /setup is not the prod installer"
+[ "$(cat "$Sp/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && pass "promote: CONTROL before the promote /setup is the prod installer" || bad "promote fixture: /setup is not the prod installer"
 out="$(bash "$HERE/promote-channel.sh" "$Sp" 2>&1)"; rc=$?
 [ "$rc" = 0 ] && pass "promote: exit 0" || bad "promote exit (rc=$rc, out=$out)"
 cmp -s "$Sp/setup-staging" "$Sp/setup" && cmp -s "$Sp/setup-staging.sha256" "$Sp/setup.sha256" && pass "promote: /setup and its sidecar are now the staging pair" || bad "promote did not copy setup-staging onto setup"
@@ -147,11 +147,11 @@ ls -a "$Sp" | grep -q '^\.setup' && bad "promote left a .setup temp file" || pas
 # promote goes on, EVEN with a committed setup-staging beside it (nothing says which build it belongs to).
 Sa="$(promote_site no)"
 out="$(bash "$HERE/promote-channel.sh" "$Sa" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$Sa/setup")" = PROD-INSTALLER ] && grep -q '"9.9.9"' "$Sa/dist/latest.json" && has "$out" "names no installer" \
+[ "$rc" = 0 ] && [ "$(cat "$Sa/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && grep -q '"9.9.9"' "$Sa/dist/latest.json" && has "$out" "names no installer" \
   && pass "promote: a pointer naming no installer leaves /setup as it is and still promotes" || bad "promote no-field arm (rc=$rc, out=$out)"
-Sb="$(promote_site no)"; printf 'SOME-INSTALLER\n' > "$Sb/setup-staging"; ( cd "$Sb" && shasum -a 256 setup-staging > setup-staging.sha256 ); git -C "$Sb" add setup-staging setup-staging.sha256; git -C "$Sb" commit -qm x
+Sb="$(promote_site no)"; printf 'SOME-INSTALLER KOSMOS_READONLY_APP\n' > "$Sb/setup-staging"; ( cd "$Sb" && shasum -a 256 setup-staging > setup-staging.sha256 ); git -C "$Sb" add setup-staging setup-staging.sha256; git -C "$Sb" commit -qm x
 out="$(bash "$HERE/promote-channel.sh" "$Sb" 2>&1)"; rc=$?
-[ "$rc" = 0 ] && [ "$(cat "$Sb/setup")" = PROD-INSTALLER ] && pass "promote: CONTROL a committed setup-staging the pointer does not name is not copied" || bad "promote copied an unnamed setup-staging (rc=$rc, out=$out)"
+[ "$rc" = 0 ] && [ "$(cat "$Sb/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && pass "promote: CONTROL a committed setup-staging the pointer does not name is not copied" || bad "promote copied an unnamed setup-staging (rc=$rc, out=$out)"
 has "$out" "WARNING setup-staging differs from /setup" && pass "promote: ...and says loudly that prod now serves the build beside the older /setup" || bad "promote did not warn about the unnamed, differing setup-staging (out=$out)"
 has "$(bash "$HERE/promote-channel.sh" "$(promote_site no)" 2>&1)" "WARNING setup-staging differs" && bad "promote warned with no setup-staging at all" || pass "promote: CONTROL no setup-staging, no warning"
 
@@ -159,23 +159,23 @@ has "$(bash "$HERE/promote-channel.sh" "$(promote_site no)" 2>&1)" "WARNING setu
 refused() {   # label site expected-phrase
   local out rc; out="$(bash "$HERE/promote-channel.sh" "$2" 2>&1)"; rc=$?
   # newsite committed a prod pointer naming 1.0.0: untouched means it still does.
-  if [ "$rc" = 1 ] && [ "$(cat "$2/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$2/setup")" = PROD-INSTALLER ] && has "$out" "$3"; then pass "promote: refuses $1, nothing written"
+  if [ "$rc" = 1 ] && [ "$(cat "$2/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$2/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] && has "$out" "$3"; then pass "promote: refuses $1, nothing written"
   else bad "promote $1 (rc=$rc, latest.json: $(cat "$2/dist/latest.json"), out=$out)"; fi
 }
-Su="$(promote_site no)"; printf 'NEVER-SERVED\n' > "$Su/setup-staging"; ( cd "$Su" && shasum -a 256 setup-staging > setup-staging.sha256 )
+Su="$(promote_site no)"; printf 'NEVER-SERVED KOSMOS_READONLY_APP\n' > "$Su/setup-staging"; ( cd "$Su" && shasum -a 256 setup-staging > setup-staging.sha256 )
 name_installer "$Su" "$(shasum -a 256 < "$Su/setup-staging" | awk '{print $1}')"
 refused "an untracked setup-staging the pointer names" "$Su" "is not committed"
 Sg="$(promote_site no)"; name_installer "$Sg" "$(printf 'X\n' | shasum -a 256 | awk '{print $1}')"
 refused "a pointer naming an installer the site does not have" "$Sg" "is not committed"
 So="$(promote_site yes)"; name_installer "$So" "$(printf 'ANOTHER-CUT\n' | shasum -a 256 | awk '{print $1}')"
 refused "a setup-staging that is not the installer the pointer names" "$So" "but the staging pointer names installer"
-Sm="$(promote_site yes)"; printf 'EDITED\n' > "$Sm/setup-staging"; ( cd "$Sm" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
+Sm="$(promote_site yes)"; printf 'EDITED KOSMOS_READONLY_APP\n' > "$Sm/setup-staging"; ( cd "$Sm" && shasum -a 256 setup-staging | sed 's/setup-staging$/setup/' > setup-staging.sha256 )
 refused "a setup-staging that differs from its committed copy" "$Sm" "differs from its committed copy"
 # The gates take minutes: a setup-staging replaced while they ran is refused before the first write.
 Sc="$(promote_site yes)"; CHG="$T/stub-changing-gate.sh"
 printf '#!/usr/bin/env bash\nprintf "REPLACED-DURING-GATES\\n" > "$CHANGE_SITE/setup-staging"\nexit 0\n' > "$CHG"; chmod +x "$CHG"
 out="$(CHANGE_SITE="$Sc" KOSMOS_PROMOTE_GATE_CMD="bash $CHG" bash "$HERE/promote-channel.sh" "$Sc" 2>&1)"; rc=$?
-[ "$rc" = 1 ] && has "$out" "changed while the gates ran" && [ "$(cat "$Sc/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$Sc/setup")" = PROD-INSTALLER ] \
+[ "$rc" = 1 ] && has "$out" "changed while the gates ran" && [ "$(cat "$Sc/dist/latest.json")" = '{"version":"1.0.0"}' ] && [ "$(cat "$Sc/setup")" = "PROD-INSTALLER KOSMOS_READONLY_APP" ] \
   && pass "promote: a setup-staging replaced while the gates ran is refused, nothing written" || bad "promote changed-during-gates (rc=$rc, out=$out)"
 Sx="$(promote_site yes)"; printf '%s  setup\n' "$(printf 0%.0s $(seq 64))" > "$Sx/setup-staging.sha256"; git -C "$Sx" commit -qam "bad sidecar"
 refused "a sidecar that does not name the bytes" "$Sx" "not the setup-staging bytes"

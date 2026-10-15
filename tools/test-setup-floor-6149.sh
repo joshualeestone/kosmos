@@ -202,6 +202,12 @@ live 'must never reach a cut -- refusing' "$HERE/release.sh" >/dev/null && live 
 i1="$(live 'kosmos_setup_floor_installer_ok "this cut.s install/setup.sh" "\$REPO/install/setup.sh" || exit 1' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 s2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$i1" ] && [ -n "$s2" ] && [ "$i1" -lt "$s2" ]; } && pass "release.sh checks the cut's own installer (line $i1) before step 2" || bad "release.sh own-installer check line '${i1:-none}'"
+printf 'an installer from before 0.7.45\n' > "$T/old-installer"
+for low in 0.7.44 0.0.0; do
+  out="$(KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=$low bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/old-installer" 2>&1)" \
+    && bad "under a floor lowered to $low an installer without the marker passed" \
+    || { case "$out" in *"does not know KOSMOS_READONLY_APP"*) pass "under a floor lowered to $low an installer without the marker is still refused (the knob lowers only the version floor)";; *) bad "lowered $low: refused, but not by the marker check: $out";; esac; }
+done
 kosmos_setup_floor_installer_ok t "$T/no-such-installer" 2> "$T/miss.err" && bad "a missing installer passed" || { grep -q "missing or unreadable" "$T/miss.err" && pass "a missing installer is refused as missing, not as an old installer" || bad "a missing installer was refused with: $(cat "$T/miss.err")"; }
 grep -q KOSMOS_READONLY_APP "$HERE/../install/setup.sh" && pass "CONTROL: today's install/setup.sh passes that check" || bad "today's install/setup.sh lacks the marker"
 fz="$(live 'kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "\$BUILD/install/setup.sh" || exit 1' "$HERE/release.sh" | head -1 | cut -d: -f1)"
