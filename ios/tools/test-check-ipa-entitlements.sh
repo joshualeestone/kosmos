@@ -51,8 +51,8 @@ expect wrong-bundle         1 production  false $T.io.kosmos.other   $T         
 expect other-team-appid     1 production  false ZZZZZ99999.io.kosmos.app ZZZZZ99999 $T
 expect other-team-only      1 production  false $T.io.kosmos.app     ZZZZZ99999 $T
 expect no-team-identifier   1 production  false $T.io.kosmos.app     ""         $T
-# #4089: the interim TestFlight app is io.kosmos.app.preview. It passes only when that is the id expected,
-# and the two ids never stand in for each other.
+# #4089: the interim TestFlight app was to be io.kosmos.app.preview (dropped in #6262). The check stays
+# general: an id passes only when it is the id expected, and the two ids never stand in for each other.
 expect preview-build        0 production  false $T.io.kosmos.app.preview $T     $T io.kosmos.app.preview
 expect preview-as-default   1 production  false $T.io.kosmos.app.preview $T     $T
 expect real-as-preview      1 production  false $T.io.kosmos.app     $T         $T io.kosmos.app.preview
