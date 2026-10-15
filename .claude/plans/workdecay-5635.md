@@ -67,3 +67,8 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
   (was: until the next report). Fixing it needs the hook to send its own event time, a separate change. NIT taken:
   the F2 bound is now 59 to 60 (a 29-min cap reads 58). Noted: a long heartbeat run can push the 64 KB history tail
   past the summary, which reads stale (the safe direction).
+
+## Review 9 (sonnet), and what changed
+- No BLOCKER. WARNING: workingCapMs sat between workExcused and its doc block; moved above it. WARNING: a Claude
+  member without a working report hook files working by hand, and each is now capped too: stated as a cost. NIT: a
+  member with no runner is in the uncapped controls.
