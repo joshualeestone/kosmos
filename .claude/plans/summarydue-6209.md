@@ -69,3 +69,14 @@ told, and one whose reports overstate work is told early.
   undercount, the safe side; measured on real streams: one gap over 30 minutes after a working row).
 - An agent already told about this summary is skipped before its history is read. A threshold test pins 3.5 hours (not
   told) against 4.5 hours (told). The plan's decision line and the server comment name workedSinceMs.
+
+## Review 6 (sonnet), and what changed
+- REVERSED review 5's session reset: zeroing the count at each `started` row meant an agent that restarts more often
+  than the rhythm (common on a long day) was never told, the very case this exists for. Work now counts across a
+  restart, and the words say "work has been reported on this card", not "you have reported": the summary belongs to
+  the card, and a restarted session writes it from its handoff and the card. A rule that drew a finding the round after
+  it was added was removed rather than patched.
+- A card whose role is in roles.NO_SUMMARY is skipped (tested with a control; removing the skip fails it, measured).
+- The tick logs a failed sweep once per reason, so a broken sweep is visible. Comments fixed (the heartbeat wording,
+  only `working` counted).
+- Kept, stated: one reminder per summary is permanent (a re-nudge interval would be a new rule; the #5959 model has none).
