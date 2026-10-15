@@ -22801,6 +22801,9 @@ const ORG_REFRESH_MS = 60 * 60 * 1000;
 /** #6232 review 3: the hour is measured on the clock, checked this often, not by a one-hour timer: a Mac's timers stop
     while it sleeps, so a laptop asleep past the hour would otherwise wait up to another hour after waking. */
 const ORG_REFRESH_CHECK_MS = 5 * 60 * 1000;
+/** #6232 review 4: an ask that got no clear answer (company unreachable, an unclear reply, a leave still refused) is
+    asked again after this, not a whole hour later. Not every check: a refused leave would be sent twelve times an hour. */
+const ORG_REFRESH_RETRY_MS = 15 * 60 * 1000;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not only hourly (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 /** When this board last asked its company (a clock time; 0 before the first ask). */
@@ -22811,8 +22814,15 @@ function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    ORG_REFRESHED_AT = Date.now();
-    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => { companyPolicySync(); return r; });
+    // Set before the ask, so an ask still in flight is not sent again at the next check (refresh runs one at a time).
+    const askedAt = Date.now();
+    ORG_REFRESHED_AT = askedAt;
+    return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
+      // No clear answer: the next ask comes after ORG_REFRESH_RETRY_MS, not the full hour (review 4).
+      if (!(r && r.ok === true) && ORG_REFRESHED_AT === askedAt) ORG_REFRESHED_AT = askedAt - ORG_REFRESH_MS + ORG_REFRESH_RETRY_MS;
+      companyPolicySync();
+      return r;
+    });
   } catch { /* best effort */ }
 }
 /* #6232 review 3: ask when an hour has passed on the clock since the last ask. A clock set back counts as due, so a
@@ -22953,6 +22963,7 @@ function start(port = PORT) {
   orgEnrollRefresh();
   setInterval(() => { orgRefreshIfDue(); }, ORG_REFRESH_CHECK_MS).unref();   // #6232 review 3: an hour on the clock
   // Fast only for a day: a marker that stays unclear that long (Kosmos+ switched off, say) falls back to the hourly pass.
+  // Each of these asks also restarts the hourly clock (orgEnrollRefresh records when it asked).
   setInterval(() => { try { const oe = require('./engine/orgenroll'); const age = oe.joinUnknownAge(); if (oe.joinUnknown() && age !== null && age < 24 * 60 * 60 * 1000) orgEnrollRefresh();   /* an unreadable time: the hourly pass */ } catch { /* best effort */ } }, ORG_UNSURE_MS).unref();
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();

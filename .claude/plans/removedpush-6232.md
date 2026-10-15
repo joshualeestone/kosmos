@@ -18,7 +18,8 @@ Not covered: an unreachable coordinator (nothing changes) and a board before liv
 ## The call
 ORG_REFRESH_MS goes from 24 hours to 1 hour, measured on the clock: a check every five minutes (orgRefreshIfDue) asks
 when an hour has passed since the last ask, or when the clock went back (review 3: a Mac's timers stop while it
-sleeps, so a one-hour timer let a laptop asleep past the hour wait up to another hour after waking). A board in no company still sends nothing (orgEnrollRefresh returns
+sleeps, so a one-hour timer let a laptop asleep past the hour wait up to another hour after waking). A board in no
+company still sends nothing (orgEnrollRefresh returns
 before asking), so only enrolled boards (and a pending Leave or unknown join) make the extra calls.
 
 ## Rejected
@@ -61,3 +62,10 @@ is for the first run after merge.
   clock set back an ask; removing the clock-back rule, asking every check, or the old one-hour timer each fail it.
 - The unknown-join comment and test title say "not only hourly"; long comment lines re-wrapped; the comment names what
   the hour does not cover (an unreachable coordinator, a board before live execution).
+
+## Review 4 (sonnet), and what changed
+- A failed ask (no answer, an unclear one, a refused leave) reset the hour, so one missed ask could leave a removed
+  member's policy for about two hours. Now an ask without a clear answer is asked again after ORG_REFRESH_RETRY_MS
+  (15 minutes), not every five-minute check (a refused leave would be resent twelve times an hour). Tested; removing
+  the retry fails it (measured).
+- The unknown-join comment says each of its asks restarts the hourly clock; plan lines re-wrapped.
