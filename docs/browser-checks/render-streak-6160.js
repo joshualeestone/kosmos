@@ -336,7 +336,8 @@ const read = (pg) => pg.evaluate(() => {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
     // The refusal is the BOARD's own (#6188): the request goes on to it as if from another website, and its cross-site
-    // write guard answers 403. A refusal Playwright makes up arrives whole, so it cannot show a body left unread.
+    // write guard answers 403. Measured: a refusal made with route.fulfill and a literal body finished even with the
+    // fix reverted, and this one does not; why the two differ (headers or framing) was not measured.
     await pg.route('**/api/streak', async (route) => {
       calls++;
       try {
@@ -363,7 +364,8 @@ const read = (pg) => pg.evaluate(() => {
     await settle();
     for (let m = 0; m < 30; m++) { await pg.clock.runFor(60 * 1000); await pg.waitForTimeout(50); await settle(); }
     // The page stops after five misses in a row (streakMisses >= 5): the load, then four ticks. A tick skipped while an
-    // ask is pending only delays the next, so 30 minutes always reach exactly five.
+    // ask is pending only delays the next, so 30 minutes always reach exactly five. It assumes the page stays visible
+    // (headless never changes it): a return to the page resets the misses and would ask again.
     say(calls === 5 && streakReqs.size === calls, 'refused: asked five times in all, then stopped (30 minutes)', 'calls=' + calls + ' seen=' + streakReqs.size);
     say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
     say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
