@@ -40,3 +40,14 @@ activity log, but no longer red.
 - Known, added to the weakest premise: the hook sends reports in the background, so turn N's late Stop idle could in
   principle land after turn N+1's StopFailure and clear a fresh block (it needs a new prompt plus an immediate failure
   inside one report's latency). The next failed turn writes the block again.
+
+## Review 2 (sonnet), and what changed
+- Fixed: the check of what the block replaced fails CLOSED: a record that cannot be read, or a run of blocks reaching
+  the front of the tail read, keeps the block (as before #6209). Tested; failing open fails it (measured).
+- Fixed: several blocks in a row are skipped as one run to find what is under them (a run over a fresh start clears;
+  stepping back only one line fails the test, measured), and a run over a question keeps it.
+- Helpers moved above the #2808 comment (which describes isAutoPermissionWait again); renamed providerBlockHidesWait;
+  isAutoProviderBlock no longer exported.
+- Known and accepted: read() and the check read the file separately (an append between them can only make one clear
+  early or late; the next turn end settles it). An authentication_failed block is cleared by a turn that ended
+  normally too, which is right (the turn succeeded); the sign-in hold rules (#5948) read the screen, not this line.

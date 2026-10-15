@@ -199,3 +199,34 @@ test('#6209 review 1: a legacy unmarked provider block (no `by`) is not cleared 
   assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the legacy line reads');
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unmarked block was cleared');
 });
+
+test('#6209 review 2: several provider blocks in a row over a question still keep it; a started line between clears', () => {
+  const who = 'question-then-outages-6209';
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' }).recorded, true);
+  for (const kind of ['server_error', 'timeout', 'server_error']) {
+    assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+  }
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'a run of blocks hid the question from the check');
+  // A new run (started) between the question and the block: nothing deliberate is under the block, so it clears.
+  const fresh = 'started-then-outage-6209';
+  assert.equal(selfreport.record(fresh, { state: 'needs_you', because: 'an old question' }).recorded, true);
+  assert.equal(selfreport.record(fresh, { state: 'started' }).recorded, true);
+  // Several blocks in a row over the start: the whole run is skipped to find what is under it, so this still clears.
+  for (const kind of ['server_error', 'timeout']) {
+    assert.equal(selfreport.record(fresh, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+  }
+  assert.equal(selfreport.record(fresh, { state: 'idle', because: 'finished responding', auto: true }).recorded, true, 'a run of blocks was read as a wait under itself');
+});
+
+test('#6209 review 2: when the run of blocks reaches the front of the tail read, what is under it is unknown and the block stays', () => {
+  const who = 'long-outage-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const at = new Date().toISOString();
+  const block = JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', by: 'auto', at }) + '\n';
+  let text = JSON.stringify({ v: 1, state: 'needs_you', because: 'a question far back', by: 'agent', at }) + '\n';
+  while (text.length < selfreport.TAIL_BYTES + 4 * block.length) text += block;
+  fs.writeFileSync(file, text);
+  assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the standing line is the block');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unknown line under the block was taken as nothing');
+});

@@ -123,15 +123,6 @@ function cappedSentence(value, cap) {
    by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
    keep building entry explicitly -- spreading a request body here silently
    reopens the operator-provenance forgery. */
-/* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
-   trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
-   below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
-   line on it (#4169: the board's armed sweep narrows it further in standingFromAgent, where
-   only the folder-trust dialog on screen is restarted; a by:auto report alone is a tool prompt
-   and is left for a person), so it lives here once and is exported rather than inlined in two places
-   (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
-   A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
-   line (provenance unknown); nor any non-needs_you state. */
 /* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn
    that then ends normally (the Stop hook's automatic idle) proves the provider answered again, so that idle clears it;
    the mid-turn working heartbeat does not (the turn could still fail). A deliberate blocked is never this. */
@@ -144,18 +135,24 @@ function isAutoProviderBlock(standing) {
 }
 
 /* #6209 review 1: true when the line under a standing automatic provider block is a wait on a person that an
-   automatic idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait). */
-function replacedWait(sessionName) {
+   automatic idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait).
+   Review 2: fails CLOSED: a record that cannot be read, or a run of blocks reaching the front of the tail read (what
+   is under it is unknown), counts as hiding a wait, so the block stays (what the board did before #6209). Reads the
+   file itself, so it is called only when an automatic idle meets a standing provider block. */
+function providerBlockHidesWait(sessionName) {
   const under = lineUnderProviderBlock(sessionName);
-  if (!under || !WAITING_ON_A_PERSON.includes(under.state)) return false;
-  return !(under.state === 'needs_you' && under.by === 'auto');
+  if (under.unknown) return true;
+  if (!under.row || !WAITING_ON_A_PERSON.includes(under.row.state)) return false;
+  return !(under.row.state === 'needs_you' && under.row.by === 'auto');
 }
 
 /* #6209 review 1: the line an automatic provider block replaced (the newest line before the trailing run of such
-   blocks), from the record's tail, or null when there is none or it cannot be read. An incoming automatic blocked may
+   blocks), from the record's tail: { row } (null when the record holds nothing before the run), or { unknown: true }
+   when the record cannot be read or the run reaches the front of a cut tail. An incoming automatic blocked may
    overwrite a deliberate wait (it is left unguarded), so the block's clear must not erase that wait too. */
 function lineUnderProviderBlock(sessionName) {
   let text;
+  let cut = false;
   try {
     const file = fileFor(sessionName);
     const size = fs.statSync(file).size;
@@ -166,8 +163,8 @@ function lineUnderProviderBlock(sessionName) {
       fs.readSync(fd, buf, 0, buf.length, start);
       text = buf.toString('utf8');
     } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
-    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
-  } catch { return null; }
+    if (start > 0) { cut = true; text = text.slice(text.indexOf('\n') + 1); }
+  } catch { return { unknown: true }; }
   const rows = [];
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
@@ -175,9 +172,19 @@ function lineUnderProviderBlock(sessionName) {
   }
   let i = rows.length - 1;
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
-  return i >= 0 ? rows[i] : null;
+  if (i >= 0) return { row: rows[i] };
+  return cut ? { unknown: true } : { row: null };
 }
 
+/* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
+   trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
+   below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
+   line on it (#4169: the board's armed sweep narrows it further in standingFromAgent, where
+   only the folder-trust dialog on screen is restarted; a by:auto report alone is a tool prompt
+   and is left for a person), so it lives here once and is exported rather than inlined in two places
+   (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
+   A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
+   line (provenance unknown); nor any non-needs_you state. */
 function isAutoPermissionWait(standing) {
   return !!standing
     && standing.found === true
@@ -307,7 +314,7 @@ function record(sessionName, entry) {
          heartbeat while still unresolved (caught in review; #2456 measured
          needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
          turn that ended normally proves the provider answered), unless the block
-         had replaced a deliberate or unmarked wait (replacedWait).
+         had replaced a deliberate or unmarked wait (providerBlockHidesWait).
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -321,7 +328,7 @@ function record(sessionName, entry) {
       && !standingIsAutoPermissionWait
       /* #6209: a turn that ended normally after the failure clears an automatic provider block, unless that block had
          replaced a deliberate (or unmarked) wait: then the wait is what the card should show, so the block stays. */
-      && !(state === 'idle' && isAutoProviderBlock(standing) && !replacedWait(sessionName));
+      && !(state === 'idle' && isAutoProviderBlock(standing) && !providerBlockHidesWait(sessionName));
     if (standingIsProtectedWait) {
       return {
         recorded: false,
@@ -614,5 +621,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, isAutoProviderBlock, finalTextClean,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };
