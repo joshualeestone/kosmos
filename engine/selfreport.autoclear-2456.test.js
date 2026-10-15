@@ -139,7 +139,8 @@ test('#2456 / #6209: an automatic idle (a turn that ended normally) DOES clear a
 
 test('#6209: an automatic idle still does NOT clear a DELIBERATE blocked, nor an auto block not about the provider', () => {
   const mine = 'deliberate-blocked-6209';
-  assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (500)', because: 'the provider keeps failing', owner: 'provider' }).recorded, true);
+  // Review 11: a passing kind, so only the writer check (by auto) can refuse it.
+  assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (server_error)', because: 'the provider keeps failing', owner: 'provider' }).recorded, true);
   assert.notEqual(selfreport.read(mine).by, 'auto', 'fixture: the agent wrote this block itself');
   assert.equal(selfreport.record(mine, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an auto idle erased the agent\'s own block');
   assert.equal(selfreport.read(mine).state, 'blocked');
@@ -179,7 +180,7 @@ test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBER
 
 test('#6209 review 1: a provider error over a deliberate question, then a normal turn end, keeps the question red (not idle)', () => {
   const who = 'question-then-outage-6209';
-  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?', });
+  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' });
   assert.equal(asked.recorded, true);
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
   const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
@@ -198,7 +199,8 @@ test('#6209 review 1: a legacy unmarked provider block (no `by`) is not cleared 
   const who = 'legacy-provider-6209';
   const file = selfreport.fileFor(who);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (500)', owner: 'provider', at: new Date().toISOString() }) + '\n');
+  // Review 11: a passing kind, so only the missing writer mark can refuse it.
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', at: new Date().toISOString() }) + '\n');
   assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the legacy line reads');
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unmarked block was cleared');
 });
