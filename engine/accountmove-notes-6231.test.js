@@ -121,3 +121,18 @@ test('#6231 item 10: a caller with no readAccount is told so in its own words', 
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
 });
+
+test('#6231 item 9: a put-back that throws past its own guard is still said and noted', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  await tick();
+  // putBack reads deps.REFUSED after its write; make that read throw, so the throw leaves putBack itself.
+  Object.defineProperty(d, 'REFUSED', { get() { throw new Error('unexpected'); }, configurable: true });
+  const s = accountmove.stop();
+  Object.defineProperty(d, 'REFUSED', { value: REFUSED, configurable: true });
+  assert.equal(s.body.agents[1].outcome, 'partial');
+  assert.match(s.body.agents[1].because, /could not put it back on its old account/);
+  assert.deepEqual(d.noted, ['bo'], 'the fallback did not note the agent');
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+});

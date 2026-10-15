@@ -158,7 +158,8 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
   assert.match(call, /hold: \(names\) => removal\.holdForMove\(names\)/, 'the move does not hold its agents in the engine');
   assert.match(call, /release: \(n\) => removal\.releaseFromMove\(n\)/, 'the move does not release its agents');
   assert.match(call, /restartAsync: \(n\) => restartForMoveAsync\(n, fromDirs\.has\(n\) \? fromDirs\.get\(n\) : null\)/, 'the move does not restart through #6174\'s note');
-  assert.match(call, /setAccount: \(n, dir\) => \{ fromDirs\.set\(n, moveFromDir\(n\)\); return create\.setAccount\(n, dir\); \}/,
+  // #6231: the save's time may be recorded between the read and the write; the read must still come first.
+  assert.match(call, /setAccount: \(n, dir\) => \{ fromDirs\.set\(n, moveFromDir\(n\)\);(?: savedAt\.set\(n, Date\.now\(\)\);)? return create\.setAccount\(n, dir\); \}/,
     'the account each agent ran on is not read before its account is written (#6174)');
   assert.match(server, /heldByMove: removal\.heldByMove,/, 'the class-1 sweep does not ask whether a move holds the agent');
   assert.match(call, /boardRestarting: \(\) => boardRestartingSoon\(\),/, 'a move can start under an update or a board restart');

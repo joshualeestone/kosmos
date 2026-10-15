@@ -120,8 +120,12 @@ test('#6231 item 9: the margin is one whole second before the save (tmux reads w
 test('#6231 item 9: a note written while the session is read (a later move) is kept, not overwritten', async () => {
   const deps = await routeDeps();
   status.paneRosterAsync = async () => { accountmoving.note('al', 777, '/acct/later'); return [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }]; };
-  status.sessionStartedAtFromTmuxAsync = async () => 1234;
+  let read;
+  const wasRead = new Promise((r) => { read = r; });
+  status.sessionStartedAtFromTmuxAsync = async () => { read(); return 1234; };
   deps.leftOnOld('al');
-  await new Promise((r) => setTimeout(r, 100));
+  await wasRead;   // the session start has been read, so the note's callback runs next
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
   assert.deepEqual(accountmoving.notes().al, { started: 777, from: '/acct/later' }, 'the later move\'s note was overwritten');
 });
