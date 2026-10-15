@@ -13,7 +13,7 @@ why), without a person dispatching it.
 
 ## Call
 - tools/site-deploy-kick.sh, run every 15 minutes by launchd on Mortals (the runner box, whose gh login has the
-  workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
+  workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main differs from the
   job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
   running, or a deploy run was created, or (one that failed) ended, under 14 minutes ago (a
   backstop, never an extra tick: the job's one retry and its parking keep their 15-minute pace). A STUCK run (not
@@ -103,3 +103,14 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   each tick leaves last-result (exit code and last line) and --check shows it (test). NITs taken: the source commit
   is marked -dirty when the installed script differs from it; this plan's test count; the log's size (about 10 KB a
   day at worst).
+
+## Review 7 (opus), and what changed
+- BLOCKER (measured): gh gives an unfinished run's conclusion as "" (not null), so "// "-"" never fired and the
+  space-separated line shifted every field: any tick seeing a queued or running run failed to read it, and the stuck
+  escape could never fire. Now the line is TAB-separated (@tsv, IFS=tab) and "" maps to "-". BLOCKER: the test data
+  gave unfinished runs a null conclusion, which hid it; it now gives "" as gh does, and the old parse turns 3 tests
+  red. WARNING: a garbled time's reason was said in a subshell and lost from last-result: the parent sets it. WARNING:
+  a stuck tick that then asked recorded only "asked": last-result keeps the stuck reason. WARNING: the 20-run window:
+  commented (one run at a time, superseded pending runs cancelled). NITs taken: "differs from", a gh fallback through
+  PATH, tests for timed_out, startup_failure and cancelled, both scripts in test:shell's bash -n list, the RunAtLoad
+  note.
