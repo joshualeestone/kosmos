@@ -601,7 +601,7 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   // after: read to the end, so not said (only pages left waiting are "not reached").
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
   // Said when the window leaves pages waiting:
-  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were past what a read reaches, so new ones among them may be missed \(reading again will not reach them\)\)/);
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were past what a read reaches, so new ones among them may be missed \(reading again right away will not reach them\)\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1854,7 +1854,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were past what a read reaches, so new ones among them may be missed (reading again will not reach them))'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), r.text.slice(-400));
 });
 
 test('#6201: a thread whose new items are 200 deep replies is read to the end over several reads, never repeating one (SEEN_MAX holds them)', async () => {
@@ -2129,4 +2129,41 @@ test('#6201 review 16: a bystander post whose next page a 429 stopped holds its 
   const line = (r.text.split('\n').find((l) => l.startsWith('(on your post ' + RP(2) + ':')) || '');
   assert.match(line, /: 20 replies were not reached in this read; they will be looked at again next time/, 'the bystander: ' + line);
   assert.equal(JSON.parse(fs.readFileSync(seenPath('By6201'), 'utf8')).posts[RP(2)].held, 1, 'the bystander post did not hold its mark');
+});
+
+test('#6201 review 17: under budget pressure each post\'s older-comments page is read first, so a new top-level comment there is shown', async () => {
+  on(); clearSeen();
+  const sent = {};
+  const pid = (i) => 'e6201700-0000-4000-8000-0000000000' + String(i).padStart(2, '0');
+  for (let i = 0; i < 4; i += 1) sent['p' + i] = { state: 'sent', agent: 'Own6201', remoteId: pid(i), sentAt: '2026-09-30T1' + i + ':00:00Z' };
+  writeSendState(sent, {});
+  const olderAsked = new Set();
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const post = u.pathname.split('/')[2]; const n = Number(post.slice(-2));
+    if (u.pathname.endsWith('/replies')) return { status: 200, json: { replies: [] } };
+    if (u.searchParams.get('cursor')) { olderAsked.add(post); return { status: 200, json: { comments: [comment({ id: D6201(9990 + n), created_at: T(3), body: 'owed older ' + n })] } }; }
+    // 8 hidden threads per post: 32 thread pages ahead of the older page if it were last
+    return { status: 200, json: { next_cursor: 'older', comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(9000 + n * 100 + k), created_at: T(4),
+      reply_count: k < 8 ? 9 : 0, replies_cursor: k < 8 ? 'c' + k : null, replies: [] })) } };
+  });
+  const r = await cr.readReplies('Own6201', { now: NOW });
+  for (let i = 0; i < 4; i += 1) {
+    assert.ok(olderAsked.has(pid(i)), 'post ' + i + ': its older-comments page was not read');
+    assert.match(r.text, new RegExp('owed older ' + i), 'post ' + i + ': a top-level comment on its older page was not shown');
+  }
+});
+
+test('#6201 review 17: a 429 in round 1 sends no round-2 pages', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'R1L6201', remoteId: RP(1), sentAt: '2026-09-30T11:00:00Z' },
+    b: { state: 'sent', agent: 'R1L6201', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  let pages = 0;
+  cr.setFetcher(async (url) => {
+    if (url.includes('/replies')) { pages += 1; return { status: 200, json: { replies: [] } }; }
+    if (url.includes(RP(1))) return { status: 429, json: null };
+    return { status: 200, json: { comments: [comment({ id: D6201(9995), created_at: T(1), reply_count: 9, replies_cursor: 'q', replies: [] })] } };
+  });
+  await cr.readReplies('R1L6201', { now: NOW });
+  assert.equal(pages, 0, 'round 2 still sent pages after round 1 met a 429');
 });

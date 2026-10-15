@@ -178,3 +178,11 @@ missed on every read. The post's line says so. Resumable cursors stored with the
 - Fixed: older comments cut (a page longer than asked, a bad or empty cursor, or left by the budget) are tracked apart
   from older pages that failed, so a post with both is not promised a re-read. The held count is one rule, written on
   every path.
+
+## Review 17 (opus)
+- Fixed: each post's older-comments page is first in its turn, so a burst of new top-level comments (the ones owed an
+  answer) is never left behind deep reply threads (4 busy posts tested; queuing it last fails, measured).
+- Fixed: after a 429 or unanswered page, only what the budget would still have read is treated as failed (held, "looked
+  at again"); the rest is a budget cut. A 429 in round 1 sends no round-2 pages (tested; ignoring it fails, measured).
+- Wording: "reading again right away will not reach them" (true for a window cut too). Stale comments fixed (the
+  settling remark, the post-line wording in the header, the marks-file shape with `held`).
