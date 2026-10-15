@@ -17,7 +17,12 @@ fail() { echo "FAIL  $1"; fails=1; }
 probe() {
   # LANG is read by a CHILD (printenv), so a pin that sets LANG without exporting it reads as unset: the node
   # suite inherits only what is exported.
-  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c 'e=$(mktemp "${TMPDIR:-/tmp}/test-test-locale-5073.XXXXXXXXXX"); . "$1"; kosmos_test_locale_pin 2>"$e"; printf "LANG=%s|%s" "$(/usr/bin/printenv LANG)" "$(cat "$e")"; rm -f "$e"' _ "$LIB"
+  # The scratch file is made OUT HERE, where TMPDIR is the suite's per-run root, and its path
+  # passed in: `env -i` clears TMPDIR, so a mktemp INSIDE the clean shell would fall back to
+  # /tmp (#4298). Create under the per-run root, pass the path as $2, remove it out here.
+  local e; e="$(mktemp "${TMPDIR:-/tmp}/test-test-locale-5073.XXXXXXXXXX")"
+  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c '. "$1"; kosmos_test_locale_pin 2>"$2"; printf "LANG=%s|%s" "$(/usr/bin/printenv LANG)" "$(cat "$2")"' _ "$LIB" "$e"
+  rm -f "$e"
 }
 
 out="$(probe)"

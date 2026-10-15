@@ -307,7 +307,9 @@ from a night in this codebase, kosmos#2616.)
    leak on macOS. It is scoped to `tools/test-*.sh`. Non-test scripts stay out of scope unless a
    run shows one leaking into the real temp root; several carry bare calls and are named by tests
    (`bin/agent-supervisor.sh`, `tools/release.sh`, `tools/verify-served.sh`), and being named is
-   not being run, so whether a test executes one is measured, not assumed.
+   not being run, so whether a test executes one is measured, not assumed. A lib that an in-scope
+   test sources and RUNS is the same risk the guard cannot see; the one such call today,
+   `bounded_run` in `tools/lib/app-port-selftest.sh`, is templated directly.
 
 ### This list is intentionally incomplete
 

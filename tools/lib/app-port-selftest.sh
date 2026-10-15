@@ -35,7 +35,11 @@
 bounded_run() {
   local secs="$1"; shift
   local tmp pid waited rc _g _how
-  tmp="$(mktemp)"
+  # Template the path (#4298): a bare mktemp ignores TMPDIR on macOS and lands in the real
+  # per-user temp root, outside the per-run root. This lib is sourced and RUN by in-scope
+  # tests (test-install.sh, test-app-port-selftest.sh) and by nothing in production, so under
+  # the suite it lands in the per-run root; the rm -f below removes it either way.
+  tmp="$(mktemp "${TMPDIR:-/tmp}/app-port-selftest.XXXXXXXXXX")"
   # The two test seams are honoured ONLY with KOSMOS_BOUNDED_RUN_TEST=1 beside them, so a
   # value left exported in a shell cannot change a real run (review 5): a stray delay would
   # make a healthy bundle read as behind.
