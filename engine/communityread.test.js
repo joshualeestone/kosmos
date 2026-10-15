@@ -757,7 +757,7 @@ test('#4833 slice 2 review 5: a comment that lands between the two rounds comes 
   assert.ok(!two.includes('R late reply') && !two.includes('| p1'), 'something shown in read 1 was shown again');
 });
 
-test('#4833 slice 2 review 5: a reply page that fails holds the post\'s mark, and everything comes once it reads', async () => {
+test('#4833 slice 2 review 5 / #6201: a reply page that fails holds the post\'s mark and costs only its thread; everything comes once it reads, once', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Rpf4833', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const page = [comment({ id: CID(1), created_at: T(9), body: 'top', reply_count: 3, replies_cursor: 'CUR',
@@ -765,13 +765,17 @@ test('#4833 slice 2 review 5: a reply page that fails holds the post\'s mark, an
   let replies = { status: 500, json: null };
   cr.setFetcher(async (url) => (url.includes('/replies') ? replies : { status: 200, json: { comments: page } }));
   const one = (await cr.readReplies('Rpf4833', { now: NOW })).text;
-  assert.match(one, /1 of your posts could not be reached/);
-  assert.ok(!one.includes('| top'), 'a post whose reply page failed was shown (and its mark would move)');
+  // #6201 review 9: what round 1 read is shown, the failed thread is said as not reached, and the mark holds.
+  assert.ok(one.includes('| top'), 'a failed reply page hid the post\'s round-1 items');
+  assert.match(one, /: 1 reply was not reached in this read/, 'the failed thread was not said');
+  assert.ok(!/could not be reached/.test(one), 'one failed page still blacked out the whole post');
   replies = { status: 200, json: { replies: [comment({ id: CID(4), parent_id: CID(1), created_at: T(10), body: 'r3' })] } };
   const two = (await cr.readReplies('Rpf4833', { now: NOW + 1000 })).text;
-  const ids = (two.match(/\(comment ([0-9a-f-]{36})\)/g) || []);
-  assert.equal(ids.length, 4, 'after the page recovered, not all four came: ' + ids.length);
-  assert.equal(new Set(ids).size, 4);
+  const idsOf = (x) => (x.match(/\(comment ([0-9a-f-]{36})\)/g) || []);
+  const all = idsOf(one).concat(idsOf(two));
+  assert.equal(new Set(all).size, 4, 'after the page recovered, not all four came: ' + all.length);
+  assert.equal(all.length, 4, 'something was shown twice');
+  assert.match(two, /\| r3/, 'the reply behind the failed page never came');
 });
 
 test('#4833 slice 2 review 5: one --replies read at a time per board; the own-comment check uses the service name', async () => {
@@ -1983,4 +1987,23 @@ test('#6201: posts take turns for the page budget, so a busy newer post cannot s
   });
   await cr.readReplies('Turn6201', { now: NOW });
   for (let i = 0; i < 10; i += 1) assert.ok((pages[pid(i)] || 0) >= 3, 'post ' + i + ' got ' + (pages[pid(i)] || 0) + ' pages: ' + JSON.stringify(pages));
+});
+
+test('#6201 review 9: a failed reply page holds the mark, so its reply older than the post\'s newest comment still comes', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Hold6201', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const older = comment({ id: D6201(7000), created_at: T(1), reply_count: 1, replies_cursor: 'f', replies: [] });
+  const newer = comment({ id: D6201(7001), created_at: T(9), body: 'newer top' });
+  let fail = true;
+  serve({
+    ['/posts/' + RP(7) + '/comments']: () => ({ status: 200, json: { comments: [newer, older] } }),
+    ['/posts/' + RP(7) + '/comments/' + D6201(7000) + '/replies']: () => (fail ? { status: 500, json: null }
+      : { status: 200, json: { replies: [comment({ id: D6201(7002), parent_id: D6201(7000), created_at: T(5), body: 'held reply' })] } }),
+  });
+  const one = (await cr.readReplies('Hold6201', { now: NOW })).text;
+  assert.match(one, /newer top/);
+  fail = false;
+  const two = (await cr.readReplies('Hold6201', { now: NOW + 1000 })).text;
+  assert.match(two, /held reply/, 'a reply behind a failed page, older than the newest comment, was passed by the mark');
+  assert.ok(!/newer top/.test(two), 'the newer comment was shown twice');
 });

@@ -11,9 +11,9 @@ budget is said on its own post with the number of replies left unread, instead o
 - Round 2 becomes a bounded work queue (REPLY_PAGES_MAX pages per read, a few at once): every comment with unshown
   replies has its replies paged through the service's own cursor to the end (replies come oldest first, so the newest
   are on the LAST page), and a post with older comments has them paged too (their unshown replies join the queue).
-  Newest comments first, so the budget goes to the likeliest new replies.
+  Posts take turns (each post's newest waiting thread, then each post's second, ...; review 7).
 - Whatever the budget or window leaves waiting, per post: "(on your post <id>: N replies [and its older comments]
-  were not reached in this read, so new ones among them may be missed)". N is exact (reply_count minus read).
+  were not reached in this read, so new ones among them may be missed)". N is reply_count minus read; a lagging count is said as "some replies".
 
 ## Decided
 - The mark still moves for a post read in part (review 2 of #4833 slice 2): holding it would re-read the same first
@@ -46,7 +46,7 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   ROUND2_START_MS (3 s) into round 2, so READ_WAIT_MS + round 1 + window + last batch stays under the CLI's 30 s.
 - A failed post's tasks are dropped, not counted against the budget. The post line no longer implies a later read
   gets there: "could not be read, as the thread is longer than a read reaches, so new ones there are not listed".
-- Kept: one failed page still holds the whole post (unchanged behaviour; its mark stays, everything comes later).
+- Kept then (superseded by review 9): one failed page held the whole post.
 
 ## Review 2 (sonnet), and what changed
 - Only a page still WAITING in the queue (budget or time window) is "not reached". A comment whose cursor ran out or
@@ -114,5 +114,13 @@ missed on every read. The post's line says so. Resumable cursors stored with the
 ## Review 8 (sonnet)
 - No new actionable finding beyond recorded decisions (thread-tail starvation, one failed page holds a post, the nudge
   names nobody on busy posts). Test titles no longer cite review numbers for behaviour later reviews changed; the
-  SEEN_MAX comment's bound is stated loosely and truly. Follow-up card to file: resumable per-comment cursors stored
+  SEEN_MAX comment's bound is stated loosely and truly. Follow-up filed as #6204: resumable per-comment cursors stored
   with the marks, so thread tails are reached over successive reads.
+
+## Review 9 (opus)
+- Fixed: a failed round-2 page no longer blacks out the post (30 pages were at risk, not 3): it costs only its thread
+  (said as not reached), round 1's items are shown, and the post's mark holds, so what failed comes next time, once.
+  Tests: the old failed-page test now expects the post shown with its thread said; a new one shows a reply behind the
+  failed page that is older than the post's newest comment still arrives (without the hold it is lost, measured).
+- Fixed: a malformed next cursor on a replies page, or a round-1 comment with more replies and no usable cursor, is
+  said as not reached rather than dropped. Plan wording brought up to date.

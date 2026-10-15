@@ -410,9 +410,8 @@ function feedFooter(spec, next) {
    (#6201, F7d): round 1 holds a post's newest 10 top-level comments by when they were WRITTEN with 2 replies each; round 2
    pages every comment's remaining replies and the post's older comments, at most REPLY_PAGES_MAX pages a read. Whatever
    that leaves is said on its post ("N replies were not reached in this read"), and the post's mark still moves (review 2:
-   holding it would re-read the same first pages and never reach the rest).
-   (times are read to the millisecond: the service's microseconds are a late-commit case below)
-   Not said, and rare: a
+   holding it would re-read the same first pages and never reach the rest). Times are read to the millisecond (the
+   service's microseconds are a late-commit case below). Not said, and rare: a
    comment committed during a read but stamped before its mark, a comment hidden at read time and restored later, and a
    post gone (404/410) at a read and back later (it gets no floor, so it is judged against a later window),
    are not shown. Seeing every reply needs the service to list them by activity or since a time (a follow-up). */
@@ -818,6 +817,8 @@ async function repliesFor(sessionName, opts) {
   /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
      cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
      #6201. A post's older comments come after its own threads. */
+  // Review 9: a comment with more replies than shown and no usable cursor (the service always sends one) is said as not reached.
+  for (const th of threads) if (!th.failed && !th.gone) for (const c of th.comments) if (c.replyCount > c.replies.length && !c.repliesCursor) c.pending = true;
   const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
     const tasks = th.comments.filter((c) => c.replyCount > c.replies.length && c.repliesCursor).map((c) => repliesTask(th, c, c.repliesCursor));
     if (th.commentsCursor) tasks.push({ th, comments: true, cursor: th.commentsCursor });
@@ -835,9 +836,10 @@ async function repliesFor(sessionName, opts) {
     if (task.comments) {
       const r = await getJson(base + '?order=newest&limit=' + COMMENTS_ASKED + '&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
       const list = r.status === 200 && r.json && Array.isArray(r.json.comments) ? r.json.comments : null;
-      if (!list) { th.failed = true; return; }
+      // Review 9: a round-2 page that fails costs only what it would have read (said as not reached; the post's mark holds).
+      if (!list) { th.olderPending = true; th.partial = true; return; }
       let more;
-      try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.failed = true; return; }
+      try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.olderPending = true; th.partial = true; return; }
       if (list.length > COMMENTS_ASKED) th.olderPending = true;   // review 5: cut here, so the rest is unread
       const known = new Set(th.comments.map((c) => c.id));
       for (const c of more) {
@@ -854,9 +856,9 @@ async function repliesFor(sessionName, opts) {
     const { c } = task;
     const r = await getJson(base + '/' + encodeURIComponent(c.id) + '/replies?limit=20&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
     const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
-    if (!list) { th.failed = true; return; }
+    if (!list) { c.pending = true; th.partial = true; return; }
     let page;
-    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { th.failed = true; return; }
+    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; th.partial = true; return; }
     if (list.length > 20) c.pending = true;   // review 6: a page longer than asked is cut here, so its rest is said as not reached
     const had = new Set(c.replies.map((x) => x.id));
     const added = page.filter((x) => !had.has(x.id));
@@ -867,6 +869,7 @@ async function repliesFor(sessionName, opts) {
        cannot end the paging with real replies behind it, #6201 review 3). A cursor that does not advance is bounded by
        the budget, and is then said as not reached. */
     if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
+    else if (r.json.next_cursor && !(typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor))) c.pending = true;   // review 9: said, not dropped
   };
   while (queue.length && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
     // A post that has failed is not read further: its tasks are dropped, not counted against the budget.
@@ -973,7 +976,9 @@ async function repliesFor(sessionName, opts) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
     let top = th.r1top;
-    if (unshownPosts.has(pid)) {
+    // Review 9: a post with a failed round-2 page holds its mark (what failed comes next time); its shown items join "seen".
+    if (th.partial) top = next[pid] ? asItem(next[pid]) : null;
+    else if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
       if (!x) continue;   // nothing of this post shown: its mark stays
       top = top && byPos(top, x) < 0 ? top : x;
