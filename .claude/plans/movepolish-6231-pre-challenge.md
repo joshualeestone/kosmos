@@ -34,3 +34,23 @@ Reviewer models alternated opus (odd iterations) and sonnet (even iterations). E
 2. Once a stop is pressed the Move button drops its count (shows "Moving…"); the stop button says Stopping. A refused stop restores the count, unless another stop worked meanwhile.
 3. One agent put back reads "It stays on ..." (page-side, only the stop's own sentences); two or more keep "They".
 4. The stop the Move press inserts is named "Stop the move to another account" (visible words first, removed while Stopping) and takes focus when focus has not gone elsewhere since the press.
+
+### Final Ledger
+
+| # | Iter | Finding | Status |
+|---|---|---|---|
+| 1 | 1 | [WARNING] a stop pressed beside a refused restart did not mark the Settings row stopping, so its count still jumped | FIXED (acctMarkStopping in offerStopMove) |
+| 2 | 1 | [WARNING] the inserted stop could take focus after the person had moved on | FIXED (focus only if unmoved since the press) |
+| 3 | 1 | [NIT] a timed-out stop restores the count though it may have landed | DECLINED (keeping the retry; Known limits) |
+| 4 | 1 | [NIT] comment claimed every engine drops focus from a disabled button | FIXED |
+| 5 | 2 | [WARNING] a row stop inserted after a stop from the restart offer came up enabled | FIXED (drawn stopping, no focus) |
+| 6 | 2 | [WARNING] a repaint drops the stop's focus | NO CHANGE (follow-up repaints restore focus by data attribute) |
+| 7 | 2 | [NIT] the refused restart announced a generic title before the move title | FIXED (said() writes the move title once) |
+| 8 | 2 | [NIT] page-side regex over engine prose is fragile | DECLINED (engine file on Renet's open branch) |
+| 9 | 3 | [WARNING] keyboard press in an engine that drops a disabled control's focus never focused the stop | FIXED (acctStopTakesFocus, behaviour test) |
+| 10 | 3 | [NIT] a row stop left a live offer beside a refused restart | FIXED (then reworked in iter 4) |
+| 11 | 3 | [NIT] a stop marked a move the board did not have yet | FIXED (onBoard only) |
+| 12 | 4 | [WARNING] a refused second stop un-marked a move that was stopping | FIXED (ACCT_STOP_OK) |
+| 13 | 4 | [WARNING] clearing the offer left the toast with a dead sentence | FIXED (offer.stopped answers it) |
+| 14 | 4 | [NIT] comments above the wrong code; one-agent "their old account" path untested | FIXED |
+| 15 | 5 | no new BLOCKER or WARNING; two NITs needing no action | CONVERGED |
