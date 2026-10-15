@@ -170,4 +170,9 @@ test('#6205 wiring: mobile-shots.js routes every close through the bounded helpe
   // the whole point: no unbounded await close may survive in mobile-shots.js (the lib is where the real close lives)
   assert.doesNotMatch(src, /await\s+ctx\.close\(\)/, 'a bare unbounded await ctx.close() would reintroduce the hang');
   assert.doesNotMatch(src, /await\s+browser\.close\(\)/, 'a bare unbounded await browser.close() would reintroduce the hang');
+  // newContext must be bounded too -- a wedged browser hangs there unbounded otherwise (the review-added path)
+  assert.match(src, /withTimeout\(browser\.newContext/, 'newContext must be wrapped in withTimeout so a wedged browser cannot hang there');
+  assert.doesNotMatch(src, /await\s+browser\.newContext\(/, 'a bare unbounded await browser.newContext() would reintroduce the hang');
+  // both wedge paths (newContext timeout, context-close timeout) must count an error, so a dropped-screen run is non-green
+  assert.equal((src.match(/errors\+\+;\s+wedged = true;/g) || []).length, 2, 'both wedge paths must errors++ then set wedged, so a partial shot set cannot exit 0');
 });

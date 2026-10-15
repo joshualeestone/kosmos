@@ -42,7 +42,9 @@ function withTimeout(promise, ms, label) {
 function psParentMap() {
   const map = new Map();
   try {
-    const out = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    // timeout so this synchronous read cannot itself hang the teardown on a sick box (#6205 review); a failure
+    // throws and is caught below into an empty map.
+    const out = execFileSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
     for (const line of out.split('\n')) {
       const m = line.trim().match(/^(\d+)\s+(\d+)$/);
       if (m) map.set(Number(m[1]), Number(m[2]));
