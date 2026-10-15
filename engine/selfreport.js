@@ -168,7 +168,8 @@ function lineUnderProviderBlock(sessionName) {
   let i = rows.length - 1;
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
   if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
-  return { wait: latestOf(rows.slice(0, i + 1), tail.cut) };
+  // Review 6: also the project the whole record carries now, so a restore that would inherit a different one says its own.
+  return { wait: latestOf(rows.slice(0, i + 1), tail.cut), carriedNow: latestOf(rows, tail.cut).project };
 }
 
 /* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
@@ -323,7 +324,7 @@ function record(sessionName, entry) {
              time (askedAt, which read() honours), and its project only when it stated one (a carried project still
              carries); never the old line's instance, left, waiting or final. */
           const back = { v: 1, state: w.state, because: w.because, on: w.on, owner: w.owner, until: w.until,
-            project: w.projectInferred ? null : w.project, at: new Date().toISOString(), askedAt: w.askedAt, restored: 'provider block over' };
+            project: w.projectInferred && under.carriedNow === w.project ? null : w.project, at: new Date().toISOString(), askedAt: w.askedAt, restored: 'provider block over' };
           if (w.by) back.by = w.by;   // an unmarked (legacy) wait stays unmarked
           fs.appendFileSync(fileFor(sessionName), JSON.stringify(back) + '\n');
           return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + w.state + ' it had covered is shown again' };
@@ -538,7 +539,8 @@ function latestOf(rows, cut) {
       if (key !== runKey) {
         runKey = key;
         // #6209 review 4: a wait re-shown after a provider block carries its original asking time.
-        runAt = typeof row.askedAt === 'string' && Number.isFinite(Date.parse(row.askedAt)) ? row.askedAt : (typeof row.at === 'string' ? row.at : null);
+        // #6209: only a wait re-shown after a provider block (row.restored) carries its original asking time.
+        runAt = row.restored && typeof row.askedAt === 'string' && Number.isFinite(Date.parse(row.askedAt)) ? row.askedAt : (typeof row.at === 'string' ? row.at : null);
         runFromFirst = parsed === 0;
       }
       parsed += 1;

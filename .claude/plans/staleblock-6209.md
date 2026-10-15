@@ -80,3 +80,14 @@ activity log, but no longer red.
   start is past the front of a cut tail (askedAt unknown) keeps the block. Tests for each (dropping until, or restoring
   an unknown start, fails them, measured); the split itself passes every existing selfreport test unchanged.
 - Line wording: "may be missed" style unchanged; the hook doc says a covered wait is shown again.
+
+## Review 6 (sonnet), and what changed
+- Fixed: the re-shown wait states its project whenever the lines after it (the block run) would carry a different one,
+  so a block line with another project cannot re-label it; askedAt is honoured only on a restored line, so no other
+  line can set a run's start. Both tested; removing either fails its test (measured).
+- Decided: the restored line's `at` is the time it was written (now), not the covered line's. History readers
+  (projectview's work check, instructionreread's started-since) judge by row order and dates, and an out-of-order `at`
+  could mislead them. Consequence, accepted: the board's freshness and decay of the wait restart from the restore (it
+  is shown again then); its age, the stale-report reminder's clock and a person's notice use askedAt, which is kept.
+- Known: when an automatic idle only re-shows a wait, the Stop report's own fields (a Muse turn answer) are not
+  recorded; the "unknown state" warning can print twice for one bad line (read() and the check each read the tail).
