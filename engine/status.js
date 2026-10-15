@@ -1641,9 +1641,11 @@ function capturePane(target, lines = 40) {
 /* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
    submitted, and the card below to show text left there. The screen it reads is described in chat.js (#6249). */
 const COMPOSER_RULE = /^─{10,}/;
-function visibleWithoutDim(line) {
+/* #6256 item 6: `dimIn` is the dim state the row starts in. tmux's capture writes an escape only where the style
+   changes, carried across row ends, so a dim run that wraps onto a second row has no escape of its own there. */
+function visibleWithoutDim(line, dimIn = false, state = null) {
   let out = '';
-  let dim = false;
+  let dim = dimIn;
   const re = /\x1b\[([0-9;:]*)m/g;   // the colon form (38:5:246) too
   let at = 0;
   let m;
@@ -1662,16 +1664,22 @@ function visibleWithoutDim(line) {
     at = re.lastIndex;
   }
   if (!dim) out += line.slice(at);
+  if (state) state.dim = dim;
   return out.replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');   // any other escape
 }
+/* #6256 item 7: the rule under the box is found on the row's raw text (every escape removed, dim kept), so a theme
+   that drew the rule dim still ends the box there rather than merging the footer into it. */
+const rawRow = (line) => String(line).replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');
 function composerText(ansi) {
   if (typeof ansi !== 'string' || !ansi) return { ok: false };
-  const rows = ansi.split('\n').map(visibleWithoutDim);
+  const lines = ansi.split('\n');
+  const carry = { dim: false };
+  const rows = lines.map((line) => visibleWithoutDim(line, carry.dim, carry));
   let at = -1;
   for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
   if (at < 0) return { ok: false };
   const parts = [];
-  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rawRow(lines[i])); i += 1) parts.push(rows[i]);
   const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
   return { ok: true, text };
 }
