@@ -57,7 +57,7 @@ kosmos_setup_floor_ok() {
       print "atleast" }' 2>/dev/null)" = atleast ]; then
     return 0
   fi
-  echo "setup floor (kosmos#6149): $label names $v, older than $KOSMOS_SETUP_FLOOR. Once 0.7.49 (#4455, read-only app) is out, an installer older than $KOSMOS_SETUP_FLOOR breaks every install it updates: it cannot lift the app's lock. Serve a build at or above $KOSMOS_SETUP_FLOOR instead -- refusing" >&2
+  echo "setup floor (kosmos#6149): $label names $v, older than $KOSMOS_SETUP_FLOOR. 0.7.49 (#4455) made the app read-only, and an installer older than $KOSMOS_SETUP_FLOOR breaks every install it updates: it cannot lift the app's lock. Serve a build at or above $KOSMOS_SETUP_FLOOR instead -- refusing" >&2
   return 1
 }
 
@@ -66,7 +66,7 @@ kosmos_setup_floor_ok() {
 # that says 0.7.49 but names an older tarball is refused, since the tarball is what installs. An artifact that is not
 # a versioned kosmos tarball name is refused too (fail closed): every real Mac pointer names one.
 kosmos_setup_floor_pointer_ok() {
-  local label="$1" json="$2" v art av nv na
+  local label="$1" json="$2" v art av nv na _sf_all _sf_kept
   # One of each key: readers of a doubled key disagree (JSON.parse keeps the last, a first-match reader the first, a
   # greedy sed the last on one line), so with one key each every reader agrees on which build installs. The extractors read `"key":` (the real
   # writer, write-latest-pointer.js, writes one line in that form); a pointer spelled `"key" :` reads as having no
@@ -78,7 +78,10 @@ kosmos_setup_floor_pointer_ok() {
   # Printable ASCII only, and every tool here under LC_ALL=C: in a UTF-8 locale tr stops at the first invalid byte and
   # passes on only the part before it, so a 0xFF could hide a second key from every check below while a JSON parser
   # reads it. The real writer emits ASCII; anything else is refused.
-  if [ "$(printf '%s' "$json" | LC_ALL=C tr -d ' -~\n\r\t' | wc -c | tr -d ' ')" != 0 ]; then
+  # A positive answer here too: the printable bytes kept must equal all the bytes, and there must be some.
+  _sf_all=$(printf '%s' "$json" | LC_ALL=C wc -c | tr -d ' ')
+  _sf_kept=$(printf '%s' "$json" | LC_ALL=C tr -cd ' -~\n\r\t' | LC_ALL=C wc -c | tr -d ' ')
+  if [ -z "$_sf_all" ] || [ "$_sf_all" = 0 ] || [ "$_sf_kept" != "$_sf_all" ]; then
     echo "setup floor (kosmos#6149): $label has a byte outside printable ASCII -- refusing" >&2
     return 1
   fi

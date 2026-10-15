@@ -216,6 +216,9 @@ PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_ok t 0.6.1' _ "$HERE
   && bad "an awk that prints nothing let 0.6.1 pass the version floor" || pass "an awk that prints nothing refuses 0.6.1 at the version floor"
 bash -c 'awk() { return 0; }; export -f awk; bash -c ". \"\$1\"; kosmos_setup_floor_ok t 0.6.1" _ "$1"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
   && bad "an exported awk function let 0.6.1 pass" || pass "an exported awk function does not answer for awk (cleared on load)"
+mkdir -p "$T/stubtr"; printf '#!/bin/sh\ncat >/dev/null\nexit 0\n' > "$T/stubtr/tr"; chmod +x "$T/stubtr/tr"
+PATH="$T/stubtr:$PATH" bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "{\"version\":\"0.7.49\",\"artifact\":\"kosmos-0.7.49-arm64.tar.gz\"}"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
+  && bad "a tr that prints nothing let a pointer through unchecked" || pass "a tr that prints nothing refuses the pointer (the ASCII check needs a positive answer)"
 # GREP_OPTIONS=-v inverts macOS grep; none of the checks may be decided by it (review 33 measured an old /setup served).
 printf 'x KOSMOS_READONLY_APP\n' > "$T/new-installer"
 out="$(GREP_OPTIONS=-v bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/old-installer" 2>&1)" \

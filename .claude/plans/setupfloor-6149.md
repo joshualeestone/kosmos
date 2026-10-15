@@ -83,8 +83,10 @@ deploy, promote or cut that is valid today is refused by this change.
 - If BOTH channels' pointers or both installers are below the floor, every cut refuses (each checks the other
   channel's pair). Both POINTERS old: publish-staging-pointer.sh of a build at or above the floor whose tarball is
   still in dist (0.7.49's are) repairs staging, then a promote repairs prod. Both INSTALLERS old: neither tool writes
-  an installer (promote refuses an old one), so commit the current install/setup.sh as setup and setup-staging, with
-  their .sha256 sidecars, by hand and run deploy-site.sh, which checks them (release.sh's refusal hint says so). The
+  an installer (promote refuses an old one), so put back the installer each committed pointer was cut with (git show
+  <the site commit that wrote that pointer>:setup and its .sha256; a fresh install/setup.sh would not match the
+  pointer's setup_sha256, and deploy-site refuses that), then commit, push and run deploy-site.sh. Either repair must
+  be committed and pushed: release.sh's step 1a-floor reads the site's origin/main (its refusal hint says all this). The
   floor only reaches either state through a path around these tools (a hand deploy, a Vercel rollback).
 - A NUL byte in a pointer is dropped by command substitution before the ASCII check sees it. The installer's own
   $(curl ...) capture drops it too (so it reads what the check read), and JSON.parse rejects the pointer, so the
