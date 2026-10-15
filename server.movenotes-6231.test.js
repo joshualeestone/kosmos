@@ -53,7 +53,7 @@ test.after(() => { restoreAll(); server.close(); fs.rmSync(SANDBOX, { recursive:
 test.afterEach(restoreAll);
 
 /* The route's deps, with al's account read as /acct/old before the (stubbed) write, as the route reads it. */
-async function routeDeps() {
+async function routeDeps(beforeSave = {}) {
   let deps = null;
   accountmove.start = (body, d) => { deps = d; return { status: 202, body: { id: 'm1', done: false, agents: [] } }; };
   const r = await fetch(base + '/api/agents/account', { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -62,17 +62,21 @@ async function routeDeps() {
   assert.equal(typeof (deps && deps.leftOnOld), 'function', 'the board gave the move no leftOnOld');
   create.readJob = () => ({ configDir: '/acct/old' });
   create.setAccount = () => ({ outcome: 'changed', account: {} });
-  deps.setAccount('al', '/acct/new');   // records the account al ran on before the move
+  beforeSave.at = Date.now();
+  deps.setAccount('al', '/acct/new');   // records the account al ran on before the move, and when it was saved
   return deps;
 }
-const settle = () => new Promise((r) => setTimeout(r, 20));
+/* The note is written after an async session read: wait until it lands (or a second passes). */
+async function settle(done) {
+  for (let i = 0; i < 100; i += 1) { if (done()) return; await new Promise((r) => setTimeout(r, 10)); }
+}
 
 test('#6231 item 9: the board notes an agent left on its old account with its session start and its old account', async () => {
   const deps = await routeDeps();
   status.paneRosterAsync = async () => [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }];
   status.sessionStartedAtFromTmuxAsync = async () => 1234;
   deps.leftOnOld('al');
-  await settle();
+  await settle(() => accountmoving.notes().al);
   assert.deepEqual(accountmoving.notes().al, { started: 1234, from: '/acct/old' });
 });
 
@@ -81,7 +85,7 @@ test('#6231 item 9 CONTROL: with its session unreadable, an earlier note is clea
   accountmoving.note('al', 99, '/acct/elsewhere');
   status.paneRosterAsync = async () => [];
   deps.leftOnOld('al');
-  await settle();
+  await settle(() => !accountmoving.notes().al);
   assert.equal(accountmoving.notes().al, undefined);
 });
 
@@ -91,6 +95,33 @@ test('#6231 item 9: a session that started after the move saved the new account 
   status.paneRosterAsync = async () => [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }];
   status.sessionStartedAtFromTmuxAsync = async () => Date.now() + 60000;   // restarted since the save (onto the new account)
   deps.leftOnOld('al');
-  await settle();
+  await settle(() => !accountmoving.notes().al);
   assert.equal(accountmoving.notes().al, undefined, 'a session that started after the save was noted as on the old account');
+});
+
+test('#6231 item 9: the margin is one whole second before the save (tmux reads whole seconds)', async () => {
+  const t = {};
+  let deps = await routeDeps(t);
+  status.paneRosterAsync = async () => [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }];
+  status.sessionStartedAtFromTmuxAsync = async () => t.at - 1000;   // a whole second before: noted
+  deps.leftOnOld('al');
+  await settle(() => accountmoving.notes().al);
+  assert.equal(accountmoving.notes().al && accountmoving.notes().al.started, t.at - 1000);
+  accountmoving.clear('al');
+  deps = await routeDeps(t);
+  status.paneRosterAsync = async () => [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }];
+  status.sessionStartedAtFromTmuxAsync = async () => t.at - 500;    // within the second: could be after it, not noted
+  accountmoving.note('al', 1, '/acct/x');
+  deps.leftOnOld('al');
+  await settle(() => !accountmoving.notes().al);
+  assert.equal(accountmoving.notes().al, undefined, 'a session within the save\'s second was noted');
+});
+
+test('#6231 item 9: a note written while the session is read (a later move) is kept, not overwritten', async () => {
+  const deps = await routeDeps();
+  status.paneRosterAsync = async () => { accountmoving.note('al', 777, '/acct/later'); return [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }]; };
+  status.sessionStartedAtFromTmuxAsync = async () => 1234;
+  deps.leftOnOld('al');
+  await new Promise((r) => setTimeout(r, 100));
+  assert.deepEqual(accountmoving.notes().al, { started: 777, from: '/acct/later' }, 'the later move\'s note was overwritten');
 });

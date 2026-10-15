@@ -13782,9 +13782,13 @@ const server = http.createServer(async (req, res) => {
           leftOnOld: (n) => {
             const name = create.cleanName(n) || n;
             const at = savedAt.get(n);
+            const accountmoving = require('./engine/accountmoving');
+            const noteBefore = JSON.stringify(accountmoving.notes()[name] || null);
             sessionStartForAsync(name)
               .then((s) => {
-                if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { require('./engine/accountmoving').clear(name); return; }
+                /* A note written while the session was read (a later move's own restart) is newer than this one: keep it. */
+                if (JSON.stringify(accountmoving.notes()[name] || null) !== noteBefore) return;
+                if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { accountmoving.clear(name); return; }
                 noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s });
               })
               .catch(() => {});

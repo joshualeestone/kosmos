@@ -53,13 +53,16 @@ test('#6231 item 9: a stop whose put-back fails notes the agent as still on its 
   assert.deepEqual(d.noted, ['cy'], 'the restarted agent is not noted (its own restart path notes or clears it)');
 });
 
-test('#6231 item 9 CONTROL: an agent whose account was changed by hand since the move is left alone and not noted', async () => {
-  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
-  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+test('#6231 item 9: an agent changed by hand since the move is left as changed; noted unless the change put it back', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old' } });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy'] }, d);
   await tick();
-  d.saved.bo = '/acct/other';   // a person moved bo elsewhere while al restarts
-  accountmove.stop();
-  assert.deepEqual(d.noted, [], 'a changed-since agent was noted as left on the old account');
+  d.saved.bo = '/acct/other';   // a person pointed bo at a third account while al restarts: it still runs on old
+  d.saved.cy = '/acct/old';     // and cy back on the old one: nothing left over
+  const s = accountmove.stop();
+  assert.deepEqual(s.body.agents.map((a) => a.outcome), ['pending', 'stopped', 'stopped']);
+  assert.equal(d.saved.bo, '/acct/other', 'the hand change was overwritten');
+  assert.deepEqual(d.noted, ['bo'], 'only the agent saved on another account and never restarted is noted');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
 });

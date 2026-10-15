@@ -279,6 +279,10 @@ function putBack(m, a) {
     a.outcome = 'stopped';
     a.because = 'you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.';
     delete a.account;
+    /* #6231: saved on some other account now but never restarted by this move, so it still runs on its old one, unless
+       the change put it back there. If that change restarted it, the board's note sees a session newer than the save
+       and clears instead. */
+    if (now !== a.from.dir) leftOnOld(deps, a.name);
     return;
   }
   /* Linux (#6231): putBack rewrites the unit file and nothing reloads systemd until a restart, as the move's own write
@@ -309,7 +313,7 @@ function stop() {
   m.stopped = true;
   for (const a of m.agents) {
     if (a.outcome !== 'pending' || a.name === m.current) continue;
-    try { putBack(m, a); } catch { a.outcome = 'partial'; a.because = 'You stopped the move before its turn, and we could not put it back on its old account.'; }
+    try { putBack(m, a); } catch { a.outcome = 'partial'; a.because = 'You stopped the move before its turn, and we could not put it back on its old account.'; leftOnOld(m.deps, a.name); }
     try { m.deps.release(a.name); } catch { /* the move's own end releases it again */ }
   }
   return { status: 200, body: view(m) };

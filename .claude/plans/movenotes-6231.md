@@ -21,15 +21,17 @@ end, web/index.html engineRestartClick), so a later #6214 round can mean a rebas
   the move brings the agent up on the new account although the answer says it stays on the old one).
 
 ## Tests
-- engine/accountmove-notes-6231.test.js 5/5: a failed put-back is noted and a working one is not; an agent changed by
-  hand since is not; agents the move never reached are noted; a throwing note changes nothing; item 10's wording.
-  #6214's engine/accountmove-stop-6214.test.js still 12/12.
-- web.movesaid-6231.test.js 2/2: runs the shipped engineRestartClick; two refused presses, the first press's hold
-  comes due and must not repaint; the second's still does; a single press still repaints.
-- server.movenotes-6231.test.js 2/2: boots the real board, captures the route's deps, and the note is written with the
-  session start and the old account; an unreadable session clears an earlier note.
-- Mutations: removing the engine's two leftOnOld calls reds 3; the press check reds the page test; a no-op board
-  leftOnOld reds both board tests.
+- engine/accountmove-notes-6231.test.js 7/7: a failed put-back is noted and a working one is not; an agent changed by
+  hand to a third account is noted and one changed back to its old account is not; agents never reached are noted;
+  the hold-failure path notes its agents; a throwing note changes nothing; items 10's two wordings. #6214's
+  engine/accountmove-stop-6214.test.js still 12/12, web.account-stopmove-6214.test.js 9/9.
+- web.movesaid-6231.test.js 2/2: the shipped engineRestartClick with the page's own ENGINE_SAID_PRESS; an earlier
+  press's hold does not repaint during a later answer; a single press still repaints.
+- server.movenotes-6231.test.js 5/5: boots the real board and captures the route's deps; the note is written with the
+  session start and the old account; an unreadable session, or one started after the save, clears; the one-second
+  margin on both sides of its edge; a note written while the session is read is kept.
+- Mutations, each red: the engine's leftOnOld calls (failed put-back, never reached, hold failure, hand change), the
+  press check, a no-op board leftOnOld, the margin set to 0, the newer-note check removed.
 
 ## Review 1
 - The board notes only a session that started at least a whole second before the move saved the new account (the
@@ -37,6 +39,11 @@ end, web/index.html engineRestartClick), so a later #6214 round can mean a rebas
   The agent is released before the note's read, so a restart from its page could otherwise be noted as the old one.
 - The hold-failure path (agents saved, never restarted) notes them too; a missing readAccount gets its own words, as a
   missing putBack does.
+
+## Review 2
+- An agent changed by hand to another account since the move is noted (it was never restarted by this move); if that
+  change restarted it, the board's time bound clears the note. The rare "put-back threw" fallback notes too.
+- The board's note is skipped when the agent's note changed while its session was read (a later move's own note wins).
 
 ## Weakest premise
 That a session which started before the move saved the new account still runs on the old account. True unless the
