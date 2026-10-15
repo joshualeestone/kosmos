@@ -23293,6 +23293,7 @@ function start(port = PORT) {
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
             afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7
             isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
+            boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
           }).catch(() => { /* the posts stay held for the next minute */ });

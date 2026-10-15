@@ -125,6 +125,14 @@ function limitKept(name, projectId, id, now = Date.now()) {
 
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
+/* #6256 item 1: members holding posts because text sat in their input box (#6249, heldBy 'input'). No wake may come
+   for those (a person can clear the box by hand with no turn), so flushReleased retries them once the box reads empty.
+   Kept in memory: after a restart they wait for the member's next wake, as every hold did before. */
+const inputHeld = new Set();
+function noteInput(name) { if (name) inputHeld.add(String(name)); }
+function inputNoted(name) { return inputHeld.has(String(name)); }
+function forgetInput(name) { inputHeld.delete(String(name)); }
+
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
    the member (an agent's post is an automatic sender there, addressed or not). Its id is kept with this mark, so the
    line that later tells the member says which of the held posts ask for an answer. Board ids never start with it. */
@@ -395,12 +403,26 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
    holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf }) {
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
       if (!card || !card.sessionName) continue;
+      /* #6256 item 1: a member whose posts were held by text in its input box is told once the box reads empty (and it
+         is not in a fresh working turn, and something can be typed into it). Every held project is told then, as at a
+         wake. Until the box empties, or when it cannot be read, its posts wait as before. */
+      const inName = String(card.sessionName);
+      if (inputNoted(inName)) {
+        if (!heldProjects(inName).length) forgetInput(inName);
+        else if (typeof boxEmpty === 'function' && !workingNow(readReport, inName, now, decayMs)
+          && require('./chat').addressable(inName, roster).ok === true && boxEmpty(card) === true) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale });
+          if (!heldProjects(inName).length) forgetInput(inName);
+          for (const d of done) out.push({ name: inName, ...d });
+          continue;
+        }
+      }
       const agy = isAgy(card);
       // Read from the card before any file: only a capped or released Claude card has anything for #5805 below.
       // (chat and status are required here, not at the top: chat requires roomhold, so a top-level require would cycle.)
@@ -499,4 +521,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, carriedLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, inputNoted, forgetInput, toldLine, carriedLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };

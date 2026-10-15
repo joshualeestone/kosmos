@@ -212,7 +212,16 @@ let pauser = null;
 const deliveryQueues = new Map();
 /* #6249: per pane, the last line the board typed and saw left unsent in the box (its wire), so the next delivery can
    press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it. */
-const unsentWires = new Map();   // target -> { wire, at }
+const unsentWires = new Map();   // target -> { wire, at, seq }
+/* #6256 item 2: each remembered line has a number, given back on its verdict (`unsentSeq`), so whoever recorded that
+   line can be told when a later delivery sends it (the hook below): chat itself does not know message ids. */
+let unsentSeq = 0;
+let earlierSubmittedHook = null;
+function setEarlierSubmittedHook(fn) { earlierSubmittedHook = typeof fn === 'function' ? fn : null; }
+function tellEarlierSubmitted(seq) {
+  if (!earlierSubmittedHook) return;
+  try { earlierSubmittedHook(seq, new Date().toISOString()); } catch { /* a record that fails is not the delivery's failure */ }
+}
 /* Round 2: a remembered line older than this is not sent: read hours later it would land ahead of newer words. */
 const UNSENT_REMEMBER_MS = 10 * 60 * 1000;
 
@@ -848,12 +857,20 @@ function readComposer(target) {
 }
 /* Only Claude Code's box is read this way; other runners draw their own and keep today's verdict. */
 const composerReadable = (card) => !!card && String(card.runner || 'claude') === 'claude';
+/* #6256 item 1: true only when a Claude Code card's input box is read and holds nothing (roomhold's retry of posts
+   held by text in the box); false for anything unread, so an unreadable box keeps its posts waiting. */
+function inputBoxEmpty(card) {
+  if (!composerReadable(card) || !card.target) return false;
+  const box = readComposer(card.target);
+  return box.ok === true && box.text === '';
+}
 /* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
    up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
 const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
-const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
+/* #6256 item 3: says what happens next, so nobody types it again by hand (the 10 minutes are UNSENT_REMEMBER_MS). */
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and the next message Kosmos types to this agent within 10 minutes sends it first, if nothing else has been typed into the box';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
@@ -1971,9 +1988,13 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
           const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS);
           let step = steps.next();
           while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
-          if (step.value && step.value.outcome === 'sent') earlierSubmitted = true;
+          if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; tellEarlierSubmitted(kept.seq); }
           box = readComposer(target);   // round 10: always read it again: a person may have started typing meanwhile
         }
+        /* #6256 item 4: a box slower than the short watch (or an Enter tmux refused) still holds exactly our earlier
+           line: remember it again, with its own time and number, so the next delivery can still press it. This one is
+           refused below, as before. */
+        if (!earlierSubmitted && box.ok && composerIsAll(box.text, earlier)) unsentWires.set(target, kept);
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
       if (box.ok && box.text) {
@@ -2127,10 +2148,15 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      every sender already treats UNCONFIRMED as "may be there, do not type it again", which is exactly the case. */
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
-    if (result && result.outcome === 'unsent') unsentWires.set(target, { wire, at: Date.now() });   // only ours is there: the next line may send it
-    else unsentWires.delete(target);
+    let seq = null;
+    if (result && result.outcome === 'unsent') {   // only ours is there: the next line may send it
+      unsentSeq += 1;
+      seq = unsentSeq;
+      unsentWires.set(target, { wire, at: Date.now(), seq });
+    } else unsentWires.delete(target);
     const out = confirmedVerdict(v, result);
-    return out.state === v.state ? out : { ...out, paneNote: noteFor(out.state) };
+    const told = seq == null ? out : { ...out, unsentSeq: seq };
+    return told.state === v.state ? told : { ...told, paneNote: noteFor(told.state) };
   };
   const confirmSync = (v) => {
     if (!needsConfirm(v)) return v;
@@ -4490,6 +4516,8 @@ function updateDmDelivery(agent, at, delivery) {
 }
 
 module.exports = {
+  setEarlierSubmittedHook,   // #6256 item 2
+  inputBoxEmpty,   // #6256 item 1
   updateDmDelivery,   // #5805 slice 2b
   setMovedTell,   // #5400
   DELIVERY, DIRECT, dmOwes, noticeStands, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES, STORE_GROWTH, storedWithin, storedProblem,
