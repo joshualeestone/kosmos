@@ -99,7 +99,13 @@ _ti_box_clear() {
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
 kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
-SB="$(mktemp -d "${TMPDIR:-/tmp}/test-install.XXXXXXXXXX")"
+# #4298 follow-up (the 0.7.51 cut's step 4b, 10-15): macOS's TMPDIR ENDS IN '/', so "$TMPDIR/x" has '//'. setup.sh
+# squeezes repeated slashes out of KOSMOS_HOME before hashing it into the board's login-job label; this harness hashes
+# "$SB/home" as written (BOARD_LABEL_SUFFIX), so with '//' in $SB the two name different plists and every login-job
+# check fails. Strip the trailing slash so $SB carries none.
+_ti_tmp="${TMPDIR:-/tmp}"
+SB="$(mktemp -d "${_ti_tmp%/}/test-install.XXXXXXXXXX")"
+case "$SB" in *//*) echo "test-install: the sandbox path $SB has '//' in it; refusing (setup.sh would hash it differently)" >&2; exit 1 ;; esac
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per
