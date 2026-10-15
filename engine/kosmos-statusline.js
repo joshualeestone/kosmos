@@ -80,6 +80,9 @@ function record(dir, reading, now, opt = {}) {
   const keepHistory = opt.history !== false;
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }
+  /* #6176: a stored reset further out than this window can be (a bad file) is not a window to compare against, or every
+     real reading after it would be refused as older until that impossible time passed. */
+  if (cur && opt.maxAheadSeconds && typeof cur.resetsAt === 'number' && cur.resetsAt > now / 1000 + opt.maxAheadSeconds) cur = null;
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
     const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
     if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
@@ -127,7 +130,7 @@ function main(argv, input, now) {
   try { payload = JSON.parse(input); } catch { return; }
   // Each reading on its own: a failure recording one must never cost the other.
   try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
-  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false }); } catch { /* nothing to show */ }
+  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: 6 * 3600 }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {

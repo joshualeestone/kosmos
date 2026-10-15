@@ -88,6 +88,15 @@ test('readFiveHour serves a current reading and nothing once the window has rese
   assert.equal(allowance.readFiveHour(dir, (NOW_S + 1801) * 1000), null, 'a reading from a window that has reset is not this window');
 });
 
+test('a stored reset further out than a five-hour window does not block the next real reading', () => {
+  const dir = freshDir();
+  fs.writeFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 10, resetsAt: NOW_S + 10 * 3600, at: NOW_S * 1000 }));
+  run(dir, payload({ used_percentage: 40, resets_at: NOW_S + 3600 }));
+  const r = JSON.parse(fs.readFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), 'utf8'));
+  assert.equal(r.usedPct, 40, 'the impossible stored window was compared against and the real reading refused');
+  assert.equal(r.resetsAt, NOW_S + 3600);
+});
+
 test('readFiveHour refuses what it cannot trust', () => {
   const dir = freshDir();
   assert.equal(allowance.readFiveHour(dir), null, 'never recorded');

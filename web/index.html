@@ -27286,7 +27286,16 @@ function acctFiveHourRetry() {
   acctFiveMisses++;
   clearTimeout(acctFiveTimer);
   const mine = ACCT_EPOCH;
-  acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH && acctListShown()) paintAccounts({ followUp: ACCT_FOLLOWUP.max }); }, 60e3);
+  const wait = () => {
+    acctFiveTimer = setTimeout(() => {
+      acctFiveTimer = null;
+      if (mine !== ACCT_EPOCH || !acctListShown()) return;
+      // Busy (a Check, a half-armed Disconnect): wait another minute without reading, as the main timer does.
+      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses < 10) { acctFiveMisses++; wait(); } return; }
+      paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+    }, 60e3);
+  };
+  wait();
 }
 function acctFiveHourRepaint(list) {
   acctFiveMisses = 0;
