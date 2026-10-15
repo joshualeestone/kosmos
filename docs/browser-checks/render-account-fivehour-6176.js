@@ -267,6 +267,47 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const back = await p6.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads, shown: document.getElementById('set-accounts').getClientRects().length > 0 }));
     say(away && whileAway === 1 && back.shown && back.fives === 1, '[chromium open] back on AI Models after a reset passed in another section, the line is read again and goes', JSON.stringify({ away, whileAway, back }));
     await p6.close();
+    // The list is busy BEFORE the reset (a Check under way): the timer does not read until it is free, then the line goes.
+    const p7 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p7.clock.install({ time: new Date(now) });
+    await p7.goto('file://' + PAGE);
+    await p7.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p7.clock.runFor(9 * 60e3);
+    const hasCheck7 = await p7.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check'); if (c) c.disabled = true; return !!c; });
+    await p7.clock.runFor(4 * 60e3); await p7.waitForTimeout(200);   // past the reset, still busy
+    const busy7 = await p7.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    await p7.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check:disabled'); if (c) c.disabled = false; });
+    await p7.clock.runFor(2 * 60e3); await p7.waitForTimeout(300);
+    const free7 = await p7.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(hasCheck7 && busy7.reads === 1 && busy7.fives === 2 && free7.fives === 1 && free7.reads === 2, '[chromium open] busy before the reset: no read while busy, then one read and the line goes', JSON.stringify({ hasCheck7, busy7, free7 }));
+    await p7.close();
+    // Opening Settings onto AI Models repaints the list itself: the on-show read must not run as well (each read runs a
+    // live check per account). One read for the open, not two.
+    const p8 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p8.clock.install({ time: new Date(now) });
+    await p8.goto('file://' + PAGE);
+    await p8.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      settingsGo('you');
+    }, rows);
+    await p8.clock.runFor(12 * 60e3); await p8.waitForTimeout(200);   // a line past its reset, list hidden
+    await p8.evaluate(async () => { settingsGo('accounts'); await paintAccounts(); });   // what opening Settings does
+    await p8.clock.runFor(3e3); await p8.waitForTimeout(300);
+    const open8 = await p8.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(open8.reads === 2 && open8.fives === 1, '[chromium open] opening Settings onto AI Models reads the list once, not twice', JSON.stringify(open8));
+    await p8.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });

@@ -57,3 +57,8 @@ shows its age, and a reading from a window that has reset is not drawn at all.
   in a row; a successful paint starts it again.
 - Switching back to AI Models from another Settings section reads the list again if a five-hour line on it is past its
   reset (the timer stops while the list is hidden, and a section switch does not repaint), or sets the timer again.
+- The read on coming back to AI Models waits a moment and runs only if nothing repainted the list meanwhile: opening
+  Settings onto AI Models repaints it itself, and a second read would run every account's live check twice.
+- Once a line's ten retries are spent, the other lines still keep the timer for their own reset.
+- Not in this branch: a Codex (OpenAI) row's five-hour window (#6203) has no reset timer, so on a list left open it can
+  stay past its reset until the next paint. Noted on #6176.
