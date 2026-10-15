@@ -187,6 +187,7 @@ function start(body, deps) {
       try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: `the move could not start (${String((err && err.message) || err)}).` }, deps.RESTARTED); }
       catch { said = { outcome: 'partial', because: 'We saved the account, but the move could not start its restart.' }; }
       a.outcome = said.outcome; a.because = said.because;
+      leftOnOld(deps, a.name);   // #6231: saved on the new account, never restarted, so still on its old one
     }
     m.done = true; m.finishedAt = Date.now(); m.deps = null;
     return { status: 202, body: view(m), done: Promise.resolve() };
@@ -246,16 +247,17 @@ function start(body, deps) {
   return { status: 202, body: view(m), done };
 }
 
+/* #6231: deps.leftOnOld, guarded: the note is not the move. */
+function leftOnOld(deps, name) {
+  try { if (deps && typeof deps.leftOnOld === 'function') deps.leftOnOld(name); } catch { /* the note is not the move */ }
+}
+
 /* #6214: what a stop does with one agent the move had not reached. Its account was saved on the new one when the move
    started, but it was never restarted, so it still runs on the old one: put the saved account back to match (Liu Kang
    m5659: left saved, the next restart for any reason would move it hours later). Only when the saved account is still
    the one this move wrote; a person who changed it since keeps their change. The read and the write are one synchronous
    block, so nothing in this board process can change it in between (another process writing the job file
    in that moment, such as a hand edit, is not covered). */
-/* #6231: deps.leftOnOld, guarded: the note is not the move. */
-function leftOnOld(deps, name) {
-  try { if (deps && typeof deps.leftOnOld === 'function') deps.leftOnOld(name); } catch { /* the note is not the move */ }
-}
 function putBack(m, a) {
   const deps = m.deps;
   /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
@@ -269,6 +271,7 @@ function putBack(m, a) {
   };
   /* #6231: a caller that cannot put an agent back says so in its own words (the board always can). */
   if (typeof deps.putBack !== 'function') { failed('this Kosmos cannot put an agent back on its old account'); return; }
+  if (typeof deps.readAccount !== 'function') { failed('this Kosmos cannot read which account an agent was on'); return; }
   if (!a.from || !a.from.ok || !a.to || !a.to.ok) { failed('we could not read which account it was on'); return; }
   let now;
   try { now = deps.readAccount(a.name); } catch { failed('we could not read its account just now'); return; }

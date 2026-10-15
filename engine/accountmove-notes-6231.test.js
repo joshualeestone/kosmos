@@ -99,3 +99,22 @@ test('#6231 item 10: a caller with no putBack is told so in its own words, and t
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
 });
+
+test('#6231 item 9: a move whose hold fails notes every agent it saved (none is restarted)', () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  d.hold = () => { throw new Error('the hold could not be taken'); };
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  assert.deepEqual(out.body.agents.map((a) => a.outcome), ['partial', 'partial']);
+  assert.deepEqual(d.noted, ['al', 'bo'], 'agents saved but never restarted were not noted');
+});
+
+test('#6231 item 10: a caller with no readAccount is told so in its own words', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  delete d.readAccount;
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  await tick();
+  const s = accountmove.stop();
+  assert.match(s.body.agents[1].because, /\(this Kosmos cannot read which account an agent was on\)/);
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+});

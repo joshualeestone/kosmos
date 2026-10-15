@@ -20,6 +20,8 @@ function slice(name) {
 }
 const HOLD = PAGE.match(/^const ENGINE_SAID_HOLD_MS = [^\n]+$/m);
 assert.ok(HOLD, 'ENGINE_SAID_HOLD_MS moved; re-anchor this test');
+const PRESS = PAGE.match(/^let ENGINE_SAID_PRESS = 0;[^\n]*$/m);   // the page's own declaration, not one made up here
+assert.ok(PRESS, 'ENGINE_SAID_PRESS is not declared at the top level of the page');
 
 function harness() {
   const timers = [];
@@ -32,7 +34,8 @@ function harness() {
   // Every press is refused for a reason that is not a move (a plain 409), so each one holds the toast.
   const fetch = async () => ({ ok: false, status: 409, json: async () => ({ ok: false, because: 'busy' }) });
   const src = `${HOLD[0].replace(/^const /, 'var ')}
-let ENGINE_SAID_PRESS = 0; let ENGINE_RESTARTING = false; const ENGINE_STALE = null;
+${PRESS[0]}
+let ENGINE_RESTARTING = false; const ENGINE_STALE = null;
 ${slice('engineRestartClick')}
 return engineRestartClick;`;
   // eslint-disable-next-line no-new-func

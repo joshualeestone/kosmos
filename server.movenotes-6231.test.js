@@ -84,3 +84,13 @@ test('#6231 item 9 CONTROL: with its session unreadable, an earlier note is clea
   await settle();
   assert.equal(accountmoving.notes().al, undefined);
 });
+
+test('#6231 item 9: a session that started after the move saved the new account is not noted, and an earlier note goes', async () => {
+  const deps = await routeDeps();
+  accountmoving.note('al', 99, '/acct/elsewhere');
+  status.paneRosterAsync = async () => [{ sessionName: 'al', session: 'al-session', isNamedOurs: true }];
+  status.sessionStartedAtFromTmuxAsync = async () => Date.now() + 60000;   // restarted since the save (onto the new account)
+  deps.leftOnOld('al');
+  await settle();
+  assert.equal(accountmoving.notes().al, undefined, 'a session that started after the save was noted as on the old account');
+});
