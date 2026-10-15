@@ -290,6 +290,25 @@ function list() {
  * neither has a null date, which a --since filter skips because it cannot confirm
  * the day.
  */
+/* kosmos#6265: the folder `kosmos feedback pull` writes the collected reports into. Read lazily, so this module does
+   not load the pull's code until a triage runs. */
+function pulledDir() { return require('./feedbackpull').defaultDir(); }
+function hasReports(folder) {
+  try { return fs.readdirSync(folder).some((n) => /\.md$/.test(n)); } catch { return false; }
+}
+/* The reports in one folder of .md files, oldest first (a pulled folder, or a --dir). */
+function readFolder(folder, since, reports, notes) {
+  let names;
+  try { names = fs.readdirSync(folder); } catch { return false; }
+  for (const name of names.filter((n) => /\.md$/.test(n)).sort()) {
+    let raw;
+    try { raw = fs.readFileSync(path.join(folder, name), 'utf8'); } catch { notes.push('skipping unreadable report: ' + name); continue; }
+    const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(name) ? name.slice(0, -3) : frontmatterDate(raw);
+    if (since && (date === null || date < since)) continue;
+    reports.push({ date, body: stripFrontmatter(raw) });
+  }
+  return true;
+}
 function reportsForTriage(opts) {
   const o = opts || {};
   const since = o.since || '';
@@ -297,22 +316,24 @@ function reportsForTriage(opts) {
   if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
   const reports = [];
   if (o.dir) {
-    let names;
-    try { names = fs.readdirSync(o.dir); } catch { return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes }; }
-    for (const name of names.filter((n) => /\.md$/.test(n)).sort()) {
-      let raw;
-      try { raw = fs.readFileSync(path.join(o.dir, name), 'utf8'); } catch { notes.push('skipping unreadable report: ' + name); continue; }
-      const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(name) ? name.slice(0, -3) : frontmatterDate(raw);
-      if (since && (date === null || date < since)) continue;
-      reports.push({ date, body: stripFrontmatter(raw) });
-    }
-  } else {
-    for (const date of list()) {
-      if (since && date < since) continue;
-      reports.push({ date, body: readBody(date) });
-    }
+    if (!readFolder(o.dir, since, reports, notes)) return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes };
+    notes.push('triage read the reports in ' + o.dir);
+    return { ok: true, reports, notes, read: o.dir };
   }
-  return { ok: true, reports, notes };
+  /* kosmos#6265: with no --dir, the reports `kosmos feedback pull` collected are what a triage is for, so their folder
+     is read when it holds any; only when it does not are this computer's own daily reports read. Either way the run
+     says which folder it read (stderr in both commands), so a triage after a pull can never silently read old data. */
+  const pulled = pulledDir();
+  if (hasReports(pulled) && readFolder(pulled, since, reports, notes)) {
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; --dir reads another folder)');
+    return { ok: true, reports, notes, read: pulled };
+  }
+  for (const date of list()) {
+    if (since && date < since) continue;
+    reports.push({ date, body: readBody(date) });
+  }
+  notes.push('triage read this computer\'s own reports in ' + dir() + ': there are no pulled reports in ' + pulled + ' (kosmos feedback pull fetches them)');
+  return { ok: true, reports, notes, read: dir() };
 }
 
 module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
