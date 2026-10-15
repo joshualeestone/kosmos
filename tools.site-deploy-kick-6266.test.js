@@ -26,6 +26,7 @@ const FAKE_GH = path.join(SANDBOX, 'gh');
 fs.writeFileSync(FAKE_GH, `#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
+[ -n "\${FAKE_SLEEP:-}" ] && sleep "$FAKE_SLEEP"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
@@ -146,6 +147,7 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
     ['main a short sha', { FAKE_MAIN: 'abc123' }, /not a full sha/],
     ['run list fails', { FAKE_LIST_FAIL: '1' }, /could not list site deploy runs/],
     ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z' }]) }, /site deploy run time read as/],
+    ['only the update time garbled, on a failed run', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'failure', createdAt: iso(3600), updatedAt: 'garbled' }]) }, /site deploy run time read as 'garbled'/],
   ]) {
     const r = kick(state({ 'last-deployed': OLD }), env);
     assert.equal(r.status, 1, why + ': ' + r.out);
@@ -162,6 +164,20 @@ test('#6266: with no deploy state folder it asks nothing and exits 1 (fails clos
   assert.equal(r.status, 1);
   assert.equal(r.dispatched, 0);
   assert.match(r.out, /no deploy state folder at .*no-such-state.*nothing asked/);
+});
+
+test('#6266: a hung gh call is cut off, said as timed out, and asks nothing (review 11)', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD }), { FAKE_SLEEP: '5', KOSMOS_KICK_GH_TIMEOUT: '1' });
+  assert.equal(r.status, 1);
+  assert.equal(r.dispatched, 0);
+  assert.match(r.out, /could not read site main \(owner\/site\) \(gh: timed out after 1 s\); nothing asked/);
+});
+
+test('#6266: a mistyped --check runs nothing and exits 2', () => {
+  const r = kick(state({ 'last-deployed': OLD }), {}, ['--chek']);
+  assert.equal(r.status, 2);
+  assert.equal(r.calls.length, 0);
+  assert.equal(fs.existsSync(r.beat), false);
 });
 
 test('#6266: --check says what a tick would decide and dispatches nothing', needJq, () => {

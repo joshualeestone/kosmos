@@ -52,10 +52,20 @@ REPO="${KOSMOS_SITE_REPO:-joshualeestone/chaoskosmos-site}"
 STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 [ -x "$GH" ] || GH="$(command -v gh 2>/dev/null || echo "$GH")"   # review 7: another install path (the plist PATH has it)
+# Review 11: every gh call has a wall clock (perl's alarm, as the deploy job's own network calls do), so one call hung
+# on a stalled connection cannot hold the backstop for ever (launchd never starts a second copy while one runs). A
+# timed-out call fails like any other, with "(timed out)" in its line.
+GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
+ghb() { perl -e 'alarm shift; exec @ARGV or exit 127' "$GH_MAX_S" "$GH" "$@"; }
 BEAT="${KOSMOS_KICK_HEARTBEAT:-$HOME/.local/libexec/kosmos-site-deploy-kick/last-tick}"
 KICK_GAP_S=840
 STUCK_S=10800   # not finished 3 hours after creation
-CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
+CHECK=0
+case "${1:-}" in
+  '') ;;
+  --check) CHECK=1 ;;
+  *) echo "usage: $0 [--check]" >&2; exit 2 ;;   # review 11: a mistyped --check must not run a real tick
+esac
 LAST_LINE=""
 say() { LAST_LINE="$*"; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*"; }
 note() { [ "$CHECK" = 1 ] && say "check: $*"; return 0; }
@@ -70,15 +80,15 @@ RESULT="$(dirname "$BEAT")/last-result"
 ERR=""
 trap 'rc_=$?; [ -n "$ERR" ] && rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S %Z")" "$rc_" "${LAST_LINE:-(quiet)}" > "$RESULT" 2>/dev/null' EXIT
 [ "$CHECK" = 1 ] || { mkdir -p "$(dirname "$BEAT")" 2>/dev/null; date '+%Y-%m-%d %H:%M:%S %Z' > "$BEAT" 2>/dev/null; }
-ERR="$(mktemp -t kick-err.XXXXXX 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
-why() { local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"; [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
+ERR="$(mktemp "${TMPDIR:-/tmp}/kick-err.XXXXXX" 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
+why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"; [ "$rc" = 142 ] && l="${l:+$l; }timed out after ${GH_MAX_S} s"; [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
 if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi
 if [ "$CHECK" = 1 ] && [ -r "$RESULT" ]; then note "last tick: $(head -n 1 "$RESULT")"; fi
 if [ ! -d "$STATE" ]; then say "no deploy state folder at $STATE (the deploy job has not run here, or it keeps its state elsewhere); nothing asked"; exit 1; fi
 if [ -e "$STATE/paused" ]; then note "paused ($STATE/paused): would ask nothing"; exit 0; fi
-main="$("$GH" api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
+main="$(ghb api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
 case "$main" in
   *[!0-9a-f]*|'') say "site main read as '${main:0:60}', not a sha; nothing asked"; exit 1 ;;
 esac
@@ -90,8 +100,9 @@ parked="$(tr -d '[:space:]' 2>/dev/null < "$STATE/parked" || true)"
 [ "$main" = "$parked" ] && { note "main is parked: would ask nothing"; exit 0; }
 # One TAB-separated line per run: status, conclusion, createdAt, updatedAt. gh gives an unfinished run's conclusion as
 # "" (not null; measured 2026-10-15), so it is mapped to "-": an empty field would let `read` shift the rest (review 7).
-# The newest 20 runs hold every active one: the job runs one at a time and a superseded pending run is cancelled.
-runs="$("$GH" run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt] | @tsv' 2>"$ERR")" \
+# The newest 20 runs hold the newest active one (the job runs one at a time and a superseded pending run is
+# cancelled); after many pushes during one long run, that run may fall out of the window and go unreported if stuck.
+runs="$(ghb run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt] | @tsv' 2>"$ERR")" \
   || { say "could not list site deploy runs$(why); nothing asked"; exit 1; }
 active=0; newest=""; stuck=""
 # Its own line goes to stderr: stamp runs inside $( ), whose stdout is the value (launchd logs both).
@@ -120,7 +131,7 @@ if [ -n "$stuck" ]; then STUCK_LINE="a site deploy run has been $stuck, past its
 [ "$active" -gt 0 ] && { note "$active run(s) queued or running: would ask nothing"; exit "$rc"; }
 if [ -n "$newest" ] && [ $((NOW - newest)) -lt "$KICK_GAP_S" ]; then note "a run was created, or failed, $((NOW - newest)) s ago: would ask nothing"; exit "$rc"; fi
 if [ "$CHECK" = 1 ]; then note "would ask for a site deploy"; exit "$rc"; fi
-if "$GH" workflow run site-deploy.yml --repo "$REPO" --ref main >/dev/null 2>"$ERR"; then
+if ghb workflow run site-deploy.yml --repo "$REPO" --ref main >/dev/null 2>"$ERR"; then
   say "asked for a site deploy: main ${main:0:9}, last deployed ${deployed:0:9}"
   [ -n "$STUCK_LINE" ] && LAST_LINE="$LAST_LINE; and $STUCK_LINE"   # last-result keeps why rc is 1 (review 7)
 else
