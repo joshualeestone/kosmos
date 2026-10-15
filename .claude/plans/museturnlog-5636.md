@@ -18,8 +18,8 @@ words) or something else.
 engine/musefront.js logs one JSON line per turn it hands to Muse (before the turn; a digest of several posts is one) to <workspace>/.kosmos/muse-turns.log:
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
 post count, and a 60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
-post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where git ignores
-both the log and its .1 copy (a negation reads as not ignored). Bounded (256 KB, then a
+post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where .kosmos/.gitignore
+lists both the log and its .1 copy (read as text; a negation reads as not ignored). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
 
 ## Rejected
@@ -29,7 +29,8 @@ both the log and its .1 copy (a negation reads as not ignored). Bounded (256 KB,
 
 ## Not known yet
 Whether N1's posts were over 10000 characters (then the spill is by design on every family, and the other four simply
-received shorter posts), or under it (then something Meta-specific spills): the log's spillWords and chars answer it.
+received shorter posts), or under it (then something Meta-specific spills): spillBytes (the saved copy's size, never
+fewer than its characters) answers it; chars is the shortened line's length.
 
 ## Review 1 (opus), and what changed
 - BLOCKER: the write skipped keepModel's guards, so a fifo at the file could hang the front for good and a link could
@@ -134,3 +135,10 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   tests prove the pair, not each layer. NITs: the allowlist comment says the agent's own post title can appear; tz
   differs from Sent's clock only under a different TZ setting. Not taken: a pane line when the log is off (the
   .gitignore rule is fail-closed and stated; the seat notes look for the file).
+
+## Review 15 (opus), and what changed
+- No BLOCKER. WARNING: chars and spillWords cannot say whether a spilled post was over 10000 characters (chars is the
+  shortened line's): spillBytes now records the saved copy's size, read from the agent's own Inbox (bytes >= chars), so
+  under 10000 bytes proves under the limit (tested, with a missing copy recording null). NITs: a retried stop note's
+  one log line is asserted in the existing busy test; the attachment-trailer path in a short post's opening is stated;
+  "The call" says ".gitignore lists" (text), not "git ignores".
