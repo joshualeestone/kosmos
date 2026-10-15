@@ -823,3 +823,27 @@ test('#6232 review 16: an ask that left the board in no company is not a miss (a
     assert.equal(calls, 4, 'after an ending, a later join\'s first miss waited longer than 15 minutes (the old misses counted)');
   } finally { live.resetForTests(); }
 });
+
+test('#6232 review 18: end to end, a real refresh the company answers "gone" reaches the board\'s registered listener, and its agents are handed the change', async (t) => {
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let syncs = 0;
+  // What the agents are handed follows the applied policy, as the real companyEntry does: gone once the ending clears it.
+  let held = { name: 'Acme', text: 'Use only approved tools.' };
+  policy.companyEntry = () => (oe.readEnrollment() ? held : null);
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  const off = oe.onEnrollmentEnded(orgEnrollmentEnded);   // as start() registers it
+  t.after(() => { off(); policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  companyPolicySync();   // records the company text the agents hold
+  assert.ok(oe.readEnrollment(), 'CONTROL: the board is not enrolled');
+  // The real refresh (this board's own root), against a coordinator that says the member is gone.
+  const gone = { macRequest: async (m, route) => (route === oe.ROUTES.status ? { ok: true, data: { member: false } } : { ok: false, because: 'not asked' }) };
+  const r = await oe.refresh({ remote: gone });
+  assert.equal(oe.readEnrollment(), null, 'CONTROL: the removal did not end the enrollment: ' + JSON.stringify(r));
+  assert.equal(syncs, 1, 'the ending did not reach the board\'s registered listener, so the agents kept the company\'s text');
+});

@@ -48,6 +48,8 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
   ignores another Kosmos's ending; start() registers it.
 - review 12: an ending hands the agents the change once, whether or not the listener was told.
 - review 16: an ask that left the board in no company is not a miss, so a later join retries from 15 minutes.
+- review 18: end to end, a real refresh the company answers "gone" reaches the board's registered listener and the
+  agents are handed the change.
 engine/orgenroll-5531.test.js:
 - review 10: a refresh ending tells onEnrollmentEnded once with the root; a refresh or Leave with nothing enrolled
   does not.
@@ -187,3 +189,8 @@ is for the first run after merge.
   after an hour. The join route resets them before its first ask: one place every new join passes through (pinned).
 - The listener compares real paths (a symlinked spelling of the root); the overlap test resets in t.after; the
   engine comment says a pending Leave sent again ends without telling (the ask hands it over).
+
+## Review 18 (sonnet), and what changed
+- No defect; one test gap: nothing ran a real refresh through the board's registered listener. Added an end-to-end
+  test (real oe.refresh against a fake "gone" coordinator, the listener registered as start() does). Removing the
+  tell on that ending, or a listener that ignores the root, each fail it (measured).
