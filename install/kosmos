@@ -4484,12 +4484,13 @@ cmd_feedback() {
       exit $?
       ;;
     triage)
-      # The RECEIVE side (#2246): read the local feedback reports and print a
+      # The RECEIVE side (#2246): read the feedback reports and print a
       # ranked DRAFT digest for a human to review. It NEVER opens a card and
       # changes nothing -- the digest is input to a review step, not an action.
+      # With no --dir it reads the reports `kosmos feedback pull` collected when
+      # there are any, else this computer's own, and says which on stderr (#6265).
       # Options: --since YYYY-MM-DD (only reports on/after that day),
-      #          --dir PATH (read reports from a directory instead of the store,
-      #                      e.g. reports collected from testers),
+      #          --dir PATH (read reports from that directory instead),
       #          --cards FILE|- (open-card titles, one per line, to flag likely
       #                      duplicates; use - to read them from stdin, e.g.
       #                      `gh issue list --json title -q '.[].title' | ...`).

@@ -26,3 +26,11 @@ feedbackpull.defaultDir() (`<data>/collected-feedback`). Nothing said which fold
 ## Weakest premise
 A pulled folder holding any report wins over this computer's own reports. Someone who wants their own reports after
 a pull needs --dir; the note on every run tells them which folder was read.
+
+## Review 1 (opus), and what changed
+- WARNING: the reportsForTriage doc was separated from it and stale: moved back and updated (the default, `read`, the
+  folder note). WARNING: hasReports counted a subdirectory named x.md: now regular files only (test + CONTROL).
+  CONVENTION: the install/kosmos triage comment and feedbackpull's header described the old default: updated. NITs
+  taken: fixtures use pull's real file names, and an undated pulled report is pinned. Left: the note carries an
+  absolute path (stderr only; the daily digest job does not call this); the own store is listed newest first and the
+  folders oldest first (as before for --dir; the digest does not depend on order).

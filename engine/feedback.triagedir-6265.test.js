@@ -33,7 +33,7 @@ test('#6265: both folders are inside the sandbox (PRECONDITION)', () => {
 
 test('#6265: after a pull, no --dir reads the pulled reports and says so', () => {
   reset();
-  pulled('2026-10-14-abc.md', '---\ndate: 2026-10-14\ninstall: abc\n---\nthe newest report from a user\n');
+  pulled('2026-10-14__abc.md', '---\ndate: 2026-10-14\ninstall: abc\n---\nthe newest report from a user\n');
   const got = feedback.reportsForTriage({});
   assert.equal(got.ok, true);
   assert.equal(got.read, PULLED);
@@ -56,7 +56,7 @@ test('#6265 CONTROL: with nothing pulled, this computer\'s own reports are read,
 
 test('#6265: --dir still reads exactly that folder, and the note names it', () => {
   reset();
-  pulled('2026-10-14-abc.md', 'pulled\n');
+  pulled('2026-10-14__abc.md', 'pulled\n');
   const other = path.join(SANDBOX, 'elsewhere');
   fs.mkdirSync(other, { recursive: true });
   fs.writeFileSync(path.join(other, '2026-09-30.md'), 'from elsewhere\n');
@@ -69,10 +69,27 @@ test('#6265: --dir still reads exactly that folder, and the note names it', () =
 
 test('#6265: --since applies to the pulled folder too', () => {
   reset();
-  pulled('2026-10-10-a.md', '---\ndate: 2026-10-10\n---\nolder\n');
-  pulled('2026-10-14-b.md', '---\ndate: 2026-10-14\n---\nnewer\n');
+  pulled('2026-10-10__a.md', '---\ndate: 2026-10-10\n---\nolder\n');
+  pulled('2026-10-14__b.md', '---\ndate: 2026-10-14\n---\nnewer\n');
   const got = feedback.reportsForTriage({ since: '2026-10-12' });
   assert.equal(got.read, PULLED);
   assert.deepEqual(got.reports.map((r) => r.date), ['2026-10-14']);
   assert.deepEqual(feedback.reportsForTriage({}).reports.map((r) => r.date), ['2026-10-10', '2026-10-14'], 'CONTROL: both without --since');
+});
+
+test('#6265 review 1: a pulled folder whose only .md is not a file (a subdirectory) falls back to this computer\'s reports', () => {
+  reset();
+  fs.mkdirSync(path.join(PULLED, 'odd.md'), { recursive: true });
+  assert.equal(feedback.reportsForTriage({}).read, OWN);
+  // CONTROL: a real report file beside it makes the pulled folder the one read.
+  pulled(feedbackpull.fileName({ date: '2026-10-14', install: 'abc' }), '---\ndate: 2026-10-14\n---\nreal\n');
+  assert.equal(feedback.reportsForTriage({}).read, PULLED);
+});
+
+test('#6265 review 1: an undated pulled report (undated__<install>.md) is skipped by --since and read without it', () => {
+  reset();
+  pulled(feedbackpull.fileName({ install: 'x' }), 'no date anywhere\n');
+  pulled(feedbackpull.fileName({ date: '2026-10-14', install: 'y' }), '---\ndate: 2026-10-14\n---\ndated\n');
+  assert.deepEqual(feedback.reportsForTriage({ since: '2026-10-01' }).reports.map((r) => r.date), ['2026-10-14']);
+  assert.equal(feedback.reportsForTriage({}).reports.length, 2);
 });
