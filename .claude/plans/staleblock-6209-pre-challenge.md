@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: staleblock-6209
-diff_hash: 0b20a498e93c73915081f08857c8d3da9410912d63b6dc118759793e48e9bdde
-validation: pending (Mortals full suite queued for hash 0b20a498e93c at 0797d199e; the 57 suites that load selfreport and the file guards 1586/1586 locally)
+diff_hash: 7a522a289a44c1bfb37db915eb359744fad1f3d42508c5ff487027199d7e713d
+validation: CI on the PR is the merge gate (the full suite); Mortals full run queued since 01:55 for the same code (0797d199e), its hash recorded against a stale local main. Locally: the 57 suites that load selfreport plus the file guards, 1587/1587 on main 2026-10-15 03:27 after rebase
 subdir_audit: passed
 timestamp: 2026-10-15T06:57:02Z
 iterations: 12
