@@ -21,27 +21,90 @@ Reviewer models alternated: odd iterations opus, even iterations sonnet. Every i
 in .claude/plans/removedpush-6232.md under "Review N"; one line each here.
 
 ### Per-Iteration Breakdown
-- 1 (opus): rollup-path premise wrong (ordinary work sends no early rollup); stale "daily" comments --> FIXED
-- 2 (sonnet): more "daily" comments --> FIXED
-- 3 (opus): Mac timers stop in sleep, so the hour was awake-time --> FIXED (five-minute clock check)
-- 4 (sonnet): a failed ask reset the whole hour --> FIXED (15-minute retry)
-- 5 (opus): unbounded 15-minute retries --> FIXED (15/30/60, reset on answer)
-- 6 (sonnet): one stored time hid a clock set back after a miss --> FIXED (two values, latest-ask only)
-- 7 (opus): agents kept the company text after a removal caught by a rollup --> FIXED (re-hand from the check)
-- 8 (sonnet): stuck agents retried every check --> FIXED (once, then hourly)
-- 9 (opus): boot retry mark skipped; doubled retries --> FIXED
-- 10 (sonnet): more gaps in the check-path re-hand --> REMOVED that design; onEnrollmentEnded told at the ending
-- 11 (opus): a Leave's pre-answer clear told listeners (refused Leave rewrote agents twice) --> FIXED (final endings only)
-- 12 (sonnet): the review 11 skip lost a pending-Leave ending --> REMOVED the skip
-- 13 (opus): test gaps (listener order, no-id ending) --> FIXED
-- 14 (sonnet): root compared as strings --> FIXED (resolved paths)
-- 15 (opus): stuck-agent-after-ending gap --> DEFERRED, filed #6240; misses reset at an ending
-- 16 (sonnet): the ending's own ok:false undid that reset --> FIXED
-- 17 (opus): a screen Leave never reset misses --> FIXED (join route resets)
-- 18 (sonnet): no end-to-end test --> FIXED
-- 19 (opus): the end-to-end test registered its own listener --> FIXED (relies on start())
-- 20 (sonnet): comments: the 20 s call timeout, queue held during the hand-over --> FIXED
-- 21 (opus): CONVERGED
+#### Iteration 1
+**Reviewer model:** opus
+- [WARNING] rollup-path premise wrong (ordinary work sends no early rollup); stale "daily" comments --> FIXED
+
+#### Iteration 2
+**Reviewer model:** sonnet
+- [WARNING] more "daily" comments --> FIXED
+
+#### Iteration 3
+**Reviewer model:** opus
+- [WARNING] Mac timers stop in sleep, so the hour was awake-time --> FIXED (five-minute clock check)
+
+#### Iteration 4
+**Reviewer model:** sonnet
+- [WARNING] a failed ask reset the whole hour --> FIXED (15-minute retry)
+
+#### Iteration 5
+**Reviewer model:** opus
+- [WARNING] unbounded 15-minute retries --> FIXED (15/30/60, reset on answer)
+
+#### Iteration 6
+**Reviewer model:** sonnet
+- [WARNING] one stored time hid a clock set back after a miss --> FIXED (two values, latest-ask only)
+
+#### Iteration 7
+**Reviewer model:** opus
+- [WARNING] agents kept the company text after a removal caught by a rollup --> FIXED (re-hand from the check)
+
+#### Iteration 8
+**Reviewer model:** sonnet
+- [WARNING] stuck agents retried every check --> FIXED (once, then hourly)
+
+#### Iteration 9
+**Reviewer model:** opus
+- [WARNING] boot retry mark skipped; doubled retries --> FIXED
+
+#### Iteration 10
+**Reviewer model:** sonnet
+- [WARNING] more gaps in the check-path re-hand --> REMOVED that design; onEnrollmentEnded told at the ending
+
+#### Iteration 11
+**Reviewer model:** opus
+- [WARNING] a Leave's pre-answer clear told listeners (refused Leave rewrote agents twice) --> FIXED (final endings only)
+
+#### Iteration 12
+**Reviewer model:** sonnet
+- [WARNING] the review 11 skip lost a pending-Leave ending --> REMOVED the skip
+
+#### Iteration 13
+**Reviewer model:** opus
+- [WARNING] test gaps (listener order, no-id ending) --> FIXED
+
+#### Iteration 14
+**Reviewer model:** sonnet
+- [WARNING] root compared as strings --> FIXED (resolved paths)
+
+#### Iteration 15
+**Reviewer model:** opus
+- [WARNING] stuck-agent-after-ending gap --> DEFERRED, filed #6240; misses reset at an ending
+
+#### Iteration 16
+**Reviewer model:** sonnet
+- [WARNING] the ending's own ok:false undid that reset --> FIXED
+
+#### Iteration 17
+**Reviewer model:** opus
+- [WARNING] a screen Leave never reset misses --> FIXED (join route resets)
+
+#### Iteration 18
+**Reviewer model:** sonnet
+- [WARNING] no end-to-end test --> FIXED
+
+#### Iteration 19
+**Reviewer model:** opus
+- [WARNING] the end-to-end test registered its own listener --> FIXED (relies on start())
+
+#### Iteration 20
+**Reviewer model:** sonnet
+- [WARNING] comments: the 20 s call timeout, queue held during the hand-over --> FIXED
+
+#### Iteration 21
+**Reviewer model:** opus
+- No BLOCKER, WARNING or CONVENTION: CONVERGED.
+
 
 ### Deferred, with reasons
 - An hour, not minutes: the coordinator's status answer carries the signed policy (about 22 KB) and asks to be polled
