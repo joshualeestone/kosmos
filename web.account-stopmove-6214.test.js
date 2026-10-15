@@ -154,8 +154,12 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   assert.match(paint, /if \(b\) b\.textContent = t;\n(?:[^\n]*\n){3}\s+if \(b && !\(b\.nextElementSibling && b\.nextElementSibling\.hasAttribute\('data-acct-move-stop'\)\)\) \{\n\s+const stopBtn = document\.createElement\('button'\);\n\s+stopBtn\.type = 'button'; stopBtn\.setAttribute\('data-acct-move-stop', ''\); stopBtn\.textContent = 'Stop the move';\n\s+stopBtn\.addEventListener\('click', \(\) => acctStopClick\(stopBtn\)\);\n\s+b\.after\(stopBtn\);/,
     'the move does not offer the stop once the board has it');
   const restart = page.lift(SCRIPT, 'engineRestartClick');
-  assert.match(restart, /if \(r\.status === 409 && out && out\.moveStoppable && small\) \{ small\.textContent = String\(out\.because \|\| ''\); offerStopMove\(btn \|\| small, small\); \}/,
-    'Restart Kosmos does not offer the stop');
+  assert.match(restart, /if \(r\.status === 409 && out && out\.moveStoppable && \(small \|\| title\)\) \{/, 'Restart Kosmos does not offer the stop');
+  /* At narrow widths the toast hides its small line: the title says it, and the stop answers there (round 6). */
+  assert.match(restart, /const shown = small && getComputedStyle\(small\)\.display !== 'none' \? small : title;/);
+  assert.match(restart, /offerStopMove\(btn \|\| shown, shown\);/);
+  /* The 15 s repaint waits while an offer is on screen, so a press still out is not answered into a removed node. */
+  assert.match(restart, /if \(sl\.querySelector\('\[data-stop-move-offer\]'\) && \+\+holds < 20\) \{ setTimeout\(release, ENGINE_SAID_HOLD_MS\); return; \}/);
   const sw = page.lift(SCRIPT, 'worldswSwitch');
   assert.match(sw, /else if \(res\.status === 409\) \{\n\s+say\([^\n]+\);\n\s+if \(body && body\.moveStoppable\) offerStopMove\(bmsg, bmsg\);/,
     'a Kosmos switch does not offer the stop');

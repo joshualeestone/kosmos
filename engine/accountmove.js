@@ -246,7 +246,8 @@ function start(body, deps) {
    started, but it was never restarted, so it still runs on the old one: put the saved account back to match (Liu Kang
    m5659: left saved, the next restart for any reason would move it hours later). Only when the saved account is still
    the one this move wrote; a person who changed it since keeps their change. The read and the write are one synchronous
-   block, so nothing on the board can change it in between. */
+   block, so nothing in this board process can change it in between (another process writing the job file
+   in that moment, such as a hand edit, is not covered). */
 function putBack(m, a) {
   const deps = m.deps;
   /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart

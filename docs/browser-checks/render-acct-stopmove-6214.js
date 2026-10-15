@@ -132,6 +132,51 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(/Moved 1 agent\./.test(r.said) && /Not moved \(Bo, Cy\): you stopped the move before their turn\. They stay on busy@example\.com\./.test(r.said),
       tag + ' the final sentence says who moved and who stays', JSON.stringify(r.said));
     say(errs.length === 0, tag + ' no page error', errs.join(' | '));
+
+    /* Restart Kosmos refused because a move holds the board (round 6): at phone width the toast hides its small line,
+       so the refusal and the stop's answer must be readable in what IS shown. The toast is the one the page paints
+       (its classes and the real button id), drawn here because painting it for real needs a stale-engine status. */
+    for (const [tw, th] of [[390, 844], [1100, 900]]) {
+      const ttag = '[' + engine + ' toast ' + tw + ']';
+      const tp = await browser.newPage({ viewport: { width: tw, height: th } });
+      const terrs = []; tp.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) terrs.push(e.message); });
+      await tp.goto('file://' + PAGE);
+      const t = await tp.evaluate(async () => {
+        const realFetch = window.fetch;
+        let stops = 0;
+        window.fetch = (u, opts) => {
+          const url = String(u);
+          const reply = (status, body) => new Promise((r) => setTimeout(() => r({ ok: status >= 200 && status < 300, status, json: async () => body }), 20));
+          if (url === '/api/engine/restart') return reply(409, { ok: false, because: 'An account move is restarting agents one at a time, so Kosmos cannot restart now.', moveStoppable: true });
+          if (url === '/api/agents/account-moves/stop') { stops++; return reply(200, { id: 'mv1', stopped: true, waitingFor: 's-al', agents: [] }); }
+          return realFetch(u, opts);
+        };
+        LAST = [{ sessionName: 's-al', name: 'Al' }];
+        const slot = document.getElementById('utoast-slot');
+        for (let el = slot; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; }
+        slot.dataset.v = 'engine-btn';
+        slot.innerHTML = '<div class="utoast stale" role="status"><span class="udot" aria-hidden="true"></span>'
+          + '<div class="utxt"><b>Kosmos needs a quick restart</b><small>A Kosmos file was changed, and Kosmos is still running the old copy. A restart picks it up.</small></div>'
+          + '<div class="uacts"><button type="button" class="uprime" id="ut-engine-restart">Restart Kosmos</button></div></div>';
+        document.getElementById('ut-engine-restart').addEventListener('click', () => engineRestartClick());
+        const wait = async (pred, ms) => { const until = Date.now() + ms; while (Date.now() < until) { if (pred()) return true; await new Promise((x) => setTimeout(x, 30)); } return pred(); };
+        const shownText = () => [...slot.querySelectorAll('b, small')].filter((e) => getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0).map((e) => e.textContent.trim()).join(' | ');
+        document.getElementById('ut-engine-restart').click();
+        const offered = await wait(() => !!slot.querySelector('[data-stop-move-offer]'), 3000);
+        const offer = slot.querySelector('[data-stop-move-offer]');
+        const offerVisible = !!offer && offer.getBoundingClientRect().width > 0;
+        const afterRefusal = shownText();
+        if (offer) offer.click();
+        await wait(() => !slot.querySelector('[data-stop-move-offer]'), 3000);
+        await new Promise((x) => setTimeout(x, 50));
+        return { offered, offerVisible, afterRefusal, afterStop: shownText(), stops };
+      });
+      say(t.offered && t.offerVisible, ttag + ' the refusal offers a visible Stop the move');
+      say(/account move/i.test(t.afterRefusal), ttag + ' what is shown says an account move is why', JSON.stringify(t.afterRefusal));
+      say(t.stops === 1 && /The move will stop once Al has finished restarting/.test(t.afterStop), ttag + ' the stop\'s answer is shown, naming the agent', JSON.stringify(t.afterStop));
+      say(terrs.length === 0, ttag + ' no page error', terrs.join(' | '));
+      await tp.close();
+    }
     await browser.close();
   }
   console.log(fails.length ? 'render-acct-stopmove-6214: ' + fails.length + ' FAILED' : 'render-acct-stopmove-6214: all passed');
