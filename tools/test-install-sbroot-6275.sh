@@ -29,7 +29,10 @@ T="$(printf '%s' "$T" | tr -s '/')"
 derive="$(awk '/^_ti_tmp="\$\(printf .%s. "\$\{TMPDIR:-\/tmp\}"/{p=1} p&&!m{print} p && /^SB="\$\(mktemp -d /{m=1; next} m{ if ($0 ~ /^case "\$SB" in /) print; exit }' tools/test-install.sh)"
 # setup.sh's normalization of KOSMOS_HOME (its two lines) and its board label (the first such line), as written.
 norm="$(grep -E '^KOSMOS_HOME="\$\(printf .%s. "\$KOSMOS_HOME" \| /usr/bin/tr -s ./.\)"$|^KOSMOS_HOME="\$\{KOSMOS_HOME%/\}"$' install/setup.sh)"
-slabel="$(grep -m1 -E '^[[:space:]]*_board_label="com\.kosmos\.board\.\$\(printf' install/setup.sh | sed 's/^[[:space:]]*//')"
+slabels="$(grep -E '^[[:space:]]*_board_label="com\.kosmos\.board\.\$\(printf' install/setup.sh | sed 's/^[[:space:]]*//')"
+slabel="$(printf '%s\n' "$slabels" | sed -n 1p)"
+# The KOSMOS_HOME the harness's install runs under: its first export of it, the one BOARD_LABEL_SUFFIX is for.
+hhome="$(grep -m1 -E '^export KOSMOS_HOME=' tools/test-install.sh)"
 # The harness's label line, as written (any form: a change to what it hashes must reach the comparison).
 hlabel="$(grep -E '^BOARD_LABEL_SUFFIX=' tools/test-install.sh)"
 # Floors: a lift that found nothing would pass every arm below vacuously.
@@ -43,19 +46,25 @@ fi
 [ "$(printf '%s\n' "$norm" | wc -l | tr -d ' ')" -eq 2 ] \
   && ok "lifted setup.sh's KOSMOS_HOME normalization (2 lines)" \
   || bad "could not lift setup.sh's KOSMOS_HOME normalization (expected 2 lines): $norm"
-printf '%s' "$slabel" | grep -q 'KOSMOS_HOME' && ok "lifted setup.sh's board label line" || bad "could not lift setup.sh's board label line: $slabel"
+# setup.sh computes the label in more than one place: they must all be the one line lifted here.
+[ -n "$slabel" ] && printf '%s' "$slabel" | grep -q 'KOSMOS_HOME' && [ "$(printf '%s\n' "$slabels" | sort -u | grep -c .)" -eq 1 ] \
+  && ok "lifted setup.sh's board label line ($(printf '%s\n' "$slabels" | grep -c .) identical places)" \
+  || bad "setup.sh's board label lines are missing or differ from one another: $slabels"
+printf '%s' "$hhome" | grep -q '"\$SB/' && ok "lifted the harness's KOSMOS_HOME export" || bad "could not lift the harness's first KOSMOS_HOME export: $hhome"
 [ "$(printf '%s\n' "$hlabel" | grep -c .)" -eq 1 ] && ok "lifted the harness's BOARD_LABEL_SUFFIX line" || bad "expected one BOARD_LABEL_SUFFIX line in tools/test-install.sh: $hlabel"
 
-# Runs a derivation under one TMPDIR. Prints "$SB", the harness's label and setup.sh's label, one per line, or the
-# harness's own refusal (exit non-zero). setup.sh is POSIX sh, so its lines run under sh.
+# Runs a derivation under one TMPDIR. Prints "$SB", the harness's label and setup.sh's label (for the KOSMOS_HOME the
+# harness exports), one per line, or the harness's own refusal (exit non-zero). setup.sh is POSIX sh, so its lines run
+# under sh.
 run() {   # $1 derivation  $2 TMPDIR
-  local sb hl sl
+  local out sb hl sl
   out="$(TMPDIR="$2" bash -c "$1"'
 printf "%s\n" "$SB"
 '"$hlabel"'
 printf "com.kosmos.board.%s\n" "$BOARD_LABEL_SUFFIX"' 2>&1)" || { printf '%s\n' "$out"; return 1; }
   sb="$(printf '%s\n' "$out" | sed -n 1p)"; hl="$(printf '%s\n' "$out" | sed -n 2p)"
-  sl="$(SB="$sb" sh -c 'KOSMOS_HOME="$SB/home"
+  # setup.sh runs with the KOSMOS_HOME the harness exports for its install, as the harness writes it.
+  sl="$(SB="$sb" sh -c "$hhome"'
 '"$norm"'
 '"$slabel"'
 printf "%s\n" "$_board_label"')"
