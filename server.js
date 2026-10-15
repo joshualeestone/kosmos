@@ -22979,9 +22979,12 @@ const COMPANY_POLICY_RETRY = Symbol('retry');   // never equal to a recorded val
 function companyPolicySync() {
   try {
     const c = policyEngine.companyEntry();
-    // kosmos#6263 board review 1: the kind too, since a family's block is worded by it: a board whose record gains its
-    // kind (a refresh after #6239) re-tells its agents. A company's block is unchanged, so its re-tell writes nothing.
-    const now = c ? JSON.stringify([c.name, c.text, require('./engine/orgenroll').kindHere() === 'family' ? 'family' : 'company']) : null;
+    /* kosmos#6263: the kind too, since a family's block is worded by it, with or without the family's own policy (board
+       reviews 1 and 2): joining or leaving a family, or a record gaining its kind, re-tells the agents even when only the
+       person's own policies are in the block. A company's and no org's blocks are unchanged, so their re-tell writes
+       nothing (tellAgent writes only a changed block). */
+    const kind = require('./engine/orgenroll').kindHere() === 'family' ? 'family' : 'company';
+    const now = JSON.stringify([c ? [c.name, c.text] : null, kind]);
     // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
     if (!c) {
       try {
