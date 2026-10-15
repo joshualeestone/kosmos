@@ -855,9 +855,9 @@ async function repliesFor(sessionName, opts) {
       if (r.status === 429 || !r.status) limited = true;
       const list = r.status === 200 && r.json && Array.isArray(r.json.comments) ? r.json.comments : null;
       // Review 9: a round-2 page that fails costs only what it would have read (said as not reached; the post's mark holds).
-      if (!list) { th.olderPending = true; th.partial = true; return; }
+      if (!list) { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
       let more;
-      try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.olderPending = true; th.partial = true; return; }
+      try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
       if (list.length > COMMENTS_ASKED) th.olderPending = true;   // review 5: cut here, so the rest is unread
       const known = new Set(th.comments.map((c) => c.id));
       for (const c of more) {
@@ -877,9 +877,9 @@ async function repliesFor(sessionName, opts) {
     const r = await getJson(base + '/' + encodeURIComponent(c.id) + '/replies?limit=20&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
     if (r.status === 429 || !r.status) limited = true;
     const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
-    if (!list) { c.pending = true; th.partial = true; return; }
+    if (!list) { c.pending = true; c.pageFailed = true; th.partial = true; return; }
     let page;
-    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; th.partial = true; return; }
+    try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { c.pending = true; c.pageFailed = true; th.partial = true; return; }
     if (list.length > 20) c.pending = true;   // review 6: a page longer than asked is cut here, so its rest is said as not reached
     const had = new Set(c.replies.map((x) => x.id));
     const added = page.filter((x) => !had.has(x.id));
@@ -969,8 +969,10 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone || !(th.unreadReplies || th.someUnreached || th.olderUnread)) continue;
     const what = (th.unreadReplies ? th.unreadReplies + (th.someUnreached ? ' or more replies' : th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
       + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    // Review 13: while a failed page holds this post's mark, what it left will be read again; otherwise it may be missed.
-    const willHold = th.partial && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
+    /* Review 13: while a failed page holds this post's mark, what it left will be read again; otherwise it may be missed.
+       Review 14: only when every part not reached was a failed page (a budget-cut thread restarts from its first page). */
+    const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || th.olderFailed);
+    const willHold = th.partial && onlyFailed && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
     lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
       + (willHold ? ' not reached in this read; they will be looked at again next time)' : ' not reached in this read, so new ones among them may be missed)'), '');
   }

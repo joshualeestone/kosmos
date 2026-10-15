@@ -2053,7 +2053,7 @@ test('#6201 review 11: the first wave reads every post\'s newest 3 waiting threa
     const n = Number(post.slice(-2));
     return { status: 200, json: { comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(8000 + n * 100 + k), created_at: T(1), reply_count: 50, replies_cursor: 'h' + k, replies: [] })) } };
   });
-  await cr.readReplies('Wave6201', { now: NOW, round2Ms: 10 });   // pages take 30 ms: the window allows only the first wave
+  await cr.readReplies('Wave6201', { now: NOW, round2Ms: 25 });   // pages take 30 ms: the window allows only the first wave
   for (let i = 0; i < 10; i += 1) assert.equal(pages[pid(i)] || 0, 3, 'post ' + i + ': ' + JSON.stringify(pages));
 });
 
@@ -2090,4 +2090,21 @@ test('#6201 review 13: an older-comments page that fails says the older comments
   });
   const two = await cr.readReplies('Old6201b', { now: NOW });
   assert.match(two.text, /: 10 replies were not reached in this read/, 'a bad next cursor on a page with rows ended the thread silently');
+});
+
+test('#6201 review 14: a post with both a failed page and a budget-cut thread says they may be missed, not that all will be read again', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Mix6201', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const tops = Array.from({ length: 4 }, (_, i) => comment({ id: D6201(9800 + i), created_at: T(1), reply_count: 30, replies_cursor: 'm' + i, replies: [] }));
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
+    if (!m) return { status: 200, json: { comments: tops } };
+    if (m[1] === D6201(9800)) return { status: 500, json: null };
+    await new Promise((res) => setTimeout(res, 30));
+    return { status: 200, json: { next_cursor: 'm' + m[1].slice(-1) + 'x', replies: [comment({ id: D6201(9900 + Number(m[1].slice(-1)) * 10 + (u.searchParams.get('cursor').length)), parent_id: m[1], created_at: T(2) })] } };
+  });
+  const r = await cr.readReplies('Mix6201', { now: NOW, round2Ms: 25 });   // one wave: the others' next pages are left waiting
+  assert.match(r.text, /were not reached in this read, so new ones among them may be missed/, r.text.slice(-300));
+  assert.ok(!/will be looked at again/.test(r.text), 'budget-cut threads were promised a re-read');
 });
