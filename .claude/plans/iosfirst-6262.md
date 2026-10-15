@@ -25,6 +25,12 @@ Apple's systems by this branch; the App Store Connect key 3M63HJVBV7 was used fo
   under the new team, so another team cannot take it; the guard stops a build of io.kosmos.app signed by a team
   whose APNs key, app record and profiles are not Kosmos's.
   Rejected: keeping the Stone refusal and adding the new team beside it (two rules for one fact).
+- **The team id is split in archive.sh and test-archive-config.sh (`"6563JLN""5HF"`), and the docs name the team,
+  not its id**, following #4089's convention for Stone. If the Mac signing team (tools/lib/signing-identity.sh)
+  becomes the same team, the cut-sign sweep's id match will not count these files. It does not cover the team
+  NAME: the sweep also matches the lib's team name as a fixed string, and the docs name the org (as main already
+  did). Likewise the App Store Connect key is named in docs by its secrets-map target, not its key id, in case it
+  is reused as the notary key.
 - **No second guard outside archive.sh for io.kosmos.app under another team** in an Xcode-menu or hand-run
   archive. Advisory iOS CI runs test-archive-config.sh, whose last cases check the real Signing.xcconfig, but it
   is path-filtered and not required. Accepted: such an archive cannot upload without the new team's key anyway.

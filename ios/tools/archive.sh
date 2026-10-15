@@ -9,8 +9,7 @@
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
 #   ios/tools/archive.sh --check-config         only the signing-settings checks below, then stop
 #
-# It refuses io.kosmos.app under any team but Kosmos Agent Manager, Inc.'s (#6262, #4089): Apple cannot
-# transfer an app never released on the App Store, so another pairing would strand Kosmos's real bundle id.
+# It refuses io.kosmos.app under any team but Kosmos Agent Manager, Inc.'s (#6262, #4089).
 #
 # Run for real, it signs with -allowProvisioningUpdates: with an API key, that CREATES a distribution
 # certificate and provisioning profile in the team's account if none fits. --check-config never does.
@@ -82,10 +81,8 @@ if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
   echo "archive.sh: DEVELOPMENT_TEAM in $xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
 fi
-# io.kosmos.app is built under Kosmos Agent Manager, Inc.'s team and no other (#6262, #4089): the bundle id,
-# its App Store Connect record and the coordinator's APNs key all belong to that team, so a build signed by any
-# other team is not this app. The team id is written in two pieces so the cut-sign team sweep
-# (tools/test-cut-sign-preflight.sh) does not count this file if the Mac signing team becomes the same team.
+# io.kosmos.app is built under Kosmos Agent Manager, Inc.'s team and no other (#6262, #4089). Why, and why the
+# team id is written in two pieces: .claude/plans/iosfirst-6262.md.
 kosmos_team="6563JLN""5HF"
 bundle_lc=$(printf '%s' "$bundle" | tr '[:upper:]' '[:lower:]')   # Apple compares bundle ids without case
 if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" != "$kosmos_team" ]; then
