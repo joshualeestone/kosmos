@@ -254,7 +254,12 @@ function _testRunner(fn, opts) {
   defaultRun = fn || realRun;
   if (typeof o.fallback === 'function') defaultFallback = o.fallback;
   else if (!fn || o.fallback === 'real') {
-    const wait = Number.isInteger(o.fallbackTimeoutMs) && o.fallbackTimeoutMs > 0 ? o.fallbackTimeoutMs : null;
+    // A wait given but not a positive whole number of ms throws: dropped silently, the test would run on production's
+    // 10 s and a quiet runner's green would read as the fix working.
+    if (o.fallbackTimeoutMs !== undefined && !(Number.isInteger(o.fallbackTimeoutMs) && o.fallbackTimeoutMs > 0)) {
+      throw new TypeError('fallbackTimeoutMs must be a positive whole number of milliseconds');
+    }
+    const wait = o.fallbackTimeoutMs || null;
     defaultFallback = wait ? () => readPowerShell(wait) : () => readPowerShell();
   } else defaultFallback = null;
   testPlatform = o.platform || null;
