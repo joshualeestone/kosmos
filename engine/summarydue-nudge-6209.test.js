@@ -74,7 +74,7 @@ test('#6209 part 2: an idle agent whose summary is 6 hours old and that worked s
   const [busy, rested] = cardsFor([['sumbusy', 'idle'], ['sumrest', 'idle']]);
   const folders = { [busy.sessionName]: folderWith('sumbusy', 6 * H), [rested.sessionName]: folderWith('sumrest', 6 * H) };
   const histories = {
-    [busy.sessionName]: [{ state: 'working', at: NOW - 7 * H }, { state: 'idle', at: NOW - 5 * 60 * 1000 }],   // worked ~6h since
+    [busy.sessionName]: [{ state: 'working', at: NOW - 7 * H }, { state: 'working', at: NOW - 3 * H }, { state: 'idle', at: NOW - 5 * 60 * 1000 }],   // worked ~6h since
     [rested.sessionName]: [{ state: 'idle', at: NOW - 7 * H }],   // idle the whole time
   };
   const prompted = memPrompted();
@@ -90,7 +90,7 @@ test('#6209 part 2: an idle agent whose summary is 6 hours old and that worked s
 
 test('#6209 part 2: a current summary, no summary at all, a working agent and a non-Claude agent are not told', () => {
   const [fresh, none, working, codex] = cardsFor([['sumfresh', 'idle'], ['sumnone', 'idle'], ['sumwork', 'working'], ['sumcodex', 'idle']]);
-  const worked = [{ state: 'working', at: NOW - 9 * H }];
+  const worked = [{ state: 'working', at: NOW - 9 * H }, { state: 'working', at: NOW - H }];
   const folders = {
     [fresh.sessionName]: folderWith('sumfresh', 2 * H),
     [none.sessionName]: path.join(SANDBOX, 'folders', 'sumnone-empty'),
@@ -107,7 +107,7 @@ test('#6209 part 2: a new summary that goes stale later is a new stretch and is 
   const [a] = cardsFor([['sumagain', 'idle']]);
   const prompted = memPrompted();
   const folder = folderWith('sumagain', 6 * H);
-  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 30 * H }] };
+  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 30 * H }, { state: 'working', at: NOW - H }, { state: 'working', at: NOW + H }] };
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted }).sent.length, 1);
   // A newer summary, itself stale a day later: told again.
   folderWith('sumagain', 0, '2026-10-15-12.md');
@@ -115,7 +115,7 @@ test('#6209 part 2: a new summary that goes stale later is a new stretch and is 
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted, now: later }).sent.length, 1, 'a new stale summary was not told');
   // An open menu on its screen: nothing typed.
   const [b] = cardsFor([['sumscreen', 'idle']]);
-  const r = run([b], { [b.sessionName]: folderWith('sumscreen', 6 * H) }, { [b.sessionName]: [{ state: 'working', at: NOW - 8 * H }] }, { screen: () => 'a menu is open on its screen' });
+  const r = run([b], { [b.sessionName]: folderWith('sumscreen', 6 * H) }, { [b.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] }, { screen: () => 'a menu is open on its screen' });
   assert.equal(r.sent.length, 0);
   assert.equal(r.out.results[0].act, 'screen');
 });
@@ -126,4 +126,50 @@ test('#6209 part 2: the tick is inert unless live execution is allowed, and off 
   assert.equal(nudge.nudgeEnabled(true, {}), true);
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /require\('\.\/engine\/summarydue-nudge'\)\.makeTick\(\{\s*allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/, 'the board does not wire the sweep behind the live-execution gate');
+});
+
+test('#6209 review 1: no history, an empty one, or a state carried across a crash is not work: nobody is told', () => {
+  const W0 = NOW - 6 * 24 * H;
+  const summary = { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() };
+  assert.equal(nudge.workedSinceMs(null, W0, NOW), null);
+  assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(null, W0, NOW), null, NOW, null).act, 'none', 'no history read as work');
+  assert.equal(nudge.plan({}, summary, nudge.workedSinceMs([], W0, NOW), null, NOW, null).act, 'none', 'an empty history read as work');
+  const crash = [{ state: 'working', at: W0 - H }, { state: 'started', at: W0 + 5 * 24 * H }, { state: 'idle', at: W0 + 5 * 24 * H + 60000 }];
+  assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(crash, W0, NOW), null, NOW, null).act, 'none', 'a state carried across a crash read as days of work');
+  // CONTROL: real reported work after the summary is told.
+  const worked = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'idle', at: W0 + 7 * H }];
+  const p = nudge.plan({}, summary, nudge.workedSinceMs(worked, W0, NOW), null, NOW, null);
+  assert.equal(p.act, 'nudge');
+  assert.match(nudge.nudgeText(summary, NOW, p.workedMs), /reported about 6 hours of work since/);
+});
+
+test('#6209 review 1: the on-disk record stops a repeat after a restart; failed deliveries retry and then give up; paused and channel cards are skipped', () => {
+  const [a] = cardsFor([['sumdisk', 'idle']]);
+  const folders = { [a.sessionName]: folderWith('sumdisk', 6 * H) };
+  const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] };
+  const base = { roster: [a], folder: (s) => folders[s], history: (s) => hist[s], screen: () => null, paused: () => ({ paused: false }), now: NOW, DELIVERY };
+  const sent = [];
+  nudge.sweepOnce({ ...base, book: new Map(), deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; } });
+  assert.equal(sent.length, 1);
+  assert.ok(fs.existsSync(nudge.promptedFile()), 'the record was not written');
+  // A fresh book (a board restart) with the real on-disk record: not told again.
+  nudge.sweepOnce({ ...base, book: new Map(), deliver: (s) => { sent.push(s); return { state: DELIVERY.PLACED }; } });
+  assert.equal(sent.length, 1, 'a restart told it again');
+  // Deliveries that reach nothing: retried, then left alone after MAX_TRIES.
+  const [b] = cardsFor([['sumretry', 'idle']]);
+  const fb = { [b.sessionName]: folderWith('sumretry', 6 * H) };
+  const hb = { [b.sessionName]: [{ state: 'working', at: NOW - 8 * H }, { state: 'working', at: NOW - H }] };
+  const book = new Map(); let tries = 0;
+  for (let k = 0; k < nudge.MAX_TRIES + 2; k += 1) {
+    nudge.sweepOnce({ ...base, roster: [b], folder: (s) => fb[s], history: (s) => hb[s], prompted: memPrompted(), book, deliver: () => { tries += 1; return { state: DELIVERY.COULD_NOT }; } });
+  }
+  assert.equal(tries, nudge.MAX_TRIES, 'not exactly MAX_TRIES deliveries before giving up');
+  // Paused, or reached through a channel: nothing typed.
+  const [c, d] = cardsFor([['sumpause', 'idle'], ['sumchan', 'idle']]);
+  const fc = { [c.sessionName]: folderWith('sumpause', 6 * H), [d.sessionName]: folderWith('sumchan', 6 * H) };
+  const hc = { [c.sessionName]: hb[b.sessionName], [d.sessionName]: hb[b.sessionName] };
+  const out = [];
+  nudge.sweepOnce({ ...base, roster: [c, { ...d, reachedByChannel: true }], folder: (s) => fc[s], history: (s) => hc[s], prompted: memPrompted(), book: new Map(),
+    paused: (s) => ({ paused: s === c.sessionName }), deliver: (s) => { out.push(s); return { state: DELIVERY.PLACED }; } });
+  assert.deepEqual(out, [], 'a paused or channel-reached agent was typed to');
 });
