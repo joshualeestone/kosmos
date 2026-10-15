@@ -9489,6 +9489,24 @@ function sessionStartedAtFromTmux(sessionName, now = Date.now(), opts = {}) {
   /* #6174: `fresh` reads tmux now and neither uses nor writes the two-second cache, for a caller that must see the
      session as it is after an action it just took (the account move), without handing other readers its moment. */
   try { text = opts && opts.fresh === true ? (sessionSource ? sessionSource() : tmuxSessions()) : sessionText(now); } catch { return null; }
+  return sessionStartIn(text, want);
+}
+/* #6173: the fresh read without blocking the board's thread, for the several-agents move (Liu Kang m5607): the same
+   list-sessions through execFile, parsed by the same lines. */
+async function tmuxSessionsAsync() {
+  const got = await shDetailAsync(tmuxBin(), ['list-sessions', '-F', SESSION_FORMAT]);
+  if (got.ran && got.status === 0) return got.out;
+  if (tmuxSaidNoServer(got)) return '';
+  return null;
+}
+async function sessionStartedAtFromTmuxAsync(sessionName) {
+  const want = String(sessionName == null ? '' : sessionName);
+  if (!want) return null;
+  let text;
+  try { text = sessionSource ? sessionSource() : await tmuxSessionsAsync(); } catch { return null; }
+  return sessionStartIn(text, want);
+}
+function sessionStartIn(text, want) {
   if (text === null || text === undefined) return null;
   for (const line of String(text).split('\n')) {
     if (!line) continue;
@@ -9517,7 +9535,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   swarmField,   // #3564: exported so the meter's owner test is tested through the real folder search
-  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, readPanes, isParseable, classify, isNamedOurs,
+  countAgents, needsPerson, projectsUnreadTotal, snapshot, paneRoster, paneRosterAsync, sessionStartedAtFromTmuxAsync, readPanes, isParseable, classify, isNamedOurs,
   /* #3532: exported so the pane-filter + advisory wiring is testable with injected deps. */
   computeLoginAdvisories,
   rank, paneOrder, modelDisplayName, readGeminiSession, readIdentity, transcriptFor, readCodexContext, readCodexSession, claudeAccountDirOf, ownsFor,
