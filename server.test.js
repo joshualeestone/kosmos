@@ -5713,9 +5713,10 @@ test('first run fails CLOSED: an unreadable answer shows no onboarding at all', 
     else if (script[k] === '}') { d -= 1; if (d === 0) { end = k + 1; break; } }
   }
   const body = script.slice(start, end);
-  assert.match(body, /catch\s*(\([^)]*\))?\s*\{\s*return;?\s*\}/,
-    'the fetch failure path no longer returns without opening anything');
-  assert.ok(body.indexOf('catch') < body.indexOf('frOpen'),
+  // The block catch that returns, not any `catch`: since #6188 a refusal's body is read with `.catch(() => {})` first.
+  const failReturn = body.match(/catch\s*(\([^)]*\))?\s*\{\s*return;?\s*\}/);
+  assert.ok(failReturn, 'the fetch failure path no longer returns without opening anything');
+  assert.ok(failReturn.index < body.indexOf('frOpen'),
     'frOpen is now reachable before the failure has been ruled out');
   assert.match(body, /state\.done\s*&&\s*!force/,
     'the done flag no longer decides whether to show this, so it shows every launch');
