@@ -52,8 +52,8 @@ const SECTIONS = Object.freeze({
 });
 
 /* kosmos#6263 board review 3: the policy section by the headings this Kosmos's blocks carry (engine/policy.js
-   headingsHere), so a family's agent is sent to "Your family's AI policy" or "Your AI policy", never to a heading its
-   file does not have. A company's and no org's line is SECTIONS.policy, byte for byte. */
+   headingsHere), so a family's agent is sent to the family's headings or "Your AI policy", not to the company's; its
+   file has one of the headings named (or ...). A company's and no org's line is SECTIONS.policy, byte for byte. */
 function policySection() {
   let names;
   try { names = require('./policy').headingsHere(); } catch { return SECTIONS.policy; }
