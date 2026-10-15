@@ -454,7 +454,9 @@ const SEEN_MAX = 700;
    the cursor to go on from, how many replies come before it, and the last reply read), and the next read goes on from
    there, so successive budget-limited reads reach every thread's tail instead of re-reading its first pages. A thread
    read to its end keeps no place and is paged from its start next time, as before #6204, so a read that can afford it
-   holds the whole thread (#5623's owed-person check needs every reply in hand). At most THREADS_MAX per post, this
+   holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
+   to it that read, as it was before #6204). The one exception: a page holding a new reply the 30-cap left unshown is
+   read again from that page. At most THREADS_MAX per post, this
    read's first. A post's mark never passes the last reply read in a thread the budget or the window cut (the unread
    rest sorts after it), so a tail read later is still new; a FAILED page keeps #6201's bounded hold instead
    (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
@@ -506,7 +508,7 @@ function threadsOf(t) {
   for (const [cid, v] of Object.entries(t)) {
     if (Object.keys(out).length >= THREADS_MAX) break;
     if (!UUID_RE.test(cid) || !v || typeof v.cursor !== 'string' || !PAGE_CURSOR_RE.test(v.cursor)) continue;
-    if (!Number.isInteger(v.pos) || v.pos < 0 || !validAt(v.at) || !UUID_RE.test(String(v.id || ''))) continue;
+    if (!Number.isInteger(v.pos) || v.pos < 0 || v.pos > 1e6 || !validAt(v.at) || !UUID_RE.test(String(v.id || ''))) continue;
     out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase() };
   }
   return out;
@@ -1114,6 +1116,7 @@ async function repliesFor(sessionName, opts) {
     for (const c of th.comments) {
       if (!c.waitCursor || c.pageFailed || !top) continue;
       const last = lastRead(c);
+      if (!Number.isFinite(last.ts)) continue;   // an item with no readable time cannot place a cap
       const cap = { ts: last.ts, id: LOW_ID };
       if (byPos(cap, top) < 0) top = cap;
     }
