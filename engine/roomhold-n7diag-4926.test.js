@@ -41,22 +41,31 @@ test('#4926 N7: memberAfter lists the member\'s own later posts in that room, wi
   assert.deepEqual(messages.memberAfter(P, ['m1'], 'zoe', LOG), { m1: { after: [], total: 0 } });
   assert.deepEqual(messages.memberAfter('other', ['m1'], 'meta', LOG), {});
   assert.deepEqual(messages.memberAfter(P, ['m1'], 'meta', 'not a log'), {});
-  // Round 1: log order, not the clock, so two posts in one millisecond are still ordered; and at most six are listed.
+  // Round 1: log order, not the clock, so two posts in one millisecond are still ordered; and at most ten are listed.
   const same = [{ kind: 'post', id: 'm1', project: P, from: 'ann', at: at(0) }, { kind: 'post', id: 'm2', project: P, from: 'meta', at: at(0) }];
   assert.deepEqual(messages.memberAfter(P, ['m1'], 'meta', same), { m1: { after: [{ id: 'm2', cites: null }], total: 1 } });
   const many = [{ kind: 'post', id: 'm1', project: P, from: 'ann', at: at(0) }];
   for (let k = 2; k < 12; k += 1) many.push({ kind: 'post', id: 'm' + k, project: P, from: 'meta', at: at(k) });
   const m = messages.memberAfter(P, ['m1'], 'meta', many).m1;
-  assert.equal(m.after.length, 6); assert.equal(m.total, 10);
+  assert.equal(m.after.length, 10); assert.equal(m.total, 10);
+  many.push({ kind: 'post', id: 'm12', project: P, from: 'meta', at: at(12) });
+  const m2 = messages.memberAfter(P, ['m1'], 'meta', many).m1;
+  assert.equal(m2.after.length, 10); assert.equal(m2.total, 11);
 });
 
 test('#4926 N7: the told line lists them by id, never text; a refused one, or none given, adds nothing', () => {
   const after = { m1: { after: [{ id: 'm4', cites: 'm2' }, { id: 'm5', cites: null }], total: 3 }, m6: { after: [], total: 0 }, bad: { after: [], total: 0 } };
   const told = roomhold.toldLine('meta', { n: 2, projectId: P, state: chat.DELIVERY.PLACED, after });
-  assert.match(told, /told of 2 held post\(s\) in proj-1, delivery=placed; since each, the member's own posts here: m1: m4 \(replies to m2\), m5 \(no reply\) \+1 more; m6: none\n$/);
+  assert.match(told, /told of 2 held post\(s\) in proj-1, delivery=placed; since each, the member's own posts here: m1: m4 \(replies to m2\), m5 \(cites nothing\) \+1 more; m6: none\n$/);
   assert.match(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.PLACED }), /delivery=placed\n$/, 'CONTROL: no diagnostic, no suffix');
   assert.doesNotMatch(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.COULD_NOT, after }), /since each/);
-  assert.match(roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }), /^room-hold: meta told of 1 held post\(s\) in proj-1 on an arrival there; since each, the member's own posts here: m6: none\n$/);
+  assert.match(roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }, chat.DELIVERY.PLACED), /^room-hold: meta told of 1 held post\(s\) in proj-1 on an arrival there, delivery=placed; since each, the member's own posts here: m6: none\n$/);
+  // Round 2: an arrival held or refused did not tell them (they were put back): never logged as told.
+  for (const st of ['held', chat.DELIVERY.COULD_NOT, undefined]) {
+    const line = roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }, st);
+    assert.match(line, /could not yet be told of 1 held post/, String(st));
+    assert.doesNotMatch(line, /since each/);
+  }
 });
 
 test('#4926 N7: the idle flush reads it before typing the line, and hands it on', async () => {
@@ -77,7 +86,10 @@ test('#4926 N7: the idle flush reads it before typing the line, and hands it on'
 
 test('#4926 N7: the arrival path logs the held posts it carries (source pin)', () => {
   const SRC = fs.readFileSync(path.join(__dirname, 'messages.js'), 'utf8');
-  assert.match(SRC, /if \(heldIds\.length\) \{ try \{ process\.stdout\.write\(roomhold\.carriedLine\(name, projectId, heldIds\.map\(roomhold\.plainId\), memberAfter\(projectId, heldIds\.map\(roomhold\.plainId\), name, log\)\)\); \} catch/);
+  assert.match(SRC, /try \{ carriedAfter = memberAfter\(projectId, heldIds\.map\(roomhold\.plainId\), name, log\); \} catch/);
+  // Written with the outcome, never before typing (round 2).
+  assert.match(SRC, /logCarried\('held'\);/);
+  assert.match(SRC, /outcomes\[name\] = sent\.state;\n      logCarried\(sent\.state\);/);
 });
 
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {

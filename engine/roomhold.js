@@ -471,15 +471,15 @@ function toldLine(name, d, after = '') {
     ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}${afterNote(d.after)}\n`;
 }
-/* #4926 N7 diagnostic: "; since each, the member's own posts here: m12: m13 (no reply), m15 (replies to m14); m16:
-   none". Ids only, never text. `total` past the ones listed is said as "+N more". */
+/* #4926 N7 diagnostic: "; since each, the member's own posts here: m12: m13 (cites nothing), m15 (replies to m14);
+   m16: none". Ids only, never text. `total` past the ones listed is said as "+N more". */
 function afterNote(after) {
   if (!after || typeof after !== 'object') return '';
   const one = ([id, o]) => {
     if (!/^m\d+$/.test(id) || !o || !Array.isArray(o.after)) return null;
     if (!o.after.length) return id + ': none';
     const listed = o.after.filter((a) => a && /^m\d+$/.test(a.id))
-      .map((a) => a.id + (a.cites && /^m\d+$/.test(a.cites) ? ' (replies to ' + a.cites + ')' : ' (no reply)'));
+      .map((a) => a.id + (a.cites && /^m\d+$/.test(a.cites) ? ' (replies to ' + a.cites + ')' : ' (cites nothing)'));
     const more = Number.isInteger(o.total) && o.total > o.after.length ? ' +' + (o.total - o.after.length) + ' more' : '';
     return id + ': ' + listed.join(', ') + more;
   };
@@ -487,9 +487,14 @@ function afterNote(after) {
   return parts.length ? '; since each, the member\'s own posts here: ' + parts.join('; ') : '';
 }
 /* #4926 N7 (round 1): held posts that ride on a live arrival (messages.js) are told without a flush line; this says so
-   in the same words, so every telling of a held post is in the log. */
-function carriedLine(name, projectId, ids, after) {
-  return `room-hold: ${name} told of ${ids.length} held post(s) in ${projectId} on an arrival there${afterNote(after)}\n`;
+   in the flush's words, with the arrival's outcome (round 2): told only when typed, "could not yet be told" when held
+   or refused (the ids were put back), so a telling is never counted that did not happen. */
+function carriedLine(name, projectId, ids, after, state) {
+  const DELIVERY = require('./chat').DELIVERY;
+  const told = state && state !== 'held' && state !== DELIVERY.COULD_NOT;
+  return told
+    ? `room-hold: ${name} told of ${ids.length} held post(s) in ${projectId} on an arrival there, delivery=${state}${afterNote(after)}\n`
+    : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
 module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, carriedLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
