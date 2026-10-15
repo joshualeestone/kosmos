@@ -2007,3 +2007,23 @@ test('#6201 review 9: a failed reply page holds the mark, so its reply older tha
   assert.match(two, /held reply/, 'a reply behind a failed page, older than the newest comment, was passed by the mark');
   assert.ok(!/newer top/.test(two), 'the newer comment was shown twice');
 });
+
+test('#6201 review 10: a page that fails on every read holds the mark at most MARK_HOLD_MAX reads, then the mark moves and the thread is still said', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Per6201', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const older = comment({ id: D6201(7100), created_at: T(1), reply_count: 1, replies_cursor: 'f', replies: [] });
+  const newer = comment({ id: D6201(7101), created_at: T(9), body: 'newer top' });
+  serve({
+    ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: [newer, older] } }),
+    ['/posts/' + RP(8) + '/comments/' + D6201(7100) + '/replies']: () => ({ status: 500, json: null }),
+  });
+  const markOf = () => JSON.parse(fs.readFileSync(seenPath('Per6201'), 'utf8')).posts[RP(8)];
+  const held = [];
+  for (let k = 0; k <= cr.MARK_HOLD_MAX; k += 1) {
+    const r = await cr.readReplies('Per6201', { now: NOW + k * 1000 });
+    assert.match(r.text, /: 1 reply was not reached in this read/, 'read ' + (k + 1) + ' did not say the failing thread');
+    held.push(markOf().held);
+  }
+  assert.deepEqual(held, [...Array.from({ length: cr.MARK_HOLD_MAX }, (_, k) => k + 1), 0], 'the hold was not bounded');
+  assert.equal(markOf().id, D6201(7101), 'after the hold the mark did not move to the newest comment');
+});
