@@ -664,7 +664,7 @@ fi
 _floor_hint="(fix what it named: a POINTER below the floor needs publish-staging-pointer.sh (staging) or a promote (prod) of a build at or above it; an INSTALLER that does not know the read-only app needs a cut on that channel, which writes its installer)"
 kosmos_setup_floor_site_untouched_ok "the site (origin/main, or the checkout if it could not be fetched)" "$_floor_site" "$CUT_CHANNEL" || { echo "$_floor_hint"; [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"; exit 1; }
 [ -z "$_floor_tmp" ] || rm -rf "$_floor_tmp"
-# ---- (end of step 1a-floor; what follows belongs to step 1b) ----
+# ---- (end of step 1a-floor's checks; the lines down to step 1b's banner still log under the 1a-floor label) ----
 # ⚠️ LAST IN STEP 1, NOT FIRST, AND THE ORDER IS LOAD-BEARING. Placed before
 # the divergence guard this pre-empts it, and a cut from a diverged tree then
 # refuses with "no versions entry" instead of naming the stranded commits --
