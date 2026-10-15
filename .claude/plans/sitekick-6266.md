@@ -1,7 +1,8 @@
 # sitekick-6266: a reliable 15-minute trigger for the site deploy
 
 Card: #6266 (filed by Angel from Splinter's report, 2026-10-15). Finished looks like: every merge to chaoskosmos-site
-main goes live on installkosmos.com within about 15 minutes of the deploy job being free (or the job's own red says
+main goes live on installkosmos.com within about 15 to 30 minutes of the deploy job being free (the merge's own push
+run usually sooner) (or the job's own red says
 why), without a person dispatching it.
 
 ## Cause (measured from the run list and logs, 2026-10-15)
@@ -50,6 +51,7 @@ Mortals' gh login keeps the workflow scope. If it is lost, every tick prints "co
 which nobody reads; the GitHub schedule and push runs still work as before.
 
 ## Review 1 (opus), and what changed
+- (Superseded by reviews 3 and 4: the 45-minute stuck rule below became 3 hours from creation.)
 - WARNING: it could dispatch minutes after a failed run, spending the job's one retry early: now it waits until no run
   started in the last 14 minutes (test; mutant red). WARNING: the fake gh ignored --jq: it now checks exact argv and
   runs the filter with jq (it caught an argument count I had wrong in the fake). WARNING: a stuck queued run silenced
@@ -129,3 +131,9 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   sentence is narrowed and that case stated (rare). NITs taken: heartbeat and trap set before mktemp; the redundant
   stuck guard on the gap commented as clarity only; --check wording; --uninstall refuses extra arguments; a long
   comment line rewrapped.
+
+## Review 10 (sonnet), and what changed
+- No BLOCKER. WARNING: the GNU date -d fallback was also tried on macOS, where -d means something else: the form is
+  chosen by uname. WARNING: a merge can wait 15 to 30 minutes, not about 15: the finished criterion says so (the
+  merge's own push run is usually sooner). WARNING: the stuck line now gives its age in minutes. NIT taken: the plan's
+  45-minute rule marked superseded.

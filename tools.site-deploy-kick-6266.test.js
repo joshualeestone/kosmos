@@ -112,7 +112,7 @@ test('#6266: a run not finished 3 hours after creation is stuck: said, not waite
     const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs(list) });
     assert.equal(r.dispatched, 1, why + ': one stuck run silenced the backstop');
     assert.equal(r.status, 1, why + ': launchctl\'s last exit code should show it');
-    assert.match(r.out, /a site deploy run has been .* past its limit; not waiting on it/, why);
+    assert.match(r.out, /a site deploy run has been .* \(200 minutes\), past its limit; not waiting on it/, why);
   }
   // CONTROLs: an hour queued behind CI on the shared runner, or running after a long wait, is waited on.
   for (const [why, list] of [['queued 1 h', [['queued', 3600]]], ['running, created 2 h 40 min ago', [['in_progress', 9600, 60]]]]) {
