@@ -834,16 +834,21 @@ async function repliesFor(sessionName, opts) {
     return tasks;
   });
   for (let k = 0; perPost.some((t) => k < t.length); k += 1) for (const t of perPost) if (k < t.length) queue.push(t[k]);
+  /* Review 11: the first wave is every post's newest REPLY_PAGES_PER_POST waiting threads at once (one burst, as before
+     #6201 read them), so a slow service that the start window cuts after one wave still gives each post what it had;
+     later waves go deeper, REPLY_PAGES_AT_ONCE at a time. */
+  const firstWave = perPost.reduce((n, t) => n + Math.min(t.length, REPLY_PAGES_PER_POST), 0);
+  let limited = false;   // review 11: the service said 429 (or stopped answering): no new wave
   let pagesRead = 0;
   const round2Start = Date.now();
   // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer).
   const round2Ms = Number.isFinite(opts.round2Ms) ? Math.max(0, Math.min(opts.round2Ms, ROUND2_START_MS)) : ROUND2_START_MS;
   const runTask = async (task) => {
     const { th } = task;
-    if (th.failed) return;
     const base = '/posts/' + encodeURIComponent(th.post.remoteId) + '/comments';
     if (task.comments) {
       const r = await getJson(base + '?order=newest&limit=' + COMMENTS_ASKED + '&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
+      if (r.status === 429 || !r.status) limited = true;
       const list = r.status === 200 && r.json && Array.isArray(r.json.comments) ? r.json.comments : null;
       // Review 9: a round-2 page that fails costs only what it would have read (said as not reached; the post's mark holds).
       if (!list) { th.olderPending = true; th.partial = true; return; }
@@ -855,15 +860,18 @@ async function repliesFor(sessionName, opts) {
         if (known.has(c.id)) continue;
         th.comments.push(c);
         if (c.replyCount > c.replies.length && c.repliesCursor) queue.push(repliesTask(th, c, c.repliesCursor));
+        else if (c.replyCount > c.replies.length) c.pending = true;   // review 11: no usable cursor, said (as in round 1)
       }
       if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
         // Followed while the service's page had rows (as replies above; the budget bounds a cursor that does not advance).
         if (list.length) queue.push({ th, comments: true, cursor: r.json.next_cursor });
+        else th.olderPending = true;   // review 11: an empty page that says there is more is said, not taken as the end
       } else if (r.json.next_cursor) th.olderPending = true;   // review 7: a cursor not in the service's shape is said, not dropped
       return;
     }
     const { c } = task;
     const r = await getJson(base + '/' + encodeURIComponent(c.id) + '/replies?limit=20&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
+    if (r.status === 429 || !r.status) limited = true;
     const list = r.status === 200 && r.json && Array.isArray(r.json.replies) ? r.json.replies : null;
     if (!list) { c.pending = true; th.partial = true; return; }
     let page;
@@ -878,13 +886,11 @@ async function repliesFor(sessionName, opts) {
        cannot end the paging with real replies behind it, #6201 review 3). A cursor that does not advance is bounded by
        the budget, and is then said as not reached. */
     if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
-    else if (r.json.next_cursor && !(typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor))) c.pending = true;   // review 9: said, not dropped
+    else if (r.json.next_cursor) c.pending = true;   // reviews 9 and 11: a malformed cursor, or an empty page that says there is more, is said
   };
-  while (queue.length && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
-    // A post that has failed is not read further: its tasks are dropped, not counted against the budget.
-    for (let k = queue.length - 1; k >= 0; k -= 1) if (queue[k].th.failed) queue.splice(k, 1);
-    if (!queue.length) break;
-    const wave = queue.splice(0, Math.min(REPLY_PAGES_AT_ONCE, REPLY_PAGES_MAX - pagesRead));
+  while (queue.length && !limited && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
+    const size = pagesRead === 0 ? Math.max(REPLY_PAGES_AT_ONCE, firstWave) : REPLY_PAGES_AT_ONCE;
+    const wave = queue.splice(0, Math.min(size, REPLY_PAGES_MAX - pagesRead));
     pagesRead += wave.length;
     await Promise.all(wave.map(runTask));
   }
@@ -957,9 +963,9 @@ async function repliesFor(sessionName, opts) {
   // #6201 (F7d): said per post, with how many, instead of one line that could not say where or how much.
   for (const th of threads) {
     if (th.failed || th.gone || !(th.unreadReplies || th.someUnreached || th.olderUnread)) continue;
-    const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
+    const what = (th.unreadReplies ? th.unreadReplies + (th.someUnreached ? ' or more replies' : th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
       + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may be missed)', '');
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may be missed)', '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
@@ -1011,7 +1017,8 @@ async function repliesFor(sessionName, opts) {
       const drop = new Set(keep.filter((id) => !readNow.has(id)).slice(0, keep.length - SEEN_MAX));
       keep = keep.filter((id) => !drop.has(id));
     }
-    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: hold ? heldBefore + 1 : 0 };
+    // Review 11: the count stays at MARK_HOLD_MAX while the post is still failing, so the hold does not start over.
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
