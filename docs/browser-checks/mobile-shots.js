@@ -2406,11 +2406,15 @@ async function run() {
     for (const en of args.engines) {
       /* #6205: the engine's own pid(s), so a wedged close can be force-killed by pid (never a pattern). Playwright's
          Browser from launch() exposes no process(), so read node's child table across the launch (this loop is
-         sequential, so the only new child is the engine); closeBrowserBounded reaps that pid's whole process tree,
-         since webkit/firefox launch through a wrapper and the real engine is a grandchild. */
+         sequential, so the only lasting new child is the engine); closeBrowserBounded reaps that pid's whole process
+         tree, since webkit/firefox launch through a wrapper and the real engine is a grandchild.
+         Two reads after the launch, intersected (#6205 review): the engine persists in both, while each childPidsOf's
+         own transient `ps` child (ps -A lists itself as our child, then exits) differs between reads, so it drops out. */
       const childrenBefore = childPidsOf(process.pid);
       const browser = await engines[en].launch();
-      const enginePids = childPidsOf(process.pid).filter((p) => !childrenBefore.includes(p));
+      const after1 = childPidsOf(process.pid);
+      const after2 = childPidsOf(process.pid);
+      const enginePids = after1.filter((p) => after2.includes(p) && !childrenBefore.includes(p));
       // #6205 (review): once a close times out, this browser is wedged; stop using it and let the finally force-kill
       // the engine, rather than opening another context on it (an unbounded newContext would reintroduce the hang).
       let wedged = false;
@@ -2444,7 +2448,11 @@ async function run() {
                   ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
                 }), CTX_CLOSE_MS, 'browser.newContext()');
               } catch (e) {
-                console.log('FLAG  mobile-shots: ' + en + ' newContext did not return (' + (e && e.message ? e.message : e) + '); abandoning this engine');
+                // Only a TIMEOUT is the wedge this bounds. A real newContext rejection (an option the engine
+                // refuses, a crashed engine) is not a hang, so it propagates out of the run as it did before this
+                // change (#6205 review), rather than being relabelled "did not return" and hidden.
+                if (!e || !e.timedOut) throw e;
+                console.log('FLAG  mobile-shots: ' + en + ' newContext timed out (wedged engine); abandoning this engine');
                 errors++;
                 wedged = true;
                 break;
