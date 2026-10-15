@@ -4511,6 +4511,30 @@ test('an account that keeps its own history is refused, and the refusal says wha
     'a refused move still wrote the file');
 });
 
+test('#6214: a stopped move puts an agent back on the account it ran on, without the checks for a new destination', WIN_TASK_STUB, () => {
+  const { home } = seedAccounts();
+  const name = 'putback';
+  recorder();
+  create.setDryRun(false);
+  create.createAgent({ ...BINS, name, role: 'pm', model: 'opus' });
+  /* The agent ran on an account that keeps its own history (setAccount refuses it as a destination). A move saved
+     another account and was stopped before its turn: the way back must not be refused for that, or the agent moves
+     at its next restart anyway. */
+  const solo = nodePath.join(home, '.claude-solo');
+  assert.equal(create.setAccount(name, solo).outcome, create.OUTCOME.REFUSED, 'PRECONDITION: setAccount refuses it');
+  const out = create.restoreAccount(name, solo);
+  assert.equal(out.outcome, create.OUTCOME.CREATED, out.because);
+  assert.equal(cfgOf(name), solo);
+  assert.equal(plannedModel(name), 'claude-opus-5', 'the put-back dropped the model');
+  /* null is the default account: the key is removed, and the sentence can name it. */
+  const back = create.restoreAccount(name, null);
+  assert.equal(back.outcome, create.OUTCOME.CREATED, back.because);
+  assert.equal(cfgOf(name), null);
+  assert.equal(back.account && back.account.isDefault, true);
+  assert.equal(create.restoreAccount('neverexisted', null).outcome, create.OUTCOME.REFUSED, 'an agent Kosmos did not start');
+  assert.equal(create.restoreAccount('../x', null).outcome, create.OUTCOME.REFUSED, 'a name Kosmos does not act on');
+});
+
 test('an account we do not know, and an agent Kosmos did not start, are both refused', WIN_TASK_STUB, () => {
   seedAccounts();
   const name = 'refusals';

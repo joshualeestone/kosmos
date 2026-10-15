@@ -143,8 +143,11 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   assert.ok(ucAt > 0, 'the Update dialog button is not in the page');
   const uc = SCRIPT.slice(ucAt, ucAt + 4000);
   assert.match(uc, /if \(res && res\.status === 409 && body && body\.moveStoppable\) offerStopMove\(err, err\);/, 'Update and Roll back do not offer the stop');
-  assert.match(uc, /\{ const offer = err\.nextElementSibling; if \(offer && offer\.hasAttribute\('data-stop-move-offer'\)\) offer\.remove\(\); \}/,
-    'a fresh Update press leaves the old offer behind');
+  /* A fresh press of each refused action takes the old offer away (it would outlive the move otherwise). */
+  assert.match(uc.slice(0, uc.indexOf('go.disabled = true;')), /clearStopMoveOffers\(\);/, 'a fresh Update press leaves the old offer behind');
+  assert.match(restart.slice(0, 600), /clearStopMoveOffers\(\);/, 'a fresh Restart Kosmos press leaves the old offer behind');
+  assert.match(sw.slice(0, 300), /if \(WORLDSW_SWITCHING\) return;\n\s+clearStopMoveOffers\(\);/, 'a fresh switch leaves the old offer behind');
+  assert.match(page.lift(SCRIPT, 'clearStopMoveOffers'), /for \(const b of document\.querySelectorAll\('\[data-stop-move-offer\]'\)\) b\.remove\(\);/);
 });
 
 test('#6214: after a stop, the row says who moved, who was put back and who could not be, in the board\'s own words', async () => {

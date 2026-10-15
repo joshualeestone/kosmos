@@ -23227,6 +23227,7 @@ async function engineRestartClick() {
   const btn = document.getElementById('ut-engine-restart');
   const toast = btn && btn.closest('.utoast');
   const small = toast ? toast.querySelector('small') : null;
+  clearStopMoveOffers();   // #6214: a fresh press, so an offer from an earlier refusal goes
   /* The title too: at narrow widths the toast hides its small line, and an outcome must still be read. */
   const title = toast ? toast.querySelector('b') : null;
   /* A failure message stays readable for a while, then the next poll repaints the accurate toast (the re-render
@@ -23760,7 +23761,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const rollingBack = UPD_CONFIRM_MODE === 'rollback';
   const endpoint = rollingBack ? '/api/update/rollback' : '/api/update';
   err.hidden = true;
-  { const offer = err.nextElementSibling; if (offer && offer.hasAttribute('data-stop-move-offer')) offer.remove(); }   // #6214: a fresh press
+  clearStopMoveOffers();   // #6214: a fresh press, so an offer from an earlier refusal goes
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
   let res = null;
   let body = null;
@@ -27578,6 +27579,11 @@ async function stopAccountMove() {
 /* #6214: where a board restart (Update, Roll back, Restart Kosmos, a Kosmos switch) was refused because an account move
    holds the board, offer to stop the move right there: put one "Stop the move" button after `afterEl` (once), and write
    how it went into `sayEl`. */
+/* #6214: take away every offer to stop a move, when the person tries the refused action again: an offer left from an
+   earlier refusal would otherwise outlive the move and answer "No account move is running" over the new status. */
+function clearStopMoveOffers() {
+  for (const b of document.querySelectorAll('[data-stop-move-offer]')) b.remove();
+}
 function offerStopMove(afterEl, sayEl) {
   if (!afterEl || !afterEl.parentNode) return;
   const next = afterEl.nextElementSibling;
@@ -29991,6 +29997,7 @@ function worldswNotPausedNote(notPaused) {
 }
 async function worldswSwitch(id, name, agents) {
   if (WORLDSW_SWITCHING) return;
+  clearStopMoveOffers();   // #6214: a fresh switch, so an offer from an earlier refusal goes
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   // role=status announces a mutation only while the region is IN the a11y tree, so

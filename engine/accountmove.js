@@ -271,7 +271,7 @@ function putBack(m, a) {
   catch (err) { failed(String((err && err.message) || err)); return; }
   if (!back || back.outcome === deps.REFUSED) { failed((back && back.because) || 'that did not work'); return; }
   const acct = back.account || {};
-  const who = acct.name || acct.email || acct.label || 'the account they were on';
+  const who = acct.name || acct.email || acct.label || 'their old account';
   a.outcome = 'stopped';
   a.because = `you stopped the move before their turn. They stay on ${who}.`;
   delete a.account;

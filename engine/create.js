@@ -1705,6 +1705,40 @@ function setAccount(name, dir, opts) {
 }
 
 /**
+ * #6214: put an agent back on the account it ran on before a bulk move that was stopped before its turn.
+ *
+ * Not setAccount, which checks an account as a DESTINATION (listed, sharing this computer's history) and prepares it
+ * for a first start (trust, bypass, onboarding, imports). The agent is still running on this account, so it needs
+ * none of that, and a refusal there (an account that keeps its own history, or one no longer listed) would leave the
+ * agent saved on the move's account, to move at its next restart: the thing the put-back exists to prevent.
+ * So this rewrites the launch job only, every other field as it is now, the account folder as it was (`dir` is the
+ * folder the job carried before the move, null for none), for any runner the move covers.
+ */
+function restoreAccount(name, dir, platform) {
+  const clean = cleanName(name);
+  const spoken = spokenName(clean);
+  if (!NAME_RE.test(String(clean == null ? '' : clean))) return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
+  const verdict = readJobVerdict(clean, undefined, platform);
+  const job = verdict.job;
+  if (!job) return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
+  const configDir = dir == null || dir === '' ? null : String(dir);
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner,
+  }, platform);
+  if (unwritten) return unwritten;
+  /* The account's name for the sentence, where a cheap read has it (Claude's list); otherwise the caller says "their
+     old account". */
+  let account = null;
+  if (!job.runner || job.runner === 'claude') {
+    try {
+      const all = require('./accounts').list();
+      account = (configDir === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === configDir)) || null;
+    } catch { account = null; }
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account };
+}
+
+/**
  * Point a CODEX agent at a different OpenAI (codex) account -- the #2826 half of
  * what `setAccount` does for Claude, split out because the two resolve accounts
  * in different worlds.
@@ -6630,6 +6664,7 @@ module.exports = {
   // #570: the one three-state answer the plist-stat readers now share.
   jobPresence,
   setAccount,
+  restoreAccount,
   setProvider,
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
