@@ -242,6 +242,20 @@ test('a look that finds a newer version installs it when the switch is on', asyn
   assert.equal(started(), 1, 'the switch is on and a newer version went uninstalled');
 });
 
+test('#6173: an automatic install waits while an account move runs, and the next look installs', async () => {
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
+  let moving = true;
+  update.setAutoDefer(() => moving);
+  try {
+    await update.refresh();
+    assert.equal(started(), 0, 'the install (which restarts the board) started under an account move');
+    moving = false;
+    update.resetCache();
+    await update.refresh();
+    assert.equal(started(), 1, 'the install never came once the move had finished');
+  } finally { update.setAutoDefer(null); }
+});
+
 test('the switch off means the same look installs nothing', async () => {
   const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: true }, root: INSTALL_ROOT });
   await update.refresh();

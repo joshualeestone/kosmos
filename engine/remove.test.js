@@ -3175,13 +3175,16 @@ test('#6173 review 1: an agent a move has not reached yet is held: its own sync 
 
 test('#6173 review 1: the real execFile half of the async driver keeps the exit code and output launchctl callers read', async () => {
   const exec = remove._execAsyncForTests;
-  assert.deepEqual(await exec('/bin/sh', ['-c', 'echo up']), { ok: true, stdout: 'up\n' });
+  /* node itself as the real process (review 2): it is on every runner, Windows included, where there is no /bin/sh. */
+  const node = (code) => [process.execPath, ['-e', code]];
+  assert.deepEqual(await exec(...node('process.stdout.write("up")')), { ok: true, stdout: 'up' });
   /* bootout answers 3 for a job that is not loaded, kill-session 1 for no session: the code is how they are told apart. */
-  assert.deepEqual(await exec('/bin/sh', ['-c', 'echo said; echo why >&2; exit 3']), { ok: false, code: 3, stdout: 'said\n', stderr: 'why\n' });
-  const missing = await exec('/no/such/launchctl-6173', []);
+  assert.deepEqual(await exec(...node('process.stdout.write("said"); process.stderr.write("why"); process.exit(3)')),
+    { ok: false, code: 3, stdout: 'said', stderr: 'why' });
+  const missing = await exec(nodePath.join(os.tmpdir(), 'no-such-launchctl-6173'), []);
   assert.equal(missing.ok, false);
   assert.equal(missing.code, null, 'a command that is not there has no exit code');
-  const slow = await exec('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 });
+  const slow = await exec(...node('setTimeout(() => {}, 5000)'), { timeout: 200 });
   assert.equal(slow.ok, false);
   assert.equal(slow.code, null, 'a command killed at its time limit has no exit code');
 });

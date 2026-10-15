@@ -497,11 +497,14 @@ async function driveShAsync(gen) {
 }
 function* tmuxPanesSteps() {
   TMUX_LAST_SEARCH = 'none';   // the detail line says only what a search in THIS look did
-  let got = yield [tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]];
+  /* The binary that answered is recorded, not the one current when the answer lands: under the async driver the
+     board's own poll may re-pick tmux in between (#6173 review 2). */
+  let bin = tmuxBin();
+  let got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]];
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
-  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) got = yield [tmuxBin(), ['list-panes', '-a', '-F', PANE_FORMAT]];
-  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = tmuxBin(); return got.out; }
+  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) { bin = tmuxBin(); got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]]; }
+  if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = bin; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
   // sessions" — and it is a different value from the `null` that means we never
@@ -525,7 +528,7 @@ function* tmuxPanesSteps() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = lookProblemFor(got, tmuxBin(), TMUX_LAST_SEARCH);
+  LAST_LOOK_PROBLEM = lookProblemFor(got, bin, TMUX_LAST_SEARCH);
   return null;
 }
 /** The tmux this board would run is not a file any more (it was removed after launch). */
