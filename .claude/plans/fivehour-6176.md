@@ -50,3 +50,8 @@ shows its age, and a reading from a window that has reset is not drawn at all.
 - Decided, not built: the move menu still labels a target with its weekly figure only. A target near its five-hour
   limit is left in, because that limit resets within hours (moved agents would wait, not fail); a target AT it is left
   out. Rejected: naming the five-hour figure in every option, which doubles the label for a few hours' difference.
+- A read at the reset that comes back to a busy list (a Check started during it) keeps the five-hour retry armed, so
+  the line goes once the list is free, even after the follow-up has given up waiting.
+- Known, accepted: every repaint replaces the five-hour timer only once its read succeeds, so a line can sit past its
+  reset for the length of one read. The failed-read retries and the busy-list retries share one budget of ten tries
+  in a row; a successful paint starts it again.
