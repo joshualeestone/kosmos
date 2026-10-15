@@ -38,7 +38,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 16) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 17) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -148,6 +148,7 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   review 3 marked superseded; the libexec pattern says it was seen on Mortals.
 
 ## Review 12 (sonnet), and what changed
+- (Superseded by review 15: gh now stays in the tick's process group; perl kills gh's pid, not a group.)
 - BLOCKER (the reviewer measured it): gh is a Go program and Go ignores SIGALRM, so `perl -e 'alarm; exec gh'` never
   stopped a hung gh (it ran its own 30 s dial timeout past a 3 s alarm), and the test passed only because its fake gh
   was bash. Now perl forks gh into its own process group, waits, and at the deadline sends the group TERM then KILL and
@@ -157,6 +158,7 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   there says "no gh found". Left: the -dirty mark covers the script itself, not the installer or a stale checkout.
 
 ## Review 13 (opus), and what changed
+- (Superseded by review 15: gh stays in the tick's group; the signal hand-off remains, to gh's pid.)
 - No BLOCKER. WARNING: the wrapper copied only half of the deploy job's grouped_timeout: gh in its own group was out
   of reach of launchd's bootout and of a Ctrl-C, so an uninstall or reinstall mid-call could leave a gh workflow run
   dispatching afterwards. Now the full shape: TERM/INT/HUP handlers before the fork pass the signal to the gh group,
@@ -182,3 +184,9 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   wording. Left: cut -c1-160 counts bytes (can split a character in gh's error; cosmetic).
 - Re-measured against the real gh (GH_HOST=10.255.255.1, limit 3 s): cut off in 5 s, "timed out after 3 s", no
   gh process left.
+
+## Review 16 (sonnet), and what changed
+- No BLOCKER. WARNING: the TERM/INT/HUP hand-off was claimed but untested (the SIGKILL test passes without it): a
+  test now sends TERM to the perl wrapper alone and asserts gh is gone (mutant without the handler red). NIT taken:
+  reviews 12 and 13 marked superseded. Left (stated): cut counts bytes; plist values unescaped; a future-dated run
+  holds the tick back until clocks agree (fails safe).
