@@ -18,7 +18,9 @@
 #     nothing is asked (review 6: only a failure's end counts, so a slow green run, a skip behind a cut or a retry exit
 #     does not push the next ask to 30 minutes), so this backstop never adds a tick of its own beside a recent run (the job
 #     retries a failure once on the next tick and then parks it; asking sooner would spend that retry within minutes,
-#     reviews 1 and 3). GitHub's push and schedule triggers still fire on their own, as before;
+#     reviews 1 and 3). GitHub's push and schedule triggers still fire on their own, as before, so a schedule run can
+#     land just after an ask: two runs minutes apart, which brings the job's retry alarm (4 ticks) sooner. Rare, as
+#     the schedule itself is (six times on 2026-10-15);
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
 # A STUCK run is not counted as active (review 2: one would otherwise silence this backstop for good): one not finished
 # 3 hours after it was created. One limit from creation, because GitHub stamps a run's startedAt at creation too
@@ -31,8 +33,11 @@
 # seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have.
 # Each tick writes the time to its heartbeat file (it proves launchd STARTED the tick, not that gh worked; the log
 # says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it asks, cannot read something, or sees a stuck run
-# (at most two lines); the log is not rotated (about 10 KB a day at worst, a line a tick; kept by --uninstall).
+# (at most two lines); the log is not rotated (about 10 to 20 KB a day at worst; kept by --uninstall).
 #
+# Not covered (the job's schedule run still covers it): live gone back to an older commit while main is unchanged;
+# this compares main with last-deployed only. Accepted: a lost gh login or workflow scope fails every tick, seen only
+# in kick.log, last-result and launchctl's last exit code; GitHub's push and schedule runs keep working regardless.
 # Fails closed (review 5): with no state folder (the job has never run here, or this looks in the wrong place), the
 # pause, the parked sha and last-deployed cannot be read, so it asks nothing, says so, and exits 1.
 # --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing, and the kosmos
