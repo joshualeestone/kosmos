@@ -2,7 +2,7 @@
 
 ## Done when
 - render-allagents-4812 passes on this branch in both engines (it timed out on main: 29 pass, 1 fail).
-- render-streak-6160 passes repeatedly on a fresh board.
+- render-streak-6160 passes on fresh boards in every run measured (see Measured for the count).
 - #6188 and #6187 (the same failure) are closed once this is on main.
 
 ## Cause (measured, not assumed)
@@ -13,12 +13,13 @@ every route) refuses the POST. The page then returned on `!r.ok` without reading
 body keeps the request open, so `waitUntil: 'networkidle'` never came.
 
 ## Built
-- web/index.html streakCheck: a refusal's body is read (`await r.text().catch(() => {})`) before returning.
+- web/index.html streakCheck: a refusal's body is read (`r.text().catch(() => {})`, not awaited, so a slow body cannot
+  keep `streakAsking` set) before returning.
 - docs/browser-checks/render-streak-6160.js: answers /api/first-run as done before every page load, as
   render-allagents-4812 does. Its Escape only put the welcome overlay away when it was already open; when the
   overlay opened later it took focus from the dismiss arm.
 
-- firstRunBoot (also on the load path) reads a refusal's body before giving up, for the same reason.
+- firstRunBoot (also on the load path) reads a refusal's body the same way before giving up.
 - render-streak-6160's refused arm now gets its 403 from the board itself, through route.fetch with another site's
   Origin (the same proxy shape as the original failure), and asserts every refused request finished. A refusal made
   up by route.fulfill arrives whole and finished either way, so it could not show the defect (measured: that version
@@ -32,6 +33,19 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
 - The refused arm with the board's own 403: 80 PASS with the fix; with the page fix reverted it fails
   (sent=5 finished=0).
 - server.streak-6160 and engine streak-6160 tests: 16/16.
+
+## The class (measured, filed separately)
+A probe loading the page against a fresh board with every /api/ GET answered by the board's own 404 left 19 requests
+open after 20 s (worlds/names, remote/computers, engmode, autoupdate, the settings reads, community, you, whats-new,
+removed, register, roles, phone-notify). Without the refusals, one (community/ready) was open. A direct refusal from
+the real board with no proxy also never finishes while its body is unread (3 sent, 0 finished). So any load-time
+refusal holds the page's network open; it predates the streak. This card fixes the two sites it touches; the class is
+its own card (see #6188's comments).
+
+## First run and the dismiss arm
+render-streak-6160 now answers /api/first-run as done in every arm. The overlay and the congrats note do not meet on a
+real board: first run is day 1, and day 1 shows no note (that arm is in the check). So the check no longer covers an
+interaction that cannot happen.
 
 ## Calls
 1. Fix in the page, not only the check: any refusal (a stale session, a guard) would hold a page's network open the
