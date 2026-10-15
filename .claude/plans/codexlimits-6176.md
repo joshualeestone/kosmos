@@ -57,7 +57,11 @@ the default account). My first version read only the account folder and would ne
   again: a missing meter for a while, never a wrong figure.
 - Every home of an account (its folder and its agents' private ones) counts only reports written since its auth.json
   was last written (a re-sign-in under another login leaves the old login's sessions in both); an agent's home also
-  waits for its own job's last change. A token refresh also rewrites auth.json: a missing meter for a
+  waits for its own job's last change.
+  A token refresh also rewrites auth.json. Measured 2026-10-14: auth.json is written with `last_refresh` and not
+  otherwise (this computer's: both Oct 5, an idle sign-in). A refresh happens when Codex runs, and that run writes a
+  new report moments later, so the gap is seconds of an active session, not a long-lived blank. Rejected: keying on
+  the sign-in's account_id across refreshes, which needs a stored record per account for that gap. A token refresh also rewrites auth.json: a missing meter for a
   while, never a wrong figure.
 - Each home lists at most 12 files, newest day folder first and by name within a day, before ranking by write time:
   on a busy day a session from yesterday resumed today may not be listed. A long session whose last 256 KB holds no
