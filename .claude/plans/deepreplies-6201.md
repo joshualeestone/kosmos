@@ -23,8 +23,10 @@ budget is said on its own post with the number of replies left unread, instead o
   the code comment's follow-up.
 
 ## Weakest premise
-That REPLY_PAGES_MAX covers real threads. A reader whose recent posts carry more than about REPLY_PAGES_MAX * 20 unshown
-replies still misses some; the count says so.
+That REPLY_PAGES_MAX (30 pages, 600 replies a read) covers real threads. It does not cover a post with many busy comments
+(10 comments of 200 replies need 100 pages). Paging restarts from each comment's first cursor every read and the queue
+order is fixed, so the same threads win the budget each time and the tails of the rest (where new replies sit) can be
+missed on every read. The post's line says so. Resumable cursors stored with the marks would fix it; not built here.
 
 ## Not done
 - freshReplies (the count behind the reply nudge) still counts from round 1 only; a deep reply there is "unknown".
@@ -67,3 +69,14 @@ replies still misses some; the count says so.
 - Known and kept: round 1's newest item still sets the mark as before this change, so an item that commits late
   inside round 1's own page is as before (#4833's rare late-commit case). REPLY_COUNT_MAX (200, the service's limit)
   means one comment never exceeds 10 pages.
+
+## Review 4 (sonnet), and what changed
+- Decided, kept: round 1's newest still moves a partly read post's mark when it is later (#4833 review 2), so a waiting
+  thread's tail older than it may be missed. The line now says "may be missed" (not "may not be listed"), and the
+  settle comment no longer implies the mark never passes a waiting thread. Starvation stated in the weakest premise.
+- The timing comment says the 30 s bound holds for a wait on another agent's read; a wait on the nudge's count
+  (FRESH_WAIT_MS, 20 s) can pass it, as before #6201.
+- Behaviour change, intended: any post with more than one comments page makes the nudge's count name nobody (all go
+  to "more are waiting").
+- A waiting page whose comment's count lags is said as "some replies" (untested: the state needs a page to bump the
+  count mid-read under budget pressure).

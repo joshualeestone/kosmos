@@ -576,7 +576,9 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Review 14: it
    waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
    another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
-   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most) under the CLI's 30 s (a read that outwaited its caller still ran and moved the marks, so the agent saw
+   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most) under the CLI's 30 s
+   when the wait is for another agent's read (READ_WAIT_MS); a wait on the nudge's count (FRESH_WAIT_MS) can pass it, as
+   it could before #6201 (a read that outwaited its caller still ran and moved the marks, so the agent saw
    "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
 const FRESH_WAIT_MS = 20 * 1000;
 const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (#6201: up to 8 s + ROUND2_START_MS + 8 s), see readReplies
@@ -830,11 +832,9 @@ async function repliesFor(sessionName, opts) {
       let more;
       try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.failed = true; return; }
       const known = new Set(th.comments.map((c) => c.id));
-      let added = 0;
       for (const c of more) {
         if (known.has(c.id)) continue;
         th.comments.push(c);
-        added += 1;
         if (c.replyCount > c.replies.length && c.repliesCursor) queue.push(repliesTask(th, c, c.repliesCursor));
       }
       if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
@@ -878,11 +878,15 @@ async function repliesFor(sessionName, opts) {
   for (const th of threads) {
     if (th.failed || th.gone) continue;
     th.unreadReplies = th.comments.reduce((n, c) => n + (c.pending ? Math.max(0, c.replyCount - c.replies.length) : 0), 0);
+    // A waiting page whose comment's count already says read (the count lags): said without a number.
+    th.someUnreached = th.comments.some((c) => c.pending && c.replyCount <= c.replies.length);
     th.olderUnread = !!th.olderPending;
     /* #6201 reviews 1 and 3: the mark may settle (see MARK_SETTLE_MS). A post read to its end settles below its newest
        item. A post whose only unreached part is replies under comments settles below the earliest of those comments'
        last read item too: replies come oldest first, so what waits behind a cursor is newer than what was read before
-       it. Older comments not reached can carry replies of any time, so such a post does not settle. */
+       it. Older comments not reached can carry replies of any time, so such a post does not settle. The cap limits the
+       settle only: round 1's newest item still sets the mark when it is later (#4833 review 2: holding a post that is
+       always too long would jam it), so a waiting thread's tail older than that may be missed, as the post's line says. */
     if (!th.olderUnread) {
       let newest = null;
       let cap = null;   // the earliest last-read item of a comment still waiting
@@ -954,10 +958,10 @@ async function repliesFor(sessionName, opts) {
   if (!fresh.length) lines.push(failed ? '(nothing new could be read)' : '(no new replies)', '');
   // #6201 (F7d): said per post, with how many, instead of one line that could not say where or how much.
   for (const th of threads) {
-    if (th.failed || th.gone || !(th.unreadReplies || th.olderUnread)) continue;
-    const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : '')
-      + (th.unreadReplies && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may not be listed)', '');
+    if (th.failed || th.gone || !(th.unreadReplies || th.someUnreached || th.olderUnread)) continue;
+    const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
+      + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may be missed)', '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
