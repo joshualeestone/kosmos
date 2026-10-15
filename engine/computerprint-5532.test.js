@@ -373,7 +373,8 @@ test('#6222: _testRunner refuses a fallbackTimeoutMs that is not a positive whol
 });
 
 test('#6222: the wait reaches the real PowerShell read (30000 with the option, production\'s 10000 without)', (t) => {
-  // A fresh copy of the module with execFileSync intercepted: the real read path runs, nothing is spawned.
+  // A fresh copy of the module with execFileSync intercepted: the real read path runs, nothing is spawned. 30000 here
+  // (and in the test above) is any valid wait, not the real test's setting.
   const child = require('node:child_process');
   const real = child.execFileSync;
   const modPath = require.resolve('./computerprint');
