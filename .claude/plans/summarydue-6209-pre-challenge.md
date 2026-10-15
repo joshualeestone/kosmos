@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: summarydue-6209
-diff_hash: 4574ff6ba4cccd451a3d1b39427101b5f8517341807aa7e6ae66821767794245
-validation: CI on the PR is the merge gate (the full suite); Mortals full run queued since 02:40. Locally: every suite that touches selfreport plus the file guards, 1811/1811 on main at 03:28 CDT after rebase
+diff_hash: 0a1cd7fc6a5a2695fe28f4049d0edfc8039b20b0ebbcf2d257a15b2f48728de7
+validation: CI on the PR is the merge gate (the full suite). Rebased onto main with #6209 part 1 (#6216), engine/selfreport.js conflict resolved by keeping both hunks (read() wrapper and HISTORY_MAX_BYTES); locally every suite that touches selfreport, part 1 focused list and the #6206 guard, 1822/1822 at 04:58 CDT
 subdir_audit: passed
 timestamp: 2026-10-15T07:37:56Z
 iterations: 9
