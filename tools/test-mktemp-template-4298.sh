@@ -10,11 +10,15 @@
 # template-less mktemp, because the file it would scan for never lands in the root
 # it scans. The static check does not depend on where the OS puts the file.
 #
-# SCOPE: tools/test-*.sh -- the scripts the suite actually EXECUTES. Production
-# scripts (release.sh, verify-served.sh, the build scripts) are `bash -n`'d in
-# test:shell, never run, so their mktemp never fires during a suite and they are
-# out of scope here (card #4298: "non-test tools/*.sh out of scope unless they
-# leak"); the heavy-run real-root count confirms it.
+# SCOPE: tools/test-*.sh -- the kosmos suite's shell tests. Non-test scripts stay
+# out of scope (card #4298: "non-test tools/*.sh out of scope unless they leak");
+# several carry bare calls and are named by tests, and being named is not being run,
+# so whether a test executes one is MEASURED in the heavy run (the real-root tmp.*
+# count), not assumed. A lib an in-scope test sources and runs carries the same
+# obligation and is templated at its call (tools/lib/app-port-selftest.sh today).
+# ios/tools/test-*.sh is a separate iOS build lane the kosmos suite never runs (not
+# referenced by package.json, run-tests.sh or shell-shard.js), so it is out of scope
+# too; a bare mktemp there is an iOS-lane follow-up, not this card.
 #
 # Arms: the test tree is clean, the checker FINDS each bare shape (so a clean
 # result is not a silent instrument), it does NOT flag templated calls or the word

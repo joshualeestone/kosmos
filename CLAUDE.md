@@ -309,7 +309,8 @@ from a night in this codebase, kosmos#2616.)
    (`bin/agent-supervisor.sh`, `tools/release.sh`, `tools/verify-served.sh`), and being named is
    not being run, so whether a test executes one is measured, not assumed. A lib that an in-scope
    test sources and RUNS is the same risk the guard cannot see; the one such call today,
-   `bounded_run` in `tools/lib/app-port-selftest.sh`, is templated directly.
+   `bounded_run` in `tools/lib/app-port-selftest.sh`, is templated directly. `ios/tools/test-*.sh`
+   is a separate iOS build lane the kosmos suite never runs, so it is outside this guard's scope.
 
 ### This list is intentionally incomplete
 
