@@ -891,7 +891,7 @@ const SCREENS = [
   /* #5407: AI Models with a login inside the notice's window (warning edge, its line, Sign in again as the gold main
      action), an ended one, and a good one (green, the control), as the server sends them; only the account list is
      stubbed, with example.com accounts. */
-  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', go: async (page) => {
+  { name: 'settings-accounts-expiring', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
     const DAY = 86400000;
     const row = (email, dir, conn) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
       organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
@@ -913,7 +913,7 @@ const SCREENS = [
   /* #5977: Add a provider, Qwen picked: the address and model fields (labelled), and the panel for Qwen on this
      computer. The Ollama route is stubbed (needs_model: Ollama has qwen2.5:7b, Kosmos's 16k copy is not made yet), so
      the shot never depends on this Mac's own Ollama. */
-  { name: 'settings-add-qwen', owner: 'PigeonPete', go: async (page) => {
+  { name: 'settings-add-qwen', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => {
     const local = page.__qwenLocal || { state: 'needs_model', because: 'Ollama has qwen2.5:7b', model: 'kosmos-qwen2.5-7b-16k:latest', download: null };
     await page.route((u) => new URL(u).pathname === '/api/accounts/qwen/local', (route) => route.fulfill({
       status: 200, contentType: 'application/json', body: JSON.stringify(local) }));
@@ -928,14 +928,14 @@ const SCREENS = [
     await page.waitForSelector('#acct-qwen-local', { state: 'visible', timeout: 8000 });
   } },
   /* #5977: the same step while qwen2.5:7b downloads (the bar, and the sentence written once). */
-  { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', go: async (page, data) => {
+  { name: 'settings-add-qwen-downloading', owner: 'PigeonPete', noServiceWorker: true, go: async (page, data) => {
     page.__qwenLocal = { state: 'needs_download', because: 'Ollama does not have qwen2.5:7b yet', model: 'kosmos-qwen2.5-7b-16k:latest',
       download: { running: true, completed: 1.9e9, total: 4.7e9, ok: null, because: '' } };
     await SCREENS.find((s) => s.name === 'settings-add-qwen').go(page, data);
     await page.waitForSelector('#acct-qwen-local-bar', { state: 'visible', timeout: 8000 });
   } },
   /* #5407 (Mona Lisa asked for one shot of it): the same list, arrived at from the notice's Refresh login. */
-  { name: 'settings-accounts-landed', owner: 'Renet Tilley', go: async (page, data) => {
+  { name: 'settings-accounts-landed', owner: 'Renet Tilley', noServiceWorker: true, go: async (page, data) => {
     page.__landOnSoon = true;
     await SCREENS.find((s) => s.name === 'settings-accounts-expiring').go(page, data);
   } },
