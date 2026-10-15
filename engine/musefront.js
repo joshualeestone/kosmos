@@ -173,12 +173,12 @@ function shortOf(text) {
    room posts arriving shortened. One line per turn (a stop note retried while Muse is busy is still one line; a busy digest is one line, digestPosts
    saying how many posts; a
    line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
-   front (arrived), the kind (operator, background, other), the UTF-16 length, the
+   front (arrived), the kind (operator, background, other; a busy digest is "other", told by digestPosts), the UTF-16 length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
    spilled to a file (engine/messages.js spillLine), every word count and the size of each saved copy (spillBytes, read
    from the agent's own Inbox; the line itself is the shortened one, so its length cannot say how long the post was).
    A short colleague post's opening can run into its attachment trailer (a file path) or Kosmos's held-posts clause
-   (ids and a project name), neither of them the person's words. The opening words (60 UTF-16 units) are kept only for
+   (ids and a project name), neither of them the person's words. The opening words (60 characters (whole code points)) are kept only for
    lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this file (created 0600) in
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
@@ -236,7 +236,7 @@ function spills(t, workspace) {
 }
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 /* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
-   reminders ("Kosmos here:" with a colon; today's producers put no words of the person's in their first 60 units, though
+   reminders ("Kosmos here:" with a colon; today's producers put no words of the person's in their first 60 characters, though
    the agent's own post title can appear, and a new "Kosmos here:" line must keep the person's words out of them). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
    person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
    post (below). */
