@@ -3230,6 +3230,7 @@ test('#6173 Liu Kang m5486: an agent that stops while queued in a move is not st
   const firstDone = new Promise((r) => { letFirstFinish = r; });
   try {
     const out = accountmove.start({ dir: '/acct/spare', names: [first, name] }, {
+      moveRefusal: () => null,   // #6190: the move now refuses an agent when no hold check is given
       setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
       REFUSED: remove.OUTCOME.REFUSED,
       forget: () => {},

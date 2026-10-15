@@ -263,6 +263,7 @@ test('#6173 Liu Kang m5496: a move whose restart never answers still ends at its
   const held = new Set();
   try {
     const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, {
+      moveRefusal: () => null,   // #6190: the move now refuses an agent when no hold check is given
       setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
       REFUSED: 'refused', forget: () => {}, RESTARTED: 'restarted',
       restartAsync: () => new Promise(() => {}),   // a step that never returns

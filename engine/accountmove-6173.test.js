@@ -25,6 +25,7 @@ function deps({ refuse = [], account = { email: 'spare@example.com' } } = {}) {
       return refuse.includes(name) ? { outcome: REFUSED, because: `${name} cannot go there` } : { outcome: 'changed', account };
     },
     REFUSED,
+    moveRefusal: () => null,   // #6190: nothing held unless a test says so
     forget: (name) => forgot.push(name),
     restartAsync: (name) => {
       order.push(name);
@@ -265,4 +266,50 @@ test('#6173 review 3: a release that throws still ends the move, so later moves,
   await out.done;
   assert.equal(accountmove.busy(), false, 'the move stayed running after a release threw');
   assert.equal(accountmove.read(out.body.id).agents[0].outcome, 'changed');
+});
+
+test('#6190: an agent a restart still holds is refused BEFORE its account is written; the others move', async () => {
+  const d = deps();
+  d.moveRefusal = (name) => (name === 'held' ? { because: 'held is part of an account move that has not finished with it yet' } : null);
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'held'] }, d);
+  assert.equal(out.status, 202);
+  assert.deepEqual(d.wrote.map((w) => w[0]), ['al'], 'the held agent\'s account was written');
+  const heldRow = out.body.agents.find((a) => a.name === 'held');
+  assert.equal(heldRow.outcome, 'refused');
+  assert.match(heldRow.because, /has not finished with it yet/);
+  assert.equal(d.held.has('held'), false, 'a refused agent is held by this move');
+  assert.ok(d.held.has('al'), 'the agent that moved is not held while its restart runs');
+  d.pending.get('al').resolve({ outcome: RESTARTED });
+  await out.done;
+});
+
+test('#6190: a hold check that throws refuses that agent with a sentence and writes nothing for it', () => {
+  const d = deps();
+  d.moveRefusal = () => { throw new Error('the hold could not be read'); };
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  assert.deepEqual(d.wrote, [], 'an unreadable hold still wrote the account');
+  assert.equal(out.body.agents[0].outcome, 'refused');
+  assert.equal(out.body.agents[0].because, 'we could not check whether it is still being restarted', 'the person sees the raw error');
+});
+
+test('#6190: both account routes ask the engine\'s hold before they write (no route test reaches these)', () => {
+  const fs = require('node:fs');
+  const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const heldGuard = "{ const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }";
+  const write = 'const wrote = create.setAccount(name, body && body.dir);';
+  const at = server.indexOf(write);
+  assert.ok(at > 0, 'the one-agent account write is not in server.js');
+  assert.ok(server.slice(at - 400, at).includes(heldGuard), 'the one-agent Move writes an agent a restart holds');
+  const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
+  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  assert.match(call, /moveRefusal: \(n\) => removal\.moveRefusal\(n\),/, 'the bulk move does not ask the engine\'s hold');
+});
+
+test('#6190 review 2: a caller that leaves out the hold check refuses every agent rather than writing past it', () => {
+  const d = deps();
+  delete d.moveRefusal;
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  assert.deepEqual(d.wrote, [], 'a move with no hold check wrote the account');
+  assert.equal(out.body.agents[0].outcome, 'refused');
+  assert.equal(accountmove.busy(), false, 'a move that wrote nothing is still running');
 });
