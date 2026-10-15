@@ -43,6 +43,7 @@ const EVENTS = [
   { kind: 'reviewer-set', person: true }, { kind: 'reviewer-set', who: 'leo-discord' }, { kind: 'reviewer-set' }, { kind: 'reviewer-cleared' },
   { kind: 'missed', count: 3, more: true, person: true }, { kind: 'missed', count: 2, told: 'mara-discord' },
   { kind: 'missed', count: 1, told: 'leo-discord', reached: false }, { kind: 'missed', count: 1 },
+  { kind: 'hold-stale', told: 'mara-discord', reached: true }, { kind: 'hold-stale', told: 'leo-discord', reached: false },
   { kind: 'said', who: 'mara-discord', text: 'on it' }, { kind: 'said', text: 'from the board' }, { kind: 'said' },
   { kind: 'closed' }, { kind: 'undone', files: 1 }, { kind: 'undone', files: 4 }, { kind: 'undone' }, { kind: 'reopened' },
   { kind: 'reopened', by: 'mara-discord', why: 'it came back' }, { kind: 'reopened', person: true }, { kind: 'reopened', person: true, why: 'closed by mistake' }, { kind: 'reopened', by: 'leo-discord' },   // #6157

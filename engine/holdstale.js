@@ -75,13 +75,11 @@ function owed(projects, log, now = Date.now(), o = {}) {
       for (const owner of owners) {
         if (typeof owner !== 'string' || !owner) continue;
         if (Date.parse(told[owner]) === hold.at) continue;
-        const since = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at);
-        const posts = since.length;
-        const lastAt = posts ? Math.max(...since) : 0;
+        const posts = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at).length;
         if (posts < MIN_POSTS) continue;
         out.push({
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
-          owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts, lastAt,
+          owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
           swarmOff: require('./projects').isSwarmOff(p, owner),
         });
@@ -143,7 +141,8 @@ function markTold(item, outcome) {
 
 /**
  * One pass. `o`: { projects, rows (messages.readLog()), items (owed()'s answer, when the caller already has it), roster, now, allowed (live execution and the brake), limit ({ on, perHour }), sent
- * (the board-wide hour of Kosmos-to-agent lines, shared with the nudge), book (Map, tries per owner and hold), idleSeen
+ * (the board-wide hour of Kosmos-to-agent lines, shared with the nudge), book (Map, tries per owner, project and the
+ * held tasks told together), idleSeen
  * (Map), idleSince(session), deliver(session, text, roster) -> { state }, DELIVERY, read (task history), log }.
  * Never throws.
  */

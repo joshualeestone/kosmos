@@ -53,6 +53,11 @@ function phrase(ev, nameOfMember, opts) {
     /* kosmos#4787 slice 3 (review 5): who reviews it, and a missed run with who was told. */
     case 'reviewer-set': return ev.person ? YOU + ' will be told if a run is missed' : (nameOf(ev.who) || 'An agent') + ' will be told if a run is missed';
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
+    case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
+      const who = nameOf(ev.told) || 'its owner';
+      return ev.reached === false ? 'Still on hold while ' + who + ' worked in its room; Kosmos could not reach ' + who
+        : 'Still on hold while ' + who + ' worked in its room; ' + who + ' was asked whether the hold still stands';
+    }
     case 'missed': {
       const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
       if (ev.person) return runs + (agent ? '; the person reviews it' : '; you review it');
