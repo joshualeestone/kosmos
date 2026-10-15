@@ -734,6 +734,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-usage { display: flex; flex-direction: column; gap: 8px; }
 .acct-usage-meter { display: flex; align-items: center; gap: 10px; }
 .acct-usage-meter .bar { flex: 0 0 120px; }
+.acct-usage-next { margin-top: 6px; }   /* #6176: a second window's meter, a short step under the first */
 #set-accounts .acct-usage-line, #set-accounts .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
 #set-accounts .acct-usage-none { color: var(--label-2); }
 #set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
@@ -27262,7 +27263,38 @@ function acctBulkTarget(x, fromDir) {
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
     && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100);   // a full account cannot run them either (rounded as its row shows it)
 }
+/* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
+   One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
+   (#6108). The age says when Codex reported it, which is what the source knows. */
+function acctWindowName(m) {
+  const mins = Math.round(m);
+  if (mins === 10080) return 'weekly';
+  if (mins % 1440 === 0) return (mins / 1440) + '-day';
+  if (mins % 60 === 0) return (mins / 60) + '-hour';
+  return mins + '-minute';
+}
+function acctCodexUsageHtml(a) {
+  if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
+  const now = Date.now();
+  const ws = a.limits && Array.isArray(a.limits.windows)
+    ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt) && w.resetsAt > now) : [];
+  if (!ws.length) return '<div class="acct-usage"><p class="acct-usage-line acct-usage-none">No current usage reading for this sign-in. Codex reports it while an agent on it is working.</p></div>';
+  const age = Number.isFinite(a.limits.at) ? agoWords(Math.max(0, now - a.limits.at)) : '';   // a board clock a little ahead is not a negative age
+  const html = ws.map((w, i) => {
+    const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
+    const band = pct >= ACCT_HIGH_PCT ? 'high' : pct >= ACCT_WARN_PCT ? 'warn' : 'ok';
+    const name = acctWindowName(w.windowMinutes);
+    const sameDay = new Date(w.resetsAt).toDateString() === new Date(now).toDateString();
+    const resets = new Date(w.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' }
+      : w.resetsAt - now > 6 * 864e5 ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+      + '<p class="acct-usage-line">' + pct + '% of its ' + esc(name) + ' limit used · resets ' + esc(resets) + (age ? ' · Codex last reported it ' + esc(age) : '') + '</p></div>'
+      + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its ' + esc(name) + ' limit until ' + esc(resets) + '.' : 'Close to its ' + esc(name) + ' limit.') + '</p>' : '');
+  }).join('');
+  return '<div class="acct-usage">' + html + '</div>';
+}
 function acctUsageHtml(a, list) {
+  if (a && a.provider === 'openai') return acctCodexUsageHtml(a);
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
   if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !a.agentsHere)) return '';

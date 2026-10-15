@@ -11170,6 +11170,42 @@ const server = http.createServer(async (req, res) => {
           const prev = obsByOpenaiDir.get(acct.dir);
           if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
         }
+        /* #6176 slice 2: every Codex home that writes for each OpenAI account. Since #4592 a launched agent writes its
+           sessions into its own private home (codexruntime.forAgent), so the account's limits are read from the account's
+           own folder AND each of its agents' private ones. A job with no configDir runs on the default account. */
+        const codexHomes = (() => {
+          const byDir = new Map(), onDefault = [];
+          let walked = false;   // built on the first ChatGPT row only: an API-key-only list never walks the agents
+          const walk = () => { if (walked) return; walked = true; try {
+            const runtime = require('./engine/codexruntime');
+            const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n) : create.plistPath(n));
+            for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
+              /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
+                 private home still holds the old account's sessions. Any other rewrite of the job (a rename, a model
+                 change) also hides them until Codex reports again: a missing meter, never a wrong one. A job whose time
+                 cannot be read is not filtered. */
+              let since = null; try { since = fs.statSync(jobFile(sessionName)).mtimeMs; } catch { since = null; }
+              const priv = { home: runtime.forAgent(sessionName), since };
+              if (!home) { onDefault.push(priv); continue; }
+              let key; try { key = path.resolve(home); } catch { continue; }
+              if (!byDir.has(key)) byDir.set(key, []);
+              byDir.get(key).push(priv);
+            }
+          } catch { /* the account folder alone is still read */ } };
+          return (a) => {
+            walk();
+            let key = null; try { key = path.resolve(a.dir); } catch { key = null; }
+            /* Every home counts only since this folder's current login began (codexlimits.signedInSince: a re-sign-in
+               under another login leaves the old login's sessions in the account folder AND in its agents' private
+               homes; a token refresh keeps the login, so it hides nothing). An agent's home also waits for its own
+               job's last change (a move). */
+            // This read records a login it has not seen before (first sight), so the route writes that one small file.
+            const signedIn = require('./engine/codexlimits').signedInSince(a.dir, path.join(store.ROOT, 'codex-signins.json'));
+            const later = (x) => (x == null ? signedIn : (signedIn == null ? x : Math.max(x, signedIn)));
+            const agents = [...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])].map((h) => ({ home: h.home, since: later(h.since) }));
+            return [{ home: a.dir, since: signedIn }, ...agents];
+          };
+        })();
         const openai = openaiRows.map((a) => {
           /* Checking = still running NOW, or it finished during this read with a real answer the row does not show
              yet (the next read shows it). One that finished with no answer is not checking (review round 14: the
@@ -11177,7 +11213,13 @@ const server = http.createServer(async (req, res) => {
           const now = openaiPending.has(a.dir) ? codexsigninlive.checkState(a.dir) : null;
           const pending = a.connection && a.connection.state === 'unknown' && (now === 'running'
             || (now === 'fresh' && codexsigninlive.livenessCached(a.dir).verdict !== 'unknown'));
+          /* #6176 slice 2: a ChatGPT sign-in's plan limits as Codex last reported them in its session files, in the
+             account's folder or its agents' private ones (engine/codexlimits.js), or null: none reported yet, or every
+             window it reported is over. An API key has no plan limits, so its row carries none. */
+          let limits = null;
+          if (a.authMode === 'chatgpt' && a.dir) { try { limits = require('./engine/codexlimits').read(codexHomes(a), nowMs); } catch { limits = null; } }
           const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
+            ...(a.authMode === 'chatgpt' ? { limits } : {}),
             ...(pending ? { connection: { ...a.connection, liveCheckPending: true } } : {}) };
           /* #4064: a ChatGPT sign-in's live check answer is recorded on its dir by codexsigninlive (dated when it was
              learned, as the Grok check's is), so it stays green for the observed freshness window rather than only the
