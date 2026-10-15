@@ -80,3 +80,17 @@ told, and one whose reports overstate work is told early.
 - The tick logs a failed sweep once per reason, so a broken sweep is visible. Comments fixed (the heartbeat wording,
   only `working` counted).
 - Kept, stated: one reminder per summary is permanent (a re-nudge interval would be a new rule; the #5959 model has none).
+
+## Review 7 (opus), and what changed
+- BLOCKER, fixed (measured by the reviewer on this machine's six busy agents): selfreport's default 64 KB tail is about
+  350 rows, 9 to 21 hours, but only about 4 hours of counted `working`, so the rhythm was almost never crossed and 4 of 6
+  day-stale agents went untold. selfreport.history takes an optional tailBytes (clamped to 64 KB..4 MB); this sweep reads
+  1 MB (about ten days of a busy agent), only for an idle card with a stale summary it has not been told about. A test
+  writes a real-density stream (a row every 2.4 minutes, a quarter working) through the real selfreport file, with
+  controls that the default tail neither reaches the summary nor holds the rhythm; reading the default tail fails it
+  (measured). My `beats` fixture had been far denser than real streams, which is why earlier rounds passed.
+- REMOVED review 6's NO_SUMMARY role skip: a live card's `role` is the free-text label, never the role key, so it could
+  not match (its test supplied the premise). A setup guide has no summary file and is skipped as `none`.
+- Stated, not changed: an agent that files a deliberate wait and works on other things reports no `working` (selfreport
+  refuses automatic heartbeats over a standing wait), so it is not told (errs toward silence). UNCONFIRMED counts as told.
+- Focused list widened to every test that touches selfreport: 1809/1809.

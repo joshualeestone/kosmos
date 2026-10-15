@@ -12,7 +12,7 @@
  *    a history cut short after the summary counts as a lower bound).
  *    An idle agent is not expected to write, so a stale file alone is not owed. Project status also re-labels a stale
  *    summary quiet or idle (projectview's quietExcused, idleExcused); this does not, by decision (see the plan).
- *    An agent with no summary file at all is not told, nor one whose role is in roles.NO_SUMMARY;
+ *    An agent with no summary file at all is not told (a role without the rhythm, roles.NO_SUMMARY, writes none);
  *  - its card is ours, a Claude agent, idle (between turns), not a switched-off swarm, not reached through a channel.
  * Its screen is read first (stalereport-nudge's screenOpen), and nothing is typed while a menu or a prompt is open there
  * or the screen cannot be read. Claude only, for the same reason as #5959: those readers know Claude Code's screens.
@@ -25,11 +25,10 @@
  */
 
 const projectview = require('./projectview');
-const roles = require('./roles');
 
 const MAX_TRIES = 3;
-/* Review 4: a working Claude agent reports `working` as each tool call starts (the PreToolUse heartbeat, throttled to one
-   a minute), so while it works the gaps between reports are short, and a gap far longer is usually not work (an
+/* Review 4: a working Claude agent reports `working` as tool calls start (the PreToolUse heartbeat, at most one a
+   minute; real streams show about one every two minutes), so a gap far longer than that is usually not work (an
    interrupted turn sends no Stop); each gap counts at most this. One tool call longer than the cap sends nothing until it
    ends, so it is undercounted, which errs toward not telling. */
 const WORK_GAP_CAP_MS = 30 * 60 * 1000;
@@ -136,7 +135,12 @@ function plan(card, summary, workedMs, entry, now, promptedAt) {
 function defaultScreen(session, roster) { return require('./stalereport-nudge').screenOpen(session, roster); }
 function pauseNow(session) { return require('./swarm').pauseOf(require('./store').readProfile(session)); }
 function folderNow(session) { try { return require('./create').workerDir(session); } catch { return null; } }
-function historyNow(session) { try { return require('./selfreport').history(session); } catch { return null; } }
+/* Review 7 (measured on this machine's six busy agents): the default 64 KB tail is about 350 rows, 9 to 21 hours, but
+   only about 4 hours of counted `working`, so the rhythm was almost never crossed and a days-stale summary went untold.
+   This sweep reads HISTORY_TAIL_BYTES (about ten days of a busy agent), and only for an idle card with a stale summary
+   it has not already been told about. */
+const HISTORY_TAIL_BYTES = 1024 * 1024;
+function historyNow(session) { try { return require('./selfreport').history(session, HISTORY_TAIL_BYTES); } catch { return null; } }
 
 function sweepOnce(o) {
   const results = [];
@@ -154,7 +158,6 @@ function sweepOnce(o) {
     for (const card of o.roster) {
       const session = card && card.sessionName;
       if (!session || card.isNamedOurs !== true || card.runner !== 'claude' || card.reachedByChannel === true) continue;
-      if (typeof card.role === 'string' && roles.NO_SUMMARY.has(card.role)) continue;   // review 6: its role writes no summaries
       if (card.state !== 'idle') continue;   // between turns only: a working agent is told on a later sweep
       let summary = null;
       try { summary = projectview.summaryFreshness(folderOf(session), now); } catch { summary = null; }
@@ -245,4 +248,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES, WORK_GAP_CAP_MS };
+module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES, WORK_GAP_CAP_MS, HISTORY_TAIL_BYTES };

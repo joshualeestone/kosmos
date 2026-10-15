@@ -580,13 +580,17 @@ function read(sessionName) {
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
    so "never reported" is never mistaken for "reported idle". `truncated` on the array is true when older rows exist
    beyond the tail. */
-function history(sessionName) {
+/* #6209: `tailBytes` lets one reader look further back than TAIL_BYTES (the summary-overdue sweep, whose question is
+   about hours of work, which a busy agent's 64 KB does not hold). Clamped to [TAIL_BYTES, HISTORY_MAX_BYTES]. */
+const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
+function history(sessionName, tailBytes) {
   let text;
   let cut = false;
+  const tail = Number.isInteger(tailBytes) && tailBytes > TAIL_BYTES ? Math.min(tailBytes, HISTORY_MAX_BYTES) : TAIL_BYTES;
   try {
     const file = fileFor(sessionName);
     const size = fs.statSync(file).size;
-    const start = Math.max(0, size - TAIL_BYTES);
+    const start = Math.max(0, size - tail);
     const fd = fs.openSync(file, 'r');
     try {
       const buf = Buffer.alloc(size - start);
@@ -642,5 +646,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };
