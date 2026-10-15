@@ -11185,11 +11185,11 @@ const server = http.createServer(async (req, res) => {
           return (a) => {
             walk();
             let key = null; try { key = path.resolve(a.dir); } catch { key = null; }
-            /* Every home counts only since the account's sign-in file was last written: a re-sign-in under another login
-               leaves the old login's sessions in the account folder AND in its agents' private homes. An agent's home
-               also waits for its own job's last change (a move). A token refresh rewrites auth.json too: a missing
-               meter for a while, never a wrong one. */
-            let signedIn = null; try { signedIn = fs.statSync(path.join(a.dir, 'auth.json')).mtimeMs; } catch { signedIn = null; }
+            /* Every home counts only since this folder's current login began (codexlimits.signedInSince: a re-sign-in
+               under another login leaves the old login's sessions in the account folder AND in its agents' private
+               homes; a token refresh keeps the login, so it hides nothing). An agent's home also waits for its own
+               job's last change (a move). */
+            const signedIn = require('./engine/codexlimits').signedInSince(a.dir, path.join(store.ROOT, 'codex-signins.json'));
             const later = (x) => (x == null ? signedIn : (signedIn == null ? x : Math.max(x, signedIn)));
             const agents = [...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])].map((h) => ({ home: h.home, since: later(h.since) }));
             return [{ home: a.dir, since: signedIn }, ...agents];

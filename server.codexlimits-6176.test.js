@@ -32,7 +32,7 @@ delete process.env.CODEX_HOME;
 const CODEX = nodePath.join(HOME, '.codex');
 fs.mkdirSync(CODEX, { recursive: true });
 const idPayload = Buffer.from(JSON.stringify({ email: 'sub@example.com' })).toString('base64url');
-fs.writeFileSync(nodePath.join(CODEX, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'x.' + idPayload + '.y' } }));
+fs.writeFileSync(nodePath.join(CODEX, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'x.' + idPayload + '.y', account_id: 'acct-sub' } }));
 { const t = new Date(Date.now() - 3 * 3600e3); fs.utimesSync(nodePath.join(CODEX, 'auth.json'), t, t); }   // signed in three hours ago
 const CODEX_KEY = nodePath.join(HOME, '.codex-key');
 fs.mkdirSync(CODEX_KEY, { recursive: true });
@@ -49,13 +49,22 @@ require('./engine/store').writeProfile('codexsub', { role: 'writer' });   // reg
 // A second ChatGPT sign-in, with its own agent, and an agent on the API-key account: each must reach only its own row.
 const CODEX_WORK = nodePath.join(HOME, '.codex-work');
 fs.mkdirSync(CODEX_WORK, { recursive: true });
-fs.writeFileSync(nodePath.join(CODEX_WORK, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'x.' + Buffer.from(JSON.stringify({ email: 'work@example.com' })).toString('base64url') + '.y' } }));
+fs.writeFileSync(nodePath.join(CODEX_WORK, 'auth.json'), JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'x.' + Buffer.from(JSON.stringify({ email: 'work@example.com' })).toString('base64url') + '.y', account_id: 'acct-work' } }));
 for (const [name, dir] of [['codexwork', CODEX_WORK], ['codexkey', CODEX_KEY]]) {
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(jobfix.jobPath(name), jobfix.jobFor(name, '/usr/bin/true', process.env.AGENT_WORKFORCE_TMUX_BIN, null, dir, 'codex'), 'utf8');
   require('./engine/store').writeProfile(name, { role: 'writer' });
 }
 { const t = new Date(Date.now() - 3 * 3600e3); fs.utimesSync(nodePath.join(CODEX_WORK, 'auth.json'), t, t); }
+
+/* Signs the folder in again under another login (a different account_id, written now); returns a function that puts the
+   original back, contents and time. */
+function relogin(dir) {
+  const auth = nodePath.join(dir, 'auth.json'), body = fs.readFileSync(auth, 'utf8'), t0 = fs.statSync(auth).mtime;
+  const j = JSON.parse(body); j.tokens.account_id = 'acct-other-login';
+  fs.writeFileSync(auth, JSON.stringify(j));
+  return () => { fs.writeFileSync(auth, body); fs.utimesSync(auth, t0, t0); };
+}
 // Each agent has been on its account for a while: its job was last written two hours ago (a move would rewrite it).
 for (const n of ['codexsub', 'codexwork', 'codexkey']) { const t = new Date(Date.now() - 2 * 3600e3); fs.utimesSync(jobfix.jobPath(n), t, t); }
 const codexruntime = require('./engine/codexruntime');
@@ -142,11 +151,11 @@ test('#6176 the account folder counts only since its sign-in: an older login\'s 
   for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
   const week = Math.floor(Date.now() / 1000) + 3 * 86400;
   writeReport(CODEX, new Date(Date.now() - 3600e3).toISOString(), { used_percent: 81, window_minutes: 10080, resets_at: week }, null);
-  const auth = nodePath.join(CODEX, 'auth.json'), t0 = fs.statSync(auth).mtime;
-  fs.utimesSync(auth, new Date(), new Date());   // signed in again just now
+  await rows();   // the board has seen this login before
+  const restore = relogin(CODEX);   // signed in again just now, under another login
   const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt' && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
   assert.equal(sub.limits, null, 'a report from before the sign-in was shown');
-  fs.utimesSync(auth, t0, t0);
+  restore();
   fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });
 });
 
@@ -155,12 +164,26 @@ test('#6176 a private home counts only since the account\'s sign-in: an agent\'s
   const week = Math.floor(Date.now() / 1000) + 3 * 86400;
   { const t = new Date(Date.now() - 2 * 3600e3); fs.utimesSync(jobfix.jobPath('codexwork'), t, t); }   // on this account for two hours: only the sign-in can hide it
   writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 44, window_minutes: 10080, resets_at: week }, null);
-  const auth = nodePath.join(CODEX_WORK, 'auth.json'), t0 = fs.statSync(auth).mtime;
-  fs.utimesSync(auth, new Date(), new Date());   // signed in again just now, under another login
+  await rows();   // the board has seen this login before
+  const restore = relogin(CODEX_WORK);   // signed in again just now, under another login
   const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
   assert.equal(work.limits, null, 'an agent\'s report from before the sign-in was shown');
-  fs.utimesSync(auth, t0, t0);
+  restore();
   fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
+});
+
+test('#6176 a token refresh (same login, auth.json rewritten) keeps the meter', async () => {
+  for (const x of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(x, 'sessions'), { recursive: true, force: true });
+  const week = Math.floor(Date.now() / 1000) + 3 * 86400;
+  writeReport(CODEX, new Date(Date.now() - 3600e3).toISOString(), { used_percent: 52, window_minutes: 10080, resets_at: week }, null);
+  const find = async () => (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt' && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
+  assert.equal((await find()).limits.windows[0].usedPct, 52);
+  const auth = nodePath.join(CODEX, 'auth.json'), t0 = fs.statSync(auth).mtime;
+  fs.utimesSync(auth, new Date(), new Date());   // refreshed just now: same login
+  const after = await find();
+  assert.ok(after.limits && after.limits.windows[0].usedPct === 52, 'a refresh hid the meter: ' + JSON.stringify(after.limits));
+  fs.utimesSync(auth, t0, t0);
+  fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });
 });
 
 test('#6176 a ChatGPT row whose last report is over carries limits: null', async () => {

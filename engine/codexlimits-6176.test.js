@@ -189,6 +189,29 @@ test('a moved agent\'s many pre-move files do not take the slots of the account\
   assert.equal(codexlimits.read([acct, { home: priv, since: movedAt }], NOW).windows[0].usedPct, 37);
 });
 
+test('signedInSince: a token refresh keeps the login\'s start; a different login starts again', () => {
+  const dir = home(), rec = path.join(home(), 'codex-signins.json'), auth = path.join(dir, 'auth.json');
+  const write = (id, ms) => { fs.writeFileSync(auth, JSON.stringify({ auth_mode: 'chatgpt', tokens: { account_id: id } })); touch(auth, ms); };
+  const t1 = Date.parse('2026-10-10T09:00:00Z'), t2 = Date.parse('2026-10-12T09:00:00Z'), t3 = Date.parse('2026-10-13T09:00:00Z');
+  write('acct-one', t1);
+  assert.equal(codexlimits.signedInSince(dir, rec), t1, 'first sight: auth.json\'s own time');
+  write('acct-one', t2);   // a refresh: same login, rewritten
+  assert.equal(codexlimits.signedInSince(dir, rec), t1, 'a refresh does not move it');
+  write('acct-two', t3);   // signed in again under another login
+  assert.equal(codexlimits.signedInSince(dir, rec), t3, 'a new login starts again');
+  assert.ok(!fs.readFileSync(rec, 'utf8').includes('acct-two'), 'the login is kept only as a hash');
+});
+
+test('signedInSince: no account_id, or no record file, falls back to auth.json\'s time; no auth.json is null', () => {
+  const dir = home(), auth = path.join(dir, 'auth.json'), t = Date.parse('2026-10-11T09:00:00Z');
+  assert.equal(codexlimits.signedInSince(dir, path.join(home(), 'r.json')), null);
+  fs.writeFileSync(auth, JSON.stringify({ auth_mode: 'chatgpt', tokens: {} })); touch(auth, t);
+  assert.equal(codexlimits.signedInSince(dir, path.join(home(), 'r.json')), t);
+  fs.writeFileSync(auth, JSON.stringify({ auth_mode: 'chatgpt', tokens: { account_id: 'x' } })); touch(auth, t);
+  assert.equal(codexlimits.signedInSince(dir, null), t);
+  assert.equal(codexlimits.signedInSince(dir, path.join(home(), 'no-such-dir', 'r.json')), t, 'an unwritable record still answers');
+});
+
 test('a large file is read from its end', () => {
   const h = home();
   const filler = (JSON.stringify({ timestamp: '2026-10-14T09:00:00Z', type: 'response_item', payload: { text: 'x'.repeat(1000) } }) + '\n').repeat(600);   // about 600 KB

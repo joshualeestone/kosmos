@@ -55,17 +55,14 @@ the default account). My first version read only the account folder and would ne
   systemd unit, e.g. Windows), the home is not filtered: that keeps the reading, without the move protection.
   Any other rewrite of the job (a rename, a model change) also hides that agent's earlier reports until Codex reports
   again: a missing meter for a while, never a wrong figure.
-- Every home of an account (its folder and its agents' private ones) counts only reports written since its auth.json
-  was last written (a re-sign-in under another login leaves the old login's sessions in both); an agent's home also
-  waits for its own job's last change.
-  A token refresh also rewrites auth.json, and then hides the account's earlier reports. Measured 2026-10-14, one
-  sign-in: its auth.json was last written at its own `last_refresh` (both Oct 5), so there it changed only on a
-  refresh. Reasoned, not measured: a refresh while an agent works is followed within moments by that run's own report,
-  so the gap is short. NOT measured: whether Kosmos's own sign-in check (`codex doctor --json`, codexsigninlive)
-  can refresh the token. If it can, an idle account loses its still-current meter until an agent next works on it,
-  which can be days: a missing meter, never a wrong one. Not measured on purpose: a refresh can rotate the sign-in's
-  token, and running one against a copy of a real sign-in could log the real one out. Rejected: keying on the
-  sign-in's account_id across refreshes, which needs a stored record per account.
+- Every home of an account (its folder and its agents' private ones) counts only reports written since the folder's
+  current login began (`codexlimits.signedInSince`): the login (auth.json `tokens.account_id`, stored only as a hash)
+  is recorded in `<data>/codex-signins.json` with the time it was first seen. A token refresh rewrites auth.json but
+  keeps the login, so it hides nothing; a different login starts the clock again. First sight uses auth.json's own
+  time, the latest the login can have begun, so a board that first sees a sign-in just after a refresh hides older
+  reports once, until the next one. A sign-in with no account_id falls back to auth.json's time. An agent's home also
+  waits for its own job's last change. (Iterations 10 and 11 deferred the refresh gap; iteration 12 raised it a third
+  time, and Kosmos's own sign-in check could refresh on an idle account, so it is fixed rather than reasoned away.)
 - Each home lists at most 12 files, newest day folder first and by name within a day, before ranking by write time:
   on a busy day a session from yesterday resumed today may not be listed. A long session whose last 256 KB holds no
   rate_limits row reads as no report from that file.

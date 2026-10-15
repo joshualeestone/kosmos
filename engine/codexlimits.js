@@ -144,4 +144,35 @@ function read(homes, now = Date.now()) {
   } catch { return null; }
 }
 
-module.exports = { read, windowOf, limitsOfRow, FILES_TRIED, FILES_MAX, DAYS_LISTED, LISTED_PER_HOME, TAIL_BYTES };
+/**
+ * When this folder's current ChatGPT login began, as far as Kosmos can tell, in ms; null when auth.json cannot be read.
+ * A token refresh rewrites auth.json but keeps the login, so it must not hide the account's reports; a different login
+ * must. So the login (auth.json tokens.account_id, kept only as a hash) is recorded in `recordFile` with the time it
+ * was first seen: the same login keeps that time, a new one starts again. First sight uses auth.json's own time, the
+ * latest the login can have begun. A sign-in with no account_id falls back to auth.json's time. Never throws.
+ */
+function signedInSince(dir, recordFile) {
+  let mtime = null, id = null;
+  try {
+    const file = path.join(dir, 'auth.json');
+    mtime = fs.statSync(file).mtimeMs;
+    const auth = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const raw = auth && auth.tokens && typeof auth.tokens.account_id === 'string' ? auth.tokens.account_id : '';
+    if (raw) id = require('node:crypto').createHash('sha256').update(raw).digest('hex').slice(0, 32);
+  } catch { /* unreadable: whatever was read stands */ }
+  if (mtime == null || !id || !recordFile) return mtime;
+  try {
+    let rec = {};
+    try { rec = JSON.parse(fs.readFileSync(recordFile, 'utf8')) || {}; } catch { rec = {}; }
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) rec = {};
+    const key = path.resolve(dir), had = rec[key];
+    if (had && had.login === id && Number.isFinite(had.since)) return had.since;
+    rec[key] = { login: id, since: mtime };
+    const tmp = recordFile + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
+    fs.renameSync(tmp, recordFile);
+    return mtime;
+  } catch { return mtime; }
+}
+
+module.exports = { read, signedInSince, windowOf, limitsOfRow, FILES_TRIED, FILES_MAX, DAYS_LISTED, LISTED_PER_HOME, TAIL_BYTES };
