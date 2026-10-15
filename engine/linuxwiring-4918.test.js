@@ -265,6 +265,79 @@ test('#4918 review 8: a Linux restart whose stop systemd refused is never report
   assert.notEqual(r.outcome, remove.OUTCOME.RESTARTED, 'a refused stop reported as a restart: ' + JSON.stringify(r));
 });
 
+/* #6183: the Linux restart acts are now STEPS the async driver runs with execFile (engine/remove.js jobOps(linux)
+   `steps`), so an account move's restarts do not block the board once per agent, as #6173 did for the Mac. These two
+   prove it the way #6173's Mac test does: an async restart sends every systemctl to the ASYNC runner and none to the
+   synchronous one, and the board's thread keeps turning while they run; the sync control holds it. systemd's acts do
+   not poll, so the per-command subprocess time is the contrast and is injected here (a timer for the async side, an
+   Atomics.wait park for the sync side). */
+function linuxRestartFixture(name) {
+  const create = require('./create');
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  const unit = linuxjob.unitPath(name);
+  fs.writeFileSync(unit, '[Service]\nExecStart="/bin/bash" "/x/agent-supervisor.sh" "' + name + '" "/w" "/usr/bin/claude" "/usr/bin/tmux" "/w/start.log"\n');
+  return { unit, workdir: create.workerDir(name) };
+}
+// stop/daemon-reload/start succeed; is-active reports the unit up so the loaded check passes on the first try.
+function linuxRestartAnswer(cmd, args) {
+  if (cmd === 'systemctl' && args[1] === 'is-active') return { ok: true, stdout: 'active\n' };
+  return { ok: true, stdout: '' };
+}
+/* The longest the board's thread went without turning, by an interval: a blocking call shows as a gap (remove.test.js). */
+function watchTurns6183() {
+  let last = Date.now(), maxGap = 0, turns = 0;
+  const iv = setInterval(() => { const t = Date.now(); maxGap = Math.max(maxGap, t - last); last = t; turns++; }, 5);
+  return { stop: () => { clearInterval(iv); maxGap = Math.max(maxGap, Date.now() - last); return { maxGap, turns }; } };
+}
+function blockMs6183(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
+
+test('#6183: an async Linux restart sends every systemctl to the async runner and keeps the board turning', async (t) => {
+  const name = 'asynclin';
+  const status = require('./status');
+  const { unit, workdir } = linuxRestartFixture(name);
+  status.setPaneSource(() => '');   // empty board: a fromDead start, no session to close -- the job acts still run
+  const sync = [], acalls = [];
+  remove.setRunner((cmd, args) => { sync.push([cmd, ...args]); return { ok: false, code: 99 }; });   // must never be asked
+  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); await new Promise((r) => setTimeout(r, 25)); return linuxRestartAnswer(cmd, args); });
+  t.after(() => {
+    remove.setRunner(null); remove.setAsyncRunner(null); status.setPaneSource(null);
+    require('./disruption').clear(name);
+    fs.rmSync(unit, { force: true }); fs.rmSync(workdir, { recursive: true, force: true });
+  });
+  const w = watchTurns6183();
+  const out = await remove.restartAsync(name, 'account', { platform: 'linux', startIfDead: true });
+  const { maxGap, turns } = w.stop();
+  assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+  assert.deepEqual(sync, [], 'a command went through the blocking runner');
+  const systemctl = acalls.filter((c) => c[0] === 'systemctl').map((c) => c[2]);
+  assert.deepEqual(systemctl, ['stop', 'daemon-reload', 'start', 'is-active'], 'the restart acts, all through the async runner');
+  // Four commands at 25 ms each ran off the board's thread: it turned repeatedly and was never held for one whole command.
+  assert.ok(turns > 5, 'the board\'s thread barely turned during the restart (' + turns + ')');
+  assert.ok(maxGap < 200, 'the board\'s thread was held for ' + maxGap + ' ms in one go');
+});
+
+test('#6183 control: a synchronous Linux restart holds the board for the whole of its systemctl calls', (t) => {
+  const name = 'synclin';
+  const status = require('./status');
+  const { unit, workdir } = linuxRestartFixture(name);
+  status.setPaneSource(() => '');
+  remove.setRunner((cmd, args) => { blockMs6183(25); return linuxRestartAnswer(cmd, args); });   // execFileSync's blocking time, injected
+  t.after(() => {
+    remove.setRunner(null); status.setPaneSource(null);
+    require('./disruption').clear(name);
+    fs.rmSync(unit, { force: true }); fs.rmSync(workdir, { recursive: true, force: true });
+  });
+  let fired = 0;
+  const iv = setInterval(() => { fired++; }, 5);
+  const started = Date.now();
+  const out = remove.restart(name, 'account', { platform: 'linux', startIfDead: true });
+  const took = Date.now() - started;
+  clearInterval(iv);
+  assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+  assert.equal(fired, 0, 'a timer fired during a synchronous restart: the board was not actually held');
+  assert.ok(took >= 75, 'the sync restart took ' + took + ' ms, too little to show the board was held');   // >= 3 of 4 x 25 ms
+});
+
 test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {
   remove.setRunner((cmd, args) => { calls.push([cmd, ...args]); return { ok: true, stdout: '' }; });
   t.after(() => remove.setRunner(null));

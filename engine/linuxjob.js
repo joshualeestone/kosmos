@@ -500,6 +500,50 @@ function stoppedOrNotLoaded(r) {
   return Boolean(r && (r.ok || notLoaded(r)));
 }
 
+/* #6183: the Linux restart acts written as STEPS, each systemctl call yielded as `{ exec: [...] }` instead of run
+   inline, so engine/remove.js's async driver runs an account move's restarts with execFile and the board's thread
+   stays free (the way #6173 did the Mac's MAC_STEPS). There are no waits to yield here: systemd's acts do not poll.
+   These MIRROR the sync acts above (stop/startOnly/loaded/status) command-for-command and share their arg builder
+   (unitName) and parsers (stoppedOrNotLoaded, the is-active test), so the two cannot drift. The sync functions are
+   unchanged, for their own callers. The sandbox gate (sandboxedWithoutSystemd) is applied here too: a sandboxed board
+   yields no command and the step reads the SAME refusal the sync runner would return, so it never acts on a real unit
+   by name. The command's exit code/output and the 30 s timeout are exactly the sync path's (via remove.js's run). */
+const SANDBOX_REFUSED = { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
+function* stopSteps(name, worldId) {
+  const u = unitName(name, worldId);
+  const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'stop', u], { timeout: 30000 }] };
+  return stoppedOrNotLoaded(out);   // same classification as stopNow = stoppedOrNotLoaded(stop())
+}
+function* startOnlySteps(name, worldId) {
+  // The unit appends to <workdir>/start.log; systemd cannot create the folder (startOnly, review 18).
+  try { fs.mkdirSync(require('./create').workerDir(name), { recursive: true }); } catch { /* the start will say */ }
+  const sandbox = sandboxedWithoutSystemd();
+  const reload = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'daemon-reload'], { timeout: 30000 }] };
+  if (!reload || !reload.ok) return false;   // startNow only reads .ok; a failed reload is a failed start, as startOnly's own early return is
+  const started = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'start', unitName(name, worldId)], { timeout: 30000 }] };
+  return Boolean(started && started.ok);
+}
+function* loadedSteps(name, worldId) {
+  const u = unitName(name, worldId);
+  const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: 30000 }] };
+  /* A dry run answers as loaded, the way jobOps' sync `loaded` short-circuits on DRY_RUN and the Mac's ok-means-loaded
+     does (a dry run returns ok with no stdout, which the active test below would otherwise read as not-loaded). The
+     command is still yielded, so an injected runner (a test, a real board) answers it as usual. */
+  if (r && r.dryRun) return true;
+  const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
+  return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
+}
+function* statusSteps(name, worldId) {
+  const u = unitName(name, worldId);
+  const sandbox = sandboxedWithoutSystemd();
+  const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: 30000 }] };
+  const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-enabled', u], { timeout: 30000 }] };
+  return {
+    active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),
+    enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
+  };
+}
+
 function remove(name, worldId) {
   // review 28: whether there was a unit file at all. disable of a missing unit exits 1 (not 5) with localized text,
   // so for an already-gone file a refused disable is not read from systemd's wording: there is nothing to disable.
@@ -539,6 +583,10 @@ module.exports = {
   stop,
   status,
   loaded,
+  stopSteps,
+  startOnlySteps,
+  loadedSteps,
+  statusSteps,
   presence,
   remove,
   enableLinger,
