@@ -861,7 +861,7 @@ const composerReadable = (card) => !!card && String(card.runner || 'claude') ===
    held by text in the box); false for anything unread, so an unreadable box keeps its posts waiting. */
 function inputBoxEmpty(card) {
   if (!composerReadable(card) || !card.target) return false;
-  const box = readComposer(card.target);
+  const box = readComposer(paneTarget(card));   // review 5: the exact pane the delivery types into
   return box.ok === true && box.text === '';
 }
 /* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
@@ -1993,7 +1993,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         }
         /* #6256 item 4: a box slower than the short watch (or an Enter tmux refused) still holds exactly our earlier
            line: remember it again, with its own time and number, so the next delivery can still press it. This one is
-           refused below, as before. Known gap (review 3): if the Enter did take and the box only emptied later, no
+           refused below, as before. Bounded (review 5): it keeps its first time, so it is pressed at most once per delivery
+           and never after 10 minutes. Known gap (review 3): if the Enter did take and the box only emptied later, no
            follow-up row is written; an empty box later cannot say whether it was sent or cleared by hand. */
         if (!earlierSubmitted && box.ok && composerIsAll(box.text, earlier)) unsentWires.set(target, kept);
       }
