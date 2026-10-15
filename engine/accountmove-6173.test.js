@@ -313,3 +313,23 @@ test('#6190 review 2: a caller that leaves out the hold check refuses every agen
   assert.equal(out.body.agents[0].outcome, 'refused');
   assert.equal(accountmove.busy(), false, 'a move that wrote nothing is still running');
 });
+
+test('a move whose restart never answers does not hold a process open (its cap timer is unref\'d)', () => {
+  const { spawnSync } = require('node:child_process');
+  const path = require('node:path');
+  const script = `
+    const am = require(${JSON.stringify(path.join(__dirname, 'accountmove'))});
+    am.start({ dir: '/acct/spare', names: ['al'] }, {
+      moveRefusal: () => null,
+      setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
+      REFUSED: 'refused', forget: () => {}, RESTARTED: 'restarted',
+      restartAsync: () => new Promise(() => {}),   // never answers
+      hold: () => {}, release: () => {},
+    });
+  `;
+  const t0 = Date.now();
+  const r = spawnSync(process.execPath, ['-e', script], { timeout: 20000 });
+  assert.equal(r.error, undefined, 'the process was still open after 20 s: a cap timer keeps it alive');
+  assert.equal(r.status, 0, String(r.stderr));
+  assert.ok(Date.now() - t0 < 20000);
+});
