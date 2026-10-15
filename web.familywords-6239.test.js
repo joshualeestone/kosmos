@@ -15,7 +15,8 @@ function harness(answer) {
   const el = (id) => {
     if (!els.has(id)) {
       const e = { id, hidden: true, disabled: false, value: '', textContent: '', children: [], focused: false,
-        replaceChildren() { this.children = []; }, append(c) { this.children.push(c); }, focus() { this.focused = true; } };
+        replaceChildren() { this.children = []; }, append(c) { this.children.push(c); }, focus() { this.focused = true; },
+        attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
       if (id === 'plus-org-family-accept' || id === 'plus-org-family-no') e.hidden = false;
       els.set(id, e);
     }
@@ -72,6 +73,19 @@ test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusa
   late.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
   await late.api.plusOrgFamilyAccept();
   assert.equal(late.el('plus-org-family').hidden, true, 'a ticket that ran out left the words up to press again');
+  // Round 2: Not now while Accept is in flight says nothing (the join may already have happened).
+  const busy = harness({ ok: true });
+  const notNow = new Function('PLUS_ORG', 'plusOrgFamilyHide', 'document', fn('function plusOrgFamilyNotNow(') + '\nreturn plusOrgFamilyNotNow;');
+  let hid = 0;
+  const nn = notNow({ busy: true }, () => { hid += 1; }, busy.ctx.document);
+  nn();
+  assert.equal(hid, 0, 'Not now closed the words while an Accept was in flight');
+  assert.equal(busy.el('plus-org-msg').textContent, '', 'Not now said nothing was joined while a join was in flight');
+  notNow({ busy: false }, () => { hid += 1; }, busy.ctx.document)();
+  assert.equal(hid, 1, 'CONTROL: Not now closes the words when nothing is in flight');
+  assert.equal(busy.el('plus-org-msg').textContent, 'Nothing was joined.');
+  assert.equal(ok.el('plus-org-msg').textContent, '', 'a line stayed over the joined view');
+  assert.equal(ok.el('plus-org-say').focused, true, 'focus was left on a hidden button after joining');
   // A member moving computers: no code, the same wordsShown.
   const mv = harness({ ok: true });
   mv.api.plusOrgFamilyShow('X', { ...PREVIEW, move: true });

@@ -50872,7 +50872,8 @@ async function plusOrgPost(kind, body) {
 /* #5791 (Josh 10-10 14:32): Connect Account joins. The company decided, so there is no preview step on the person's
    side: the page asks for the company's terms (the engine keeps them, and binds the join to them) and joins at once
    with the one-time ticket, nothing shown in between. A member moving here from another Kosmos (move) joins with no
-   code the same way. Any refusal shows under the field. */
+   code the same way. Any refusal shows under the field. A FAMILY account is the one exception (kosmos#6239): its words
+   are shown first and Accept and join sends the join (plusOrgFamilyShow, plusOrgFamilyAccept). */
 async function plusOrgConnect() {
   const msg = document.getElementById('plus-org-msg');
   const code = document.getElementById('plus-org-code').value.trim();
@@ -50947,16 +50948,20 @@ async function plusOrgFamilyAccept() {
     }
     plusOrgFamilyHide();
     document.getElementById('plus-org-code').value = '';
+    msg.textContent = '';   // round 2: no earlier line stays over the joined view
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
     PLUS_ORG.at = 0;
     plusOrgPaint();
+    const say = document.getElementById('plus-org-say');   // focus where the joined view says so, not on a hidden button
+    if (say) { say.setAttribute('tabindex', '-1'); say.focus(); }
   } finally { PLUS_ORG.busy = false; btn.disabled = false; }
   if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
 document.getElementById('plus-org-family-accept').addEventListener('click', plusOrgFamilyAccept);
 /* Not now, and Escape inside the words: nothing is joined, and focus goes back to the code field (round 1). */
 function plusOrgFamilyNotNow() {
+  if (PLUS_ORG.busy) return;   // round 2: an Accept in flight may already have joined, so nothing says otherwise
   plusOrgFamilyHide();
   document.getElementById('plus-org-msg').textContent = 'Nothing was joined.';
   document.getElementById('plus-org-code').focus();
