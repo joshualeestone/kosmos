@@ -51,3 +51,13 @@ activity log, but no longer red.
 - Known and accepted: read() and the check read the file separately (an append between them can only make one clear
   early or late; the next turn end settles it). An authentication_failed block is cleared by a turn that ended
   normally too, which is right (the turn succeeded); the sign-in hold rules (#5948) read the screen, not this line.
+
+## Review 3 (opus), and what changed
+- Fixed: a provider block that had replaced a deliberate or unmarked wait no longer leaves that wait hidden behind a
+  block nobody clears: the turn end that proves the provider answered re-appends the covered line (its own words and
+  writer, marked `restored`), so the card shows the question again. Unknown (unreadable record, run past the tail):
+  the block stays. Tested (the question's words and `by: agent` come back); skipping the restore fails it.
+- Said explicitly: the #5805 automatic `provider api (rate_limit)` block is now cleared by the next normal turn end
+  too, which fits limitReleased (an idle card is released); a deliberate report carrying `until` is untouched.
+- Comments: the hook doc lists every refusal again; the new helpers sit after isAutoPermissionWait, so record()'s
+  own doc comments are above record() again.

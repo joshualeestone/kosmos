@@ -184,6 +184,12 @@ test('#6209 review 1: a provider error over a deliberate question, then a normal
   const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
   assert.equal(end.recorded, false, 'a normal turn end erased the block AND the question under it');
   assert.notEqual(selfreport.read(who).state, 'idle', 'the card read idle with a question still unanswered');
+  // Review 3: the question comes back (its own words and writer), instead of staying hidden behind a stale block.
+  const shown = selfreport.read(who);
+  assert.equal(shown.state, 'needs_you', 'the question was not shown again once the provider answered');
+  assert.equal(shown.because, 'which domain should I use?');
+  assert.equal(shown.by, 'agent', 'the restored question was not kept as the agent\'s own');
+  assert.equal(end.restored, true);
   // CONTROL: the same sequence with a permission prompt (an auto needs_you) under the block does clear.
   const perm = 'perm-then-outage-6209';
   assert.equal(selfreport.record(perm, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true }).recorded, true);
@@ -207,6 +213,7 @@ test('#6209 review 2: several provider blocks in a row over a question still kee
     assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
   }
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'a run of blocks hid the question from the check');
+  assert.equal(selfreport.read(who).state, 'needs_you', 'the question under a run of blocks was not shown again');
   // A new run (started) between the question and the block: nothing deliberate is under the block, so it clears.
   const fresh = 'started-then-outage-6209';
   assert.equal(selfreport.record(fresh, { state: 'needs_you', because: 'an old question' }).recorded, true);
