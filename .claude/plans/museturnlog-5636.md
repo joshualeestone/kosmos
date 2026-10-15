@@ -168,10 +168,15 @@ alone is not enough; chars is the shortened line's length.
 
 ## Review 19 (opus), and what changed
 - No BLOCKER. WARNING: the first stop note's own arrival was untested: asserted. NITs: a spill path ending in a
-  separator is refused (it could stat through a link outside the Inbox); the envChars comment allows slack for a
+  separator is refused (corrected in review 21: the equality guard already refused it; the extra checks were dropped); the envChars comment allows slack for a
   reply's quote and catch-up notes, which the board counts too.
 
 ## Review 20 (sonnet), and what changed
 - No BLOCKER. WARNINGs: bytes bound characters only from above, so a high spillBytes on non-Latin or emoji text
   proves nothing (stated beside the reading rule); a ")" in the workspace path makes spillBytes null like a missing
   copy (stated); a linked .gitignore is refused (tested).
+
+## Review 21 (opus), and what changed
+- No BLOCKER. WARNING: the trailing-separator and ".." conditions could never fire (p === join(inbox, basename(p))
+  already refuses both), so their test proved nothing: both dropped, the equality is the one guard, and the ".." test
+  now puts a literal ".." in the line. Review 19's premise is corrected above.
