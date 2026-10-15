@@ -56,7 +56,20 @@ GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 # on a stalled connection cannot hold the backstop for ever (launchd never starts a second copy while one runs). A
 # timed-out call fails like any other, with "(timed out)" in its line.
 GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
-ghb() { perl -e 'alarm shift; exec @ARGV or exit 127' "$GH_MAX_S" "$GH" "$@"; }
+# Review 12: gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
+# unroutable host ran its own 30 s dial timeout past a 3 s alarm). So perl forks gh into its own process group, waits,
+# and on the deadline sends that group TERM, then KILL, and exits 142.
+ghb() {
+  perl -e '
+    my $t = shift;
+    my $pid = fork; defined $pid or exit 126;
+    if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 2; kill "KILL", -$pid; waitpid($pid, 0); exit 142 };
+    alarm $t;
+    waitpid($pid, 0);
+    exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
+  ' "$GH_MAX_S" "$GH" "$@"
+}
 BEAT="${KOSMOS_KICK_HEARTBEAT:-$HOME/.local/libexec/kosmos-site-deploy-kick/last-tick}"
 KICK_GAP_S=840
 STUCK_S=10800   # not finished 3 hours after creation
@@ -81,7 +94,10 @@ ERR=""
 trap 'rc_=$?; [ -n "$ERR" ] && rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S %Z")" "$rc_" "${LAST_LINE:-(quiet)}" > "$RESULT" 2>/dev/null' EXIT
 [ "$CHECK" = 1 ] || { mkdir -p "$(dirname "$BEAT")" 2>/dev/null; date '+%Y-%m-%d %H:%M:%S %Z' > "$BEAT" 2>/dev/null; }
 ERR="$(mktemp "${TMPDIR:-/tmp}/kick-err.XXXXXX" 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
-why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"; [ "$rc" = 142 ] && l="${l:+$l; }timed out after ${GH_MAX_S} s"; [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
+why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"
+  [ "$rc" = 142 ] && l="${l:+$l; }timed out after ${GH_MAX_S} s"
+  [ "$rc" = 127 ] && l="${l:+$l; }no gh found at $GH or on PATH"
+  [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
 if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi

@@ -26,6 +26,7 @@ const FAKE_GH = path.join(SANDBOX, 'gh');
 fs.writeFileSync(FAKE_GH, `#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
+[ -n "\${FAKE_IGNORE_ALRM:-}" ] && trap '' ALRM   # as gh (Go) does
 [ -n "\${FAKE_SLEEP:-}" ] && sleep "$FAKE_SLEEP"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
@@ -166,8 +167,11 @@ test('#6266: with no deploy state folder it asks nothing and exits 1 (fails clos
   assert.match(r.out, /no deploy state folder at .*no-such-state.*nothing asked/);
 });
 
-test('#6266: a hung gh call is cut off, said as timed out, and asks nothing (review 11)', needJq, () => {
-  const r = kick(state({ 'last-deployed': OLD }), { FAKE_SLEEP: '5', KOSMOS_KICK_GH_TIMEOUT: '1' });
+test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said as timed out, and asks nothing', needJq, () => {
+  const t0 = Date.now();
+  const r = kick(state({ 'last-deployed': OLD }), { FAKE_SLEEP: '20', FAKE_IGNORE_ALRM: '1', KOSMOS_KICK_GH_TIMEOUT: '1' });
+  const took = (Date.now() - t0) / 1000;
+  assert.ok(took < 10, 'the call was not cut off (took ' + took + ' s; the fake sleeps 20 s)');
   assert.equal(r.status, 1);
   assert.equal(r.dispatched, 0);
   assert.match(r.out, /could not read site main \(owner\/site\) \(gh: timed out after 1 s\); nothing asked/);
@@ -175,6 +179,9 @@ test('#6266: a hung gh call is cut off, said as timed out, and asks nothing (rev
 
 test('#6266: a mistyped --check runs nothing and exits 2', () => {
   const r = kick(state({ 'last-deployed': OLD }), {}, ['--chek']);
+  // A gh that is not there says so.
+  const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
+  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: no gh found at/);
   assert.equal(r.status, 2);
   assert.equal(r.calls.length, 0);
   assert.equal(fs.existsSync(r.beat), false);

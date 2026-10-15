@@ -146,3 +146,12 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   after N s" (test with a fake gh that sleeps). NITs taken: an unknown argument exits 2 instead of running a real
   tick (test); mktemp uses a full template; a garbled updatedAt on a failed run is tested; "the newest 20 runs" wording;
   review 3 marked superseded; the libexec pattern says it was seen on Mortals.
+
+## Review 12 (sonnet), and what changed
+- BLOCKER (the reviewer measured it): gh is a Go program and Go ignores SIGALRM, so `perl -e 'alarm; exec gh'` never
+  stopped a hung gh (it ran its own 30 s dial timeout past a 3 s alarm), and the test passed only because its fake gh
+  was bash. Now perl forks gh into its own process group, waits, and at the deadline sends the group TERM then KILL and
+  exits 142. MEASURED against the real gh on Agent1s (GH_HOST=10.255.255.1, limit 3 s): cut off in 5 s (3 s plus the
+  2 s grace before KILL), "timed out after 3 s" in the line, no gh left running. The fake gh now ignores SIGALRM as Go
+  does, and the test asserts the call returns in under 10 s while the fake sleeps 20. NIT taken: a gh that is not
+  there says "no gh found". Left: the -dirty mark covers the script itself, not the installer or a stale checkout.
