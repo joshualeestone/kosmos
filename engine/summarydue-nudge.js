@@ -27,8 +27,9 @@
 const projectview = require('./projectview');
 
 const MAX_TRIES = 3;
-/* Review 4: a working Claude agent reports `working` at least once a minute (the PreToolUse heartbeat), so a gap between
-   reports far longer than that is not known to be work (an interrupted turn sends no Stop); each gap counts at most this. */
+/* Review 4: a working Claude agent reports `working` on its tool calls, at most once a minute (the PreToolUse heartbeat),
+   so a gap far longer than that is usually not work (an interrupted turn sends no Stop); each gap counts at most this. A
+   single tool call longer than the cap is undercounted, which errs toward not telling. */
 const WORK_GAP_CAP_MS = 30 * 60 * 1000;
 const PRUNE_MS = 30 * 24 * 3600 * 1000;
 
@@ -92,6 +93,8 @@ function workedSinceMs(rows, wroteAt, now) {
   for (const r of valid) {
     if (r.at <= wroteAt) continue;
     if (busy(state)) worked += Math.min(r.at - from, WORK_GAP_CAP_MS);
+    // Review 5: a new session starts the count again: the session told about the work is the one that did it.
+    if (r.state === 'started') worked = 0;
     state = r.state; from = r.at;
   }
   /* Review 2: nothing after the last report counts. A turn that was interrupted or crashed sends no Stop, so its last
@@ -154,11 +157,13 @@ function sweepOnce(o) {
       let summary = null;
       try { summary = projectview.summaryFreshness(folderOf(session), now); } catch { summary = null; }
       if (!summary || summary.state !== 'stale') continue;
-      let workedMs = null;
-      try { workedMs = workedSinceMs(historyOf(session), Date.parse(summary.at), now); } catch { workedMs = null; }
       const entry = book.get(session);
       let promptedAt = null;
       try { promptedAt = prompted.get(session); } catch { promptedAt = null; }
+      // Review 5: already told about this summary: no history read.
+      if (promptedAt === summary.at || (entry && entry.forAt === summary.at && entry.nudgedAt != null)) continue;
+      let workedMs = null;
+      try { workedMs = workedSinceMs(historyOf(session), Date.parse(summary.at), now); } catch { workedMs = null; }
       const p = plan(card, summary, workedMs, entry, now, promptedAt);
       if (p.act !== 'nudge') continue;
       let pz = null;

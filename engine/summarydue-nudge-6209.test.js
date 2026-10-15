@@ -225,3 +225,14 @@ test('#6209 review 4: a gap between working reports counts at most WORK_GAP_CAP_
   assert.ok(w <= 20 * 60000 + nudge.WORK_GAP_CAP_MS + 11 * 60000, 'a two-day gap was counted as work: ' + w);
   assert.equal(nudge.plan({}, { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() }, w, null, NOW, null).act, 'none');
 });
+
+test('#6209 review 5: a new session starts the count again; the rhythm is the threshold (3.5 h not told, 4.5 h told)', () => {
+  const W0 = NOW - 24 * H;
+  const summary = { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() };
+  const restarted = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 6 * H), { state: 'started', at: W0 + 7 * H }, { state: 'idle', at: W0 + 7 * H + 60000 }];
+  assert.equal(nudge.workedSinceMs(restarted, W0, NOW), 0, 'work from a session before a restart was counted');
+  const under = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 3.5 * H)];
+  const over = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 4.5 * H)];
+  assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(under, W0, NOW), null, NOW, null).act, 'none', '3.5 hours of work was told');
+  assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(over, W0, NOW), null, NOW, null).act, 'nudge', '4.5 hours of work was not told');
+});
