@@ -232,7 +232,7 @@ test('#6239: a computer that left its company has no policy: the record clear() 
   } finally { communitysend.setSwitch(null); apply(OPEN); }
 });
 
-test('#6239: a policy read fault stops sending but keeps the period; the policy itself ends it (round 4)', async () => {
+test('#6239: a policy read fault ends the period, as an unreadable switch does, and so does the policy (round 5)', async () => {
   const stateFile = communitysend._paths.stateFile();
   fs.mkdirSync(path.dirname(stateFile), { recursive: true });
   const since = new Date().toISOString();
@@ -243,9 +243,14 @@ test('#6239: a policy read fault stops sending but keeps the period; the policy 
     communitysend.setContact(() => { throw new Error('a passing read error'); });
     assert.equal(communitysend.switchState(), 'policy_unreadable', 'CONTROL');
     await communitysend.sweep();
-    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'a passing fault lost every unsent item');
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'a fault kept the period, so items every status line called gone could still go');
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
     communitysend.setContact(() => ({ ok: false, because: 'stopped' }));
     await communitysend.sweep();
     assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the policy did not end the period');
+    fs.writeFileSync(stateFile, JSON.stringify({ since }) + '\n');
+    communitysend.setContact(() => ({ ok: true }));
+    await communitysend.sweep();
+    assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'CONTROL: allowed, the period stays');
   } finally { communitysend.setContact(null); communitysend.setSwitch(null); communitysend.setSender(null); }
 });

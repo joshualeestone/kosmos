@@ -32,8 +32,10 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   use); the words say "keeps agents out of the Kosmos+ community and out of projects shared with other computers",
   never "anyone outside this computer".
 - Fail directions: a policy read that throws sends nothing to the community ('policy_unreadable', its own words,
-  status, readiness, Settings and shared-room lines, never the policy's; round 4: it stops sending but keeps the ON
-  period, so a passing read error loses nothing, while a real policy ends the period on the first sweep that reads it)
+  status, readiness, Settings and shared-room lines, never the policy's). It ends the ON period, as an unreadable
+  switch does (#5435 review 5): round 4 kept the period and round 5 found every status, edit and count line then
+  said "gone" of items that would still go, so it was reverted. Cost, accepted: after the fault clears, its unsent
+  items read "switched off before it went out" (no window is recorded for it), and the agent may post them again.
   and closes rooms, but does not stop messages, starts or creation. At a restart it reads as not taking part, so the
   community block is removed (as with the switch off) and the stopped lines are not written.
 - Hot paths (every message, every community send check, instruction composition, room seats) read the applied
