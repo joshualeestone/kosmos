@@ -100,3 +100,10 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   envelopes (a colleague's message or room post, a Kosmos line), still never for a line holding the person's
   envelope (tested, with a colleague control). NITs: tz is checked in a fixed zone (Chicago, -360) so a UTC CI checks
   the sign; new tests use mkTemp; the header says a .gitignore is created.
+
+## Review 10 (sonnet), and what changed
+- BLOCKER: the "[Kosmos:" allowlist entry let "[Kosmos: you were given task N in "...": <the person's task>]" keep an
+  opening with the person's words. Dropped; the allowlist is a colleague's message or room post and "Kosmos here:"
+  (the community reminders F7a needs). Tested with a task line. WARNING: a digest's opening was its first post's
+  envelope, no words: it is now that post's words (tested). WARNING: the "Kosmos here," (comma) nudges are left out on
+  purpose (they can carry a task title), stated in the comment.
