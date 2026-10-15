@@ -30484,10 +30484,12 @@ function aoUnknownOf(body) {
     && a.runner === 'claude' && !(a.account && typeof a.account === 'object' && aoStr(a.account.dir, 4096))).length;
 }
 /* That computer's clock against this page's: its answer's checkedAt against this read's time. The difference also holds
-   the read's own round trip (under OA_READ_LIMIT_MS). 0 when it sent none. */
+   the read's own round trip (under OA_READ_LIMIT_MS), so one under AO_SKEW_MIN_MS is taken as none. 0 when it sent none. */
+const AO_SKEW_MIN_MS = 60000;
 function aoSkewOf(body, now) {
   const t = body && typeof body.checkedAt === 'string' ? Date.parse(body.checkedAt) : NaN;
-  return Number.isFinite(t) ? now - t : 0;
+  const k = Number.isFinite(t) ? now - t : 0;
+  return Math.abs(k) < AO_SKEW_MIN_MS ? 0 : k;
 }
 function aoKeep(address, state, body, now) {
   if (state === 'ok') AO_SEEN.set(address, { accounts: aoAccountsOf(body), agents: aoAgentsOf(body), unknown: aoUnknownOf(body), skew: aoSkewOf(body, now), at: now });
@@ -30630,8 +30632,8 @@ function aoPaint() {
       const old = shown[i];
       if (old.textContent === g.textContent) return;   // nothing it says changed: keep it, and any focus in it
       if (ageless(old.textContent) === ageless(g.textContent)) {
-        const was = old.querySelectorAll('p'), now2 = g.querySelectorAll('p');
-        if (was.length === now2.length) { was.forEach((p, k) => { if (p.textContent !== now2[k].textContent) p.textContent = now2[k].textContent; }); return; }
+        const was = old.querySelectorAll('p'), fresh = g.querySelectorAll('p');
+        if (was.length === fresh.length) { was.forEach((p, k) => { if (p.textContent !== fresh[k].textContent) p.textContent = fresh[k].textContent; }); return; }
       }
       const active = typeof document !== 'undefined' ? document.activeElement : null;
       const had = !!(active && active.closest && active.closest('.ao-computer') === old);

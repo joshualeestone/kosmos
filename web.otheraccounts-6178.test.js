@@ -45,7 +45,7 @@ function constLine(name) {
   return PAGE.slice(at, PAGE.indexOf('\n', at) + 1);
 }
 const SRC = [
-  constLine('OA_STALE_MS'), constLine('OA_READ_LIMIT_MS'), constLine('OA_MAX_AGENTS'), constLine('ACCT_WARN_PCT'), constLine('AO_SEEN'), constLine('AO_MAX_ACCOUNTS'), constLine('AO_MAX_AGENTS'),
+  constLine('OA_STALE_MS'), constLine('OA_READ_LIMIT_MS'), constLine('OA_MAX_AGENTS'), constLine('ACCT_WARN_PCT'), constLine('AO_SEEN'), constLine('AO_MAX_ACCOUNTS'), constLine('AO_MAX_AGENTS'), constLine('AO_SKEW_MIN_MS'),
   'const OA_SEEN = new Map();\n',
   ...['computerAddressOk', 'agoWords', 'oaEligible', 'oaOthers', 'oaStale', 'oaClassify', 'oaRemember', 'oaAgentsOf', 'oaReadOne', 'aoStr', 'aoAccountsOf', 'aoAgentsOf', 'aoKeep',
     'aoShown', 'aoUnknownOf', 'aoSkewOf', 'aoUsageWords', 'aoEl', 'aoGroup', 'aoPaint'].map(slice),
@@ -442,4 +442,11 @@ test('#6178 an older Kosmos or a failed read is not told "showing what this page
     assert.doesNotMatch(t, /Showing what this page last read/, JSON.stringify(accounts) + ': ' + t);
     assert.doesNotMatch(t, /just now/, 'a failed read claimed "just now" on an old answer');
   }
+});
+
+test('#6178 a few seconds between the clocks (the read\'s own round trip) is taken as none', () => {
+  const { api } = load();
+  const now = Date.now();
+  api.aoKeep('studio.kosmosplus.com', 'ok', { ...STATUS, checkedAt: new Date(now - 8000).toISOString() }, now);
+  assert.equal(api.AO_SEEN.get('studio.kosmosplus.com').skew, 0, 'an 8 s round trip moved the reset time');
 });
