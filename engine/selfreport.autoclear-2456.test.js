@@ -251,7 +251,7 @@ test('#6209: a block over a long run of the same question keeps the block', () =
 });
 
 test('#6209 review 7: the usage-limit and sign-in kinds are left to their own holds (an automatic idle does not clear them)', () => {
-  for (const kind of ['rate_limit', 'authentication_failed']) {
+  for (const kind of ['rate_limit', 'authentication_failed', 'Rate_Limit']) {
     const who = 'kind-' + kind + '-6209';
     assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
     assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, kind + ' was cleared by an automatic idle');
