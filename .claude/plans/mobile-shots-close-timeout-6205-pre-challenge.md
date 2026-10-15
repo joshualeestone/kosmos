@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: mobile-shots-close-timeout-6205
-diff_hash: 5b4ac295b39ac705c7ff94beb19e78a194f5e8f668a2fe7394b12eb618753c35
+diff_hash: 453a8f5671ea24d6a620e8b604af07cc88cc683d69ad63e1235a176b4ccdc6e8
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-15T11:01:12Z
