@@ -124,6 +124,12 @@ test('#6209 part 3: held, not spent, while the owner has only just gone idle or 
   r = pass(id, rows, holdAt(3 * HOUR), { idleSeen: new Map([[REX, { since: NOW - 10000, at: NOW }]]) });
   assert.equal(r.sent.length, 0, 'typed into an owner that had only just gone idle');
   assert.equal(stored(id, n).holdStaleTold, undefined, 'a held line was marked told');
+  // Review 5: a busy (working) owner is held, nothing typed and nothing marked.
+  const busyRoster = BASE.map((c) => (c.sessionName === REX ? { ...c, state: 'working' } : c));
+  r = pass(id, rows, holdAt(3 * HOUR), { roster: busyRoster });
+  assert.equal(r.sent.length, 0, 'typed into a working owner');
+  assert.match(r.out.results[0].because, /not idle/);
+  assert.equal(stored(id, n).holdStaleTold, undefined, 'a busy owner was marked told');
 });
 
 test('#6209 part 3: the board runs the sweep on its own minute timer, with the room log and the nudge\'s gates', () => {
@@ -135,7 +141,7 @@ test('#6209 part 3: the board runs the sweep on its own minute timer, with the r
   assert.match(body, /holdstale\.sweep\(\{/, 'the timer does not run the sweep');
   assert.match(body, /agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'not gated like the other tells');
   assert.match(body, /sent: AGENT_NUDGE_SENT/, 'not counted against Agent Communication\'s hour');
-  assert.match(body, /if \(!allowed\) return;\s*const rows = messages\.readLog\(\);/, 'the log is read before the typing gate is checked');
+  assert.match(body, /if \(!allowed \|\| heartbeatSetting\.read\(\)\.on !== true\) return;\s*const rows = messages\.readLog\(\);/, 'the log is read before the typing and Prompter gates are checked');
   assert.match(body, /\ballowed,\s/, 'the gate is not handed to the sweep');
   assert.match(body, /book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE/, 'the sweep does not keep its own tries and idle record');
 });
