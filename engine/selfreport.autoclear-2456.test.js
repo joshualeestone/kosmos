@@ -116,9 +116,9 @@ test('#2456 CONTROL: an AGENT working still clears its own needs_you (a real res
 /* ---- The regression the fix must NOT introduce: an AUTO blocked stays protected ---- */
 
 test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFailure provider outage)', () => {
-  // The StopFailure hook writes blocked (auto) on a provider API outage. Unlike a
-  // permission needs_you, it does NOT auto-resolve, so an auto working/idle must not
-  // clear it. Keying the guard on `by` alone would have dropped this protection.
+  // The StopFailure hook writes blocked (auto) on a provider API outage. An auto working
+  // (mid-turn) must not clear it; #6209: the Stop idle of a turn that ended normally does.
+  // Keying the guard on `by` alone would have dropped this protection.
   const who = 'auto-blocked-outage';
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (rate_limit)', owner: 'provider', auto: true }).recorded, true);
   assert.equal(selfreport.read(who).by, 'auto', 'the StopFailure block is machine-written');
@@ -137,7 +137,7 @@ test('#2456 / #6209: an automatic idle (a turn that ended normally) DOES clear a
   assert.equal(selfreport.read(who).state, 'idle');
 });
 
-test('#6209: an automatic idle still does NOT clear a DELIBERATE blocked, nor a legacy unmarked one, nor an auto needs_you-free wait', () => {
+test('#6209: an automatic idle still does NOT clear a DELIBERATE blocked, nor an auto block not about the provider', () => {
   const mine = 'deliberate-blocked-6209';
   assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (500)', because: 'the provider keeps failing', owner: 'provider' }).recorded, true);
   assert.notEqual(selfreport.read(mine).by, 'auto', 'fixture: the agent wrote this block itself');
@@ -175,4 +175,27 @@ test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBER
   const autoWork = selfreport.record(who, { state: 'working', because: 'running', auto: true });
   assert.equal(autoWork.recorded, false, 'an auto working cleared a legacy (unknown-provenance) wait');
   assert.equal(selfreport.read(who).state, 'needs_you');
+});
+
+test('#6209 review 1: a provider error over a deliberate question, then a normal turn end, keeps the question red (not idle)', () => {
+  const who = 'question-then-outage-6209';
+  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(end.recorded, false, 'a normal turn end erased the block AND the question under it');
+  assert.notEqual(selfreport.read(who).state, 'idle', 'the card read idle with a question still unanswered');
+  // CONTROL: the same sequence with a permission prompt (an auto needs_you) under the block does clear.
+  const perm = 'perm-then-outage-6209';
+  assert.equal(selfreport.record(perm, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true }).recorded, true);
+  assert.equal(selfreport.record(perm, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(perm, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+});
+
+test('#6209 review 1: a legacy unmarked provider block (no `by`) is not cleared by an automatic idle', () => {
+  const who = 'legacy-provider-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (500)', owner: 'provider', at: new Date().toISOString() }) + '\n');
+  assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the legacy line reads');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unmarked block was cleared');
 });

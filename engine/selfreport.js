@@ -143,6 +143,41 @@ function isAutoProviderBlock(standing) {
     && /^provider api \(/.test(String(standing.on || ''));
 }
 
+/* #6209 review 1: true when the line under a standing automatic provider block is a wait on a person that an
+   automatic idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait). */
+function replacedWait(sessionName) {
+  const under = lineUnderProviderBlock(sessionName);
+  if (!under || !WAITING_ON_A_PERSON.includes(under.state)) return false;
+  return !(under.state === 'needs_you' && under.by === 'auto');
+}
+
+/* #6209 review 1: the line an automatic provider block replaced (the newest line before the trailing run of such
+   blocks), from the record's tail, or null when there is none or it cannot be read. An incoming automatic blocked may
+   overwrite a deliberate wait (it is left unguarded), so the block's clear must not erase that wait too. */
+function lineUnderProviderBlock(sessionName) {
+  let text;
+  try {
+    const file = fileFor(sessionName);
+    const size = fs.statSync(file).size;
+    const start = Math.max(0, size - TAIL_BYTES);
+    const fd = fs.openSync(file, 'r');
+    try {
+      const buf = Buffer.alloc(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally { try { fs.closeSync(fd); } catch { /* already gone */ } }
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  } catch { return null; }
+  const rows = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { const row = JSON.parse(line); if (row && typeof row === 'object' && STATES.includes(row.state)) rows.push(row); } catch { /* skip */ }
+  }
+  let i = rows.length - 1;
+  while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
+  return i >= 0 ? rows[i] : null;
+}
+
 function isAutoPermissionWait(standing) {
   return !!standing
     && standing.found === true
@@ -266,11 +301,13 @@ function record(sessionName, entry) {
          `needs_you` clobber;
        - a legacy line with no mark (by:null), whose provenance is unknown and so
          stays protected as before;
-       - an AUTO `blocked` (a StopFailure provider outage): machine-written but it
-         does NOT auto-resolve, so an auto idle/working must not clear it. Keying
-         only on `by` would have dropped this protection silently -- the outage
-         would vanish on the next PreToolUse heartbeat while still unresolved
-         (caught in review; #2456 measured needs_you, never blocked).
+       - an AUTO `blocked` (a StopFailure provider outage): machine-written, and
+         an auto WORKING must not clear it. Keying only on `by` would have dropped
+         this protection silently -- the outage would vanish on the next PreToolUse
+         heartbeat while still unresolved (caught in review; #2456 measured
+         needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
+         turn that ended normally proves the provider answered), unless the block
+         had replaced a deliberate or unmarked wait (replacedWait).
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -282,7 +319,9 @@ function record(sessionName, entry) {
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
       && !standingIsAutoPermissionWait
-      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: a turn that ended normally after the failure
+      /* #6209: a turn that ended normally after the failure clears an automatic provider block, unless that block had
+         replaced a deliberate (or unmarked) wait: then the wait is what the card should show, so the block stays. */
+      && !(state === 'idle' && isAutoProviderBlock(standing) && !replacedWait(sessionName));
     if (standingIsProtectedWait) {
       return {
         recorded: false,

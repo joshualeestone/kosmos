@@ -36,8 +36,10 @@
  *
  * EVERY event sends auto:true -- the machine wrote this, not the agent. The
  * board's reconcileReport (#900/#1949/#2456) refuses an automatic idle/working
- * -- and an automatic needs_you -- over a standing DELIBERATE wait (and over an
- * auto `blocked`, a provider outage that does not auto-resolve), server-side;
+ * -- and an automatic needs_you -- over a standing DELIBERATE wait (and an
+ * automatic working over an auto `blocked`, a provider outage; #6209: the Stop
+ * idle of a turn that ended normally clears that auto block, unless it had
+ * replaced a deliberate wait), server-side;
  * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
  * PermissionRequest prompt), so the prompt stops sticking once the turn moves
  * on. The client just sends auto, exactly as the bash hook passes --auto.
