@@ -36,7 +36,7 @@ const MOVE_CAP_MS = 60 * 60 * 1000;
 const BUSY = 'Another account move is still running. Try again when it has finished.';
 /* #6173 review 2: what a board restart (a Kosmos switch, the restart button, an update) says while a move runs. A board
    that restarts between an agent's bootout and its bootstrap leaves that agent unloaded (the #3418 class). */
-const BOARD_BUSY = 'An account move is still restarting agents, and this would restart the board under it. Try again when the move has finished.';
+const BOARD_BUSY = 'An account move is not finished with its agents yet, and this would restart the board under them. Try again in a few minutes.';   // also true while a restart it gave up on still has a command running (review 7)
 const BOARD_GOING = 'The board is about to restart (an update or a restart is under way), so no agent was moved. Try again when it is back.';
 
 const moves = new Map();   // id -> record

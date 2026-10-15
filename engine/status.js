@@ -353,7 +353,7 @@ function shDetailAsync(cmd, args, timeoutMs) {
     try {
       child = execFile(cmd, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (e, stdout, stderr) => {
         if (!e) { answer({ ran: true, status: 0, out: stdout, err: '' }); return; }
-        const status = typeof e.code === 'number' ? e.code : null;
+        const status = !e.killed && typeof e.code === 'number' ? e.code : null;   // killed at its limit: no code, on every platform
         answer({ ran: status !== null, status, out: stdout ? String(stdout) : '', err: stderr ? String(stderr) : '' });
       });
     } catch { answer({ ran: false, status: null, out: '', err: '' }); return; }
