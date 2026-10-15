@@ -15,16 +15,18 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
 - `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]` (the full answer; the sibling answer keys it instead, below). It reuses
   the poll's one Claude list read (`claudeKnown`).
 
-- Who can read it. Another computer's browser reads /api/status as a sibling read (Sec-Fetch-Site same-site), and
-  #4973 cuts that answer down (server.js statusForSibling) so this computer's paths and user name stay here. #6178
-  widens the SAME-SITE cut on purpose and no further (a cross-site read keeps #4973's agents-only answer). Which
-  browsers can read it is the relay's rule alone: every computer under the Kosmos+ domain is same-site to every other,
-  and the relay gives the board token only to the account's own listed computers: `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
-  label, organization, isDefault, apiKey, weekly and blocked; each agent's `acct` (that id, null when it is on no listed
-  account) and `runner`; `checkedAt`. API-key accounts are listed (apiKey true, no reading) so their agents join to
-  them, and a Claude agent on no listed account is "could not be checked". #4973's own guard (server.sibling-status-4973.test.js)
-  pins these exact fields for both kinds of read, so a later widening is a decision made there too. No folder
-  path goes out. The reader is a browser that computer already admitted (kosmos-relay siblingcors-4812).
+- Who can read it. Another computer's browser reads /api/status as a sibling read, and #4973 cuts that answer down
+  (server.js statusForSibling) so this computer's paths and user name stay here.
+- What a same-site read now also gets (#6178, on purpose and no further): `accountsWeekly`, each account keyed by an
+  opaque per-answer id ("a0", ...) with email, label, organization, isDefault, apiKey, weekly and blocked; each
+  agent's `acct` (that id, null when it is on no listed account) and `runner`; and `checkedAt`. No folder path goes
+  out. API-key accounts are listed (apiKey true, no reading) so their agents join to them; a Claude agent on no listed
+  account is "could not be checked". A cross-site read keeps #4973's agents-only answer. #4973's guard pins the
+  answer's keys for both kinds of read, and the 6178 sibling test pins each account's exact fields.
+- Which browsers can read the emails is the relay's rule alone. Every computer under the Kosmos+ domain is same-site
+  to every other; the relay gives the board token only to the account's own listed computers, in a browser that
+  computer admitted (kosmos-relay siblingcors-4812, pinned by proxy.rs
+  a_sibling_read_carries_the_token_only_when_listed_and_same_site).
 - The server test makes a real sibling read and feeds the answer to the page's own parsers, so the producer's cut and
   the consumer are tested against each other.
 
