@@ -705,6 +705,7 @@ test('#3878: Windows feedback pull prints the shared summary through the engine 
   const engine = { feedbackpull: {
     pull: async () => ({ ok: true, written: 1, skipped: 2, unreadable: 2, lastGetError: 'blob GET HTTP 403', total: 3, dir: 'C:/fb' }),
     summaryLines: realFp.summaryLines,
+    nextLine: realFp.nextLine,
   } };
   const out = []; const err = [];
   const code = await cli.main(['feedback', 'pull'], { env: {}, hook: hookStub, engine, out: (s) => out.push(s), err: (s) => err.push(s),

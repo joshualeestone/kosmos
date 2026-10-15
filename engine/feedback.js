@@ -278,8 +278,20 @@ function list() {
 function pulledDir() { return require('./feedbackpull').defaultDir(); }
 /* Review 1: a regular .md file, not anything named like one (a subdirectory x.md is skipped by the reader). */
 function hasReports(folder) {
-  try { return fs.readdirSync(folder, { withFileTypes: true }).some((e) => e.isFile() && /\.md$/.test(e.name)); } catch { return false; }
+  let names;
+  try { names = fs.readdirSync(folder); } catch { return false; }
+  /* stat follows a link, as the reader's readFileSync does (review 3), so the two agree on what counts. */
+  return names.some((n) => { if (!/\.md$/.test(n)) return false; try { return fs.statSync(path.join(folder, n)).isFile(); } catch { return false; } });
 }
+/* This computer's own reports, through the store's reader (readBody drops the per-writer section markers, #5317). */
+function readOwn(since, reports) {
+  for (const date of list()) {
+    if (since && date < since) continue;
+    reports.push({ date, body: readBody(date) });
+  }
+}
+const samePath = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return path.resolve(a) === path.resolve(b); } };
+const newest = (reports) => reports.map((r) => r.date).filter(Boolean).sort().pop() || null;
 /* The reports in one folder of .md files, oldest first (a pulled folder, or a --dir). */
 function readFolder(folder, since, reports, notes) {
   let names;
@@ -302,7 +314,7 @@ function readFolder(folder, since, reports, notes) {
  * digest covers (win32-cli-verbs).
  *
  * Returns { ok, reports: [{date, body}], notes, read, because }. `read` is the folder
- * read. `notes` are the per-file skips (a subdirectory named x.md, a file that cannot
+ * read (a --dir naming this computer's own store reads it as the store). `notes` are the per-file skips (a subdirectory named x.md, a file that cannot
  * be read) and one line naming the folder read, which the caller prints on stderr and
  * carries on past; `ok:false` is a refusal (a bad --since,
  * an unreadable --dir), whose `because` the caller prints before exiting 2.
@@ -318,6 +330,12 @@ function reportsForTriage(opts) {
   const notes = [];
   if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
   const reports = [];
+  if (o.dir && samePath(o.dir, dir())) {
+    /* Review 3: --dir naming this computer's own store reads it as the default did, not as a plain folder. */
+    readOwn(since, reports);
+    notes.push('triage read this computer\'s own reports in ' + dir());
+    return { ok: true, reports, notes, read: dir() };
+  }
   if (o.dir) {
     if (!readFolder(o.dir, since, reports, notes)) return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes };
     notes.push('triage read the reports in ' + o.dir);
@@ -329,13 +347,11 @@ function reportsForTriage(opts) {
   const pulled = pulledDir();
   const pulledThere = hasReports(pulled);
   if (pulledThere && readFolder(pulled, since, reports, notes)) {
-    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it); --dir ' + dir() + ' reads this computer\'s own');
+    const last = newest(reports);
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + (last ? 'newest dated ' + last : 'none dated') + '); --dir ' + dir() + ' reads this computer\'s own');
     return { ok: true, reports, notes, read: pulled };
   }
-  for (const date of list()) {
-    if (since && date < since) continue;
-    reports.push({ date, body: readBody(date) });
-  }
+  readOwn(since, reports);
   /* Review 2: a pulled folder that held reports but could not be read (gone between the two looks) says so. */
   notes.push('triage read this computer\'s own reports in ' + dir() + ': ' + (pulledThere ? 'the pulled reports in ' + pulled + ' could not be read' : 'there are no pulled reports in ' + pulled + ' (kosmos feedback pull fetches them)'));
   return { ok: true, reports, notes, read: dir() };

@@ -13,11 +13,11 @@ feedbackpull.defaultDir() (`<data>/collected-feedback`). Nothing said which fold
   reportsForTriage's notes on stderr (install/kosmos, tools/windows/kosmos-cli.js), so the change is in the engine
   only. --dir is unchanged except for a note naming it. The result also carries `read` (the folder).
 - Rejected: changing pull to write into the own-reports store (it would mix this computer's own reports with
-  collected ones, and the daily job reads the pulled folder). Rejected: refusing with no --dir (the person ran the
+  collected ones, whose names and frontmatter differ). Rejected: refusing with no --dir (the person ran the
   plain command; reading the obvious folder and saying so is kinder).
 
 ## Evidence
-- engine/feedback.triagedir-6265.test.js 5/5 (pulled read and named; CONTROL own reports with the empty-pull note;
+- engine/feedback.triagedir-6265.test.js 11/11 (was 5 at first) (pulled read and named; CONTROL own reports with the empty-pull note;
   --dir unchanged and named; --since on the pulled folder with a both-dates CONTROL). Against the old engine: 4 fail.
 - feedback 25, feedback-triage 23, feedbackpull 37, the Windows CLI suites (verbs 15, 570 45, parity 12, body-file
   11), engine.reachable, fixture-discipline, comment-deferral, windows-tests-1777: pass.
@@ -40,3 +40,13 @@ a pull needs --dir; the note on every run tells them which folder was read.
   note now also names `--dir <own folder>` for reading this computer's own. WARNING: a pulled folder that vanished
   between the two looks was described as having no reports: the note now says it could not be read. CONVENTION: a
   doc line rewrapped.
+
+## Review 3 (opus), and what changed
+- No BLOCKER. WARNING: the note offered `--dir <own folder>`, which read it as a plain folder (keeping #5317's section
+  markers as digest items): --dir naming this computer's own store now reads it as the store does (test with a
+  two-writer day; CONTROL a plain copy keeps the markers; mutant red). WARNING: the age of the pulled data: the note
+  says the newest pulled report's date. NITs taken: a linked report counts (stat follows links, as the reader does);
+  a pull into the default folder ends `next: kosmos feedback triage` (feedbackpull.nextLine, both commands); the doc
+  says every run that reads names the folder. CONVENTION: this plan's test count and its rejected-option reason
+  (the daily job pulls into its own temp folder, not this one).
+- tools/test-feedback-triage.sh and tools/test-feedback-digest-daily.sh pass.
