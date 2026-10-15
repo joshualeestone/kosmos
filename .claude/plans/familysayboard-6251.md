@@ -71,3 +71,10 @@ coordinator half changes nothing a family's computer shows. This branch is where
 - Kept (NIT): "Your family could not undo joining your family" when a family has no name (rare; the follow-up wording
   pass, #6263); inKind's "its company's" rule is lower-case only (no sentence starts with it); a curly apostrophe in
   familywords-6239's lead sentence (that branch's).
+
+## Round 6 (sonnet): converged (zero NEW after dedup)
+- Repeats, deduplicated: the two rewrite copies (round 1, pinned by the paired test); the five company code sentences
+  (decided above and on #6251); a pending leave's kind (round 4; the reviewer found the downgrade unreachable).
+- New, judged not an issue: one helper for the five `KIND` derivations. Each function reads what only it knows (the
+  call, the record, the marker, the pending leave); a shared helper would take the same arguments, and rounds 3 to 5's
+  bugs were missing persisted kinds, which a helper would not have caught. NITs kept.
