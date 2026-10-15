@@ -247,3 +247,22 @@ test('#6209 part 3 review 2: an owner off the project or switched off is recorde
   assert.ok(stored(failing.id, failing.n).holdStaleTold[REX], 'not marked after MAX_TRIES failures');
   assert.equal(tries[hs.MAX_TRIES], undefined, 'tried again after giving up');
 });
+
+test('#6209 part 3 review 7: a hold older than any window still gives up after MAX_TRIES, and a told group is not retyped', () => {
+  const rows = (id) => [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const old = fixture();
+  const book = new Map();
+  const acts = [];
+  for (let i = 0; i < hs.MAX_TRIES + 2; i += 1) {
+    const res = pass(old.id, rows(old.id), holdAt(31 * 24 * HOUR), { book, deliver: () => ({ state: 'not-found' }) }).out.results[0];
+    acts.push(res ? res.act + ':' + (res.tries || '') : 'none');
+  }
+  assert.deepEqual(acts.slice(0, hs.MAX_TRIES), Array.from({ length: hs.MAX_TRIES }, (_, i) => 'tell:' + (i + 1)), 'tries restarted: ' + acts.join(' '));
+  assert.ok(stored(old.id, old.n).holdStaleTold[REX], 'a 31-day hold never gave up');
+  // A group the book holds as told is never typed again, even if its mark on the task was lost.
+  const lost = fixture();
+  const b2 = new Map();
+  pass(lost.id, rows(lost.id), holdAt(31 * 24 * HOUR), { book: b2 });
+  projects.mutate(lost.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === lost.n ? { ...t, holdStaleTold: undefined } : t)) }));
+  assert.equal(pass(lost.id, rows(lost.id), holdAt(31 * 24 * HOUR), { book: b2 }).sent.length, 0, 'retyped a told group whose mark was lost');
+});

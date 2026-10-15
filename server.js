@@ -23682,7 +23682,7 @@ function start(port = PORT) {
       const holdStaleTick = setInterval(() => {
         try {
           const projs = projects.readAll();
-          const anyHeld = projs.some((p) => p && !p.archived && Array.isArray(p.tasks) && p.tasks.some((t) => tasks.isOnHold(t) && !tasks.progressOf(t).closed));
+          const anyHeld = projs.some((p) => p && !p.archived && !projects.isPaused(p) && Array.isArray(p.tasks) && p.tasks.some((t) => tasks.isOnHold(t) && !tasks.progressOf(t).closed));
           if (!anyHeld) return;
           // Nothing is told while Kosmos may not type into agents, so the log is not read then either.
           const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
