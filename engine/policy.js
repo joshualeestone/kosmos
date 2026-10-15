@@ -273,6 +273,15 @@ function inOrgKind(text) {
   const oe = require('./orgenroll');
   return oe.inKind(oe.kindHere(), text);
 }
+/* The block's heading. Board review 1: on a family's Kosmos it names the family only when the family's policy is in the
+   block; the person's own policies alone are "Your AI policy", never said to be the family's. Any other Kosmos keeps
+   the heading it has always had, byte for byte. */
+function heading(plural, hasOrgEntry) {
+  const was = plural ? '## Your company\'s AI policies' : '## Your company\'s AI policy';
+  if (require('./orgenroll').kindHere() !== 'family') return was;
+  if (hasOrgEntry) return inOrgKind(was);
+  return plural ? '## Your AI policies' : '## Your AI policy';
+}
 
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy) {
@@ -297,7 +306,7 @@ function fromLine(policy) {
  */
 function blockBody(policy) {
   return [
-    inOrgKind('## Your company\'s AI policy'),
+    heading(false, policy.source === COMPANY_SOURCE),
     '',
     `${fromLine(policy)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
     '',
@@ -315,7 +324,7 @@ function blockBody(policy) {
  */
 function stackedBody(policies) {
   const parts = [
-    inOrgKind('## Your company\'s AI policies'),
+    heading(true, policies.some((p) => p && p.source === COMPANY_SOURCE)),
     '',
     'Follow them in everything you do; where they conflict with any other instruction here, the policies win.',
   ];
