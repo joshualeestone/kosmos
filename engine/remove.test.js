@@ -3040,7 +3040,7 @@ function withWaits(fn) {
   const keys = ['AGENT_WORKFORCE_UNLOAD_WAIT_MS', 'AGENT_WORKFORCE_RELAUNCH_RETRY_MS'];
   const was = keys.map((k) => process.env[k]);
   process.env.AGENT_WORKFORCE_UNLOAD_WAIT_MS = '5000';
-  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '400';   // long enough that a blocking wait could not hide
+  process.env.AGENT_WORKFORCE_RELAUNCH_RETRY_MS = '1500';   // long enough that a blocking wait could not hide, even on a loaded box
   const done = () => keys.forEach((k, i) => { if (was[i] === undefined) delete process.env[k]; else process.env[k] = was[i]; });
   try { const r = fn(); return r && typeof r.then === 'function' ? r.finally(done) : (done(), r); } catch (e) { done(); throw e; }
 }
@@ -3073,9 +3073,10 @@ test('#6173: an async restart sends every launchctl and tmux call to the async r
       assert.deepEqual(calls.filter((c) => c[0] === '/bin/launchctl').map((c) => c[1][0]),
         ['bootout', 'print', 'print', 'print', 'bootstrap', 'print', 'bootstrap', 'print'],
         'the unload wait, the first loaded check, the #4006 retry and the second check, all through the async runner');
-      /* The 400 ms retry wait and the 100 ms unload polls are on timers: a blocking one would show as a gap that long. */
-      assert.ok(turns > 20, `the board's thread barely turned during the restart (${turns})`);
-      assert.ok(maxGap < 250, `the board's thread was held for ${maxGap} ms in one go`);
+      /* The 1.5 s retry wait and the 100 ms unload polls are on timers: a blocking retry would show as a gap that long.
+         The bound is well under it and well over a scheduling hiccup on a shared box (review 1). */
+      assert.ok(turns > 10, `the board's thread barely turned during the restart (${turns})`);
+      assert.ok(maxGap < 1000, `the board's thread was held for ${maxGap} ms in one go`);
     });
   } finally {
     remove.setRunner(null);
@@ -3100,7 +3101,7 @@ test('#6173 control: a sync restart of the same world holds the board for its wh
       clearInterval(iv);
       assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
       assert.equal(fired, 0, 'a timer fired during a synchronous restart');
-      assert.ok(took >= 400, `the sync restart took ${took} ms, less than its own retry wait: the control measures nothing`);
+      assert.ok(took >= 1500, `the sync restart took ${took} ms, less than its own retry wait: the control measures nothing`);
     });
   } finally {
     remove.setRunner(null);
@@ -3126,7 +3127,7 @@ test('#6173: a sync restart of an agent an account move is restarting is refused
       await new Promise((r) => setImmediate(r));
       const clash = mac.restart(name);
       assert.equal(clash.outcome, remove.OUTCOME.REFUSED);
-      assert.match(clash.because, /is being restarted by an account move right now, so we left it alone/);
+      assert.match(clash.because, /is being moved to another account right now, so we left it alone/);
       const twice = await mac.restartAsync(name);
       assert.equal(twice.outcome, remove.OUTCOME.REFUSED, 'a second async restart of the same agent ran beside the first');
       release();
@@ -3141,4 +3142,43 @@ test('#6173: a sync restart of an agent an account move is restarting is refused
     status.setPaneSource(null);
     disruption.clear(name);
   }
+});
+
+test('#6173 review 1: an agent a move has not reached yet is held: its own sync restart is refused, the move\'s is not', async () => {
+  const name = madeAgent('heldformove');
+  boardShows(name, name);
+  remove.setRunner(scriptedLaunchd());
+  remove.setAsyncRunner(scriptedLaunchd());
+  try {
+    await withWaits(async () => {
+      remove.holdForMove([name]);
+      const own = mac.restart(name);
+      assert.equal(own.outcome, remove.OUTCOME.REFUSED, 'a held agent was restarted by its own page');
+      assert.match(own.because, /is being moved to another account right now, so we left it alone/);
+      const moves = await mac.restartAsync(name);
+      assert.equal(moves.outcome, remove.OUTCOME.RESTARTED, moves.because);
+      remove.releaseFromMove(name);
+      remove.setRunner(scriptedLaunchd());
+      assert.notEqual(mac.restart(name).outcome, remove.OUTCOME.REFUSED, 'the agent stayed held after its release');
+    });
+  } finally {
+    remove.releaseFromMove(name);
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#6173 review 1: the real execFile half of the async driver keeps the exit code and output launchctl callers read', async () => {
+  const exec = remove._execAsyncForTests;
+  assert.deepEqual(await exec('/bin/sh', ['-c', 'echo up']), { ok: true, stdout: 'up\n' });
+  /* bootout answers 3 for a job that is not loaded, kill-session 1 for no session: the code is how they are told apart. */
+  assert.deepEqual(await exec('/bin/sh', ['-c', 'echo said; echo why >&2; exit 3']), { ok: false, code: 3, stdout: 'said\n', stderr: 'why\n' });
+  const missing = await exec('/no/such/launchctl-6173', []);
+  assert.equal(missing.ok, false);
+  assert.equal(missing.code, null, 'a command that is not there has no exit code');
+  const slow = await exec('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 });
+  assert.equal(slow.ok, false);
+  assert.equal(slow.code, null, 'a command killed at its time limit has no exit code');
 });

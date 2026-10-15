@@ -13659,7 +13659,7 @@ const server = http.createServer(async (req, res) => {
    * not know the move (it restarted since): Settings reads that as not confirmed, never as moved.
    */
   if (pathname === '/api/agents/account' && req.method === 'POST') {
-    readBody(req)
+    readBody(req, 64 * 1024)   // 200 names and an account folder: a few KB; the cap is checked after the body is read
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -13669,6 +13669,8 @@ const server = http.createServer(async (req, res) => {
           forget: (n) => observed.forgetAgent(n),
           restartAsync: (n, cause) => removal.restartAsync(n, cause),
           RESTARTED: removal.OUTCOME.RESTARTED,
+          hold: (names) => removal.holdForMove(names),
+          release: (n) => removal.releaseFromMove(n),
         });
         sendJson(res, started.status, started.body);
       })

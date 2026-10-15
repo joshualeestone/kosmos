@@ -15,9 +15,11 @@ const RESTARTED = 'restarted-by-remove';
 
 /* A restart each test answers by hand: restartAsync returns a promise the test settles. */
 function deps({ refuse = [], account = { email: 'spare@example.com' } } = {}) {
-  const pending = new Map(), order = [], forgot = [], wrote = [];
+  const pending = new Map(), order = [], forgot = [], wrote = [], held = new Set();
   return {
-    pending, order, forgot, wrote,
+    pending, order, forgot, wrote, held,
+    hold: (names) => names.forEach((n) => held.add(n)),
+    release: (name) => held.delete(name),
     setAccount: (name, dir) => {
       wrote.push([name, dir]);
       return refuse.includes(name) ? { outcome: REFUSED, because: `${name} cannot go there` } : { outcome: 'changed', account };
@@ -45,10 +47,12 @@ test('#6173: the request saves every account and answers before any restart has 
   assert.deepEqual(out.body.agents.map((a) => [a.name, a.outcome]), [['al', 'pending'], ['bo', 'refused'], ['cy', 'pending']]);
   assert.equal(out.body.agents[1].because, 'bo cannot go there', 'a refusal carries the engine\'s own sentence at once');
   assert.deepEqual(d.order, ['al'], 'one restart at a time: the second waits for the first');
+  assert.deepEqual([...d.held].sort(), ['al', 'cy'], 'every agent the move will restart is held, a refused one is not');
 
   d.pending.get('al').resolve({ outcome: RESTARTED, steps: [] });
   await tick();
   assert.deepEqual(d.order, ['al', 'cy']);
+  assert.deepEqual([...d.held], ['cy'], 'an agent is released once its own restart has answered');
   const mid = accountmove.read(out.body.id);
   assert.deepEqual(mid.agents.map((a) => a.outcome), ['changed', 'refused', 'pending'], 'the record says how far it got');
   assert.match(mid.agents[0].because, /^al runs on spare@example\.com now\. It is starting again/);
@@ -82,15 +86,16 @@ test('#6173: a failure partway never reads as moved: a restart that throws, and 
   const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo', 'cy'] }, d);
   d.pending.get('al').reject(new Error('launchctl went away'));
   await tick();
-  d.pending.get('bo').resolve({ outcome: 'refused', because: 'bo is being restarted by an account move right now, so we left it alone.' });
+  d.pending.get('bo').resolve({ outcome: 'refused', because: 'bo is being moved to another account right now, so we left it alone.' });
   await tick();
   d.pending.get('cy').resolve({ outcome: RESTARTED });
   await out.done;
   const end = accountmove.read(out.body.id);
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'partial', 'changed'], 'only a RESTARTED is changed');
   assert.match(end.agents[0].because, /could not start it again: launchctl went away/);
-  assert.match(end.agents[1].because, /could not start it again: bo is being restarted/);
+  assert.match(end.agents[1].because, /could not start it again: bo is being moved to another account/);
   assert.equal(accountmove.busy(), false, 'the move ends, so the next one can run');
+  assert.deepEqual([...d.held], [], 'a move that failed partway holds nobody afterwards');
 });
 
 test('#6173: a move nobody started here is unknown (the board restarted): read answers null', () => {
@@ -124,4 +129,19 @@ test('#6173: the sentence names the chat that stays behind on a per-home account
     + 'Its files and projects come with it; its earlier Codex chat stays with the account it was on.');
   const claude = accountmove.sentence('al', { account: { email: 'a@b.c' } }, { outcome: RESTARTED }, RESTARTED);
   assert.match(claude.because, /Everything it has done comes with it\.$/);
+});
+
+test('#6173 review 1: a sentence that throws ends that agent as not confirmed, and the move goes on to the next', async () => {
+  const d = deps({ account: { get name() { throw new Error('odd account'); } } });
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo'] }, d);
+  d.pending.get('al').resolve({ outcome: RESTARTED });
+  await tick();
+  assert.deepEqual(d.order, ['al', 'bo'], 'the move stopped at the agent it could not word');
+  d.pending.get('bo').resolve({ outcome: RESTARTED });
+  await out.done;
+  const end = accountmove.read(out.body.id);
+  assert.equal(end.done, true);
+  assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'partial'], 'an agent the move could not word is not said as moved');
+  assert.equal(accountmove.busy(), false);
+  assert.deepEqual([...d.held], []);
 });

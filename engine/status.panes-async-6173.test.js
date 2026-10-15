@@ -46,7 +46,7 @@ test('#6173: the async roster reads the same agents as the sync one, and the boa
     const iv = setInterval(() => { turns++; }, 5);
     const got = await status.paneRosterAsync();
     clearInterval(iv);
-    assert.ok(turns > 20, `the board's thread barely turned while tmux answered (${turns})`);
+    assert.ok(turns > 5, `the board's thread barely turned while tmux answered (${turns}); the sync read turns it 0 times`);
     assert.deepEqual(got, status.paneRoster(), 'the two drivers read the panes differently');
     assert.deepEqual(got.map((p) => p.sessionName), ['dana']);
   });

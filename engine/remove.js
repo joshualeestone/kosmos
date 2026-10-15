@@ -112,7 +112,7 @@ function setDryRun(on) {
 
 /* Test seam (#1598): back to a clean fail-closed state (no runner, explicit
    dry-run flag off) so a test can exercise the live-execution gate itself. */
-function resetForTests() { runner = null; asyncRunner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; unloadWaits = []; RESTARTING.clear(); }
+function resetForTests() { runner = null; asyncRunner = null; DRY_RUN = false; lastRetryWaitAt = 0; lastBootstrap = null; unloadWaits = []; RESTARTING.clear(); HELD.clear(); }
 
 /**
  * #2570: can a caller BELIEVE an outcome from this module?
@@ -333,6 +333,10 @@ async function driveAsync(gen) {
 function runAsync(file, args, opts) {
   if (asyncRunner) return Promise.resolve(asyncRunner(file, args, opts));
   if (runner || DRY_RUN || !liveExec.liveExecutionAllowed()) return Promise.resolve(run(file, args, opts));
+  return execAsync(file, args, opts);
+}
+/* The live half of runAsync, apart so a test can run a real process through it (the gate keeps runAsync off it there). */
+function execAsync(file, args, opts) {
   return new Promise((resolve) => {
     const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
     let child;
@@ -2386,14 +2390,19 @@ function* restartSteps(name, cause, platform, startIfDead) {
 /* #6173: the agents an async restart is working on right now. A sync restart of one of them is refused rather than
    run alongside it: two bootout/bootstrap pairs interleaved on one job is the #3418 class (an agent left unloaded). */
 const RESTARTING = new Set();
-function busyRefusal(name) {
+/* #6173 review 1: and the agents a move has not reached yet. A sync restart of one of those ran, and the move then
+   restarted it again a minute later; so a move holds every agent it will restart until it has done that one. */
+const HELD = new Set();
+function holdForMove(names) { for (const n of names) HELD.add(create.cleanName(n)); }
+function releaseFromMove(name) { HELD.delete(create.cleanName(name)); }
+function busyRefusal(name, { held = true } = {}) {
   const clean = create.cleanName(name);
-  if (!RESTARTING.has(clean)) return null;
+  if (!RESTARTING.has(clean) && !(held && HELD.has(clean))) return null;
   const shown = (() => { try { return status.readIdentity(clean).displayName || clean; } catch { return clean; } })();
   return {
     outcome: OUTCOME.REFUSED,
     steps: [],
-    because: `${shown} is being restarted by an account move right now, so we left it alone. Try again when that has finished.`,
+    because: `${shown} is being moved to another account right now, so we left it alone. Try again when that has finished.`,
   };
 }
 
@@ -2409,7 +2418,7 @@ function restart(name, cause, opts) {
  * written as steps yet, so there each act still runs synchronously (a follow-up card).
  */
 async function restartAsync(name, cause, opts) {
-  const busy = busyRefusal(name);
+  const busy = busyRefusal(name, { held: false });   // the move that holds it is the one restarting it
   if (busy) return busy;
   const clean = create.cleanName(name);
   RESTARTING.add(clean);
@@ -2468,6 +2477,9 @@ module.exports = {
   sessionOps, // #570: same, for the session-ending dispatch both remove and restart share
   setRunner,
   setAsyncRunner,   // #6173: the async driver's command seam
+  holdForMove,      // #6173: engine/accountmove.js holds the agents it has yet to restart
+  releaseFromMove,
+  _execAsyncForTests: execAsync,   // #6173 review 1: the real execFile half of runAsync
   resetUnloadWaitsForTests: () => { unloadWaits = []; },   // #4964: the burst ledger only
   setDryRun,
   resetForTests,
