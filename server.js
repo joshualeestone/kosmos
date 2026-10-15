@@ -11288,8 +11288,7 @@ const server = http.createServer(async (req, res) => {
             /* #6176: the five-hour limit, from the same status line, or null when there is no current reading (a key,
                none recorded, or the window has reset). Same units as weekly: resetsAt and at in epoch ms. */
             fiveHour: require('./engine/accountsweekly').fiveHourOf(a, nowMs),
-            /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
-               records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
+            /* #6108: why there can be NO reading for this account, when that is known (on Windows too since #6213): 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
                #6175 review 13: 'linked-settings' instead of 'not-wired' when settings.json is a link whose file is not in this

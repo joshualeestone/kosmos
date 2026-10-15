@@ -35,11 +35,10 @@ function fiveHourOf(a, nowMs) {
   } catch { return null; }
 }
 
-/** Why there can be NO reading for this account, when that is known: 'windows', 'own-statusline', 'not-wired',
+/** Why there can be NO reading for this account, when that is known: 'own-statusline', 'not-wired',
     'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works. */
-function weeklyBlockedOf(a, platform = process.platform) {
+function weeklyBlockedOf(a) {
   if (!a || a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
-  if (platform === 'win32') return 'windows';
   const sp = path.join(a.dir, 'settings.json');
   const linkedAway = () => {   // #6175: the same test the set-up route makes before it writes
     try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }
