@@ -110,3 +110,10 @@ test('#6251 board review 1: an unknown join keeps the kind it was for, so a comp
   const j = JSON.parse(fs.readFileSync(path.join(r, 'org-join-unknown.json'), 'utf8'));
   assert.equal(j.orgKind, 'company', JSON.stringify(j));
 });
+
+test('#6251 board review 2: a first join undone says the used code goes back to whoever sent it, never to a company or a family', async (t) => {
+  const src = fs.readFileSync(path.join(__dirname, 'orgenroll.js'), 'utf8');
+  const undo = src.slice(src.indexOf('async function undoFirstJoin('), src.indexOf('\n}\n', src.indexOf('async function undoFirstJoin(')));
+  assert.match(undo, /That code is used up: ask whoever sent it for a new one\./);
+  assert.doesNotMatch(undo, /ask your (company|family)/);
+});
