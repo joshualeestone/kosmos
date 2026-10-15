@@ -391,8 +391,8 @@ test('#6183: each restart step builds the exact same systemctl argv (and timeout
   const recorded = [];
   linuxjob.setRunnerForTests((cmd, args) => { recorded.push([cmd, ...args]); return { ok: true, stdout: 'active\n' }; });
   t.after(() => linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); }));   // restore the before() runner
-  const syncArgv = {};
-  for (const act of ['stop', 'startOnly', 'loaded', 'status']) { recorded.length = 0; linuxjob[act](name, undefined); syncArgv[act] = recorded.slice(); }
+  const syncArgv = {}, syncRet = {};
+  for (const act of ['stop', 'startOnly', 'loaded', 'status']) { recorded.length = 0; syncRet[act] = linuxjob[act](name, undefined); syncArgv[act] = recorded.slice(); }
   // The steps yield { exec: ['systemctl', args, { timeout }] }; flatten to the same [cmd, ...args] shape, and pin the
   // timeout against the shared constant (the reviewer's "{timeout} could drift undetected" case).
   const stepArgvOf = (gen) => {
@@ -404,6 +404,11 @@ test('#6183: each restart step builds the exact same systemctl argv (and timeout
   assert.deepEqual(stepArgvOf(linuxjob.startOnlySteps(name, undefined)), syncArgv.startOnly, 'startOnlySteps argv drifted from startOnly');
   assert.deepEqual(stepArgvOf(linuxjob.loadedSteps(name, undefined)), syncArgv.loaded, 'loadedSteps argv drifted from loaded');
   assert.deepEqual(stepArgvOf(linuxjob.statusSteps(name, undefined)), syncArgv.status, 'statusSteps argv drifted from status');
+  // Return-value parity for the two acts whose parse lives INSIDE the function (loaded, status): the sync and the step
+  // now share one parser (activeOrActivating / statusOf), so a drift in the ==='active'/'enabled' test would surface
+  // here, not only in the argv. stop/startOnly are excluded: their verdict is classified by the caller, not inside.
+  assert.equal(driveLinSteps(linuxjob.loadedSteps(name, undefined), () => ({ ok: true, stdout: 'active\n' })).ret, syncRet.loaded, 'loadedSteps verdict drifted from loaded');
+  assert.deepEqual(driveLinSteps(linuxjob.statusSteps(name, undefined), () => ({ ok: true, stdout: 'active\n' })).ret, syncRet.status, 'statusSteps verdict drifted from status');
 });
 
 test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {
