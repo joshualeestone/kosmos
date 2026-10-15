@@ -218,7 +218,9 @@ function spills(t, workspace) {
     envs.push(close !== -1 && close < m.index ? close + 1 - lineStart : null);
     let size = null;
     const p = m[2];
-    if (inbox && p === path.join(inbox, path.basename(p)) && !path.basename(p).includes('..') && !p.endsWith(path.sep)) {
+    // The one guard: p must equal <inbox>/<its own basename> exactly, which refuses "..", deeper folders and a trailing
+    // separator (path.join normalizes, so any of those makes the two strings differ).
+    if (inbox && p === path.join(inbox, path.basename(p))) {
       try { const st = fs.lstatSync(p); size = st.isFile() ? st.size : null; } catch { size = null; }
     }
     bytes.push(size);

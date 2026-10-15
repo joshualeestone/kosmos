@@ -945,9 +945,10 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const outside = pathx.join(dir, 'outside.txt');
   fsx.writeFileSync(outside, 'secret');
   const steer = (p) => '[background from your colleague Mona in room x] x (long message, 5 words; the full text is in your own folder at ' + p + ')';
-  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, '..', 'outside.txt')), 'T', null, dir).spillBytes, [null]);
+  // A literal ".." in the line (built by hand, so path.join does not resolve it away first).
+  assert.deepEqual(front.turnRecord(steer(inbox + pathx.sep + '..' + pathx.sep + 'outside.txt'), 'T', null, dir).spillBytes, [null]);
   assert.deepEqual(front.turnRecord(steer(outside), 'T', null, dir).spillBytes, [null]);
-  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, 'sub') + pathx.sep), 'T', null, dir).spillBytes, [null], 'a trailing separator is refused');
+  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, 'sub') + pathx.sep), 'T', null, dir).spillBytes, [null], 'a trailing separator is refused (by the same equality guard)');
   // Words and sizes stay paired: one entry each per spill, a non-Inbox path giving null in its place.
   const mixed = front.turnRecord(steer(outside) + ' ' + line, 'T', null, dir);
   assert.deepEqual(mixed.spillWords, [5, 2400]);
