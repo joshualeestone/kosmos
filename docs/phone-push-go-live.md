@@ -253,8 +253,9 @@ and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
 
 **Superseded 2026-10-15 (kosmos #6262): no preview app was ever created, and the build is now
-`io.kosmos.app` under Kosmos Agent Manager, Inc. Kept for the record:** Interim, decided 2026-10-12
-(kosmos #4089, option A): TestFlight ships now as a separate app,
+`io.kosmos.app` under Kosmos Agent Manager, Inc.** The interim plan is kept below for the record.
+
+*Interim, decided 2026-10-12 (kosmos #4089, option A):* TestFlight ships now as a separate app,
 **`io.kosmos.app.preview`**, under the Stone Syndicate team (`ios/Signing.xcconfig` holds both),
 internal testers only. Apple transfers only an app with a version released on the App Store
 (App Transfer Criteria), so this app is never transferred: when #3643 is approved, the real app is

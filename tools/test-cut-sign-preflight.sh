@@ -123,14 +123,15 @@ fi
 # The sweep above looks for the CURRENT values, so right after a team switch it would be blind to a
 # leftover of the OLD team. Pin the Stone Syndicate team id (built from fragments so this file does
 # not match itself) everywhere, tests included: only the lib may carry it, and ios/Signing.xcconfig only while
-# it builds the interim preview app (checked below), so a leftover there after the iOS move is still caught.
+# it builds the interim preview app (checked below). The preview app was dropped (#6262) and the file now
+# builds io.kosmos.app, so today any Stone Syndicate id there is a leftover and is caught.
 # Only whole-line comments are unhashed in the pkg input, so a value line must not carry an inline one.
 _inline="$(grep -nE '^[[:space:]]*[A-Z_]+=.*[[:space:]]#' "$REPO/tools/lib/signing-identity.sh" || true)"
 [ -z "$_inline" ] && ok "no value line in lib/signing-identity.sh carries an inline comment (it would be hashed)" || bad "an inline comment on a value line in lib/signing-identity.sh would force a pkg rebuild: $_inline"
 _retired="864QZ""69GF2"; _retired_name="Stone Syndicate"" LLC"; _retired_key="43F2HU""5BT8"; _retired_iss="69a6de7f-a03e-47e3-""e053-5b8c7c11a4d1"
 # The iOS team file may name Stone Syndicate only while it builds the interim TestFlight app,
-# io.kosmos.app.preview (#4089). Once it builds io.kosmos.app, Stone Syndicate there is a leftover. This does not
-# depend on the Mac team in the lib, so the Mac switch and the iOS move need not land together.
+# io.kosmos.app.preview (#4089), which was never created and was dropped (#6262). It builds io.kosmos.app, so
+# Stone Syndicate there is a leftover. This does not depend on the Mac team in the lib.
 ios_xcconfig_may_name_stone() {   # $1 = an xcconfig; 0 when it builds the preview app, set once and plainly
   local b any
   any="$(sed 's|//.*||' "$1" 2>/dev/null | grep -cE '^[[:space:]]*KOSMOS_BUNDLE_ID([^A-Za-z0-9_]|$)' || true)"
