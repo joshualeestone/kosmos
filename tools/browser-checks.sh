@@ -1802,7 +1802,7 @@ fi
 # --- light root's hub line grazes an inner light root's face -- the #4499 bug. (An even 14-root board does NOT
 # --- cluster: equal slices leave 52px of clearance, so it stayed green pre-#4499 and was vacuous -- measured
 # --- 2026-10-15, hence this heavy-root shape.) render-org-first-ring-6196 checks every first-ring hub line clears
-# --- every face by the 12px rule at the phone squeeze, at a desktop and a phone width: the in-browser guard for the
+# --- every face by the 12px rule AS DRAWN (ORG_LINE_CLEAR x the drawn radius scale k, floored at 8.4px), at a desktop and a phone width: the in-browser guard for the
 # --- #4499 fix. Its own board: no org board above has a wide-enough first ring (lanes has one root). Pre-#4499 the
 # --- ungated placement grazes ~6.3px (measured via the page's own orgPlace), and a tree's settle preserves that (no
 # --- flat-only clearance force), so the check reds pre-#4499 and greens once orgPlaceGated floors it to ~18px.
