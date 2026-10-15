@@ -157,3 +157,9 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   treated as budget-cut (their waiting tails said and their marks move as usual), the same as the budget case.
 - Kept (rare): a comment whose previewed reply the board drops as malformed reads as one reply not reached, and makes
   the nudge's count name nobody; it needs a malformed row from the service.
+
+## Review 14 (sonnet)
+- Fixed: the "will be looked at again" wording only when every part not reached on the post was a failed page; a post
+  that also had a budget-cut thread says new ones may be missed (tested; dropping the condition fails it, measured).
+- Fixed: the first-wave test's window is 25 ms against 30 ms pages (headroom for a stalled machine).
+- Duplicate: a repeat is possible past SEEN_MAX ids above one mark (weakest premise).
