@@ -12,6 +12,7 @@
  *   dismiss    -> the X empties the slot; from the keyboard, focus moves to the K mark
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
+ *   (the retry, hidden-load and midnight arms are listed where they run)
  *   refused    -> the board's own refusal (403 to the streak, 404 to the first-run read): every refused request
  *                 finishes, so the page's network goes quiet (#6188). Every arm but the first-run one loads through
  *                 gotoReady, which answers first run as done.
@@ -351,15 +352,19 @@ const read = (pg) => pg.evaluate(() => {
     const streakReqs = new Set(); let ended = 0;
     pg.on('request', (q) => { if (q.url().endsWith('/api/streak')) streakReqs.add(q); });
     pg.on('requestfinished', (q) => { if (streakReqs.has(q)) ended++; });   // an aborted request is not a read body
+    let failed = 0; pg.on('requestfailed', (q) => { if (streakReqs.has(q)) failed++; });   // settled, but not a read body
     await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     // One minute at a time, letting each real refusal arrive and be read before the next tick, so the count depends
     // far less on how fast this machine is (a tick while an ask is pending is skipped; 2 to 6 leaves room for that).
-    const settle = async () => { for (let i = 0; i < 50 && ended < streakReqs.size; i++) await pg.waitForTimeout(100); };
+    // Up to 2 s per step for the refusals in flight to settle (finished or failed), so a red run reports in about a minute.
+    const settle = async () => { for (let i = 0; i < 20 && ended + failed < streakReqs.size; i++) await pg.waitForTimeout(100); };
     await settle();
     for (let m = 0; m < 30; m++) { await pg.clock.runFor(60 * 1000); await pg.waitForTimeout(50); await settle(); }
-    say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
+    // The page stops after five misses in a row (streakMisses >= 5): the load, then four ticks. A tick skipped while an
+    // ask is pending only delays the next, so 30 minutes always reach exactly five.
+    say(calls === 5 && streakReqs.size === calls, 'refused: asked five times in all, then stopped (30 minutes)', 'calls=' + calls + ' seen=' + streakReqs.size);
     say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
     say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
     await pg.close();
@@ -380,7 +385,7 @@ const read = (pg) => pg.evaluate(() => {
       } catch { await route.abort().catch(() => {}); }
     });
     await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":3,"congrats":false}' }).catch(() => {}));
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });   // not gotoReady: that answers /api/first-run, which this arm must refuse
     for (let i = 0; i < 80 && (sent.size === 0 || finished < sent.size); i++) await pg.waitForTimeout(100);
     say(sent.size >= 1, 'first run refused: the page sent its first-run read', 'sent=' + sent.size);
     say(statuses.length >= 1 && statuses.every((x) => x === 404), 'first run refused: the board itself refused (404)', JSON.stringify(statuses));
