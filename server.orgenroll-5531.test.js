@@ -756,31 +756,37 @@ test('#6232 review 10: when this board\'s enrollment ends (any path), its agents
   assert.match(src, /onEnrollmentEnded\(orgEnrollmentEnded\)/, 'start() no longer registers orgEnrollmentEnded');
 });
 
-test('#6232 review 11: an ask that ended the enrollment does not hand the agents the policy a second time', async (t) => {
+test('#6232 review 12: an ending hands the agents the change once, whether or not the listener was told', async (t) => {
   const live = require('./engine/live-execution');
   const policy = require('./engine/policy');
-  const { orgEnrollRefresh, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  const store = require('./engine/store');
+  const { orgEnrollRefresh, orgEnrollmentEnded, companyPolicySync, _orgRefreshResetForTests } = require('./server');
   _orgRefreshResetForTests();
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
-  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const enroll = () => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
   const realRefresh = oe.refresh;
   const realEntry = policy.companyEntry;
   const realSync = policy.syncEveryone;
   let entry = { name: 'Acme', text: 'Use only approved tools.' };
   let syncs = 0;
-  let answer = { ok: true, enrolled: false, stopped: true };   // this ask ended it (the listener already handed it over)
-  oe.refresh = async () => answer;
   policy.companyEntry = () => entry;
   policy.syncEveryone = () => { syncs += 1; return []; };
   t.after(() => { oe.refresh = realRefresh; policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
-  companyPolicySync();   // records the text the agents hold
-  entry = null;
   live.allowLiveExecution();
   try {
+    // The company's clear answer: the refresh tells the listener from inside, as engine/orgenroll.js does.
+    companyPolicySync();   // records the text the agents hold
+    enroll();
+    oe.refresh = async () => { entry = null; orgEnrollmentEnded(store.ROOT); return { ok: true, enrolled: false, stopped: true }; };
     await orgEnrollRefresh();
-    assert.equal(syncs, 0, 'an ask that ended the enrollment handed the agents the policy again after the listener did');
-    answer = { ok: true, enrolled: true };   // CONTROL: an ordinary answer still hands a change over
+    assert.equal(syncs, 1, 'an ending told to the listener handed the agents the change ' + syncs + ' times, not once');
+    // A pending Leave sent again ends it without telling the listener: the ask's own hand-over is the one.
+    _orgRefreshResetForTests();
+    entry = { name: 'Acme', text: 'Use only approved tools.' };
+    companyPolicySync();
+    enroll();
+    oe.refresh = async () => { entry = null; return { ok: true, enrolled: false, stopped: true }; };
     await orgEnrollRefresh();
-    assert.equal(syncs, 1, 'CONTROL: an ordinary answer did not hand the changed policy over');
+    assert.equal(syncs, 2, 'an ending the listener was not told about left the agents on the company\'s text');
   } finally { live.resetForTests(); }
 });
