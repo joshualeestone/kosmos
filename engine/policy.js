@@ -316,7 +316,8 @@ function heading(plural, hasOrgEntry, kind) {
 /* kosmos#6263 board review 3: every heading a block can carry on this Kosmos, without "## ", from heading() itself, so
    the re-read line (engine/instructionreread.js) names the section the agent actually has. */
 function headingsHere(kind = orgKindNow()) {
-  const all = [heading(false, true, kind), heading(true, true, kind), heading(false, false, kind), heading(true, false, kind)];
+  // The person's own headings first (kosmos#6270): a block of only their policies is the common case.
+  const all = [heading(false, false, kind), heading(true, false, kind), heading(false, true, kind), heading(true, true, kind)];
   return [...new Set(all.map((h) => h.replace(/^## /, '')))];
 }
 

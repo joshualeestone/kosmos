@@ -104,7 +104,11 @@ test('#6263 board review 3, #6270: on every Kosmos the re-read line names exactl
     assert.equal(named.length, new Set(blocks.map((b) => b.split('\n')[0])).size, `${kind}: ${line}`);
   }
   assert.ok(!/company/i.test(lines.family), lines.family);
-  assert.ok(lines.company.includes('"Your AI policy"'), lines.company);
+  // #6270: the person's own heading is named first, before the org's, on every Kosmos.
+  for (const [kind, line] of Object.entries(lines)) {
+    const own = line.indexOf('"Your AI policy"');
+    assert.ok(own > -1 && own < line.indexOf("'s AI polic"), `${kind}: ${line}`);
+  }
   enrolledAs(null);
 });
 
