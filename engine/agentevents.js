@@ -1109,10 +1109,14 @@ function readStateForUpdate(root) {
 }
 
 const RULES = new Set(['token-only-guard', 'sandbox']);
+/* kosmos#6239: the board's own refusals under the two family policy keys, and the one target each takes. */
+const BOARD_RULES = Object.freeze({ 'outside-contact': { action: 'network', targetClass: 'network-host' }, 'quiet-hours': { action: 'run', targetClass: 'other' } });
 function goodQueued(e) {
   return !!e && typeof e === 'object' && Number.isFinite(e.at) && typeof e.world === 'string' && e.world !== ''
     && label(e.agent) === e.agent && ref(e.sessionRef) === e.sessionRef && ref(e.toolUseRef) === e.toolUseRef
     && ((RULES.has(e.rule) && (RANK.includes(e.targetClass) || e.targetClass === 'network-host'))
+      || (Object.prototype.hasOwnProperty.call(BOARD_RULES, e.rule) && BOARD_RULES[e.rule].targetClass === e.targetClass
+        && BOARD_RULES[e.rule].action === e.action)
       /* #5683 slice 3: a manipulation flag, only with one of the check's own categories (a whitelist: any other rule or
          class is still dropped on read). */
       || (e.rule === 'manipulation-check' && MANIPULATION.some(([c]) => c === e.targetClass)))
@@ -1724,8 +1728,19 @@ async function tickOnce(opts) {
       writeState(root, a);
       return { sent: 0, because: 'reporting stopped while reading; nothing written or sent' };
     }
+    /* kosmos#6239: the board's own refusals (recordRefusal) wait in their own file, because this tick's state was read
+       before the awaits above and is written whole: one queued here meanwhile would be overwritten. They are taken in
+       now, with no await between this read and the write below (one process, so nothing interleaves), and only those of
+       this enrollment, from after `since`. */
+    const board = takeBoard(root, enrolledAs, sinceMs);
+    if (board.events.length) {
+      const have = new Set(st.pending.map(eventKey));
+      for (const e of board.events) if (!have.has(eventKey(e))) st.pending.push(e);
+      if (st.pending.length > PENDING_MAX) st.pending = st.pending.slice(-PENDING_MAX);
+    }
     /* Written only when it changed (Kitty's review 9: thousands of offsets rewritten every five minutes for nothing). */
     if (JSON.stringify(st) !== stRaw && !writeState(root, st)) return { sent: 0, because: 'this Kosmos cannot record what it has read' };
+    if (board.taken) board.commit();   // only once they are in the written state
     if (unwritten) UNWRITTEN_STOP = false;   // the withdrawn start is on disk now
     /* The calls are kept only now: had the write failed, the next tick re-reads those lines WITH their calls (review 23:
        a consumed call left the re-read classed without its target). */
@@ -1833,7 +1848,78 @@ async function tickOnce(opts) {
   }
 }
 
-module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
+/* kosmos#6239: the board refusing, under the policy, something an agent was to do (outside_contact: the community, a
+   federation, a room shared with another computer; quiet_hours: a start, or a new message). Queued for the company like
+   a refusal the guard saw, under the same consent words ("stopped by your company's rules": which agent, the kind of
+   thing it tried, when). There is no conversation behind it, so its session reference is BOARD_SESSION and its tool use
+   reference a fresh random id; the console's content view finds no conversation for it.
+   At most one per agent and rule in BOARD_GAP_MS, so an agent nudged every minute through quiet hours is one line, not
+   a spike. Not on Windows: nothing is sent from there yet (tickOnce), so nothing is kept there either. Synchronous and
+   never throws: { queued: true } | { queued: false, because }. */
+const BOARD_FILE = 'agent-events-board.json';
+const BOARD_SESSION = 'kosmos-board';
+const BOARD_GAP_MS = 10 * 60 * 1000;
+const BOARD_MAX = 100;
+function readBoard(root) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(root, BOARD_FILE), 'utf8'));
+    const events = Array.isArray(j && j.events) ? j.events.filter((e) => goodQueued(e) && typeof e.enrolledAs === 'string') : [];
+    const last = j && j.last && typeof j.last === 'object' ? Object.fromEntries(Object.entries(j.last).filter(([, v]) => Number.isFinite(v))) : {};
+    return { events, last };
+  } catch { return { events: [], last: {} }; }
+}
+function writeBoard(root, b) {
+  const file = path.join(root, BOARD_FILE);
+  const tmp = file + '.' + process.pid + '.tmp';
+  try { fs.writeFileSync(tmp, JSON.stringify(b), { mode: 0o600 }); fs.renameSync(tmp, file); return true; } catch {
+    try { fs.unlinkSync(tmp); } catch { /* none */ }
+    return false;
+  }
+}
+function recordRefusal({ agent, rule } = {}, opts) {
+  const o = opts || {};
+  try {
+    if (!Object.prototype.hasOwnProperty.call(BOARD_RULES, rule)) return { queued: false, because: 'not a rule the board reports' };
+    if ((o.platform || process.platform) === 'win32') return { queued: false, because: 'nothing is sent from Windows yet' };
+    const name = label(agent);
+    if (!name) return { queued: false, because: 'no agent name the company can be shown' };
+    const oe = o.enroll || require('./orgenroll');
+    const eo = { root: o.root, remote: o.remote };
+    if (!oe.mayReport(eo)) return { queued: false, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
+    const words = oe.acceptedConsent(eo);
+    if (!words || !words.reports.some((l) => l.toLowerCase().includes(EVENTS_CONSENT_PHRASE))) {
+      return { queued: false, because: 'the words accepted here do not name these events' };
+    }
+    const rec = oe.readEnrollment(eo);
+    if (!rec || typeof rec.world !== 'string' || !rec.world) return { queued: false, because: 'not the enrolled Kosmos' };
+    const root = o.root || require('./store').ROOT;
+    const now = o.now || Date.now();
+    const b = readBoard(root);
+    const key = name + '\u0000' + rule;
+    if (Number.isFinite(b.last[key]) && now - b.last[key] >= 0 && now - b.last[key] < BOARD_GAP_MS) return { queued: false, because: 'reported a moment ago' };
+    const { action, targetClass } = BOARD_RULES[rule];
+    b.events.push({ world: rec.world, agent: name, at: Math.floor(now / 1000), action, rule, targetClass,
+      sessionRef: BOARD_SESSION, toolUseRef: 'board-' + crypto.randomBytes(12).toString('hex'), enrolledAs: enrollmentKey(rec) });
+    if (b.events.length > BOARD_MAX) b.events = b.events.slice(-BOARD_MAX);
+    b.last[key] = now;
+    for (const k of Object.keys(b.last)) if (now - b.last[k] >= BOARD_GAP_MS || now - b.last[k] < 0) { if (k !== key) delete b.last[k]; }
+    return writeBoard(root, b) ? { queued: true } : { queued: false, because: 'this Kosmos could not record it' };
+  } catch (e) {
+    return { queued: false, because: String((e && e.message) || e) };
+  }
+}
+/* The queued board refusals of this enrollment from `sinceMs` on, without their enrollment key; commit() removes the
+   ones taken (and drops any of another enrollment, which can never be sent). */
+function takeBoard(root, enrolledAs, sinceMs) {
+  const b = readBoard(root);
+  if (!b.events.length) return { events: [], taken: false };
+  // In whole seconds, as `at` is: one in the same second as `since` is after it.
+  const mine = b.events.filter((e) => e.enrolledAs === enrolledAs && e.at >= Math.floor(sinceMs / 1000));
+  const events = mine.map(({ enrolledAs: _, ...e }) => e);
+  return { events, taken: true, commit: () => writeBoard(root, { events: [], last: b.last }) };
+}
+
+module.exports = { ROUTE, SEND_MAX, EVENTS_CONSENT_PHRASE, recordRefusal, BOARD_RULES, BOARD_SESSION, BOARD_FILE, scanText, classify, targetClass, label, ref, readFrom, sessionOf, tick, markWithdrawn, withdrawIfStopped, _readState: readState,
   manipulationOf, manipulationCheckOn, MANIPULATION_RULE: 'manipulation-check',
   _enrollmentKey: enrollmentKey,   // #5683 slice 3's tests write a state under the real key
   _defaultSources: defaultSources, _callFiles: () => [...CALLS.keys()] };   // the guard check's round-trip test (review 17)

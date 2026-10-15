@@ -90,7 +90,27 @@ function shapeOk(p) {
     if (typeof m !== 'object' || Array.isArray(m)) return false;
     if (!Object.values(m).every((v) => list(v) !== undefined && v !== null)) return false;
   }
+  /* kosmos#6239: the two keys this board enforces are held to the coordinator's exact shapes (kosmos-relay org.rs
+     policy_problem), so a bundle that would stop or open contact, or set a window, other than the company meant is
+     refused whole and the last good policy stays. A zone this runtime cannot read is refused here too (the coordinator
+     checks a zone's shape only). Other keys stay unread, as before. */
+  const oc = p.outside_contact;
+  if (oc !== null && oc !== undefined && !(oc && typeof oc === 'object' && !Array.isArray(oc)
+    && Object.keys(oc).length === 1 && typeof oc.enabled === 'boolean')) return false;
+  const q = p.quiet_hours;
+  if (q !== null && q !== undefined && !quietShapeOk(q)) return false;
   return true;
+}
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const minutesOf = (s) => Number(s.slice(0, 2)) * 60 + Number(s.slice(3));
+function zoneOk(tz) {
+  if (typeof tz !== 'string' || !/^[A-Za-z0-9_+-][A-Za-z0-9_+/-]{0,63}$/.test(tz)) return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+}
+function quietShapeOk(q) {
+  return !!q && typeof q === 'object' && !Array.isArray(q) && Object.keys(q).length === 4 && zoneOk(q.tz)
+    && typeof q.school_nights === 'boolean' && HHMM.test(q.from) && HHMM.test(q.to) && q.from !== q.to;
 }
 
 /**
@@ -200,6 +220,56 @@ function allows({ provider, model } = {}, policy = inForce()) {
   return { ok: true };
 }
 
+/* kosmos#6239: the two refusals are worded for whoever set the policy (a company, or a parent on a family account), so
+   neither says "company". */
+const POLICY_SETTER = 'the policy set for this Kosmos';
+
+/** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
+ *  with another computer). Stopped only by `outside_contact: { enabled: false }`; no policy, or the key unset, allows. */
+function contactAllows(policy = inForce()) {
+  const oc = policy && policy.outside_contact;
+  if (oc && typeof oc === 'object' && oc.enabled === false) {
+    return { ok: false, because: `${POLICY_SETTER} does not allow agents to reach anyone outside this computer` };
+  }
+  return { ok: true };
+}
+
+/* The local weekday (0 Sunday) and minute of the day at `ms` in `tz`. */
+function localClock(ms, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(ms));
+  const get = (t) => (parts.find((x) => x.type === t) || {}).value;
+  const day = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(get('weekday'));
+  return { day, minute: (Number(get('hour')) % 24) * 60 + Number(get('minute')) };
+}
+
+/** kosmos#6239: whether `ms` falls in the policy's quiet hours. A window belongs to the day it STARTS on: 21:00 to
+ *  07:00 on Sunday runs into Monday morning. With school_nights only windows starting Sunday to Thursday count, so
+ *  Friday and Saturday nights are free. { quiet: false } | { quiet: true, until: 'HH:MM', tz }. Never throws: a
+ *  value this board could not apply never reaches here (shapeOk refused its bundle), and a clock that fails reads as
+ *  not quiet rather than stopping every agent. */
+function quietAt(policy = inForce(), ms = Date.now()) {
+  const q = policy && policy.quiet_hours;
+  if (!quietShapeOk(q)) return { quiet: false };
+  let c;
+  try { c = localClock(ms, q.tz); } catch { return { quiet: false }; }
+  if (c.day < 0 || !Number.isFinite(c.minute)) return { quiet: false };
+  const from = minutesOf(q.from), to = minutesOf(q.to);
+  let startDay = null;
+  if (from < to) { if (c.minute >= from && c.minute < to) startDay = c.day; }
+  else if (c.minute >= from) startDay = c.day;
+  else if (c.minute < to) startDay = (c.day + 6) % 7;
+  if (startDay === null || (q.school_nights && startDay > 4)) return { quiet: false };
+  return { quiet: true, until: q.to, tz: q.tz };
+}
+
+/** kosmos#6239: { ok: true } | { ok: false, because } for starting an agent or giving one a new message now. */
+function quietAllows(policy = inForce(), ms = Date.now()) {
+  const q = quietAt(policy, ms);
+  if (!q.quiet) return { ok: true };
+  return { ok: false, because: `it is quiet hours until ${q.until} (${q.tz} time), under ${POLICY_SETTER}` };
+}
+
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
    naming it): its policy no longer applies here. The bundle and the policy go, so nothing re-applies it; a later join
    brings the company's current one. Review 3: the highest version seen for each company stays, so an older bundle
@@ -248,4 +318,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
