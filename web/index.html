@@ -742,13 +742,15 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #set-accounts .acct-usage-warn.high::before { background: var(--danger); }   /* themed: the raw reds fail on the dark card */
 /* #6178: the accounts on the person's other computers, under this computer's own list, in the same type as its rows.
    Scoped under #set-other-wrap to outrank `.panel p`, as the rows above are under #set-accounts. */
-#set-other-wrap { margin-top: 18px; }
 #set-other-wrap .ao-computer { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--k-rule); }
 #set-other-wrap .ao-acct { display: flex; flex-direction: column; gap: 6px; }
 #set-other-wrap .ao-name { margin: 0; font-weight: 650; color: var(--label); overflow-wrap: anywhere; }
 #set-other-wrap .ao-acct-name { margin: 0; font-size: .875rem; color: var(--label); overflow-wrap: anywhere; }
 #set-other-wrap .ao-note, #set-other-wrap .acct-usage-line, #set-other-wrap .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); overflow-wrap: anywhere; }
 #set-other-wrap .ao-note, #set-other-wrap .acct-usage-none { color: var(--label-2); }
+#set-other-wrap .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
+#set-other-wrap .acct-usage-warn::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--warn-ink); transform: translateY(-1px); }
+#set-other-wrap .acct-usage-warn.high::before { background: var(--danger); }
 .acct-move { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .acct-move select { min-height: 44px; font-size: .875rem; max-width: 100%; }
 /* The account panel's own primary action shape (Sign in again's gold outline), so Move reads as this panel's button. */
@@ -18102,13 +18104,6 @@ window.kosmosMeasureScrollbarWidth();
            write already queued. Focus a container, let the live region speak. -->
       <div id="set-accounts" tabindex="-1"></div>
       <p class="dhint" id="set-accounts-msg" role="status" aria-live="polite" style="margin:10px 0 0;"></p>
-      <!-- kosmos#6178: the accounts on the person's OTHER computers, read by this browser from each one (the #4812
-           sibling path), never through our server. Painted by aoPaint; hidden when there is nothing to say. -->
-      <div id="set-other-wrap" class="ao-wrap" hidden>
-        <h4 class="dlab">On your other computers</h4>
-        <p class="dhint" id="set-other-note"></p>
-        <div id="set-other"></div>
-      </div>
       <!-- #248, LIVE: the browser sign-in the first run already has, on this
            button. POST /api/connect/start { another: true } (Angel's frozen
            contract): the engine picks the next free work directory itself
@@ -18123,6 +18118,14 @@ window.kosmosMeasureScrollbarWidth();
            moved inside the dialog below (same flows, same functional
            rule: one provider at a time). -->
       <button class="btn acct-add-door" type="button" id="acct-add-open" style="margin-top:12px;">+ Add a provider</button>
+    </section>
+    <!-- kosmos#6178: the accounts on the person's OTHER computers, in their own box under this computer's (design review:
+         "+ Add a provider" belongs to this computer's box). Read by this browser from each computer (the #4812 sibling
+         path), never through our server. Painted by aoPaint; hidden when there is nothing to say. -->
+    <section class="dbox" id="set-other-wrap" hidden>
+      <h3 class="dlab">On your other computers</h3>
+      <p class="dhint" id="set-other-note"></p>
+      <div id="set-other"></div>
     </section>
   </section>
   <section class="dsec" id="s-sec-connect" data-sec="connect" tabindex="-1" aria-label="Connections" hidden>
@@ -30590,6 +30593,9 @@ function aoGroup(c, seen, ao, now) {
         meter.appendChild(aoEl('p', 'acct-usage-line', u.line));
         row.appendChild(meter);
         if (u.frozen) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.frozen));
+        if (u.pct >= ACCT_WARN_PCT) {   // the row's own warning; its Move sentence is left out (a move acts on that computer)
+          row.appendChild(aoEl('p', 'acct-usage-warn' + (u.pct >= ACCT_HIGH_PCT ? ' high' : ''), u.pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.'));
+        }
       } else if (u.line) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
       const names = ao.agents.filter((a) => a.acct === e.key).map((a) => a.name);
       const some = ao.unknown > 0 ? ' (some could not be checked)' : '';   // the row's own words for an incomplete list
@@ -30619,7 +30625,7 @@ function aoPaint() {
     wrap.hidden = !elsewhere;
     return;
   }
-  noteEl.textContent = 'As each computer reads its own accounts. Usage on one computer is not added to another\'s.';
+  noteEl.textContent = 'Each computer reads its own accounts. Usage on one is not added to another\'s.';
   const now = Date.now();
   /* One group at a time, only when its words changed, so focus in an unchanged group stays (web.otheraccounts-6178).
      Age words alone ("2 minutes ago") are written into the kept group in place; the meter is not rewritten there, which

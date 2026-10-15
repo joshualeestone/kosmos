@@ -135,7 +135,10 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
         })),
         buttons: g.querySelectorAll('button, select').length,
       }));
+      const add = document.getElementById('acct-add-open');
       return { shown: !!wrap && !wrap.hidden, note: document.getElementById('set-other-note').textContent, groups,
+        afterAdd: !!(add && wrap && (add.compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING) && !wrap.contains(add) && !add.closest('#set-other-wrap')),
+        ownBox: !!wrap && wrap.classList.contains('dbox') && !wrap.closest('#set-accounts'),
         pwned: !!window.__aoPwned, imgs: document.querySelectorAll('#set-other img').length,
         sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
     });
@@ -153,6 +156,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
         const r = await read(page);
         chk(landed && r.shown, 'S1 the section shows under this computer\'s accounts' + tag, JSON.stringify(r).slice(0, 220));
         chk(JSON.stringify(r.groups.map((g) => g.name)) === JSON.stringify(['studio', 'workshop', 'oldmac']), 'S1 one group per OTHER computer' + tag, r.groups.map((g) => g.name).join(','));
+        chk(r.ownBox && r.afterAdd, 'S1 its own box, after this computer\'s "+ Add a provider" (design review)' + tag, JSON.stringify({ ownBox: r.ownBox, afterAdd: r.afterAdd }));
         const a = r.groups[0] || { accts: [] };
         const main = a.accts[0] || {}, work = a.accts[1] || {};
         chk(main.who === 'person@example.com' && main.width === '82%' && /^82% of its weekly limit used · resets .+ · Kosmos last saw it change /.test(main.usage),

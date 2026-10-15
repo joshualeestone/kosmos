@@ -147,7 +147,8 @@ test('#6178 the usage words are the ones the row on that computer uses (acctUsag
   const row = slice('acctUsageHtml');
   const mine = slice('aoUsageWords') + slice('aoGroup');
   for (const piece of ["'% of its weekly limit used · resets '", "' · Kosmos last saw it change '",
-    "'No usage reading for this account yet. Kosmos reads it while an agent on it is working.'", "' (some could not be checked)'"]) {
+    "'No usage reading for this account yet. Kosmos reads it while an agent on it is working.'", "' (some could not be checked)'",
+    "'At its weekly limit.'", "'Close to its weekly limit.'"]) {
     assert.ok(row.includes(piece), 'CONTROL: the row no longer says ' + piece + '; re-anchor');
     assert.ok(mine.includes(piece), 'the other computers\' section words this differently: ' + piece);
   }
@@ -454,4 +455,17 @@ test('#6178 a few seconds between the clocks (the read\'s own round trip) is tak
   const now = Date.now();
   api.aoKeep('studio.kosmosplus.com', 'ok', { ...STATUS, checkedAt: new Date(now - 8000).toISOString() }, now);
   assert.equal(api.AO_SEEN.get('studio.kosmosplus.com').skew, 0, 'an 8 s round trip moved the reset time');
+});
+
+test('#6178 an account at 75% or more carries the row\'s warning, and no Move (design review)', () => {
+  const { api } = load();
+  const now = Date.now();
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  const at = (pct) => api.aoGroup(c, { state: 'ok', at: now }, { accounts: [{ key: 'a0', email: 'p@example.com', weekly: { usedPct: pct, resetsAt: now + 864e5, at: now }, blocked: null }], agents: [], unknown: 0, at: now }, now);
+  const warn = (g) => g.querySelectorAll('.acct-usage-warn').map((n) => [n.textContent, n.className]);
+  assert.deepEqual(warn(at(82)), [['Close to its weekly limit.', 'acct-usage-warn']]);
+  assert.deepEqual(warn(at(93)), [['Close to its weekly limit.', 'acct-usage-warn high']]);
+  assert.deepEqual(warn(at(100)), [['At its weekly limit.', 'acct-usage-warn high']]);
+  assert.deepEqual(warn(at(40)), [], 'CONTROL: 40% was warned about');
+  assert.doesNotMatch(text(at(82)), /Move/, 'a move was offered for another computer\'s account');
 });
