@@ -94,3 +94,42 @@ test('#6265 review 1: an undated pulled report (undated__<install>.md) is skippe
   assert.deepEqual(feedback.reportsForTriage({ since: '2026-10-01' }).reports.map((r) => r.date), ['2026-10-14']);
   assert.equal(feedback.reportsForTriage({}).reports.length, 2);
 });
+
+test('#6265 review 3: --dir naming this computer\'s own folder reads it as the store does (section markers dropped)', () => {
+  reset();
+  // A day two writers shared (#5317): each section starts with a marker line the store's reader removes.
+  fs.writeFileSync(path.join(OWN, '2026-10-02.md'), '<!-- kosmos-feedback-from: ann -->\none thing\n<!-- kosmos-feedback-from: bob -->\nanother\n');
+  const viaDir = feedback.reportsForTriage({ dir: OWN });
+  const viaDefault = feedback.reportsForTriage({});
+  assert.equal(viaDefault.read, OWN, 'PRECONDITION: nothing pulled, the default reads the store');
+  assert.deepEqual(viaDir.reports, viaDefault.reports);
+  assert.ok(!viaDir.reports.some((r) => /kosmos-feedback-from/.test(r.body)), 'a marker line reached the digest');
+  // CONTROL: the same file read as a plain folder keeps the marker lines, so the store reader is what removed them.
+  const plain = path.join(SANDBOX, 'plain-copy');
+  fs.mkdirSync(plain, { recursive: true });
+  fs.copyFileSync(path.join(OWN, '2026-10-02.md'), path.join(plain, '2026-10-02.md'));
+  assert.ok(feedback.reportsForTriage({ dir: plain }).reports.some((r) => /kosmos-feedback-from/.test(r.body)));
+});
+
+test('#6265 review 3: the pulled note says how old the newest pulled report is', () => {
+  reset();
+  pulled(feedbackpull.fileName({ date: '2026-10-09', install: 'a' }), '---\ndate: 2026-10-09\n---\nx\n');
+  pulled(feedbackpull.fileName({ date: '2026-10-12', install: 'b' }), '---\ndate: 2026-10-12\n---\ny\n');
+  assert.ok(feedback.reportsForTriage({}).notes.some((n) => n.includes('newest dated 2026-10-12')));
+});
+
+test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', () => {
+  reset();
+  const real = path.join(SANDBOX, 'real-report.md');
+  fs.writeFileSync(real, '---\ndate: 2026-10-13\n---\nlinked\n');
+  fs.mkdirSync(PULLED, { recursive: true });
+  fs.symlinkSync(real, path.join(PULLED, feedbackpull.fileName({ date: '2026-10-13', install: 'l' })));
+  const got = feedback.reportsForTriage({});
+  assert.equal(got.read, PULLED);
+  assert.deepEqual(got.reports.map((r) => r.date), ['2026-10-13']);
+});
+
+test('#6265 review 3: a pull into the default folder ends with the plain triage command', () => {
+  assert.equal(feedbackpull.nextLine(PULLED), 'next: kosmos feedback triage');
+  assert.equal(feedbackpull.nextLine('/somewhere/else'), 'next: kosmos feedback triage --dir /somewhere/else');
+});

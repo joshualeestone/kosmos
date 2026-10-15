@@ -1711,15 +1711,15 @@ async function feedbackPull(ctx, args) {
     if (!args.length) { ctx.err('--dir needs a path'); return 2; }
     dir = args.shift();
   }
-  let r; let lines;
+  let r; let lines; let next;
   try {
     const fp = ctx.engine('feedbackpull');
     r = await fp.pull(dir || undefined);
-    if (r.ok) lines = fp.summaryLines(r);
+    if (r.ok) { lines = fp.summaryLines(r); next = fp.nextLine(r.dir); }   // #6265: plain when it is the default folder
   } catch { ctx.err('could not pull the collected feedback'); return 1; }
   if (!r.ok) { ctx.err(r.because); return 1; }
   for (const line of lines) ctx.out(line);
-  ctx.out('next: kosmos feedback triage --dir ' + r.dir);
+  ctx.out(next);
   return 0;
 }
 
