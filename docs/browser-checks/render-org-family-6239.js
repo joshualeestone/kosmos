@@ -1,0 +1,248 @@
+#!/usr/bin/env node
+// Browser-check-surface: plus-org-family plus-org-family-lead plus-org-family-accept plus-org-family-no plus-org-family-reports plus-org-family-backsup plus-org-family-readers plus-org-family-never
+/*
+ * kosmos#6239 (Kosmos+Kids, slice 2; Josh 10-15 10:42): a FAMILY account's words are read and accepted by a parent
+ * before this computer joins. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the
+ * board's /api/org routes, so nothing reaches a board or a coordinator, in chromium and webkit.
+ *
+ *   F0  a COMPANY code still joins at once (#5791): no family words, one enroll of exactly { code, accepted, ticket }.
+ *   F1  a FAMILY code stops after the preview: the words show (lead names the family and the parent or guardian, then
+ *       every list the coordinator sent), focus is on the words, and nothing is enrolled.
+ *   F2  Accept and join sends exactly { code, accepted: true, ticket, wordsShown: true }; the words close, the joined
+ *       view shows with no line under it, and focus is on the joined view's sentence.
+ *   F3  Not now joins nothing, says so, and puts focus on the code field; Escape inside the words does the same.
+ *   F4  another code typed over the words closes them.
+ *   F5  a refusal with a code closes the words and puts focus on Connect; org_bad_world keeps them.
+ *   F6  a family that backs up nothing says "Nothing is backed up."; a part with no lines hides its heading.
+ *   F7  a family member moving here joins with no code, still only after Accept, with wordsShown.
+ *   F8  390 wide: the words fit, with no sideways scroll.
+ *   F9  no page errors.
+ */
+const path = require('node:path');
+const playwright = require('playwright');
+
+const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
+const SHOTS = process.argv[2] || null;
+const fail = [];
+function chk(ok, label, extra) {
+  console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
+  if (!ok) fail.push(label);
+}
+
+const FAMILY_WORDS = {
+  reports: ['agent names, the AI provider and model each uses', 'project names'],
+  backsUp: ['agent folders and their files'],
+  readers: ['the parents and guardians of this family account'],
+  never: ['keys and passwords'],
+};
+const COMPANY_WORDS = { reports: ['agent names'], backsUp: [], readers: ['your company'], never: ['keys and passwords'] };
+
+function harness() {
+  return () => {
+    window.setInterval = () => 0;
+    window.__org = [];
+    const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
+    window.fetch = async (url, init) => {
+      const u = String(url);
+      const body = init && init.body ? JSON.parse(init.body) : null;
+      if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
+      if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, role: 'member', ticket: 't-' + window.__org.length }, window.__preview || {}));
+      if (u.endsWith('/api/org/enroll')) {
+        const a = window.__enrollAnswer || { ok: true, org: (window.__preview || {}).org, role: 'member' };
+        if (a.ok) window.__joined = true;
+        return enc(a);
+      }
+      if (u.endsWith('/api/org') && window.__joined) return enc({ enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' });
+      if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null });
+      if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });
+      if (u.includes('/api/history')) return enc({ readable: false });
+      return enc({});
+    };
+  };
+}
+
+async function run(engineName) {
+  const E = '[' + engineName + ']';
+  const browser = await playwright[engineName].launch();
+  const errs = [];
+  try {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 900 } });
+    page.on('pageerror', (e) => errs.push(e.message));
+    await page.addInitScript(harness());
+    await page.goto(PAGE);
+    if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
+    await page.waitForFunction(() => (window.__org || []).some((x) => x.path === '/api/org' && x.method === 'GET'), null, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(200);
+
+    const shown = (id) => page.evaluate((i) => { const el = document.getElementById(i); return !!el && !el.hidden && el.getClientRects().length > 0; }, id);
+    const text = (id) => page.evaluate((i) => document.getElementById(i).textContent, id);
+    const focus = () => page.evaluate(() => document.activeElement && document.activeElement.id);
+    const lis = (id) => page.evaluate((i) => [...document.querySelectorAll('#' + i + ' li')].map((li) => li.textContent), id);
+    const mark = () => page.evaluate(() => window.__org.length);
+    const posts = (n) => page.evaluate((k) => window.__org.slice(k).filter((x) => x.method === 'POST'), n);
+    const setPreview = (p) => page.evaluate((v) => { window.__preview = v; }, p);
+    const setEnroll = (a) => page.evaluate((v) => { window.__enrollAnswer = v; }, a);
+    const reset = () => page.evaluate(() => { window.__joined = false; window.__enrollAnswer = null; });
+    const open = async () => {
+      if (!(await shown('plus-org-out'))) await page.click('#plus-org-open');
+      await page.waitForFunction(() => { const el = document.getElementById('plus-org-out'); return el && !el.hidden; }, null, { timeout: 5000 }).catch(() => {});
+    };
+    // Connect, and settle on: the family's words, the joined view, or a line under the field.
+    const connect = async (code) => {
+      await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+      await page.fill('#plus-org-code', code);
+      await page.click('#plus-org-check');
+      await page.waitForFunction(() => !document.getElementById('plus-org-family').hidden || !document.getElementById('plus-org-in').hidden
+        || document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    };
+    // Back to "not joined" through the page's own read of /api/org.
+    const unjoin = async () => {
+      await reset();
+      await page.evaluate(async () => { PLUS_ORG.state = null; PLUS_ORG.open = false; plusOrgFamilyHide(); plusOrgPaint(); });
+      await page.waitForTimeout(100);
+    };
+    const FAMILY = { org: { id: 'org_f', name: 'The Rivera family', slug: 'rivera', kind: 'family' }, consent: FAMILY_WORDS };
+    const COMPANY = { org: { id: 'org_c', name: 'Acme', slug: 'acme', kind: 'company' }, consent: COMPANY_WORDS };
+
+    // F0: a company joins at once, as before.
+    await open();
+    await setPreview(COMPANY);
+    let m = await mark();
+    await connect('ACME-CODE');
+    let p = await posts(m);
+    const enroll0 = p.find((x) => x.path === '/api/org/enroll');
+    chk(!(await shown('plus-org-family')) && await shown('plus-org-in') && p.length === 2 && enroll0
+        && JSON.stringify(Object.keys(enroll0.body).sort()) === JSON.stringify(['accepted', 'code', 'ticket']) && enroll0.body.accepted === true,
+      E + ' F0 a company code joins at once: no family words, enroll is exactly { code, accepted, ticket }', JSON.stringify(p.map((x) => [x.path, x.body])));
+    await unjoin();
+
+    // F1: a family stops after the preview and shows its words.
+    await open();
+    await setPreview(FAMILY);
+    m = await mark();
+    await connect('RIVERA-CODE');
+    p = await posts(m);
+    const f1 = {
+      box: await shown('plus-org-family'), lead: await text('plus-org-family-lead'), focus: await focus(),
+      reports: await lis('plus-org-family-reports'), backs: await lis('plus-org-family-backsup'), readers: await lis('plus-org-family-readers'),
+      never: await text('plus-org-family-never'), accept: (await text('plus-org-family-accept')).trim(), no: (await text('plus-org-family-no')).trim(),
+      group: await page.evaluate(() => { const el = document.getElementById('plus-org-family'); return el.getAttribute('role') + '|' + el.getAttribute('aria-label'); }),
+      joined: await shown('plus-org-in'),
+    };
+    chk(f1.box && !f1.joined && p.length === 1 && p[0].path === '/api/org/preview',
+      E + ' F1 a family code stops after the preview: the words show and nothing is enrolled', JSON.stringify(p.map((x) => x.path)));
+    chk(f1.lead.includes('The Rivera family is a family account.') && f1.lead.includes('parent or guardian') && f1.focus === 'plus-org-family-lead',
+      E + ' F1 the lead names the family and the parent or guardian, and focus is on the words', JSON.stringify({ lead: f1.lead, focus: f1.focus }));
+    chk(JSON.stringify(f1.reports) === JSON.stringify(FAMILY_WORDS.reports) && JSON.stringify(f1.backs) === JSON.stringify(FAMILY_WORDS.backsUp)
+        && JSON.stringify(f1.readers) === JSON.stringify(FAMILY_WORDS.readers) && f1.never === 'Never sent: keys and passwords.',
+      E + ' F1 every part of the words shows, as the coordinator sent it', JSON.stringify(f1));
+    chk(f1.accept === 'Accept and join' && f1.no === 'Not now' && f1.group === "group|The family's words",
+      E + ' F1 Accept and join, Not now, and a labelled group', JSON.stringify({ a: f1.accept, n: f1.no, g: f1.group }));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-words-' + engineName + '.png') });
+
+    // F2: Accept and join sends wordsShown and joins.
+    m = await mark();
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden || document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    p = await posts(m);
+    const e2 = p.find((x) => x.path === '/api/org/enroll');
+    chk(p.length === 1 && e2 && JSON.stringify(Object.keys(e2.body).sort()) === JSON.stringify(['accepted', 'code', 'ticket', 'wordsShown'])
+        && e2.body.code === 'RIVERA-CODE' && e2.body.accepted === true && e2.body.wordsShown === true && typeof e2.body.ticket === 'string',
+      E + ' F2 Accept and join sends exactly { code, accepted: true, ticket, wordsShown: true }', JSON.stringify(p.map((x) => x.body)));
+    const f2 = { box: await shown('plus-org-family'), joined: await shown('plus-org-in'), msg: await text('plus-org-msg'), focus: await focus(), code: await page.inputValue('#plus-org-code') };
+    chk(!f2.box && f2.joined && f2.msg === '' && f2.focus === 'plus-org-say' && f2.code === '',
+      E + ' F2 joined: the words close, the joined view shows with no line under it, focus on its sentence', JSON.stringify(f2));
+    await unjoin();
+
+    // F3: Not now, then Escape inside the words.
+    for (const how of ['button', 'escape']) {
+      await open();
+      await setPreview(FAMILY);
+      await connect('RIVERA-CODE');
+      m = await mark();
+      if (how === 'button') await page.click('#plus-org-family-no');
+      else { await page.focus('#plus-org-family-lead'); await page.keyboard.press('Escape'); }
+      await page.waitForTimeout(150);
+      p = await posts(m);
+      const f3 = { box: await shown('plus-org-family'), msg: await text('plus-org-msg'), focus: await focus(), joined: await shown('plus-org-in') };
+      chk(!f3.box && !f3.joined && p.length === 0 && f3.msg === 'Nothing was joined.' && f3.focus === 'plus-org-code',
+        E + ' F3 ' + (how === 'button' ? 'Not now' : 'Escape in the words') + ' joins nothing, says so, focus on the code field', JSON.stringify(f3));
+    }
+
+    // F4: another code typed over the words closes them.
+    await setPreview(FAMILY);
+    await connect('RIVERA-CODE');
+    const before4 = await shown('plus-org-family');
+    await page.type('#plus-org-code', 'X');
+    await page.waitForTimeout(100);
+    chk(before4 && !(await shown('plus-org-family')), E + ' F4 typing another code closes the words', JSON.stringify({ before4 }));
+
+    // F5: a refusal with a code closes the words; org_bad_world keeps them.
+    await page.fill('#plus-org-code', '');
+    await setPreview(FAMILY);
+    await connect('RIVERA-CODE');
+    await setEnroll({ ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent reads its words.' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    const f5a = { box: await shown('plus-org-family'), msg: await text('plus-org-msg'), focus: await focus(), joined: await shown('plus-org-in') };
+    chk(!f5a.box && !f5a.joined && f5a.msg === 'A family joins only after a parent reads its words.' && f5a.focus === 'plus-org-check',
+      E + ' F5 a refusal with a code closes the words, says why, focus on Connect', JSON.stringify(f5a));
+    await setEnroll(null);
+    await setPreview(FAMILY);
+    await connect('RIVERA-CODE');
+    await setEnroll({ ok: false, code: 'org_bad_world', because: 'This is not your work Kosmos.' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    const f5b = { box: await shown('plus-org-family'), msg: await text('plus-org-msg') };
+    chk(f5b.box && f5b.msg === 'This is not your work Kosmos.', E + ' F5 org_bad_world keeps the words up', JSON.stringify(f5b));
+    await setEnroll(null);
+    await page.click('#plus-org-family-no');
+
+    // F6: a family that backs up nothing, with no readers listed.
+    await setPreview({ org: FAMILY.org, consent: { reports: ['project names'], backsUp: [], backsUpNone: true, readers: [], never: [] } });
+    await connect('RIVERA-CODE');
+    const f6 = { backs: await lis('plus-org-family-backsup'), backsHead: await shown('plus-org-family-backsup-head'),
+      readersHead: await shown('plus-org-family-readers-head'), never: await text('plus-org-family-never') };
+    chk(JSON.stringify(f6.backs) === JSON.stringify(['Nothing is backed up.']) && f6.backsHead && !f6.readersHead && f6.never === '',
+      E + ' F6 "Nothing is backed up." shows; an empty part hides its heading; no never line is invented', JSON.stringify(f6));
+    await page.click('#plus-org-family-no');
+
+    // F7: a family member moving here joins with no code, still only after Accept.
+    await page.fill('#plus-org-code', '');
+    await setPreview(Object.assign({ move: true }, FAMILY));
+    m = await mark();
+    await connect('RIVERA-CODE');
+    const mid7 = await posts(m);
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => !document.getElementById('plus-org-in').hidden, null, { timeout: 5000 }).catch(() => {});
+    p = await posts(m);
+    const e7 = p.find((x) => x.path === '/api/org/enroll');
+    chk(mid7.length === 1 && e7 && !('code' in e7.body) && e7.body.wordsShown === true && e7.body.accepted === true,
+      E + ' F7 a move joins only after Accept, with no code and wordsShown', JSON.stringify(p.map((x) => x.body)));
+    await unjoin();
+
+    // F8: 390 wide.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await open();
+    await setPreview(FAMILY);
+    await connect('RIVERA-CODE');
+    const f8 = await page.evaluate(() => {
+      const box = document.getElementById('plus-org-family').getBoundingClientRect();
+      return { box: !document.getElementById('plus-org-family').hidden, right: Math.round(box.right), vw: document.documentElement.clientWidth,
+        scroll: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+    });
+    chk(f8.box && f8.right <= f8.vw && !f8.scroll, E + ' F8 390 wide: the words fit, no sideways scroll', JSON.stringify(f8));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-words-phone-' + engineName + '.png'), fullPage: false });
+
+    chk(errs.length === 0, E + ' F9 no page errors', errs.join(' | '));
+  } finally {
+    await browser.close();
+  }
+}
+
+(async () => {
+  for (const engineName of ['chromium', 'webkit']) await run(engineName);
+  console.log(fail.length ? '\n' + fail.length + ' FAILED' : '\nall passed');
+  process.exit(fail.length ? 1 : 0);
+})().catch((e) => { console.error(e); process.exit(1); });
