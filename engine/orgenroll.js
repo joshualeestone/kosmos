@@ -588,7 +588,7 @@ async function enrollNow(code, accepted, opts) {
     const wantOrg = opts && typeof opts.orgId === 'string' && opts.orgId ? opts.orgId : null;
     const sameOrg = !wantOrg || !!(d0 && d0.org && d0.org.id === wantOrg);
     const verdict = sameOrg ? statusVerdict(d0, world) : 'unclear';
-    if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', Object.assign({}, opts, { printSent: !!body.computerPrint }));
+    if (verdict === 'notHere' && !move && namesThisWorld(d0, world)) return undoFirstJoin('Your company did not confirm this Kosmos, so it is not your work Kosmos.', Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
     if (verdict !== 'here') {
       const hash = opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash) ? opts.consentHash : null;
       setJoinUnknown({ consentHash: hash, move, orgId: wantOrg, computerSalt: body.computerSalt || null, printPinned: !!body.computerPrint, orgKind: KIND }, opts);
@@ -611,7 +611,7 @@ async function enrollNow(code, accepted, opts) {
     const NOCONFIRM = 'Your company did not confirm this Kosmos, so it is not your work Kosmos.';
     if (review) return { ok: false, because: inKind(KIND, 'Your company did not confirm this Kosmos, so nothing changed. Kosmos tries again on its own.') };
     if (move) return { ok: false, because: inKind(KIND, NOCONFIRM + ' Press Connect Account again in a minute.') };
-    return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint }));
+    return undoFirstJoin(NOCONFIRM, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
   }
   // A review's Accept is not a new enrollment: it keeps the date this Kosmos joined (orgreview review 1).
   const prior = review ? held : null;
@@ -637,7 +637,7 @@ async function enrollNow(code, accepted, opts) {
       const NOWRITE = "This Kosmos's data folder could not be written.";
       if (review) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company has your acceptance, but this Kosmos could not record it, so it is still not reporting. Fix the folder; Kosmos then tries again on its own.') };
       if (move) return { ok: false, because: inKind(KIND, NOWRITE + ' Your company now names this Kosmos as your work Kosmos, but it is not reporting. Fix the folder, then press Connect Account again.') };
-      return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint }));
+      return undoFirstJoin(NOWRITE, Object.assign({}, opts, { printSent: !!body.computerPrint, orgKind: KIND }));
     }
   }
   setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now

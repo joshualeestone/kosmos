@@ -43,3 +43,13 @@ coordinator half changes nothing a family's computer shows. This branch is where
   had made it "ask your family"). The wrong-domain sentence says what is wrong: "sent for a different email address".
 - Out of scope, stated: the company sign-in (plus-signin-company, its lead line) is a company's own single sign-on,
   which a family has none of; the join entry's aria-label and placeholder stay with Josh's #5791 copy (above).
+
+## Round 3 (opus) fixes
+- An undone first join takes the call's kind (the request's, else the record's), so one call cannot word its
+  sentences two ways; tested with no kind on the request and a family record.
+- Every way the kind is found now has a test of the sentence a person reads: an undone join, Review on a family's
+  Kosmos, a leave retried from the pending leave alone, and a lost join settled from its marker alone. Each was proven
+  red by removing its source of kind. The source-text test of the undo sentence is replaced by a driven one.
+- The test's em dash check is written as an escape (my heredoc had turned it into the character).
+- Kept (NIT): the page's title and button source pins beside O15f; the two rewrite copies compared over one sentence
+  per rule; "your work Kosmos" in family copy (follow-up, #6263).
