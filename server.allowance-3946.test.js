@@ -428,15 +428,17 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   const accountmoving = require('./engine/accountmoving');
   const remove = require('./engine/remove');
   const run = (name, outcome, before, after, from) => {
-    let reads = 0; let readsAtRestart = null;
+    let reads = 0; let readsAtRestart = null; const freshness = [];
     const deps = {
       sessionOf: (n) => n + '-discord',
-      startedAt: () => { reads += 1; return reads === 1 ? before : after; },
+      startedAt: (s, fresh) => { reads += 1; freshness.push(fresh); return reads === 1 ? before : after; },
       restart: () => { readsAtRestart = reads; return { outcome }; },
     };
     const back = restartForMove(name, from, deps);
     // Asserted here, not inside restart (restartForMove turns a throw there into a partial).
     assert.equal(readsAtRestart, 1, name + ': the start was not read before the restart');
+    // Both reads fresh: a cached read after the restart could return the old start for an agent that did relaunch.
+    assert.ok(freshness.every((f) => f === true), name + ': the move read a cached session start: ' + JSON.stringify(freshness));
     return back;
   };
   // Each non-noting case starts with a note an earlier move wrote, so "clears" is tested, not only "never writes".
