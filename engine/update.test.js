@@ -259,7 +259,7 @@ test('#6173: an automatic install waits while an account move runs, and the next
 test('#6173 Liu Kang m5496: a move whose restart never answers still ends at its cap, and the update it held then installs', async () => {
   const accountmove = require('./accountmove');
   const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
-  update.setAutoDefer(() => accountmove.busy());   // the board's own wiring (server.js)
+  update.setAutoDefer(() => accountmove.busy());   // half of the board's wiring: server.js also waits on remove.restartingNow (remove.test.js)
   const held = new Set();
   try {
     const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, {

@@ -2430,7 +2430,7 @@ function busyRefusal(name, { held = true } = {}) {
   return {
     outcome: OUTCOME.REFUSED,
     steps: [],
-    because: `${shown} is being moved to another account right now, so we left it alone. Try again when that has finished.`,
+    because: `${shown} is part of an account move that has not finished with it yet, so we left it alone. Try again when that has finished.`,
   };
 }
 
@@ -2528,7 +2528,7 @@ function forget(name) {
 module.exports = {
   plan,
   restart,
-  restartAsync,   // #6173: an account move's restarts, off the board's thread
+  restartAsync,   // #6173: an account move's restarts, without blocking the board's thread
   unsafeToActOn,
   isHidden,
   hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it

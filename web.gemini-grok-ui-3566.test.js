@@ -174,11 +174,12 @@ test('#3566: a Gemini or Grok model id is never shown as a Claude model', () => 
 });
 
 test('#3566: moving a Gemini/Grok agent between its accounts does not promise its chat comes with it', () => {
-  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
-  const m = SERVER.match(/const moveChatWord = wrote\.account\s*&& (\(\{[^}]*\}\)\[String\(wrote\.account\.provider \|\| ''\)\.toLowerCase\(\)\]);/);
-  assert.ok(m, 'the move route no longer derives its chat word from the provider; re-anchor');
+  /* #6173: the move's sentence lives in engine/accountmove.js now, shared by the one-agent and the bulk move. */
+  const MOVE = fs.readFileSync(nodePath.join(__dirname, 'engine', 'accountmove.js'), 'utf8');
+  const m = MOVE.match(/const moveChatWord = (\(\{[^}]*\}\)\[String\(account\.provider \|\| ''\)\.toLowerCase\(\)\]);/);
+  assert.ok(m, 'the move no longer derives its chat word from the provider; re-anchor');
   // eslint-disable-next-line no-new-func
-  const wordFor = new Function('wrote', 'return ' + m[1] + ';');
+  const wordFor = new Function('wrote', 'const account = (wrote && wrote.account) || {}; return ' + m[1] + ';');
   assert.equal(wordFor({ account: { provider: 'google' } }), 'Gemini');
   assert.equal(wordFor({ account: { provider: 'xai' } }), 'Grok');
   assert.equal(wordFor({ account: { provider: 'openai' } }), 'Codex');
@@ -258,8 +259,9 @@ test('#3566: every inline copy of the keyed-provider set agrees with ACCT_KEYED_
     ...(SERVER.match(/\(\{ codex: 'openai', gemini: 'google', grok: 'xai' \}\)/g) || []),
   ];
   assert.ok(maps.length >= 2, 'CONTROL: the runner maps (acctMoveWorld, accountForAgent) were not found; re-anchor');
-  const chat = SERVER.match(/const moveChatWord = wrote\.account\s*&& \((\{[^}]*\})\)/);
-  assert.ok(chat, 'the move route chat-word map moved; re-anchor');
+  const MOVE = fs.readFileSync(nodePath.join(__dirname, 'engine', 'accountmove.js'), 'utf8');   // #6173
+  const chat = MOVE.match(/const moveChatWord = \((\{[^}]*\})\)/);
+  assert.ok(chat, 'the move chat-word map moved; re-anchor');
   // eslint-disable-next-line no-new-func
   const chatKeys = Object.keys(new Function('return ' + chat[1])()).sort();
   assert.deepEqual(chatKeys, keyed, 'the move route chat-word map must name exactly the keyed providers');

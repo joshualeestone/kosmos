@@ -3011,7 +3011,7 @@ test('#4964: a board whose commands are not real (dry run, no runner) does not w
   }
 });
 
-/* ── #6173: the async restart (an account move's), off the board's thread ──────────────────────────────────────────
+/* ── #6173: the async restart (an account move's), without blocking the board's thread ──────────────────────────────────────────
  *
  * One restart body, two drivers. These pin the async one: every launchctl and tmux call goes to the async runner
  * (none to the sync one), every wait is a timer (the board's thread keeps turning through it), and its outcome is
@@ -3127,7 +3127,7 @@ test('#6173: a sync restart of an agent an account move is restarting is refused
       await new Promise((r) => setImmediate(r));
       const clash = mac.restart(name);
       assert.equal(clash.outcome, remove.OUTCOME.REFUSED);
-      assert.match(clash.because, /is being moved to another account right now, so we left it alone/);
+      assert.match(clash.because, /is part of an account move that has not finished with it yet, so we left it alone/);
       const removing = mac.remove(name);
       assert.equal(removing.outcome, remove.OUTCOME.REFUSED, 'a removal ran beside an account move\'s restart');
       assert.equal(remove.isRemoved(name), false, 'a refused removal left a removal record');
@@ -3157,7 +3157,7 @@ test('#6173 review 1: an agent a move has not reached yet is held: its own sync 
       remove.holdForMove([name]);
       const own = mac.restart(name);
       assert.equal(own.outcome, remove.OUTCOME.REFUSED, 'a held agent was restarted by its own page');
-      assert.match(own.because, /is being moved to another account right now, so we left it alone/);
+      assert.match(own.because, /is part of an account move that has not finished with it yet, so we left it alone/);
       const moves = await mac.restartAsync(name);
       assert.equal(moves.outcome, remove.OUTCOME.RESTARTED, moves.because);
       remove.releaseFromMove(name);
@@ -3204,7 +3204,7 @@ test('#6173 Liu Kang m5486: removing an agent a move still holds is refused befo
     remove.holdForMove([name]);
     const out = mac.remove(name);
     assert.equal(out.outcome, remove.OUTCOME.REFUSED);
-    assert.match(out.because, /is being moved to another account right now, so we left it alone/);
+    assert.match(out.because, /is part of an account move that has not finished with it yet, so we left it alone/);
     assert.deepEqual(calls, [], 'a refused removal still ran a command');
     assert.equal(remove.isRemoved(name), false);
     remove.releaseFromMove(name);
@@ -3259,7 +3259,7 @@ test('#6173 Liu Kang m5486: an agent that stops while queued in a move is not st
   }
 });
 
-test('#6173 Liu Kang m5496: an async restart whose command never answers is given up at its cap, sends nothing after, and is not held', async () => {
+test('#6173 Liu Kang m5496: an async restart whose command never answers is given up at its cap, sends nothing after, and stays held until its last command ends', async () => {
   const name = madeAgent('neveranswers');
   boardShows(name, name);
   const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
