@@ -132,7 +132,7 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   assert.equal(page.aoUnknownOf(sib), 0, 'a joined Claude agent was counted as could not be checked');
 });
 
-test('#6178 two accounts on one folder: the sibling answer keeps that folder\'s agents on the first key', () => {
+test('#6178 two accounts on one folder: the sibling answer sends one, with that folder\'s agents', () => {
   const { statusForSibling } = require('./server');
   assert.equal(typeof statusForSibling, 'function', 'statusForSibling is not exported for this test');
   const full = JSON.stringify({
@@ -145,7 +145,7 @@ test('#6178 two accounts on one folder: the sibling answer keeps that folder\'s 
   });
   const sib = JSON.parse(statusForSibling(full, 'same-site'));
   assert.deepEqual(Object.keys(JSON.parse(statusForSibling(full, 'cross-site'))), ['agents'], 'CONTROL: a cross-site read got the accounts');
-  assert.deepEqual(sib.accountsWeekly.map((e) => e.key), ['a0', 'a1']);
-  assert.equal(sib.agents[0].acct, 'a0', 'the second entry on the same folder took its agents');
+  assert.deepEqual(sib.accountsWeekly.map((e) => [e.key, e.email]), [['a0', 'one@example.com']], 'a second entry on the same folder was sent (it would show with no agents)');
+  assert.equal(sib.agents[0].acct, 'a0', 'the folder\'s agent is not on its account');
   assert.ok(!JSON.stringify(sib).includes('/x/.claude'), 'a folder path went out');
 });

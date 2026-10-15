@@ -4518,7 +4518,7 @@ function statusForSibling(json, site) {
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
   /* #6178: each Claude account's weekly usage for Settings > AI Models there. THIS SENDS each account's email, label
      and organization to that browser (one this computer admitted, from the account's own computers: the relay's
-     siblingcors-4812 rule, not this code). Keyed by an opaque per-answer id ("a0", "a1", ...), never by its folder: a
+     siblingcors-4812 rule, not this code; pinned there by proxy.rs a_sibling_read_carries_the_token_only_when_listed_and_same_site). Keyed by an opaque per-answer id ("a0", "a1", ...), never by its folder: a
      folder path names this Mac's user, which #4973 keeps here. Each agent carries that id (acct) and its runner, so the
      page can join them. Only a same-site read (one of the account's own computers) gets them; any other sibling read
      gets #4973's agents-only answer, so this does not rest on the relay alone. A full answer without accountsWeekly
@@ -4529,10 +4529,12 @@ function statusForSibling(json, site) {
   }
   const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
   const keyOf = new Map();
-  const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir)
+  const seen = new Set();   // two entries on one folder are one account to its agents: the first is sent, the rest are not
+  const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir
+      && !seen.has(e.dir) && seen.add(e.dir))
     .map((e, i) => {
       const key = 'a' + i;
-      if (!keyOf.has(e.dir)) keyOf.set(e.dir, key);   // two entries on one folder: its agents stay with the first
+      keyOf.set(e.dir, key);
       const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
       return {
         key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true, apiKey: e.apiKey === true,
