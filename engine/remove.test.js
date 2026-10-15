@@ -3128,6 +3128,9 @@ test('#6173: a sync restart of an agent an account move is restarting is refused
       const clash = mac.restart(name);
       assert.equal(clash.outcome, remove.OUTCOME.REFUSED);
       assert.match(clash.because, /is being moved to another account right now, so we left it alone/);
+      const removing = mac.remove(name);
+      assert.equal(removing.outcome, remove.OUTCOME.REFUSED, 'a removal ran beside an account move\'s restart');
+      assert.equal(remove.isRemoved(name), false, 'a refused removal left a removal record');
       const twice = await mac.restartAsync(name);
       assert.equal(twice.outcome, remove.OUTCOME.REFUSED, 'a second async restart of the same agent ran beside the first');
       release();
@@ -3181,4 +3184,68 @@ test('#6173 review 1: the real execFile half of the async driver keeps the exit 
   const slow = await exec('/bin/sh', ['-c', 'sleep 5'], { timeout: 200 });
   assert.equal(slow.ok, false);
   assert.equal(slow.code, null, 'a command killed at its time limit has no exit code');
+});
+
+test('#6173 Liu Kang m5486: removing an agent a move still holds is refused before any command runs, and released it is not', async () => {
+  const name = madeAgent('removeinmove');
+  boardShows(name, name);
+  const calls = [];
+  remove.setRunner((file, args) => { calls.push([file, args]); return { ok: true, stdout: '' }; });
+  try {
+    remove.holdForMove([name]);
+    const out = mac.remove(name);
+    assert.equal(out.outcome, remove.OUTCOME.REFUSED);
+    assert.match(out.because, /is being moved to another account right now, so we left it alone/);
+    assert.deepEqual(calls, [], 'a refused removal still ran a command');
+    assert.equal(remove.isRemoved(name), false);
+    remove.releaseFromMove(name);
+    assert.doesNotMatch(String(mac.remove(name).because || ''), /moved to another account/, 'still refused after its release');
+  } finally {
+    remove.releaseFromMove(name);
+    remove.setRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
+
+test('#6173 Liu Kang m5486: an agent that stops while queued in a move is not started again when the move reaches it, and is not said as moved', async () => {
+  const accountmove = require('./accountmove');
+  const first = madeAgent('moveahead');
+  const name = madeAgent('stopsinqueue');
+  let running = new Set([first, name]);
+  status.setPaneSource(() => [...running].map((n) => fleet.line({ session: n, claim: n, title: '✳ Claude Code' })).join('\n'));
+  const calls = [];
+  remove.setRunner(() => ({ ok: false, code: 99 }));
+  remove.setAsyncRunner(async (file, args) => { calls.push(args[0]); return { ok: true, stdout: '' }; });
+  let letFirstFinish;
+  const firstDone = new Promise((r) => { letFirstFinish = r; });
+  try {
+    const out = accountmove.start({ dir: '/acct/spare', names: [first, name] }, {
+      setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
+      REFUSED: remove.OUTCOME.REFUSED,
+      forget: () => {},
+      restartAsync: (n, cause) => (n === first ? firstDone : mac.restartAsync(n, cause)),
+      RESTARTED: remove.OUTCOME.RESTARTED,
+      hold: (names) => remove.holdForMove(names),
+      release: (n) => remove.releaseFromMove(n),
+    });
+    /* The person's agent stops while the move is still on the first one. */
+    running = new Set([first]);
+    letFirstFinish({ outcome: remove.OUTCOME.RESTARTED, steps: [] });
+    await out.done;
+    const end = accountmove.read(out.body.id);
+    const it = end.agents.find((a) => a.name === name);
+    assert.equal(it.outcome, 'partial', 'a stopped agent was said as moved');
+    assert.match(it.because, /is not running, so there is nothing to restart/);
+    assert.deepEqual(calls.filter((c) => c === 'bootstrap' || c === 'bootout' || c === 'kickstart'), [],
+      'the move asked launchd to start (or stop) an agent the person had stopped');
+    assert.deepEqual(calls.filter((c) => c === 'kill-session'), [], 'and there was no session of it to close');
+  } finally {
+    accountmove.resetForTests();
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(first);
+    disruption.clear(name);
+  }
 });

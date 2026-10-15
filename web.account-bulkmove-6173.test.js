@@ -94,3 +94,12 @@ test('#6173: a request that never answers is not a failure (the accounts may be 
   const note = await fn('/acct/busy', '/acct/spare', ['s-al'], null, new Set());
   assert.equal(note, 'No answer yet for Al. Check its account in a moment.');
 });
+
+test('#6173 Liu Kang m5486: an agent that stopped after the click is said as not restarted, never as moved', async () => {
+  const { fn } = moveWith([
+    { status: 202, body: { id: 'm6', done: true, agents: [agent('s-al', 'partial', 'We saved spare, but could not start it again: Al is not running, so there is nothing to restart. It is still on the old account until it restarts.')] } },
+  ]);
+  const note = await fn('/acct/busy', '/acct/spare', ['s-al'], null, new Set());
+  assert.doesNotMatch(note, /Moved/);
+  assert.match(note, /^Not restarted yet \(Al\): We saved spare, but could not start it again: Al is not running/);
+});
