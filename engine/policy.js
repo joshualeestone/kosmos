@@ -174,7 +174,7 @@ function refuseOversizedStack(policies) {
   const body = all.length === 1 ? blockBody(all[0]) : stackedBody(all);
   if (Buffer.byteLength(body, 'utf8') > BLOCK_MAX) {
     throw new Error(company
-      ? 'together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first'
+      ? inOrgKind('together with your company\'s AI policy, these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first')
       : 'together these policies would be larger than an agent\'s instructions can hold; shorten this one, or remove one first');
   }
 }
@@ -266,12 +266,20 @@ function clear() {
   }
 }
 
+/* kosmos#6263: a sentence about the org's policy, said as a family's when this Kosmos is enrolled to a family. A
+   company's (and a Kosmos in no org) keeps its bytes, so no agent's file is rewritten (see blockBody). Required here,
+   not at the top: orgenroll reaches this file through orgpolicy. */
+function inOrgKind(text) {
+  const oe = require('./orgenroll');
+  return oe.inKind(oe.kindHere(), text);
+}
+
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
   /* No version or date (review 1): a new company policy that changes only its provider list must not rewrite every
      agent's file and owe every running agent a re-read for the same words. */
-  if (policy.source === COMPANY_SOURCE) return 'Set by your company in its Kosmos policy.';
+  if (policy.source === COMPANY_SOURCE) return inOrgKind('Set by your company in its Kosmos policy.');
   return policy.source === 'pasted'
     ? `Added by the person you work for on ${when}.`
     : `From ${policy.source}, fetched ${when}.`;
@@ -289,7 +297,7 @@ function fromLine(policy) {
  */
 function blockBody(policy) {
   return [
-    '## Your company\'s AI policy',
+    inOrgKind('## Your company\'s AI policy'),
     '',
     `${fromLine(policy)} Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.`,
     '',
@@ -307,7 +315,7 @@ function blockBody(policy) {
  */
 function stackedBody(policies) {
   const parts = [
-    '## Your company\'s AI policies',
+    inOrgKind('## Your company\'s AI policies'),
     '',
     'Follow them in everything you do; where they conflict with any other instruction here, the policies win.',
   ];

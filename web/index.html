@@ -44182,7 +44182,7 @@ async function paintPolicy() {
       const p = document.createElement('p'); p.className = 'fhint';
       p.textContent = got.state === 'unknown'
         ? pjSentence(got.because || 'we could not read the saved policies')
-        : (company ? 'Every agent gets your company\'s policy below; each one starts following it at its next restart.' : 'No policies here yet.');
+        : (company ? plusOrgIn(company, 'Every agent gets your company\'s policy below; each one starts following it at its next restart.') : 'No policies here yet.');   // kosmos#6263
       box.append(p);
       if (company) box.append(polCompanyCard(company));
       return;
@@ -44212,7 +44212,7 @@ function polCompanyCard(c) {
   const n = document.createElement('b'); n.className = 'polname'; n.textContent = c.name;
   head.append(n);
   const d = document.createElement('span'); d.className = 'fhint polfrom';
-  d.textContent = 'Set by your company in its Kosmos policy. Only your company can change or remove it.';
+  d.textContent = plusOrgIn(c, 'Set by your company in its Kosmos policy. Only your company can change or remove it.');   // kosmos#6263: c.kind, from the board
   const o = document.createElement('span'); o.className = 'fhint polopen';
   o.textContent = (c.opening || '') + (c.chars > 240 ? '…' : '');
   card.append(head, d, o);
