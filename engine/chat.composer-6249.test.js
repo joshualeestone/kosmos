@@ -190,3 +190,63 @@ test('#6249: a Codex pane is not read this way (its box is its own)', () => with
   assert.equal(t.reads(), 0);
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
 }));
+
+test('#6249 round 1: the line the board left unsent is sent by the next delivery, which then waits its turn', () => withAgent({}, (roster) => {
+  const t1 = arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: the first line was left in the box');
+  assert.equal(t1.enters(), 2);
+  const t2 = arm([box(MSG)]);   // still there when the next line comes
+  const v = chat.deliver('al', 'a second line for later', roster);
+  assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'the second line is not typed behind the first');
+  assert.equal(v.earlierSubmitted, true);
+  assert.equal(v.busy, true, 'busy, so a sender tries again rather than count a failure');
+  assert.match(v.because, /earlier message was still sitting unsent.*send this one again/);
+  assert.equal(t2.enters(), 1, 'one Enter, on our own earlier line');
+  assert.equal(t2.pasted(), 0);
+  // Once only: if it is still there, the next line is refused plainly and nothing more is pressed.
+  const t3 = arm([box(MSG)]);
+  const again = chat.deliver('al', 'a third line', roster);
+  assert.equal(again.inputHeld, true);
+  assert.equal(t3.enters(), 0);
+}));
+
+test('#6249 round 1: text the board did not leave there is never submitted by a later delivery', () => withAgent({}, (roster) => {
+  const t = arm([box('the person is writing something long here')]);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(v.inputHeld, true);
+  assert.equal(t.enters(), 0);
+}));
+
+test('#6249 round 1: a short tail is not taken for ours unless it is the whole message', () => {
+  assert.equal(chat.composerHolds('ok', 'please reply ok'), 'other', 'two letters that end ours could be anyone\'s');
+  assert.equal(chat.composerHolds('reply ok', 'reply ok'), 'ours', 'all of a short message');
+  assert.equal(chat.composerHolds('the fix you described this morning.', MSG), 'ours');
+});
+
+test('#6249 round 1: dim in a combined code, and the other reset forms', () => {
+  const RULE80 = '\n' + RULE + '\n';
+  const cases = [
+    ['\x1b[39m❯ typed\x1b[2;38;5;246m suggestion\x1b[0m', 'typed'],
+    ['\x1b[39m❯ \x1b[0;2mghost\x1b[22m kept', 'kept'],
+    ['\x1b[39m❯ \x1b[2mghost\x1b[m kept', 'kept'],
+    ['\x1b[39m❯ \x1b[38:5:246mcolon colour\x1b[39m', 'colon colour'],
+    ['\x1b[39m❯ \x1b[2mdim \x1b[39mstill dim\x1b[0m', ''],
+  ];
+  for (const [row, want] of cases) assert.equal(chat.composerText(row + RULE80).text, want, JSON.stringify(row));
+});
+
+test('#6249 round 1: no retry Enter once the pane is no longer an agent\'s', () => withAgent({}, (roster) => {
+  const calls = [];
+  let probes = 0;
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') { probes += 1; return ok(probes <= 2 ? '2.1.300\t\t0\n' : 'zsh\t\t0\n'); }   // fell to a shell after the Enter
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(calls.filter((a) => a[0] === 'send-keys').length ? box(MSG) : EMPTY);
+    return ok();
+  });
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 1, 'never an Enter into what it became');
+  assert.equal(v.unsubmitted, true);
+}));

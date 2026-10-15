@@ -987,6 +987,9 @@ function armChat(answers, probe) {
   chat.setRunner((args) => {
     calls.push(args);
     if (args[0] === 'display-message') return answerProbe;
+    /* #6249: the input-box read (capture-pane -e) is answered apart from the script, as the probe is, with a blank
+       screen: no box to read, so each route test keeps the verdict it was written for. */
+    if (args[0] === 'capture-pane' && args.includes('-e')) return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
     return answers.length ? answers.shift() : { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   });
   chat.setDryRun(false);

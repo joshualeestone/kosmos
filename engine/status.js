@@ -1644,12 +1644,12 @@ const COMPOSER_RULE = /^─{10,}/;
 function visibleWithoutDim(line) {
   let out = '';
   let dim = false;
-  const re = /\x1b\[([0-9;]*)m/g;
+  const re = /\x1b\[([0-9;:]*)m/g;   // the colon form (38:5:246) too
   let at = 0;
   let m;
   while ((m = re.exec(line)) !== null) {
     if (!dim) out += line.slice(at, m.index);
-    const codes = m[1] === '' ? ['0'] : m[1].split(';');
+    const codes = m[1].match(/\d+/g) || ['0'];   // ESC[m is a reset; ; and : both separate the numbers
     for (let i = 0; i < codes.length; i += 1) {
       const c = codes[i];
       if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
@@ -1659,7 +1659,7 @@ function visibleWithoutDim(line) {
     at = re.lastIndex;
   }
   if (!dim) out += line.slice(at);
-  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');   // any other escape
+  return out.replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');   // any other escape
 }
 function composerText(ansi) {
   if (typeof ansi !== 'string' || !ansi) return { ok: false };
@@ -1696,19 +1696,35 @@ function plainBoxText(text) {
    submitted, is not a stranded message. */
 const UNSENT_SHOW_MS = 3 * 60 * 1000;
 const unsentSeen = new Map();   // agent name -> { text, since }
-function resetUnsentForTests() { unsentSeen.clear(); }
+/* Round 1: agent name -> { plain, text }, the last colour read and the plain text it answered for. A box showing the
+   same thing as last pass (an idle agent's dim suggestion, say) is not captured again with colours. */
+const unsentRead = new Map();
+function resetUnsentForTests() { unsentSeen.clear(); unsentRead.clear(); }
+/* Round 1: agents no longer on the board lose their records, so one coming back under the name starts over. */
+function unsentSweep(names) {
+  const present = new Set(Array.from(names || [], String));
+  for (const m of [unsentSeen, unsentRead]) for (const k of [...m.keys()]) if (!present.has(k)) m.delete(k);
+}
 /* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
    else null. The plain capture this pass already made decides whether to look; only a pane showing something there
-   is captured again with colours, so a quiet board costs nothing more. */
+   is captured again with colours, and only when what it shows changed since the last colour read. */
 function unsentInputOf(pane, text, now = Date.now()) {
   const name = pane && pane.name;
   const claude = !!pane && (!pane.runner || pane.runner === 'claude')
     && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
   const plain = claude ? plainBoxText(text) : '';
-  if (!plain) { unsentSeen.delete(name); return null; }
-  let box;
-  try { box = composerText(captureAnsi(pane.target)); } catch { box = { ok: false }; }
-  if (!box.ok || !box.text) { unsentSeen.delete(name); return null; }
+  if (!plain) { unsentSeen.delete(name); unsentRead.delete(name); return null; }
+  let typed;
+  const last = unsentRead.get(name);
+  if (last && last.plain === plain) typed = last.text;
+  else {
+    let box;
+    try { box = composerText(captureAnsi(pane.target)); } catch { box = { ok: false }; }
+    typed = box.ok ? box.text : '';
+    if (box.ok) unsentRead.set(name, { plain, text: typed }); else unsentRead.delete(name);
+  }
+  if (!typed) { unsentSeen.delete(name); return null; }
+  const box = { text: typed };
   const seen = unsentSeen.get(name);
   if (!seen || seen.text !== box.text) { unsentSeen.set(name, { text: box.text, since: now }); return null; }
   return now - seen.since >= UNSENT_SHOW_MS ? { since: new Date(seen.since).toISOString() } : null;
@@ -8675,6 +8691,7 @@ function snapshot() {
   // #5805 3b review 2: agents gone from this pass are no longer captured (not on an empty read: a failed listing must
   // not make every limit row read late).
   if (panes.length) limitCaptureSweep(panes.map((pane) => pane.name));
+  if (panes.length) unsentSweep(panes.map((pane) => pane.name));   // #6249 round 1 (not on an empty read, as above)
   const agents = panes.map((pane) => {
     const text = capturePane(pane.target);
     noteLimitRows(pane.name, text, Date.now());   // #5805 slice 3b: before retiring, so a first sighting never retires
@@ -9611,7 +9628,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = {
-  composerText, unsentInputOf, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
+  composerText, unsentInputOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number

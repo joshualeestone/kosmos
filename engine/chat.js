@@ -210,6 +210,9 @@ function setDryRun(on) {
 const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
 const deliveryQueues = new Map();
+/* #6249: per pane, the last line the board typed and saw left unsent in the box (its wire), so the next delivery can
+   press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it. */
+const unsentWires = new Map();
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -239,6 +242,7 @@ function resetForTests() {
   channel = null;
   DRY_RUN = true;
   deliveryQueues.clear();
+  unsentWires.clear();
   MOVED_TELL = null;   // #5400
 }
 
@@ -813,7 +817,10 @@ const squash = (s) => String(s == null ? '' : s).replace(/[\s ]+/g, '');
 function composerHolds(text, wire) {
   const t = squash(text);
   if (!t) return 'empty';
-  return squash(wire).endsWith(t) ? 'ours' : 'other';
+  const w = squash(wire);
+  /* A short tail ("ok", ".") could be anyone's: ours only when enough of it shows, or all of a short message. */
+  if (t.length < Math.min(20, w.length)) return 'other';
+  return w.endsWith(t) ? 'ours' : 'other';
 }
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
@@ -830,6 +837,7 @@ const SUBMIT_LOOK_MS = 150;
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
+const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos sent that one now, so send this one again in a moment';
 /**
  * #6249: after the Enter, watch the box. Yields { wait: ms } for the driver (synchronous or not, as the gap is);
  * returns { outcome, retried }: 'sent' (it emptied), 'unread' (no live box to read: a menu or the turn's own screen,
@@ -1921,6 +1929,17 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   if (composerReadable(allowed.card)) {
     const box = readComposer(target);
     if (box.ok && box.text) {
+      /* Round 1: the text is the line the board itself left there unsent (remembered, and still all of it ours):
+         press Enter on it, once, and ask for this line again in a moment, so the two are never sent as one and the
+         earlier one is read first. Anything else in the box is never submitted. */
+      const earlier = unsentWires.get(target);
+      if (earlier && composerHolds(box.text, earlier) === 'ours' && verifyAtSend(allowed.card).ok) {
+        unsentWires.delete(target);
+        const pressed = tmux(['send-keys', '-t', target, 'Enter']);
+        if (pressed.ran && pressed.status === 0) {
+          return { state: DELIVERY.COULD_NOT, because: EARLIER_SENT_BECAUSE, busy: true, earlierSubmitted: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+        }
+      }
       return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
     }
   }
@@ -2062,6 +2081,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      every sender already treats UNCONFIRMED as "may be there, do not type it again", which is exactly the case. */
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
+    if (result && result.outcome === 'unsent') unsentWires.set(target, wire);   // only ours is there: the next line may send it
+    else unsentWires.delete(target);
     const out = confirmedVerdict(v, result);
     return out.state === v.state ? out : { ...out, paneNote: noteFor(out.state) };
   };
