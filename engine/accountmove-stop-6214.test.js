@@ -19,6 +19,7 @@ function deps({ saved = {}, putBackRefuses = [], unreadable = [] } = {}) {
   const names = { '/acct/old': 'old@example.com', '/acct/new': 'new@example.com', '/acct/other': 'other@example.com' };
   return {
     pending, order, held, putBacks, saved,
+    moveRefusal: () => null,   // #6190: nothing else holds these agents
     hold: (ns) => ns.forEach((n) => held.add(n)),
     release: (n) => held.delete(n),
     setAccount: (n, dir) => { saved[n] = dir; return { outcome: 'changed', account: { email: names[dir] } }; },

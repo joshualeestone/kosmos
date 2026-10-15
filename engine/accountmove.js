@@ -116,7 +116,7 @@ function view(m) {
  * hold(names) and release(name) (remove.holdForMove / releaseFromMove); boardRestarting() -> true while an update or a
  * board restart is under way (the move is then refused).
  * #6214: readAccount(name) -> the account folder the agent's job is saved on now (null: the default account; throws
- * when it cannot be read), and putBack(name, dir) -> create.setAccount's answer. Both only for a stop (`stop` below):
+ * when it cannot be read), and putBack(name, dir) -> create.restoreAccount's answer. Both only for a stop (`stop` below):
  * without readAccount, a stop cannot put an agent back and says so.
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
