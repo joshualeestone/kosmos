@@ -86,6 +86,6 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
   engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
-  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's, 1 for round 6's and 6 for round 7's, the held-list row through its browser check); one redundant gate (fedseats.ensureAll) found unwatched and
+  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's, 1 for round 6's, 6 for round 7's (the held-list row through its browser check) and 1 for round 8's); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

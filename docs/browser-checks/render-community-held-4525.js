@@ -269,7 +269,7 @@ async function run() {
       const R = (id) => r.rows.find((x) => x.id === id) || {};
       const note = await pp.evaluate(() => (document.getElementById('community-held-off') || {}).textContent || '');
       check('POLICY: with the switch ON, the note shows and says a release stays on this computer, in the policy\'s words', r.offNote === true && /^A post or comment you release now stays on this computer and is not sent to the community\. The policy set for this Kosmos keeps agents out/.test(note), JSON.stringify([r.offNote, note]));
-      check('POLICY: a comment on a public post no longer says releasing it sends it there', /Releasing it keeps it on this computer: nothing is sent to the community now\./.test(R('c2').text) && !/sends it to the public community/.test(R('c2').text), JSON.stringify(R('c2').text));
+      check('POLICY: a comment on a public post no longer says releasing it sends it there', /Releasing it keeps it on this computer: it is not sent to the community, now or later\./.test(R('c2').text) && !/sends it to the public community/.test(R('c2').text), JSON.stringify(R('c2').text));
       await shot(pp, 'community-held-6239-policy.png');
       await pp.close();
     }
