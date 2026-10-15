@@ -40,6 +40,7 @@ test('#6265: after a pull, no --dir reads the pulled reports and says so', () =>
   assert.deepEqual(got.reports.map((r) => r.date), ['2026-10-14']);
   assert.match(got.reports[0].body, /newest report from a user/);
   assert.ok(got.notes.some((n) => n.includes('pulled reports in ' + PULLED)), got.notes.join('\n'));
+  assert.ok(got.notes.some((n) => n.includes('--dir ' + OWN)), 'the note says how to read this computer\'s own');
 });
 
 test('#6265 CONTROL: with nothing pulled, this computer\'s own reports are read, and the note says the pulled folder was empty', () => {
