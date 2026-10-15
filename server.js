@@ -23690,7 +23690,7 @@ function start(port = PORT) {
           const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
           const r = allowed && owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;
           holdstale.sweep({
-            projects: projs, rows, roster: r, now: Date.now(),
+            projects: projs, rows, items: owed, roster: r, now: Date.now(),
             allowed,
             limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
             sent: AGENT_NUDGE_SENT, book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE,

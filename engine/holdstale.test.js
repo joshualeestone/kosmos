@@ -70,7 +70,7 @@ test('#6209 part 3: an owner posting in the room while its task is on hold is to
   const first = pass(id, rows, read);
   assert.equal(first.sent.length, 1, JSON.stringify(first.out.results));
   assert.equal(first.sent[0].s, REX);
-  assert.match(first.sent[0].text, new RegExp('task #' + n + ' in Supplier \\w+, "Check the supplier price", is still on hold \\(it was put on hold 3 hours ago\\), but you have posted 3 times in its project room since then\\. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '\\. If it should stay on hold, say why on the task\\.'));
+  assert.equal(first.sent[0].text, 'Kosmos: task #' + n + ', "Check the supplier price" (put on hold 3 hours ago) in ' + only(id)[0].name + ' is still on hold, but you have posted 3 times in its project room since then. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '. If it should stay on hold, say why on the task.');
   assert.equal(stored(id, n).holdStaleTold[REX], iso(NOW - 3 * HOUR), 'the hold it was told about was not stored');
   assert.ok(taskchat.read(id, n).some((e) => e.kind === 'hold-stale' && e.told === REX && e.reached === true), 'the history does not say it was told');
   // Once: the same hold is not told again.
@@ -100,8 +100,8 @@ test('#6209 part 3: the person\'s own hold asks the owner to ask the person, and
   const { id } = fixture({ byPerson: true });
   const { sent } = pass(id, [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)], holdAt(30 * HOUR, 'screen'));
   assert.equal(sent.length, 1);
-  assert.match(sent[0].text, /the person put it on hold 30 hours ago/);
-  assert.match(sent[0].text, /ask the person to take it off hold \(only they can lift their own hold, on the screen\)/);
+  assert.match(sent[0].text, /\(the person put it on hold 30 hours ago\)/);
+  assert.match(sent[0].text, /If its work is going on, ask the person to take it off hold \(only they can lift their own hold, on the screen\)\./);
   assert.doesNotMatch(sent[0].text, /kosmos task unhold/);
 });
 
@@ -135,4 +135,56 @@ test('#6209 part 3: the board runs the sweep on its own minute timer, with the r
   assert.match(body, /holdstale\.sweep\(\{/, 'the timer does not run the sweep');
   assert.match(body, /agentnudge\.nudgeEnabled\(liveExecution\.liveExecutionAllowed\(\), process\.env\)/, 'not gated like the other tells');
   assert.match(body, /sent: AGENT_NUDGE_SENT/, 'not counted against Agent Communication\'s hour');
+});
+
+test('#6209 part 3 review 1: only holders of an OPEN part are asked; one whose part is done is not', () => {
+  const { id, n } = fixture();
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, who: undefined,
+    parts: [{ id: 1, sentence: 'Check it', who: REX }, { id: 2, sentence: 'Draft the note', who: ADA, closedAt: iso(NOW - 4 * HOUR) }] } : t)) }));
+  const rows = [post(id, ADA, 2 * HOUR), post(id, ADA, HOUR), post(id, ADA, 0.5 * HOUR)];
+  assert.equal(pass(id, rows, holdAt(3 * HOUR)).sent.length, 0, 'an agent whose part is done was asked to unhold the task');
+  // CONTROL: the open part's holder, with the same posts, is asked.
+  const r = pass(id, [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)], holdAt(3 * HOUR));
+  assert.equal(r.sent.length, 1);
+  assert.equal(r.sent[0].s, REX);
+});
+
+test('#6209 part 3 review 1: two held tasks of one owner in one room are named in ONE line, both marked', () => {
+  const a = fixture();
+  const n2 = tasks.create(a.id, { sentence: 'Order the samples' }).number;
+  projects.mutate(a.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n2 ? { ...t, who: REX, onHold: true } : t)) }));
+  const rows = [post(a.id, REX, 2 * HOUR), post(a.id, REX, HOUR), post(a.id, REX, 0.5 * HOUR)];
+  const r = pass(a.id, rows, holdAt(3 * HOUR));
+  assert.equal(r.sent.length, 1, 'one line per held task on the same evidence: ' + r.sent.length);
+  assert.match(r.sent[0].text, new RegExp('task #' + a.n + ', .* and task #' + n2 + ', .* are still on hold, but you have posted 3 times in their project room since then\\. If their work is going on, take them off hold: kosmos task unhold ' + a.id + ' ' + a.n + ', then kosmos task unhold ' + a.id + ' ' + n2 + '\\.'));
+  assert.ok(stored(a.id, a.n).holdStaleTold[REX] && stored(a.id, n2).holdStaleTold[REX], 'not both marked told');
+  assert.equal(pass(a.id, rows, holdAt(3 * HOUR)).sent.length, 0, 'told again');
+});
+
+test('#6209 part 3 review 1: the real hold history (tasks.setOnHold, taskchat) is what it reads', () => {
+  const p = projects.create({ name: 'Real ' + Math.random().toString(36).slice(2) });
+  const n = tasks.create(p.id, { sentence: 'Real hold' }).number;
+  projects.mutate(p.id, (x) => ({ ...x, agents: [ADA, REX], tasks: x.tasks.map((t) => (t.number === n ? { ...t, who: REX } : t)) }));
+  tasks.setOnHold(p.id, n, true);   // an agent's hold, recorded by the real history
+  const real = Date.now();
+  const later = real + 3 * HOUR;
+  const rows = [1, 2, 2.5].map((h) => ({ kind: 'post', id: 'r' + h, project: p.id, from: REX, to: [ADA], text: 'x', at: iso(real + h * HOUR) }));
+  const sent = [];
+  hs.sweep({ projects: projects.readAll().filter((x) => x.id === p.id), rows, roster: BASE, now: later, allowed: true, limit: { on: false }, sent: [], book: new Map(),
+    idleSeen: new Map([[REX, { since: later - 120000, at: later - 60000 }]]), deliver: (s, text) => { sent.push(text); return { state: 'placed' }; }, DELIVERY });
+  assert.equal(sent.length, 1, 'the real hold-set event was not read');
+  assert.match(sent[0], /\(put on hold 3 hours ago\)/);
+});
+
+test('#6209 part 3 review 1: the person taking over an agent\'s hold is read from the history alone, and a later clear tells nobody', () => {
+  const { id, n } = fixture();   // onHoldByPerson NOT set: only the history's `via` says it is the person's
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const takeover = () => [{ kind: 'hold-set', at: iso(NOW - 5 * HOUR), via: 'agent' }, { kind: 'hold-set', at: iso(NOW - 3 * HOUR), via: 'screen' }];
+  const r = pass(id, rows, takeover);
+  assert.equal(r.sent.length, 1);
+  assert.match(r.sent[0].text, /\(the person put it on hold 3 hours ago\)/, 'the takeover was not read as the person\'s hold');
+  assert.equal(stored(id, n).holdStaleTold[REX], iso(NOW - 3 * HOUR), 'the takeover\'s time is not the one stored');
+  const b = fixture();
+  const clearedAfter = () => [{ kind: 'hold-set', at: iso(NOW - 5 * HOUR), via: 'agent' }, { kind: 'hold-cleared', at: iso(NOW - 4 * HOUR), via: 'agent' }];
+  assert.equal(pass(b.id, [post(b.id, REX, 3.5 * HOUR), post(b.id, REX, 2 * HOUR), post(b.id, REX, HOUR)], clearedAfter).sent.length, 0, 'a hold cleared after its last set was told about');
 });
