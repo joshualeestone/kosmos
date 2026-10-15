@@ -20,6 +20,8 @@
  *   S1 workshop says this browser is not let in; oldmac says it has an older Kosmos;
  *   S1 another computer's text is shown as text (a hostile email and agent name), never markup;
  *   S2 CONTROL studio answers its gate on the next read: its accounts are DROPPED, not kept;
+ *   N  the way a person gets there: Settings on Your profile, then a click on AI Models in the Settings menu, with no
+ *      DOM forced open (settingsGo's own call reads the other computers);
  *   A  CONTROL the Mac's own window (http://127.0.0.1): no computers listed and not one request to another computer;
  *   P  at 390 px nothing scrolls sideways.
  *
@@ -173,6 +175,18 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
           chk(dropped, 'S2 CONTROL studio answers its gate: its accounts are dropped, not kept', JSON.stringify((await read(page)).groups[0]).slice(0, 200));
           studioMode = 'ok';
         }
+        await ctx.close();
+      }
+      // N: arriving by the Settings menu, as a person does. Nothing is forced open; settingsGo('accounts') must read.
+      {
+        const { ctx, page } = await fresh();
+        await page.goto(HOME + '/?tab=settings&sec=you', { waitUntil: 'networkidle' });
+        await settle(page);
+        await page.waitForSelector('#s-nav button[data-go="accounts"]', { state: 'visible', timeout: 10000 });
+        await page.click('#s-nav button[data-go="accounts"]');
+        const came = await until(page, () => document.querySelectorAll('#set-other .ao-acct').length >= 2
+          && !document.getElementById('s-sec-accounts').closest('[hidden]'));
+        chk(came, 'N the Settings menu\'s AI Models shows the other computers\' accounts, nothing forced', JSON.stringify((await read(page)).groups.map((g) => g.name)));
         await ctx.close();
       }
       // CONTROL A: the Mac's own window. Nothing is read from another computer, and no computer is listed.
