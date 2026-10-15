@@ -180,3 +180,9 @@ alone is not enough; chars is the shortened line's length.
 - No BLOCKER. WARNING: the trailing-separator and ".." conditions could never fire (p === join(inbox, basename(p))
   already refuses both), so their test proved nothing: both dropped, the equality is the one guard, and the ".." test
   now puts a literal ".." in the line. Review 19's premise is corrected above.
+
+## Review 22 (sonnet), and what changed
+- No BLOCKER. WARNING: shortOf fell back to the whole line when a reply's body was empty, so only the long envelope kept
+  the quoted words out of the 60 units: the log now builds its opening from wordsOf (body only) with no whole-line
+  fallback, cut on whole characters (tested: an empty reply keeps none; an emoji is never split). NITs: the Inbox is
+  lstat'ed only when a spill is present; the held-posts clause is named in the comment; an unused import is gone.

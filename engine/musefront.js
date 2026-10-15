@@ -177,7 +177,8 @@ function shortOf(text) {
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
    spilled to a file (engine/messages.js spillLine), every word count and the size of each saved copy (spillBytes, read
    from the agent's own Inbox; the line itself is the shortened one, so its length cannot say how long the post was).
-   A short colleague post's opening can run into its attachment trailer (a file path), which is not the person's words. The opening words (60 UTF-16 units) are kept only for
+   A short colleague post's opening can run into its attachment trailer (a file path) or Kosmos's held-posts clause
+   (ids and a project name), neither of them the person's words. The opening words (60 UTF-16 units) are kept only for
    lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this file (created 0600) in
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
@@ -205,9 +206,14 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
    directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
 const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
 function spills(t, workspace) {
-  let inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
-  // A linked Inbox is never Kosmos's (messages.js refuses one), and a link would take the lookup elsewhere.
-  if (inbox) { try { const st = fs.lstatSync(inbox); if (!st.isDirectory() || st.isSymbolicLink()) inbox = null; } catch { inbox = null; } }
+  let inbox;   // looked up once, and only when the line holds a spill
+  const inboxDir = () => {
+    if (inbox !== undefined) return inbox;
+    inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
+    // A linked Inbox is never Kosmos's (messages.js refuses one), and a link would take the lookup elsewhere.
+    if (inbox) { try { const st = fs.lstatSync(inbox); if (!st.isDirectory() || st.isSymbolicLink()) inbox = null; } catch { inbox = null; } }
+    return inbox;
+  };
   const words = [], bytes = [], envs = [];
   const text = String(t);
   for (const m of text.matchAll(SPILL_ALL_RE)) {
@@ -220,7 +226,8 @@ function spills(t, workspace) {
     const p = m[2];
     // The one guard: p must equal <inbox>/<its own basename> exactly, which refuses "..", deeper folders and a trailing
     // separator (path.join normalizes, so any of those makes the two strings differ).
-    if (inbox && p === path.join(inbox, path.basename(p))) {
+    const ib = inboxDir();
+    if (ib && p === path.join(ib, path.basename(p))) {
       try { const st = fs.lstatSync(p); size = st.isFile() ? st.size : null; } catch { size = null; }
     }
     bytes.push(size);
@@ -234,7 +241,8 @@ function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-t
    person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
    post (below). */
 const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
-function clipOpening(text) { const one = String(text).replace(/\s+/g, ' '); return one.length > 60 ? one.slice(0, 57) + '...' : one; }
+// Cut on whole characters (Array.from), so an emoji at the cut is never split; '' stays ''.
+function clipOpening(text) { const one = Array.from(String(text).replace(/\s+/g, ' ').trim()); return one.length > 60 ? one.slice(0, 57).join('') + '...' : one.join(''); }
 const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
 function turnRecord(text, at, arrived = null, workspace = null) {
   const t = String(text);
@@ -259,7 +267,10 @@ function turnRecord(text, at, arrived = null, workspace = null) {
   const first = digest ? t.slice(t.indexOf('\n') + 1).split('\n')[0] : t;
   if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) {
     // A Kosmos line has no envelope to skip, so its own start is kept (a "]" inside it must not move the cut).
-    rec.opening = first.startsWith('Kosmos here:') ? clipOpening(first) : shortOf(first);
+    // A colleague line: its body only (wordsOf drops the envelope and any quoted words), never the whole line as a
+    // fallback, so an empty reply keeps no opening rather than one that could reach a quote.
+    const open = clipOpening(first.startsWith('Kosmos here:') ? first : wordsOf(first));
+    if (open) rec.opening = open;
   }
   return rec;
 }

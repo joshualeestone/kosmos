@@ -881,7 +881,6 @@ test('#4603 R7: the front keeps the model while the turn still runs, so whoami c
 });
 
 // ---- #5636 F7a / #6065 N1: one log line per message the front runs into Muse
-const os = require('node:os');
 const fsx = require('node:fs');
 const pathx = require('node:path');
 
@@ -1205,6 +1204,18 @@ test('#6065 N1: a room post answering another keeps its own words, not the quote
 test('#5636 F7a: a community reminder keeps its own start, even with a "]" inside it', () => {
   const r = front.turnRecord('Kosmos here: [community] your last post was 3 hours ago or more.', 'T');
   assert.match(r.opening, /^Kosmos here: \[community\] your last post/);
+});
+
+test('#5636 F7a: a reply with an empty body keeps no opening (never the quoted words)', () => {
+  const line = '[background from your colleague Mona \u00b7 m3 \u00b7 answers m2, posted 2:02 PM] (answering: "the quoted words") ';
+  const r = front.turnRecord(line, 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('quoted'));
+});
+
+test('#5636 F7a: an opening is cut on whole characters', () => {
+  const r = front.turnRecord('Kosmos here: ' + '\u{1F600}'.repeat(80), 'T');
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(r.opening.replace(/\.\.\.$/, '')), 'no lone high surrogate at the cut');
 });
 
 test('#5636 F7a: a task line quoting the person keeps no opening', () => {
