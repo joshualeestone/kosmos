@@ -299,12 +299,15 @@ from a night in this codebase, kosmos#2616.)
 
 8. **Every `mktemp` in a `tools/test-*.sh` names a positional path template.** macOS `mktemp`
    ignores `TMPDIR`, so a bare `mktemp` or `mktemp -d` (or `-t name`) lands in the per-user temp
-   root, outside the per-run root `tools/run-tests.sh` sets each test, where the suite's runtime
-   leak scan (`tools/lib/test-leak-guard.sh`) never looks: it leaks silently on every Mac run
-   (#4273, #4298). Write a template instead: `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX"`, and
-   the name says which test left one. `tools/test-mktemp-template-4298.sh` enforces it with a
-   STATIC source check (`tools/mktemp-template-check.js`), because the runtime scan cannot see the
-   leak on macOS. It is scoped to `tools/test-*.sh`. Non-test scripts stay out of scope unless a
+   root, outside the per-run root `tools/run-tests.sh` sets for the run (one root, exported to
+   every test), where the suite's runtime leak scan (`tools/lib/test-leak-guard.sh`) never looks:
+   it leaks silently on every Mac run (#4273, #4298). Write a template instead:
+   `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX"`, and the name says which test left one.
+   `tools/test-mktemp-template-4298.sh` enforces it with a STATIC source check
+   (`tools/mktemp-template-check.js`), because the runtime scan cannot see the leak on macOS. The
+   guard checks that a template EXISTS, not where it lands: the `${TMPDIR:-/tmp}` form above lands
+   under the per-run root, while a literal `/tmp/<name>.XXXXXX` also passes and keeps its own
+   cleanup. It is scoped to `tools/test-*.sh`. Non-test scripts stay out of scope unless a
    run shows one leaking into the real temp root; several carry bare calls and are named by tests
    (`bin/agent-supervisor.sh`, `tools/release.sh`, `tools/verify-served.sh`), and being named is
    not being run, so whether a test executes one is measured, not assumed. A lib that an in-scope
