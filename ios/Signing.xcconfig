@@ -1,4 +1,5 @@
-// The ONE place the Apple Team ID lives (kosmos #4089, #718, #6262).
+// Where Xcode reads the Apple Team ID (kosmos #4089, #718, #6262). tools/archive.sh also holds the
+// same Team ID, as the only team it allows io.kosmos.app under: a team change edits both files.
 //
 // The Xcode project reads it from here (this file is the app target's base configuration), and
 // tools/archive.sh reads it from here for the export.
