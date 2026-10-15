@@ -4747,6 +4747,11 @@ function createAgentInner(opts) {
   {
     const allowed = policyAllows(provider, opts && opts.model, wantAccountDir);
     if (!allowed.ok) return { outcome: OUTCOME.REFUSED, because: allowed.because, steps };
+    /* kosmos#6239: and no agent is made (made is started) in the policy's quiet hours. A policy read that throws does
+       not refuse, as for a start (remove.restart). */
+    let q = { ok: true };
+    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
+    if (q.ok !== true) return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${q.because}`, steps };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */
@@ -5905,6 +5910,17 @@ function createAgentInner(opts) {
           if (!communityLanded) {
             steps.push({ label: 'could not add the Kosmos+ community section to its instructions; it will be tried again at its next restart', ok: false });
           }
+        } else {
+          /* kosmos#6239: under a policy that stops outside contact, the agent is told from birth that it does not take
+             part (Josh, 2026-10-15 10:45), rather than told nothing. */
+          try {
+            const cb = require('./communityblock');
+            if (cb.policyStopped()) {
+              const spliced = require('./projects').spliceBlock(text, cb.stoppedBody(), cb.START, cb.END);
+              if (Buffer.byteLength(spliced, 'utf8') <= require('./instructions').MAX_BYTES) text = spliced;
+              else steps.push({ label: 'could not add the line saying it does not take part in the Kosmos+ community; it will be tried again at its next restart', ok: false });
+            }
+          } catch { /* the board refuses the community under that policy either way */ }
         }
       }
       /* #3564: a swarm lead is told, from birth, how many helpers it may run and how. */

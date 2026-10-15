@@ -296,6 +296,24 @@ function blockBody({ introduce = false } = {}) {
   ].join('\n');
 }
 
+/* kosmos#6239 (Josh, 2026-10-15 10:45 CDT: an agent a kid uses gets "explicit instructions" that it "is not to participate
+   in the community aspect"): what an agent is told while the policy set for this Kosmos stops outside contact
+   (orgpolicy.contactAllows). Between the community block's own markers, so it takes the block's place, and the block
+   takes its place again when the policy allows contact and the switch is on. The board refuses the community under that
+   policy whatever the agent does (communitysend 'policy'); this tells the agent so it does not try. */
+const STOPPED_LINES = Object.freeze([
+  '## The Kosmos+ community',
+  '',
+  'You do not take part in the Kosmos+ community (community.kosmosplus.com). The policy set for this Kosmos does not allow agents to reach anyone outside this computer.',
+  'Do not post, comment, reply, vote, follow or endorse there, and do not try to reach it another way. If you are asked to take part, say that you do not.',
+]);
+function stoppedBody() { return STOPPED_LINES.join('\n'); }
+/* Whether that policy is in force. A policy read that throws reads as not stopped, so a fault never rewrites every
+   agent's instructions; the community itself stays refused on that fault (communitysend reads it as unreadable). */
+function policyStopped() {
+  try { return require('./orgpolicy').contactAllows().ok !== true; } catch { return false; }
+}
+
 /**
  * Add or remove the block in one agent's instruction file. `participating` comes from the caller
  * (communityswitch.participating()). Never throws and never creates a file: the caller has already
@@ -318,8 +336,9 @@ function tellAgent(sessionName, participating, opts = {}) {
     }
     if (opts.onlyIfPresent === true && !found) return { state: projects.TOLD.TOLD, because: null, changed: false };
     const introduce = typeof opts.introduce === 'boolean' ? opts.introduce : shouldIntroduce(sessionName);
-    let body = participating === true ? blockBody({ introduce }) : null;
-    let next = participating === true
+    // kosmos#6239: not taking part because of the policy is said, not left out (stoppedBody).
+    let body = participating === true ? blockBody({ introduce }) : policyStopped() ? stoppedBody() : null;
+    let next = body !== null
       ? projects.spliceBlock(current.text || '', body, START, END)
       : projects.removeBlock(current.text || '', START, END);
     // #5023: the introduction is optional; it must never cost an agent the whole block at the size limit.
@@ -334,7 +353,8 @@ function tellAgent(sessionName, participating, opts = {}) {
     }
     instructions.write(sessionName, next, current.version, undefined, {
       who: 'kosmos',
-      because: participating === true ? 'Kosmos told it about the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
+      because: participating === true ? 'Kosmos told it about the Kosmos+ community'
+        : body !== null ? 'Kosmos told it that it does not take part in the Kosmos+ community' : 'Kosmos took the Kosmos+ community section out',
     });
     return { state: projects.TOLD.TOLD, because: null, changed: true, ...wrote };
   } catch (err) {
@@ -366,7 +386,9 @@ function refreshEveryone(roster, participating) {
   if (!Array.isArray(roster)) {
     return [{ agent: null, state: projects.TOLD.COULD_NOT, because: 'we could not check which agents are running', changed: false, rulesChanged: false }];
   }
-  if (participating !== true) return [];
+  // kosmos#6239: with the policy stopping outside contact, every agent of ours is told it does not take part.
+  const stopped = participating !== true && policyStopped();
+  if (participating !== true && !stopped) return [];
   const instructions = require('./instructions');
   /* The rules part of a block: its lines without the introduction, trimmed. `before` is read from the file; the
      comparison is against the body this refresh composes (the text tellAgent writes), never a second read of the file,
@@ -393,11 +415,11 @@ function refreshEveryone(roster, participating) {
     if (before === null && isConnected) continue;
     const posted = posts === null ? null : posts.has(String(a.sessionName).trim().toLowerCase());
     const introduce = posted === false ? true : (posted === true ? false : Boolean(before && INTRO_FIRST_LINES.some((l) => before.includes(l))));
-    const { body, ...r } = tellAgent(a.sessionName, true, { introduce, withBody: true, onlyIfPresent: isConnected });
+    const { body, ...r } = tellAgent(a.sessionName, !stopped, { introduce, withBody: true, onlyIfPresent: isConnected });
     const rulesChanged = r.changed === true && rulesOf(before) !== rulesOf(typeof body === 'string' ? body : null);
     told.push({ agent: a.sessionName, ...r, rulesChanged });
   }
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, countWord, blockBody, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, countWord, blockBody, stoppedBody, policyStopped, shouldIntroduce, tellAgent, refreshEveryone, connected };

@@ -2476,6 +2476,17 @@ function busyRefusal(name, { held = true } = {}) {
 function restart(name, cause, opts) {
   const busy = busyRefusal(name);
   if (busy) return busy;
+  /* kosmos#6239: a start or restart the PERSON asked for (`quiet: true`, the Start and Restart routes) is refused in the
+     policy's quiet hours, and reported to whoever set it. Restarts the board makes itself (a provider or model change,
+     an account move) are not: they finish a change already made. A policy read that throws does not refuse. */
+  if (opts && opts.quiet === true) {
+    let q = { ok: true };
+    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${q.because}`, quiet: true };
+    }
+  }
   return markDryRun(driveSync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead)));
 }
 

@@ -34572,7 +34572,8 @@ function communityPaint(r) {
   document.getElementById('community-share').textContent = unread
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
-  document.getElementById('community-msg').textContent = '';
+  /* kosmos#6239: a policy that keeps agents out of the community is said under the switch, which it overrides. */
+  document.getElementById('community-msg').textContent = r && typeof r.stopped === 'string' ? r.stopped : '';
 }
 async function refreshCommunity() {
   const mine = ++COMMUNITY_EPOCH;
