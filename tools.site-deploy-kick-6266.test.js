@@ -161,6 +161,7 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
     ['main a short sha', { FAKE_MAIN: 'abc123' }, /not a full sha/],
     ['run list fails', { FAKE_LIST_FAIL: '1' }, /could not list site deploy runs/],
     ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z' }]) }, /site deploy run time read as/],
+    ['only the start time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: iso(3600), updatedAt: iso(3600), startedAt: 'garbled' }]) }, /site deploy run time read as 'garbled'/],
     ['only the update time garbled, on a failed run', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'failure', createdAt: iso(3600), updatedAt: 'garbled' }]) }, /site deploy run time read as 'garbled'/],
   ]) {
     const r = kick(state({ 'last-deployed': OLD }), env);
@@ -188,6 +189,16 @@ test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said a
   assert.equal(r.status, 1);
   assert.equal(r.dispatched, 0);
   assert.match(r.out, /could not read site main \(owner\/site\) \(gh: timed out after 1 s\); nothing asked/);
+});
+
+test('#6266: a tick that cannot make its temporary file still leaves its heartbeat and its result', () => {
+  const beatDir = fs.mkdtempSync(path.join(SANDBOX, 'tmpfail-'));
+  const r = kick(state({ 'last-deployed': OLD }), { TMPDIR: path.join(SANDBOX, 'no-such-tmp-dir'), KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
+  assert.equal(r.status, 1);
+  assert.equal(r.calls.length, 0, 'gh was called without a place for its error');
+  assert.match(r.out, /could not make a temporary file; nothing asked/);
+  assert.ok(fs.existsSync(path.join(beatDir, 'last-tick')), 'no heartbeat');
+  assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=1 could not make a temporary file; nothing asked\n$/);
 });
 
 test('#6266: a mistyped --check runs nothing and exits 2', () => {
