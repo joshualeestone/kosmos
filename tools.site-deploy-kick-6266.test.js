@@ -28,6 +28,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
 [ -n "\${FAKE_IGNORE_ALRM:-}" ] && trap '' ALRM   # as gh (Go) does
 [ -n "\${FAKE_PIDFILE:-}" ] && echo $$ > "$FAKE_PIDFILE"
+[ -n "\${FAKE_PPIDFILE:-}" ] && echo $PPID > "$FAKE_PPIDFILE"   # the perl wrapper's pid
 [ -n "\${FAKE_SLEEP:-}" ] && exec sleep "$FAKE_SLEEP"   # the fake becomes the sleep (an ignored ALRM survives exec), as one gh process
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
@@ -217,6 +218,32 @@ test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a s
   } finally {
     try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
     if (gh > 1 && alive(gh)) { try { process.kill(gh, 'SIGKILL'); } catch { /* gone */ } }   // never leave the fake behind
+  }
+});
+
+test('#6266: a TERM to the perl wrapper alone is passed on to gh', async () => {
+  const { spawn } = require('node:child_process');
+  const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
+  const ppf = pf + '.perl';
+  const log = path.join(SANDBOX, 'gh-wterm.log');
+  fs.writeFileSync(log, '');
+  const child = spawn('/bin/bash', [KICK], { detached: true, stdio: 'ignore', env: { PATH: '/usr/bin:/bin', KOSMOS_GH: FAKE_GH,
+    KOSMOS_AUTODEPLOY_STATE: state({ 'last-deployed': OLD }), KOSMOS_SITE_REPO: 'owner/site', KOSMOS_KICK_HEARTBEAT: path.join(SANDBOX, 'wterm-beat', 'last-tick'),
+    FAKE_LOG: log, FAKE_MAIN: MAIN, FAKE_SLEEP: '30', FAKE_IGNORE_ALRM: '1', FAKE_PIDFILE: pf, FAKE_PPIDFILE: ppf, KOSMOS_KICK_GH_TIMEOUT: '60' } });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let gh = 0;
+  try {
+    for (let i = 0; i < 50 && !(fs.existsSync(pf) && fs.existsSync(ppf)); i += 1) await wait(100);
+    gh = Number(fs.readFileSync(pf, 'utf8').trim());
+    const perl = Number(fs.readFileSync(ppf, 'utf8').trim());
+    assert.ok(gh > 1 && perl > 1 && perl !== child.pid, 'PRECONDITION: the fake gh and its perl wrapper started');
+    process.kill(perl, 'SIGTERM');   // only the wrapper: without its handler gh would be left running
+    for (let i = 0; i < 50 && alive(gh); i += 1) await wait(100);
+    assert.equal(alive(gh), false, 'a TERM to the wrapper was not passed on to gh');
+  } finally {
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
+    if (gh > 1 && alive(gh)) { try { process.kill(gh, 'SIGKILL'); } catch { /* gone */ } }
   }
 });
 
