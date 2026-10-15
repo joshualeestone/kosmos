@@ -79,3 +79,6 @@ shows its age, and a reading from a window that has reset is not drawn at all.
   allowance.readFiveHour; the route builds the reading through accountsweekly.fiveHourOf beside #6178's weeklyOf.
 - The on-show look stands down while a list read is out, but not for one older than 30 s (a hung read), so a read that
   never answers cannot block every later look.
+- The "will not update" notes are two tables again, frozenSay (exactly main's: #6178's other-computers section mirrors
+  it word for word and its test compares the two) and frozenBothSay. render-account-fivehour-6176 asserts the two name
+  the same reasons, which keeps iteration 10's protection without one combined table.

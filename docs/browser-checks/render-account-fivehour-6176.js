@@ -64,6 +64,18 @@ const AGENTS = [{ sessionName: 's-a', name: 'Ada', state: 'working' }, { session
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
 
+/* The page keeps two tables of why a reading will not update: frozenSay (one reading, mirrored word for word by #6178's
+   other-computers section) and frozenBothSay (two readings). A reason in one and not the other would put two meters
+   under a singular note; this reads acctUsageHtml's own source and compares the reasons they name. */
+{
+  const src = require('node:fs').readFileSync(PAGE, 'utf8');
+  const at = src.indexOf('function acctUsageHtml(');
+  const body = at >= 0 ? src.slice(at, src.indexOf('\nfunction ', at + 10)) : '';
+  const reasons = (name) => { const a = body.indexOf('const ' + name + ' = {'); if (a < 0) return ''; return [...body.slice(a, body.indexOf('}[', a)).matchAll(/^\s*'([a-z-]+)':/gm)].map((m) => m[1]).sort().join(','); };
+  const one = reasons('frozenSay'), two = reasons('frozenBothSay');
+  say(one.split(',').length >= 5 && one === two, 'every reason with a singular "will not update" note has its plural one', one + ' | ' + two);
+}
+
 (async () => {
   for (const engine of ['chromium', 'webkit']) {
     let browser;
