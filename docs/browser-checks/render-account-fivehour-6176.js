@@ -50,6 +50,7 @@ const ACCOUNTS = [
   claude('bothown', { weekly: week(40), weeklyBlocked: 'own-statusline', fiveHour: five(30) }),
   claude('bothbad', { weekly: week(40), weeklyBlocked: 'unreadable-settings', fiveHour: five(30) }),
   claude('weekfrozen', { weekly: week(40), weeklyBlocked: 'not-wired', fiveHour: null }),
+  claude('fivenotwired', { weekly: null, weeklyBlocked: 'not-wired', fiveHour: five(30) }),
   claude('key', { apiKey: true, keyTail: 'abcd', weekly: null, fiveHour: five(50) }),
   claude('spare', { weekly: week(5), fiveHour: null }),
 ];
@@ -97,8 +98,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             fiveVisible: fiveM ? fiveM.getBoundingClientRect().height > 0 : false,
             warns: u ? [...u.querySelectorAll('.acct-usage-warn')].map((x) => x.textContent.trim()) : [],
             order: u ? [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn')].map((x) => x.classList.contains('acct-usage-five') ? 'five' : x.classList.contains('acct-usage-meter') ? 'week' : (/5-hour/.test(x.textContent) ? 'fivewarn' : 'weekwarn')) : [],
-            nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [],
-            lastIsNone: u ? (() => { const kids = [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn, .acct-usage-none')]; return kids.length > 0 && kids[kids.length - 1].classList.contains('acct-usage-none'); })() : false,
+            // The notes, not #6175's set-up explanation (it shares the class; its id is acct-usage-why-*).
+            nones: u ? [...u.querySelectorAll('.acct-usage-none')].filter((x) => !/^acct-usage-why-/.test(x.id)).map((x) => x.textContent.trim()) : [],
+            // #6175's offer, and whether it comes after every note (it answers the note, so it follows it).
+            setup: u ? !!u.querySelector('[data-usage-setup]') : false,
+            setupLast: u ? (() => { const s = u.querySelector('[data-usage-setup]'); const n = [...u.querySelectorAll('.acct-usage-none')].filter((x) => !/^acct-usage-why-/.test(x.id)); return !!s && n.every((x) => x.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_FOLLOWING); })() : false,
+            lastIsNone: u ? (() => { const kids = [...u.querySelectorAll('.acct-usage-meter, .acct-usage-warn, .acct-usage-none')].filter((x) => !/^acct-usage-why-/.test(x.id)); return kids.length > 0 && kids[kids.length - 1].classList.contains('acct-usage-none'); })() : false,
           };
         };
         const out = {};
@@ -125,6 +130,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       }
       say(r.weekfrozen && r.weekfrozen.nones.length === 1 && /^This is the last reading Kosmos saw\. It will not update/.test(r.weekfrozen.nones[0]),
         tag + ' weekly only, not updating: the singular note, as before (control)', JSON.stringify(r.weekfrozen && r.weekfrozen.nones));
+      // #6175's "Set up usage reading" on a row that is not set up: offered in every shape, and after its note.
+      for (const id of ['bothfrozen', 'weekfrozen', 'fivenotwired']) say(r[id] && r[id].setup && r[id].setupLast, tag + ' not set up (' + id + '): the set-up offer is there, after the note', JSON.stringify(r[id] && { setup: r[id].setup, setupLast: r[id].setupLast, nones: r[id].nones }));
+      say(r.bothown && !r.bothown.setup, tag + ' set up its own way: no set-up offer (control)', JSON.stringify(r.bothown && r.bothown.setup));
       say(r.key && r.key.meters === 0, tag + ' an API-key row draws no meter', JSON.stringify(r.key));
       say(r.bothwarn && r.bothwarn.order.join(',') === 'week,weekwarn,five,fivewarn' && /Move its agent/.test(r.bothwarn.warns[0] || '') && r.bothwarn.warns[1] === 'Close to its 5-hour limit.',
         tag + ' both warning: the weekly block (with its move) comes whole, then the five-hour one (with none)', JSON.stringify(r.bothwarn && { order: r.bothwarn.order, warns: r.bothwarn.warns }));
