@@ -108,7 +108,7 @@ test('#6263 board review 3, #6270: on every Kosmos the re-read line names exactl
   enrolledAs(null);
 });
 
-test('#6263 board review 5: create\'s step label is the family\'s only when the family\'s policy is in force', () => {
+test('#6263 board review 5, #6270: create\'s step label names the org only when the org\'s policy is in force', () => {
   const LABEL = "could not add your company's AI policies to its instructions; Kosmos adds them again the next time it starts";
   assert.equal(policy.aboutPolicies(LABEL, 'company', true), LABEL);
   assert.equal(policy.aboutPolicies(LABEL, null, false), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
