@@ -4,6 +4,8 @@
 # and the hook's own ancestors. Real processes, built from copies of sleep and bash named `node`, under a temp HOME.
 # It runs the hook with --list ONLY: the real hook ends every node of this uid, so it must never kill here.
 set -u
+# The hook runs only on the macOS CI mini; elsewhere an orphan's parent is not always launchd (a container's init).
+if [ "$(uname)" != Darwin ]; then echo "skip test-ci-cleanup-relay-6245: macOS only (the CI mini's hook)"; exit 0; fi
 HERE="$(cd "$(dirname "$0")/.." && pwd -P)"
 T="$(mktemp -d "${TMPDIR:-/tmp}/cleanup6245.XXXXXX")"
 pids=()
