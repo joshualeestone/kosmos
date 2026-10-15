@@ -7,7 +7,7 @@
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-ssh-keychain-note-2600.XXXXXXXXXX")"; trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/home" "$T/kh"
 fails=0
 pass() { echo "PASS  $1"; }

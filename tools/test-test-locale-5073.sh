@@ -17,7 +17,7 @@ fail() { echo "FAIL  $1"; fails=1; }
 probe() {
   # LANG is read by a CHILD (printenv), so a pin that sets LANG without exporting it reads as unset: the node
   # suite inherits only what is exported.
-  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c 'e=$(mktemp); . "$1"; kosmos_test_locale_pin 2>"$e"; printf "LANG=%s|%s" "$(/usr/bin/printenv LANG)" "$(cat "$e")"; rm -f "$e"' _ "$LIB"
+  env -i PATH=/usr/bin:/bin "$@" /bin/bash -c 'e=$(mktemp "${TMPDIR:-/tmp}/test-test-locale-5073.XXXXXXXXXX"); . "$1"; kosmos_test_locale_pin 2>"$e"; printf "LANG=%s|%s" "$(/usr/bin/printenv LANG)" "$(cat "$e")"; rm -f "$e"' _ "$LIB"
 }
 
 out="$(probe)"

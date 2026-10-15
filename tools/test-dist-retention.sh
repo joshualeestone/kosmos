@@ -58,7 +58,7 @@ assert_invariants(){ # $1=dir label $2=dir
   [ "$bad" -eq 0 ] && ok "$lbl: all protected invariants intact" || no "$lbl: an invariant was deleted"
 }
 
-TMP="$(mktemp -d)"; SRV=""
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/test-dist-retention.XXXXXXXXXX")"; SRV=""
 trap '[ -z "$SRV" ] || kill "$SRV" 2>/dev/null; rm -rf "$TMP"' EXIT
 MIRROR="$TMP/mirror"
 LEGACY=(--prod-history 0 --copy-base "file://$MIRROR")

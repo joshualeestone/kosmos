@@ -55,7 +55,7 @@ if [ -z "$TMUX_BIN" ]; then
 fi
 ok "tmux found at $TMUX_BIN"
 
-TMPDIR_ROOT="$(mktemp -d)"
+TMPDIR_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/test-linux-systemd-live-4918.XXXXXXXXXX")"
 cleanup() {
   echo "Cleaning up test units and directories..."
   systemctl --user stop kosmos-agent-testagent4918.service >/dev/null 2>&1 || true

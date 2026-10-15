@@ -8,7 +8,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # 19 arms; an inherited KOSMOS_TESTS_IGNORE_SUITE reds the #4498 queue arms. Each arm sets what it needs. The lib's own
 # list, plus the other guards' overrides this file also exercises.
 unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_HARNESS_IGNORE_SUITE KOSMOS_CUT_IGNORE_HARNESS KOSMOS_HARNESS_IGNORE_CUT
-T="$(mktemp -d)"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/test-cut-guard.XXXXXXXXXX")"; trap 'kill "${SUITE:-}" 2>/dev/null; rm -rf "$T"' EXIT
 # A pid proven dead at runtime (#4206 review 11). The guards now run a real lsof and ancestry walk on
 # every candidate, so a fixed probe pid is only safe where it cannot be handed out: 99999 holds on
 # macOS (pids stop at 99998) but not on Linux (pid_max is often 4194304). A reused pid would need the
