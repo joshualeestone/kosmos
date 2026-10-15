@@ -2,7 +2,7 @@
 
 /**
  * #5534 (Enterprise E0.5): an enrolled board applies the company policy its status answer carries. engine/orgenroll.js
- * refresh (run on start and daily) writes the signed bundle where engine/orgpolicy.js reads it and applies it there,
+ * refresh (run on start and hourly) writes the signed bundle where engine/orgpolicy.js reads it and applies it there,
  * which verifies it against the pinned coordinator key. Done when (the card): a policy that disallows a provider stops
  * a new agent on it on an enrolled board, and a tampered bundle is refused. The coordinator is a fake that answers the
  * status call; nothing touches the network or the real data root.

@@ -303,7 +303,7 @@ test('#5531 review 2: joining again after an unconfirmed leave clears it, so the
   assert.ok(!remote.sent.slice(before).some((x) => x.route === org.ROUTES.leave), 'the old leave was sent');
 });
 
-test('#5531 review 2: the daily pass and a leave run one at a time, so a pass that read "enrolled" cannot write the record back after the leave', async (t) => {
+test('#5531 review 2: the hourly pass and a leave run one at a time, so a pass that read "enrolled" cannot write the record back after the leave', async (t) => {
   const { a } = sandbox(t);
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });
   let release;
@@ -819,7 +819,7 @@ test('#5531 review 33: an unanswered retry between the undo and the last-admin r
     if (route === org.ROUTES.enroll) return { ok: true, data: { ok: true, org: ORG, role: 'admin', enrolled: { computer: 'c2', world: body.world, thisComputer: false } } };
     return { ok: false, because: 'offline' }; } };
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: co, consentHash: HASH });
-  // One daily pass that gets no clear answer (the step review 31's test did not cover).
+  // One hourly pass that gets no clear answer (the step review 31's test did not cover).
   await org.refresh({ root: a, remote: { macRequest: async () => ({ ok: false, because: 'offline' }) } });
   assert.equal(org.leavePending({ root: a }), true, 'CONTROL: the undo is still pending');
   await org.refresh({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
