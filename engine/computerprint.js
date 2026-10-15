@@ -106,7 +106,7 @@ const POWERSHELL_TIMEOUT_MS = 10000;
 const QUIET = Object.freeze({ encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
 function readIoreg() { return execFileSync('/usr/sbin/ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8', timeout: IOREG_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] }); }
 function readRegistry() { return execFileSync(regExe(), REG_ARGS, { ...QUIET, timeout: REG_TIMEOUT_MS }); }
-function readPowerShell() { return execFileSync(powershellExe(), PS_ARGS, { ...QUIET, timeout: POWERSHELL_TIMEOUT_MS }); }
+function readPowerShell(timeoutMs) { return execFileSync(powershellExe(), PS_ARGS, { ...QUIET, timeout: timeoutMs || POWERSHELL_TIMEOUT_MS }); }
 /* The first read on this platform: ioreg's dump on a Mac, reg.exe's answer on Windows. */
 function realRun(platform) { return platform === 'win32' ? readRegistry() : readIoreg(); }
 let defaultRun = realRun;   // replaced only by tests, through _testRunner below
@@ -245,13 +245,18 @@ function printFor(salt, company) {
 /* TESTS ONLY: swap the reader, the platform and the clock, and clear the cache and the retry state. Call with no
    arguments to restore the real ones. `fn` is the first read (ioreg on a Mac, reg.exe on Windows); `opts.fallback` is
    Windows' second read: a function, 'real' for the production PowerShell read, or nothing, in which case a swapped
-   first read runs no PowerShell at all (so a test never spawns it by accident). Nothing in the board calls it; a guard
-   test fails if anything outside the tests does. */
+   first read runs no PowerShell at all (so a test never spawns it by accident). `opts.fallbackTimeoutMs` gives the real
+   PowerShell read a longer wait: a test that asks whether PowerShell reads the SAME value must not fail because a busy
+   CI runner took over POWERSHELL_TIMEOUT_MS to start it (#6222). Production's wait is unchanged. Nothing in the board
+   calls it; a guard test fails if anything outside the tests does. */
 function _testRunner(fn, opts) {
   const o = opts || {};
   defaultRun = fn || realRun;
   if (typeof o.fallback === 'function') defaultFallback = o.fallback;
-  else defaultFallback = !fn || o.fallback === 'real' ? readPowerShell : null;
+  else if (!fn || o.fallback === 'real') {
+    const wait = Number.isInteger(o.fallbackTimeoutMs) && o.fallbackTimeoutMs > 0 ? o.fallbackTimeoutMs : null;
+    defaultFallback = wait ? () => readPowerShell(wait) : () => readPowerShell();
+  } else defaultFallback = null;
   testPlatform = o.platform || null;
   testNow = o.now != null ? o.now : null;
   cached = undefined;
