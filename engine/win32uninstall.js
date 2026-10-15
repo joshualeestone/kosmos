@@ -347,7 +347,27 @@ function unwireHooks(bundleRoot, home, env, gone, done, left, notes) {
   for (const file of claudeSettingsFiles(home, env)) {
     try { unwireOne(file, roots, gone, filelock, reporthook, done, left, notes); }
     catch { left.push('Kosmos\'s entries in Claude Code\'s settings (' + file + '), which could not be checked. ' + hooksByHand('that file') + '.'); }
+    try { unwireStatusLineOne(file, roots, gone, filelock, done, left, notes); }
+    catch { notes.push('Claude Code\'s settings file ' + file + ' could not be checked for Kosmos\'s status line. If it has a "statusLine" entry naming kosmos-statusline.js, delete that entry.'); }
   }
+}
+
+/* kosmos#6213: Kosmos's status line, which Windows now wires too, comes out of the same files, under the same lock.
+   Left in, Claude Code runs the deleted node.exe on every status line refresh. */
+function unwireStatusLineOne(file, roots, gone, filelock, done, left, notes) {
+  try { fs.lstatSync(file); } catch { return; }
+  const allowance = require('./allowance');
+  const opts = { gone };
+  const BUSY = 'another program was writing it';
+  const locked = filelock.withFileLock(file, () => allowance.unwireStatusLine(file, roots, opts),
+    { busy: BUSY, cannotAccess: 'its folder would not let Kosmos lock it' });
+  const r = locked && locked.ok === true ? locked.value
+    : { ours: allowance.unwireStatusLine(file, roots, { ...opts, dryRun: true }).ours, changed: false, because: (locked && locked.because) || 'it could not be locked', busy: !!locked && locked.because === BUSY };
+  const byHand = ' Delete its "statusLine" entry, the one naming kosmos-statusline.js.';
+  if (r.changed) done.push('took Kosmos\'s status line out of Claude Code\'s settings (' + file + ')');
+  // As unwireOne: a busy file is unfinished work a retry can finish; a file Kosmos cannot use is a note.
+  else if (r.ours && r.busy) left.push('Kosmos\'s status line in Claude Code\'s settings (' + file + '), which could not be taken out (' + r.because + ').' + byHand);
+  else if (r.ours) notes.push('Claude Code\'s settings file ' + file + ' still has Kosmos\'s status line (' + (r.because || 'it did not change') + ').' + byHand);
 }
 
 /* One settings file of unwireHooks. A retry can fix a busy lock or a failed save (left: the removal is not finished);

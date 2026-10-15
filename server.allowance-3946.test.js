@@ -257,7 +257,6 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     return row.weeklyBlocked;
   };
   const away = path.join(SANDBOX, 'away-settings-6175.json');
-  if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
   try {
     fs.rmSync(settings, { force: true });
     assert.equal(await blockedOf(), 'not-wired', 'an account with no status line was promised a reading that cannot come');

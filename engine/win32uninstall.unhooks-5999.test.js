@@ -297,3 +297,39 @@ test('#5999: a held lock is waited on, then the file is named and left as it was
   assert.equal(fs.readFileSync(def, 'utf8'), bytes, 'the file was written past a held lock');
   assert.ok(r.left.some((l) => /Claude Code's settings/.test(l) && l.includes(def) && /another program was writing it/.test(l)), JSON.stringify(r.left));
 });
+
+/* ---- kosmos#6213: Kosmos's status line comes out of the same files, under the same lock ---- */
+const SL_OURS = { type: 'command', command: 'C:/Users/someone/Downloads/Kosmos/runtime/node.exe C:/Users/someone/Downloads/Kosmos/app/engine/kosmos-statusline.js C:/Users/someone/.claude' };
+const SL_PERSONS = { type: 'command', command: 'bash ~/.claude/my-status.sh' };
+
+test('#6213: the uninstall takes this install\'s status line out and says so; a person\'s own status line stays', async () => {
+  const h = home();
+  const def = path.join(h, '.claude', 'settings.json');
+  const work = path.join(h, '.claude-work1', 'settings.json');
+  writeJson(def, { model: 'opus', statusLine: SL_OURS });
+  writeJson(work, { statusLine: SL_PERSONS });
+  const workBytes = fs.readFileSync(work, 'utf8');
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  assert.deepEqual(readJson(def), { model: 'opus' }, 'the status line stayed, or another setting went');
+  assert.ok(r.done.some((d) => /status line/.test(d) && d.includes(def)), 'the removal was not said: ' + JSON.stringify(r.done));
+  assert.equal(fs.readFileSync(work, 'utf8'), workBytes, 'a person\'s own status line was touched');
+  assert.ok(!r.done.some((d) => /status line/.test(d) && d.includes(work)), 'a file with no Kosmos status line was reported');
+  assert.ok(!r.left.some((l) => /status line/.test(l)) && !r.notes.some((n) => /status line/.test(n)), JSON.stringify({ left: r.left, notes: r.notes }));
+});
+
+test('#6213: a held lock leaves Kosmos\'s status line in place and names it as unfinished (left), not done', async () => {
+  const h = home();
+  const def = path.join(h, '.claude', 'settings.json');
+  writeJson(def, { statusLine: SL_OURS });
+  const bytes = fs.readFileSync(def, 'utf8');
+  fs.mkdirSync(def + '.lock');
+  process.env.AGENT_WORKFORCE_LOCK_MS = '60';
+  stubSchedulers([listing([])]);
+  const r = await run(h);
+  fs.rmSync(def + '.lock', { recursive: true, force: true });
+  assert.equal(fs.readFileSync(def, 'utf8'), bytes, 'the file was written past a held lock');
+  assert.ok(r.left.some((l) => /status line/.test(l) && l.includes(def) && /another program was writing it/.test(l)), 'not named as unfinished: ' + JSON.stringify(r.left));
+  assert.ok(!r.done.some((d) => /status line/.test(d)), 'reported as done past a held lock');
+  assert.ok(!r.notes.some((n) => /status line/.test(n)), 'a busy lock was filed as a note, which a retry cannot clear');
+});
