@@ -81,3 +81,8 @@ before this card. Nothing reads the new unsent-submitted rows yet (item 2); they
   beside the input-held one. That is any wake's shape: the member is woken for that room, and a room's held posts go
   in one line. Splitting a room's line by why each post was held would tell the same room twice. NIT taken: a shorter
   sentence.
+
+## Review 5 (opus): CONVERGED
+- No BLOCKER, WARNING or CONVENTION. NITs taken: inputBoxEmpty reads paneTarget(card) (the exact pane the delivery
+  types into); the re-remember comment says it is bounded (once per delivery, never past 10 minutes). Left: nothing
+  reads the unsent-submitted rows yet (stated in Weakest premise).
