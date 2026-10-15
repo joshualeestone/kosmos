@@ -308,9 +308,11 @@ function measure(page) {
         const page = await ctx.newPage();
         await toOrg(page, URL);
         const m = await measure(page);
-        // The natural square from the page's own arithmetic (orgPlace + ORG_PAD), not a transcribed number.
+        // The natural square from the page's own arithmetic (orgPlaceGated + ORG_PAD), not a transcribed number.
+        // orgPlaceGated is what paintOrg now draws with (#4499); for this flat 5-root fixture it is never funded,
+        // so it returns orgPlace's layout unchanged (maxR 120), but the check reads what the page actually paints.
         // The unfixed page (the control run) predates ORG_PAD and wrote the same 78 inline.
-        const natural = await page.evaluate(() => Math.round((orgPlace(orgTreeOf(LAST)).maxR
+        const natural = await page.evaluate(() => Math.round((orgPlaceGated(orgTreeOf(LAST)).maxR
           + (typeof ORG_PAD === 'number' ? ORG_PAD : 78)) * 2));
         chk(m.mapW === natural && m.nodes.length === NAMES.length, `[${engine} desktop] the chart is the natural square, as before, with every agent`, `chart ${m.mapW}px, natural ${natural}px, ${m.nodes.length} nodes`);
         chk(!m.clips, `[${engine} desktop] the chart's box does not clip, as before`, 'overflow clips=' + m.clips);
