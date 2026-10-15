@@ -27284,13 +27284,16 @@ function acctFollowUp(n, busy) {
   }, ACCT_FOLLOWUP.ms);
 }
 /* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
-   shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
+   shows, and that row's line goes. The same timer carries each Codex window's meter (any length; only resets within
+   six hours arm it). One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
 let acctFiveTimer = null, acctFiveMisses = 0;
 /* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
+/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex window. */
+const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
 let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
@@ -27306,7 +27309,7 @@ function acctFiveHourOnShow() {
     if (acctSettingsOpenAt && Date.now() - acctSettingsOpenAt < 30e3) return;   // a Settings open is about to paint (and read) the list itself
     if (acctReadOpen && Date.now() - acctReadOpenAt < 30e3) return;   // a read is already out and re-arms the timer when it lands (one out over 30 s has hung: look anyway)
     if (mine !== ACCT_EPOCH || !acctListShown()) return;
-    const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+    const shown = [...document.querySelectorAll(ACCT_RESET_SEL)].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
     if (!shown.length) return;
     if (acctListBusy(document.getElementById('set-accounts'))) return;   // busy: the timers already armed carry on; a look never spends their tries
     if (shown.some((t) => t <= Date.now())) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
@@ -27317,11 +27320,11 @@ function acctFiveHourOnShow() {
    window looks again (the same check as a section switch). */
 document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
 window.addEventListener('focus', () => acctFiveHourOnShow());
-/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
+/* A failed re-read keeps the list, so a five-hour or Codex window line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
-  const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+  const shown = [...document.querySelectorAll(ACCT_RESET_SEL)].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
   const due = shown.some((t) => t <= Date.now());
   /* A background read that failed BEFORE any reset still cancelled the timer (it raised ACCT_EPOCH): set it again from
      the resets on screen, so the line still goes when its window does. */
@@ -27345,9 +27348,21 @@ function acctFiveHourRetry() {
   };
   wait();
 }
+/* The resets of the lines the list draws, by the same tests that draw them: Claude's five-hour line (acctUsageHtml) and
+   each Codex window (acctCodexUsageHtml). A reset of a line that is not drawn would only cost a read. */
+function acctResetTimes(list) {
+  return (list || []).flatMap((a) => {
+    if (!a) return [];
+    const f = a.fiveHour;
+    const claude = a.provider === 'anthropic' && !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
+    const codex = a.provider === 'openai' && a.limits && Array.isArray(a.limits.windows)
+      ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
+    return claude.concat(codex);
+  });
+}
 function acctFiveHourRepaint(list) {
   acctFiveMisses = 0;
-  acctFiveHourArm((list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt), false);
+  acctFiveHourArm(acctResetTimes(list), false);
 }
 /* The one timer: read the list again just after the soonest reset still ahead. `keep` keeps the miss count (a re-arm
    after a failed read, not a fresh paint). A list busy at that moment (a Check under way, a half-pressed Disconnect) is tried again
@@ -27355,9 +27370,19 @@ function acctFiveHourRepaint(list) {
 function acctFiveHourArm(times, keep) {
   clearTimeout(acctFiveTimer); acctFiveTimer = null;
   if (!keep) acctFiveMisses = 0;
-  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
-  if (!soon.length) return;
+  /* Only resets within six hours: a Codex weekly window resets days out, and arming for it would read every account every
+     six hours while the list sat open. A later reset gets a wake timer below, which reads nothing. */
+  const ahead = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
+  const soon = ahead.filter((t) => t <= Date.now() + 6 * 3600e3);
   const mine = ACCT_EPOCH;
+  if (!soon.length) {
+    /* Every reset is further out: wake six hours before the soonest one and arm then, without reading, so a line on a
+       list nobody touches still goes at its reset (and a weekly window is not read every six hours meanwhile). */
+    if (!ahead.length) return;
+    acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH) acctFiveHourArm(ahead, true); },
+      Math.min(Math.min(...ahead) - Date.now() - 6 * 3600e3 + 1000, 2147483647));   // setTimeout's longest delay
+    return;
+  }
   const fire = (delay) => {
     acctFiveTimer = setTimeout(() => {
       acctFiveTimer = null;
@@ -27370,7 +27395,7 @@ function acctFiveHourArm(times, keep) {
       paintAccounts({ followUp: ACCT_FOLLOWUP.max });
     }, delay);
   };
-  fire(Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
+  fire(Math.min(...soon) - Date.now() + 1000);   // soon is within six hours, so this is too
 }
 /* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
    it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.
@@ -27416,7 +27441,7 @@ function acctCodexUsageHtml(a) {
     const sameDay = new Date(w.resetsAt).toDateString() === new Date(now).toDateString();
     const resets = new Date(w.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' }
       : w.resetsAt - now > 6 * 864e5 ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-    return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+    return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '" data-resets="' + Math.round(w.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
       + '<p class="acct-usage-line">' + pct + '% of its ' + esc(name) + ' limit used · resets ' + esc(resets) + (age ? ' · Codex last reported it ' + esc(age) : '') + '</p></div>'
       + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its ' + esc(name) + ' limit until ' + esc(resets) + '.' : 'Close to its ' + esc(name) + ' limit.') + '</p>' : '');
   }).join('');
@@ -27757,7 +27782,7 @@ async function paintAccounts(opts) {
   } catch {
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour line past its reset)
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour or Codex window line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
