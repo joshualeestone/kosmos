@@ -213,23 +213,37 @@ test('#6249: a Codex pane is not read this way (its box is its own)', () => with
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
 }));
 
-test('#6249 round 1: the line the board left unsent is sent by the next delivery, which then waits its turn', () => withAgent({}, (roster) => {
+test('#6249 round 1 (reworked in round 7): the line the board left unsent is sent first by the next delivery, then that one', () => withAgent({}, (roster) => {
   const t1 = arm([EMPTY, box(MSG)]);
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: the first line was left in the box');
   assert.equal(t1.enters(), 1);
-  const t2 = arm([box(MSG)]);   // still there when the next line comes
-  const v = chat.deliver('al', 'a second line for later', roster);
-  assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'the second line is not typed behind the first');
+  // Still there when the next line comes: Enter on it, the box empties, then the next line goes as usual.
+  const NEXT = 'a second line for later, long enough to read';
+  const t2 = arm([box(MSG), EMPTY, box(NEXT), EMPTY]);
+  const v = chat.deliver('al', NEXT, roster);
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
   assert.equal(v.earlierSubmitted, true);
-  assert.equal(v.busy, true, 'busy, so a sender tries again rather than count a failure');
-  assert.match(v.because, /earlier message was still sitting unsent.*pressed Enter on that one, so this one was not typed behind it/);
-  assert.equal(t2.enters(), 1, 'one Enter, on our own earlier line');
-  assert.equal(t2.pasted(), 0);
-  // Once only: if it is still there, the next line is refused plainly and nothing more is pressed.
+  assert.equal(t2.enters(), 2, 'one Enter for the earlier line, one for this');
+  assert.equal(t2.pasted() > 0, true, 'this line was typed after the earlier one went');
+  const firstPaste = t2.calls.findIndex((c) => c[0] === 'paste-buffer');
+  const firstEnter = t2.calls.findIndex((c) => c[0] === 'send-keys');
+  assert.ok(firstEnter < firstPaste, 'the earlier line is sent before this one is typed');
+  // Once only: a line left again is refused plainly if the memory no longer holds it.
   const t3 = arm([box(MSG)]);
   const again = chat.deliver('al', 'a third line', roster);
   assert.equal(again.inputHeld, true);
   assert.equal(t3.enters(), 0);
+}));
+
+test('#6249 round 7: if the earlier line does not go, this one is refused with the sentence that says the box holds text', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const t = arm([box(MSG)]);   // still there after the Enter
+  const v = chat.deliver('al', 'a later line', roster);
+  assert.equal(t.enters(), 1, 'the one Enter on the earlier line');
+  assert.equal(t.pasted(), 0);
+  assert.equal(v.inputHeld, true);
+  assert.match(v.because, /already holds text that was not sent/);
 }));
 
 test('#6249 round 1: text the board did not leave there is never submitted by a later delivery', () => withAgent({}, (roster) => {
@@ -346,17 +360,18 @@ test('#6249 round 4: for an automatic sender, text in the box is a HOLD (a room 
   assert.equal(own.inputHeld, true);
 }));
 
-test('#6249 round 4: the earlier-line Enter on the automatic path is a hold too', async () => {
+test('#6249 round 7: on the automatic path the earlier line goes first and the new one is placed, never a hold that says the box holds text', async () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
   try {
     arm([EMPTY, box(MSG)]);
     chat.deliver('al', MSG, board.agents);   // left there, remembered
-    const t = arm([box(MSG)]);
-    const v = await chat.deliverAutomaticAsync('al', 'a room post', board.agents);
+    const POST = 'a room post that is long enough to read';
+    const t = arm([box(MSG), EMPTY, box(POST), EMPTY]);
+    const v = await chat.deliverAutomaticAsync('al', POST, board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
     assert.equal(v.earlierSubmitted, true);
-    assert.equal(v.held, true);
-    assert.equal(v.heldBy, 'input');
-    assert.equal(t.enters(), 1);
+    assert.equal(v.held, undefined);
+    assert.equal(t.enters(), 2);
   } finally { board.restore(); }
 });
 
@@ -383,12 +398,13 @@ test('#6249 round 6: a person rewriting the board\'s earlier line (cut down to i
   const v = chat.deliver('al', 'a later line', roster);
   assert.equal(t.enters(), 0, 'never an Enter on a half-edited line');
   assert.equal(v.inputHeld, true);
-  // CONTROL: the whole line still there is sent.
+  // CONTROL: the whole line still there is sent, and then the new one.
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
-  const t2 = arm([box(MSG)]);
-  assert.equal(chat.deliver('al', 'a later line', roster).earlierSubmitted, true);
-  assert.equal(t2.enters(), 1);
+  const LATER = 'a later line that is long enough to read';
+  const t2 = arm([box(MSG), EMPTY, box(LATER), EMPTY]);
+  assert.equal(chat.deliver('al', LATER, roster).earlierSubmitted, true);
+  assert.equal(t2.enters(), 2);
 }));
 
 test('#6249 round 6: a box that cannot be read right before the retry keeps today\'s verdict, not "other text"', async () => {

@@ -21241,7 +21241,7 @@ function stateReason(a, opts) {
   if (a && a.state === 'idle' && a.unsentInput && typeof a.unsentInput.since === 'string') {
     const since = Date.parse(a.unsentInput.since);
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
-    return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes. Open it to send it with Enter, or clear it.';
+    return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes, and Kosmos\'s messages to it wait behind it. Open it to send it with Enter, or clear it.';
   }
   /* #2019: a disruption we started names itself calmly. This mirrors boardfail's
      "This is not the same as having none": it pre-empts the fear the state exists
@@ -65535,7 +65535,7 @@ async function tkSayPost() {
               : /not on this project any more/.test(why) ? lead + ' is not on this project any more, so it was not told.'
               : /could not keep this one/.test(why) ? 'Kosmos could not keep your message for ' + who + ', so it was not told.'
               /* #6249: reached, but its input box held text not yet sent, so nothing was typed behind it. */
-              : /input box already holds text|earlier message was still sitting unsent/.test(why) ? lead + '\'s input box held text that had not been sent, so it was not told.'
+              : /input box already holds text/.test(why) ? lead + '\'s input box held text that had not been sent, so it was not told.'
               : 'Kosmos could not reach ' + who + ', so it was not told.');
             // Said every time: the message IS on the task, and a person who thinks it was lost sends it again,
             // which records it twice and re-tells everyone already told.
