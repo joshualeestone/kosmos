@@ -123,6 +123,10 @@ function sandboxEnv(dir, extra) {
   delete env.KOSMOS_TEST_PART;
   delete env.KOSMOS_TEST_PART_LOCAL;
   delete env.KOSMOS_SHELL_SHARD;
+  /* #6149: release.sh refuses the setup floor's test knob outright; one exported in a developer's shell would stop
+     every arm at step 1a-floor for a reason unrelated to the arm. */
+  delete env.KOSMOS_SETUP_FLOOR_TEST;
+  delete env.KOSMOS_SETUP_FLOOR_LOWER;
   return { ...env, ...(extra || {}) };
 }
 
@@ -870,6 +874,18 @@ test('a clean tree in step with origin gets past the guard', () => {
   const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #6149: under KOSMOS_ALLOW_VERSION_JUMP (which turns #4075's forward-only rule off) a cut naming a version below the
+   setup floor is refused at step 1a-floor, before anything is bumped; without the override #4075 stands in for it, and
+   the arm above (0.6.03, no override) is the control that the floor does not refuse the fixtures' own versions. */
+test('#6149: with the version-jump override, a cut below the setup floor is refused at step 1a-floor, before the bump', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
+  assert.match(r.said, /setup floor \(kosmos#6149\): this cut's version \(KOSMOS_ALLOW_VERSION_JUMP is set\) names 0\.6\.03/, r.said.slice(-600));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });
