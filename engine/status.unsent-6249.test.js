@@ -37,7 +37,7 @@ test('#6249: text that stays in the box shows on the card after a few minutes, t
   assert.equal(status.unsentInputOf(PANE, plain(s), T0), null, 'just seen: maybe someone typing');
   assert.equal(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS - 1), null);
   assert.deepEqual(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS), { since: new Date(T0).toISOString() });
-  assert.equal(reads(), 3, 'one colour read per pass while something is there');
+  assert.equal(reads(), 1, 'round 1: one colour read while the box shows the same thing, not one per pass');
   // The box is emptied: the record goes.
   armAnsi(screen('empty-after-turn'));
   assert.equal(status.unsentInputOf(PANE, plain(screen('empty-after-turn')), T0 + status.UNSENT_SHOW_MS + 1), null);
@@ -58,7 +58,7 @@ test('#6249: what the plain read takes for text but the colours say is dim is no
   const reads = armAnsi(dim);
   assert.equal(status.unsentInputOf(PANE, plain(dim), T0), null);
   assert.equal(status.unsentInputOf(PANE, plain(dim), T0 + status.UNSENT_SHOW_MS), null);
-  assert.equal(reads(), 2, 'CONTROL: the plain read did ask the colours');
+  assert.equal(reads(), 1, 'CONTROL: the plain read did ask the colours, once, and the answer is kept while it shows the same');
 });
 
 test('#6249: a Codex, Gemini, Grok or Antigravity pane is not read this way', () => {
@@ -68,3 +68,27 @@ test('#6249: a Codex, Gemini, Grok or Antigravity pane is not read this way', ()
   }
   assert.equal(reads(), 0);
 });
+
+test('#6249 round 1: an agent gone from the board loses its record, so it starts over if it comes back', () => {
+  const s = screen('typed-short');
+  armAnsi(s);
+  status.unsentInputOf(PANE, plain(s), T0);
+  status.unsentSweep(['someone-else']);
+  assert.equal(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS), null, 'timed from when it was seen again');
+  assert.deepEqual(status.unsentInputOf(PANE, plain(s), T0 + 2 * status.UNSENT_SHOW_MS), { since: new Date(T0 + status.UNSENT_SHOW_MS).toISOString() });
+  status.unsentSweep(['al']);
+  assert.ok(status.unsentInputOf(PANE, plain(s), T0 + 2 * status.UNSENT_SHOW_MS + 1), 'CONTROL: a sweep that names it keeps it');
+});
+
+test('#6249 round 1: a box that changes is read with colours again', () => {
+  let now = screen('typed-short');
+  let reads = 0;
+  status.setAnsiCapture(() => { reads += 1; return now; });
+  status.unsentInputOf(PANE, plain(now), T0);
+  status.unsentInputOf(PANE, plain(now), T0 + 1);
+  assert.equal(reads, 1, 'the same box: read once');
+  now = screen('ghost-at');
+  status.unsentInputOf(PANE, plain(now), T0 + 2);
+  assert.equal(reads, 2, 'a different box: read again');
+});
+

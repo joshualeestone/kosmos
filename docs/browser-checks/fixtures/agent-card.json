@@ -26,6 +26,7 @@
   "poolUntil": null,
   "screenState": null,
   "limitUntil": null,
+  "unsentInput": null,
   "lastWorked": {
     "at": null,
     "why": "not_seen"
