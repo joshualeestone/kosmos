@@ -41,7 +41,7 @@ the win32 test itself is skipped here.
   about 55 s). The 10057 ms is the whole test. The runner runs files one at a time.
 
 ## Review 2 (sonnet), and what changed
-- Fixed: the wait is 30 s, not 45 s: with both earlier reads at their limits (reg.exe 5 s then PowerShell 10 s, twice)
+- Fixed (superseded in review 3: now 25 s): the wait is 30 s, not 45 s: with both earlier reads at their limits (reg.exe 5 s then PowerShell 10 s, twice)
   the test is at most 60 s, the runner's per-test cap.
 - Fixed: a test proves the wait reaches the real read (a fresh copy of the module with execFileSync intercepted:
   30000 with the option, 10000 without), on every platform.
@@ -51,3 +51,6 @@ the win32 test itself is skipped here.
 - Fixed: the wait is 25 s (worst case 55 s), so there is room under the 60 s per-test cap, and the comment no longer
   relies on that cap firing (a synchronous test body may not be interruptible by it; the 20 minute file cap bounds it).
 - With no wait, the fallback is readPowerShell itself again, so a restore matches a fresh load.
+
+## Review 4 (sonnet): converged (no blocker, warning or convention); two nits applied (the helper tests' 30000 is
+any valid wait; the review 2 wait line marked superseded).
