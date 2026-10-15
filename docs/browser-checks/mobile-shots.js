@@ -389,10 +389,14 @@ async function subprojectFixture(page, data) {
 async function editProjects(page, projectId, edit) {
   await page.route('**/api/projects', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
-    let res, body;
-    try { res = await route.fetch(); body = await res.json(); } catch { await route.abort().catch(() => {}); return; }
-    for (const proj of body.projects || []) if (proj.id === projectId) edit(proj);
-    await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    // #6022: keep the fetch AND the answer inside one try, so a context teardown
+    // between them aborts the route instead of crashing the check.
+    try {
+      const res = await route.fetch();
+      const body = await res.json();
+      for (const proj of body.projects || []) if (proj.id === projectId) edit(proj);
+      await route.fulfill({ response: res, body: JSON.stringify(body), headers: { ...res.headers(), 'content-type': 'application/json' } });
+    } catch { await route.abort().catch(() => {}); }
   });
 }
 /* #5444: open the seed's project, then its task 1's page. */
