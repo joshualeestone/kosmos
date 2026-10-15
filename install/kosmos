@@ -4525,7 +4525,7 @@ cmd_feedback() {
     pull)
       # The BRIDGE (#2296): pull the COLLECTED reports (transmitted by opted-in
       # installs, stored server-side as blobs) down into a local dir that
-      # `triage --dir` reads. READ-ONLY against the store; needs the blob token
+      # `triage` reads (with no --dir when it is the default folder, #6265). READ-ONLY against the store; needs the blob token
       # (read via secrets-map, so this is not blocked on token provisioning -- it
       # returns a clear "not filed" message until the token exists).
       local p_dir=""

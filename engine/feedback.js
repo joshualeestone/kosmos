@@ -337,7 +337,9 @@ function reportsForTriage(opts) {
   if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
   const reports = [];
   if (o.dir && samePath(o.dir, dir())) {
-    /* Review 3: --dir naming this computer's own store reads it as the default did, not as a plain folder. */
+    /* Review 3: --dir naming this computer's own store reads it as the default did, not as a plain folder (newest
+       first, as the store lists it). Review 5: a missing store is still refused, as any unreadable --dir is. */
+    if (!fs.existsSync(dir())) return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes };
     readOwn(since, reports);
     notes.push('triage read this computer\'s own reports in ' + dir());
     return { ok: true, reports, notes, read: dir() };
@@ -354,7 +356,9 @@ function reportsForTriage(opts) {
   const pulledThere = hasReports(pulled);
   if (pulledThere && readFolder(pulled, since, reports, notes)) {
     const last = newest(reports);
-    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + (last ? 'newest dated ' + last : 'none dated') + '); --dir ' + dir() + ' reads this computer\'s own');
+    /* Review 5: --since can leave nothing of the pulled folder; the note says so, so an empty digest is not a mystery. */
+    const what = !reports.length && since ? 'none on or after ' + since : last ? 'newest dated ' + last : 'none dated';
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + what + '); --dir ' + dir() + ' reads this computer\'s own');
     return { ok: true, reports, notes, read: pulled };
   }
   readOwn(since, reports);
