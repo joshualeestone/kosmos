@@ -117,6 +117,7 @@ test('#6249: nothing is pasted behind text already in the box', () => withAgent(
   const v = chat.deliver('al', MSG, roster);
   assert.equal(v.state, chat.DELIVERY.COULD_NOT);
   assert.equal(v.inputHeld, true);
+  assert.equal(v.busy, true, 'round 2: busy, so a sweep that counts tries waits instead of spending them');
   assert.match(v.because, /already holds text that was not sent/);
   assert.equal(t.pasted(), 0, 'nothing typed');
   assert.equal(t.enters(), 0, 'and no Enter');
@@ -131,32 +132,50 @@ test('#6249: a box that empties after the Enter is placed, with one Enter', () =
   assert.equal(v.unsubmitted, undefined);
 }));
 
-test('#6249: still only ours after the settle gets ONE more Enter; still there after it is said unsubmitted', () => withAgent({}, (roster) => {
+test('#6249 (round 2): the synchronous path only watches: ours still there after the settle is unsubmitted, one Enter', () => withAgent({}, (roster) => {
   const t = arm([EMPTY, box(MSG)]);   // the box keeps our message whatever is pressed
   const v = chat.deliver('al', MSG, roster);
-  assert.equal(t.enters(), 2, 'one Enter, and one retry, never a third');
+  assert.equal(t.enters(), 1, 'no retry while the board is held; the next delivery sends it');
   assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
   assert.equal(v.unsubmitted, true);
   assert.match(v.because, /went into its input box and was not sent/);
-  assert.equal(t.reads(), 1 + 2 * (LOOKS + 1), 'read before the paste, then at once and through each settle');
+  assert.equal(t.reads(), 1 + 1 + (LOOKS + 1), 'before the paste, before the Enter, then through one settle');
 }));
 
-test('#6249: a retry that empties the box is placed', () => withAgent({}, (roster) => {
-  const stuck = Array(LOOKS + 1).fill(box(MSG));
-  const t = arm([EMPTY, ...stuck, EMPTY]);
-  const v = chat.deliver('al', MSG, roster);
-  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
-  assert.equal(v.enterRetried, true);
-  assert.equal(t.enters(), 2);
-}));
+test('#6249: the async path retries once: still there after it is unsubmitted, emptied by it is placed', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    let t = arm([EMPTY, box(MSG)]);
+    let v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 2, 'one Enter, and one retry, never a third');
+    assert.equal(v.unsubmitted, true);
+    chat.resetForTests();
+    t = arm([EMPTY, box(MSG), ...Array(LOOKS + 1).fill(box(MSG)), EMPTY]);
+    v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+    assert.equal(v.enterRetried, true);
+    assert.equal(t.enters(), 2);
+  } finally { board.restore(); }
+});
 
-test('#6249 (Liu Kang m5853): a box holding anything besides ours never gets the retry Enter', () => withAgent({}, (roster) => {
+test('#6249 (Liu Kang m5853): a box holding anything besides ours after the Enter never gets another', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const t = arm([EMPTY, box(MSG), box('the person was typing this ' + MSG)]);
+    const v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 1, 'only the first Enter: never one over text that is not ours');
+    assert.equal(v.unsubmitted, true);
+    assert.match(v.because, /held other text too, so Enter was not pressed again/);
+  } finally { board.restore(); }
+});
+
+test('#6249 (round 2): someone typing during the gap: the first Enter is not pressed at all', () => withAgent({}, (roster) => {
   const t = arm([EMPTY, box('the person was typing this ' + MSG)]);
   const v = chat.deliver('al', MSG, roster);
-  assert.equal(t.enters(), 1, 'only the first Enter: never one over text that is not ours');
+  assert.equal(t.enters(), 0);
   assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
   assert.equal(v.unsubmitted, true);
-  assert.match(v.because, /held other text too, so Enter was not pressed again/);
+  assert.match(v.because, /by then held other text too, so Enter was not pressed/);
 }));
 
 test('#6249: ghost text after the Enter is an empty box, not our text still there', () => withAgent({}, (roster) => {
@@ -194,13 +213,13 @@ test('#6249: a Codex pane is not read this way (its box is its own)', () => with
 test('#6249 round 1: the line the board left unsent is sent by the next delivery, which then waits its turn', () => withAgent({}, (roster) => {
   const t1 = arm([EMPTY, box(MSG)]);
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: the first line was left in the box');
-  assert.equal(t1.enters(), 2);
+  assert.equal(t1.enters(), 1);
   const t2 = arm([box(MSG)]);   // still there when the next line comes
   const v = chat.deliver('al', 'a second line for later', roster);
   assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'the second line is not typed behind the first');
   assert.equal(v.earlierSubmitted, true);
   assert.equal(v.busy, true, 'busy, so a sender tries again rather than count a failure');
-  assert.match(v.because, /earlier message was still sitting unsent.*send this one again/);
+  assert.match(v.because, /earlier message was still sitting unsent.*pressed Enter on that one.*send this one again/);
   assert.equal(t2.enters(), 1, 'one Enter, on our own earlier line');
   assert.equal(t2.pasted(), 0);
   // Once only: if it is still there, the next line is refused plainly and nothing more is pressed.
@@ -235,7 +254,10 @@ test('#6249 round 1: dim in a combined code, and the other reset forms', () => {
   for (const [row, want] of cases) assert.equal(chat.composerText(row + RULE80).text, want, JSON.stringify(row));
 });
 
-test('#6249 round 1: no retry Enter once the pane is no longer an agent\'s', () => withAgent({}, (roster) => {
+test('#6249 round 1: no retry Enter once the pane is no longer an agent\'s (async, where the retry lives)', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const roster = board.agents;
   const calls = [];
   let probes = 0;
   chat.setRunner((args) => {
@@ -246,7 +268,46 @@ test('#6249 round 1: no retry Enter once the pane is no longer an agent\'s', () 
   });
   chat.setDryRun(false);
   chat.setPauser(() => {});
-  const v = chat.deliver('al', MSG, roster);
+  const v = await chat.deliverAsync('al', MSG, roster);
   assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 1, 'never an Enter into what it became');
   assert.equal(v.unsubmitted, true);
+  } finally { board.restore(); }
+});
+
+test('#6249 round 2: a remembered line older than ten minutes is not sent', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
+  const realNow = Date.now;
+  Date.now = () => realNow() + chat.UNSENT_REMEMBER_MS + 1000;
+  try {
+    const t = arm([box(MSG)]);
+    const v = chat.deliver('al', 'a later line', roster);
+    assert.equal(v.inputHeld, true, 'refused plainly');
+    assert.equal(t.enters(), 0, 'the old line is not sent hours later');
+  } finally { Date.now = realNow; }
 }));
+
+test('#6249 round 2: only a line left unsent is remembered, not one that met other text', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG), box('the person typed ' + MSG)]);
+  chat.deliver('al', MSG, roster);
+  const t = arm([box(MSG)]);
+  const v = chat.deliver('al', 'a later line', roster);
+  assert.equal(v.inputHeld, true);
+  assert.equal(t.enters(), 0, 'nothing pressed: that line was never the board\'s alone');
+}));
+
+test('#6249 round 2: the earlier-line Enter is withheld once the pane is no longer an agent\'s', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const calls = [];
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return ok(calls.filter((a) => a[0] === 'display-message').length <= 1 ? '2.1.300\t\t0\n' : 'zsh\t\t0\n');
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(box(MSG));
+    return ok();
+  });
+  const v = chat.deliver('al', 'a later line', roster);
+  assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0);
+  assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+}));
+

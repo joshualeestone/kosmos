@@ -22,8 +22,9 @@ test('#6249: an idle card with text left in its box says so, with the minutes an
   assert.match(stateReason({ state: 'idle', unsentInput: { since: 'not a time' } }), /for about 3 minutes/, 'an unreadable time says the floor');
 });
 
-test('#6249: a crash loop still comes first; the unsent line comes before the plain state sentences', () => {
+test('#6249: a crash loop still comes first, and the unsent line is said for an idle agent only', () => {
   const since = new Date(Date.now() - 5 * 60e3).toISOString();
   assert.match(stateReason({ state: 'idle', unsentInput: { since }, crashLoop: { looping: true, count: 4 } }), /^Kosmos has restarted it 4 times/);
-  assert.match(stateReason({ state: 'rate_limited', stateConfidence: 'scraped', unsentInput: { since } }), /^Text has been sitting unsent/);
+  // Round 2: idle only; a limited agent keeps its own sentence.
+  assert.equal(stateReason({ state: 'rate_limited', stateConfidence: 'scraped', unsentInput: { since } }), 'Looks like a usage limit');
 });

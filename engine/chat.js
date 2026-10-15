@@ -212,7 +212,9 @@ let pauser = null;
 const deliveryQueues = new Map();
 /* #6249: per pane, the last line the board typed and saw left unsent in the box (its wire), so the next delivery can
    press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it. */
-const unsentWires = new Map();
+const unsentWires = new Map();   // target -> { wire, at }
+/* Round 2: a remembered line older than this is not sent: read hours later it would land ahead of newer words. */
+const UNSENT_REMEMBER_MS = 10 * 60 * 1000;
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -837,15 +839,17 @@ const SUBMIT_LOOK_MS = 150;
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
-const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos sent that one now, so send this one again in a moment';
+const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos pressed Enter on that one, so send this one again in a moment';
+const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
- * #6249: after the Enter, watch the box. Yields { wait: ms } for the driver (synchronous or not, as the gap is);
+ * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
+ * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery. Yields { wait: ms } for the driver (synchronous or not, as the gap is);
  * returns { outcome, retried }: 'sent' (it emptied), 'unread' (no live box to read: a menu or the turn's own screen,
  * so today's verdict stands), 'unsent' (only ours still there after one more Enter), 'other' (something besides ours:
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
  * The one retry is pressed only on a box that holds nothing but the end of what we pasted, on a pane still an agent's.
  */
-function* submitConfirmSteps(card, target, wire) {
+function* submitConfirmSteps(card, target, wire, mayRetry) {
   let waited = 0;
   let retried = false;
   for (;;) {
@@ -860,7 +864,7 @@ function* submitConfirmSteps(card, target, wire) {
       waited += SUBMIT_LOOK_MS;
       continue;
     }
-    if (retried) return { outcome: 'unsent', retried };
+    if (retried || !mayRetry) return { outcome: 'unsent', retried };
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried };
@@ -1932,7 +1936,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       /* Round 1: the text is the line the board itself left there unsent (remembered, and still all of it ours):
          press Enter on it, once, and ask for this line again in a moment, so the two are never sent as one and the
          earlier one is read first. Anything else in the box is never submitted. */
-      const earlier = unsentWires.get(target);
+      const kept = unsentWires.get(target);
+      const earlier = kept && Date.now() - kept.at <= UNSENT_REMEMBER_MS ? kept.wire : null;
+      if (kept && !earlier) unsentWires.delete(target);
       if (earlier && composerHolds(box.text, earlier) === 'ours' && verifyAtSend(allowed.card).ok) {
         unsentWires.delete(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
@@ -1940,7 +1946,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
           return { state: DELIVERY.COULD_NOT, because: EARLIER_SENT_BECAUSE, busy: true, earlierSubmitted: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
         }
       }
-      return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+      /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
+      return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, busy: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
     }
   }
 
@@ -2050,6 +2057,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
     };
   }
+  /* #6249 round 2: the box was empty before the paste, but the gap is up to 2 s: if anything besides ours is in it
+     now (the person started typing), the Enter would send it with ours. Never pressed then. */
+  if (composerReadable(allowed.card)) {
+    const before = readComposer(target);
+    if (before.ok && composerHolds(before.text, wire) === 'other') {
+      return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
+    }
+  }
   const entered = tmux(['send-keys', '-t', target, 'Enter']);
   if (!entered.ran || entered.status !== 0) {
     /**
@@ -2081,21 +2096,21 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      every sender already treats UNCONFIRMED as "may be there, do not type it again", which is exactly the case. */
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
-    if (result && result.outcome === 'unsent') unsentWires.set(target, wire);   // only ours is there: the next line may send it
+    if (result && result.outcome === 'unsent') unsentWires.set(target, { wire, at: Date.now() });   // only ours is there: the next line may send it
     else unsentWires.delete(target);
     const out = confirmedVerdict(v, result);
     return out.state === v.state ? out : { ...out, paneNote: noteFor(out.state) };
   };
   const confirmSync = (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire);
+    const steps = submitConfirmSteps(allowed.card, target, wire, false);
     let step = steps.next();
     while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
     return settle(v, step.value);
   };
   const confirmAsync = async (v) => {
     if (!needsConfirm(v)) return v;
-    const steps = submitConfirmSteps(allowed.card, target, wire);
+    const steps = submitConfirmSteps(allowed.card, target, wire, true);
     let step = steps.next();
     while (!step.done) {
       const ms = step.value.wait;
@@ -4444,7 +4459,7 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS,   // #6249
+  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_REMEMBER_MS,   // #6249
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
