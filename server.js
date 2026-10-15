@@ -13713,6 +13713,9 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
         if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }   // #6173 review 3
+        /* #6190: an agent a restart still holds (an abandoned async restart's command in flight) is refused BEFORE the
+           write, as the provider and model routes do; before this the account was saved and only the restart refused. */
+        { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
         const fromDir = moveFromDir(name);   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
@@ -13747,6 +13750,7 @@ const server = http.createServer(async (req, res) => {
         const started = accountmove.start(body, {
           /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
           setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); return create.setAccount(n, dir); },
+          moveRefusal: (n) => removal.moveRefusal(n),   // #6190: a held agent is refused before its account is written
           REFUSED: create.OUTCOME.REFUSED,
           forget: (n) => observed.forgetAgent(n),
           restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too

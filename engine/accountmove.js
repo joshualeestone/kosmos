@@ -108,7 +108,8 @@ function view(m) {
 /**
  * Start a move. Answers { status, body } for the route.
  *
- * deps: setAccount(name, dir) -> create.setAccount's answer; REFUSED (create.OUTCOME.REFUSED);
+ * deps: setAccount(name, dir) -> create.setAccount's answer; REFUSED (create.OUTCOME.REFUSED); moveRefusal(name) ->
+ * null, or { because } for an agent a restart still holds (remove.moveRefusal; #6190: asked before the write);
  * forget(name) (observed.forgetAgent); restartAsync(name, cause) -> remove's answer; RESTARTED (remove.OUTCOME.RESTARTED);
  * hold(names) and release(name) (remove.holdForMove / releaseFromMove); boardRestarting() -> true while an update or a
  * board restart is under way (the move is then refused).
@@ -130,6 +131,16 @@ function start(body, deps) {
 
   const m = { id: crypto.randomUUID(), done: false, startedAt: Date.now(), finishedAt: 0, agents: [] };
   for (const name of names) {
+    /* #6190: an agent a restart still holds is refused before its account is written, not after (the write used to land
+       and only its restart was refused). The move's own hold comes after this loop, so this sees only earlier holds. */
+    let held = null;
+    /* Fails CLOSED (review 2): a caller that leaves out the check refuses every agent rather than writing past it. */
+    try { held = typeof deps.moveRefusal === 'function' ? deps.moveRefusal(name) : { because: 'we could not check whether it is still being restarted' }; }
+    catch { held = { because: 'we could not check whether it is still being restarted' }; }   // review 3: a person's sentence, not the error
+    if (held) {
+      m.agents.push({ name, outcome: 'refused', because: held.because || 'that did not work' });
+      continue;
+    }
     let wrote;
     try { wrote = deps.setAccount(name, dir); }
     catch (err) { wrote = { outcome: deps.REFUSED, because: String((err && err.message) || err) }; }

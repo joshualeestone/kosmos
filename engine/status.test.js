@@ -6801,3 +6801,26 @@ test('#2955: Open in Terminal asks each tmux its version once (cached by path an
   } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
 });
 
+
+test('#6190: a look worded after an await uses ITS OWN search, not one the board\'s poll ran in between', () => {
+  const status = require('./status');
+  const m = wallMachine();
+  try {
+    withEnv({ AGENT_WORKFORCE_TMUX_BIN: m.old, KOSMOS_HOME: undefined, TMUX_TMPDIR: m.sock }, () => {
+      seams(status, m.old, [m.reader]);
+      const wall = { ran: true, status: 1, out: '', err: 'server exited unexpectedly' };
+      const gen = status._tmuxPanesStepsForTests();
+      let r = gen.next();                       // the first list-panes, through the old tmux
+      r = gen.next(wall);                       // the wall: this look re-picks (search 'none': it switched) and asks again
+      assert.equal(r.done, false, 'the look did not ask the tmux it switched to');
+      /* Meanwhile the board's own poll runs a search that is NOT allowed to swap (an explicit pick). */
+      status.setLauncherTmux(null);
+      status.tmuxRepick();
+      r = gen.next(wall);                       // the switched-to tmux fails too
+      assert.equal(r.done, true);
+      assert.equal(status.lastLookProblem(), status.lookProblemFor(wall, process.env.AGENT_WORKFORCE_TMUX_BIN, 'none'),
+        'the detail line was worded from the poll\'s search, not this look\'s');
+      assert.doesNotMatch(status.lastLookProblem(), /not picked by the Kosmos launcher/);
+    });
+  } finally { unseam(status); fs.rmSync(m.sb, { recursive: true, force: true }); }
+});
