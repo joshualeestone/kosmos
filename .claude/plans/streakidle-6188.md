@@ -39,6 +39,8 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
   on its own site.
 - After iteration 5 (the refused arm steps the clock a minute at a time and lets each refusal settle): 2 of 2 runs
   82 PASS.
+- After iteration 7 (the refused arm pins exactly five asks): 83 PASS; with the page's stop raised to six misses the
+  arm fails (calls=6); with streakCheck's body read reverted it fails (sent=5 finished=0).
 - server.streak-6160 and engine streak-6160 tests: 16/16.
 
 ## The class (measured, filed separately)
