@@ -858,7 +858,7 @@ test('#5534: an imported agent on a provider the company policy does not allow i
   try {
     const before = calls.length;
     assert.match(String(worldstarts.firstStartOfImport({ name: 'importcodex', runner: 'codex' }, MAC)),
-      /importcodex was not started here: .*does not allow openai/);
+      /importcodex was not started here: .*does not allow OpenAI for new agents/);
     assert.match(String(worldstarts.firstStartOfImport({ name: 'importhaiku', runner: 'claude', model: 'claude-haiku-4-5-20251001' }, MAC)),
       /does not allow the model haiku/, 'a model outside the list, given by its full id, was not refused');
     assert.equal(calls.length, before, 'a refused import ran a command');

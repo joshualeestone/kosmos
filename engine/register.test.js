@@ -516,7 +516,7 @@ test('#5534: Repair does not start an import the company policy held, but restor
     const held = out.results.find((r) => r.name === 'heldcodex');
     assert.ok(held, 'the held agent was not in the repair list at all');
     assert.equal(held.ok, false, 'Repair started an agent the policy held');
-    assert.match(String(held.because), /policy does not allow openai/);
+    assert.match(String(held.because), /policy does not allow OpenAI for new agents/);
     assert.equal(fs.existsSync(create.plistPath('heldcodex')), false, 'a job was written for the held agent');
     assert.equal(fs.existsSync(create.plistPath('rancodex')), true, 'CONTROL: an agent that ran before is restored (nothing is bricked)');
     // Review 3: once the policy allows it and Repair has started it, it is an agent that ran: the mark clears.

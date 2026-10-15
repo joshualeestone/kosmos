@@ -159,6 +159,22 @@ function inForce() {
   try { const r = refresh(); return r.applied ? r.applied.policy : null; } catch { return current(); }
 }
 
+/* #6233: a refusal names the provider as the Add a provider menu does, never by its internal id ('openai'). Not
+   create.providerLabel: that one says 'Anthropic' for any id it does not know, which here would refuse a provider by
+   naming another. An id not listed reads as "this provider". */
+const PROVIDER_NAMES = Object.freeze({
+  anthropic: 'Anthropic Claude',
+  openai: 'OpenAI',
+  google: 'Google Gemini',
+  antigravity: 'Google Gemini (Google subscription)',
+  xai: 'xAI Grok',
+  meta: 'Meta Muse',
+  alibaba: 'Alibaba Qwen',
+});
+function providerName(provider) {
+  return Object.prototype.hasOwnProperty.call(PROVIDER_NAMES, provider) ? PROVIDER_NAMES[provider] : 'this provider';
+}
+
 /**
  * Whether a new agent may run on this provider and model under the policy in force. No policy: allowed.
  * { ok: true } | { ok: false, because } (the sentence a person reads).
@@ -169,15 +185,15 @@ function allows({ provider, model } = {}, policy = inForce()) {
   const names = (Array.isArray(model) ? model : [model]).filter((x) => typeof x === 'string' && x !== '');
   const providers = policy.providers_allowed;
   if (Array.isArray(providers) && !providers.includes(provider)) {
-    return { ok: false, because: `your company's policy does not allow ${provider || 'this provider'} for new agents` };
+    return { ok: false, because: `your company's policy does not allow ${providerName(provider)} for new agents` };
   }
   const models = policy.models_allowed && policy.models_allowed[provider];
   if (Array.isArray(models) && !names.length) {
     // No model named and none known for it (a vendor's own default): no list can name it, so it is not allowed.
-    return { ok: false, because: `your company's policy allows only some models on ${provider}: choose one of them` };
+    return { ok: false, because: `your company's policy allows only some models on ${providerName(provider)}: choose one of them` };
   }
   if (Array.isArray(models) && !names.some((n) => models.includes(n))) {
-    return { ok: false, because: `your company's policy does not allow the model ${names[0]} on ${provider}` };
+    return { ok: false, because: `your company's policy does not allow the model ${names[0]} on ${providerName(provider)}` };
   }
   return { ok: true };
 }
