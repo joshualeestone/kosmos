@@ -419,16 +419,25 @@ function feedFooter(spec, next) {
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 /* #6201 (F7d): every comment's unshown replies, and a post's older comments, are paged through the service's cursors,
-   at most REPLY_PAGES_MAX pages in one read, REPLY_PAGES_AT_ONCE at a time; what the budget leaves is counted per post. */
-const REPLY_PAGES_MAX = 40;
+   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below),
+   REPLY_PAGES_AT_ONCE at a time, and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
+   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1, the start window and one last batch, 8 s each at most).
+   What that leaves is said on its post. A post read to its end (nothing left, nothing failed) has its mark moved to
+   the newest item read that is at least MARK_SETTLE_MS older than the newest one (#6201 review 1): replies deep in a
+   thread are often newer than its top-level page, and only "seen" kept them from repeating, which SEEN_MAX could not
+   hold once one read fetches hundreds. The settle window is longer than any read, so an item that lands during a read
+   (stamped after the read began) is never passed. */
+const REPLY_PAGES_MAX = 30;
+const ROUND2_START_MS = 3000;
+const MARK_SETTLE_MS = 3 * 60 * 1000;
 /* The reply nudge's count (freshReplies) still reads only the newest REPLY_PAGES_PER_POST comments' first hidden page, one
-   post at a time and paced: it names only comments owed an answer, which are top-level and so in round 1, and a deep
-   reply under a comment is never owed. It therefore counts no more than the agent's own read shows (#6201). */
+   post at a time and paced: it names only comments owed an answer, which are top-level, and a deep reply under a
+   comment is never owed. Where it cannot see a whole thread it names nobody (#6201 review 1, see freshReplies). */
 const REPLY_PAGES_PER_POST = 3;
 const REPLY_PAGES_AT_ONCE = 6;
 const PAGE_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;   // the service's opaque cursor, as commentOf's repliesCursor
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
-const SEEN_MAX = 120;              // ids kept per post above its mark (one read fetches at most 90 per post)
+const SEEN_MAX = 120;              // ids kept per post above its mark (#6201: a fully read post's mark settles, see MARK_SETTLE_MS)
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 const UNDER_COMMENT = 'under comment';
@@ -660,6 +669,10 @@ async function freshReplies(sessionName, opts) {
     const out = [];
     const persons = [];   // #5623
     const answered = [];   // #5623 review 2: person comments seen answered (the only evidence that clears a record)
+    /* #6201 review 1: the agent's own read pages every thread to its end; this count reads less. Where it could not see
+       all of a thread (older comments, replies past its pages), the read can hold items this count never saw, so where
+       the read's 30-item cap falls is unknown and no comment is NAMED: all go to `more` (the line says more are waiting). */
+    let uncertain = false;
     for (const p of posts) {
       /* Review 2: an agent's own read is waiting: let it in. Review 4 (Opus): as BUSY, not a partial ok, or the agent is
          told about some posts now and the rest in a second line, and a batch given up on comes back under a new key. */
@@ -697,6 +710,7 @@ async function freshReplies(sessionName, opts) {
       }
       if (unread) { if (downOnce(p)) continue; return unreadable(); }   // review 10: a post half read, as one not read
       postDown.delete(downKey(p));
+      if ((t.json && t.json.next_cursor) || list.length > COMMENTS_ASKED || comments.some((c) => c.replyCount > c.replies.length)) uncertain = true;
       const mark = marks[p.remoteId];
       const fresh = [];
       for (const c of comments) for (const x of [c, ...c.replies]) {
@@ -725,9 +739,10 @@ async function freshReplies(sessionName, opts) {
        as `more`, never named: the line then says more are waiting and the agent reads again, else an owed comment
        behind 30 replies was never told and the agent never read past them. */
     const owedClear = (i) => i.owed && !i.edge;
+    const named = (i) => keep.has(i) && !uncertain;   // #6201 review 1: an unknown cap names nobody
     const capped = out.map((o) => ({ remoteId: o.remoteId, title: o.title,
-      ids: o.items.filter((i) => keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
-      more: o.items.filter((i) => !keep.has(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
+      ids: o.items.filter((i) => named(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id),
+      more: o.items.filter((i) => !named(i) && owedClear(i)).sort((a, b) => byPos(a.x, b.x)).map((i) => i.x.id) }))
       .filter((o) => o.ids.length || o.more.length);
     // Review 7: keep the NEWEST PERSONS_MAX (the oldest are the likeliest given up on), then oldest first.
     persons.sort((a, b) => (b.ts || 0) - (a.ts || 0));
@@ -799,6 +814,8 @@ async function repliesFor(sessionName, opts) {
     if (th.commentsCursor) queue.push({ th, comments: true, cursor: th.commentsCursor });
   }
   let pagesRead = 0;
+  const round2Start = Date.now();
+  const round2Ms = Number.isFinite(opts.round2Ms) ? opts.round2Ms : ROUND2_START_MS;   // tests only
   const runTask = async (task) => {
     const { th } = task;
     if (th.failed) return;
@@ -839,7 +856,10 @@ async function repliesFor(sessionName, opts) {
     // Followed only while pages bring something new (a cursor that does not advance would spend the budget).
     if (added.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
   };
-  while (queue.length && pagesRead < REPLY_PAGES_MAX) {
+  while (queue.length && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
+    // A post that has failed is not read further: its tasks are dropped, not counted against the budget.
+    for (let k = queue.length - 1; k >= 0; k -= 1) if (queue[k].th.failed) queue.splice(k, 1);
+    if (!queue.length) break;
     const wave = queue.splice(0, Math.min(REPLY_PAGES_AT_ONCE, REPLY_PAGES_MAX - pagesRead));
     pagesRead += wave.length;
     await Promise.all(wave.map(runTask));
@@ -849,6 +869,16 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone) continue;
     th.unreadReplies = th.comments.reduce((n, c) => n + Math.max(0, c.replyCount - c.replies.length), 0);
     th.olderUnread = !!th.commentsCursor;
+    // #6201 review 1: a post read to its end may settle its mark (see MARK_SETTLE_MS).
+    if (!th.unreadReplies && !th.olderUnread) {
+      let newest = null;
+      for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && (!newest || byPos(x, newest) > 0)) newest = x;
+      let settled = null;
+      if (newest) for (const c of th.comments) for (const x of [c, ...c.replies]) {
+        if (x.ts && x.ts <= newest.ts - MARK_SETTLE_MS && (!settled || byPos(x, settled) > 0)) settled = x;
+      }
+      th.settled = settled;
+    }
   }
   // Every new item, per post after that post's own mark, then all of them oldest first, capped.
   const fresh = [];
@@ -907,7 +937,7 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone || !(th.unreadReplies || th.olderUnread)) continue;
     const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : '')
       + (th.unreadReplies && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + ' could not be read in one go, so any new ones there are not listed)', '');
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + ' could not be read, as the thread is longer than a read reaches, so new ones there are not listed)', '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
@@ -934,7 +964,12 @@ async function repliesFor(sessionName, opts) {
     if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
       if (!x) continue;   // nothing of this post shown: its mark stays
-      top = top && byPos(top, x) < 0 ? top : x;
+      // #6201 review 1: a post read to its end may pass round 1's newest, up to the earlier of the settled item and the
+      // last one shown, so a thread whose new items are deep replies still moves on by what was shown.
+      const floor = th.settled && (!top || byPos(th.settled, top) > 0) ? th.settled : top;
+      top = floor && byPos(floor, x) < 0 ? floor : x;
+    } else if (th.settled && (!top || byPos(th.settled, top) > 0)) {
+      top = th.settled;   // #6201 review 1: read to its end, so the mark may pass round 1's newest (settled, see MARK_SETTLE_MS)
     }
     if (!top) continue;
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
@@ -953,4 +988,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, MARK_SETTLE_MS, SEEN_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

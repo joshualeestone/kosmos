@@ -497,7 +497,7 @@ test('#4833 slice 2 review 1 / #6201: a third or later reply is read through the
   });
   const cut = await cr.readReplies('Ivy4833', { now: NOW });
   // #6201: an empty page adds nothing, so its cursor is not followed again, and the 25 the service counts are said, on the post.
-  assert.ok(cut.text.includes('(on your post ' + RP(7) + ': 25 replies could not be read in one go, so any new ones there are not listed)'), cut.text);
+  assert.ok(cut.text.includes('(on your post ' + RP(7) + ': 25 replies could not be read, as the thread is longer than a read reaches, so new ones there are not listed)'), cut.text);
   // Review 2: holding the mark could not reach the rest either (the same pages come back), so it moves.
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
 });
@@ -586,18 +586,18 @@ test('#4833 slice 2 review 2: at most REPLIES shown per read, the rest counted, 
 
 test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its post: older comments, and replies the service counts but does not list', async () => {
   on();
-  const say = /could not be read in one go/;
+  const say = /could not be read, as the thread is longer than a read reaches/;
   clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lng4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { next_cursor: 'N', comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   // #6201: the older page is asked for; the fixture answers the same comments again, so nothing new, and it is said.
-  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments could not be read in one go/, 'older comments not reached were not said');
+  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments could not be read, as the thread/, 'older comments not reached were not said');
   clearSeen();
   const four = [1, 2, 3, 4].map((n) => comment({ id: CID(n), created_at: T(n), reply_count: 5, replies: [], replies_cursor: 'C' + n }));
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: four } }),
     ...Object.fromEntries([1, 2, 3, 4].map((n) => ['/posts/' + RP(4) + '/comments/' + CID(n) + '/replies', () => ({ status: 200, json: { replies: [] } })])) });
   // #6201: all four comments' pages are read now; each answers none of the 5 the service counts, so 20 are said.
-  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: 20 replies could not be read in one go/, 'replies counted but not listed were not said');
+  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: 20 replies could not be read, as the thread/, 'replies counted but not listed were not said');
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1093,7 +1093,8 @@ test('#4951 review 7 (Sonnet): a reply past the 2-reply preview is counted, as t
 test('#4951 review 14 (Opus): an agent\'s own read waits for another agent\'s own read, then runs; past READ_WAIT_MS it is refused', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Nia4951', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, { Nia4951: { name: 'nia-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
-  assert.ok(cr.READ_WAIT_MS + 2 * 8000 < 30000, 'a wait plus a read\'s two rounds would pass the CLI\'s 30 s');
+  // #6201: round 1 (8 s), round 2's start window and its last batch (8 s): still inside the CLI's 30 s with the wait.
+  assert.ok(cr.READ_WAIT_MS + 8000 + cr.ROUND2_START_MS + 8000 < 30000, 'a wait plus a read\'s rounds would pass the CLI\'s 30 s');
   let release;
   cr.setFetcher(() => new Promise((res) => { release = () => res({ status: 200, json: { comments: [] } }); }));
   const first = cr.readReplies('Nia4951', { now: NOW });
@@ -1159,10 +1160,18 @@ test('#4951 review 8 (Opus) / #6201: the count reads REPLY_PAGES_PER_POST pages 
   const f = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
   assert.equal(f.ok, true, f.because);
   assert.equal(seen.filter((u) => u.includes('/replies?')).length, 3, 'round 2 did not read exactly the first three hidden threads: ' + seen.length);
-  const ids = f.posts[0].ids;
   // Review 14: only the comments are owed (the previews and hidden replies are under a comment), oldest first.
   const want = [0, 1, 2, 3, 4].map((i) => C2(i));
-  assert.deepEqual(ids, want, 'not the five comments, oldest first');
+  // #6201 review 1: the count read 3 of the 5 hidden threads, so where the read's cap falls is unknown: nobody is NAMED,
+  // all are "more" (the line says more are waiting).
+  assert.deepEqual(f.posts[0].ids, [], 'a count that could not see two threads named comments');
+  assert.deepEqual(f.posts[0].more, want, 'not the five comments, oldest first, as more');
+  // CONTROL: three hidden threads, all read by the count: the comments are named.
+  serve(hiddenRoutes(3, hiddenPage));
+  const named = await cr.freshReplies('Nia4951', { now: NOW, paceMs: 0 });
+  assert.deepEqual(named.posts[0].ids, [0, 1, 2].map((i) => C2(i)), 'CONTROL: a count that saw every thread did not name them');
+  serve(hiddenRoutes(5, hiddenPage));
+  const ids = want;
   // #6201: the agent's own read now reads every hidden page (the count still reads three): it shows everything.
   const shownAll = [0, 1, 2, 3, 4].flatMap((i) => [C2(i), C2(50 + i), C2(80 + i)]);
   const shownSeen = serve(hiddenRoutes(5, hiddenPage));
@@ -1795,7 +1804,7 @@ test('#6201: a new reply on a comment\'s SECOND replies page is listed (the newe
   const r = await cr.readReplies('Deep6201', { now: NOW });
   assert.ok(asked.some((u) => u.includes('/replies?limit=20&cursor=P2')), 'the second replies page was not read');
   assert.match(r.text, /the deep new reply/, 'a reply on the second page was not listed');
-  assert.ok(!/could not be read in one go/.test(r.text), 'a thread read to its end was said to be cut');
+  assert.ok(!/could not be read, as the thread/.test(r.text), 'a thread read to its end was said to be cut');
 });
 
 test('#6201: a new reply under an OLDER comment (past the first comments page) is listed', async () => {
@@ -1812,7 +1821,7 @@ test('#6201: a new reply under an OLDER comment (past the first comments page) i
   const r = await cr.readReplies('Old6201', { now: NOW });
   assert.ok(asked.some((u) => u.includes('/comments?order=newest&limit=' + cr.COMMENTS_ASKED + '&cursor=OLD')), 'the older comments page was not read');
   assert.match(r.text, /reply under an old comment/, 'a reply under an older comment was not listed');
-  assert.ok(!/could not be read in one go/.test(r.text), 'CONTROL: a thread read to its end was said to be cut');
+  assert.ok(!/could not be read, as the thread/.test(r.text), 'CONTROL: a thread read to its end was said to be cut');
 });
 
 test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at most REPLY_PAGES_AT_ONCE at a time, and says how many replies are left on the post', async () => {
@@ -1837,5 +1846,39 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies could not be read in one go, so any new ones there are not listed)'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies could not be read, as the thread is longer than a read reaches, so new ones there are not listed)'), r.text.slice(-400));
+});
+
+test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_MAX) is read to the end over several reads, never repeating one', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Rep6201', remoteId: RP(9), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const at = (k) => new Date(Date.parse('2026-10-01T02:00:00Z') + k * 10000).toISOString();   // 10 s apart
+  const top = comment({ id: D6201(500), created_at: '2026-10-01T01:00:00Z', reply_count: 200, replies_cursor: 'q0',
+    replies: [0, 1].map((k) => comment({ id: D6201(600 + k), parent_id: D6201(500), created_at: at(k) })) });
+  const all = Array.from({ length: 198 }, (_, k) => comment({ id: D6201(602 + k), parent_id: D6201(500), created_at: at(2 + k) }));
+  serve({
+    ['/posts/' + RP(9) + '/comments']: () => ({ status: 200, json: { comments: [top] } }),
+    ['/posts/' + RP(9) + '/comments/' + D6201(500) + '/replies']: (u) => {
+      const n = Number(u.searchParams.get('cursor').slice(1));
+      return { status: 200, json: { next_cursor: n < 9 ? 'q' + (n + 1) : null, replies: all.slice(n * 20, n * 20 + 20) } };
+    },
+  });
+  const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
+  const shown = [];
+  for (let k = 0; k < 9; k += 1) shown.push(...ids((await cr.readReplies('Rep6201', { now: NOW + k * 1000 })).text));
+  assert.ok(200 > cr.SEEN_MAX, 'fixture: not past SEEN_MAX');
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  assert.equal(shown.length, 201, 'not every item (the comment and its 200 replies) was shown once');
+});
+
+test('#6201 review 1: no new batch starts past round 2\'s time window; what is left is counted on its post', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Tim6201', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const asked = serve({
+    ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6201(700), created_at: T(1), reply_count: 9, replies_cursor: 'w', replies: [] })] } }),
+    ['/posts/' + RP(3) + '/comments/' + D6201(700) + '/replies']: () => ({ status: 200, json: { replies: [] } }),
+  });
+  const r = await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 });
+  assert.equal(asked.filter((u) => u.includes('/replies?')).length, 0, 'a batch started after the time window');
+  assert.match(r.text, /: 9 replies could not be read, as the thread/, 'what the window left was not counted');
 });
