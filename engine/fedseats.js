@@ -1086,6 +1086,9 @@ async function ensure(projectId, edges) {
      test's sandbox out (it has none); this is the same stated opt-in the board's other outward sweeps wait for, so a
      test that fakes an enrollment still reaches no room. After every local check above (review 1), before the seat. */
   if (typeof deps.allowed === 'function' && !deps.allowed()) return null;
+  /* kosmos#6239: a policy that stops outside contact keeps every shared room closed: a running seat is let go and none
+     is started. The link stays, so the room comes back on the first pass after the policy allows it again. */
+  if (contactStopped()) { stop(projectId); return null; }
   let s = seats.get(projectId);
   if (link.ended) {
     if (!s) { s = { child: null, edge: null, status: null, backoff: RESTART_START_MS, timer: null, ended: link.ended, stopped: false, starting: false }; seats.set(projectId, s); }
@@ -1161,6 +1164,12 @@ function stop(projectId) {
   if (s.joinCheckTimer) clearTimeout(s.joinCheckTimer);   // #5285
   if (s.child) letGo(s.child);
   seats.delete(projectId);
+}
+
+/* kosmos#6239: whether the policy set for this Kosmos stops outside contact (orgpolicy.contactAllows). A read that
+   throws counts as stopped: a room missed for one pass comes back on the next, a room left open cannot be taken back. */
+function contactStopped() {
+  try { return require('./orgpolicy').contactAllows().ok !== true; } catch { return true; }
 }
 
 /** Try an own room refused earlier this session again, on the person's explicit ask. */

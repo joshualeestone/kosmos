@@ -1670,6 +1670,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       at, paneState: null, paneNote: null,
     };
   }
+  /* kosmos#6239: in the policy's quiet hours (orgpolicy.quietAllows) nothing new is typed at any agent: not a person's
+     message, another agent's, a room's or the board's own nudges, since every one comes through here. The commands that
+     look after an agent without setting it to work still go (PAUSED_SWARM_COMMANDS). `quiet: true` lets a caller that
+     knows a person asked report it (server.js's thread route). A policy read that throws is not quiet: an agent that
+     cannot be reached because of a fault is worse than one reached at night. */
+  if (!PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
+    let q = { ok: true };
+    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      return { state: DELIVERY.COULD_NOT, because: `nothing new is sent to agents now: ${q.because}`, at, paneState: null, paneNote: null, quiet: true };
+    }
+  }
   /* #4589 (after the paused-swarm check, round 3: that check is free and its sentence is the true one): NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
      it has not been told to trust is enabled, and a message typed there vanishes: Enter opens the review
      table and the text is gone (reproduced 2026-09-29, Codex 0.149.1). Every sender comes through here.

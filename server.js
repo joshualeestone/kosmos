@@ -804,6 +804,17 @@ function fedKosmosPlusNow() {
    Fail-safe: any error, and any env value other than the exact "1", is false. */
 /* #4649: what the new outside-sharing routes answer while the federation switch is off. */
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
+// kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
+const COMMUNITY_STOPPED = 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so they do not take part in the Kosmos+ community whatever this switch says.';
+/* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
+   the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
+   refused: it only takes contact away. A policy read that throws refuses. */
+function federationPolicyStop() {
+  try {
+    const c = require('./engine/orgpolicy').contactAllows();
+    return c.ok === true ? null : 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so a project cannot be shared or joined here.';
+  } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
+}
 function federationLiveNow() {
   // Option 2 (the CUSTOMER un-hide): a customer cannot set an env var, so federationLive
   // also comes from a GLOBAL coordinator flag the board caches. Fire its lazy TTL refresh
@@ -8866,7 +8877,7 @@ const server = http.createServer(async (req, res) => {
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
         // switch routes below deliberately do NOT pass startIfDead.
-        try { out = removal.restart(name, cause, { startIfDead: true }); }
+        try { out = removal.restart(name, cause, { startIfDead: true, quiet: true }); }   // kosmos#6239: quiet hours
         catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err) }); return; }
         sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, out);
       })
@@ -9073,7 +9084,7 @@ const server = http.createServer(async (req, res) => {
     let out;
     // #3410: Trust-and-Restart is an explicit restart affordance, so it too starts a fully-dead
     // agent (opt in), matching the /restart button. The config-switch routes do not.
-    try { out = removal.restart(clean, 'restart', { startIfDead: true }); }
+    try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }   // kosmos#6239
     catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
     sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
     return;
@@ -9442,7 +9453,12 @@ const server = http.createServer(async (req, res) => {
      Never 0: a zero would claim a measurement nobody made. */
   /* #4820: no `noticeSeen` any more (the one-time notice is gone). A page from an older build opened
      that notice only on noticeSeen === false, so an answer without the field opens nothing there either. */
-  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null }; };
+  /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
+     (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
+  const communityStopped = () => {
+    try { return require('./engine/orgpolicy').contactAllows().ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
+  };
+  const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, communityBody()); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -17808,6 +17824,10 @@ const server = http.createServer(async (req, res) => {
             at: new Date().toISOString() }
           : await (automatic ? chat.deliverAutomaticAsync : chat.deliverAsync)(name, body.text, roster,
             envelope, (attachments.wireNote(files.recs) || '') + reactionNote, ...(automatic ? [{ cap: false }] : []));
+        /* kosmos#6239: a person's message refused in the policy's quiet hours is reported to whoever set the policy. */
+        if (!automatic && delivery && delivery.quiet === true) {
+          try { require('./engine/agentevents').recordRefusal({ agent: name, rule: 'quiet-hours' }); } catch { /* not reported */ }
+        }
         /* Review 2: the question was closed for this message; when the message then did not land, the record says the
            question went too, so nobody reads the agent as still asking. */
         if (qmenuClosed && delivery && delivery.state !== chat.DELIVERY.PLACED) {
@@ -20300,6 +20320,7 @@ const server = http.createServer(async (req, res) => {
            ADVISORY: a process can present the browser header; this stops the
            default path an agent would take. */
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239
         /* #4649: an invite naming an existing project (`project`) goes through fedmembers, which finds or makes the
            project's owner ref and records the owner's label for the Members list. */
         // Inviting from an EXISTING project (#4649) is behind the federation switch too; the create screen's path is unchanged.
@@ -20370,6 +20391,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can share a project with their other computers.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239: a room with another computer
         // The coordinator seats an own room only for a Kosmos Plus account, so a code made
         // without it could never connect, and its owner seat would retry for nothing.
         let plus = false;
@@ -20421,6 +20443,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch { body = null; }
         if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can invite or join an external project.' }); return; }
+        { const stop = federationPolicyStop(); if (stop) { sendJson(res, 403, { error: stop }); return; } }   // kosmos#6239
         const snap = federation.joinSnapshot(body.edge_id);
         if (!snap) { sendJson(res, 409, { error: 'Verify the code again before joining. Each code works once, so if it says it was already used, ask for a new one.' }); return; }
         // A second Join of the same own code (the snapshot is forgotten only after the first

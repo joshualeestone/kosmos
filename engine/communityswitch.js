@@ -114,10 +114,13 @@ function migrate() {
   return { ok: saved.ok, wrote: saved.ok };
 }
 
-/* The one gate the send layer and the managed block call. */
+/* The one gate the send layer and the managed block call. kosmos#6239: the policy set for this Kosmos can stop outside
+   contact whatever the switch says (orgpolicy.contactAllows); a policy read that throws is not taking part. The switch
+   itself (read, setOn) stays the person's, so lifting the policy brings back what they chose. */
 function participating() {
   const r = read();
-  return r.ok === true && r.on === true;
+  if (r.ok !== true || r.on !== true) return false;
+  try { return require('./orgpolicy').contactAllows().ok === true; } catch { return false; }
 }
 
 /* Tests only: replace the pause between retries (null puts the real one back), and forget the last failure. */

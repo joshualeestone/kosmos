@@ -237,6 +237,10 @@ function switchState() {
   try {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
     state = !r ? 'off' : r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off';
+    /* kosmos#6239: the policy set for this Kosmos stops outside contact (outside_contact: { enabled: false }), whatever
+       the person's switch says: 'policy', which sends nothing, as off. Read only over an ON switch, so an unreadable
+       switch keeps its own words; a policy read that throws lands in the catch below, so it sends nothing either. */
+    if (state === 'on' && contactWords() !== null) state = 'policy';
   } catch { state = 'unreadable'; }
   // #5435 review 2: the agent is told "the board's log says which record", so the log does, once until it reads again.
   if (state === 'unreadable') logOnce('switch', 'communitysend: cannot read the community switch file (' + switchFileName() + '), so nothing is sent until it can be read; your person turns Community on or off again in Settings to rewrite it');
@@ -246,9 +250,23 @@ function switchState() {
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
    agentCall): a switch file that cannot be read is not the person switching it off. */
 function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
+  if (sw === 'policy') return (contactWords() || POLICY_STOPS) + ', so the Kosmos+ community is off on this board. Do not try to take part in it another way';
   return sw === 'unreadable'
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
     : 'the Kosmos+ community is switched off on this board';
+}
+/* kosmos#6239: the policy's sentence when it stops outside contact, else null. Throws only if the policy module does. */
+let contactRead = null;         // tests inject
+const POLICY_STOPS = 'the policy set for this Kosmos does not allow agents to reach anyone outside this computer';
+function contactWords() {
+  const r = contactRead ? contactRead() : require('./orgpolicy').contactAllows();
+  return r && r.ok === true ? null : String((r && r.because) || POLICY_STOPS);
+}
+/* kosmos#6239: an agent's community act refused under the policy is reported to whoever set it, through the agent-events
+   route (agentevents.recordRefusal: only on an enrolled board whose accepted words name these events, at most one per
+   agent in ten minutes). Never throws. */
+function reportPolicyRefusal(agentKey) {
+  try { require('./agentevents').recordRefusal({ agent: agentKey, rule: 'outside-contact' }); } catch { /* not reported */ }
 }
 const loggedOnce = new Set();
 function logOnce(key, line) { if (!loggedOnce.has(key)) { loggedOnce.add(key); console.error(line); } }
@@ -2003,6 +2021,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
   const sw = switchState();
+  if (sw === 'policy') reportPolicyRefusal(agentKey);
   if (sw !== 'on') return local(notOnWords(sw));
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
@@ -2435,6 +2454,7 @@ function willSend(agentKey, now = Date.now(), kind = 'comment') {
   // Review 7: its own reason and words (not the person's choice, and not a send record either). The period is ended by
   // the sweep, as on main; ending it here on any failed read lost every agent's unsent posts on a transient error.
   if (sw === 'unreadable') return no('switch');
+  if (sw === 'policy') { reportPolicyRefusal(agentKey); return no('policy'); }
   if (sw !== 'on') return no('off');
   if (!endpointAllowed()) return no('address');
   const st = loadJson(stateFile());
@@ -2476,6 +2496,8 @@ const NOT_SENDING = Object.freeze({
     records: 'Posted on this board, but Kosmos cannot read or write its community send records just now, so it is not sending. Do not post it again before you see where it stands with: kosmos community status. If it still says so later, tell your person: the board\'s log says which record',
     refused: 'Posted on this board, but the community has refused this agent, so nothing it writes is sent. Do not post it again',
     switch: 'Posted on this board, but Kosmos cannot read this board\'s community switch just now, so it is not sending. Tell your person, and do not post it again before you see where it stands with: kosmos community status',
+    // kosmos#6239
+    policy: 'Posted on this board, but the policy set for this Kosmos does not allow agents to reach anyone outside this computer, so nothing is sent to the community. Do not post it again, and do not try to take part in the community another way',
   }),
   comment: Object.freeze({
     off: 'Commented, but Kosmos is not sending to the community right now, so it will not go.',
@@ -2483,6 +2505,7 @@ const NOT_SENDING = Object.freeze({
     records: 'Commented, but Kosmos cannot read or write its community send records just now, so this one will not go. Tell your person: the board\'s log says which record. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
     refused: 'Commented, but the community has refused this agent, so it will not go.',
     switch: 'Commented, but Kosmos cannot read this board\'s community switch just now, so this one will not go. Tell your person. Once it is fixed you can send it again; this one will never go, so it cannot appear twice.',
+    policy: 'Commented, but the policy set for this Kosmos does not allow agents to reach anyone outside this computer, so it will not go. Do not try to take part in the community another way.',   // kosmos#6239
   }),
 });
 /** The sentence for a kind ('post' or 'comment') and willSend's reason. Review 3: an unknown reason reads as a record
@@ -2663,6 +2686,7 @@ function setSender(f) { sender = f; }
 function resetPauses() { limiterPauseUntil.clear(); unreadable429Said.clear(); }   // #4953: tests only; the pause otherwise lives as long as the board
 function setTimeoutMs(ms) { timeoutMs = ms; }
 function setSwitch(f) { switchRead = f; }
+function setContact(f) { contactRead = f; }   // kosmos#6239: tests replace the policy's outside-contact read (null puts it back)
 function setAgentWaitMs(ms) { agentWaitMs = ms == null ? AGENT_WAIT_MS : ms; }
 function setAgentBudgetMs(ms) { agentBudgetMs = ms == null ? AGENT_BUDGET_MS : ms; }
 
@@ -2670,7 +2694,7 @@ module.exports = {
   switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
-  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },
