@@ -351,7 +351,16 @@ test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell rea
   const b = cp.printFor(SALT, ORG);
   assert.ok(b.send === 'print' && b.print === a, 'the print changed between two fresh reads on one PC');
   // Production's PowerShell read, for real, as on a PC whose policy blocks reg.exe: it must give the same print.
-  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real' });
-  const c = cp._testFingerprint(SALT, ORG);
-  assert.ok(c === a, 'the PowerShell fallback read a different value, or none');
+  // #6222: under load the self-hosted Windows runner can let powershell.exe exceed the 10s read timeout, so the
+  // read returns null -- a transient timeout, not a wrong value (production is safe: a double-failed read keeps the
+  // cached print or defers, it never mints a different one). Retry a few times, resetting the runner each time so
+  // every try is a fresh real read (_testRunner clears cached + failedAt). Take the first non-null read and require
+  // it to equal a (a genuinely DIFFERENT value is a reader bug and fails at once); fail only if EVERY try timed out.
+  let c = null;
+  for (let i = 0; i < 3 && c === null; i += 1) {
+    cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real' });
+    c = cp._testFingerprint(SALT, ORG);
+  }
+  assert.ok(c !== null, 'the PowerShell fallback read nothing in 3 tries (powershell.exe timed out each time)');
+  assert.ok(c === a, 'the PowerShell fallback read a different value');
 });
