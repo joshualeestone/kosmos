@@ -2856,7 +2856,8 @@ function updateCardDeps() {
  */
 function confirmModeDeps() {
   return "let UPD_CONFIRM_MODE = 'update'; let UC_UPDATE_TITLE = 'Update Kosmos?'; let UC_UPDATE_BODY = '';\n"
-    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n';
+    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n'
+    + pageFnSource('clearStopMoveOffers') + '\n';   // #6214: opening and closing the confirm clear a stop-the-move offer
 }
 
 test('#3953: a freshly created Grok agent comes up on the creation screen', async () => {
@@ -8264,7 +8265,7 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
     'ut-install': null,
     'upd-btn': { focus: () => focused.push('upd-btn') },
   };
-  global.document = { getElementById: (id) => els[id], contains: () => false };
+  global.document = { getElementById: (id) => els[id], contains: () => false, querySelectorAll: () => [] };   // #6214
   const close = new Function('document',
     "let UPD_CONFIRM_OPENER = { focus: () => { throw new Error('focused a removed node'); } };\n"
     /* closeUpdConfirm now resets the shared confirm to update mode (setUpdConfirmMode), so its subset
@@ -8306,7 +8307,7 @@ test("the card's Update arm opens the one shared confirm and records itself as o
     updconfirm: { hidden: true, dataset: {} },
     'uc-no': { focus: () => calls.push('uc-no-focus') },
   };
-  const doc = { getElementById: (id) => els[id] };
+  const doc = { getElementById: (id) => els[id], querySelectorAll: () => [] };   // #6214: the confirm clears stop offers
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'

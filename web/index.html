@@ -23703,6 +23703,7 @@ function openUpdConfirm(mode, opener, version) {
   UPD_CONFIRM_OPENER = opener || null;
   setUpdConfirmMode(mode, version);
   document.getElementById('uc-err').hidden = true;
+  clearStopMoveOffers();   // #6214: an offer belongs to the refusal it followed, which this reopened dialog no longer shows
   const go = document.getElementById('uc-go');
   if (go) { go.disabled = false; go.onclick = null; }
   document.getElementById('updconfirm').hidden = false;
@@ -23710,6 +23711,7 @@ function openUpdConfirm(mode, opener, version) {
 }
 function closeUpdConfirm() {
   document.getElementById('updconfirm').hidden = true;
+  clearStopMoveOffers();   // #6214
   const back = (UPD_CONFIRM_OPENER && document.contains(UPD_CONFIRM_OPENER))
     ? UPD_CONFIRM_OPENER
     : (document.getElementById('ut-install') || document.getElementById('upd-btn'));
@@ -27560,7 +27562,9 @@ function acctMoveNote(cards) {
 async function stopAccountMove() {
   try {
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    const timer = ctl ? setTimeout(() => ctl.abort(), 10e3) : null;
+    /* As long as the move request's own limit: the board puts every unreached agent back inside this request, and on
+       Windows each put-back is a few Task Scheduler calls. */
+    const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
     let res;
     try { res = await fetch('/api/agents/account-moves/stop', { method: 'POST', ...(ctl ? { signal: ctl.signal } : {}) }); }
     finally { if (timer) clearTimeout(timer); }
@@ -27572,7 +27576,10 @@ async function stopAccountMove() {
       return { ok: true, said: '', waitingFor: (card && card.name) || w };
     }
     return { ok: false, said: (out && (out.because || out.error)) || 'The move could not be stopped. Try again in a moment.' };
-  } catch {
+  } catch (e) {
+    /* A request that ran out of time may well have stopped the move (the board answers after the put-backs): say so,
+       never that it failed. */
+    if (e && e.name === 'AbortError') return { ok: false, said: 'Kosmos took too long to answer, so the move may already be stopping. Check Settings, AI Models in a moment.' };
     return { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' };
   }
 }
@@ -27595,10 +27602,11 @@ function offerStopMove(afterEl, sayEl) {
   b.addEventListener('click', async () => {
     b.disabled = true; b.textContent = 'Stopping…';
     const out = await stopAccountMove();
+    if (sayEl) sayEl.hidden = false;   // the line it writes to can have been hidden since the refusal
     if (out.ok) {
       b.remove();
-      if (sayEl) sayEl.textContent = 'The move is stopping' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
-        + '. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.';
+      if (sayEl) sayEl.textContent = 'The move will stop' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
+        + '. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.';
     } else {
       b.disabled = false; b.textContent = 'Stop the move';
       if (sayEl) sayEl.textContent = out.said;

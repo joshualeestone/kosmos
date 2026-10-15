@@ -9,10 +9,22 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
+/* The board's REAL cards (fixture-discipline): sandbox the roots before requiring the fleet. */
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'stopmove-6214-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const page = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+
+const BOARD = fleet.install(['al', 'bo', 'cy', 'di'].map((n) => fleet.agent(n, { displayName: n[0].toUpperCase() + n[1] })));
+const CARDS = BOARD.agents;
+test.after(() => { try { BOARD.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const HTML = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(HTML);
@@ -47,6 +59,7 @@ function load(answers, LAST = []) {
     const a = answers.shift();
     if (!a) throw new Error(`no answer scripted for ${url}`);
     if (a.throws) throw new Error('Failed to fetch');
+    if (a.aborts) { const e = new Error('The operation was aborted.'); e.name = 'AbortError'; throw e; }
     return { ok: a.status >= 200 && a.status < 300, status: a.status, json: async () => { if (a.badJson) throw new Error('not json'); return a.body; } };
   };
   const document = { createElement: (t) => el(t) };
@@ -62,10 +75,12 @@ test('#6214: stopAccountMove posts to the stop route and says whose restart it w
 });
 
 test('#6214: the restart it waits for is named as the person knows the agent, not by its session', async () => {
-  const { stopAccountMove } = load([{ status: 200, body: { stopped: true, waitingFor: 's-bo' } }], [{ sessionName: 's-bo', name: 'Bo' }]);
+  const bo = CARDS.find((c) => c.name === 'Bo');
+  assert.ok(bo && bo.sessionName && bo.sessionName !== 'Bo', 'PRECONDITION: the fleet card has a session name unlike its name');
+  const { stopAccountMove } = load([{ status: 200, body: { stopped: true, waitingFor: bo.sessionName } }], CARDS);
   assert.equal((await stopAccountMove()).waitingFor, 'Bo');
-  const unknown = load([{ status: 200, body: { stopped: true, waitingFor: 's-zz' } }], [{ sessionName: 's-bo', name: 'Bo' }]);
-  assert.equal((await unknown.stopAccountMove()).waitingFor, 's-zz', 'an agent not on the board keeps the board\'s word');
+  const unknown = load([{ status: 200, body: { stopped: true, waitingFor: 'zz' } }], CARDS);
+  assert.equal((await unknown.stopAccountMove()).waitingFor, 'zz', 'an agent not on the board keeps the board\'s word');
 });
 
 test('#6214: a refused stop says the board\'s own words; a board that does not answer is said plainly', async () => {
@@ -73,6 +88,9 @@ test('#6214: a refused stop says the board\'s own words; a board that does not a
   assert.deepEqual(await f.stopAccountMove(), { ok: false, said: 'No account move is running.' });
   f = load([{ status: 500, badJson: true }]);
   assert.deepEqual(await f.stopAccountMove(), { ok: false, said: 'The move could not be stopped. Try again in a moment.' });
+  f = load([{ aborts: true }]);
+  assert.deepEqual(await f.stopAccountMove(), { ok: false, said: 'Kosmos took too long to answer, so the move may already be stopping. Check Settings, AI Models in a moment.' },
+    'a stop that ran out of time is never said as failed (the board answers after the put-backs)');
   f = load([{ throws: true }]);
   assert.deepEqual(await f.stopAccountMove(), { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' });
 });
@@ -82,6 +100,7 @@ test('#6214: a refusal offers one Stop the move button, and pressing it says the
   const box = parent();
   const say = box.append(el('p'));
   const after = box.append(el('span'));
+  say.hidden = true;   // hidden since the refusal (the Update dialog was closed and opened again)
   offerStopMove(say, say);
   offerStopMove(say, say);
   assert.equal(box.kids.length, 3, 'offered twice, drawn once');
@@ -92,7 +111,8 @@ test('#6214: a refusal offers one Stop the move button, and pressing it says the
   assert.equal(box.kids[2], after, 'the button goes right after the sentence, not at the end');
   await b.click();
   assert.equal(box.kids.includes(b), false, 'a stop that worked takes its button away');
-  assert.equal(say.textContent, 'The move is stopping once bo has finished restarting. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.');
+  assert.equal(say.hidden, false, 'the sentence was written into a hidden line');
+  assert.equal(say.textContent, 'The move will stop once bo has finished restarting. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.');
 });
 
 test('#6214: with no restart under way the sentence names nobody; a refused press keeps the button to try again', async () => {
@@ -100,7 +120,7 @@ test('#6214: with no restart under way the sentence names nobody; a refused pres
   let box = parent(); let say = box.append(el('p'));
   f.offerStopMove(say, say);
   await box.kids[1].click();
-  assert.equal(say.textContent, 'The move is stopping. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.');
+  assert.equal(say.textContent, 'The move will stop. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.');
 
   f = load([{ status: 409, body: { outcome: 'refused', because: 'No account move is running.' } }]);
   box = parent(); say = box.append(el('p'));
@@ -144,6 +164,8 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   const uc = SCRIPT.slice(ucAt, ucAt + 4000);
   assert.match(uc, /if \(res && res\.status === 409 && body && body\.moveStoppable\) offerStopMove\(err, err\);/, 'Update and Roll back do not offer the stop');
   /* A fresh press of each refused action takes the old offer away (it would outlive the move otherwise). */
+  assert.match(page.lift(SCRIPT, 'openUpdConfirm'), /clearStopMoveOffers\(\);/, 'a reopened Update dialog shows the old offer with no sentence');
+  assert.match(page.lift(SCRIPT, 'closeUpdConfirm'), /clearStopMoveOffers\(\);/, 'a closed Update dialog keeps the old offer');
   assert.match(uc.slice(0, uc.indexOf('go.disabled = true;')), /clearStopMoveOffers\(\);/, 'a fresh Update press leaves the old offer behind');
   assert.match(restart.slice(0, 600), /clearStopMoveOffers\(\);/, 'a fresh Restart Kosmos press leaves the old offer behind');
   assert.match(sw.slice(0, 300), /if \(WORLDSW_SWITCHING\) return;\n\s+clearStopMoveOffers\(\);/, 'a fresh switch leaves the old offer behind');
@@ -162,7 +184,7 @@ test('#6214: after a stop, the row says who moved, who was put back and who coul
     ] } },
   ];
   const fetch = async () => { const a = answers.shift(); return { ok: a.status < 300, status: a.status, json: async () => a.body }; };
-  const LAST = [{ sessionName: 'al', name: 'Al' }, { sessionName: 'bo', name: 'Bo' }, { sessionName: 'cy', name: 'Cy' }, { sessionName: 'di', name: 'Di' }];
+  const LAST = CARDS;
   const fast = (fn, ms) => setTimeout(fn, ms >= 10e3 ? ms : 0);
   // eslint-disable-next-line no-new-func
   const move = new Function('fetch', 'LAST', 'setTimeout', `${MOVE}\nreturn moveAccountAgents;`)(fetch, LAST, fast);
