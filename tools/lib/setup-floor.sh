@@ -81,8 +81,9 @@ kosmos_setup_floor_pointer_ok() {
   case "$json" in
     *\\*) echo "setup floor (kosmos#6149): $label has a backslash (a JSON escape could hide a key) -- refusing" >&2; return 1 ;;
   esac
-  if [ "$(printf '%s' "$json" | LC_ALL=C grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
-     [ "$(printf '%s' "$json" | LC_ALL=C grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
+  # Counted with awk, not grep: macOS grep honours GREP_OPTIONS (=-v inverts every match), so no grep decides here.
+  if [ "$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"version"[[:space:]]*:/, "") } END { print n + 0 }')" -gt 1 ] ||
+     [ "$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"artifact"[[:space:]]*:/, "") } END { print n + 0 }')" -gt 1 ]; then
     echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2
     return 1
   fi
@@ -116,10 +117,13 @@ kosmos_setup_floor_installer_ok() {
     echo "setup floor (kosmos#6149): $label ($file) is missing or unreadable, so the installer cannot be checked -- refusing" >&2
     return 1
   }
-  grep -q "$KOSMOS_SETUP_FLOOR_MARKER" "$file" || {
-    echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before $KOSMOS_SETUP_FLOOR_REAL and would break every install a read-only build has touched -- refusing" >&2
-    return 1
-  }
+  # A shell match, not grep: macOS grep honours GREP_OPTIONS (=-v made an old installer pass), so no environment
+  # variable can invert this check.
+  case "$(LC_ALL=C cat "$file")" in
+    *"$KOSMOS_SETUP_FLOOR_MARKER"*) ;;
+    *) echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before 0.7.42 (or one that dropped it) and would break every install a read-only build has touched -- refusing" >&2
+       return 1 ;;
+  esac
 }
 
 # `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
