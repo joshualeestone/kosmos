@@ -123,8 +123,8 @@ function sandboxEnv(dir, extra) {
   delete env.KOSMOS_TEST_PART;
   delete env.KOSMOS_TEST_PART_LOCAL;
   delete env.KOSMOS_SHELL_SHARD;
-  /* #6149: release.sh refuses the setup floor's test knob outright; one exported in a developer's shell would stop
-     every arm at step 1a-floor for a reason unrelated to the arm. */
+  /* #6149: release.sh refuses the setup floor's test knob outright; these sandbox arms stop before step 1a-floor, so this
+     is hygiene here (run_git, whose arms do reach it, strips it too). */
   delete env.KOSMOS_SETUP_FLOOR_TEST;
   delete env.KOSMOS_SETUP_FLOOR_LOWER;
   return { ...env, ...(extra || {}) };
@@ -666,6 +666,13 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
+      /* #6149: these arms cut 0.6.x, below the setup floor. A cut made with KOSMOS_ALLOW_VERSION_JUMP=1 runs this file at
+         step 3 with it exported, and release.sh then checks the cut's own version against the floor, so every arm past
+         step 1 would refuse at 1a-floor; the floor's test knob is refused outright by release.sh. The arm that tests the
+         override passes it in `env`. */
+      KOSMOS_ALLOW_VERSION_JUMP: undefined,
+      KOSMOS_SETUP_FLOOR_TEST: undefined,
+      KOSMOS_SETUP_FLOOR_LOWER: undefined,
       /* #3955: the highlights opt-out is set only by the arm that tests it; an operator's exported
          one would otherwise let every arm past the check it is meant to exercise. */
       KOSMOS_CUT_NO_WHATS_NEW: noWhatsNew ? '1' : undefined,

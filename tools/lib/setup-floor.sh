@@ -8,7 +8,8 @@
 # the lock (the marker, below). There is no override: serving such an installer breaks installs, so the fix is a
 # newer build, never a flag.
 #
-# Usage: source this file, then call one check; each returns 0 (passes) or 1 (refused, the reason on stderr):
+# Usage: source this file, then call one check; each returns 0 (passes) or 1 (refused, the reason on stderr). The
+# scripts named are the DIRECT callers; tree_ok and site_untouched_ok also run pointer_ok and installer_ok:
 #   kosmos_setup_floor_ok <label> <version>              a version at or above the floor (publish-staging-pointer.sh)
 #   kosmos_setup_floor_pointer_ok <label> <json>          a pointer (promote-channel.sh, deploy-site.sh's early check)
 #   kosmos_setup_floor_installer_ok <label> <file>        an installer (promote-channel.sh, release.sh step 1a and 2b)
