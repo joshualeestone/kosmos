@@ -351,10 +351,11 @@ test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell rea
   const b = cp.printFor(SALT, ORG);
   assert.ok(b.send === 'print' && b.print === a, 'the print changed between two fresh reads on one PC');
   // Production's PowerShell read, for real, as on a PC whose policy blocks reg.exe: it must give the same print.
-  // #6222: with a 30 s wait, because the question is the value, not speed: on a busy runner the read ran out of
+  // #6222: with a 25 s wait, because the question is the value, not speed: on a busy runner the read ran out of
   // production's 10 s (the test failed at 10057 ms with no value). Worst case, with both earlier reads at their
-  // limits (reg.exe 5 s, then PowerShell 10 s, twice), is 15 + 15 + 30 = 60 s, the Windows runner's per-test cap.
-  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: 30000 });
+  // limits (reg.exe 5 s, then PowerShell 10 s, twice), is 15 + 15 + 25 = 55 s: under the runner's 60 s per-test cap
+  // with room to spare (that cap may not even fire on a synchronous test), and far inside its 20 minute file cap.
+  cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real', fallbackTimeoutMs: 25000 });
   const c = cp._testFingerprint(SALT, ORG);
   assert.ok(c === a, 'the PowerShell fallback read a different value, or none');
 });
