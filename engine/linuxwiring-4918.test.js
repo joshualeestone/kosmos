@@ -298,7 +298,7 @@ test('#6183: an async Linux restart sends every systemctl to the async runner an
   status.setPaneSource(() => '');   // empty board: a fromDead start, no session to close -- the job acts still run
   const sync = [], acalls = [];
   remove.setRunner((cmd, args) => { sync.push([cmd, ...args]); return { ok: false, code: 99 }; });   // must never be asked
-  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); await new Promise((r) => setTimeout(r, 25)); return linuxRestartAnswer(cmd, args); });
+  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); await new Promise((r) => setTimeout(r, 80)); return linuxRestartAnswer(cmd, args); });   // 80 ms each: longer than the maxGap ceiling, so an inline command would be caught
   t.after(() => {
     remove.setRunner(null); remove.setAsyncRunner(null); status.setPaneSource(null);
     require('./disruption').clear(name);
@@ -311,9 +311,13 @@ test('#6183: an async Linux restart sends every systemctl to the async runner an
   assert.deepEqual(sync, [], 'a command went through the blocking runner');
   const systemctl = acalls.filter((c) => c[0] === 'systemctl').map((c) => c[2]);
   assert.deepEqual(systemctl, ['stop', 'daemon-reload', 'start', 'is-active'], 'the restart acts, all through the async runner');
-  // Four commands at 25 ms each ran off the board's thread: it turned repeatedly and was never held for one whole command.
-  assert.ok(turns > 5, 'the board\'s thread barely turned during the restart (' + turns + ')');
-  assert.ok(maxGap < 200, 'the board\'s thread was held for ' + maxGap + ' ms in one go');
+  // Four commands at 80 ms each (320 ms of subprocess time) run off the board's thread via execFile. A 5 ms interval
+  // fires dozens of times across that window (turns stays high), and no single 80 ms command ever holds the thread, so
+  // the longest gap between fires stays well under one command. Were any command run inline, that gap would be >= 80 ms
+  // (> 50) and turns would collapse toward the sync control's zero. The load-bearing proof is still that `sync` stayed
+  // empty (above): every command went through the async runner.
+  assert.ok(turns > 10, 'the board\'s thread barely turned during the restart (' + turns + ')');
+  assert.ok(maxGap < 50, 'the board\'s thread was held for ' + maxGap + ' ms in one go (a command ran inline)');
 });
 
 test('#6183 control: a synchronous Linux restart holds the board for the whole of its systemctl calls', (t) => {
@@ -336,6 +340,58 @@ test('#6183 control: a synchronous Linux restart holds the board for the whole o
   assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
   assert.equal(fired, 0, 'a timer fired during a synchronous restart: the board was not actually held');
   assert.ok(took >= 75, 'the sync restart took ' + took + ' ms, too little to show the board was held');   // >= 3 of 4 x 25 ms
+});
+
+/* #6183: drive a Linux restart step generator synchronously (these generators carry no {sleep} waits), collecting the
+   exec specs it yields and feeding each the given answer. Returns the generator's return value and the specs sent, so
+   a test can assert BOTH what the step decided and which systemctl commands it asked to run. */
+function driveLinSteps(gen, answerExec) {
+  const sent = [];
+  let res = gen.next();
+  while (!res.done) {
+    assert.ok(res.value && Array.isArray(res.value.exec), 'a Linux step yielded a non-exec: ' + JSON.stringify(res.value));
+    sent.push(res.value.exec);   // [file, args, opts]
+    res = gen.next(answerExec(res.value.exec));
+  }
+  return { ret: res.value, sent };
+}
+
+test('#6183: loadedSteps yields is-active and reads a dry run as loaded (the command still reaches the runner)', () => {
+  // A dry run is answered loaded WITHOUT skipping the is-active yield, so an injected runner always sees the command
+  // -- the property remove.js's steps.loaded comment calls out, and the one the async proof depends on.
+  const u = linuxjob.unitName('dryagent', undefined);
+  const dry = driveLinSteps(linuxjob.loadedSteps('dryagent', undefined), () => ({ dryRun: true }));
+  assert.equal(dry.ret, true, 'a dry run was not read as loaded');
+  assert.deepEqual(dry.sent.map((e) => e[1]), [['--user', 'is-active', u]], 'is-active was not yielded under a dry run');
+  assert.equal(driveLinSteps(linuxjob.loadedSteps('upagent', undefined), () => ({ ok: true, stdout: 'active\n' })).ret, true, 'an active unit was not read as loaded');
+  assert.equal(driveLinSteps(linuxjob.loadedSteps('downagent', undefined), () => ({ ok: true, stdout: 'inactive\n' })).ret, false, 'an inactive unit was read as loaded');
+});
+
+test('#6183: startOnlySteps whose daemon-reload fails returns false and never yields start', () => {
+  const r = driveLinSteps(linuxjob.startOnlySteps('reloadfail', undefined),
+    (exec) => (exec[1][1] === 'daemon-reload' ? { ok: false, stderr: 'boom' } : { ok: true, stdout: '' }));
+  assert.equal(r.ret, false, 'a failed daemon-reload was treated as a successful start');
+  assert.deepEqual(r.sent.map((e) => e[1][1]), ['daemon-reload'], 'start was yielded after a failed reload');
+});
+
+test('#6183: a sandboxed board yields no systemctl command from any restart step (never acts on a real unit by name)', () => {
+  linuxjob.setSystemdDirForTests(null);
+  const savedDir = process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  delete process.env.AGENT_WORKFORCE_SYSTEMD_DIR;
+  const launch = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-linuxwiring-sandbox-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = launch;
+  const refuse = () => { throw new Error('a sandboxed step asked the runner to run a real systemctl command'); };
+  try {
+    assert.equal(driveLinSteps(linuxjob.stopSteps('sb', undefined), refuse).sent.length, 0, 'stopSteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.startOnlySteps('sb', undefined), refuse).sent.length, 0, 'startOnlySteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.loadedSteps('sb', undefined), refuse).sent.length, 0, 'loadedSteps yielded a command in the sandbox');
+    assert.equal(driveLinSteps(linuxjob.statusSteps('sb', undefined), refuse).sent.length, 0, 'statusSteps yielded a command in the sandbox');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_LAUNCH;
+    if (savedDir !== undefined) process.env.AGENT_WORKFORCE_SYSTEMD_DIR = savedDir;
+    linuxjob.setSystemdDirForTests(() => unitDir);
+    fs.rmSync(launch, { recursive: true, force: true });
+  }
 });
 
 test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {

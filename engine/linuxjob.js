@@ -59,6 +59,11 @@ function ensureRuntimeDir() {
    the sync runner below and the async step generators alike, so the two restart paths cannot drift on it. */
 const SYSTEMCTL_TIMEOUT_MS = 30000;
 
+/* ONE arg builder for the `systemctl --user ...` calls that exist in BOTH a sync function and its async step twin
+   (stop, daemon-reload, start, is-active, is-enabled), so the two forms of each act share one source and cannot drift
+   on the flags. #6183. */
+const userctl = (...rest) => ['--user', ...rest];
+
 /* The real systemctl/loginctl runner, ONE definition, shared with linuxboard.js. A test that forgot its seam never
    reaches the host's systemd (live-execution #1598, test half; production unchanged; review 1). */
 function realRunner(cmd, args) {
@@ -388,7 +393,7 @@ function writeUnitFile(targetPath, content) {
 }
 
 function daemonReload() {
-  return runner('systemctl', ['--user', 'daemon-reload']);
+  return runner('systemctl', userctl('daemon-reload'));
 }
 
 function enable(name, worldId) {
@@ -423,18 +428,18 @@ function startOnly(name, worldId) {
   try { fs.mkdirSync(require('./create').workerDir(name), { recursive: true }); } catch { /* the start will say */ }
   const reload = daemonReload();
   if (!reload || !reload.ok) return { ok: false, because: 'systemd did not reload its user units: ' + ((reload && (reload.stderr || reload.because)) || '').trim() };
-  return runner('systemctl', ['--user', 'start', unitName(name, worldId)]);
+  return runner('systemctl', userctl('start', unitName(name, worldId)));
 }
 
 function stop(name, worldId) {
   const u = unitName(name, worldId);
-  return runner('systemctl', ['--user', 'stop', u]);
+  return runner('systemctl', userctl('stop', u));
 }
 
 function status(name, worldId) {
   const u = unitName(name, worldId);
-  const act = runner('systemctl', ['--user', 'is-active', u]);
-  const en = runner('systemctl', ['--user', 'is-enabled', u]);
+  const act = runner('systemctl', userctl('is-active', u));
+  const en = runner('systemctl', userctl('is-enabled', u));
   return {
     active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),   // review 28: a result may carry no stdout
     enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
@@ -479,7 +484,7 @@ function activeUnits() {
 
 function loaded(name, worldId) {
   const u = unitName(name, worldId);
-  const r = runner('systemctl', ['--user', 'is-active', u]);
+  const r = runner('systemctl', userctl('is-active', u));
   const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
   return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
 }
@@ -514,21 +519,21 @@ function stoppedOrNotLoaded(r) {
 const SANDBOX_REFUSED = { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
 function* stopSteps(name, worldId) {
   const u = unitName(name, worldId);
-  const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'stop', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('stop', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return stoppedOrNotLoaded(out);   // same classification as stopNow = stoppedOrNotLoaded(stop())
 }
 function* startOnlySteps(name, worldId) {
   // The unit appends to <workdir>/start.log; systemd cannot create the folder (startOnly, review 18).
   try { fs.mkdirSync(require('./create').workerDir(name), { recursive: true }); } catch { /* the start will say */ }
   const sandbox = sandboxedWithoutSystemd();
-  const reload = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'daemon-reload'], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const reload = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('daemon-reload'), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   if (!reload || !reload.ok) return false;   // startNow only reads .ok; a failed reload is a failed start, as startOnly's own early return is
-  const started = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'start', unitName(name, worldId)], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const started = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('start', unitName(name, worldId)), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return Boolean(started && started.ok);
 }
 function* loadedSteps(name, worldId) {
   const u = unitName(name, worldId);
-  const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-active', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   /* A dry run answers as loaded, the way jobOps' sync `loaded` short-circuits on DRY_RUN and the Mac's ok-means-loaded
      does (a dry run returns ok with no stdout, which the active test below would otherwise read as not-loaded). The
      command is still yielded, so an injected runner (a test, a real board) answers it as usual. */
@@ -539,8 +544,8 @@ function* loadedSteps(name, worldId) {
 function* statusSteps(name, worldId) {
   const u = unitName(name, worldId);
   const sandbox = sandboxedWithoutSystemd();
-  const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-active', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
-  const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', ['--user', 'is-enabled', u], { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-active', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
+  const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-enabled', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   return {
     active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),
     enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
