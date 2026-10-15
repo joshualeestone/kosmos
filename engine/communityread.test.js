@@ -2405,6 +2405,57 @@ test('#6204 review 5: a run of reads the service rate-limits does not move the m
   for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(5000 + i)), 'the tail of thread ' + i + ' was lost behind the mark after the 429s');
 });
 
+test('#6204 review 7: a person\'s reply the 30-cap held back to the next read is still marked owed there', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Cap6204', remoteId: RP(9), sentAt: '2026-09-30T10:00:00Z' } }, { Cap6204: { name: 'Cap6204' } });
+  const TOP = D6204(950);
+  const at = (ms) => new Date(ms).toISOString();
+  // 40 replies that are new, then a person's question: the first read shows 30 and the question waits for the next.
+  const replies = Array.from({ length: 40 }, (_, k) => comment({ id: D6204(951 + k), parent_id: TOP, created_at: at(NOW - 7200e3 + k * 1000), agent: { name: 'Bot' + k } }))
+    .concat([comment({ id: D6204(1999), parent_id: TOP, created_at: at(NOW - 3600e3), agent: { name: 'Pat', kind: 'person' }, body: 'a question for you' })]);
+  serve({
+    ['/posts/' + RP(9) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: TOP, created_at: at(NOW - 9000e3), agent: { name: 'Cap6204' },
+      reply_count: replies.length, replies_cursor: 'c0', replies: replies.slice(0, 2) })] } }),
+    ['/posts/' + RP(9) + '/comments/' + TOP + '/replies']: (u) => {
+      const n = Number(u.searchParams.get('cursor').slice(1)); const from = 2 + n * 20;
+      return { status: 200, json: { replies: replies.slice(from, from + 20), next_cursor: from + 20 < replies.length ? 'c' + (n + 1) : null } };
+    },
+  });
+  const one = await cr.readReplies('Cap6204', { now: NOW });
+  assert.ok(!shownIds(one.text.split('People still waiting')[0]).includes(D6204(1999)), 'CONTROL: the 30-cap did not hold the question back');
+  const two = await cr.readReplies('Cap6204', { now: NOW + 1000 });
+  const line = two.text.split('\n').find((l) => l.startsWith('[r') && l.includes(D6204(1999)));
+  assert.ok(line, 'the held-back question was not shown on the next read');
+  assert.ok(line.includes(cr.PERSON_OWED), 'the held-back question lost its owed mark: ' + line);
+});
+
+test('#6204 review 7: a place carried for an older comment no read reaches stops capping the mark after MARK_HOLD_MAX reads', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Age6204', remoteId: RP(0), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();
+  const C = D6204(720);
+  const newer = Array.from({ length: cr.COMMENTS_ASKED }, (_, k) => comment({ id: D6204(730 + k), created_at: old(k) }));
+  const replies = Array.from({ length: 700 }, (_, k) => comment({ id: D6204(30000 + k), parent_id: C, created_at: old(1000 + k) }));
+  let top = [];
+  serve({
+    ['/posts/' + RP(0) + '/comments']: (u) => (u.searchParams.get('cursor') === 'OLD'
+      ? { status: 200, json: { next_cursor: null, comments: [comment({ id: C, created_at: old(0), reply_count: 700, replies_cursor: 'q0', replies: [] })] } }
+      : { status: 200, json: { next_cursor: 'OLD', comments: top.concat(newer).slice(0, cr.COMMENTS_ASKED) } }),
+    ['/posts/' + RP(0) + '/comments/' + C + '/replies']: (u) => {
+      const n = Number(u.searchParams.get('cursor').slice(1));
+      return { status: 200, json: { next_cursor: (n + 1) * 20 < replies.length ? 'q' + (n + 1) : null, replies: replies.slice(n * 20, n * 20 + 20) } };
+    },
+  });
+  await cr.readReplies('Age6204', { now: NOW });
+  const mark = () => JSON.parse(fs.readFileSync(seenPath('Age6204'), 'utf8')).posts[RP(0)];
+  assert.ok(C in (mark().threads || {}), 'CONTROL: the cut thread on the older comment kept no place');
+  top = [comment({ id: D6204(729), created_at: T(11), agent: { name: 'Zed' }, body: 'newer top' })];
+  // No read reaches the older page again (no round 2): the place is carried, then dropped, and the mark moves on.
+  for (let k = 1; k <= cr.MARK_HOLD_MAX + 1; k += 1) await cr.readReplies('Age6204', { now: NOW + k * 1000, round2Ms: 0 });
+  assert.ok(!(C in (mark().threads || {})), 'a place carried unseen was kept past MARK_HOLD_MAX reads');
+  assert.equal(mark().at, Date.parse(T(11)), 'the mark did not move on once the carried place was dropped');
+});
+
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Stk6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
