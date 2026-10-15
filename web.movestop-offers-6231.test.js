@@ -31,6 +31,7 @@ const answer = (status, body) => async () => ({ ok: status < 300, status, json: 
 async function runSwitch(body) {
   const els = new Proxy({}, { get: (t, id) => (t[id] = t[id] || el(id)) });
   const offers = [];
+  const order = [];
   const platformLayer = require('./test-support/page').PLATFORM_COPY_FNS.map(slice).join('\n');
   const src = `let WORLDSW_SWITCHING = false;
 ${platformLayer}
@@ -39,16 +40,18 @@ ${slice('worldswSwitch')}
 return worldswSwitch('w2', 'Side Project', 'keep');`;
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', 'worldsFetch', 'worldswFocusTrigger', 'worldswReconnect', 'clearStopMoveOffers', 'offerStopMove', src)(
-    { getElementById: (id) => els[id], querySelectorAll: () => [] }, answer(409, body), async () => {}, () => {}, async () => {},
-    () => {}, (after, say) => offers.push([after.id, say.id]),
+    { getElementById: (id) => els[id], querySelectorAll: () => [] }, async () => { order.push('fetch'); return answer(409, body)(); },
+    async () => {}, () => {}, async () => {},
+    () => order.push('clear'), (after, say) => offers.push([after.id, say.id]),
   );
-  return { offers, msg: els['worldsw-restart-msg'].textContent };
+  return { offers, order, msg: els['worldsw-restart-msg'].textContent };
 }
 
 test('#6231: a switch the board refuses while a move is running offers to stop the move, under the switch\'s own line', async () => {
   const r = await runSwitch({ because: 'An account move is running.', moveStoppable: true });
   assert.deepEqual(r.offers, [['worldsw-restart-msg', 'worldsw-restart-msg']]);
   assert.match(r.msg, /An account move is running\./, 'the refusal is said where the offer is put');
+  assert.deepEqual(r.order.slice(0, 2), ['clear', 'fetch'], 'a fresh switch does not take an earlier offer away before asking');
 });
 
 test('#6231 CONTROL: a 409 for anything else offers no stop', async () => {
@@ -66,15 +69,16 @@ async function runUpdate(mode, status, body) {
   els['uc-go'].addEventListener = (type, fn) => { if (type === 'click') click = fn; };
   const offers = [];
   const posted = [];
-  const fetch = async (url) => { posted.push(url); return answer(status, body)(); };
+  const order = [];
+  const fetch = async (url) => { posted.push(url); order.push('fetch'); return answer(status, body)(); };
   // eslint-disable-next-line no-new-func
   new Function('document', 'fetch', 'window', 'UPD_CONFIRM_MODE', 'SERVED_VERSION', 'clearStopMoveOffers', 'offerStopMove', UC)(
-    { getElementById: (id) => els[id] }, fetch, { location: { reload() {} } }, mode, '0.7.50', () => {},
+    { getElementById: (id) => els[id] }, fetch, { location: { reload() {} } }, mode, '0.7.50', () => order.push('clear'),
     (after, say) => offers.push([after.id, say.id]),
   );
   assert.ok(click, 'the Update dialog\'s button listener was not lifted');
   await click();
-  return { offers, posted, err: els['uc-err'] };
+  return { offers, posted, order, err: els['uc-err'] };
 }
 
 test('#6231: Update and Roll back refused while a move is running offer to stop the move, under the dialog\'s error line', async () => {
@@ -84,6 +88,7 @@ test('#6231: Update and Roll back refused while a move is running offer to stop 
     assert.deepEqual(r.posted, [url], `${mode}: the press did not reach its route`);
     assert.deepEqual(r.offers, [['uc-err', 'uc-err']], `${mode}: no stop offered`);
     assert.equal(r.err.hidden, false); assert.equal(r.err.textContent, refused.error);
+    assert.deepEqual(r.order, ['clear', 'fetch'], `${mode}: a fresh press does not take an earlier offer away before asking`);
   }
 });
 

@@ -16,9 +16,16 @@ Boots the real board in a sandbox and drives its routes. The engine's busy / sto
 (the move itself is engine/accountmove-stop-6214.test.js's), so what is proved is the board's wiring:
 - POST /api/agents/account-moves/stop answers the real engine's 409 when no move runs, and passes the engine's status
   and body through when it does;
-- Update, Roll back and a Kosmos switch refused while a move runs say `moveStoppable: true`, and do not without one.
-  Update and Roll back refuse earlier for their own reasons (nothing published, nothing kept, a platform refusal), so
+- Update, Roll back and a Kosmos switch refused while a move runs say `moveStoppable: true`; refused while the board is
+  held by something else (a removal's restart, `removal.restartingNow`) they do not (review 1: a "no move at all" arm
+  could never fail, those routes refuse for other reasons first). Update and Roll back with nothing holding the board
+  must reach the next check (the source-checkout refusal), with `installedRoot` pinned to null so nothing installs.
+- The strict account read (card item 6's third piece, review 1): the bulk move route's `readAccount` dependency is
+  captured by patching `accountmove.start`; an agent with no readable job throws, a job's account folder is returned,
+  and a job with none is null (the default account).
+- Update and Roll back refuse earlier for their own reasons (nothing published, nothing kept, a platform refusal), so
   those are set aside by patching engine/update's available / selfInstallRefusal / rollbackOffer for the test.
+- Item 5 also checks that a fresh press takes an earlier offer away before it asks (clear, then fetch).
 
 ## Decided
 - Restart Kosmos (/api/engine/restart) is not driven here: it answers "already current" before the move check unless
@@ -27,9 +34,10 @@ Boots the real board in a sandbox and drives its routes. The engine's busy / sto
 - Rejected: matching more source text (the card asks for behaviour).
 
 ## Measured
-- Both files pass (4/4 each). Mutations: removing the page's two offerStopMove calls reds item 5's two positive tests
-  (controls stay green); removing `...moveStoppableNote()` from server.js reds the Update/Roll back and switch tests;
-  a stop route that ignores the engine's answer reds both stop tests.
+- web 4/4, server 5/5. Mutations: removing the page's two offerStopMove calls reds item 5's two positive tests
+  (controls stay green); removing `...moveStoppableNote()` reds the Update/Roll back and switch tests; a note that
+  always offers the stop reds them through the held-by-something-else arms; a stop route that ignores the engine's
+  answer reds both stop tests; a readAccount that folds an unreadable job into null reds the strict-read test.
 
 ## Weakest premise
 That patching the engine module's exports reaches the board: true while server.js calls `accountmove.busy()` and
