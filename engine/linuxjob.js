@@ -97,8 +97,12 @@ let runOverride = null;
 function sandboxedWithoutSystemd() {
   return Boolean(process.env.AGENT_WORKFORCE_LAUNCH) && !process.env.AGENT_WORKFORCE_SYSTEMD_DIR && !systemdDirOverridden;
 }
+/* The one refusal a sandboxed board returns for a systemctl --user op (it manages no real systemd units, so it never
+   acts on one by name). Defined once: the step generators share this frozen object by reference, and runner() hands a
+   sync caller a fresh copy of it, so the shape and message cannot drift between the two paths (#6183 review). */
+const SANDBOX_REFUSED = Object.freeze({ ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' });
 function runner(cmd, args) {
-  if (sandboxedWithoutSystemd()) return { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
+  if (sandboxedWithoutSystemd()) return { ...SANDBOX_REFUSED };
   return runOverride ? runOverride(cmd, args) : runnerFn(cmd, args);
 }
 function runWith(fn, body) {
@@ -524,13 +528,11 @@ function statusOf(act, en) {
    stays free (the way #6173 did the Mac's MAC_STEPS). There are no waits to yield here: systemd's acts do not poll.
    These MIRROR the sync acts above (stop/startOnly/loaded/status) command-for-command and share their arg builders
    (unitName, userctl) and parsers (stoppedOrNotLoaded for stop, activeOrActivating for loaded, statusOf for status),
-   so the two cannot drift. The sync functions are
-   unchanged, for their own callers. The sandbox gate (sandboxedWithoutSystemd) is applied here too: a sandboxed board
-   yields no command and the step reads the SAME refusal the sync runner would return, so it never acts on a real unit
-   by name. The command's exit code/output and the SYSTEMCTL_TIMEOUT_MS timeout are exactly the sync path's (via remove.js's run). */
-// Object.freeze: this one is shared by reference across the step generators (the sync runner builds a fresh object per
-// call), so freezing makes "a consumer cannot mutate the shared refusal" structural rather than true only by inspection.
-const SANDBOX_REFUSED = Object.freeze({ ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' });
+   so the two cannot drift. The sync functions stay unchanged, for their own callers. The sandbox gate
+   (sandboxedWithoutSystemd) is applied here too: a sandboxed board yields no command and the step reads the same
+   frozen SANDBOX_REFUSED the sync runner hands back, so it never acts on a real unit by name. Each step is answered by
+   remove.js's run()/runAsync -- the same executor the sync acts reach through `via` -- with the SYSTEMCTL_TIMEOUT_MS
+   timeout. */
 function* stopSteps(name, worldId) {
   const u = unitName(name, worldId);
   const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('stop', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
@@ -548,9 +550,9 @@ function* startOnlySteps(name, worldId) {
 function* loadedSteps(name, worldId) {
   const u = unitName(name, worldId);
   const r = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-active', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
-  /* A dry run answers as loaded, the way jobOps' sync `loaded` short-circuits on DRY_RUN and the Mac's ok-means-loaded
-     does (a dry run returns ok with no stdout, which the active test below would otherwise read as not-loaded). The
-     command is still yielded, so an injected runner (a test, a real board) answers it as usual. */
+  /* A dry run answers as loaded: run() returns a dry-run result (ok, no stdout), which the is-active parse below
+     would otherwise read as not-loaded. The command is still yielded first, so an injected runner (a test, a real
+     board) answers it as usual. */
   if (r && r.dryRun) return true;
   return activeOrActivating(r);
 }
