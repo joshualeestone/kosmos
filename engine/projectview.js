@@ -240,6 +240,15 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
+/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work: the board's decay. Infinity for any other
+   runner (see workExcused). Read lazily from status.js, 5 minutes if it cannot be read. */
+function workingCapMs(member) {
+  if (!member || member.runner !== 'claude') return Infinity;
+  let decay = 5 * 60 * 1000;
+  try { const d = require('./status').REPORT_WORKING_DECAY_MS; if (Number.isFinite(d) && d > 0) decay = d; } catch { /* the board's 5 minutes */ }
+  return decay;
+}
+
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
@@ -288,20 +297,32 @@ function workExcused(summary, member, readHistory, nowMs) {
     return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : summary;
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
-  for (const r of valid) { if (r.at <= wroteAt) state = r.state; }
+  let stateAt = NaN;  // when that report was filed (the cap below runs from it)
+  for (const r of valid) { if (r.at <= wroteAt) { state = r.state; stateAt = r.at; } }
+  /* kosmos#5635 F2 (0.7.50 five-family report, Josh 2026-10-15, the Claude seat): its reports went working, idle,
+     working within two seconds and then nothing for 18 hours, and that last `working` counted all 18 as work. A Claude
+     member heartbeats `working` on its tool calls, so a working report says nothing past the board's own decay
+     (status.js REPORT_WORKING_DECAY_MS, 5 min: "a claim nobody is standing behind"); for it, a working stretch counts at
+     most to that report's time plus the decay. Only Claude: Antigravity and the Windows per-turn runners file one
+     automatic working at a turn's START (status.js #5949), so capping theirs would drop hours of real work. Waits
+     (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
+     takes (only reported work counts): a single tool call longer than the decay is counted only to the decay. */
+  const cap = workingCapMs(member);
+  const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
   let from = wroteAt;
   let worked = 0;
   for (const r of valid) {
     if (r.at <= wroteAt) continue;
-    if (state === null || busy(state)) worked += r.at - from;
+    if (state === null || busy(state)) worked += span(state, stateAt, from, r.at);
     state = r.state;
+    stateAt = r.at;
     from = r.at;
   }
   /* #5635 F2 (0.7.48 five-family report, Josh 2026-10-14: "a seat with no reported work since its last summary reads
      current whatever its state at the moment of the check"): only REPORTED work counts. The time since the last report
      is work only when that report says busy (or there is none); the board's read of the screen right now does not add
      to it. This replaces review 3's rule that the board's busy read wins (#1995). */
-  if (state === null || busy(state)) worked += now - from;
+  if (state === null || busy(state)) worked += span(state, stateAt, from, now);
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
