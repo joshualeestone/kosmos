@@ -15,7 +15,7 @@ the same job, which also points at a loaded runner.
 ## The call
 The test asks whether PowerShell reads the SAME value as reg.exe, not how fast PowerShell starts. `_testRunner` (tests
 only) takes `fallbackTimeoutMs`; with `fallback: 'real'` the real production read runs with that wait. The test passes
-45000 (under tools/windows-tests.js' 60 s per-test cap). Production's 10 s wait is unchanged.
+30000: worst case with both earlier reads at their limits is 15 + 15 + 30 = 60 s, tools/windows-tests.js' per-test cap. Production's 10 s wait is unchanged.
 
 ## Rejected
 - Raising production's POWERSHELL_TIMEOUT_MS: the read is synchronous and can hold the board; a slow read on a user's
@@ -38,3 +38,10 @@ the win32 test itself is skipped here.
   every platform.
 - Comment and plan: the 45 s is this read's; with the two earlier reads the test stays under the 60 s cap (worst case
   about 55 s). The 10057 ms is the whole test. The runner runs files one at a time.
+
+## Review 2 (sonnet), and what changed
+- Fixed: the wait is 30 s, not 45 s: with both earlier reads at their limits (reg.exe 5 s then PowerShell 10 s, twice)
+  the test is at most 60 s, the runner's per-test cap.
+- Fixed: a test proves the wait reaches the real read (a fresh copy of the module with execFileSync intercepted:
+  30000 with the option, 10000 without), on every platform.
+- Fixed: the option is validated before anything is swapped, and refused unless fallback is 'real'.
