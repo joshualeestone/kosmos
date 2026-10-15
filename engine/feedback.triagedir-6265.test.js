@@ -149,5 +149,8 @@ test('#6265 review 5: --since that leaves nothing in the pulled folder says so; 
 
 test('#6265 review 5: a pull into another folder with a space quotes it on the next line', () => {
   assert.equal(feedbackpull.nextLine('/some where'), "next: kosmos feedback triage --dir '/some where'");
-  assert.equal(feedbackpull.nextLine("/it's $HOME"), "next: kosmos feedback triage --dir '/it'\\''s $HOME'");
+  assert.equal(feedbackpull.nextLine("/it's $HOME", 'darwin'), "next: kosmos feedback triage --dir '/it'\\''s $HOME'");
+  assert.equal(feedbackpull.nextLine('/a\\b', 'darwin'), "next: kosmos feedback triage --dir '/a\\b'", 'bash would drop an unquoted backslash');
+  assert.equal(feedbackpull.nextLine("C:\\Users\\it's here", 'win32'), "next: kosmos feedback triage --dir 'C:\\Users\\it''s here'", 'PowerShell doubles an inner quote');
+  assert.equal(feedbackpull.nextLine('C:\\fb', 'win32'), 'next: kosmos feedback triage --dir C:\\fb');
 });

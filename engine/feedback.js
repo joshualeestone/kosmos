@@ -357,7 +357,8 @@ function reportsForTriage(opts) {
   if (pulledThere && readFolder(pulled, since, reports, notes)) {
     const last = newest(reports);
     /* Review 5: --since can leave nothing of the pulled folder; the note says so, so an empty digest is not a mystery. */
-    const what = !reports.length && since ? 'none on or after ' + since : last ? 'newest dated ' + last : 'none dated';
+    /* Review 7: report files that all failed to read are not "undated". */
+    const what = !reports.length && since ? 'none on or after ' + since : !reports.length ? 'none could be read' : last ? 'newest dated ' + last : 'none dated';
     notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + what + '); --dir ' + dir() + ' reads this computer\'s own');
     return { ok: true, reports, notes, read: pulled };
   }

@@ -187,12 +187,15 @@ function toMarkdown(rec) {
 }
 
 /* kosmos#6265: the line a pull ends with. The default folder is what a plain `kosmos feedback triage` reads. */
-function nextLine(dir) {
+function nextLine(dir, platform = process.platform) {
   /* Review 5/6: triage's own comparison (feedback.samePath: the OS's spelling, case folded on Windows), and a path
      quoted when it holds anything but plain path characters, so the line can be pasted. */
   if (!dir || require('./feedback').samePath(dir, defaultDir())) return 'next: kosmos feedback triage';
-  /* Review 6: anything beyond plain path characters is single-quoted (an inner ' closed and reopened). */
-  return 'next: kosmos feedback triage --dir ' + (/^[\w./:\\@-]+$/.test(dir) ? dir : "'" + dir.replace(/'/g, "'\\''") + "'");
+  /* Review 6/7: anything beyond plain path characters is single-quoted for the shell that will read it: on Windows
+     PowerShell (an inner ' doubled; a backslash is a plain path character there), elsewhere a POSIX shell (an inner '
+     closed and reopened; a backslash is quoted, since bash would drop it). */
+  if (platform === 'win32') return 'next: kosmos feedback triage --dir ' + (/^[\w./:\\@-]+$/.test(dir) ? dir : "'" + dir.replace(/'/g, "''") + "'");
+  return 'next: kosmos feedback triage --dir ' + (/^[\w./:@-]+$/.test(dir) ? dir : "'" + dir.replace(/'/g, "'\\''") + "'");
 }
 
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by

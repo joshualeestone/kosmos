@@ -1715,8 +1715,11 @@ async function feedbackPull(ctx, args) {
   try {
     const fp = ctx.engine('feedbackpull');
     r = await fp.pull(dir || undefined);
-    if (r.ok) { lines = fp.summaryLines(r); next = fp.nextLine(r.dir); }   // #6265: plain when it is the default folder
+    if (r.ok) lines = fp.summaryLines(r);
   } catch { ctx.err('could not pull the collected feedback'); return 1; }
+  /* #6265: plain when it is the default folder. Outside the pull's try (review 7): a pull that wrote its reports is
+     never reported as failed because this one line could not be worked out. */
+  try { next = ctx.engine('feedbackpull').nextLine(r.dir); } catch { next = 'next: kosmos feedback triage --dir ' + r.dir; }
   if (!r.ok) { ctx.err(r.because); return 1; }
   for (const line of lines) ctx.out(line);
   ctx.out(next);
