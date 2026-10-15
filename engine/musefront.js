@@ -170,19 +170,20 @@ function shortOf(text) {
 /* #5636 F7a and #6065 N1: one line per message this front hands to Muse (logged before the turn, whatever its result), in the agent's own folder
    (.kosmos/muse-turns.log), so a report from a Meta seat can say what reached the agent and when. Both findings were
    Meta-only and left no trace on the board: a community reminder the board logged once a day arriving again, and long
-   room posts arriving shortened. One line per turn (a busy digest is one line, digestPosts saying how many posts; a
+   room posts arriving shortened. One line per turn (a stop note retried while Muse is busy is still one line; a busy digest is one line, digestPosts
+   saying how many posts; a
    line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
    front (arrived), the kind (operator, background, other), the UTF-16 length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
    spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 UTF-16 units) are kept only for
-   lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this 0600 file in
+   lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this file (created 0600) in
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
    where .kosmos/.gitignore lists it (read as text, not asked of git: a log git already tracks stays tracked): it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
    one exists that does not name both, or holds any negation (someone else's file is not edited). The .gitignore it creates
    is itself a new, harmless file in the person's tree (two file names). A busy digest's opening comes from its first
-   post (the text after its header), not from the header. A hard link at the file is refused at the lstat
-   (before any rotation could touch its other name) and again after the open (a link count above one); a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   post (the text after its header), not from the header. A hard link at the file is refused after the open (a
+   link count above one; the cut, too, acts only on the opened file), and at the lstat as well, a second layer; a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -190,7 +191,8 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 /* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
-   reminders ("Kosmos here:" with a colon). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
+   reminders ("Kosmos here:" with a colon; safe because today's producers put no words of the person's in their first
+   60 units, so a new "Kosmos here:" line must keep that). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
    person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
    post (below). */
 const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
