@@ -865,14 +865,18 @@ test('#6240: a stuck agent after an ending is re-handed the cleared policy, at m
   const TOLD = require('./engine/projects').TOLD;
   const policy = require('./engine/policy');
   const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
-  _orgRefreshResetForTests();
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  // Pin the assumption these tests rest on: orgEnrollRefresh is inert because live execution is OFF, so the
+  // only companyPolicySync calls are the retry's own. If a future change flips that, fail loudly right here.
+  assert.ok(!live.liveExecutionAllowed(), 'these tests need live execution OFF (so orgEnrollRefresh is inert)');
   const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
   let entry = { name: 'Acme', text: 'Use only approved tools.' };
   let syncs = 0;
   let stuck = true;   // the one agent that could not be told at the ending
   policy.companyEntry = () => entry;
   policy.syncEveryone = () => { syncs += 1; return stuck ? [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }] : []; };
-  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
 
   companyPolicySync();            // records the company text the agents hold; the first call does not sync
   assert.equal(syncs, 0, 'the first call only records the seen text, it does not sync');
@@ -940,4 +944,39 @@ test('#6240: a board whose company text was already cleared and fully told stays
   orgRefreshIfDue(10 * HOUR);
   orgRefreshIfDue(20 * HOUR);
   assert.equal(syncs, 1, 'an already-cleared board ran no extra retry');
+});
+
+test('#6240: a company re-applied while a clear was owed turns the retry quiet again', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }]; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
+
+  companyPolicySync();            // records the company text
+  entry = null;                   // ending with a stuck agent: a clear is owed
+  orgEnrollmentEnded(store.ROOT);
+  assert.ok(companyPolicyClearOwed(), 'control: a clear is owed after the stuck ending');
+  entry = { name: 'Acme', text: 'Use only approved tools.' };   // the board rejoins a company before any retry
+  assert.ok(!companyPolicyClearOwed(), 'a re-applied company means nothing is owed (companyEntry is non-null)');
+  const before = syncs;
+  orgRefreshIfDue(10 * HOUR);
+  assert.equal(syncs, before, 'the no-company retry stays quiet while a company is applied (the hourly ask owns that case)');
+});
+
+test('#6240: the no-company retry is wired into orgRefreshIfDue, so a refactor cannot silently drop it from the tick', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  // The five-minute tick itself (setInterval(() => orgRefreshIfDue(), ORG_REFRESH_CHECK_MS)) is pinned by the
+  // #6232 test above; this pins that orgRefreshIfDue still calls the retry, so it keeps riding that tick.
+  // Match from the function name to the call; `companyPolicyRetryIfOwed(now)` (the call) appears before its
+  // definition `companyPolicyRetryIfOwed(now = Date.now())`, so the first hit is the call inside orgRefreshIfDue.
+  assert.match(src, /function orgRefreshIfDue\b[\s\S]*?companyPolicyRetryIfOwed\(now\)/,
+    'orgRefreshIfDue no longer calls companyPolicyRetryIfOwed: the no-company retry would never run on the tick');
 });

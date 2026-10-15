@@ -22971,16 +22971,25 @@ function companyPolicySync() {
    that hand-over on the same five-minute tick that drives the refresh, until the agent is told.
    WHAT BOUNDS IT: (1) at most one retry per ORG_POLICY_RETRY_MS (one hour), gated by ORG_POLICY_RETRY_AT even
    though the tick is five-minutely; (2) it self-terminates -- companyPolicySync clears COMPANY_POLICY_SEEN to
-   null once every agent is told, after which nothing is owed; (3) it never starts for a board that never joined
-   a company or whose text was already cleared (SEEN is null / undefined / the boot RETRY symbol, never a
-   company-text string); (4) it makes NO company call -- companyPolicySync is a local roster sync -- so unlike
-   the hourly ask it needs no live-execution gate and cannot hang on the network. */
+   null once every agent is told, after which nothing is owed. Until then it runs INDEFINITELY (hourly), which
+   is deliberate: the card asks for retry until the agent is told, so a permanently unwritable agent gets one
+   sync and one stderr line an hour for the life of the board -- honest, since it genuinely still holds the
+   stale company text. (3) it stays quiet for a board that never joined a company or whose text was already
+   cleared (COMPANY_POLICY_SEEN null/undefined). (4) it makes NO company call -- companyPolicySync is a local
+   roster sync -- so unlike the hourly ask it needs no live-execution gate and cannot hang on the network.
+   Two edges, stated so the predicate is not read as more than it is: (a) KNOWN RESIDUAL, deliberately out of
+   scope (boot has its own policy path at start()): if boot left an agent untold and SEEN as the
+   COMPANY_POLICY_RETRY symbol, a later ending that again cannot tell that agent is NOT retried here. (b) while a
+   company is still applied the retry is quiet EXCEPT the rare over-TEXT_MAX case, where companyEntry() is null
+   though enrolled; there the retry correctly runs once to clear the now-unhandleable text, then self-terminates. */
 const ORG_POLICY_RETRY_MS = ORG_REFRESH_MS;   // one hour: the same bound the hourly company ask uses
 let ORG_POLICY_RETRY_AT = 0;                   // clock time the next no-company retry is allowed (0 = due now)
 /* Is a company-policy hand-over still owed to a stuck agent? Only when a company text was recorded as
    last-handed (COMPANY_POLICY_SEEN is a [name,text] string) AND the applied policy no longer carries one
    (companyEntry() is null): an ending cleared the policy but an agent could not be told. A null/undefined SEEN
-   (never joined, or already cleared and all told) or the boot RETRY symbol is nothing owed. */
+   (never joined, or already cleared and all told) is nothing owed. The boot COMPANY_POLICY_RETRY symbol is also
+   treated as nothing owed here: a deliberate scope line (boot has its own policy path), and the one residual
+   noted above -- a boot-untold agent whose enrollment then ends is not retried by this. */
 function companyPolicyClearOwed() {
   if (typeof COMPANY_POLICY_SEEN !== 'string') return false;
   try { return !policyEngine.companyEntry(); } catch { return false; }
