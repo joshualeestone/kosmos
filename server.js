@@ -23221,6 +23221,21 @@ function start(port = PORT) {
       });
       const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
+      /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's rhythm and
+         work reading) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
+         Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
+         AGENT_WORKFORCE_SUMMARYDUE_NUDGE_OFF=1, own timer, unref'd, best-effort. */
+      const SUMMARYDUE_BOOK = new Map();
+      const summarydueTick = require('./engine/summarydue-nudge').makeTick({
+        allowed: () => liveExecution.liveExecutionAllowed(),
+        roster: () => safeRoster(),
+        book: SUMMARYDUE_BOOK,
+        deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
+        DELIVERY: chat.DELIVERY,
+        log: (r) => process.stdout.write(`summarydue-nudge: ${r.name} (${r.session}) ${r.act} delivery=${r.delivery || '?'} - ${r.because}\n`),
+      });
+      const summarydueSweep = setInterval(summarydueTick, Number(process.env.AGENT_WORKFORCE_SUMMARYDUE_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_SUMMARYDUE_NUDGE_MS) : 10 * 60 * 1000);
+      if (summarydueSweep && typeof summarydueSweep.unref === 'function') summarydueSweep.unref();
       /* #4588: Antigravity agents paused on their Google account's shared quota get ONE carry-on line after the reset,
          one agent at a time (engine/agyquota.js). Same gating as the sweeps above: inert under `node --test` and before
          the live-execution opt-in, operator brake AGENT_WORKFORCE_AGY_QUOTA_RESUME_OFF=1, own ~1-min timer, unref'd,
