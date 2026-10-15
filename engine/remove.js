@@ -2060,7 +2060,13 @@ function restoreInner(name, platform) {
  * command reports success, including `has-session`), so a dry run actually
  * lands on a partial whose text describes work that did not happen.
  */
-function remove(name, opts) { return markDryRun(removeInner(name, opts)); }
+/* #6173 review: refused while an account move holds the agent, as a sync restart is. A removal between the move's
+   bootout and bootstrap would have its disabled job asked to load again; refusing is one sentence, measured or not. */
+function remove(name, opts) {
+  const busy = busyRefusal(name);
+  if (busy) return busy;
+  return markDryRun(removeInner(name, opts));
+}
 function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts.platform)); }
 
 /**
@@ -2387,8 +2393,9 @@ function* restartSteps(name, cause, platform, startIfDead) {
   };
 }
 
-/* #6173: the agents an async restart is working on right now. A sync restart of one of them is refused rather than
-   run alongside it: two bootout/bootstrap pairs interleaved on one job is the #3418 class (an agent left unloaded). */
+/* #6173: the agents an async restart is working on right now. A sync restart (or a removal) of one of them is refused
+   rather than run alongside it: two bootout/bootstrap pairs interleaved on one job is the #3418 class (an agent left
+   unloaded). */
 const RESTARTING = new Set();
 /* #6173 review 1: and the agents a move has not reached yet. A sync restart of one of those ran, and the move then
    restarted it again a minute later; so a move holds every agent it will restart until it has done that one. */
