@@ -39,3 +39,12 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   only its first spill: spillWords is now every spill, plus digestPosts (tested through createFront). WARNING: added
   tests for one line per message before the turn, and a throwing log (now caught in pump) stopping nothing.
 - NIT: chars is UTF-16 length (the measure chat.MAX_TEXT uses); the bound comment says about twice TURN_LOG_MAX. 60/60.
+
+## Review 2 (sonnet), and what changed
+- No BLOCKER. WARNING: the line was dated when it ran, not when it arrived; a line waiting behind a long turn would
+  read as a late send. Each line now records `arrived` (when it reached the front, any kind; a digest by its first
+  post) beside `at` (tested: a waiting line's arrival precedes its run). WARNING: test titles over-claimed: the order
+  is now asserted (each line logged before its own turn), and the busy claim is gone from the title. WARNING: a folder
+  at .1 stopped logging for good: the file is cut instead, and logging goes on (tested). WARNING/NITs: the comment
+  states the 60-character colleague opening, one line per turn, and the unguarded hard-link and swap windows (as in
+  keepModel). 61/61; mutations fail.
