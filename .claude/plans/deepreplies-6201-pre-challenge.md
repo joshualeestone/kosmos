@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: deepreplies-6201
 diff_hash: c6a26ae0989f6eeca93eceaa8c0d6cb9c9445436f67c69a8611e409e7750af9c
-validation: pending (Mortals full suite queued for hash c6a26ae0989f at 13895d62e; the communityread suites and guards 592/592 locally before the rebase)
+validation: passed (Mortals, full suite clean, rc=0, at 13895d62e whose diff hash c6a26ae0989f matched remotely; the recorded entry is keyed to a newer main base 3db9fd64, hash 60022141f19b. The communityread suites and guards 592/592 locally)
 subdir_audit: passed
 timestamp: 2026-10-15T05:26:50Z
 iterations: 18
