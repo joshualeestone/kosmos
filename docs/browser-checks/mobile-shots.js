@@ -83,7 +83,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 // #6205: bound every browser/context close so a dead engine fails the run in seconds instead of hanging it.
-const { closeContextBounded, closeBrowserBounded, childPidsOf } = require('./lib-bounded-close.js');
+const { closeContextBounded, closeBrowserBounded, childPidsOf, withTimeout, CTX_CLOSE_MS } = require('./lib-bounded-close.js');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -2405,15 +2405,23 @@ async function run() {
     await preflight(board.base);
     for (const en of args.engines) {
       /* #6205: the engine's own pid(s), so a wedged close can be force-killed by pid (never a pattern). Playwright's
-         Browser from launch() exposes no process(), so read node's child table across the launch: the new child is it. */
+         Browser from launch() exposes no process(), so read node's child table across the launch (this loop is
+         sequential, so the only new child is the engine); closeBrowserBounded reaps that pid's whole process tree,
+         since webkit/firefox launch through a wrapper and the real engine is a grandchild. */
       const childrenBefore = childPidsOf(process.pid);
       const browser = await engines[en].launch();
       const enginePids = childPidsOf(process.pid).filter((p) => !childrenBefore.includes(p));
+      // #6205 (review): once a close times out, this browser is wedged; stop using it and let the finally force-kill
+      // the engine, rather than opening another context on it (an unbounded newContext would reintroduce the hang).
+      let wedged = false;
       try {
         for (const sz of args.sizes) {
+          if (wedged) break;
           const s = SIZES[sz];
           for (const theme of args.themes) {
+            if (wedged) break;
             for (const sc of screens) {
+              if (wedged) break;
               const why = skipWhy(s, sc);
               if (why) {
                 // The same shape as a shot row, so report.json stays one kind of entry.
@@ -2424,13 +2432,23 @@ async function run() {
               /* A fresh context per screen: the board remembers choices (layout,
                  open sections) in localStorage, and one screen's clicks must not
                  decide what the next screen looks like. */
-              const ctx = await browser.newContext({
-                viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
-                // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
-                isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
-                // A page.route stub needs the service worker off in WebKit (see allow-card).
-                ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
-              });
+              let ctx;
+              try {
+                // #6205 (review): bound newContext too. A wedged browser hangs here unbounded otherwise; a timeout
+                // means the engine is dead, so abandon this engine and let the finally force-kill it.
+                ctx = await withTimeout(browser.newContext({
+                  viewport: { width: s.width, height: s.height }, deviceScaleFactor: s.dpr,
+                  // isMobile is Chromium-only in Playwright (WebKit refuses it); both get touch on a phone.
+                  isMobile: !s.desktop && en === 'chromium', hasTouch: !s.desktop, colorScheme: theme,
+                  // A page.route stub needs the service worker off in WebKit (see allow-card).
+                  ...(sc.noServiceWorker || DATA.connected ? { serviceWorkers: 'block' } : {}),
+                }), CTX_CLOSE_MS, 'browser.newContext()');
+              } catch (e) {
+                console.log('FLAG  mobile-shots: ' + en + ' newContext did not return (' + (e && e.message ? e.message : e) + '); abandoning this engine');
+                errors++;
+                wedged = true;
+                break;
+              }
               /* #6107: MSHOTS_TABLET_LAYOUT=tabs (or consolidated) sets a sideways tablet's own layout choice before the
                  page loads, so the tabbed board can be shot on a landscape iPad too (its default is one screen). */
               if (process.env.MSHOTS_TABLET_LAYOUT) {
@@ -2535,7 +2553,8 @@ async function run() {
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
-              await closeContextBounded(ctx);
+              // #6205 (review): a timed-out close means this browser is wedged; stop the engine so the next newContext does not hang.
+              if (!(await closeContextBounded(ctx))) { wedged = true; break; }
             }
           }
         }
