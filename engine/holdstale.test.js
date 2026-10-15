@@ -115,7 +115,7 @@ test('#6209 part 3: a new hold (taken off and put back) is told about again', ()
   assert.equal(pass(id, rows, again).sent.length, 1, 'a new hold was not told about');
 });
 
-test('#6209 part 3: held, not spent, while the owner is busy or Kosmos may not type into agents', () => {
+test('#6209 part 3: held, not spent, while the owner has only just gone idle or Kosmos may not type into agents', () => {
   const { id, n } = fixture();
   const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
   let r = pass(id, rows, holdAt(3 * HOUR), { allowed: false });
@@ -179,9 +179,12 @@ test('#6209 part 3 review 1: the real hold history (tasks.setOnHold, taskchat) i
 test('#6209 part 3 review 1: the person taking over an agent\'s hold is read from the history alone, and a later clear tells nobody', () => {
   const { id, n } = fixture();   // onHoldByPerson NOT set: only the history's `via` says it is the person's
   const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  // Told first about the agent's hold (posts after it), then again once the person takes it over.
+  const agentHold = () => [{ kind: 'hold-set', at: iso(NOW - 5 * HOUR), via: 'agent' }];
+  assert.equal(pass(id, rows, agentHold).sent.length, 1, 'fixture: the agent\'s hold was not told about');
   const takeover = () => [{ kind: 'hold-set', at: iso(NOW - 5 * HOUR), via: 'agent' }, { kind: 'hold-set', at: iso(NOW - 3 * HOUR), via: 'screen' }];
   const r = pass(id, rows, takeover);
-  assert.equal(r.sent.length, 1);
+  assert.equal(r.sent.length, 1, 'the person\'s takeover was not told about again');
   assert.match(r.sent[0].text, /\(the person put it on hold 3 hours ago\)/, 'the takeover was not read as the person\'s hold');
   assert.equal(stored(id, n).holdStaleTold[REX], iso(NOW - 3 * HOUR), 'the takeover\'s time is not the one stored');
   const b = fixture();
@@ -208,6 +211,12 @@ test('#6209 part 3 review 2: an owner off the project or switched off is recorde
   assert.equal(r.sent.length, 0);
   assert.equal(r.out.results[0].act, 'unreachable');
   assert.ok(taskchat.read(gone.id, gone.n).some((e) => e.kind === 'hold-stale' && e.reached === false), 'not recorded as not reached');
+  const off = fixture();
+  projects.setSwarmOn(off.id, REX, false);
+  r = pass(off.id, rows(off.id), holdAt(3 * HOUR));
+  assert.equal(r.sent.length, 0, 'typed into an owner switched off in the project');
+  assert.equal(r.out.results[0].act, 'unreachable');
+  assert.ok(taskchat.read(off.id, off.n).some((e) => e.kind === 'hold-stale' && e.reached === false), 'the switched-off owner was not recorded as not reached');
   const failing = fixture();
   const book = new Map();
   const tries = [];
