@@ -23223,11 +23223,15 @@ const ENGINE_RESTART_WAIT_MS = 120 * 1000;   // how long the page waits for the 
    the world-switch path's behaviour too (engine/boardrestart). */
 const ENGINE_RESTART_POLL_MS = 1000;         // how often it asks whether the restarted board is back
 const ENGINE_SAID_HOLD_MS = 15 * 1000;       // how long a failure stays in the toast before the next poll repaints it
+let ENGINE_SAID_PRESS = 0;   // #6231: which Restart Kosmos press owns the toast's repaint hold
 async function engineRestartClick() {
   const btn = document.getElementById('ut-engine-restart');
   const toast = btn && btn.closest('.utoast');
   const small = toast ? toast.querySelector('small') : null;
   clearStopMoveOffers();   // #6214: a fresh press, so an offer from an earlier refusal goes
+  /* #6231: each press owns the hold from here; an earlier press's hold stops at its next turn, so it cannot repaint the
+     toast in the middle of this press's answer. */
+  const press = ++ENGINE_SAID_PRESS;
   /* The title too: at narrow widths the toast hides its small line, and an outcome must still be read. */
   const title = toast ? toast.querySelector('b') : null;
   /* A failure message stays readable for a while, then the next poll repaints the accurate toast (the re-render
@@ -23238,6 +23242,7 @@ async function engineRestartClick() {
        a press still out); bounded, so a toast nobody answers is still repainted in the end. */
     let holds = 0;
     const release = () => {
+      if (press !== ENGINE_SAID_PRESS) return;   // #6231: a later press owns the hold now
       const sl = document.getElementById('utoast-slot');
       if (!sl) return;
       if (sl.querySelector('[data-stop-move-offer]') && ++holds < 20) { setTimeout(release, ENGINE_SAID_HOLD_MS); return; }
