@@ -8,14 +8,15 @@ first real use. Then the card's remaining device check is possible at all.
 ## What was wrong (read from the code)
 #5481's build merged in #5504; the card stayed open for two answers "logged by the app". logLine writes only to
 $KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log. Production sets no KOSMOS_APP_LOG and a real Mac has no
-/tmp/kosmos-app-test folder, so FileManager.createFile fails silently and every native logLine (about 150 call sites)
+/tmp/kosmos-app-test folder, so FileManager.createFile fails silently and every native logLine (149 call sites)
 is written nowhere. #5311's plan noticed this for one line and worked around it with NSLog there only.
 
 ## The call (revised after review 1)
 A narrow `logToSystem(_:)` writes macOS's unified log (NSLog("%@", s)) and the harness file. Only the two microphone
 permission lines the card waits on use it; logLine itself is unchanged and never writes the unified log. Read them
 with `log show --last 1d --predicate 'process == "Kosmos"'`. Those two lines are built from fixed words, the pane
-name (only "speech" or "microphone" are accepted before it is stored), permission states, seconds and an outcome word.
+name (only "speech" or "mic" are accepted before it is stored), and an outcome kind (allowed, refused or settings-next;
+the event's page-supplied id is never logged), permission states, seconds and an outcome word.
 
 ## Rejected
 - Every logLine to the unified log (the first version): review 1 found the board URL with its token (#1946) logged on
@@ -45,3 +46,6 @@ fail it.
 - BLOCKER, fixed by removal: the blanket unified-log write leaked the board token (LOADING and reload lines). My first
   privacy check grepped call sites for words like "token" and missed URLs built elsewhere; the redesign does not rely
   on reading 150 call sites, it allows two and pins them.
+
+## Review 2 (sonnet): converged (nits only). Traced the one premise it left open: outcome.event["kind"] is only
+allowed, refused or settings-next (allowedEvent), and the line logs the kind, not the page's id.
