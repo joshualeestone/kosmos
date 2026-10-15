@@ -121,6 +121,65 @@ changes, I ping Sonya to rebase.
   file read is acceptable inside a generator (it is non-blocking I/O-wise); the
   {sleep} is what matters for board responsiveness.
 
+## STATUS (2026-10-15) — Linux done, Windows is a focused follow-up
+
+**Linux half: DONE, tested, committed (74901781a).**
+- `engine/linuxjob.js`: added `stopSteps` / `startOnlySteps` / `loadedSteps` /
+  `statusSteps` generators (yield `{ exec: ['systemctl', ...] }`), sharing the
+  sync acts' arg builder (`unitName`) and parsers (`stoppedOrNotLoaded`, the
+  is-active test). Sandbox gate applied in-module; a dry run is answered as
+  loaded inside `loadedSteps` (via the `dryRun` flag), mirroring the Mac — NOT a
+  `DRY_RUN` short-circuit before the yield (that was the one bug found in test:
+  it skipped the is-active yield so the async runner never saw it).
+- `engine/remove.js`: `jobOps('linux')` exposes `steps` (stopNow/startNow/loaded/
+  diagnose). Sync acts unchanged (removeInner + other callers).
+- `engine/linuxwiring-4918.test.js`: async-proof (every systemctl via the async
+  runner, none via the sync one, board keeps turning) + sync control (board held,
+  a timer never fires). All 32 pass; linuxjob/linux-parity/remove suites green.
+
+**Windows half: designed, NOT yet built — a separate PR.** Why split: the win32
+executor migration has real blast radius that deserves its own focused review,
+and the Linux half is a complete, shippable increment on its own (the card stays
+open, non-closing, for the Windows half either way).
+
+Windows design (verified against the module maps + win32job.running L572-591,
+win32stop end/killAndForget L168-270):
+- Add to `engine/win32job.js`: `endSteps` (schtasks `/End` → Boolean),
+  `startSteps` (schtasks `/Run` → Boolean), `runningSteps` (the liveness poll:
+  reads `liveIdentity` + `pidAlive` internally, yields `{ sleep: intervalMs }`
+  between polls — NO command, so only the waits become timers; returns Boolean;
+  keeps the `before`/session-id discrimination and the `now` seam for the
+  deadline).
+- Add to `engine/win32stop.js`: `endSteps` (resolve pid via `liveByName` [a read,
+  not a command], yield `{ exec: ['taskkill.exe', ['/PID', pid, '/T', '/F']] }`,
+  the look-again `alive(pid)`, `win32sessions.forget`; returns Boolean).
+- `engine/remove.js`: `jobOps('win32')` exposes `steps` (stopNow→endSteps,
+  startNow→startSteps, loaded→runningSteps); `sessionOps('win32')` exposes
+  `endSteps`. Keep the sync acts for their other callers.
+
+**Two Windows frictions, both load-bearing for the follow-up:**
+1. **Result-shape adapter.** win32job/win32stop parsers read `r.out`; remove.js's
+   `run()`/`runAsync()` return `{ stdout, stderr, code }`. The step generators
+   must normalize (`out = r.ok ? r.stdout : (r.stderr || r.stdout)`) before the
+   existing parse logic, since the restart's `{exec}` is answered by remove.js's
+   runner, not win32job's.
+2. **Executor migration breaks the existing win32 restart tests.**
+   `remove.win32-restart-3431.test.js` drives the restart's schtasks/taskkill
+   through win32job's/win32stop's OWN seams (`job.setRunner`, `stop.setRunner`,
+   `job.setLiveness`, `job.setRunningClock`), with `remove.setRunner` only a dummy
+   ("the win32 path never shells it"). Once the restart routes commands through
+   remove.js's `run()`/`runAsync()` (required for async), those 4 tests must be
+   rewritten to inject `remove.setRunner`/`remove.setAsyncRunner` for the commands
+   (the liveness/clock seams stay win32job's, since `runningSteps` reads them
+   in-module). Production behaviour is identical (same schtasks args, same
+   execFileSync); only the test seam moves. This is the careful part.
+
+**Next steps:** (1) /challenge-loop on the Linux branch → PR (Linux half,
+"Addresses #6183", non-closing). (2) Windows arm as its own branch/PR per the
+design above. (3) CI (Done-when 2): the Linux test rides the existing
+linuxwiring-4918 file into the suite; for Windows, place the async test in
+remove.win32-restart-3431 (already in the windows CI job) and confirm by name.
+
 ## What would change my mind
 
 If win32job's exec/gating cannot be routed onto remove.js's seam without changing
