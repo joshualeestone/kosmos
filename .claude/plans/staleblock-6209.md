@@ -117,3 +117,11 @@ activity log, but no longer red.
   fails a test. Refusal sentence says "over another wait" (a usage-limit block under a transient one is covered on
   purpose). read()'s doc comment is above read() again; the shell guard summary names the exclusion; a review-2 line
   marked superseded.
+
+## Review 10 (sonnet), and what changed
+- Fixed: the clear is now an ALLOWLIST of the kinds a later successful turn really ends (server_error, overloaded,
+  timeout, api_error, network/connection errors), not a denylist of two. Billing, a bad request, max output tokens, a
+  usage limit and a sign-in all keep their block; this also shrinks what rides on the unmeasured premise. Tested both
+  ways (a prefix-only check fails it, measured).
+- Known, accepted: read(), the check and the append are not one locked step; a deliberate report landing in that window
+  can sit under the idle (the same accepted race as before).
