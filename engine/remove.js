@@ -2225,8 +2225,9 @@ function* restartSteps(name, cause, platform, startIfDead) {
   if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
   const steps = [];
-  /* #6173: a step is a generator (its commands yielded), so `yield* step(...)`. An act that is not written as steps
-     (Windows, Linux) runs as before inside `now`, synchronously under either driver. */
+  /* #6173: a step is a generator (its commands yielded), so `yield* step(...)`. An act a platform does not provide
+     as a step (a removal-path disable, or win32's absent diagnose) runs as before inside `now`, synchronously under
+     either driver. */
   const step = function* (label, gen) {
     try {
       const r = yield* gen;
@@ -2474,9 +2475,9 @@ function restart(name, cause, opts) {
 }
 
 /**
- * #6173: the same restart without blocking the board's thread: every launchctl and tmux call through execFile and every
- * wait on a timer. Same outcomes and sentences as `restart`. On the Mac only: Windows' and Linux's job acts are not
- * written as steps yet, so there each act still runs synchronously (a follow-up card).
+ * #6173: the same restart without blocking the board's thread: every job/session command through execFile and every
+ * wait on a timer. Same outcomes and sentences as `restart`. Every platform's restart acts are written as steps now --
+ * the Mac (#6173), Linux (#6230) and Windows (#6183) -- so this drives them all off the board's thread.
  */
 /* #6173 (Liu Kang m5496): what bounds one async restart, whatever a step does. Each command already has its own limit
    (20 s, a tmux look 5 s), the unload wait its 25 s budget and the retry wait 2 s; this cap also covers a step whose
