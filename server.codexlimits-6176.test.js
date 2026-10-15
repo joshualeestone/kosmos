@@ -131,9 +131,10 @@ test('#6176 a moved agent: a report from before its job last changed does not co
   for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
   const week = Math.floor(Date.now() / 1000) + 3 * 86400;
   writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 66, window_minutes: 10080, resets_at: week }, null);
-  const job = jobfix.jobPath('codexwork'); fs.utimesSync(job, new Date(), new Date());   // the move rewrote the job just now
+  const job = jobfix.jobPath('codexwork'), j0 = fs.statSync(job).mtime; fs.utimesSync(job, new Date(), new Date());   // the move rewrote the job just now
   const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
   assert.equal(work.limits, null, 'the old account\'s report was shown on the new one');
+  fs.utimesSync(job, j0, j0);   // later tests see the agent on its account for hours again
   fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
 });
 
@@ -152,6 +153,7 @@ test('#6176 the account folder counts only since its sign-in: an older login\'s 
 test('#6176 a private home counts only since the account\'s sign-in: an agent\'s report from an older login is not this one\'s', async () => {
   for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
   const week = Math.floor(Date.now() / 1000) + 3 * 86400;
+  { const t = new Date(Date.now() - 2 * 3600e3); fs.utimesSync(jobfix.jobPath('codexwork'), t, t); }   // on this account for two hours: only the sign-in can hide it
   writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 44, window_minutes: 10080, resets_at: week }, null);
   const auth = nodePath.join(CODEX_WORK, 'auth.json'), t0 = fs.statSync(auth).mtime;
   fs.utimesSync(auth, new Date(), new Date());   // signed in again just now, under another login
