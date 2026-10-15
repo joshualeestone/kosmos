@@ -1045,7 +1045,7 @@ test('#5636 F7a: with no log passed (as main() runs it), the front writes the re
     assert.equal(lines.length, 1);
     assert.equal(lines[0].opening, 'hello there');
     assert.equal(typeof lines[0].arrived, 'string');
-    assert.equal(typeof lines[0].tz, 'number');
+    assert.equal(lines[0].tz, -new Date(lines[0].at).getTimezoneOffset(), 'east of UTC is positive, as an offset is written');
   } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
 
@@ -1073,6 +1073,10 @@ test('#5636 F7a: the log writes only where git ignores it, and never into a hard
     front.logTurn(ws, 'second', 'B');
     assert.equal(fsx.readFileSync(ig, 'utf8'), 'notes/\n', 'their file is untouched');
     assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written where git might carry it');
+    // Both names, then a negation of one: not ignored, nothing written.
+    fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n!muse-turns.log\n');
+    front.logTurn(ws, 'negated', 'B3');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'a negation un-ignores it, so nothing is written');
     // A hard link at the file: the other name never receives a line.
     // One that names only the main file: the .1 copy would not be ignored, so nothing is written.
     fsx.writeFileSync(ig, 'muse-turns.log\n');

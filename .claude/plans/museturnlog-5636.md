@@ -16,8 +16,9 @@ words) or something else.
 
 ## The call
 engine/musefront.js logs one JSON line per message it runs (before the turn) to <workspace>/.kosmos/muse-turns.log:
-time, kind (operator, background, other), length in characters, the Sent stamp when present, the spilled word count
-when the line is a spill pointer, and the opening words except for the person's own messages. Bounded (256 KB, then a
+ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
+post count, and the 60-unit opening except for any line holding the person's envelope. Written only where git ignores
+both the log and its .1 copy (a negation reads as not ignored). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
 
 ## Rejected
@@ -86,3 +87,8 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   real folder (a no-op default fails it). WARNING: the .gitignore read is now bounded and non-blocking
   (workerfile.readWorkerFile, as keepModel reads). NITs taken: tz (local offset) beside the local Sent stamp; a
   blocked rotation cuts the opened file (ftruncate), not the path; the header says "hands to Muse".
+
+## Review 8 (sonnet), and what changed
+- No BLOCKER. WARNING: a later "!muse-turns.log" in the .gitignore read as ignored: any negation naming the log now
+  reads as not ignored (tested). NITs: the guards comment sits on logTurn; the header says the hard link is refused at
+  the lstat and after the open; tz notes daylight saving and its sign is asserted; "The call" lists every field.

@@ -180,8 +180,8 @@ function shortOf(text) {
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
    where git ignores it: it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
    one exists that does not name both (someone else's file is not edited). A busy digest's opening comes from its first
-   post (the text after its header), not from the header. A hard link at the file is refused after the open
-   (a link count above one); a swap between the checks and the open is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   post (the text after its header), not from the header. A hard link at the file is refused at the lstat
+   (before any rotation could touch its other name) and again after the open (a link count above one); a swap between the checks and the open is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -197,16 +197,14 @@ function turnRecord(text, at, arrived = null) {
   const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
-  // tz: this machine's offset from UTC in minutes, so a Sent stamp (local wall-clock time) lines up with at / arrived.
+  // tz: this machine's offset from UTC in minutes at `at`, so a Sent stamp (local wall-clock time) lines up with at /
+  // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
   const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
     digestPosts: digest ? Number(digest[1]) : null };
   // The person's words stay out: their own messages, and any line that quotes them (a stop note carries their envelope).
   if (kind !== 'operator' && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
   return rec;
 }
-/* Guards (review 1, 5): never a relative workspace, never through a `.kosmos` that is a link, never into a link or
-   fifo at the file, a non-blocking, no-follow open so nothing planted there can hang this front, and no write into a
-   file with another name (a hard link). keepModel needs no link-count check: it writes a temp and renames. */
 const TURN_LOG_IGNORE = 'muse-turns.log\nmuse-turns.log.1\n';
 function turnLogIgnored(dir) {
   const ig = path.join(dir, '.gitignore');
@@ -222,8 +220,13 @@ function turnLogIgnored(dir) {
   // Exact lines, not a git check: both names must be listed (the .1 copy is the same text), so "/muse-turns.log" or
   // "*.log" reads as not ignored and nothing is written (fail closed).
   const lines = got.buf.toString('utf8').split(/\r?\n/);
+  // A later "!muse-turns..." line un-ignores it, so any negation naming the log reads as not ignored.
+  if (lines.some((l) => /^\s*!.*muse-turns/.test(l))) return false;
   return lines.includes('muse-turns.log') && lines.includes('muse-turns.log.1');
 }
+/* Guards (review 1, 5): never a relative workspace, never through a `.kosmos` that is a link, never into a link or
+   fifo at the file, a non-blocking, no-follow open so nothing planted there can hang this front, and no write into a
+   file with another name (a hard link). keepModel needs no link-count check: it writes a temp and renames. */
 function logTurn(workspace, text, at, arrived = null) {
   try {
     if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
