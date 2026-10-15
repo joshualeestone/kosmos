@@ -828,13 +828,12 @@ function composerHolds(text, wire) {
      start. The box was empty before the paste, so text from anyone else is not a run of ours. */
   return w.includes(t) ? 'ours' : 'other';
 }
-/* Round 6: before pressing Enter on a line the board left earlier, the box must still hold ALL of it (or, in a box
-   that scrolled, its whole visible end): a person who cut it down or is rewriting it is not sent. The prefix rule in
-   composerHolds is for a box Claude is still drawing, which cannot be the case for a line left there earlier. */
+/* Round 6, tightened in round 8: before pressing Enter on a line the board left earlier, the box must hold exactly
+   that line: a person who cut it down anywhere, or added to it, is not sent. A line too long to show whole (a box
+   that scrolled) is never pressed on: its hidden rows could hold anything; it is refused and the card says so. */
 function composerIsAll(text, wire) {
   const t = squash(text);
-  const w = squash(wire);
-  return !!t && (t === w || (t.length >= Math.max(40, Math.ceil(w.length * 0.6)) && w.endsWith(t)));   // round 7: most of it
+  return !!t && t === squash(wire);
 }
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
@@ -847,6 +846,7 @@ const composerReadable = (card) => !!card && String(card.runner || 'claude') ===
 /* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
    up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
 const SUBMIT_SETTLE_MS = 1500;
+const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
@@ -861,7 +861,7 @@ const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then he
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
  * The one retry (async only) is pressed only on a box that holds nothing but ours, on a pane still an agent's.
  */
-function* submitConfirmSteps(card, target, wire, mayRetry) {
+function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SETTLE_MS) {
   let waited = 0;
   let retried = false;
   for (;;) {
@@ -871,7 +871,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry) {
     const holds = composerHolds(box.text, wire);
     if (holds === 'empty') return { outcome: 'sent', retried };
     if (holds === 'other') return { outcome: 'other', retried };
-    if (waited < SUBMIT_SETTLE_MS) {
+    if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
       waited += SUBMIT_LOOK_MS;
       continue;
@@ -1960,7 +1960,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         unsentWires.delete(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
-          const steps = submitConfirmSteps(allowed.card, target, earlier, false);
+          /* Round 8: a short watch (measured: the box empties 25 to 93 ms after an Enter), so even the async path is
+             held at most EARLIER_SETTLE_MS here; a box slower than that is refused below, truthfully. */
+          const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS);
           let step = steps.next();
           while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
           if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; box = { ok: true, text: '' }; }

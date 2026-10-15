@@ -1649,9 +1649,12 @@ function visibleWithoutDim(line) {
   let m;
   while ((m = re.exec(line)) !== null) {
     if (!dim) out += line.slice(at, m.index);
-    const codes = m[1].match(/\d+/g) || ['0'];   // ESC[m is a reset; ; and : both separate the numbers
+    /* ESC[m is a reset. ; separates parameters; : separates a parameter's own sub-parameters (4:2 is an underline
+       style, 38:2:...:r:g:b one colour), so a colon group is one parameter and only its first number is the code. */
+    const codes = (m[1].match(/[^;]+/g) || ['0']).map((g) => (g.includes(':') ? 'c' + (g.match(/\d+/) || ['0'])[0] : g));
     for (let i = 0; i < codes.length; i += 1) {
       const c = codes[i];
+      if (c.startsWith('c')) continue;   // a colon group (one parameter, never dim, never a reset)
       if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
       if (c === '2') dim = true;
       else if (c === '0' || c === '22') dim = false;

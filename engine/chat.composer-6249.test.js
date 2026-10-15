@@ -417,3 +417,19 @@ test('#6249 round 6: a box that cannot be read right before the retry keeps toda
     assert.equal(v.unsubmitted, undefined);
   } finally { board.restore(); }
 });
+
+test('#6249 round 8: the board\'s earlier line with its START cut (a rewrite begun) is not sent', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const t = arm([box(MSG.slice(30))]);
+  const v = chat.deliver('al', 'a later line', roster);
+  assert.equal(t.enters(), 0);
+  assert.equal(v.inputHeld, true);
+}));
+
+test('#6249 round 8: a colon group is one parameter: 4:2 (an underline style) and a colour with its colour space are not dim', () => {
+  const RULE80 = '\n' + RULE + '\n';
+  assert.equal(chat.composerText('\x1b[39m❯ \x1b[4:2munderlined\x1b[24m' + RULE80).text, 'underlined');
+  assert.equal(chat.composerText('\x1b[39m❯ \x1b[38:2:0:10:20:2mcoloured\x1b[39m' + RULE80).text, 'coloured');
+  assert.equal(chat.composerText('\x1b[39m❯ \x1b[2;4:3mghost\x1b[0m' + RULE80).text, '', 'CONTROL: a 2 among the parameters is still dim');
+});
