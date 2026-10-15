@@ -4500,7 +4500,9 @@ function withPreviews(rows) {
    token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
    Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
    guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
-   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling), and a
+   same-site one also gets each Claude account's email, label, organization and weekly usage (#6178, keyed, no folder
+   paths) with each agent's runner and account key: the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
    updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
    request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
@@ -4510,15 +4512,49 @@ function isSiblingRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
 }
-function statusForSibling(json) {
+function statusForSibling(json, site) {
   let full = null;
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
+  /* #6178: each Claude account's weekly usage for Settings > AI Models there. THIS SENDS each account's email, label
+     and organization to the reading browser. WHICH browsers can read it is decided by the relay alone: every computer
+     under the Kosmos+ domain is same-site to every other, so the same-site check below only keeps cross-site reads on
+     #4973's agents-only answer. The relay hands the board token only to the account's own listed computers, in a
+     browser this computer admitted (kosmos-relay siblingcors-4812; pinned by proxy.rs
+     a_sibling_read_carries_the_token_only_when_listed_and_same_site). Keyed by an opaque per-answer id ("a0", "a1",
+     ...), never by its folder: a folder path names this Mac's user, which #4973 keeps here. Each agent carries that id
+     (acct) and its runner, so the page can join them. A full answer without accountsWeekly is sent as null (the page's
+     "could not read"); the page reads a field that is absent as "an older Kosmos". */
+  if (site !== 'same-site') {
+    return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })) });
+  }
+  const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
+  const keyOf = new Map();
+  const seen = new Set();   // two entries on one folder are one account to its agents: the first is sent, the rest are not
+  const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir
+      && !seen.has(e.dir) && seen.add(e.dir))
+    .map((e, i) => {
+      const key = 'a' + i;
+      keyOf.set(e.dir, key);
+      const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
+      return {
+        key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true, apiKey: e.apiKey === true,
+        weekly: w && [w.usedPct, w.resetsAt, w.at].every((n) => typeof n === 'number' && Number.isFinite(n)) ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
+        blocked: str(e.blocked) || null,
+      };
+    });
   return JSON.stringify({
+    checkedAt: str(full && full.checkedAt),
+    accountsWeekly,
     // The guide is left out here (review 1): the other computer's view drops it anyway, so it need not be sent.
     agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
-      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })),
+      .map((a) => ({
+        sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
+        runner: str(a.runner) || null,
+        acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,   // null: not on a listed account
+      })),
   });
 }
 
@@ -5857,7 +5893,11 @@ const server = http.createServer(async (req, res) => {
          them apart: a folder matches only its own row, and a dir-less default matches only the runner's
          provider. OpenAI's list is left out on purpose: codex agents keep their existing account shape. */
       const listOf = (m) => { try { return m.list(); } catch { return []; } };
-      const known = listOf(accounts).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
+      /* #6178: kept apart for accountsWeekly below, so the poll still reads the list once. Its own try, not listOf: a list
+         that could not be read is null there ("could not read them"), and [] here as before. */
+      let claudeKnown;
+      try { claudeKnown = accounts.list(); } catch { claudeKnown = null; }
+      const known = (claudeKnown || []).concat(listOf(geminiAccounts), listOf(grokAccounts), listOf(qwenAccounts));   // #5977: a Qwen agent names its Qwen account
       /* 🛑 `null` HERE MEANS ONE THING ONLY: we could not read this agent's
          launch file, so we do not know. It does NOT mean the default account.
          The first version let the SCREEN decide, by falling back to "your
@@ -6462,6 +6502,10 @@ const server = http.createServer(async (req, res) => {
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = JSON.stringify({
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,
+        /* #6178: each Claude account's weekly usage on this computer, from the helper /api/accounts uses, kept for
+           CACHE_MS (engine/accountsweekly.js). Another of the person's computers reads it through the sibling path (#4812) for
+           Settings > AI Models. */
+        accountsWeekly: (() => { if (!Array.isArray(claudeKnown)) return null; try { return require('./engine/accountsweekly').summary(claudeKnown, Date.now()); } catch { return null; } })(),
         /* #2066: the board reads (version, sourceChannel); the version line and the
            federation gate use them (the corner marker went in #3641). Channel rides
            the 5s status tick the board already polls. #2934: no longer just a file
@@ -6561,7 +6605,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
       return;
     }
-    if (isSiblingRead(req)) body = statusForSibling(body);   // #4973: another computer's page reads the agents only
+    if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
     return;
@@ -11184,34 +11228,14 @@ const server = http.createServer(async (req, res) => {
                writes it while an agent on the account runs), or null when there is no reading this week: an API key, none
                recorded, unreadable, or the week has reset. A reading can be here beside a weeklyBlocked reason (it was
                recorded before); the page then says it will not update. resetsAt and at are epoch ms here (readWeekly gives resetsAt in seconds). */
-            weekly: (() => {
-              try {
-                const r = a.dir && !a.apiKey ? require('./engine/allowance').readWeekly(a.dir, nowMs) : null;   // a key has no weekly limit
-                return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
-              } catch { return null; }
-            })(),
+            weekly: require('./engine/accountsweekly').weeklyOf(a, nowMs),   // #6178: one helper, shared with /api/status
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
                Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
                null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
                #6175 review 13: 'linked-settings' instead of 'not-wired' when settings.json is a link whose file is not in this
                folder (or points at nothing): the set-up route refuses those every time, so the row must not offer it. */
-            weeklyBlocked: (() => {
-              if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
-              if (process.platform === 'win32') return 'windows';
-              const sp = path.join(a.dir, 'settings.json');
-              const linkedAway = () => {   // the same test the route makes before it writes
-                try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }
-                try { return path.dirname(fs.realpathSync(sp)) !== fs.realpathSync(a.dir); } catch { return true; }   // a link to nothing
-              };
-              const unwired = () => (linkedAway() ? 'linked-settings' : 'not-wired');
-              try {
-                const j = JSON.parse(fs.readFileSync(sp, 'utf8'));
-                const sl = j && j.statusLine;
-                if (sl === undefined || sl === null) return unwired();   // nothing records a reading here
-                return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? unwired() : 'unreadable-settings'; }   // missing (or a link to nothing): nothing records one; unreadable: Kosmos cannot tell
-            })(),
+            weeklyBlocked: require('./engine/accountsweekly').weeklyBlockedOf(a),   // #6178: one helper, shared with /api/status
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
             ...(wantAgents ? { agentsHere: claudeAgents ? { names: claudeAgents.on(a.dir, !!a.isDefault), complete: !!claudeAgents.complete, moving: claudeAgents.moving(a.dir, !!a.isDefault) } : { names: [], complete: false, moving: [] } } : {}),
@@ -24315,6 +24339,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
+  statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test

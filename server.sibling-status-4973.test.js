@@ -2,7 +2,9 @@
 /**
  * #4973: a read of /api/status that another of the person's computers' pages caused (Sec-Fetch-Site same-site or
  * cross-site; the #4812 relay passes that header through) gets the agents only: sessionName, name,
- * state (the guide left out). The board's own page (same-origin), an address-bar load (none) and the CLI (no header)
+ * state (the guide left out). #6178: a same-site read also gets the accounts' weekly usage (keyed, no folder paths)
+ * and each agent's account key and runner; their exact account fields are pinned in server.accountsweekly-6178.test.js,
+ * where an account exists. The board's own page (same-origin), an address-bar load (none) and the CLI (no header)
  * get the full answer.
  */
 const fs = require('node:fs');
@@ -55,7 +57,7 @@ function status(site) {
   });
 }
 
-test('#4973: a sibling read (same-site, cross-site) gets the agents only; the full answer is not in it', async () => {
+test('#4973: a sibling read (same-site, cross-site) gets the agents and (#6178) the accounts\' weekly usage only; the full answer is not in it', async () => {
   const board = fleet.install([fleet.agent('guidebot', { state: 'idle' }), fleet.agent('mara', { state: 'working' })]);
   try {
     const full = await status('same-origin');
@@ -65,10 +67,14 @@ test('#4973: a sibling read (same-site, cross-site) gets the agents only; the fu
     for (const site of ['same-site', 'cross-site']) {
       const r = await status(site);
       assert.equal(r.code, 200, site);
-      assert.deepEqual(Object.keys(r.body), ['agents'], site + ': a sibling read carried more than the agents: ' + Object.keys(r.body).join(','));
+      // #6178 widened the SAME-SITE cut on purpose to exactly these (an exact set, so any later widening is a decision
+      // made here too); a cross-site read keeps #4973's agents-only answer.
+      const sameSite = site === 'same-site';
+      assert.deepEqual(Object.keys(r.body).sort(), sameSite ? ['accountsWeekly', 'agents', 'checkedAt'] : ['agents'], site + ': a sibling read carried more than it should: ' + Object.keys(r.body).join(','));
+      // An account's exact fields are pinned in server.accountsweekly-6178.test.js: this sandbox has no account to check.
       const mara = r.body.agents.find((a) => a.sessionName === 'mara');
       const fullMara = full.body.agents.find((a) => a.sessionName === 'mara');
-      assert.deepEqual(Object.keys(mara).sort(), ['name', 'sessionName', 'state'], site + ': not the three fields the Agents view uses');
+      assert.deepEqual(Object.keys(mara).sort(), sameSite ? ['acct', 'name', 'runner', 'sessionName', 'state'] : ['name', 'sessionName', 'state'], site + ': not the fields the Agents view and AI Models use');
       assert.equal(mara.name, fullMara.name, site);
       assert.equal(mara.state, fullMara.state, site);
       assert.ok(full.body.agents.some((a) => a.sessionName === 'guidebot'), 'CONTROL: the guide is in the full answer');
