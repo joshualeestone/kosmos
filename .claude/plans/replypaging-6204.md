@@ -31,7 +31,9 @@ were never reached.
   not at its last read reply: every reply up to its end was judged, and a reply added since is newer than doneAt.
   Capping at the last read reply held the mark at the floor for good on a post always over budget (measured: threads
   of 11 to 24 pages out of step); not capping at all (review 8's first version) lost a reply added to a done thread
-  when a newer comment moved the mark (review 9, measured). A thread
+  when a newer comment moved the mark (review 9, measured). Review 11: a thread read to its end while the 30-cap still
+  holds some of its items back is not recorded as done (doneAt would be newer than those items, and a later cut plus a
+  newer comment lost 29 of 60, measured); it is recorded once a read shows them. A thread
   said as not reached without a page waiting (a cut page, a cursor cycle) is not remembered as done.
 - Review 8: within a post's turn the newest thread never read to its end goes first, then saved threads (longest
   waiting first), then the rest, so a new comment's thread is not held behind the backlog.
@@ -97,6 +99,7 @@ a test and a mutation; their combination over many reads is covered only by the 
 - A carried place unseen for more than MARK_HOLD_MAX reads is dropped and the mark moves on.
 - Steady state (threads of 11 to 24 pages, out of step, all done): a newer comment moves the mark to it within 8 reads.
 - Replies added to every done thread, then a newer comment: every reply is still shown once.
+- 60 new replies in one finished thread (30 held back by the cap), then a cut read with a newer comment: all 60 shown.
 - A new comment's thread is paged in a read that has time for one wave, ahead of 8 saved threads.
 - A thread whose cursor cycled is not remembered as done.
 - A changed cursor spelling: every saved place refused, nothing lost.
