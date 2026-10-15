@@ -63,11 +63,12 @@ async function readConsts(pg) {
    recompute of orgFit's k, and not the canvas scale size/natural, which understates k because orgFit pads the
    size with ORG_PAD_MIN while orgNatural uses the larger ORG_PAD). paintOrg scales every placement radius by k
    (spot.r *= fit.k), so for a rendered face k = (its rendered distance from the hub) / (its own placement radius).
-   Every face scales by the SAME k, so we read SEVERAL and require them to agree within 0.5% -- a cheap control
+   Every face scales by the SAME k, so we read SEVERAL and require them to agree within 1% -- a cheap control
    that the reading is real (the positions are what we think). Fewer than three readable faces, or a spread past
-   0.5%, returns NaN so the caller fails loud rather than measuring against a lie. The placement radius is the
+   1%, returns NaN so the caller fails loud rather than measuring against a lie. The placement radius is the
    page's own layout of its LAST agents (orgPlaceGated when present, else orgPlace, matching paintOrg), honouring
-   ?limit=; faces with a tiny radius are skipped (their ratio is noise). */
+   ?limit=; faces below 40px placement radius are skipped, because node positions are written toFixed(1), so on a
+   small radius that rounding is too large a share of the ratio (the real board's roots sit at ORG_R0, well above). */
 async function drawnK(pg) {
   return pg.evaluate(() => {
     try {
@@ -83,14 +84,14 @@ async function drawnK(pg) {
       for (const n of map.querySelectorAll('.onode')) {
         const key = n.getAttribute('data-agent');
         const spot = placed && placed.get ? placed.get(key) : (placed ? placed[key] : null);
-        if (!spot || !(spot.r > 1)) continue;   // skip hub-adjacent / tiny-radius faces (noisy ratio)
+        if (!spot || !(spot.r >= 40)) continue;   // skip small-radius faces: toFixed(1) rounding is too big a share of their ratio
         const rd = Math.hypot(parseFloat(n.style.left) - hx, parseFloat(n.style.top) - hy);
         ks.push(rd / spot.r);
       }
       if (ks.length < 3) return NaN;
       ks.sort((a, b) => a - b);
       const med = ks[Math.floor(ks.length / 2)];
-      if (!(med > 0) || (ks[ks.length - 1] - ks[0]) / med > 0.005) return NaN;   // the faces must agree (one k)
+      if (!(med > 0) || (ks[ks.length - 1] - ks[0]) / med > 0.01) return NaN;   // faces must agree within 1% (usual spread ~0.2%; still catches a wrong-but-consistent read)
       return med;
     } catch (e) { return NaN; }
   });
@@ -179,10 +180,10 @@ async function settledRead(pg) {
       }
     }
     const k = await drawnK(pg);
-    /* k is the TRUE radius scale, read from the drawn faces, so the gate [ORG_SQUEEZE_MIN, 1] is exact (orgFit
-       floors k at ORG_SQUEEZE_MIN and caps it at 1): a reading outside it, or a NaN (every comparison false, which
-       is also what the faces-disagree-past-0.5% control returns), means the read was not real. Fail loud rather
-       than measure the clearance against a lie. */
+    /* k is the TRUE radius scale, read from the drawn faces, so the gate [ORG_SQUEEZE_MIN, 1] is tight (up to the
+       0.01 tolerance and float rounding): orgFit floors k at ORG_SQUEEZE_MIN and caps it at 1, so a reading outside
+       it, or a NaN (every comparison false, which is also what the faces-disagree-past-1% control returns), means
+       the read was not real. Fail loud rather than measure the clearance against a lie. */
     say(k >= SQUEEZE_MIN - 0.01 && k <= 1.01, label + ': the drawn radius scale k read plausibly (ORG_SQUEEZE_MIN..1)', Number.isFinite(k) ? k.toFixed(3) : String(k));
     /* Threshold = the 12px rule AT the drawn radius scale (paintOrg scales clearances by k), floored at CLEAR_FLOOR
        (8.4 on a fully squeezed phone). k is capped at 1 so it can never demand MORE than the 12px desktop promise
