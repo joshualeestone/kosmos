@@ -27,6 +27,7 @@ fs.writeFileSync(FAKE_GH, `#!/bin/bash
 printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
 [ -n "\${FAKE_IGNORE_ALRM:-}" ] && trap '' ALRM   # as gh (Go) does
+[ -n "\${FAKE_PIDFILE:-}" ] && echo $$ > "$FAKE_PIDFILE"
 [ -n "\${FAKE_SLEEP:-}" ] && sleep "$FAKE_SLEEP"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
@@ -179,12 +180,33 @@ test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said a
 
 test('#6266: a mistyped --check runs nothing and exits 2', () => {
   const r = kick(state({ 'last-deployed': OLD }), {}, ['--chek']);
-  // A gh that is not there says so.
-  const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
-  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: no gh found at/);
   assert.equal(r.status, 2);
   assert.equal(r.calls.length, 0);
   assert.equal(fs.existsSync(r.beat), false);
+});
+
+test('#6266: a gh that is not there says so', () => {
+  const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
+  assert.equal(none.status, 1);
+  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: gh could not be run \(.*no-gh-here: not found or not executable\)\)/);
+});
+
+test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes the gh group with it (review 13)', async () => {
+  const { spawn } = require('node:child_process');
+  const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
+  const log = path.join(SANDBOX, 'gh-term.log');
+  fs.writeFileSync(log, '');
+  const child = spawn('/bin/bash', [KICK], { detached: true, stdio: 'ignore', env: { PATH: '/usr/bin:/bin', KOSMOS_GH: FAKE_GH,
+    KOSMOS_AUTODEPLOY_STATE: state({ 'last-deployed': OLD }), KOSMOS_SITE_REPO: 'owner/site', KOSMOS_KICK_HEARTBEAT: path.join(SANDBOX, 'term-beat', 'last-tick'),
+    FAKE_LOG: log, FAKE_MAIN: MAIN, FAKE_SLEEP: '30', FAKE_IGNORE_ALRM: '1', FAKE_PIDFILE: pf, KOSMOS_KICK_GH_TIMEOUT: '60' } });
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 50 && !fs.existsSync(pf); i += 1) await wait(100);
+  const gh = Number(fs.readFileSync(pf, 'utf8').trim());
+  assert.ok(gh > 1, 'PRECONDITION: the fake gh started');
+  process.kill(-child.pid, 'SIGTERM');   // the tick's own group (bash and perl), as launchd's bootout does; gh is in its own
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  for (let i = 0; i < 60 && alive(-gh); i += 1) await wait(100);
+  assert.equal(alive(-gh), false, 'the gh group outlived the tick');
 });
 
 test('#6266: --check says what a tick would decide and dispatches nothing', needJq, () => {

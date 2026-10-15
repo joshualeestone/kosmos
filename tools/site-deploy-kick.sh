@@ -20,9 +20,9 @@
 #     (the job retries a failure once on the next tick and then parks it; asking sooner would spend that retry within
 #     minutes, reviews 1 and 3). A green "try again later" exit (the live site moving, a mirror or checksum retry)
 #     from a run that took over 13 minutes can be followed by an ask within minutes, which brings that retry count's
-#     alarm sooner; such runs are rare (review 9). GitHub's push and schedule triggers still fire on their own, as before, so a schedule run can
-#     land just after an ask: two runs minutes apart, which brings the job's retry alarm (4 ticks) sooner. Rare, as
-#     the schedule itself is (six times on 2026-10-15);
+#     alarm sooner; such runs are rare (review 9). GitHub's push and schedule triggers still fire on their own,
+#     as before, so a schedule run can land just after an ask: two runs minutes apart, which brings the job's
+#     retry alarm (4 ticks) sooner. Rare, as the schedule itself is (six times on 2026-10-15);
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
 # A STUCK run is not counted as active (review 2: one would otherwise silence this backstop for good): one not finished
 # 3 hours after it was created. One limit from creation, because GitHub stamps a run's startedAt at creation too
@@ -46,6 +46,7 @@
 # --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing, and the kosmos
 # commit the installer copied it from.
 # Env (tests point these at fakes): KOSMOS_SITE_REPO, KOSMOS_AUTODEPLOY_STATE, KOSMOS_GH, KOSMOS_KICK_HEARTBEAT,
+# KOSMOS_KICK_GH_TIMEOUT (seconds per gh call, default 90),
 # KOSMOS_KICK_NOW (epoch seconds, for tests).
 set -u
 REPO="${KOSMOS_SITE_REPO:-joshualeestone/chaoskosmos-site}"
@@ -56,19 +57,21 @@ GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 # on a stalled connection cannot hold the backstop for ever (launchd never starts a second copy while one runs). A
 # timed-out call fails like any other, with "(timed out)" in its line.
 GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
+case "$GH_MAX_S" in ''|*[!0-9]*|0*) GH_MAX_S=90 ;; esac   # never 0: perl's alarm 0 would mean no limit at all
 # Review 12: gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
-# unroutable host ran its own 30 s dial timeout past a 3 s alarm). So perl forks gh into its own process group, waits,
-# and on the deadline sends that group TERM, then KILL, and exits 142.
+# unroutable host ran its own 30 s dial timeout past a 3 s alarm). So gh runs in its own process group, the deploy
+# job's grouped_timeout shape (tools/site-autodeploy.sh), in full (review 13): handlers before the fork pass a TERM,
+# INT or HUP on to the gh group (launchd stopping the job, a person's Ctrl-C), the group is set from both sides, at
+# the deadline the group gets TERM then KILL and perl exits 142, and the alarm is cancelled once gh has been reaped.
 ghb() {
-  perl -e '
-    my $t = shift;
-    my $pid = fork; defined $pid or exit 126;
-    if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
-    $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 2; kill "KILL", -$pid; waitpid($pid, 0); exit 142 };
-    alarm $t;
-    waitpid($pid, 0);
-    exit(($? & 127) ? 128 + ($? & 127) : $? >> 8);
-  ' "$GH_MAX_S" "$GH" "$@"
+  perl -e 'my $t = shift; my $p;
+    $SIG{$_} = sub { if ($p) { kill "TERM", -$p; sleep 2; kill "KILL", -$p } exit 143 } for qw(TERM INT HUP);
+    $p = fork; defined $p or exit 126; if (!$p) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+    setpgrp($p, $p);
+    $SIG{ALRM} = sub { kill "TERM", -$p; sleep 2; kill "KILL", -$p; waitpid($p, 0); exit 142 };
+    alarm $t; my $w = waitpid($p, 0); alarm 0; my $s = $?;
+    exit 125 if $w != $p;
+    exit(($s & 127) ? 128 + ($s & 127) : $s >> 8)' "$GH_MAX_S" "$GH" "$@"
 }
 BEAT="${KOSMOS_KICK_HEARTBEAT:-$HOME/.local/libexec/kosmos-site-deploy-kick/last-tick}"
 KICK_GAP_S=840
@@ -96,7 +99,9 @@ trap 'rc_=$?; [ -n "$ERR" ] && rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%
 ERR="$(mktemp "${TMPDIR:-/tmp}/kick-err.XXXXXX" 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
 why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"
   [ "$rc" = 142 ] && l="${l:+$l; }timed out after ${GH_MAX_S} s"
-  [ "$rc" = 127 ] && l="${l:+$l; }no gh found at $GH or on PATH"
+  [ "$rc" = 127 ] && l="${l:+$l; }gh could not be run ($GH: not found or not executable)"
+  [ "$rc" = 126 ] && l="${l:+$l; }could not start gh (fork failed)"
+  [ "$rc" = 125 ] && l="${l:+$l; }lost track of the gh process"
   [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
