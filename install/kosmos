@@ -4541,7 +4541,9 @@ cmd_feedback() {
         fp.pull(dir || undefined).then((r) => {
           if (!r.ok) { console.error(r.because); process.exit(1); }
           for (const line of fp.summaryLines(r)) process.stdout.write(line + "\n");
-          process.stdout.write(fp.nextLine(r.dir) + "\n");   // #6265: plain when it is the default folder
+          // #6265: plain when it is the default folder; a pull that wrote its reports is never failed by this line.
+          let next; try { next = fp.nextLine(r.dir); } catch { next = "next: kosmos feedback triage --dir " + r.dir; }
+          process.stdout.write(next + "\n");
         }).catch(() => { console.error("could not pull the collected feedback"); process.exit(1); });
       ' "$KOSMOS_HOME/app"
       exit $?

@@ -292,6 +292,16 @@ function readOwn(since, reports) {
 }
 /* Review 4: the OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that
    names the store with other capitals or slashes is still the store. */
+/* #6265: a path as a pasteable command argument for the shell that will read it: PowerShell on Windows (an inner '
+   doubled; a backslash is a plain path character), a POSIX shell elsewhere (an inner ' closed and reopened). A path
+   starting with - gets ./ so it cannot read as an option. Used by both suggested commands (review 9). */
+function shellArg(p, platform = process.platform) {
+  let s = String(p);
+  if (s.startsWith('-')) s = './' + s;
+  const plain = platform === 'win32' ? /^[\w./:\\@-]+$/ : /^[\w./:@-]+$/;
+  if (plain.test(s)) return s;
+  return platform === 'win32' ? "'" + s.replace(/'/g, "''") + "'" : "'" + s.replace(/'/g, "'\\''") + "'";
+}
 function samePath(a, b) {   // also feedbackpull.nextLine's comparison, so the two cannot disagree
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
@@ -359,7 +369,7 @@ function reportsForTriage(opts) {
     /* Review 5: --since can leave nothing of the pulled folder; the note says so, so an empty digest is not a mystery. */
     /* Review 7: report files that all failed to read are not "undated". */
     const what = !reports.length && since ? 'none on or after ' + since : !reports.length ? 'none could be read' : last ? 'newest dated ' + last : 'none dated';
-    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + what + '); --dir ' + dir() + ' reads this computer\'s own');
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; ' + what + '); --dir ' + shellArg(dir()) + ' reads this computer\'s own');
     return { ok: true, reports, notes, read: pulled };
   }
   readOwn(since, reports);
@@ -368,4 +378,4 @@ function reportsForTriage(opts) {
   return { ok: true, reports, notes, read: dir() };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

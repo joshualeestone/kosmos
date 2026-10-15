@@ -118,7 +118,7 @@ test('#6265 review 3: the pulled note says how old the newest pulled report is',
   assert.ok(feedback.reportsForTriage({}).notes.some((n) => n.includes('newest dated 2026-10-12')));
 });
 
-test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', () => {
+test('#6265 review 3: a pulled report reached through a link counts, as the reader reads it', { skip: process.platform === 'win32' ? 'a symlink needs elevated rights on Windows' : false }, () => {
   reset();
   const real = path.join(SANDBOX, 'real-report.md');
   fs.writeFileSync(real, '---\ndate: 2026-10-13\n---\nlinked\n');
@@ -153,4 +153,14 @@ test('#6265 review 5: a pull into another folder with a space quotes it on the n
   assert.equal(feedbackpull.nextLine('/a\\b', 'darwin'), "next: kosmos feedback triage --dir '/a\\b'", 'bash would drop an unquoted backslash');
   assert.equal(feedbackpull.nextLine("C:\\Users\\it's here", 'win32'), "next: kosmos feedback triage --dir 'C:\\Users\\it''s here'", 'PowerShell doubles an inner quote');
   assert.equal(feedbackpull.nextLine('C:\\fb', 'win32'), 'next: kosmos feedback triage --dir C:\\fb');
+});
+
+test('#6265 review 9: the own-store hint and the next line quote the same way; a leading - cannot read as an option', () => {
+  assert.equal(feedback.shellArg('/Users/a/Library/Application Support/Kosmos/feedback', 'darwin'), "'/Users/a/Library/Application Support/Kosmos/feedback'");
+  assert.equal(feedback.shellArg('-out', 'darwin'), './-out');
+  assert.equal(feedbackpull.nextLine('-out', 'darwin'), 'next: kosmos feedback triage --dir ./-out');
+  reset();
+  pulled(feedbackpull.fileName({ date: '2026-10-14', install: 'a' }), '---\ndate: 2026-10-14\n---\nx\n');
+  const note = feedback.reportsForTriage({}).notes.find((n) => n.includes('pulled reports in'));
+  assert.ok(note.includes('--dir ' + feedback.shellArg(OWN) + ' reads'), note);
 });
