@@ -1059,12 +1059,21 @@ test('#5636 F7a: the log writes only where git ignores it, and never into a hard
     assert.equal(fsx.readFileSync(ig, 'utf8'), 'notes/\n', 'their file is untouched');
     assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written where git might carry it');
     // A hard link at the file: the other name never receives a line.
+    // One that names only the main file: the .1 copy would not be ignored, so nothing is written.
     fsx.writeFileSync(ig, 'muse-turns.log\n');
+    front.logTurn(ws, 'only one name', 'B2');
+    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written when the .1 copy is not ignored');
+    fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n');
     const other = pathx.join(ws, 'other.txt');
     fsx.writeFileSync(other, '');
     fsx.linkSync(other, front.turnLogFile(ws));
     front.logTurn(ws, 'third', 'C');
     assert.equal(fsx.readFileSync(other, 'utf8'), '', 'a hard link received nothing');
+    // A full hard-linked file with rotation blocked: the other name is never cut.
+    fsx.writeFileSync(other, 'y'.repeat(front.TURN_LOG_MAX + 1));
+    fsx.mkdirSync(front.turnLogFile(ws) + '.1');
+    front.logTurn(ws, 'fourth', 'D');
+    assert.equal(fsx.statSync(other).size, front.TURN_LOG_MAX + 1, 'the hard link\'s other name was not truncated');
   } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
 
