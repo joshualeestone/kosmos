@@ -1470,6 +1470,9 @@ if boot_board "$sb7" "$P8"; then
   # #6160: the streak by the K mark. Stubs POST /api/streak at the network edge (a note, its control, day 1, none, a
   # long press, midnight), so any board serves; headless-fine.
   run_one "render-streak-6160" env KOSMOS_URL="$B8" node docs/browser-checks/render-streak-6160.js "$sb7/shots-streak"
+  # #6192: a refused read's body is read, so no request stays open. Every GET under /api/ goes on to this board at a
+  # path it does not have (its own 404, over the real network), so any board serves; headless-fine.
+  run_one "render-refusedbody-6192" env KOSMOS_URL="$B8" node docs/browser-checks/render-refusedbody-6192.js
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with
