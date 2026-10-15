@@ -27268,7 +27268,7 @@ let acctFiveTimer = null, acctFiveMisses = 0;
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
-let acctReadOpen = 0;   // the epoch of the list read still out (0: none), so the on-show look never doubles one
+let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
 let acctSettingsOpenAt = 0;   // when a Settings open began, until it paints the list itself (0: none under way)
 let acctOnShowTimer = null;   // one pending look at a time: switching to AI Models twice queues one read, not two
 function acctFiveHourOnShow() {
@@ -27279,7 +27279,7 @@ function acctFiveHourOnShow() {
   acctOnShowTimer = setTimeout(() => {
     acctOnShowTimer = null;
     if (acctSettingsOpenAt && Date.now() - acctSettingsOpenAt < 30e3) return;   // a Settings open is about to paint (and read) the list itself
-    if (acctReadOpen) return;   // a read is already out; it re-arms the timer when it lands
+    if (acctReadOpen && Date.now() - acctReadOpenAt < 30e3) return;   // a read is already out and re-arms the timer when it lands (one out over 30 s has hung: look anyway)
     if (mine !== ACCT_EPOCH || !acctListShown()) return;
     const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
     if (!shown.length) return;
@@ -27654,7 +27654,7 @@ async function paintAccounts(opts) {
   // real, multi-second one and had no announcement for that span at all.
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
-  acctReadOpen = mine;   // #6176: a read is out, so a look on window return does not start a second one beside it
+  acctReadOpen = mine; acctReadOpenAt = Date.now();   // #6176: a read is out, so a look on window return does not start a second one beside it
   try {
     const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
     if (mine !== ACCT_EPOCH) return;

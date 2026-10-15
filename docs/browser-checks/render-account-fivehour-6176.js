@@ -15,6 +15,10 @@
  *    is said to be the last reading;
  *  - an API-key row draws no meter at all;
  *  - at 390 px nothing scrolls sideways.
+ * Then the timer that takes a line away at its reset, on a list left open (Chromium, page clock installed): the read
+ * at the reset; a failed read there and before it; a list busy before and at the reset, and busy past its ten tries;
+ * a section switch, a Settings open (even a slow one) and a double switch; back from sleep by focus and by
+ * visibility; a read already out, and one that hangs; Settings closed. Each counts the reads as well as the lines.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-account-fivehour-6176.js
  *
@@ -314,7 +318,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const open8 = await p8.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(open8.reads === 2 && open8.fives === 1, '[chromium open] opening Settings onto AI Models reads the list once, even when its own reads are slow', JSON.stringify(open8));
     await p8.close();
-    // Switching to AI Models twice in a row with a line past its reset: one read, not one per switch.
+    // Switching to AI Models twice in a row with a line past its reset: one read, not one per switch. A behaviour arm:
+    // the epoch check alone already stops the second look, so it does not prove the single acctOnShowTimer handle.
     const p9 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p9.clock.install({ time: new Date(now) });
     await p9.goto('file://' + PAGE);
@@ -428,6 +433,32 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const r13 = await p13.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(out13 === 2 && r13.reads === 2 && r13.fives === 1, '[chromium open] focus while a read is already out does not start a second read', JSON.stringify({ out13, r13 }));
     await p13.close();
+    // A read that hangs (the board stops answering mid-read) must not block every later look for good.
+    const p14 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p14.clock.install({ time: new Date(now) });
+    await p14.goto('file://' + PAGE);
+    await p14.evaluate(async (accounts) => {
+      window.__reads = 0;
+      window.__slow = false;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        const answer = { ok: true, json: async () => ({ accounts }) };
+        return window.__slow ? new Promise(() => {}) : Promise.resolve(answer);
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p14.clock.setSystemTime(new Date(now + 12 * 60e3));   // the Mac slept past the reset: the clock moved, no timer fired
+    await p14.evaluate(() => { window.__slow = true; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); });
+    await p14.clock.runFor(31e3); await p14.waitForTimeout(100);   // older than any real read
+    await p14.evaluate(() => { window.__slow = false; window.dispatchEvent(new Event('focus')); });
+    for (let k = 0; k < 3; k++) { await p14.clock.runFor(1000); await p14.waitForTimeout(100); }
+    const r14 = await p14.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(r14.reads === 3 && r14.fives === 1, '[chromium open] a read that hangs does not stop the next look (after 30 s it reads again)', JSON.stringify(r14));
+    await p14.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });

@@ -18,7 +18,7 @@ resets_at}` on every update and used to drop it. Nothing new is installed: accou
 reading record the five-hour one on their next update.
 
 ## Built
-- `engine/kosmos-statusline.js`: `fiveHourOf()`; `record()` takes `{ file, tolerance, history }` (weekly by default,
+- `engine/kosmos-statusline.js`: `fiveHourOf()`; `record()` takes `{ file, tolerance, history, maxAheadSeconds }` (weekly by default,
   unchanged); `main()` also records the five-hour reading in `kosmos-fivehour.json`, forward-only within one window
   (1 h tolerance), no history.
 - `engine/allowance.js`: `readFiveHour(dir, now)`, null when unreadable or the window has reset.
@@ -77,3 +77,5 @@ shows its age, and a reading from a window that has reset is not drawn at all.
   tries are spent, until the next repaint, another line's reset, or the window being focused again.
 - The six-hour sanity bound is one value, FIVE_HOUR_MAX_AHEAD_SECONDS (kosmos-statusline.js), used by record() and by
   allowance.readFiveHour; the route builds the reading through accountsweekly.fiveHourOf beside #6178's weeklyOf.
+- The on-show look stands down while a list read is out, but not for one older than 30 s (a hung read), so a read that
+  never answers cannot block every later look.
