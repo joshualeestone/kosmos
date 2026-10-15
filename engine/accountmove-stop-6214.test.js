@@ -106,7 +106,7 @@ test('#6214: a put-back that is refused is said as saved and not restarted', asy
   const s = accountmove.stop();
   const bo = s.body.agents[1];
   assert.equal(bo.outcome, 'partial');
-  assert.equal(bo.because, 'We saved new@example.com, but could not start it again: you stopped the move before its turn, and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.');
+  assert.equal(bo.because, 'We saved new@example.com, but you stopped the move before its turn and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.');
   assert.equal(d.held.has('bo'), false);
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
@@ -165,8 +165,9 @@ test('#6214: a stop while the first agent restarts leaves only that one restarte
 test('#6214: the board wires the stop route, the strict account read and the put-back, and says a refusal can stop the move', () => {
   const fs = require('node:fs');
   const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
-  assert.ok(route.length < server.length, 'the bulk move route is not in server.js');
+  const routeAt = server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'");
+  assert.ok(routeAt > 0, 'the bulk move route is not in server.js');
+  const route = server.slice(routeAt);
   const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
   /* Strict: a job that cannot be read throws, so the put-back never takes an unreadable agent for one on the default
      account (moveFromDir folds that into null). */
@@ -178,7 +179,7 @@ test('#6214: the board wires the stop route, the strict account read and the put
   const stopAt = server.indexOf("if (pathname === '/api/agents/account-moves/stop' && req.method === 'POST') {");
   const readAt = server.indexOf('const acctMoveRead = pathname.match(');
   assert.ok(stopAt > 0, 'the stop route is not in server.js');
-  assert.ok(readAt > stopAt, 'the stop route comes after the read route');
+  assert.ok(readAt > stopAt, 'the stop route must come before the read route');
   assert.match(server.slice(stopAt, stopAt + 300), /const stopped = accountmove\.stop\(\);\n\s+sendJson\(res, stopped\.status, stopped\.body\);/);
   assert.match(server, /function moveStoppableNote\(\) \{ return accountmove\.busy\(\) \? \{ moveStoppable: true \} : \{\}; \}/);
   /* Every refusal for a held board says whether a stop would help, so each page can offer it. */
