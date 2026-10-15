@@ -41,7 +41,8 @@ render of the live sign-in page, the notification prompt. Not measured: anything
   SUCCEEDED; Info.plist reads `io.kosmos.app` and `ITSAppUsesNonExemptEncryption = false`;
   `tools/check-app-assets.sh` VERDICT PASS.
 - Installed and launched on an iPhone 16 simulator, iOS 26.5 runtime: it loads the live Kosmos+ sign-in page from
-  login.kosmosplus.com and shows the notification-permission prompt (screenshots on #6262).
+  login.kosmosplus.com and shows the notification-permission prompt (screenshots taken, contents described on
+  #6262; gh cannot attach images).
 - Device SDK, `-sdk iphoneos27.0 -configuration Release CODE_SIGNING_ALLOWED=NO`: BUILD SUCCEEDED;
   `check-usage-strings.sh` and `check-app-assets.sh` both VERDICT PASS.
 - `ios/tools/test-archive-config.sh`: 18/18, VERDICT PASS. Mutant (the old Stone-only rule put back in a copy):
