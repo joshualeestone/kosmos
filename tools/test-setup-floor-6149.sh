@@ -61,6 +61,11 @@ esc1='{"version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","\u0061rtifact
 esc2='{"version":"0.7.49","\u0076ersion":"0.6.1","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}'
 nl1="$(printf '{"version":"0.7.49","sha256":"bb","artifact":"kosmos-0.7.49-arm64.tar.gz",\n"version"\n:"0.6.1","artifact"\n:"kosmos-0.6.1-arm64.tar.gz"}')"
 kosmos_setup_floor_pointer_ok t "$nl1" 2>/dev/null && bad "a doubled key with its colon on the next line passed" || pass "a doubled key with its colon on the next line is refused (a JSON parser reads it)"
+hb="$(printf '{"version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","x":"\377","version":"0.6.1","artifact":"kosmos-0.6.1-arm64.tar.gz","sha256":"bb"}')"
+for loc in en_US.UTF-8 C; do
+  ( export LC_ALL="$loc"; kosmos_setup_floor_pointer_ok t "$hb" ) 2>/dev/null && bad "a pointer with a 0xFF byte hiding a second key passed under LC_ALL=$loc" || pass "a pointer with a 0xFF byte (hiding a second key) is refused under LC_ALL=$loc"
+done
+( export LC_ALL=en_US.UTF-8; kosmos_setup_floor_pointer_ok t '{"version":"0.7.49","sha256":"bb","artifact":"kosmos-0.7.49-arm64.tar.gz"}' ) 2>/dev/null && pass "CONTROL: an ASCII pointer passes under LC_ALL=en_US.UTF-8" || bad "an ASCII pointer was refused under a UTF-8 locale"
 nl2="$(printf '{"version":"0.7.49",\n"sha256":"bb",\n"artifact":"kosmos-0.7.49-arm64.tar.gz"}')"
 kosmos_setup_floor_pointer_ok t "$nl2" 2>/dev/null && pass "CONTROL: a pretty-printed pointer with one key each passes" || bad "a multi-line pointer with one key each was refused"
 kosmos_setup_floor_pointer_ok t "$esc1" 2>/dev/null && bad "an escaped doubled artifact key passed" || pass "an escaped (hidden) second artifact key is refused"
