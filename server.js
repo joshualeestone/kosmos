@@ -22794,7 +22794,7 @@ const ORG_TICKET_MS = 10 * 60 * 1000;
     daily: a removed member's board kept applying the company's policy for up to a day. The bound, for almost every
     board, is an hour on the clock plus the five-minute check (about 65 minutes) after an answered ask; an ask
     without an answer is asked again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner when a send is refused
-    org_not_member: a rollup (engine/orgrollup.js), which goes out early only when the board's agents, projects or
+    org_not_member or org_not_enrolled: a rollup (engine/orgrollup.js), which goes out early only when the board's agents, projects or
     applied policy version change, not for ordinary work, or an agent event (engine/agentevents.js), sent only for a
     refusal or a flag; each then refreshes at once. A board in no company sends nothing
     (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)

@@ -205,3 +205,7 @@ is for the first run after merge.
 - The comment says what the bound relies on (the coordinator call's 20 s timeout, engine/remote.js) and that the
   ending's hand-over runs while the refresh queue is held (one roster pass per ending); the polling citation points
   at the doc comment, not the constant. Review numbers in comments kept: the repo's comments use them throughout.
+
+## Review 21 (opus): CONVERGED (no BLOCKER, WARNING or CONVENTION). Two nits applied (the comment names both refusal
+codes; listeners are synchronous). Others recorded: a pending Leave refused as last admin counts as a miss (one extra
+status ask); a screen Leave that ends pending waits for the current due time (the policy is already cleared then).

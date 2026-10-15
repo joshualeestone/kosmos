@@ -136,7 +136,7 @@ const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
    without telling: the board's ask hands that over itself (server.js orgEnrollRefresh); a rollup or agent event
    cannot reach that branch, since nothing reports while a Leave is pending (mayReport). Review 11: NOT on a Leave's clear, which runs before
    the company answers and is undone when it refuses (last admin); the Leave route hands the agents the outcome itself.
-   A listener's failure never stops an ending. */
+   A listener's failure never stops an ending; listeners are called synchronously (a promise one returns is not awaited). */
 const ENDED_LISTENERS = new Set();
 function onEnrollmentEnded(fn) { if (typeof fn === 'function') ENDED_LISTENERS.add(fn); return () => ENDED_LISTENERS.delete(fn); }
 function tellEnded(opts) { for (const fn of ENDED_LISTENERS) { try { fn(storeRoot(opts)); } catch { /* a listener never stops an ending */ } } }
