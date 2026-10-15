@@ -165,3 +165,8 @@ alone is not enough; chars is the shortened line's length.
 - No BLOCKER. WARNINGs: envChars measured a digest's header and was one number for several spills: it is now one per
   spill, read on that post's own line, paired with spillWords and spillBytes (tested in the digest). The garbled
   bytes-versus-characters sentence is rewritten; "The call" lists envChars and the .gitignore creation.
+
+## Review 19 (opus), and what changed
+- No BLOCKER. WARNING: the first stop note's own arrival was untested: asserted. NITs: a spill path ending in a
+  separator is refused (it could stat through a link outside the Inbox); the envChars comment allows slack for a
+  reply's quote and catch-up notes, which the board counts too.

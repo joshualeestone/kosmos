@@ -196,7 +196,8 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
    length. The board spills when the WHOLE typed line (envelope, body and
    notes) is over chat.MAX_TEXT less the room for a kept note, so the line also records envChars, one per spill (that post's envelope through its
    first "]", read on the post's own line, so a digest's header is not counted): envChars + spillBytes near or over 10000 is the shared rule, by design; well under it would be
-   something Meta-specific.
+   something Meta-specific. (The board also counts a reply's quote and any catch-up or held-posts note, which
+   chars shows but envChars does not, so allow a few hundred characters of slack before calling it Meta-specific.)
    The path comes from the line, which a colleague can write, so it is looked at only when it is exactly a file
    directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
 const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
@@ -214,7 +215,7 @@ function spills(t, workspace) {
     envs.push(close !== -1 && close < m.index ? close + 1 - lineStart : null);
     let size = null;
     const p = m[2];
-    if (inbox && path.dirname(p) === inbox && !path.basename(p).includes('..') && path.normalize(p) === p) {
+    if (inbox && p === path.join(inbox, path.basename(p)) && !path.basename(p).includes('..') && !p.endsWith(path.sep)) {
       try { const st = fs.lstatSync(p); size = st.isFile() ? st.size : null; } catch { size = null; }
     }
     bytes.push(size);

@@ -947,6 +947,7 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const steer = (p) => '[background from your colleague Mona in room x] x (long message, 5 words; the full text is in your own folder at ' + p + ')';
   assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, '..', 'outside.txt')), 'T', null, dir).spillBytes, [null]);
   assert.deepEqual(front.turnRecord(steer(outside), 'T', null, dir).spillBytes, [null]);
+  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, 'sub') + pathx.sep), 'T', null, dir).spillBytes, [null], 'a trailing separator is refused');
   // Words and sizes stay paired: one entry each per spill, a non-Inbox path giving null in its place.
   const mixed = front.turnRecord(steer(outside) + ' ' + line, 'T', null, dir);
   assert.deepEqual(mixed.spillWords, [5, 2400]);
@@ -992,6 +993,7 @@ test('#5636 F7a: a stop note is logged once, and the person\'s words in it stay 
   await within(h.f.drained(), 'never drained');
   const notes = h.logged.filter((l) => l.t.startsWith('[Kosmos: your operator asked you to stop'));
   assert.equal(notes.length, 1, 'the stop note is one line');
+  assert.equal(typeof notes[0].arrived, 'string', 'the stop note carries the stop request\'s arrival');
   const r = front.turnRecord(notes[0].t, 'T');
   assert.equal(r.opening, undefined);
   assert.ok(!JSON.stringify(r).includes('privately'), 'the person\'s dropped words are not in the record');
