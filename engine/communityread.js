@@ -858,7 +858,7 @@ async function repliesFor(sessionName, opts) {
       if (!list) { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
       let more;
       try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.olderPending = true; th.olderFailed = true; th.partial = true; return; }
-      if (list.length > COMMENTS_ASKED) th.olderPending = true;   // review 5: cut here, so the rest is unread
+      if (list.length > COMMENTS_ASKED) th.olderPending = th.olderCut = true;   // review 5: cut here, so the rest is unread
       const known = new Set(th.comments.map((c) => c.id));
       for (const c of more) {
         if (known.has(c.id)) continue;
@@ -869,8 +869,8 @@ async function repliesFor(sessionName, opts) {
       if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
         // Followed while the service's page had rows (as replies above; the budget bounds a cursor that does not advance).
         if (list.length) queue.push({ th, comments: true, cursor: r.json.next_cursor });
-        else th.olderPending = true;   // review 11: an empty page that says there is more is said, not taken as the end
-      } else if (r.json.next_cursor) th.olderPending = true;   // review 7: a cursor not in the service's shape is said, not dropped
+        else th.olderPending = th.olderCut = true;   // review 11: an empty page that says there is more is said, not taken as the end
+      } else if (r.json.next_cursor) th.olderPending = th.olderCut = true;   // review 7: a cursor not in the service's shape is said
       return;
     }
     const { c } = task;
@@ -901,9 +901,12 @@ async function repliesFor(sessionName, opts) {
   /* What the budget or the window left, per post: only a page still WAITING in the queue is "not reached". A comment
      whose cursor ran out (or brought nothing new) was read to its end even if the service's count says more (a row it
      lists can be dropped as malformed), so it is not counted and does not keep the post from settling (#6201 review 2). */
+  /* Review 16: when a 429 or an unanswered page stopped the waves, what was left waiting is a passing failure, not a
+     budget cut: those posts hold their mark like a failed page and say they will be looked at again. */
   for (const task of queue) {
-    if (task.comments) task.th.olderPending = true;
-    else task.c.pending = true;
+    if (task.comments) { task.th.olderPending = true; if (limited) task.th.olderFailed = true; else task.th.olderCut = true; }
+    else { task.c.pending = true; if (limited) task.c.pageFailed = true; }
+    if (limited) task.th.partial = true;
   }
   for (const th of threads) {
     if (th.failed || th.gone) continue;
@@ -971,7 +974,7 @@ async function repliesFor(sessionName, opts) {
       + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
     /* Review 13: while a failed page holds this post's mark, what it left will be read again; otherwise it may be missed.
        Review 14: only when every part not reached was a failed page (a budget-cut thread restarts from its first page). */
-    const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || th.olderFailed);
+    const onlyFailed = th.comments.every((c) => !c.pending || c.pageFailed) && (!th.olderUnread || (th.olderFailed && !th.olderCut));
     const willHold = th.partial && onlyFailed && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
     lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
       + (willHold ? ' not reached in this read; they will be looked at again next time)'
@@ -1006,13 +1009,15 @@ async function repliesFor(sessionName, opts) {
        "seen". Review 10: at most MARK_HOLD_MAX reads in a row, then it moves as usual. */
     const heldBefore = (next[pid] && next[pid].held) || 0;
     const hold = th.partial && heldBefore < MARK_HOLD_MAX;
+    // Review 11/16: one rule for the count, written on every path: it stays at its most while the post keeps failing.
+    const heldNext = th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0;
     if (hold) top = next[pid] ? asItem(next[pid]) : null;
     else if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
-      if (!x) { next[pid] = { ...next[pid], held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 }; continue; }   // nothing shown: mark stays
+      if (!x) { next[pid] = { ...next[pid], held: heldNext }; continue; }   // nothing shown: mark stays
       top = top && byPos(top, x) < 0 ? top : x;
     }
-    if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 }; continue; }
+    if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: heldNext }; continue; }
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
        window that this read held back is never shown as new next time (else the window leaks on the second read). */
     const old = next[pid];
@@ -1029,7 +1034,7 @@ async function repliesFor(sessionName, opts) {
       keep = keep.filter((id) => !drop.has(id));
     }
     // Review 11: the count stays at MARK_HOLD_MAX while the post is still failing, so the hold does not start over.
-    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 };
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: heldNext };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
