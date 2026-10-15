@@ -56,6 +56,21 @@ const crypto = require('node:crypto');
 const { externalName, INVISIBLE, byCodePoint } = require('./externalname');
 const { execFileSync } = require('node:child_process');
 const chat = require('./chat');
+/* #6256 item 2: a message left unsent in its recipient's input box, by the number chat gave its remembered line, until
+   a later delivery sends it (the hook below writes the follow-up row) or chat's own 10 minutes are up. */
+const unsentPending = new Map();   // seq -> { id, from, to, at }
+const UNSENT_PENDING_MS = 15 * 60 * 1000;   // longer than chat's UNSENT_REMEMBER_MS (10 min), so none is dropped early
+function noteUnsent(seq, row) {
+  const now = Date.now();
+  for (const [k, v] of unsentPending) if (now - v.at > UNSENT_PENDING_MS) unsentPending.delete(k);
+  unsentPending.set(seq, { ...row, at: now });
+}
+chat.setEarlierSubmittedHook((seq, at) => {
+  const row = unsentPending.get(seq);
+  if (!row) return;   // a line some other sender left (a nudge, a room post): it has no message row to follow
+  unsentPending.delete(seq);
+  appendLog({ kind: 'unsent-submitted', of: row.id, from: row.from, to: row.to, at });
+});
 const roomhold = require('./roomhold');   // #4624
 const store = require('./store');
 const limits = require('./limits');
@@ -623,6 +638,7 @@ let runner = null;
 function setRunner(fn) { runner = fn; }
 function resetForTests() {
   runner = null;
+  unsentPending.clear();   // #6256 item 2
   /* #562: the reader's memory goes too. A test that rewrites the log file
      in place -- same size, same millisecond -- is the one writer the
      inode/size/mtime invalidation cannot see; production never does that
@@ -1000,6 +1016,11 @@ function rowShaped(m) {
   /* #5805 slice 2a: a kept `kosmos msg` message typed after its recipient's reset, or dropped a day past it; `of` is the
      held message row's id. */
   if (m.kind === 'held-delivered' || m.kind === 'held-dropped') {
+    return str(m.of) && str(m.from) && str(m.to);
+  }
+  /* #6256 item 2: a message row that says `unsubmitted` (left in the recipient's input box) was sent by a later
+     delivery to that agent, which pressed Enter on it; `of` is that message row's id. */
+  if (m.kind === 'unsent-submitted') {
     return str(m.of) && str(m.from) && str(m.to);
   }
   /* #2255: a reaction EVENT, exactly what react() writes. Given its own rule
@@ -1612,6 +1633,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     /* #6249: a line the board saw left in the recipient's input box, unsent, says so in the log and the answer. */
     const unsent = sent.unsubmitted === true ? { unsubmitted: true } : {};
     appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent });
+    if (sent.unsubmitted === true && Number.isInteger(sent.unsentSeq)) noteUnsent(sent.unsentSeq, { id, from, to: toName });   // #6256 item 2
     return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent, ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
@@ -2690,6 +2712,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           if (typeof sent.heldUntil === 'string') heldUntil[name] = sent.heldUntil;
           // #5805: for withoutStale's day rule, every ask this arrival put back, not only the new post.
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
+          if (sent.heldBy === 'input') roomhold.noteInput(name);   // #6256 item 1: retried once its box reads empty
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
         logCarried('held');   // #4926 N7: put back, so not told
