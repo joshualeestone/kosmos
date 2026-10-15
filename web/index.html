@@ -19924,6 +19924,23 @@ window.kosmosMeasureScrollbarWidth();
 <script>
 'use strict';
 
+/* #6192: a refused reply's body is always read. Left unread, the request never finishes (measured: 19 still open 20 s
+   after a load whose every read was refused), so anything waiting for the page's network to go quiet waits forever.
+   A CLONE is drained, not awaited, so the caller can still read the original (a refusal's own words) and a slow body
+   holds up nothing. One place, for every fetch on the page, rather than an edit at each of its call sites. */
+(() => {
+  const nativeFetch = window.fetch;
+  if (typeof nativeFetch !== 'function') return;
+  window.fetch = function fetchReadingRefusals(...args) {
+    return nativeFetch.apply(window, args).then((res) => {
+      if (res && res.ok === false && typeof res.clone === 'function') {
+        try { res.clone().arrayBuffer().catch(() => {}); } catch { /* the caller's own read is unaffected */ }
+      }
+      return res;
+    });
+  };
+})();
+
 /* ================= win32-board-copy: the platform copy layer =================
    ONE place decides whether this board speaks Windows, and ONE table holds every
    Windows sentence the board shows. #12 (0.6.39) deleted the old platform copy
