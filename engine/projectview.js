@@ -253,7 +253,6 @@ function workingCapMs(member) {
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
-
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
   if (!member || !member.present || !member.tied) return summary;
