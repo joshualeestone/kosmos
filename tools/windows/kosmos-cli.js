@@ -142,6 +142,7 @@ const USAGE = {
     '       kosmos feedback list',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
+    "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)",
     '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
     '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
     '       (in PowerShell, text piped into kosmos does not reach it: give --body-file <file>, or pass the report as one single-quoted here-string)',

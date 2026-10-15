@@ -76,3 +76,9 @@ a pull needs --dir; the note on every run tells them which folder was read.
   fallback. NITs taken: a pulled folder whose files all failed to read says "none could be read"; the doc's own-store
   sentence is exact. Noted: the own store only ever holds YYYY-MM-DD.md files (feedback.write), so reading it through
   list() drops nothing a plain read would have found.
+
+## Review 8 (sonnet), and what changed
+- No BLOCKER. WARNING (a stale pull shadows the own store) is the stated weakest premise. WARNING, accepted: the
+  which-folder note is on stderr only, so a caller reading only stdout sees no signal; the card asked for exactly a
+  stderr note, and the digest itself is unchanged. NITs taken: both commands' usage say what triage reads with no
+  --dir; the pull's own help names its default folder.
