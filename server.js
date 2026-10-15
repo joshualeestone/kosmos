@@ -1162,6 +1162,7 @@ const recordGuideOutcome = guidestate.makeRecorder({
 const heartbeat = require('./engine/heartbeat');
 const roomhold = require('./engine/roomhold'); // #4624: a colleague's un-addressed room post is held while the member works
 const missedtell = require('./engine/missedtell'); // kosmos#4787 slice 3: a repeating task's reviewer is told of a missed run
+const holdstale = require('./engine/holdstale'); // kosmos#6209 part 3: an owner still working a held task in its room is asked about the hold
 const agentnudge = require('./engine/agentnudge'); // #4544: the Prompter's nudge to the AGENT (an idle agent that still has open work)
 const replynudge = require('./engine/replynudge'); // #4951: tell an idle agent its community post has new comments, once per comment
 const communityassign = require('./engine/communityassign');   // #5623 Rule 2
@@ -23673,6 +23674,34 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, 60000);
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
+      /* kosmos#6209 part 3: an owner that keeps posting in a held task's project room is asked, once per hold, whether the
+         hold still stands (engine/holdstale.js holds the rules and is tested there). The same gates as the missed-run tell;
+         the message log is read only when some open task is on hold, so a board with none costs one projects read a minute. */
+      const HOLD_STALE_BOOK = new Map();
+      const HOLD_STALE_IDLE = new Map();
+      const holdStaleTick = setInterval(() => {
+        try {
+          const projs = projects.readAll();
+          const anyHeld = projs.some((p) => p && !p.archived && Array.isArray(p.tasks) && p.tasks.some((t) => tasks.isOnHold(t) && !tasks.progressOf(t).closed));
+          if (!anyHeld) return;
+          const rows = messages.readLog();
+          const owed = holdstale.owed(projs, rows);
+          if (!owed.length) return;
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          const r = allowed && owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;
+          holdstale.sweep({
+            projects: projs, rows, roster: r, now: Date.now(),
+            allowed,
+            limit: (() => { try { return limits.read(); } catch { return limits.DEFAULTS; } })(),
+            sent: AGENT_NUDGE_SENT, book: HOLD_STALE_BOOK, idleSeen: HOLD_STALE_IDLE,
+            idleSince: (session) => { const sr = selfreport.read(session); const t = sr && sr.found && sr.state === 'idle' ? Date.parse(sr.at) : NaN; return Number.isFinite(t) ? t : null; },
+            deliver: (session, text, ro) => chat.deliverAutomatic(session, text, ro, undefined, undefined),
+            DELIVERY: chat.DELIVERY,
+            log: (x) => process.stdout.write(`hold-stale tell: task #${x.task} (${x.project}) to ${x.owner} reached=${x.reached} delivery=${x.delivery} try ${x.tries}\n`),
+          });
+        } catch { /* best-effort, like the missed-run tell */ }
+      }, 60000);
+      if (holdStaleTick && typeof holdStaleTick.unref === 'function') holdStaleTick.unref();
       const heartbeatFirst = setTimeout(heartbeatTick, 0);
       if (heartbeatFirst && typeof heartbeatFirst.unref === 'function') heartbeatFirst.unref();
       /* #4951: new comments on an agent's own community post: one line to the idle agent, once per comment
