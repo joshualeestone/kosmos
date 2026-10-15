@@ -125,6 +125,24 @@ driver (they should, since the arm's `win32:true` flag is unchanged and only the
   (`r.code===128` in killAndForget) AND the text tests. Pass both `code` and the normalized `out`
   through.
 
+## Stop-a-move put-backs (#6231 item 7) — out of scope for this PR (ruled)
+
+Liu Kang (m5773) and Sonya (m5775) ruled the division so neither PR waits on the other:
+- **#6238 (Sonya's stop-a-move) merges first, as-is.** Its Windows put-back stays synchronous; on
+  main the Windows move is already a sync board-thread operation, so a sync put-back is no worse
+  than today, and its cost is bounded by the page's 60 s limit. Item 7 is a follow-up, not a blocker.
+- **This #6183 Windows half = the async win32 step infrastructure + the RESTART wiring only.** It does
+  NOT touch `accountmove.js` stop/putBack and is NOT widened to cover the put-back's ops.
+- **The put-back goes async in a third, small PR (#6231 item 7), after both merge.** Measured by Sonya,
+  a Windows put-back per unreached agent is `/Query` (cachedTaskSpec), `/Query /XML` (taskEnabled), and
+  `/Create /F` (win32job.install) — NONE of this half's restart ops (end/start/running/taskkill), so the
+  restart step generators do not cover them. They need NEW query/install step generators. Those reuse
+  THIS half's infrastructure (the step-generator pattern, the `win32StepResult` stdout→out normalizer,
+  and remove.js's async driver consuming `steps`), driven from the stop loop off the board thread. Per
+  Liu Kang's ruling the new generators are NOT added here (do not widen #6183); item 7 adds them on top.
+  Likely mine to take (infrastructure fresh); card it under #6231 item 7 once #6183 is up. Files are
+  disjoint from #6238, so whichever lands second rebases cleanly.
+
 ## What would change my mind
 If routing win32 commands through remove's `run()` cannot preserve win32job's dry-run / live-exec
 gate and its sync callers, fall back to giving win32job/win32stop their own async-runner seam

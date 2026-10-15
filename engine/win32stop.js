@@ -232,9 +232,10 @@ function endSession(sessionId, opts) {
   return { ok: false, because: 'we started it, but it never appeared in the list of running agents, so we could not stop it' };
 }
 
-/** The kill, the look-again, and the record -- shared by both entry points. */
-function killAndForget(pid, sessionId) {
-  const r = run(['/PID', String(pid), '/T', '/F']);
+/* The kill RESULT parse, the look-again, and the record -- shared by the sync killAndForget and the async
+   endSteps (#6183), so the two cannot drift. `r` is the taskkill result in the { ok, out, code } shape (the sync
+   run() produces it directly; the async step normalizes remove.js's result to it first). */
+function finishKill(r, pid, sessionId) {
   /* taskkill answers 128 for a pid that is not there, which is success for us --
      the same "already in the end state" reading as launchd's exit 3. The message
      is matched too, because taskkill's exit codes are not uniform across Windows
@@ -269,4 +270,21 @@ function killAndForget(pid, sessionId) {
   return { ok: true };
 }
 
-module.exports = { end, endSession, resolve, aliveFromError, setRunner, setAlive, setLive, setPark };
+/** The kill, the look-again, and the record -- shared by both entry points. */
+function killAndForget(pid, sessionId) {
+  return finishKill(run(['/PID', String(pid), '/T', '/F']), pid, sessionId);
+}
+
+/* #6183: `end` as an async step, for the restart body's async session close (sessionOps('win32').endSteps). The
+   pid resolution (resolve -> liveByName) is a READ, done in the generator; only the taskkill is yielded, so
+   remove.js's runAsync runs it off the board's thread. The look-again and the forget are the SAME finishKill the
+   sync path uses. Mirrors end() decision-for-decision; returns the same shapes. */
+function* endSteps(name, opts) {
+  const found = resolve(name, opts);
+  if (found.unknown) return { ok: false, because: 'we could not check what is running on this computer' };
+  if (!found.found) return { ok: true, already: true };
+  const r = yield { exec: ['taskkill.exe', ['/PID', String(found.pid), '/T', '/F'], { timeout: 20000 }] };
+  return finishKill(require('./win32job').win32StepResult(r), found.pid, found.sessionId);
+}
+
+module.exports = { end, endSteps, endSession, resolve, aliveFromError, setRunner, setAlive, setLive, setPark };
