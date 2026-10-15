@@ -15,19 +15,19 @@
 #   - a site deploy run on main is queued or running: nothing is asked. A queued one deploys main as it is when it
 #     starts; a merge made while one is already running waits for the next tick;
 #   - a site deploy run on main was created, or (one that FAILED) ended, less than KICK_GAP_S (14 minutes) ago:
-#     nothing is asked (review 6: only a failure's end counts, so a slow green run, a skip behind a cut or a retry exit
+#     nothing is asked (only a failure's end counts, so a slow green run, a skip behind a cut or a retry exit
 #     does not push the next ask to 30 minutes). So it never asks beside a recent run's creation or a recent failure
 #     (the job retries a failure once on the next tick and then parks it; asking sooner would spend that retry within
-#     minutes, reviews 1 and 3). A green "try again later" exit (the live site moving, a mirror or checksum retry)
+#     minutes). A green "try again later" exit (the live site moving, a mirror or checksum retry)
 #     from a run that took over 13 minutes can be followed by an ask within minutes, which brings that retry count's
-#     alarm sooner; such runs are rare (review 9). GitHub's push and schedule triggers still fire on their own,
+#     alarm sooner; such runs are rare. GitHub's push and schedule triggers still fire on their own,
 #     as before, so a schedule run can land just after an ask: two runs minutes apart, which brings the job's
 #     retry alarm (4 ticks) sooner. Rare, as the schedule itself is (six times on 2026-10-15);
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
-# A STUCK run is not counted as active (review 2: one would otherwise silence this backstop for good): one not finished
+# A STUCK run is not counted as active (one would otherwise silence this backstop for good): one not finished
 # 3 hours after it was created. One limit from creation, because GitHub stamps a run's startedAt at creation too
 # (measured on chaoskosmos-site 2026-10-15: equal on every run), so queue time and running time cannot be told apart;
-# 3 hours is the job's 45-minute timeout plus a long wait behind CI on the shared runner (reviews 3 and 4). It gets a
+# 3 hours is the job's 45-minute timeout plus a long wait behind CI on the shared runner. It gets a
 # line, the tick still asks (a new dispatch replaces a stuck pending run; behind a stuck queued one it waits its turn),
 # and the tick exits 1 so launchctl's last exit code shows it. A run that really waited near 3 hours behind CI and is
 # now inside its own 45 minutes is called stuck too (one misleading line and one extra pending dispatch): the cost of
@@ -41,7 +41,7 @@
 # Not covered (the job's schedule run still covers it): live gone back to an older commit while main is unchanged;
 # this compares main with last-deployed only. Accepted: a lost gh login or workflow scope fails every tick, seen only
 # in kick.log, last-result and launchctl's last exit code; GitHub's push and schedule runs keep working regardless.
-# Fails closed (review 5): with no state folder (the job has never run here, or this looks in the wrong place), the
+# Fails closed: with no state folder (the job has never run here, or this looks in the wrong place), the
 # pause, the parked sha and last-deployed cannot be read, so it asks nothing, says so, and exits 1.
 # --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing, and the kosmos
 # commit the installer copied it from.
@@ -52,15 +52,15 @@ set -u
 REPO="${KOSMOS_SITE_REPO:-joshualeestone/chaoskosmos-site}"
 STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
-[ -x "$GH" ] || GH="$(command -v gh 2>/dev/null || echo "$GH")"   # review 7: another install path (the plist PATH has it)
-# Review 11: every gh call has a wall clock (perl's alarm, as the deploy job's own network calls do), so one call hung
+[ -x "$GH" ] || GH="$(command -v gh 2>/dev/null || echo "$GH")"   # another install path (the plist PATH has it)
+# every gh call has a wall clock (perl's alarm, as the deploy job's own network calls do), so one call hung
 # on a stalled connection cannot hold the backstop for ever (launchd never starts a second copy while one runs). A
 # timed-out call fails like any other, with "(timed out)" in its line.
 GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
 case "$GH_MAX_S" in ''|*[!0-9]*|0*) GH_MAX_S=90 ;; esac   # never 0: perl's alarm 0 would mean no limit at all
-# Review 12: gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
+# gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
 # unroutable host ran its own 30 s dial timeout past a 3 s alarm). So gh runs in its own process group, the deploy
-# job's grouped_timeout shape (tools/site-autodeploy.sh), in full (review 13): handlers before the fork pass a TERM,
+# job's grouped_timeout shape (tools/site-autodeploy.sh), in full: handlers before the fork pass a TERM,
 # INT or HUP on to the gh group (launchd stopping the job, a person's Ctrl-C), the group is set from both sides, at
 # the deadline the group gets TERM then KILL and perl exits 142, and the alarm is cancelled once gh has been reaped.
 ghb() {
@@ -80,17 +80,17 @@ CHECK=0
 case "${1:-}" in
   '') ;;
   --check) CHECK=1 ;;
-  *) echo "usage: $0 [--check]" >&2; exit 2 ;;   # review 11: a mistyped --check must not run a real tick
+  *) echo "usage: $0 [--check]" >&2; exit 2 ;;   # a mistyped --check must not run a real tick
 esac
 LAST_LINE=""
 say() { LAST_LINE="$*"; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*"; }
 note() { [ "$CHECK" = 1 ] && say "check: $*"; return 0; }
-# BSD date on macOS (Mortals); GNU date's -d only on Linux, where the tests also run (review 10: on macOS -d means
+# BSD date on macOS (Mortals); GNU date's -d only on Linux, where the tests also run (on macOS -d means
 # something else, so it is never tried there).
 if [ "$(uname -s)" = Darwin ]; then epoch() { date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
 else epoch() { date -u -d "$1" +%s 2>/dev/null; }; fi
-# Review 6: every tick leaves its result (exit code and its last line) in last-result, beside the heartbeat, so a
-# failing backstop is one file to look at, and --check shows it. Heartbeat and trap come first (review 9), so even a
+# every tick leaves its result (exit code and its last line) in last-result, beside the heartbeat, so a
+# failing backstop is one file to look at, and --check shows it. Heartbeat and trap come first, so even a
 # tick that cannot make its temporary file leaves both.
 RESULT="$(dirname "$BEAT")/last-result"
 ERR=""
@@ -120,7 +120,7 @@ note "site main ${main:0:9}, last deployed ${deployed:0:9}"
 parked="$(tr -d '[:space:]' 2>/dev/null < "$STATE/parked" || true)"
 [ "$main" = "$parked" ] && { note "main is parked: would ask nothing"; exit 0; }
 # One TAB-separated line per run: status, conclusion, createdAt, updatedAt. gh gives an unfinished run's conclusion as
-# "" (not null; measured 2026-10-15), so it is mapped to "-": an empty field would let `read` shift the rest (review 7).
+# "" (not null; measured 2026-10-15), so it is mapped to "-": an empty field would let `read` shift the rest.
 # The newest 20 runs hold the newest active one (the job runs one at a time and a superseded pending run is
 # cancelled); after many pushes during one long run, that run may fall out of the window and go unreported if stuck.
 runs="$(ghb run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt] | @tsv' 2>"$ERR")" \
@@ -130,7 +130,7 @@ active=0; newest=""; stuck=""
 stamp() { local v; v="$(epoch "$1")"; case "$v" in ''|*[!0-9]*) say "site deploy run time read as '${1:0:40}'; nothing asked" >&2; exit 1 ;; esac; printf '%s' "$v"; }
 while IFS=$'\t' read -r status concl created updated; do
   [ -n "${status:-}" ] || continue
-  # The parent sets LAST_LINE itself: stamp's own say runs in the $( ) subshell (review 7).
+  # The parent sets LAST_LINE itself: stamp's own say runs in the $( ) subshell.
   c="$(stamp "$created")" || { LAST_LINE="site deploy run time read as '${created:0:40}'; nothing asked"; exit 1; }
   u="$(stamp "$updated")" || { LAST_LINE="site deploy run time read as '${updated:0:40}'; nothing asked"; exit 1; }
   this_stuck=""
@@ -138,7 +138,7 @@ while IFS=$'\t' read -r status concl created updated; do
     [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created ($(( (NOW - c) / 60 )) minutes)"
     if [ -n "$this_stuck" ]; then stuck="$this_stuck"; else active=$((active + 1)); fi
   fi
-  # When it was made; for a run that FAILED, when it ended (reviews 3 and 6: the job's one retry keeps its 15-minute
+  # When it was made; for a run that FAILED, when it ended (the job's one retry keeps its 15-minute
   # pace; a green run's length does not delay the next ask). Newest by time. A stuck run does not count.
   if [ -z "$this_stuck" ]; then   # for clarity only: a stuck run is older than the gap anyway
     last=$c
@@ -154,7 +154,7 @@ if [ -n "$newest" ] && [ $((NOW - newest)) -lt "$KICK_GAP_S" ]; then note "a run
 if [ "$CHECK" = 1 ]; then note "would ask for a site deploy"; exit "$rc"; fi
 if ghb workflow run site-deploy.yml --repo "$REPO" --ref main >/dev/null 2>"$ERR"; then
   say "asked for a site deploy: main ${main:0:9}, last deployed ${deployed:0:9}"
-  [ -n "$STUCK_LINE" ] && LAST_LINE="$LAST_LINE; and $STUCK_LINE"   # last-result keeps why rc is 1 (review 7)
+  [ -n "$STUCK_LINE" ] && LAST_LINE="$LAST_LINE; and $STUCK_LINE"   # last-result keeps why rc is 1
 else
   say "could not dispatch the site deploy for main ${main:0:9}$(why)"; exit 1
 fi

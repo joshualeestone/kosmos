@@ -28,24 +28,26 @@ SRC="$(cd "$(dirname "$0")" && pwd)/site-deploy-kick.sh"
 
 if [ "${1:-}" = "--uninstall" ]; then
   [ $# -eq 1 ] || { echo "usage: $0 [--uninstall]" >&2; exit 2; }
+  had=0; { [ -e "$PLIST" ] || [ -e "$DIR/kick.sh" ]; } && had=1
   "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
   rm -f "$PLIST.new"
   rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick" "$DIR/last-result" "$DIR/source"
-  rmdir "$DIR" 2>/dev/null || true   # kick.log is kept (review 3): the record of what it did outlives it
-  echo "removed $LABEL$([ -e "$DIR/kick.log" ] && printf '; its log is kept at %s' "$DIR/kick.log")"
+  rmdir "$DIR" 2>/dev/null || true   # kick.log is kept: the record of what it did outlives it
+  if [ "$had" = 1 ]; then echo "removed $LABEL$([ -e "$DIR/kick.log" ] && printf '; its log is kept at %s' "$DIR/kick.log")"
+  else echo "nothing to remove: $LABEL was not installed"; fi
   exit 0
 fi
 [ $# -eq 0 ] || { echo "usage: $0 [--uninstall]" >&2; exit 2; }
 [ -f "$SRC" ] || { echo "cannot find $SRC" >&2; exit 1; }
 
 mkdir -p "$DIR" "$(dirname "$PLIST")"
-# One step per line (review 3): under set -e a failure inside an && list does not stop the script.
+# One step per line: under set -e a failure inside an && list does not stop the script.
 cp "$SRC" "$DIR/kick.sh.new"
 chmod 755 "$DIR/kick.sh.new"
 mv "$DIR/kick.sh.new" "$DIR/kick.sh"
-# Review 5: which kosmos commit this copy came from, so a copy left behind main can be seen (kick.sh --check prints it).
-# A checkout whose copy of the script differs from its commit is marked -dirty (review 6).
+# which kosmos commit this copy came from, so a copy left behind main can be seen (kick.sh --check prints it).
+# A checkout whose copy of the script differs from its commit is marked -dirty.
 { sha="$(git -C "$(dirname "$SRC")" rev-parse HEAD 2>/dev/null)" && [ -n "$sha" ] \
     && { [ -z "$(git -C "$(dirname "$SRC")" status --porcelain -- site-deploy-kick.sh 2>/dev/null)" ] && echo "$sha" || echo "$sha-dirty"; } \
     || echo unknown; } > "$DIR/source"

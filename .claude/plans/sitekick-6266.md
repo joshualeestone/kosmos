@@ -164,3 +164,9 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   handler red). NITs taken: the alarm is cancelled once gh is reaped; KOSMOS_KICK_GH_TIMEOUT is validated (never 0)
   and listed in the header; why() names 125, 126 and 127 honestly; the no-gh case is its own test; this plan's test
   count (15); a long header line rewrapped.
+
+## Review 14 (sonnet), and what changed
+- No BLOCKER. WARNING: the no-gh test passed only because PATH held no gh; it now skips, saying why, where /usr/bin or
+  /bin has one. CONVENTION: the comments' "review N" tags (history a reader cannot see) are replaced by their reasons;
+  the history stays here. NITs taken: the 3-hour limit pinned at 10700 vs 10900 s; the TERM test always cleans up its
+  fake; --uninstall says "nothing to remove" when nothing was installed. Left (stated): -dirty covers only the script.

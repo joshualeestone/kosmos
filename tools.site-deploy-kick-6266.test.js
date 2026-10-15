@@ -1,7 +1,7 @@
 'use strict';
 /* kosmos#6266: tools/site-deploy-kick.sh, the 15-minute backstop launchd runs on Mortals because GitHub's own schedule
    fired the site deploy only six times on 2026-10-15. A fake `gh` checks each call's exact arguments and applies the
-   script's own --jq filter to sample runs with jq (review 1: a fake that ignored the filter could not see it wrong).
+   script's own --jq filter to sample runs with jq (a fake that ignored the filter could not see it wrong).
    The state folder and heartbeat are in a sandbox. */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -61,10 +61,10 @@ function state(files = {}) {
 }
 /* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
    (measured 2026-10-15), so the script does not ask for it. */
-/* An unfinished run's conclusion is "" exactly as gh gives it (measured 2026-10-15; null hid a parsing bug, review 7). */
+/* An unfinished run's conclusion is "" exactly as gh gives it (measured 2026-10-15; null hid a parsing bug). */
 const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion]) => ({
   status, conclusion: conclusion || (status === 'completed' ? 'success' : ''), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
-/* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip (review 2). */
+/* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip. */
 const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
 test('#6266: site main ahead, the last run over 14 minutes ago and finished: one dispatch on main, said once; heartbeat written', needJq, () => {
@@ -86,7 +86,7 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     ['requested', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['requested', 60]]) }],
     ['pending', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['pending', 60]]) }],
     ['a run created 5 min ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 300], ['completed', 4000]]) }],
-    ['a run queued long that FAILED a minute ago (review 3: from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'failure']]) }],
+    ['a run queued long that FAILED a minute ago (from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'failure']]) }],
     ['a run that timed out a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'timed_out']]) }],
     ['a run that failed to start a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'startup_failure']]) }],
   ]) {
@@ -96,7 +96,7 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     assert.equal(r.out, '', why + ': a quiet tick prints nothing');
   }
   // CONTROLs: no runs at all, or the newest finished 15 minutes ago, are asked for.
-  // Review 6: a GREEN run created 1000 s ago that ended a minute ago does not hold the next ask (only a failure's end does).
+  // a GREEN run created 1000 s ago that ended a minute ago does not hold the next ask (only a failure's end does).
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 1000, 60, 'success']]) }).dispatched, 1);
   // A superseded (cancelled) pending run counts from its creation too.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 1000, 60, 'cancelled']]) }).dispatched, 1);
@@ -117,6 +117,9 @@ test('#6266: a run not finished 3 hours after creation is stuck: said, not waite
     assert.equal(r.status, 1, why + ': launchctl\'s last exit code should show it');
     assert.match(r.out, /a site deploy run has been .* \(200 minutes\), past its limit; not waiting on it/, why);
   }
+  // The 3-hour limit is pinned on both sides: 10900 s is stuck, 10700 s is waited on.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10900]]) }).dispatched, 1, '10900 s');
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10700]]) }).dispatched, 0, '10700 s');
   // CONTROLs: an hour queued behind CI on the shared runner, or running after a long wait, is waited on.
   for (const [why, list] of [['queued 1 h', [['queued', 3600]]], ['running, created 2 h 40 min ago', [['in_progress', 9600, 60]]]]) {
     const q = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs(list) });
@@ -161,7 +164,7 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
   assert.match(r.out, /could not dispatch the site deploy for main aaaaaaaaa/);
 });
 
-test('#6266: with no deploy state folder it asks nothing and exits 1 (fails closed, review 5)', needJq, () => {
+test('#6266: with no deploy state folder it asks nothing and exits 1 (fails closed)', needJq, () => {
   const r = kick(path.join(SANDBOX, 'no-such-state'), { FAKE_RUNS: runs([['completed', 3600]]) });
   assert.equal(r.status, 1);
   assert.equal(r.dispatched, 0);
@@ -185,13 +188,15 @@ test('#6266: a mistyped --check runs nothing and exits 2', () => {
   assert.equal(fs.existsSync(r.beat), false);
 });
 
-test('#6266: a gh that is not there says so', () => {
+/* The script falls back to gh on PATH, so this can only be asserted where PATH (/usr/bin:/bin here) holds no gh. */
+const systemGh = ['/usr/bin/gh', '/bin/gh'].some((p) => fs.existsSync(p));
+test('#6266: a gh that is not there says so', { skip: systemGh ? 'a gh on /usr/bin or /bin would be found by the fallback' : false }, () => {
   const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
   assert.equal(none.status, 1);
   assert.match(none.out, /could not read site main \(owner\/site\) \(gh: gh could not be run \(.*no-gh-here: not found or not executable\)\)/);
 });
 
-test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes the gh group with it (review 13)', async () => {
+test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes the gh group with it', async () => {
   const { spawn } = require('node:child_process');
   const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
   const log = path.join(SANDBOX, 'gh-term.log');
@@ -203,10 +208,14 @@ test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes t
   for (let i = 0; i < 50 && !fs.existsSync(pf); i += 1) await wait(100);
   const gh = Number(fs.readFileSync(pf, 'utf8').trim());
   assert.ok(gh > 1, 'PRECONDITION: the fake gh started');
-  process.kill(-child.pid, 'SIGTERM');   // the tick's own group (bash and perl), as launchd's bootout does; gh is in its own
   const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-  for (let i = 0; i < 60 && alive(-gh); i += 1) await wait(100);
-  assert.equal(alive(-gh), false, 'the gh group outlived the tick');
+  try {
+    process.kill(-child.pid, 'SIGTERM');   // the tick's own group (bash and perl), as launchd's bootout does; gh is in its own
+    for (let i = 0; i < 60 && alive(-gh); i += 1) await wait(100);
+    assert.equal(alive(-gh), false, 'the gh group outlived the tick');
+  } finally {
+    if (alive(-gh)) { try { process.kill(-gh, 'SIGKILL'); } catch { /* gone */ } }   // never leave the fake behind
+  }
 });
 
 test('#6266: --check says what a tick would decide and dispatches nothing', needJq, () => {
@@ -219,7 +228,7 @@ test('#6266: --check says what a tick would decide and dispatches nothing', need
   assert.equal(fs.existsSync(path.join(path.dirname(r.beat), 'last-result')), false, 'a check leaves no result');
 });
 
-test('#6266: each tick leaves its exit code and last line in last-result, and --check shows it (review 6)', needJq, () => {
+test('#6266: each tick leaves its exit code and last line in last-result, and --check shows it', needJq, () => {
   const st = state({ 'last-deployed': OLD });
   const beatDir = fs.mkdtempSync(path.join(SANDBOX, 'beatdir-'));
   const env = { FAKE_RUNS: runs([['completed', 3600]]), FAKE_DISPATCH_FAIL: '1', FAKE_STDERR: 'HTTP 401', KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') };
@@ -229,7 +238,7 @@ test('#6266: each tick leaves its exit code and last line in last-result, and --
   assert.match(result, / rc=1 could not dispatch the site deploy for main aaaaaaaaa \(gh: HTTP 401\)\n$/);
   const c = kick(st, { ...env, FAKE_DISPATCH_FAIL: '' }, ['--check']);
   assert.match(c.out, /check: last tick: .* rc=1 could not dispatch/);
-  // A garbled run time records its reason, not "(quiet)" (review 7: the line was said in a subshell).
+  // A garbled run time records its reason, not "(quiet)" (the line was said in a subshell).
   kick(st, { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: 'x', updatedAt: 'x' }]), KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
   assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=1 site deploy run time read as 'x'; nothing asked\n$/);
   // A stuck run that is then asked past keeps the stuck reason in last-result.
