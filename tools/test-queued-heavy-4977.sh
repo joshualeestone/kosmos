@@ -16,7 +16,9 @@ REAL_QH="$HERE/queued-heavy.sh"
 # side-turn poller past this file's 900s watchdog (measured: templated 918s exit 137 with 2 BADs vs a
 # literal-/tmp 501s PASS, under the same kt-shaped TMPDIR). A literal /tmp escapes the sandbox rule as
 # main's bare mktemp -d did by landing in the real root. /tmp is outside the leak guard's per-run-root
-# scan, so the EXIT trap below removes $S on every catchable path (TERM routes through exit); only SIGKILL escapes.
+# scan; the EXIT trap below removes $S on a normal exit and on TERM (routed through exit, this file's own
+# stop signal). An untrapped INT/HUP or a SIGKILL skips the EXIT trap, the same pre-existing residual the
+# bare mktemp -d left in the real root, now relocated to /tmp and no worse (this change does not add it).
 S=$(mktemp -d "/tmp/test-queued-heavy-4977.XXXXXXXXXX"); mkdir -p $S/m $S/tmp
 export TMPDIR=$S/tmp   # review 2: the wrapper's own mktemp files stay inside this test's dir
 BG=""   # every background wrapper this test starts, stopped by pid on exit
