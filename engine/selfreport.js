@@ -123,6 +123,22 @@ function cappedSentence(value, cap) {
    by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
    keep building entry explicitly -- spreading a request body here silently
    reopens the operator-provenance forgery. */
+/* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
+   trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
+   below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
+   line on it (#4169: the board's armed sweep narrows it further in standingFromAgent, where
+   only the folder-trust dialog on screen is restarted; a by:auto report alone is a tool prompt
+   and is left for a person), so it lives here once and is exported rather than inlined in two places
+   (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
+   A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
+   line (provenance unknown); nor any non-needs_you state. */
+function isAutoPermissionWait(standing) {
+  return !!standing
+    && standing.found === true
+    && standing.state === 'needs_you'
+    && standing.by === 'auto';
+}
+
 /* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn
    that then ends normally (the Stop hook's automatic idle) proves the provider answered again, so that idle clears it;
    the mid-turn working heartbeat does not (the turn could still fail). A deliberate blocked is never this. */
@@ -134,16 +150,11 @@ function isAutoProviderBlock(standing) {
     && /^provider api \(/.test(String(standing.on || ''));
 }
 
-/* #6209 review 1: true when the line under a standing automatic provider block is a wait on a person that an
-   automatic idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait).
-   Review 2: fails CLOSED: a record that cannot be read, or a run of blocks reaching the front of the tail read (what
-   is under it is unknown), counts as hiding a wait, so the block stays (what the board did before #6209). Reads the
-   file itself, so it is called only when an automatic idle meets a standing provider block. */
-function providerBlockHidesWait(sessionName) {
-  const under = lineUnderProviderBlock(sessionName);
-  if (under.unknown) return true;
-  if (!under.row || !WAITING_ON_A_PERSON.includes(under.row.state)) return false;
-  return !(under.row.state === 'needs_you' && under.row.by === 'auto');
+/* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
+   idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait). */
+function hidesWait(row) {
+  if (!row || !WAITING_ON_A_PERSON.includes(row.state)) return false;
+  return !(row.state === 'needs_you' && row.by === 'auto');
 }
 
 /* #6209 review 1: the line an automatic provider block replaced (the newest line before the trailing run of such
@@ -174,22 +185,6 @@ function lineUnderProviderBlock(sessionName) {
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
   if (i >= 0) return { row: rows[i] };
   return cut ? { unknown: true } : { row: null };
-}
-
-/* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
-   trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
-   below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
-   line on it (#4169: the board's armed sweep narrows it further in standingFromAgent, where
-   only the folder-trust dialog on screen is restarted; a by:auto report alone is a tool prompt
-   and is left for a person), so it lives here once and is exported rather than inlined in two places
-   (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
-   A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
-   line (provenance unknown); nor any non-needs_you state. */
-function isAutoPermissionWait(standing) {
-  return !!standing
-    && standing.found === true
-    && standing.state === 'needs_you'
-    && standing.by === 'auto';
 }
 
 /* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
@@ -314,7 +309,7 @@ function record(sessionName, entry) {
          heartbeat while still unresolved (caught in review; #2456 measured
          needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
          turn that ended normally proves the provider answered), unless the block
-         had replaced a deliberate or unmarked wait (providerBlockHidesWait).
+         had replaced a deliberate or unmarked wait, which is then shown again (review 3).
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -322,13 +317,31 @@ function record(sessionName, entry) {
      today -- a provider outage should surface even over a standing wait. */
   if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
+    /* #6209: a turn that ended normally after a provider failure. The provider answered again, so its automatic block
+       is over: an automatic idle clears it (review 3) unless the block had replaced a deliberate or unmarked wait, which
+       is then SHOWN AGAIN (its own line, re-appended with its own words and writer) instead of staying hidden behind a
+       block nobody clears. What is under the block unknown (an unreadable record, a run of blocks past the tail read):
+       the block stays, as before #6209. */
+    if (state === 'idle' && isAutoProviderBlock(standing)) {
+      const under = lineUnderProviderBlock(sessionName);
+      if (under.unknown) {
+        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
+      }
+      if (under.row && hidesWait(under.row)) {
+        try {
+          const back = { ...under.row, at: new Date().toISOString(), restored: 'provider block over' };
+          fs.appendFileSync(fileFor(sessionName), JSON.stringify(back) + '\n');
+          return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + under.row.state + ' it had covered is shown again' };
+        } catch {
+          return { recorded: false, skipped: 'waiting', because: 'the provider answered again, but the wait it had covered could not be shown again, so the block stays' };
+        }
+      }
+    }
     const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
       && !standingIsAutoPermissionWait
-      /* #6209: a turn that ended normally after the failure clears an automatic provider block, unless that block had
-         replaced a deliberate (or unmarked) wait: then the wait is what the card should show, so the block stays. */
-      && !(state === 'idle' && isAutoProviderBlock(standing) && !providerBlockHidesWait(sessionName));
+      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: handled above (cleared, or the wait shown again)
     if (standingIsProtectedWait) {
       return {
         recorded: false,
