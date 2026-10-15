@@ -179,21 +179,14 @@ test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBER
 
 test('#6209 review 1: a provider error over a deliberate question, then a normal turn end, keeps the question red (not idle)', () => {
   const who = 'question-then-outage-6209';
-  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?', instance: 'run-old' });
+  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?', });
   assert.equal(asked.recorded, true);
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
   const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
   assert.equal(end.recorded, false, 'a normal turn end erased the block AND the question under it');
   assert.notEqual(selfreport.read(who).state, 'idle', 'the card read idle with a question still unanswered');
-  // Review 3: the question comes back (its own words and writer), instead of staying hidden behind a stale block.
-  const shown = selfreport.read(who);
-  assert.equal(shown.state, 'needs_you', 'the question was not shown again once the provider answered');
-  assert.equal(shown.because, 'which domain should I use?');
-  assert.equal(shown.by, 'agent', 'the restored question was not kept as the agent\'s own');
-  assert.equal(end.restored, true);
-  // Review 4: not re-dated (its age, the reminder's clock and a person's notice stay), and no old run's fields.
-  assert.equal(shown.askedAt, asked.at, 'the restored question was re-dated');
-  assert.ok(!shown.instance, 'the restored line carried the old run\'s instance');
+  // Review 7: the block stays over the question (as before #6209); nothing re-shows it.
+  assert.equal(selfreport.read(who).state, 'blocked');
   // CONTROL: the same sequence with a permission prompt (an auto needs_you) under the block does clear.
   const perm = 'perm-then-outage-6209';
   assert.equal(selfreport.record(perm, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true }).recorded, true);
@@ -217,7 +210,7 @@ test('#6209 review 2: several provider blocks in a row over a question still kee
     assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
   }
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'a run of blocks hid the question from the check');
-  assert.equal(selfreport.read(who).state, 'needs_you', 'the question under a run of blocks was not shown again');
+  assert.equal(selfreport.read(who).state, 'blocked', 'the block over the question was cleared');
   // A new run (started) between the question and the block: nothing deliberate is under the block, so it clears.
   const fresh = 'started-then-outage-6209';
   assert.equal(selfreport.record(fresh, { state: 'needs_you', because: 'an old question' }).recorded, true);
@@ -242,40 +235,7 @@ test('#6209 review 2: when the run of blocks reaches the front of the tail read,
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unknown line under the block was taken as nothing');
 });
 
-test('#6209 review 4: a days-old question re-shown after a provider block keeps its original asking time', () => {
-  const who = 'old-question-6209';
-  const file = selfreport.fileFor(who);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const old = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString();
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'which domain?', by: 'agent', instance: 'run-old', at: old }) + '\n');
-  assert.equal(selfreport.read(who).askedAt, old, 'fixture: the question reads two days old');
-  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
-  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
-  assert.equal(end.restored, true);
-  const shown = selfreport.read(who);
-  assert.equal(shown.state, 'needs_you');
-  assert.equal(shown.askedAt, old, 'the re-shown question was re-dated to now');
-  assert.ok(!shown.instance, 'the re-shown line carried the old run\'s instance');
-});
-
-test('#6209 review 5: the re-shown wait reads as read() read it: the carried project keeps the run, until is kept', () => {
-  const who = 'project-run-6209';
-  const file = selfreport.fileFor(who);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const first = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
-  const again = new Date(Date.now() - 1 * 3600 * 1000).toISOString();
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', because: 'need the key', on: 'deploy', until: '2026-12-01T10:00:00Z', project: 'p-a', by: 'agent', at: first }) + '\n');
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', because: 'need the key', on: 'deploy', until: '2026-12-01T10:00:00Z', by: 'agent', at: again }) + '\n');
-  assert.equal(selfreport.read(who).askedAt, first, 'fixture: read() treats the repeat (carried project) as one run');
-  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
-  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).restored, true);
-  const shown = selfreport.read(who);
-  assert.equal(shown.askedAt, first, 'the re-shown wait took the repeat\'s time, not the run\'s');
-  assert.equal(shown.until, '2026-12-01T10:00:00Z', 'the agent\'s own until was dropped');
-  assert.equal(shown.project, 'p-a');
-});
-
-test('#6209 review 5: a wait whose start is past the front of a cut tail keeps the block (its asking time is not known)', () => {
+test('#6209: a block over a long run of the same question keeps the block', () => {
   const who = 'cut-question-6209';
   const file = selfreport.fileFor(who);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -286,24 +246,18 @@ test('#6209 review 5: a wait whose start is past the front of a cut tail keeps t
   text += JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', by: 'auto', at }) + '\n';
   fs.writeFileSync(file, text);
   const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
-  assert.equal(end.recorded, false);
-  assert.notEqual(end.restored, true, 'a wait with an unknown start was re-shown (and so re-dated)');
+  assert.equal(end.recorded, false, 'the block over a question was cleared');
   assert.equal(selfreport.read(who).state, 'blocked');
 });
 
-test('#6209 review 6: a block line carrying another project cannot re-label the re-shown wait; askedAt counts only on a restored line', () => {
-  const who = 'project-relabel-6209';
-  const file = selfreport.fileFor(who);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const at = new Date(Date.now() - 3600 * 1000).toISOString();
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'q', project: 'p-a', by: 'agent', at }) + '\n');
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'q', by: 'agent', at }) + '\n');   // carried p-a
-  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'blocked', on: 'provider api (server_error)', owner: 'provider', project: 'p-b', by: 'auto', at }) + '\n');
-  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).restored, true);
-  assert.equal(selfreport.read(who).project, 'p-a', 'the re-shown wait took the block line\'s project');
-  // A line that is not a restore cannot set the asking time by carrying askedAt.
-  const other = 'askedat-forge-6209';
-  const f2 = selfreport.fileFor(other);
-  fs.appendFileSync(f2, JSON.stringify({ v: 1, state: 'needs_you', because: 'z', by: 'agent', at, askedAt: '2020-01-01T00:00:00Z' }) + '\n');
-  assert.equal(selfreport.read(other).askedAt, at, 'an askedAt on an ordinary line set the run\'s start');
+test('#6209 review 7: the usage-limit and sign-in kinds are left to their own holds (an automatic idle does not clear them)', () => {
+  for (const kind of ['rate_limit', 'authentication_failed']) {
+    const who = 'kind-' + kind + '-6209';
+    assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (' + kind + ')', owner: 'provider', auto: true }).recorded, true);
+    assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, kind + ' was cleared by an automatic idle');
+  }
+  // CONTROL: a transient kind clears.
+  const ok = 'kind-overloaded-6209';
+  assert.equal(selfreport.record(ok, { state: 'blocked', on: 'provider api (overloaded_error)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(ok, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
 });

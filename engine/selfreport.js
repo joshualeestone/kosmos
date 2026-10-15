@@ -147,11 +147,15 @@ function isAutoProviderBlock(standing) {
     && standing.found === true
     && standing.state === 'blocked'
     && standing.by === 'auto'
-    && /^provider api \(/.test(String(standing.on || ''));
+    && /^provider api \(/.test(String(standing.on || ''))
+    // Review 7: not the usage-limit or sign-in kinds: their own holds (#5805, #5948) decide, and whether a turn that ends
+    // on a limit or a sign-in reply fires Stop is not measured.
+    && !/^provider api \((rate_limit|authentication_failed)\)$/.test(String(standing.on || ''));
 }
 
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
-   idle may not clear (a deliberate or unmarked blocked/needs_you, not an automatic permission wait). */
+   idle may not clear: any blocked/needs_you (deliberate, unmarked, or another automatic blocked) but an automatic
+   permission prompt. */
 function hidesWait(w) {
   if (!w || !w.found || !WAITING_ON_A_PERSON.includes(w.state)) return false;
   return !(w.state === 'needs_you' && w.by === 'auto');
@@ -168,8 +172,7 @@ function lineUnderProviderBlock(sessionName) {
   let i = rows.length - 1;
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
   if (i < 0) return tail.cut ? { unknown: true } : { wait: { found: false } };
-  // Review 6: also the project the whole record carries now, so a restore that would inherit a different one says its own.
-  return { wait: latestOf(rows.slice(0, i + 1), tail.cut), carriedNow: latestOf(rows, tail.cut).project };
+  return { wait: latestOf(rows.slice(0, i + 1), tail.cut) };
 }
 
 /* #4569 fix 4: { n, yours } when the value is a sane queue count on a working report, else undefined (not written). */
@@ -303,34 +306,18 @@ function record(sessionName, entry) {
   if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
     /* #6209: a turn that ended normally after a provider failure. The provider answered again, so its automatic block
-       is over: an automatic idle clears it (review 3) unless the block had replaced a deliberate or unmarked wait, which
-       is then SHOWN AGAIN (its own line, re-appended with its own words and writer) instead of staying hidden behind a
-       block nobody clears. What is under the block unknown (an unreadable record, a run of blocks past the tail read):
-       the block stays, as before #6209. */
+       is over and an automatic idle clears it, unless the block had replaced a wait on a person (anything but an
+       automatic permission prompt) or what it replaced is unknown (an unreadable record, a run of blocks past the tail
+       read): then the block stays, as before #6209. */
     if (state === 'idle' && isAutoProviderBlock(standing)) {
       const under = lineUnderProviderBlock(sessionName);
       if (under.unknown) {
         return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider and Kosmos could not tell what that block replaced, so an automatic idle did not overwrite it' };
       }
       if (hidesWait(under.wait)) {
-        const w = under.wait;
-        /* Review 5: a wait whose asking time is not known (its run reaches the front of a cut tail) cannot be shown
-           again without re-dating it, so the block stays (fails closed). */
-        if (!w.askedAt) {
-          return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over a wait whose start is not known, so an automatic idle did not overwrite it' };
-        }
-        try {
-          /* Reviews 4 and 5: the wait as read() reads it: its own words, on, owner, until and writer, its ORIGINAL asking
-             time (askedAt, which read() honours), and its project only when it stated one (a carried project still
-             carries); never the old line's instance, left, waiting or final. */
-          const back = { v: 1, state: w.state, because: w.because, on: w.on, owner: w.owner, until: w.until,
-            project: w.projectInferred && under.carriedNow === w.project ? null : w.project, at: new Date().toISOString(), askedAt: w.askedAt, restored: 'provider block over' };
-          if (w.by) back.by = w.by;   // an unmarked (legacy) wait stays unmarked
-          fs.appendFileSync(fileFor(sessionName), JSON.stringify(back) + '\n');
-          return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + w.state + ' it had covered is shown again' };
-        } catch {
-          return { recorded: false, skipped: 'waiting', because: 'the provider answered again, but the wait it had covered could not be shown again, so the block stays' };
-        }
+        /* Review 7: re-showing the covered wait drew a defect every round (re-dating, project carry, a left project),
+           so it was removed: the block stays, as before #6209, and the wait under it is the stated residual. */
+        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over a wait on a person, so an automatic idle did not overwrite it' };
       }
     }
     const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
@@ -536,13 +523,7 @@ function latestOf(rows, cut) {
        generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
     {
       const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
-      if (key !== runKey) {
-        runKey = key;
-        // #6209 review 4: a wait re-shown after a provider block carries its original asking time.
-        // #6209: only a wait re-shown after a provider block (row.restored) carries its original asking time.
-        runAt = row.restored && typeof row.askedAt === 'string' && Number.isFinite(Date.parse(row.askedAt)) ? row.askedAt : (typeof row.at === 'string' ? row.at : null);
-        runFromFirst = parsed === 0;
-      }
+      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; runFromFirst = parsed === 0; }
       parsed += 1;
     }
   }
