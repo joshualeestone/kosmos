@@ -141,8 +141,8 @@ function markTold(item, outcome) {
 
 /**
  * One pass. `o`: { projects, rows (messages.readLog()), items (owed()'s answer, when the caller already has it), roster, now, allowed (live execution and the brake), limit ({ on, perHour }), sent
- * (the board-wide hour of Kosmos-to-agent lines, shared with the nudge), book (Map, tries per owner, project and the
- * held tasks told together), idleSeen
+ * (the board-wide hour of Kosmos-to-agent lines, shared with the nudge), book (Map of { tries | told, at } per owner, project
+ * and the held tasks told together; an entry is dropped 30 days after it was written), idleSeen
  * (Map), idleSince(session), deliver(session, text, roster) -> { state }, DELIVERY, read (task history), log }.
  * Never throws.
  */
@@ -153,7 +153,9 @@ function sweep(o) {
     const book = o.book instanceof Map ? o.book : new Map();
     const sent = Array.isArray(o.sent) ? o.sent : [];
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
-    for (const k of [...book.keys()]) { const ats = String(k).split('@').pop().split(',').map((x) => Number(x.split('/').pop())); if (ats.length && ats.every((at) => Number.isFinite(at) && now - at > 30 * 24 * HOUR_MS)) book.delete(k); }
+    /* Review 7: an entry is pruned by when it was WRITTEN, not by how old its hold is. A hold can last longer than any
+       window, and pruning by the hold's age wiped its tries every pass, so it was retried every minute for ever. */
+    for (const [k, e] of [...book.entries()]) if (!e || typeof e !== 'object' || !Number.isFinite(e.at) || now - e.at > 30 * 24 * HOUR_MS) book.delete(k);
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const cards = new Map((Array.isArray(o.roster) ? o.roster : []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const seen = o.idleSeen instanceof Map ? o.idleSeen : new Map();
@@ -173,7 +175,7 @@ function sweep(o) {
       try {
         const key = item.projectId + ':' + item.owner + '@' + group.map((x) => x.n + '/' + x.holdAt).sort().join(',');
         const markAll = (outcome) => { for (const x of group) markTold(x, outcome); };
-        if (book.get(key) === 'told') { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
+        if ((book.get(key) || {}).told === true) { results.push({ ...item, act: 'held', because: 'already told; its mark could not be saved' }); continue; }
         if (!item.members.includes(item.owner)) { markAll('not reached'); results.push({ ...item, act: 'unreachable', because: 'the owner is no longer on the project' }); continue; }
         if (item.swarmOff) { markAll('not reached'); results.push({ ...item, act: 'unreachable', because: 'the owner is switched off in this project' }); continue; }
         if (o.allowed !== true) { results.push({ ...item, act: 'held', because: 'Kosmos does not type into agents yet' }); continue; }
@@ -195,10 +197,10 @@ function sweep(o) {
         if (wait) { results.push({ ...item, act: 'held', because: 'the owner cannot take a line just now', delivery: state }); continue; }
         const D = o.DELIVERY || {};
         const reached = (D.PLACED != null && state === D.PLACED) || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
-        const tries = (Number(book.get(key)) || 0) + 1;
-        if (reached) { sent.push(now); book.set(key, 'told'); markAll('reached'); }
-        else if (tries >= MAX_TRIES) { book.set(key, 'told'); markAll('not reached'); }
-        else book.set(key, tries);
+        const tries = (Number((book.get(key) || {}).tries) || 0) + 1;
+        if (reached) { sent.push(now); book.set(key, { told: true, at: now }); markAll('reached'); }
+        else if (tries >= MAX_TRIES) { book.set(key, { told: true, at: now }); markAll('not reached'); }
+        else book.set(key, { tries, at: now });
         results.push({ ...item, tasks: group.map((x) => x.n), act: 'tell', reached, delivery: state, tries });
         say({ owner: item.owner, task: group.map((x) => x.n).join(','), project: item.projectId, reached, delivery: state, tries });
       } catch (err) {
