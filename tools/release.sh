@@ -635,13 +635,15 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
 # A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
 # fail-fast, seconds in, on the site's origin/main (fetched; the checkout if the fetch fails), so a site below the floor
 # refuses before anything is built; the export check before the deploy reads the bytes actually published and is the
-# authority. Every floor refusal here (the knob, the own installer, the untouched pair) ends in exit 1, and
+# authority. Every floor refusal here (the knob, the override-only version check, the own installer, the untouched
+# pair) ends in exit 1, and
 # tools/test-setup-floor-6149.sh pins each by source.
 . "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
 _floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
 [ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
-# This cut's OWN version: #4075's forward-only rule refuses a cut older than this checkout's package.json, and any
-# checkout carrying this step is past 0.7.45, so only its override can name a version below the floor. Check that case
+# This cut's OWN version: #4075's forward-only rule refuses a cut older than this checkout's package.json, which is
+# ASSUMED past 0.7.45 wherever this step exists (only a hand revert of package.json breaks that; the export check
+# before vercel still refuses then, a stated limit), so only its override can name a version below the floor. Check that case
 # (the release-gate fixtures cut 0.6.x without the override, on purpose). What reaches users is checked below too: the
 # installer, the untouched pair, and the export before vercel.
 [ "$_allow_jump" != 1 ] || kosmos_setup_floor_ok "this cut's version (KOSMOS_ALLOW_VERSION_JUMP is set)" "$V" || exit 1
@@ -653,7 +655,7 @@ if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --v
   _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
   mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
   for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
-    git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || rm -f "$_floor_tmp/$_f"
+    git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || { rm -f "$_floor_tmp/$_f"; echo "(the site's origin/main has no $_f: nothing to check for it here; the export check before the deploy reads what ships)"; }
   done
   _floor_site="$_floor_tmp"
 else

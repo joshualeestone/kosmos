@@ -104,6 +104,10 @@ kosmos_setup_floor_installer_ok() {
     echo "setup floor (kosmos#6149): WARNING the floor is LOWERED to $KOSMOS_SETUP_FLOOR (the real floor is $KOSMOS_SETUP_FLOOR_REAL): the installer check on $label is skipped: tests only" >&2
     return 0
   fi
+  [ -f "$file" ] && [ -r "$file" ] || {
+    echo "setup floor (kosmos#6149): $label ($file) is missing or unreadable, so the installer cannot be checked -- refusing" >&2
+    return 1
+  }
   grep -q "$KOSMOS_SETUP_FLOOR_MARKER" "$file" || {
     echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before $KOSMOS_SETUP_FLOOR_REAL and would break every install a read-only build has touched -- refusing" >&2
     return 1

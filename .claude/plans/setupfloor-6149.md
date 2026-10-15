@@ -28,8 +28,8 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
   - deploy-site.sh, early on both committed pointers (fail fast), and on its EXPORT right before vercel (the bytes
     it publishes);
   - release.sh, on its own site export right before its vercel deploy (a cut publishes both pointers and both
-    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the pair the cut re-publishes UNTOUCHED, read from the site's origin/main (fetched and
-    verified to exist; the checkout only if not) (the prod pair for a staging cut, the staging pair for a prod cut: the pair
+    installers too, including the ones the cut does not touch), and early (step 1a-floor) on the pair the cut re-publishes UNTOUCHED, read from the site's origin/main (fetched,
+    when that ref resolves; the checkout only if not; a file origin/main lacks is named and not checked here) (the prod pair for a staging cut, the staging pair for a prod cut: the pair
     a cut writes is the remedy, not checked there), a fail-fast on a checkout that may be behind origin/main.
   - promote-channel.sh also checks the installer before any write: setup-staging when it is about to become /setup,
     or, when the staging pointer names no installer, the /setup prod keeps serving beside the new pointer.
@@ -78,7 +78,10 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 20), stated rather than closed
+## Known limits (reviews 9 to 25), stated rather than closed
+- Without the version-jump override, release.sh relies on #4075 to keep a cut's own version above the floor, which
+  assumes the checkout's package.json is past 0.7.45. Only a hand revert breaks that; such a cut would push its site
+  commit (step 7b) before the export check refused it. Nothing is served.
 - release.sh's frozen-installer check runs after step 2's version-bump push (the freeze follows the bump). An
   unpinned cut's step 1a already checked the same install/setup.sh before that push; a PINNED cut whose frozen
   installer cannot lift the lock refuses with its bump already on origin. Nothing is built or served.
