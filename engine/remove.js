@@ -2402,6 +2402,8 @@ const RESTARTING = new Set();
 const HELD = new Set();
 function holdForMove(names) { for (const n of names) HELD.add(create.cleanName(n)); }
 function releaseFromMove(name) { HELD.delete(create.cleanName(name)); }
+/* Whether a move holds the agent or is restarting it now: what the class-1 sweep asks before it restarts one. */
+function heldByMove(name) { const clean = create.cleanName(name); return HELD.has(clean) || RESTARTING.has(clean); }
 function busyRefusal(name, { held = true } = {}) {
   const clean = create.cleanName(name);
   if (!RESTARTING.has(clean) && !(held && HELD.has(clean))) return null;
@@ -2486,6 +2488,7 @@ module.exports = {
   setAsyncRunner,   // #6173: the async driver's command seam
   holdForMove,      // #6173: engine/accountmove.js holds the agents it has yet to restart
   releaseFromMove,
+  heldByMove,       // #6173 review 2: the class-1 sweep leaves a held agent to the move
   _execAsyncForTests: execAsync,   // #6173 review 1: the real execFile half of runAsync
   resetUnloadWaitsForTests: () => { unloadWaits = []; },   // #4964: the burst ledger only
   setDryRun,

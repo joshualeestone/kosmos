@@ -275,6 +275,7 @@ const promptrequest = require('./engine/promptrequest');
    not-consumed, not dropped-as-stale. */
 const FILE_ACCESS_CONSUME_PROBE_MS = 5000;
 const updates = require('./engine/update');
+updates.setAutoDefer(() => accountmove.busy());   // #6173: the automatic install waits for an account move to finish
 const usage = require('./engine/usage');
 
 // Single source of truth for the version. With no support function, "what
@@ -5738,6 +5739,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
+    if (accountmove.busy()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }   // #6173
     /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
        racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer,
        before the (blocking, on Windows) restart check below. */
@@ -6978,6 +6980,9 @@ const server = http.createServer(async (req, res) => {
            that world, so the requested id is the canonical one it would return. */
         const bootedId = require('./engine/worldenv').bootedWorld();
         const isNoop = bootedId != null && bootedId === id;
+        /* #6173: a real switch restarts the board, and an account move's restart cut between bootout and bootstrap
+           leaves that agent unloaded. Refused before anything is paused. */
+        if (!isNoop && accountmove.busy()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause() }); return; }
         let pause = { paused: [], notPaused: [], stoppedNow: [] };
         if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
           /* Refuse a pause for a world that does not exist rather than stop agents
@@ -13683,7 +13688,7 @@ const server = http.createServer(async (req, res) => {
    * not know the move (it restarted since): Settings reads that as not confirmed, never as moved.
    */
   if (pathname === '/api/agents/account' && req.method === 'POST') {
-    readBody(req, 64 * 1024)   // 200 names and an account folder: a few KB; the cap is checked after the body is read
+    readBody(req, 64 * 1024)   // 200 names and an account folder: a few KB; a longer body is refused as it arrives
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
@@ -13693,6 +13698,7 @@ const server = http.createServer(async (req, res) => {
           forget: (n) => observed.forgetAgent(n),
           restartAsync: (n, cause) => removal.restartAsync(n, cause),
           RESTARTED: removal.OUTCOME.RESTARTED,
+          boardRestarting: () => updates.alreadyInstalling() || engineRestartAsked,
           hold: (names) => removal.holdForMove(names),
           release: (n) => removal.releaseFromMove(n),
         });
@@ -14871,6 +14877,7 @@ const server = http.createServer(async (req, res) => {
        and points at git. Two true things beat one, and the truer one goes first. */
     const platRefusal = updates.selfInstallRefusal();
     if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
+    if (accountmove.busy()) { sendJson(res, 409, { error: accountmove.boardBusyBecause() }); return; }   // #6173: the install restarts the board
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
@@ -23088,6 +23095,7 @@ function start(port = PORT) {
             trustAgentFolder: create.trustAgentFolder,
             restart: removal.restart,
             RESTARTED: removal.OUTCOME.RESTARTED,
+            heldByMove: removal.heldByMove,   // #6173: the move restarts these itself
             isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
             /* #4169: the line names the arm that fired and the prompt behind it, so a restart can be told from a mistake. */
             log: (r) => process.stdout.write(class1autohandle.formatLogLine(r)),

@@ -107,6 +107,8 @@ test('#6173: a move with nothing to restart is done at once and holds nothing', 
   assert.equal(out.status, 202);
   assert.equal(out.body.done, true);
   assert.equal(out.body.agents.length, 1, 'a name given twice is moved once');
+  const twoSpellings = accountmove.start({ dir: '/acct/spare', names: ['al', ' al'] }, deps({ refuse: ['al', ' al'] }));
+  assert.deepEqual(twoSpellings.body.agents.map((a) => a.name), ['al'], 'two spellings of one agent (the engine trims) are moved once');
   assert.equal(accountmove.busy(), false);
 });
 
@@ -136,7 +138,7 @@ test('#6173 review 1: a sentence that throws ends that agent as not confirmed, a
   const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo'] }, d);
   d.pending.get('al').resolve({ outcome: RESTARTED });
   await tick();
-  assert.deepEqual(d.order, ['al', 'bo'], 'the move stopped at the agent it could not word');
+  assert.deepEqual(d.order, ['al', 'bo'], 'the move did not go on past the agent it could not word');
   d.pending.get('bo').resolve({ outcome: RESTARTED });
   await out.done;
   const end = accountmove.read(out.body.id);
@@ -144,4 +146,44 @@ test('#6173 review 1: a sentence that throws ends that agent as not confirmed, a
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'partial'], 'an agent the move could not word is not said as moved');
   assert.equal(accountmove.busy(), false);
   assert.deepEqual([...d.held], []);
+});
+
+test('#6173 review 2: the board wires the move to the engine\'s hold, and the class-1 sweep to it (no route test reaches these)', () => {
+  const fs = require('node:fs');
+  const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
+  assert.ok(route.length < server.length, 'the bulk move route is not in server.js');
+  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  assert.match(call, /hold: \(names\) => removal\.holdForMove\(names\)/, 'the move does not hold its agents in the engine');
+  assert.match(call, /release: \(n\) => removal\.releaseFromMove\(n\)/, 'the move does not release its agents');
+  assert.match(call, /restartAsync: \(n, cause\) => removal\.restartAsync\(n, cause\)/);
+  assert.match(server, /heldByMove: removal\.heldByMove,/, 'the class-1 sweep does not ask whether a move holds the agent');
+  assert.match(call, /boardRestarting: \(\) => updates\.alreadyInstalling\(\) \|\| engineRestartAsked,/, 'a move can start under an update or a board restart');
+  /* The three things that restart the board refuse while a move runs, and the automatic install waits. */
+  const refusals = server.match(/if \(accountmove\.busy\(\)\) \{ sendJson\(res, 409, \{ (?:ok: false, because|error): accountmove\.boardBusyBecause\(\) \}\); return; \}/g) || [];
+  assert.equal(refusals.length, 2, 'the restart button and the update route each refuse during a move');
+  assert.match(server, /if \(!isNoop && accountmove\.busy\(\)\) \{ sendJson\(res, 409, \{ ok: false, because: accountmove\.boardBusyBecause\(\) \}\); return; \}/, 'a Kosmos switch restarts the board under a move');
+  assert.match(server, /updates\.setAutoDefer\(\(\) => accountmove\.busy\(\)\)/, 'the automatic install does not wait for a move');
+});
+
+test('#6173 review 2: a move is refused while the board is about to restart, and nothing is saved', () => {
+  const d = deps();
+  d.boardRestarting = () => true;
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  assert.equal(out.status, 409);
+  assert.match(out.body.because, /^The board is about to restart/);
+  assert.deepEqual(d.wrote, [], 'an account was saved for a move that was refused');
+  assert.equal(accountmove.busy(), false);
+});
+
+test('#6173 review 2: a hold that throws ends the move with a sentence, restarts nothing, and leaves no move running', () => {
+  const d = deps();
+  d.hold = () => { throw new Error('hold went away'); };
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  assert.equal(out.status, 202);
+  assert.equal(out.body.done, true);
+  assert.equal(out.body.agents[0].outcome, 'partial', 'an agent nothing restarted was not said as moved');
+  assert.match(out.body.agents[0].because, /could not start it again: the move could not start \(hold went away\)/);
+  assert.deepEqual(d.order, [], 'a restart ran without its hold');
+  assert.equal(accountmove.busy(), false);
 });

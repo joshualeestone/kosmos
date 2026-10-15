@@ -482,6 +482,9 @@ function maybeAutoInstall() {
     if (!installedRoot()) return;
     if (!(autoPref() || {}).on) return;
     if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return;
+    /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
+       an agent's bootout and bootstrap leaves it unloaded. The next look installs. */
+    if (autoDefer && autoDefer()) return;
     beginInstall({ auto: true });
   } catch { /* an update that cannot start must not break the one that shows */ }
 }
@@ -1261,6 +1264,8 @@ function setWindowsHelperWitnessMs(ms) { windowsHelperWitnessMsOverride = Number
 function setBoardContext(ctx) { boardContext = { port: ctx && ctx.port, pid: ctx && ctx.pid }; }
 function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
+let autoDefer = null;   // #6173: () => true while the automatic install should wait (server.js: an account move runs)
+function setAutoDefer(f) { autoDefer = typeof f === 'function' ? f : null; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
 /* #2969: which pointer the installer reads: the one this box's last look took its offer from
@@ -1336,7 +1341,7 @@ module.exports = {
   updateRefused, // #6149 point 8: why an update refused before removing anything ({why,at,parts,paths,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
-  alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
+  alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref, setAutoDefer,
   resetCache, RUNNING, TTL, lastLook, checkNow,
   prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
   readSourceChannelAt, setRecordedChannel, installPointer, // #2969: the install stamp the Mac channel falls back to, its test seam, and the pointer the installer reads

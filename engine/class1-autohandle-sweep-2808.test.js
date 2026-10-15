@@ -269,3 +269,22 @@ test('#4169: a REAL by:auto report through reconciliation keeps only the tool na
     assert.doesNotMatch(st.prompt, /SECRET|Bearer|curl/, 'a command line reached the prompt');
   } finally { b.restore(); }
 });
+
+test('#6173 review 2: an agent an account move holds is left to the move: no trust write, no restart, no attempt counted', () => {
+  const b = installBoard([
+    { name: 'inmove', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },
+    { name: 'notmoved', paneState: 'needs_you', screen: TRUST_DIALOG_SCREEN },
+  ]);
+  try {
+    const held = b.keyOf.inmove;
+    const d = fakeDeps();
+    const book = new Map();
+    for (const now of [1_000, 2_000, 3_000]) {
+      const { results } = class1.sweepOnce({ roster: b.agents, attempts: book, now, ...d, heldByMove: (n) => n === held });
+      assert.equal(results.find((r) => r.session === held).act, 'wait', 'a held agent was acted on, or escalated');
+    }
+    assert.deepEqual(d.calls.filter((c) => c[1] === held), [], 'the sweep wrote trust or restarted an agent the move holds');
+    assert.equal((book.get(held) || []).length, 0, 'a wait was counted as an attempt');
+    assert.ok(d.calls.some((c) => c[0] === 'restart' && c[1] === b.keyOf.notmoved), 'the control: an agent no move holds is still handled');
+  } finally { b.restore(); }
+});

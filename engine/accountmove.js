@@ -24,12 +24,17 @@ const MAX_NAMES = 200;
 const KEEP_MS = 10 * 60 * 1000;   // a finished move stays readable this long, then is forgotten
 const KEEP_MAX = 20;
 const BUSY = 'Another account move is still running. Try again when it has finished.';
+/* #6173 review 2: what a board restart (a Kosmos switch, the restart button, an update) says while a move runs. A board
+   that restarts between an agent's bootout and its bootstrap leaves that agent unloaded (the #3418 class). */
+const BOARD_BUSY = 'An account move is still restarting agents, and this would restart the board under it. Try again when the move has finished.';
+const BOARD_GOING = 'The board is about to restart (an update or a restart is under way), so no agent was moved. Try again when it is back.';
 
 const moves = new Map();   // id -> record
 let running = null;        // the id whose restarts are still running
 
 function busy() { return running !== null; }
 function busyBecause() { return BUSY; }
+function boardBusyBecause() { return BOARD_BUSY; }
 
 /* The outcome and sentence for one agent's move: the one place both routes (one agent, several) word it. */
 function sentence(name, wrote, back, RESTARTED) {
@@ -94,18 +99,23 @@ function view(m) {
  *
  * deps: setAccount(name, dir) -> create.setAccount's answer; REFUSED (create.OUTCOME.REFUSED);
  * forget(name) (observed.forgetAgent); restartAsync(name, cause) -> remove's answer; RESTARTED (remove.OUTCOME.RESTARTED);
- * hold(names) and release(name) (remove.holdForMove / releaseFromMove).
+ * hold(names) and release(name) (remove.holdForMove / releaseFromMove); boardRestarting() -> true while an update or a
+ * board restart is under way (the move is then refused).
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
 function start(body, deps) {
   if (busy()) return { status: 409, body: { outcome: 'refused', because: BUSY } };
+  if (typeof deps.boardRestarting === 'function' && deps.boardRestarting()) return { status: 409, body: { outcome: 'refused', because: BOARD_GOING } };
   const dir = body && body.dir;
   const raw = body && body.names;
   if (typeof dir !== 'string' || !dir) return { status: 400, body: { outcome: 'refused', because: 'we need the account to move them to' } };
   if (!Array.isArray(raw) || raw.length === 0) return { status: 400, body: { outcome: 'refused', because: 'we need the agents to move' } };
   if (raw.length > MAX_NAMES) return { status: 400, body: { outcome: 'refused', because: `that is more than ${MAX_NAMES} agents in one move` } };
   if (raw.some((n) => typeof n !== 'string' || !n)) return { status: 400, body: { outcome: 'refused', because: 'that is not a name we can read' } };
-  const names = [...new Set(raw)];
+  /* One agent once, however it is spelled: the engine trims a name (create.cleanName), so two spellings are one agent
+     and would be restarted twice (review 2). The first spelling is kept, as the page sent it. */
+  const seen = new Set();
+  const names = raw.filter((n) => { const k = n.trim(); if (seen.has(k)) return false; seen.add(k); return true; });
 
   const m = { id: crypto.randomUUID(), done: false, startedAt: Date.now(), finishedAt: 0, agents: [] };
   for (const name of names) {
@@ -127,10 +137,21 @@ function start(body, deps) {
     m.done = true; m.finishedAt = Date.now();
     return { status: 202, body: view(m), done: Promise.resolve() };
   }
-  running = m.id;
   /* Every agent this move will restart is held from a sync restart until its own turn is over (#6173 review 1): one
-     restarted in between by its own page was restarted again when the move reached it. */
-  deps.hold(pending.map((a) => a.name));
+     restarted in between by its own page was restarted again when the move reached it. Held before the move is marked
+     running, so a hold that throws cannot leave every later move refused (review 2). */
+  try { deps.hold(pending.map((a) => a.name)); }
+  catch (err) {
+    /* Saved, but nothing will restart them: say so for each, and end the move (it never ran). */
+    for (const a of pending) {
+      try { deps.release(a.name); } catch { /* best effort */ }
+      const said = sentence(a.name, a.wrote, { outcome: 'partial', because: `the move could not start (${String((err && err.message) || err)}).` }, deps.RESTARTED);
+      a.outcome = said.outcome; a.because = said.because;
+    }
+    m.done = true; m.finishedAt = Date.now();
+    return { status: 202, body: view(m), done: Promise.resolve() };
+  }
+  running = m.id;
   const done = (async () => {
     try {
       for (const a of pending) {
@@ -173,4 +194,4 @@ function read(id) {
 
 function resetForTests() { moves.clear(); running = null; }
 
-module.exports = { start, read, busy, busyBecause, sentence, resetForTests };
+module.exports = { start, read, busy, busyBecause, boardBusyBecause, sentence, resetForTests };
