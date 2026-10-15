@@ -9777,7 +9777,11 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
+        // master turn-on/off (unchanged). setKind refuses an unknown kind name.
+        const saved = typeof body.kind === 'string'
+          ? phonenotify.setKind(body.kind, body.on)
+          : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -21782,6 +21786,17 @@ const server = http.createServer(async (req, res) => {
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
+      }
+      // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
+      // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
+      // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
+      // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        try {
+          const pj = projects.get(id, roster);
+          phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+        } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {
