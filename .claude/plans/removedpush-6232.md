@@ -48,6 +48,8 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
 - review 7: after a removal clears the policy elsewhere, the next check hands the agents the change; a board whose
   agents hold no company text does nothing on a check (no read, no repeated warning).
 - review 8: an agent that cannot be told is retried hourly from the check, not every five minutes.
+- review 9: after a boot that could not tell every agent (the retry mark), a removal still reaches the agents; the
+  hourly ask's hand-over counts toward the hour, so a stuck agent is retried once an hour, not twice.
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -108,3 +110,14 @@ is for the first run after merge.
   where the comment said that retry stayed with the ask. Now each change is handed once from the check, and tried
   again only hourly while an agent stays untold; this also holds the "could not hand" courtesy lines to hourly.
   Tested; removing the limit fails it (measured).
+
+## Review 9 (opus), and what changed
+- The check looked only for a recorded text, so the boot's retry mark (some agent could not be told at start) skipped
+  it, and a removal caught elsewhere left the healthy agents on the old text. It now runs while any company text or
+  the retry mark is held (a board in no company records null and stays out).
+- Every hand-over (the hourly ask's too) is recorded in companyPolicySync, so a stuck agent is retried once an hour,
+  not by both paths. Both tested; each mutation fails (measured).
+- Not changed: the "longer than the limit" courtesy line can print with each hourly ask on an enrolled board whose
+  policy text is too long (24 a day at most). Bounded; printing once per policy version is a possible follow-up.
+- This part (the agents' copy of the policy text) drew findings in reviews 7, 8 and 9; each was a real gap in a state
+  the previous fix did not cover. The state is now: hand-over on change, recorded in one place, hourly retry.
