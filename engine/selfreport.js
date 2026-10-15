@@ -132,6 +132,17 @@ function cappedSentence(value, cap) {
    (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
    A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
    line (provenance unknown); nor any non-needs_you state. */
+/* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn
+   that then ends normally (the Stop hook's automatic idle) proves the provider answered again, so that idle clears it;
+   the mid-turn working heartbeat does not (the turn could still fail). A deliberate blocked is never this. */
+function isAutoProviderBlock(standing) {
+  return !!standing
+    && standing.found === true
+    && standing.state === 'blocked'
+    && standing.by === 'auto'
+    && /^provider api \(/.test(String(standing.on || ''));
+}
+
 function isAutoPermissionWait(standing) {
   return !!standing
     && standing.found === true
@@ -270,7 +281,8 @@ function record(sessionName, entry) {
     const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
-      && !standingIsAutoPermissionWait;
+      && !standingIsAutoPermissionWait
+      && !(state === 'idle' && isAutoProviderBlock(standing));   // #6209: a turn that ended normally after the failure
     if (standingIsProtectedWait) {
       return {
         recorded: false,
@@ -563,5 +575,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean,
+module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, DIR, NO_READING, TAIL_BYTES, record, read, history, fileFor, isAutoPermissionWait, isAutoProviderBlock, finalTextClean,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };

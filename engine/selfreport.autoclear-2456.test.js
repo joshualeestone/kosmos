@@ -128,11 +128,28 @@ test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFa
   assert.equal(selfreport.read(who).state, 'blocked');
 });
 
-test('#2456: an automatic idle does NOT clear a standing AUTO blocked either', () => {
+test('#2456 / #6209: an automatic idle (a turn that ended normally) DOES clear a standing AUTO provider blocked', () => {
+  // #6209: a user's agent read blocked for six days after a brief provider error. StopFailure fires instead of Stop for a
+  // failed turn, so a later Stop (auto idle) proves a turn succeeded: the provider block is over.
   const who = 'auto-blocked-idle';
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (500)', owner: 'provider', auto: true }).recorded, true);
-  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false);
-  assert.equal(selfreport.read(who).state, 'blocked');
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, true, 'a normal turn end did not clear the provider block');
+  assert.equal(selfreport.read(who).state, 'idle');
+});
+
+test('#6209: an automatic idle still does NOT clear a DELIBERATE blocked, nor a legacy unmarked one, nor an auto needs_you-free wait', () => {
+  const mine = 'deliberate-blocked-6209';
+  assert.equal(selfreport.record(mine, { state: 'blocked', on: 'provider api (500)', because: 'the provider keeps failing', owner: 'provider' }).recorded, true);
+  assert.notEqual(selfreport.read(mine).by, 'auto', 'fixture: the agent wrote this block itself');
+  assert.equal(selfreport.record(mine, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an auto idle erased the agent\'s own block');
+  assert.equal(selfreport.read(mine).state, 'blocked');
+  // CONTROL: the agent's own idle still clears its own block, as before.
+  assert.equal(selfreport.record(mine, { state: 'idle', because: 'back at it' }).recorded, true);
+  assert.equal(selfreport.read(mine).state, 'idle');
+  // An auto blocked not about the provider (no "provider api (" on it) is not this rule.
+  const other = 'auto-blocked-other-6209';
+  assert.equal(selfreport.record(other, { state: 'blocked', on: 'something else', owner: 'someone', auto: true }).recorded, true);
+  assert.equal(selfreport.record(other, { state: 'idle', because: 'finished responding', auto: true }).recorded, false);
 });
 
 test('#2456: an automatic needs_you does NOT clobber a standing AUTO blocked', () => {
