@@ -544,7 +544,7 @@ test('#5670: the board\'s company refresh sends nothing unless live execution is
   const realRefresh = oe.refresh;
   let calls = 0;
   oe.refresh = async () => { calls += 1; };
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
   live.resetForTests();
   orgEnrollRefresh();
   assert.equal(calls, 0, 'an enrolled board refreshed (sent to its company) without live execution');
@@ -601,7 +601,7 @@ test('#6232: an enrolled board asks its company hourly, not daily, and a board i
   const realRefresh = oe.refresh;
   let calls = 0;
   oe.refresh = async () => { calls += 1; };
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } });
   live.allowLiveExecution();
   try { orgEnrollRefresh(); } finally { live.resetForTests(); }
   assert.equal(calls, 0, 'a board in no company asked a company (every board would, hourly)');
@@ -616,7 +616,7 @@ test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the 
   const realRefresh = oe.refresh;
   let calls = 0;
   oe.refresh = async () => { calls += 1; return { ok: true, enrolled: true }; };   // answered: the hour applies
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const H = 60 * 60 * 1000;
   try {
@@ -644,7 +644,7 @@ test('#6232 review 4: an ask with no clear answer is asked again after the retry
   let calls = 0;
   let answer = { ok: false, because: 'not checked' };   // the company did not answer
   oe.refresh = async () => { calls += 1; return answer; };
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const M = 60 * 1000;
   try {
@@ -719,7 +719,7 @@ test('#6232 review 6: right after a miss (due in 15 minutes), a clock set back b
   const realRefresh = oe.refresh;
   let calls = 0;
   oe.refresh = async () => { calls += 1; return { ok: false, because: 'not checked' }; };
-  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); try { require('./server')._orgRefreshResetForTests(); } catch { /* not loaded */ } fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const M = 60 * 1000;
   try {
@@ -788,5 +788,36 @@ test('#6232 review 12: an ending hands the agents the change once, whether or no
     oe.refresh = async () => { entry = null; return { ok: true, enrolled: false, stopped: true }; };
     await orgEnrollRefresh();
     assert.equal(syncs, 2, 'an ending the listener was not told about left the agents on the company\'s text');
+  } finally { live.resetForTests(); }
+});
+
+test('#6232 review 16: an ask that left the board in no company is not a miss (a later join retries from 15 minutes)', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  const enroll = () => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  let answer;
+  oe.refresh = async () => { calls += 1; if (answer.end) fs.rmSync(enrollmentFile(), { force: true }); return answer.r; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  try {
+    // A miss first (the count goes up), then an ask that ends the enrollment for want of an id (ok: false).
+    enroll();
+    answer = { r: { ok: false, because: 'not checked' } };
+    await orgEnrollRefresh();
+    answer = { end: true, r: { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false } };
+    await orgEnrollRefresh();
+    assert.equal(calls, 2, 'CONTROL: the two asks were not sent');
+    // A later join whose first ask goes unanswered retries after 15 minutes, not 30.
+    enroll();
+    answer = { r: { ok: false, because: 'not checked' } };
+    await orgEnrollRefresh();
+    const at = Date.now();
+    await orgRefreshIfDue(at + 16 * M);
+    assert.equal(calls, 4, 'after an ending, a later join\'s first miss waited longer than 15 minutes (the old misses counted)');
   } finally { live.resetForTests(); }
 });

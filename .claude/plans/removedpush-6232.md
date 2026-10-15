@@ -47,6 +47,7 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
 - review 10/14: the board's listener hands its own agents the change (another spelling of its root included) and
   ignores another Kosmos's ending; start() registers it.
 - review 12: an ending hands the agents the change once, whether or not the listener was told.
+- review 16: an ask that left the board in no company is not a miss, so a later join retries from 15 minutes.
 engine/orgenroll-5531.test.js:
 - review 10: a refresh ending tells onEnrollmentEnded once with the root; a refresh or Leave with nothing enrolled
   does not.
@@ -175,3 +176,8 @@ is for the first run after merge.
   broader check-path fix churned through reviews 7 to 10. Filed as #6240.
 - The miss count resets when an enrollment ends, so a later join retries from 15 minutes. The plan's Tests section
   lists the current tests in both files and points at the current design.
+
+## Review 16 (sonnet), and what changed
+- The review 15 reset was undone on the "no id of its own" ending (that refresh answers ok: false, which counted as
+  a miss). An ask that leaves the board in no company is now not a miss. Tested; removing it fails (measured).
+- Tests reset the schedule in t.after too; the bound says about 65 minutes.
