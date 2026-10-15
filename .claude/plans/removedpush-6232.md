@@ -157,3 +157,9 @@ is for the first run after merge.
 - Stated: an answer naming another company swaps the policy without an ending, so the hourly ask hands that over.
 - Possible follow-up, older than this: an applied policy with no enrollment file (a crash between writes) is never
   lifted, since a board in no company asks nothing.
+
+## Review 14 (sonnet), and what changed
+- The listener compares resolved paths, so another spelling of this board's root (a trailing slash) is still it
+  (tested; a plain string compare fails it, measured). Comments: the rollup child serving another Kosmos has no
+  listener, by design; the test reset also forgets the handed text. Its first warning confirmed the pending-Leave path
+  is covered by the ask's own hand-over (the review 12 test), no change.

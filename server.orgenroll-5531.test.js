@@ -749,7 +749,7 @@ test('#6232 review 10: when this board\'s enrollment ends (any path), its agents
   entry = null;          // the ending cleared the applied policy
   orgEnrollmentEnded(path.join(store.ROOT, 'another-kosmos'));
   assert.equal(syncs, 0, 'another Kosmos\'s ending re-handed this board\'s agents their policy');
-  orgEnrollmentEnded(store.ROOT);
+  orgEnrollmentEnded(store.ROOT + path.sep);   // review 14: another spelling of this board's own root
   assert.equal(syncs, 1, 'this board\'s enrollment ended and its agents kept the company\'s AI policy text');
   // Wired at start: the board registers it with engine/orgenroll.js.
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
