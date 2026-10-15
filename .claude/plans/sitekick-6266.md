@@ -122,3 +122,10 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   login fails every tick and is seen only in kick.log, last-result and launchctl (accepted, the weakest premise);
   live gone back to an older commit while main is unchanged is left to the job's schedule. NITs taken: a test label
   that said "failed" for a green run; the log-size figure.
+
+## Review 9 (opus), and what changed
+- No BLOCKER. WARNING: the header promised it never asks beside a recent run; only a recent creation or failure holds
+  it, so a green "try again later" exit from a run over 13 minutes can be followed by an ask within minutes: the
+  sentence is narrowed and that case stated (rare). NITs taken: heartbeat and trap set before mktemp; the redundant
+  stuck guard on the gap commented as clarity only; --check wording; --uninstall refuses extra arguments; a long
+  comment line rewrapped.
