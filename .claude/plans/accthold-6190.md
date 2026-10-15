@@ -55,3 +55,8 @@ Part 3 (two writers the hold does not cover) stays as the card left it: reasoned
 - NIT fixed: the TMUX_LAST_SEARCH comment said "for the detail line"; it now says a look copies it.
 - NIT left: the test does not assert the first step asked the old tmux (a seam typo would show indirectly).
 Logic confirmed equivalent: tmuxRepick called exactly when it was, sync driver byte-identical.
+### Branch round (Sonnet, blind, parts 1 and 2 together): CONVERGED, no blocker or warning
+Reviewer ran, each alone: accountmove-6173 19, engine.reachable 8, status 242, web.codex-account-mover-2338 12,
+web.gemini-grok-ui-3566 20, remove 104, update 26; all pass. Confirmed every accountmove.start caller and every guard over
+the touched sources is updated. NITs left (the file's style): assertion messages are worded as the failure; the route
+guard is a source-string pin, as for the provider and model guards.
