@@ -4517,12 +4517,14 @@ function statusForSibling(json, site) {
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
   const str = (v) => (typeof v === 'string' ? v : '');   // strings only: a later structured field never goes along
   /* #6178: each Claude account's weekly usage for Settings > AI Models there. THIS SENDS each account's email, label
-     and organization to that browser (one this computer admitted, from the account's own computers: the relay's
-     siblingcors-4812 rule, not this code; pinned there by proxy.rs a_sibling_read_carries_the_token_only_when_listed_and_same_site). Keyed by an opaque per-answer id ("a0", "a1", ...), never by its folder: a
-     folder path names this Mac's user, which #4973 keeps here. Each agent carries that id (acct) and its runner, so the
-     page can join them. Only a same-site read (one of the account's own computers) gets them; any other sibling read
-     gets #4973's agents-only answer, so this does not rest on the relay alone. A full answer without accountsWeekly
-     is sent as null (the page's "could not read"); the page reads a field that is absent as "an older Kosmos". */
+     and organization to the reading browser. WHICH browsers can read it is decided by the relay alone: every computer
+     under the Kosmos+ domain is same-site to every other, so the same-site check below only keeps cross-site reads on
+     #4973's agents-only answer. The relay hands the board token only to the account's own listed computers, in a
+     browser this computer admitted (kosmos-relay siblingcors-4812; pinned by proxy.rs
+     a_sibling_read_carries_the_token_only_when_listed_and_same_site). Keyed by an opaque per-answer id ("a0", "a1",
+     ...), never by its folder: a folder path names this Mac's user, which #4973 keeps here. Each agent carries that id
+     (acct) and its runner, so the page can join them. A full answer without accountsWeekly is sent as null (the page's
+     "could not read"); the page reads a field that is absent as "an older Kosmos". */
   if (site !== 'same-site') {
     return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
       .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })) });

@@ -113,6 +113,11 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   assert.ok(!('engine' in sib) && !('updateLog' in sib), 'CONTROL: this is the cut-down sibling answer (#4973)');
   assert.ok(Array.isArray(sib.accountsWeekly), 'the sibling answer carries no accountsWeekly: ' + Object.keys(sib).join(','));
   assert.equal(typeof sib.checkedAt, 'string');
+  assert.ok(sib.accountsWeekly.length >= 1, 'CONTROL: there is an account to pin the fields of');
+  for (const e of sib.accountsWeekly) {
+    // Exact, so widening what another computer gets is a decision made here (with #4973's guard for the answer's keys).
+    assert.deepEqual(Object.keys(e).sort(), ['apiKey', 'blocked', 'email', 'isDefault', 'key', 'label', 'organization', 'weekly'], 'an account carried more than its usage: ' + Object.keys(e).join(','));
+  }
   const entry = sib.accountsWeekly.find((e) => e.email === 'person@example.com');
   assert.ok(entry && /^a\d+$/.test(entry.key) && !('dir' in entry), 'the account is not keyed by an opaque id: ' + JSON.stringify(entry));
   assert.equal(entry.weekly.usedPct, 71);
@@ -128,7 +133,7 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   const agents = page.aoAgentsOf(sib);
   const mine = accounts.find((e) => e.email === 'person@example.com');
   assert.ok(mine && mine.weekly && mine.weekly.usedPct === 71, 'the page did not parse the account: ' + JSON.stringify(accounts));
-  assert.deepEqual(agents.filter((a) => a.acct === mine.key).map((a) => a.name).length >= 1, true, 'the page could not join the agent to its account');
+  assert.ok(agents.some((a) => a.acct === mine.key), 'the page could not join the agent to its account');
   assert.equal(page.aoUnknownOf(sib), 0, 'a joined Claude agent was counted as could not be checked');
 });
 

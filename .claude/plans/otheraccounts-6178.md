@@ -17,8 +17,9 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
 
 - Who can read it. Another computer's browser reads /api/status as a sibling read (Sec-Fetch-Site same-site), and
   #4973 cuts that answer down (server.js statusForSibling) so this computer's paths and user name stay here. #6178
-  widens the SAME-SITE cut on purpose and no further (any other sibling read keeps #4973's agents-only answer, so
-  this does not rest on the relay alone): `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
+  widens the SAME-SITE cut on purpose and no further (a cross-site read keeps #4973's agents-only answer). Which
+  browsers can read it is the relay's rule alone: every computer under the Kosmos+ domain is same-site to every other,
+  and the relay gives the board token only to the account's own listed computers: `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
   label, organization, isDefault, apiKey, weekly and blocked; each agent's `acct` (that id, null when it is on no listed
   account) and `runner`; `checkedAt`. API-key accounts are listed (apiKey true, no reading) so their agents join to
   them, and a Claude agent on no listed account is "could not be checked". #4973's own guard (server.sibling-status-4973.test.js)
