@@ -10701,7 +10701,11 @@ const server = http.createServer(async (req, res) => {
       const waitsForPrint = hasWords && require('./engine/orgrollup').waitingForPrint();
       // Review 31: words accepted here that ask for no reports are said as that, never as "not accepted".
       const why = waitsForPrint === 'error' ? 'printError' : waitsForPrint ? 'print' : (accepted && !hasWords ? 'noReports' : null);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      /* kosmos#6239: a FAMILY's words with none accepted here (they changed, or were never recorded) wait for a parent:
+         the board cannot accept them itself (the coordinator refuses a family's enroll without wordsShown), so the
+         joined view offers to show them (preview { review: true }, then Accept with wordsShown). */
+      const wordsNeeded = !!(here && rec && rec.org && rec.org.kind === 'family' && !accepted);
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

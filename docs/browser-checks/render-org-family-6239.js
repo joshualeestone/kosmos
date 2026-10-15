@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser-check-surface: plus-org-family plus-org-family-lead plus-org-family-accept plus-org-family-no plus-org-family-reports plus-org-family-backsup plus-org-family-readers plus-org-family-never
+// Browser-check-surface: plus-org-family plus-org-family-lead plus-org-family-accept plus-org-family-no plus-org-family-reports plus-org-family-backsup plus-org-family-readers plus-org-family-never plus-org-words plus-org-words-row
 /*
  * kosmos#6239 (Kosmos+Kids, slice 2; Josh 10-15 10:42): a FAMILY account's words are read and accepted by a parent
  * before this computer joins. Runs the real page (web/index.html, file://) with fetch answered by a stand-in for the
@@ -16,6 +16,12 @@
  *   F6  a family that backs up nothing says "Nothing is backed up."; a part with no lines hides its heading.
  *   F7  a family member moving here joins with no code, still only after Accept, with wordsShown.
  *   F8  390 wide: the words fit, with no sideways scroll.
+ *   R1  a joined family whose words changed (wordsNeeded) says reports wait for a parent, and offers the words.
+ *   R2  Read the family's words asks for the review ({ review: true }) and shows them as changed words, with Accept.
+ *   R3  Not now accepts nothing, says so, and puts focus back on the button.
+ *   R4  Accept sends exactly { accepted: true, ticket, wordsShown: true } (no code), and the joined view stops waiting.
+ *   R5  a refusal with a code closes the words and puts focus back on the button.
+ *   R6  a company, or a family whose words are accepted, is offered nothing to read.
  *   F9  no page errors.
  */
 const path = require('node:path');
@@ -52,6 +58,7 @@ function harness() {
         if (a.ok) window.__joined = true;
         return enc(a);
       }
+      if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
       if (u.endsWith('/api/org') && window.__joined) return enc({ enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' });
       if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null });
       if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });
@@ -234,6 +241,63 @@ async function run(engineName) {
     });
     chk(f8.box && f8.right <= f8.vw && !f8.scroll, E + ' F8 390 wide: the words fit, no sideways scroll', JSON.stringify(f8));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-words-phone-' + engineName + '.png'), fullPage: false });
+
+    // R: a family's changed words, from the joined view.
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.evaluate(() => { plusOrgFamilyHide(); document.getElementById('plus-org-code').value = ''; document.getElementById('plus-org-msg').textContent = ''; });
+    const WAITING = { enrolled: true, reporting: false, reportingWait: null, wordsNeeded: true, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' };
+    const reread = async (st) => { await page.evaluate((v) => { window.__orgState = v; PLUS_ORG.at = 0; plusOrgMaybe(); }, st); await page.waitForTimeout(250); };
+    await reread(WAITING);
+    const r1 = { joined: await shown('plus-org-in'), say: await text('plus-org-say'), row: await shown('plus-org-words'), label: (await text('plus-org-words')).trim() };
+    chk(r1.joined && r1.row && r1.label === "Read the family's words" && r1.say.includes('reports nothing until a parent or guardian reads and accepts them'),
+      E + ' R1 a family whose words changed says reports wait for a parent, and offers them', JSON.stringify(r1));
+    const REVIEW = { move: true, review: true, org: FAMILY.org, consent: FAMILY_WORDS };
+    const openReview = async () => {
+      await setPreview(REVIEW);
+      await page.click('#plus-org-words');
+      await page.waitForFunction(() => !document.getElementById('plus-org-family').hidden || document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    };
+    m = await mark();
+    await openReview();
+    p = await posts(m);
+    const r2 = { box: await shown('plus-org-family'), lead: await text('plus-org-family-lead'), accept: (await text('plus-org-family-accept')).trim(), focus: await focus(), row: await shown('plus-org-words') };
+    chk(p.length === 1 && p[0].path === '/api/org/preview' && JSON.stringify(p[0].body) === JSON.stringify({ review: true }),
+      E + ' R2 Read the family\'s words asks for exactly { review: true }', JSON.stringify(p.map((x) => [x.path, x.body])));
+    chk(r2.box && r2.lead.includes('Its words changed') && r2.lead.includes('parent or guardian') && r2.accept === 'Accept' && r2.focus === 'plus-org-family-lead' && !r2.row,
+      E + ' R2 the changed words show, with Accept, focus on them, and the button folds', JSON.stringify(r2));
+    if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'org-family-review-' + engineName + '.png') });
+    m = await mark();
+    await page.click('#plus-org-family-no');
+    await page.waitForTimeout(150);
+    const r3 = { box: await shown('plus-org-family'), msg: await text('plus-org-msg'), focus: await focus(), posts: (await posts(m)).length };
+    chk(!r3.box && r3.posts === 0 && r3.msg === 'Nothing was accepted. This computer still reports nothing to the family.' && r3.focus === 'plus-org-words',
+      E + ' R3 Not now accepts nothing, says so, focus back on the button', JSON.stringify(r3));
+    await openReview();
+    await setEnroll({ ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent or guardian reads and accepts its words on this computer.' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
+    const r5 = { box: await shown('plus-org-family'), focus: await focus(), msg: await text('plus-org-msg') };
+    chk(!r5.box && r5.focus === 'plus-org-words' && r5.msg.startsWith('A family joins only after'), E + ' R5 a refusal with a code closes the words, focus back on the button', JSON.stringify(r5));
+    await setEnroll({ ok: true, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member' });
+    await openReview();
+    m = await mark();
+    await page.evaluate(() => { window.__orgState = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' }; });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    p = await posts(m);
+    const e4 = p.find((x) => x.path === '/api/org/enroll');
+    chk(e4 && JSON.stringify(Object.keys(e4.body).sort()) === JSON.stringify(['accepted', 'ticket', 'wordsShown']) && e4.body.wordsShown === true && e4.body.accepted === true,
+      E + ' R4 Accept sends exactly { accepted: true, ticket, wordsShown: true }, no code', JSON.stringify(p.map((x) => x.body)));
+    const r4 = { row: await shown('plus-org-words'), say: await text('plus-org-say'), joined: await shown('plus-org-in') };
+    chk(r4.joined && !r4.row && !r4.say.includes('reports nothing until'), E + ' R4 accepted: the joined view stops waiting for a parent', JSON.stringify(r4));
+    await setEnroll(null);
+    for (const [label, st] of [['a company with its terms gone', Object.assign({}, WAITING, { wordsNeeded: false, org: { name: 'Acme', slug: 'acme' } })],
+      ['a family whose words are accepted', Object.assign({}, WAITING, { wordsNeeded: false, reporting: true })]]) {
+      await reread(st);
+      chk(await shown('plus-org-in') && !(await shown('plus-org-words')), E + ' R6 ' + label + ' is offered nothing to read');
+    }
+    await page.evaluate(() => { window.__orgState = null; });
 
     chk(errs.length === 0, E + ' F9 no page errors', errs.join(' | '));
   } finally {
