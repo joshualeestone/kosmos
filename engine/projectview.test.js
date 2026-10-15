@@ -815,8 +815,11 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   // The heartbeat before the summary counts to its cap (29 min after the summary), the trailing working its 30: about an
   // hour, pinned on both sides so a different cap is seen.
   assert.ok(r.workMinutes >= 55 && r.workMinutes <= 61, 'not about two 30-minute caps of work: ' + r.workMinutes);
-  // Review 4: Antigravity heartbeats working before every model call on the Mac, so it is capped the same way.
-  assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'antigravity' }), hist(rows), NOW).state, 'worked', 'antigravity was not capped');
+  // Review 5: only Claude is capped; every other runner (including Antigravity, whose heartbeat depends on platform and
+  // hooks) keeps the old reading, so the same night stays stale for each.
+  for (const runner of ['antigravity', 'gemini', 'muse']) {
+    assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner }), hist(rows), NOW).state, 'stale', runner + ' was capped');
+  }
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
   assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
