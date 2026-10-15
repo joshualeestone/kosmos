@@ -17,7 +17,7 @@
 #
 # The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
 # simulator runtime installed. The runner has one, so this workflow is where the
-# icon and launch screen are proven for every change (#4089).
+# icon and launch screen are proven (#4089).
 
 name: ios
 

@@ -92,8 +92,8 @@ may be a plain browser error, or one written for the Mac. Better wording for whe
 answering is written but not switched on yet, so there is no wrong answer here. We just want to see
 it on a real phone.
 
-> **iPhone TestFlight builds before the coordinator holds Kosmos's APNs key (kosmos #6262):** steps 6
-> to 8 cannot pass on them yet. iOS still asks to allow notifications, then nothing more happens (no
+> **iPhone TestFlight builds before the coordinator holds Kosmos's APNs key and allows `io.kosmos.app`
+> in `KOSMOS_APNS_BUNDLE_IDS` (kosmos #6262):** steps 6 to 8 cannot pass on them yet. iOS still asks to allow notifications, then nothing more happens (no
 > message, no notification). Record "skipped: no APNs key yet" and do not file it as a defect.
 
 ## 6. Turn on notifications on the phone

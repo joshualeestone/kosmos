@@ -51,6 +51,9 @@ xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphoneos26.5 \
   -configuration Debug CODE_SIGNING_ALLOWED=NO build
 ```
 
+The SDK name follows the installed Xcode: `xcodebuild -showsdks` lists them (`iphoneos27.0` and
+`iphonesimulator27.0` with Xcode 27).
+
 - `-target` (not `-scheme`): the device *destination* needs an installed iOS
   platform for run/deploy, which is separate from the SDK (see below), so the
   scheme+destination path currently fails to resolve. Building the target
@@ -132,10 +135,8 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
   and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is
   registered there). That refusal covers `archive.sh` only: an archive made from Xcode's menus or a hand-run
-  `xcodebuild` never reaches it. The second guard is iOS CI's `tools/test-archive-config.sh`, whose
-  last cases run the same checks on the project's own `Signing.xcconfig`, so a commit that pairs
-  `io.kosmos.app` with another team goes red there. (`tools/test-cut-sign-preflight.sh` separately
-  fails if `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.)
+  `xcodebuild` never reaches it. (`tools/test-cut-sign-preflight.sh` separately fails if
+  `Signing.xcconfig` names Stone Syndicate with any bundle id but the preview one.)
   `archive.sh --check-config` runs only those checks; `tools/test-archive-config.sh` (in iOS CI) shows each
   can refuse.
 - `-scheme Kosmos` uses the shared scheme committed under `Kosmos.xcodeproj/xcshareddata/`, so
