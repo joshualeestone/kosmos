@@ -755,3 +755,32 @@ test('#6232 review 10: when this board\'s enrollment ends (any path), its agents
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /onEnrollmentEnded\(orgEnrollmentEnded\)/, 'start() no longer registers orgEnrollmentEnded');
 });
+
+test('#6232 review 11: an ask that ended the enrollment does not hand the agents the policy a second time', async (t) => {
+  const live = require('./engine/live-execution');
+  const policy = require('./engine/policy');
+  const { orgEnrollRefresh, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  let answer = { ok: true, enrolled: false, stopped: true };   // this ask ended it (the listener already handed it over)
+  oe.refresh = async () => answer;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { oe.refresh = realRefresh; policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  companyPolicySync();   // records the text the agents hold
+  entry = null;
+  live.allowLiveExecution();
+  try {
+    await orgEnrollRefresh();
+    assert.equal(syncs, 0, 'an ask that ended the enrollment handed the agents the policy again after the listener did');
+    answer = { ok: true, enrolled: true };   // CONTROL: an ordinary answer still hands a change over
+    await orgEnrollRefresh();
+    assert.equal(syncs, 1, 'CONTROL: an ordinary answer did not hand the changed policy over');
+  } finally { live.resetForTests(); }
+});

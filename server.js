@@ -22841,7 +22841,8 @@ function orgEnrollRefresh() {
           ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
         }
       }
-      companyPolicySync();
+      // An ending already handed the agents the change (orgEnrollmentEnded, from inside the refresh); once is enough.
+      if (!(r && r.stopped === true)) companyPolicySync();
       return r;
     });
   } catch { /* best effort */ }
@@ -22858,7 +22859,9 @@ function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REF
    company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
    caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
    restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
-   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents. */
+   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents. Known and older than this
+   (review 11): an agent that cannot be told at that moment keeps the old text until the board restarts, because a
+   board in no company asks nothing more that would retry it. */
 function orgEnrollmentEnded(root) {
   if (root !== require('./engine/store').ROOT) return;
   companyPolicySync();
@@ -22868,7 +22871,8 @@ function orgEnrollmentEnded(root) {
    Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other
    settings, writes nothing. The first call (at board start, right after the boot sweep) only records it. What it
    records is kept only once every agent was told (review 1): an agent that could not be told is tried again on the
-   next refresh, not left on the old text until the next board start. */
+   next refresh, not left on the old text until the next board start (while the board is enrolled; after an ending
+   nothing more is asked, see orgEnrollmentEnded). */
 let COMPANY_POLICY_SEEN;
 const COMPANY_POLICY_RETRY = Symbol('retry');   // never equal to a recorded value: the next call writes every agent
 function companyPolicySync() {
