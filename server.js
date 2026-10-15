@@ -4526,7 +4526,7 @@ function statusForSibling(json) {
   const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir)
     .map((e, i) => {
       const key = 'a' + i;
-      keyOf.set(e.dir, key);
+      if (!keyOf.has(e.dir)) keyOf.set(e.dir, key);   // two entries on one folder: its agents stay with the first
       const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
       return {
         key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true,
@@ -24329,6 +24329,7 @@ module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
+  statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test

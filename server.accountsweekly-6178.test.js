@@ -131,3 +131,20 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   assert.deepEqual(agents.filter((a) => a.acct === mine.key).map((a) => a.name).length >= 1, true, 'the page could not join the agent to its account');
   assert.equal(page.aoUnknownOf(sib), 0, 'a joined Claude agent was counted as could not be checked');
 });
+
+test('#6178 two accounts on one folder: the sibling answer keeps that folder\'s agents on the first key', () => {
+  const { statusForSibling } = require('./server');
+  assert.equal(typeof statusForSibling, 'function', 'statusForSibling is not exported for this test');
+  const full = JSON.stringify({
+    checkedAt: new Date().toISOString(),
+    accountsWeekly: [
+      { dir: '/x/.claude', email: 'one@example.com', weekly: null, blocked: null },
+      { dir: '/x/.claude', email: 'two@example.com', weekly: null, blocked: null },
+    ],
+    agents: [{ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', account: { dir: '/x/.claude' } }],
+  });
+  const sib = JSON.parse(statusForSibling(full));
+  assert.deepEqual(sib.accountsWeekly.map((e) => e.key), ['a0', 'a1']);
+  assert.equal(sib.agents[0].acct, 'a0', 'the second entry on the same folder took its agents');
+  assert.ok(!JSON.stringify(sib).includes('/x/.claude'), 'a folder path went out');
+});
