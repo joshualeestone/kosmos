@@ -178,7 +178,10 @@ function start(body, deps) {
             timer = setTimeout(() => resolve({ outcome: 'partial', steps: [],
               because: `its restart did not answer within ${Math.round(agentCap / 1000)} seconds.` }), agentCap);
           });
-          try { back = await Promise.race([Promise.resolve().then(() => deps.restartAsync(a.name, 'account')), late]); }
+          /* Called at once (not a tick later), and a throw from the call itself is a failed restart like a rejection. */
+          let started;
+          try { started = Promise.resolve(deps.restartAsync(a.name, 'account')); } catch (err) { started = Promise.reject(err); }
+          try { back = await Promise.race([started, late]); }
           catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
           finally { clearTimeout(timer); }
           let said;
