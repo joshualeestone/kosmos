@@ -2275,6 +2275,94 @@ test('#6204: a thread with a page cut longer than asked is not told the next rea
   assert.ok(!/the next read goes on/.test(r.text), 'a cut page was told the next read goes on');
 });
 
+test('#6204 review 3: across 10 busy posts every thread is reached in turn, so every tail is shown once', async () => {
+  on(); clearSeen();
+  const sent = {};
+  for (let n = 0; n < 10; n += 1) sent['s' + n] = { state: 'sent', agent: 'Many6204', remoteId: RP(n), sentAt: '2026-09-30T1' + n + ':00:00Z' };
+  writeSendState(sent, {});
+  const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();
+  const cid = (n, i) => D6204(100000 + n * 100 + i);
+  const thread = (n, i) => Array.from({ length: 100 }, (_, k) => comment({ id: D6204(200000 + n * 10000 + i * 1000 + k), parent_id: cid(n, i), created_at: old(300 + k) }))
+    .concat([comment({ id: D6204(900000 + n * 10 + i), parent_id: cid(n, i), created_at: T(5), agent: { name: 'Zed' }, body: 'tail' })]);
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const n = Number(u.pathname.split('/')[2].slice(-1));
+    const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
+    if (!m) {
+      const tops = Array.from({ length: 6 }, (_, i) => comment({ id: cid(n, i), created_at: old(i), reply_count: 102, replies_cursor: 'm' + i + 'p0', replies: [] }));
+      if (n === 9) tops.unshift(comment({ id: D6204(999999), created_at: T(11), agent: { name: 'Zed' }, body: 'newest' }));
+      return { status: 200, json: { comments: tops } };
+    }
+    const i = cid(n, 0) <= m[1] ? Number(m[1].slice(-2)) : 0;
+    const pg = Number(u.searchParams.get('cursor').split('p')[1]);
+    const all = thread(n, i);
+    return { status: 200, json: { next_cursor: (pg + 1) * 20 < all.length ? 'm' + i + 'p' + (pg + 1) : null, replies: all.slice(pg * 20, pg * 20 + 20) } };
+  });
+  const shown = [];
+  let waitedMost = 0;
+  for (let k = 0; k < 40; k += 1) {
+    shown.push(...shownIds((await cr.readReplies('Many6204', { now: NOW + k * 1000 })).text));
+    for (const m of Object.values(JSON.parse(fs.readFileSync(seenPath('Many6204'), 'utf8')).posts)) for (const t of Object.values(m.threads || {})) waitedMost = Math.max(waitedMost, t.waited);
+  }
+  // Threads take turns: none goes more than two reads in a row without a page.
+  assert.ok(waitedMost >= 1 && waitedMost <= 2, 'threads did not take turns: one waited ' + waitedMost + ' reads');
+  assert.equal(new Set(shown).size, shown.length, 'an item was shown twice');
+  const tails = shown.filter((id) => id.startsWith('d6204000-0000-4000-8000-0000009'));
+  assert.equal(tails.filter((id) => id !== D6204(999999)).length, 60, 'not every one of the 60 tails was shown: ' + tails.map((x) => x.slice(-3)).sort().join(','));
+  assert.ok(shown.includes(D6204(999999)), 'the newest top-level comment was never shown');
+});
+
+test('#6204 review 3: a saved place on an older comment the read did not reach caps the mark, and is dropped once its comment is gone', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Old6204', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();
+  const C = D6204(700);
+  const newer = Array.from({ length: cr.COMMENTS_ASKED }, (_, k) => comment({ id: D6204(600 + k), created_at: old(k) }));
+  const replies = Array.from({ length: 600 }, (_, k) => comment({ id: D6204(10000 + k), parent_id: C, created_at: old(1000 + k) }))
+    .concat([comment({ id: D6204(799), parent_id: C, created_at: T(5), agent: { name: 'Zed' }, body: 'deep tail' })]);
+  let top = []; let gone = false;
+  serve({
+    ['/posts/' + RP(2) + '/comments']: (u) => (u.searchParams.get('cursor') === 'OLD'
+      ? { status: 200, json: { next_cursor: null, comments: gone ? [] : [comment({ id: C, created_at: old(0), reply_count: 601, replies_cursor: 'q0', replies: [] })] } }
+      : { status: 200, json: { next_cursor: 'OLD', comments: top.concat(newer).slice(0, cr.COMMENTS_ASKED) } }),
+    ['/posts/' + RP(2) + '/comments/' + C + '/replies']: (u) => {
+      const n = Number(u.searchParams.get('cursor').slice(1));
+      return { status: 200, json: { next_cursor: (n + 1) * 20 < replies.length ? 'q' + (n + 1) : null, replies: replies.slice(n * 20, n * 20 + 20) } };
+    },
+  });
+  const shown = shownIds((await cr.readReplies('Old6204', { now: NOW })).text);
+  assert.ok(!shown.includes(D6204(799)), 'CONTROL: the deep tail was reached in the first read');
+  // A newer top-level comment arrives, and this read's window reaches no older page: C is not seen at all.
+  top = [comment({ id: D6204(650), created_at: T(11), agent: { name: 'Zed' }, body: 'newer top' })];
+  shown.push(...shownIds((await cr.readReplies('Old6204', { now: NOW + 1000, round2Ms: 0 })).text));
+  for (let k = 2; k < 5; k += 1) shown.push(...shownIds((await cr.readReplies('Old6204', { now: NOW + k * 1000 })).text));
+  assert.equal(new Set(shown).size, shown.length, 'an item was shown twice');
+  assert.ok(shown.includes(D6204(650)), 'the newer top-level comment was not shown');
+  assert.ok(shown.includes(D6204(799)), 'the deep tail was hidden behind a mark that passed its saved place');
+  // C is deleted while it still has a place: once the older pages are all read without it, its place goes.
+  clearSeen(); top = [];
+  await cr.readReplies('Old6204', { now: NOW });
+  const placed = () => C in (JSON.parse(fs.readFileSync(seenPath('Old6204'), 'utf8')).posts[RP(2)].threads || {});
+  assert.ok(placed(), 'CONTROL: the cut thread kept no place');
+  gone = true;
+  await cr.readReplies('Old6204', { now: NOW + 9000 });
+  assert.ok(!placed(), 'the place of a comment that is gone was kept');
+});
+
+test('#6204 review 3: a replies cursor that cycles back to one already read is not followed', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Cyc6204', remoteId: RP(8), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const asked = serve({
+    ['/posts/' + RP(8) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6204(810), created_at: T(1), reply_count: 40, replies_cursor: 'A', replies: [] })] } }),
+    ['/posts/' + RP(8) + '/comments/' + D6204(810) + '/replies']: (u) => (u.searchParams.get('cursor') === 'A'
+      ? { status: 200, json: { next_cursor: 'B', replies: [comment({ id: D6204(811), parent_id: D6204(810), created_at: T(2) })] } }
+      : { status: 200, json: { next_cursor: 'A', replies: [comment({ id: D6204(812), parent_id: D6204(810), created_at: T(2) })] } }),
+  });
+  const r = await cr.readReplies('Cyc6204', { now: NOW });
+  assert.equal(asked.filter((u) => u.includes('/replies?')).length, 2, 'a cursor cycle was followed');
+  assert.match(r.text, /past what a read reaches, so new ones among them may be missed/);
+});
+
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Stk6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
