@@ -188,3 +188,33 @@ test('#6209 part 3 review 1: the person taking over an agent\'s hold is read fro
   const clearedAfter = () => [{ kind: 'hold-set', at: iso(NOW - 5 * HOUR), via: 'agent' }, { kind: 'hold-cleared', at: iso(NOW - 4 * HOUR), via: 'agent' }];
   assert.equal(pass(b.id, [post(b.id, REX, 3.5 * HOUR), post(b.id, REX, 2 * HOUR), post(b.id, REX, HOUR)], clearedAfter).sent.length, 0, 'a hold cleared after its last set was told about');
 });
+
+test('#6209 part 3 review 2: the line reads right for mixed, plural and three-task holds, and never types an unsafe id', () => {
+  const it = (n, byPerson, projectId = 'proj-a') => ({ projectId, project: 'Shop', n, sentence: 'Task ' + n, owner: REX, holdAt: NOW - 3 * HOUR, byPerson, posts: 4 });
+  assert.equal(hs.tellText([it(1, false), it(2, true)], NOW),
+    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If one should stay on hold, say why on the task.');
+  assert.match(hs.tellText([it(1, true), it(2, true)], NOW), /If their work is going on, ask the person to take them off hold \(only they can lift their own hold, on the screen\)\./);
+  assert.match(hs.tellText([it(1, false), it(2, false), it(3, false)], NOW), /task #1, "Task 1" \(put on hold 3 hours ago\), task #2, .* and task #3, /);
+  const unsafe = hs.tellText([it(1, false, 'x; rm -rf ~')], NOW);
+  assert.match(unsafe, /kosmos task unhold <project-id> 1\./);
+  assert.doesNotMatch(unsafe, /rm -rf/);
+});
+
+test('#6209 part 3 review 2: an owner off the project or switched off is recorded as not reached; MAX_TRIES failures give up', () => {
+  const rows = (id) => [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const gone = fixture();
+  projects.mutate(gone.id, (x) => ({ ...x, agents: [ADA] }));
+  let r = pass(gone.id, rows(gone.id), holdAt(3 * HOUR));
+  assert.equal(r.sent.length, 0);
+  assert.equal(r.out.results[0].act, 'unreachable');
+  assert.ok(taskchat.read(gone.id, gone.n).some((e) => e.kind === 'hold-stale' && e.reached === false), 'not recorded as not reached');
+  const failing = fixture();
+  const book = new Map();
+  const tries = [];
+  for (let i = 0; i < hs.MAX_TRIES + 1; i += 1) {
+    tries.push(pass(failing.id, rows(failing.id), holdAt(3 * HOUR), { book, deliver: () => ({ state: 'not-found' }) }).out.results[0]);
+  }
+  assert.deepEqual(tries.slice(0, hs.MAX_TRIES).map((x) => x.act), Array(hs.MAX_TRIES).fill('tell'));
+  assert.ok(stored(failing.id, failing.n).holdStaleTold[REX], 'not marked after MAX_TRIES failures');
+  assert.equal(tries[hs.MAX_TRIES], undefined, 'tried again after giving up');
+});

@@ -29,6 +29,14 @@ Rejected:
 - The hold time comes from the task's history; a hold-cleared after the last hold-set (a failed record of a later
   hold) makes it unknown, so nothing is told rather than counting posts from while it was not held.
 
+## Decided in review
+- A project id is typed into `kosmos task unhold` only when it is one the CLI takes as it is (the nudge's rule), else
+  `<project-id>`.
+- A person taking over an agent's hold moves the hold time to the takeover, so the owner can be told again (pinned).
+- The retry count is per group (owner, project and the set of held tasks): a group changes only when a hold changes,
+  which is new information, so a restart of the count then is accepted. The book is set before the marks are written,
+  as missedtell does.
+
 ## Weakest premise
 That an owner posting in the room means the held task's work is going on. An owner busy with another task in the same
 project would be asked once per hold about one it is not working; the line says "if its work is going on" and names
