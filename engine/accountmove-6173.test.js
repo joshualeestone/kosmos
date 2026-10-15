@@ -86,14 +86,14 @@ test('#6173: a failure partway never reads as moved: a restart that throws, and 
   const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo', 'cy'] }, d);
   d.pending.get('al').reject(new Error('launchctl went away'));
   await tick();
-  d.pending.get('bo').resolve({ outcome: 'refused', because: 'bo is being moved to another account right now, so we left it alone.' });
+  d.pending.get('bo').resolve({ outcome: 'refused', because: 'bo is part of an account move that has not finished with it yet, so we left it alone.' });
   await tick();
   d.pending.get('cy').resolve({ outcome: RESTARTED });
   await out.done;
   const end = accountmove.read(out.body.id);
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'partial', 'changed'], 'only a RESTARTED is changed');
   assert.match(end.agents[0].because, /could not start it again: launchctl went away/);
-  assert.match(end.agents[1].because, /could not start it again: bo is being moved to another account/);
+  assert.match(end.agents[1].because, /could not start it again: bo is part of an account move that has not finished with it yet/);
   assert.equal(accountmove.busy(), false, 'the move ends, so the next one can run');
   assert.deepEqual([...d.held], [], 'a move that failed partway holds nobody afterwards');
 });

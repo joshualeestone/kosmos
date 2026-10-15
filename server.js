@@ -106,7 +106,7 @@ const {
   /* #4607: what a Codex agent's "Hooks need review" screen says, for the thread's two buttons. */
   codexHookSummary,
 } = require('./engine/status');
-const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts off the board's thread
+const accountmove = require('./engine/accountmove'); // #6173: several agents' account move, one request, restarts without blocking the board's thread
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another

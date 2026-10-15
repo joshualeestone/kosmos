@@ -6,7 +6,7 @@
  * Settings' Move used to send one `POST /api/agent/<name>/account` per agent, and each ran a synchronous restart
  * inside the request, so moving eight agents froze the board eight times in a row. Here the request does only the
  * fast part (each agent's account write) and answers; the restarts then run one at a time through
- * `remove.restartAsync`, off the board's thread on the Mac, and Settings reads how each went from the move's record.
+ * `remove.restartAsync`, without blocking the board's thread on the Mac, and Settings reads how each went from the move's record.
  *
  * 🛑 ONE MOVE AT A TIME. While a move's restarts run, a second move (bulk or one agent's own Move) is refused with a
  * sentence, never run beside it: two moves interleaving restarts on the same agents is the #3418 class.
