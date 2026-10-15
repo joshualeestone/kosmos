@@ -17,13 +17,14 @@ routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fix
    and messages appends `{ kind: 'unsent-submitted', of: <id>, from, to, at }`. The reader accepts the new kind, as it
    does held-delivered. A line some other sender left (a nudge, a room post) has no message row and writes nothing.
    `earlierSubmitted` stays on the verdict (tests read it).
-3. **The sentence** now says Kosmos tries to send it first with its next message to this agent in the next 10 minutes,
+3. **The sentence** now says Kosmos tries to send it first with the next line it types to this agent in the next 10 minutes,
    if the box still shows only that line. It is a try, not a promise: a line too long to show whole (item 5), or a
    next line held by a menu or a limit, is not pressed.
 4. **The remembered line.** If the box still holds exactly the earlier line after the 300 ms watch (or tmux refused
    the Enter), it is remembered again with its original time and number.
 6. **Dim across rows.** Measured on a scratch tmux server: capture-pane -e writes an escape only where the style
-   changes, so a wrapped dim run's second row has none. visibleWithoutDim carries the dim state across rows.
+   changes, so a wrapped dim run's second row has none. visibleWithoutDim carries the dim state across rows, and the
+   carry restarts at the box's own row, so a dim run left open higher up can never make typed text read as empty.
 7. **The rule row** is tested on the raw row (escapes removed, dim kept), so a dim rule still ends the box.
 
 ## Closed with a reason
@@ -38,8 +39,8 @@ routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fix
     change with its own risk for a rare, bounded cost.
 
 ## Evidence
-- New tests: engine/chat.unsent-6256.test.js (6: items 1 to 4, with controls) and engine/status.composer-6256.test.js
-  (3: items 6 and 7, with controls). Mutants: each fix removed in turn (re-remember, noteUnsent, the hook call, the
+- New tests: engine/chat.unsent-6256.test.js (9: items 1 to 4, with controls) and engine/status.composer-6256.test.js
+  (4: items 6 and 7 and the restart at the box row, with controls). Mutants: each fix removed in turn (re-remember, noteUnsent, the hook call, the
   input branch, and the old status.js reader) turns its test red.
 - Unchanged and passing, each run alone: chat.composer-6249 34, status.unsent-6249 7, chat.menuhold-5743 23, chat 148,
   messages 164, roomhold 27/2/12, limithold-5805 20, limitmsg-5805 40, limittask-5805 19, server.agyhold-4588 25,
@@ -65,3 +66,11 @@ before this card. Nothing reads the new unsent-submitted rows yet (item 2); they
 - NIT taken: the comment says a minute that tells input-held posts skips the agy and #5805 paths for that member.
 - NITs left: unsentPending is pruned on the next note (bounded by unsent messages in 15 min); unsentSeq rides on
   other senders' verdicts and is read only by messages.
+
+## Review 3 (opus), and what changed
+- No BLOCKER. WARNINGs stated, not fixed: (a) an earlier line whose Enter took but whose box emptied after the 300 ms
+  watch gets no follow-up row: an empty box later cannot tell sent from cleared by hand (said in the chat.js comment);
+  (b) when the box reads empty but the delivery is then refused (a person typing in that instant), the minute sweep
+  logs a "could not yet be told" line each minute while it lasts, bounded by that condition. CONVENTIONs: test counts
+  and item 6 updated. NITs taken: the sentence says the next line it types (any sender presses it); unsentPending is
+  also pruned in the hook.

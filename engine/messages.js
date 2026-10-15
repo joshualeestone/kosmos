@@ -67,6 +67,7 @@ function noteUnsent(seq, row) {
 }
 chat.setEarlierSubmittedHook((seq, at) => {
   const row = unsentPending.get(seq);
+  for (const [k, v] of unsentPending) if (Date.now() - v.at > UNSENT_PENDING_MS) unsentPending.delete(k);   // review 3
   if (!row) return;   // a line some other sender left (a nudge, a room post): it has no message row to follow
   unsentPending.delete(seq);
   appendLog({ kind: 'unsent-submitted', of: row.id, from: row.from, to: row.to, at });
