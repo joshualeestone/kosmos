@@ -11,21 +11,24 @@ $KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log. Production sets no KOSMOS_AP
 /tmp/kosmos-app-test folder, so FileManager.createFile fails silently and every native logLine (about 150 call sites)
 is written nowhere. #5311's plan noticed this for one line and worked around it with NSLog there only.
 
-## The call
-logLine first writes the unified log (NSLog("%@", s)), then the harness file as before. Read it with
-`log show --last 1d --predicate 'process == "Kosmos"'`. The #5311 voice-ended line keeps reaching the unified log
-every time, once: NSLog for our own stop, logLine (which now NSLogs) for a real error.
+## The call (revised after review 1)
+A narrow `logToSystem(_:)` writes macOS's unified log (NSLog("%@", s)) and the harness file. Only the two microphone
+permission lines the card waits on use it; logLine itself is unchanged and never writes the unified log. Read them
+with `log show --last 1d --predicate 'process == "Kosmos"'`. Those two lines are built from fixed words, the pane
+name (only "speech" or "microphone" are accepted before it is stored), permission states, seconds and an outcome word.
 
 ## Rejected
-- A real log FILE (~/Library/Logs/Kosmos/app.log): needs rotation and a size cap, and the unified log already has
-  both, plus Console.app. Can be added later if support wants a file to attach.
+- Every logLine to the unified log (the first version): review 1 found the board URL with its token (#1946) logged on
+  every launch and reload, plus navigation URLs, page titles and download file names. The unified log keeps lines for
+  days and any admin on the Mac can read it, so that would hand another account the token. Removed, not redacted:
+  a redaction rule would be one more thing every future logLine must not break.
+- A log FILE under ~/Library/Logs: needs rotation and a cap, and has the same content question for every line.
 - A build-time selftest that queries `log show`: makes every release cut depend on the unified log answering.
 
 ## Checked
-- Content: the logLine calls carry paths, error codes, versions and the updater's last line, never speech text (the
-  voice lines are domain and code only, per #5311). The unified log stays on the Mac.
-- tools/test-install.sh launches the app with stderr to /dev/null, so NSLog's stderr copy breaks nothing there.
-- swiftc -typecheck of main.swift passes (one pre-existing deprecation warning).
+- tools/test-install.sh launches the app with stderr to /dev/null; the build gates in tools/build-kosmos-bundle.sh
+  match their own tokens, which these two lines do not contain.
+- swiftc -typecheck of main.swift passes (only pre-existing warnings).
 
 ## Weakest premise
 Not executed here: running a freshly built binary on this shared Mac was refused by the session's permission check
@@ -33,6 +36,12 @@ Not executed here: running a freshly built binary on this shared Mac was refused
 behaviour and #5311's use of it, not measured. The first real use answers it: `log show` either has the lines or not.
 
 ## Verify
-native-app.applog-5481.test.js (source: logLine's first statement is the NSLog; the two permission lines go through
-logLine; the voice-ended line is logged once); removing the NSLog fails it (measured). Every test reading
-main.swift plus the file guards: 371 pass, 0 fail.
+native-app.applog-5481.test.js: logLine never writes the unified log; logToSystem does, with a fixed format; it has
+exactly the two permission lines as callers and neither carries a URL, title, name, path or token. Measured: a blanket
+NSLog in logLine, the tokenized LOADING URL sent through logToSystem, and a permission line moved back to logLine each
+fail it.
+
+## Review 1 (opus), and what changed
+- BLOCKER, fixed by removal: the blanket unified-log write leaked the board token (LOADING and reload lines). My first
+  privacy check grepped call sites for words like "token" and missed URLs built elsewhere; the redesign does not rely
+  on reading 150 call sites, it allows two and pins them.
