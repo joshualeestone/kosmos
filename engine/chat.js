@@ -835,6 +835,11 @@ function composerIsAll(text, wire) {
   const t = squash(text);
   return !!t && t === squash(wire);
 }
+/* Round 9: does the box still hold the end of what we pasted (its last 20 characters, or all of a shorter message)? */
+function stillHoldsOurEnd(text, wire) {
+  const w = squash(wire);
+  return squash(text).includes(w.slice(-Math.min(20, w.length)));
+}
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
   const got = tmux(['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
@@ -870,7 +875,8 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     if (!box.ok) return { outcome: 'unread', retried };
     const holds = composerHolds(box.text, wire);
     if (holds === 'empty') return { outcome: 'sent', retried };
-    if (holds === 'other') return { outcome: 'other', retried };
+    /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. */
+    if (holds === 'other') return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     if (waited < settleMs) {
       yield { wait: SUBMIT_LOOK_MS };
       waited += SUBMIT_LOOK_MS;

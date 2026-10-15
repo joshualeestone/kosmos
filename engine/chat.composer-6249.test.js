@@ -433,3 +433,18 @@ test('#6249 round 8: a colon group is one parameter: 4:2 (an underline style) an
   assert.equal(chat.composerText('\x1b[39m❯ \x1b[38:2:0:10:20:2mcoloured\x1b[39m' + RULE80).text, 'coloured');
   assert.equal(chat.composerText('\x1b[39m❯ \x1b[2;4:3mghost\x1b[0m' + RULE80).text, '', 'CONTROL: a 2 among the parameters is still dim');
 });
+
+test('#6249 round 9: ours went and the person started typing within a look: placed, not "sitting there unsent"', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const t = arm([EMPTY, box(MSG), box('i am typing something new now')]);
+    const v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+    assert.equal(t.enters(), 1);
+    // CONTROL: ours still there with the other text is unsent.
+    chat.resetForTests();
+    arm([EMPTY, box(MSG), box('i am typing ' + MSG)]);
+    const u = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(u.unsubmitted, true);
+  } finally { board.restore(); }
+});
