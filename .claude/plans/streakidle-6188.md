@@ -68,4 +68,4 @@ interaction that cannot happen.
 ## Weakest premise
 That the real Kosmos+ path does not also refuse the streak POST. If it does, the streak never counts on a phone
 reaching this computer through Kosmos+; this change makes that failure quiet instead of hanging, and it would be a
-separate card.
+separate card: filed as #6194 (not measured).

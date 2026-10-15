@@ -354,8 +354,8 @@ const read = (pg) => pg.evaluate(() => {
     await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
-    // One minute at a time, letting each real refusal arrive and be read before the next tick, so how many times the
-    // page asks does not depend on how fast this machine is (a tick while an ask is pending is skipped).
+    // One minute at a time, letting each real refusal arrive and be read before the next tick, so the count depends
+    // far less on how fast this machine is (a tick while an ask is pending is skipped; 2 to 6 leaves room for that).
     const settle = async () => { for (let i = 0; i < 50 && ended < streakReqs.size; i++) await pg.waitForTimeout(100); };
     await settle();
     for (let m = 0; m < 30; m++) { await pg.clock.runFor(60 * 1000); await pg.waitForTimeout(50); await settle(); }
@@ -382,6 +382,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":3,"congrats":false}' }).catch(() => {}));
     await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     for (let i = 0; i < 80 && (sent.size === 0 || finished < sent.size); i++) await pg.waitForTimeout(100);
+    say(sent.size >= 1, 'first run refused: the page sent its first-run read', 'sent=' + sent.size);
     say(statuses.length >= 1 && statuses.every((x) => x === 404), 'first run refused: the board itself refused (404)', JSON.stringify(statuses));
     say(sent.size >= 1 && finished === sent.size, 'first run refused: the refused read finished (its body was read, #6188)', 'sent=' + sent.size + ' finished=' + finished);
     await pg.close();
