@@ -210,3 +210,17 @@ test('#6214: a put-back whose account has no name the board can read says "their
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
 });
+
+test('#6214 with #6190: an agent the move refused because a restart still held it is left alone by a stop', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old' } });
+  d.moveRefusal = (n) => (n === 'bo' ? { because: 'Bo is still being restarted.' } : null);
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy'] }, d);
+  assert.equal(d.saved.bo, '/acct/old', 'PRECONDITION: the refused agent was never written');
+  const s = accountmove.stop();
+  assert.deepEqual(s.body.agents.map((a) => [a.name, a.outcome]), [['al', 'pending'], ['bo', 'refused'], ['cy', 'stopped']]);
+  assert.equal(s.body.agents[1].because, 'Bo is still being restarted.', 'the refusal keeps its own sentence');
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old']], 'only the unreached agent the move wrote is put back');
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  assert.equal(d.held.size, 0);
+});
