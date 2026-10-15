@@ -30555,14 +30555,16 @@ function aoGroup(c, seen, ao, now) {
   } else if (ao.accounts === null) {
     note = c.name + ' has an older Kosmos. Its accounts show here once it updates.';
   } else if (ao.accounts === false) {
-    note = c.name + ' could not read its accounts just now. Kosmos asks again shortly.';
+    note = c.name + ' could not read its accounts when this page last asked. Kosmos asks again shortly.';
   } else if (!ao.accounts.length) {
     note = 'No Claude account is set up on ' + c.name + '.';
   }
-  if (ao && (st !== 'ok' || stale) && !(Array.isArray(ao.accounts) && ao.accounts.length)) {
-    note += ' Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';   // an old empty answer is old too
-  } else if (ao && Array.isArray(ao.accounts) && ao.accounts.length && (st !== 'ok' || stale)) {
-    note = (st === 'out' ? 'Not connected. ' : st === 'blocked' ? c.name + ' cannot be read from here right now. ' : '') + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
+  /* What this page last read, said once, for an answer that was a list (empty or not): an older Kosmos or a failed read
+     says what it is on its own. */
+  if (ao && Array.isArray(ao.accounts) && (st !== 'ok' || stale)) {
+    const why = st === 'out' ? 'Not connected. ' : st === 'blocked' ? c.name + ' cannot be read from here right now. ' : '';
+    const kept = why + 'Showing what this page last read' + (ao.at ? ', ' + agoWords(now - ao.at) : '') + '.';
+    note = ao.accounts.length ? kept : note + ' ' + kept;
   }
   if (note) g.appendChild(aoEl('p', 'dhint ao-note', note));
   if (ao && Array.isArray(ao.accounts)) {

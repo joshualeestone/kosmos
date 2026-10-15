@@ -246,7 +246,7 @@ test('#6178 a computer that could not read its own accounts says so, never "no a
   assert.equal(api.aoAccountsOf({ agents: [], accountsWeekly: null }), false);
   const now = Date.now();
   const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'ok', at: now }, { accounts: false, agents: [], at: now }, now));
-  assert.match(t, /studio could not read its accounts just now/);
+  assert.match(t, /studio could not read its accounts when this page last asked/);
   assert.doesNotMatch(t, /No Claude account/, 'a failed read was reported as no accounts');
 });
 
@@ -362,7 +362,7 @@ test('#6178 an old empty answer says it is old', () => {
   const { api } = load();
   const now = Date.now();
   const t = text(api.aoGroup({ name: 'studio', address: 'studio.kosmosplus.com' }, { state: 'out', at: now - 600e3 }, { accounts: [], agents: [], at: now - 600e3 }, now));
-  assert.match(t, /No Claude account is set up on studio\. Showing what this page last read, 10 minutes ago\./);
+  assert.match(t, /No Claude account is set up on studio\. Not connected\. Showing what this page last read, 10 minutes ago\./);
 });
 
 test('#6178 a repaint keeps an unchanged group, and focus in a changed one moves to its new Open link', () => {
@@ -431,4 +431,15 @@ test('#6178 focus in a replaced group with no Open link goes to its name, not th
   const g = list.children[0];
   assert.equal(g.querySelector('.oa-open'), null, 'CONTROL: a computer not connected has no Open link');
   assert.equal(d.activeElement, g.querySelector('.ao-name'), 'focus fell to the page');
+});
+
+test('#6178 an older Kosmos or a failed read is not told "showing what this page last read"', () => {
+  const { api } = load();
+  const now = Date.now();
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  for (const accounts of [null, false]) {
+    const t = text(api.aoGroup(c, { state: 'out', at: now - 600e3 }, { accounts, agents: [], unknown: 0, at: now - 600e3 }, now));
+    assert.doesNotMatch(t, /Showing what this page last read/, JSON.stringify(accounts) + ': ' + t);
+    assert.doesNotMatch(t, /just now/, 'a failed read claimed "just now" on an old answer');
+  }
 });
