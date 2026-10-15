@@ -297,7 +297,8 @@ function record(sessionName, entry) {
          heartbeat while still unresolved (caught in review; #2456 measured
          needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
          turn that ended normally proves the provider answered), unless the block
-         had replaced a wait on a person, which keeps the block (review 7); not the rate_limit or authentication_failed kinds.
+         had replaced a wait on a person, which keeps the block (review 7);
+         never the rate_limit or authentication_failed kinds.
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
@@ -317,7 +318,7 @@ function record(sessionName, entry) {
       if (hidesWait(under.wait)) {
         /* Review 7: re-showing the covered wait drew a defect every round (re-dating, project carry, a left project),
            so it was removed: the block stays, as before #6209, and the wait under it is the stated residual. */
-        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over a wait on a person, so an automatic idle did not overwrite it' };
+        return { recorded: false, skipped: 'waiting', because: 'it is blocked on the provider over another wait, so an automatic idle did not overwrite it' };
       }
     }
     const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
@@ -418,23 +419,6 @@ function record(sessionName, entry) {
   return { recorded: true, at };
 }
 
-/**
- * The latest run's latest report, raw. `found:false` means the agent has
- * never reported (or the record is unreadable, with its own sentence), and
- * the caller falls back to whatever it does today -- an agent that never
- * adopted the verb renders exactly as before, which is the no-regression
- * rule the #253 comment promises.
- *
- * A `started` line begins a run; only the latest run speaks for the current
- * state, so yesterday's `stopped` never shadows today's work. Within the
- * window, file order is report order: one server process appends
- * serially, which is the ordering guarantee, and a seq field would be a
- * second copy of the same fact.
- *
- * ⚠️ Every field is null when unknown, never a default (codexsession's
- * rule): a defaulted `at` would give a stale report a fresh timestamp,
- * which is exactly the lie the decay rule exists to catch.
- */
 /* #6209 review 5: the record's tail as rows, shared by read() and lineUnderProviderBlock so both see one window.
    { rows, cut } or { found: false, because }. */
 function readTail(sessionName) {
@@ -561,6 +545,23 @@ function latestOf(rows, cut) {
   };
 }
 
+/**
+ * The latest run's latest report, raw. `found:false` means the agent has
+ * never reported (or the record is unreadable, with its own sentence), and
+ * the caller falls back to whatever it does today -- an agent that never
+ * adopted the verb renders exactly as before, which is the no-regression
+ * rule the #253 comment promises.
+ *
+ * A `started` line begins a run; only the latest run speaks for the current
+ * state, so yesterday's `stopped` never shadows today's work. Within the
+ * window, file order is report order: one server process appends
+ * serially, which is the ordering guarantee, and a seq field would be a
+ * second copy of the same fact.
+ *
+ * ⚠️ Every field is null when unknown, never a default (codexsession's
+ * rule): a defaulted `at` would give a stale report a fresh timestamp,
+ * which is exactly the lie the decay rule exists to catch.
+ */
 function read(sessionName) {
   const tail = readTail(sessionName);
   if (!tail.rows) return tail;

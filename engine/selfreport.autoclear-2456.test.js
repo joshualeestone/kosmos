@@ -261,3 +261,13 @@ test('#6209 review 7: the usage-limit and sign-in kinds are left to their own ho
   assert.equal(selfreport.record(ok, { state: 'blocked', on: 'provider api (overloaded_error)', owner: 'provider', auto: true }).recorded, true);
   assert.equal(selfreport.record(ok, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
 });
+
+test('#6209 review 9: an automatic working (mid-turn) does not clear a clearable provider block either', () => {
+  const who = 'working-over-server-error-6209';
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  const hb = selfreport.record(who, { state: 'working', because: 'running Bash', auto: true });
+  assert.equal(hb.recorded, false, 'a mid-turn heartbeat cleared a provider block');
+  assert.equal(selfreport.read(who).state, 'blocked');
+  // CONTROL: the turn's normal end does clear it.
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, true);
+});

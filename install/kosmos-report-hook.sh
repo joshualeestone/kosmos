@@ -39,7 +39,7 @@
 # 'needs_you')` (#900 refused `idle`; #1949 added `working`; #2456 added an auto
 # `needs_you` clobber-guard). It refuses those over a standing PROTECTED wait --
 # a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked`
-# (#6209: the Stop idle clears a provider block that covered no wait) --
+# (#6209: the Stop idle clears a provider block, not a limit or sign-in one, that covered no wait) --
 # but NOT over a standing auto `needs_you`, which a permission prompt writes and
 # which the following auto idle/working is meant to clear. What --auto also
 # changes is that the record can now say who wrote a line.
