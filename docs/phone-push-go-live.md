@@ -292,7 +292,7 @@ archive.sh uses).
   team and `io.kosmos.app`. Signing under any other team gives device tokens the coordinator's key
   cannot send to, and `archive.sh` refuses it.
 - Done (2026-10-15): **an App Store Connect API key under the new org** (Admin), filed with
-  `/add-secret` under the target `app-store-connect` (Key ID 3M63HJVBV7). `archive.sh --upload`
+  `/add-secret` under the target `app-store-connect`. `archive.sh --upload`
   takes it as `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`. With that key, a real `archive.sh`
   run creates the team's distribution certificate and App Store profile itself
   (`-allowProvisioningUpdates`).
@@ -308,7 +308,8 @@ archive.sh uses).
   upload.
 - **Export compliance (encryption).** Set in the code since #6262: `ITSAppUsesNonExemptEncryption
   = false` in `ios/Kosmos-Info.plist`, so a TestFlight upload does not stop at Apple's question. It
-  is the first slice item of #6262's plan (Splinter's brief). It is a declaration to Apple, so it is
+  is item 1 of "First buildable slice" in kosmos #6262's card body (Splinter's brief). It is a
+  declaration to Apple, so it is
   Josh's to change: every build carries its own answer, and removing the key makes App Store
   Connect ask again on the next upload. The facts it rests on, read from `ios/Kosmos/` on 2026-09-25
   and again on 2026-10-15: the app talks to the network only over HTTPS through Apple's own
