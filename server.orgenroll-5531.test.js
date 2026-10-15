@@ -690,7 +690,7 @@ test('#6232 review 5: an older ask finishing late without an answer does not mov
   let calls = 0;
   // The first two asks wait to be answered by hand; any later one (the one the check must NOT send) answers at once.
   oe.refresh = () => { calls += 1; if (pending.length >= 2) return Promise.resolve({ ok: true, enrolled: true }); return new Promise((res) => pending.push(res)); };
-  t.after(() => { oe.refresh = realRefresh; Date.now = realNow; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  t.after(() => { oe.refresh = realRefresh; Date.now = realNow; live.resetForTests(); _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const M = 60 * 1000;
   const T = realNow() + 10 * 60 * M;
@@ -754,6 +754,8 @@ test('#6232 review 10: when this board\'s enrollment ends (any path), its agents
   // Wired at start: the board registers it with engine/orgenroll.js.
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   assert.match(src, /onEnrollmentEnded\(orgEnrollmentEnded\)/, 'start() no longer registers orgEnrollmentEnded');
+  // Review 17: a fresh join (the join route) starts its retries over.
+  assert.match(src, /ORG_REFRESH_MISSES = 0;[^\n]*\n\s*const fetched = orgEnrollRefresh\(\);/, 'the join route no longer resets the misses before its first ask');
 });
 
 test('#6232 review 12: an ending hands the agents the change once, whether or not the listener was told', async (t) => {
