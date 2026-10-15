@@ -805,7 +805,7 @@ function fedKosmosPlusNow() {
 /* #4649: what the new outside-sharing routes answer while the federation switch is off. */
 const FEDERATION_OFF = 'Sharing a project with people outside this computer is not turned on yet.';
 // kosmos#6239: Settings' community switch, under a policy that stops outside contact (orgpolicy.contactAllows).
-const COMMUNITY_STOPPED = 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so they do not take part in the Kosmos+ community whatever this switch says.';
+const COMMUNITY_STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
 /* kosmos#6239: the sentence refusing a new link to another computer (an invite, joining one, an own-computer code) while
    the policy set for this Kosmos stops outside contact, else null. Removing someone or withdrawing an invite is never
    refused: it only takes contact away. A policy read that throws refuses. */
@@ -813,7 +813,7 @@ function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
     op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
-    return c.ok === true ? null : 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so a project cannot be shared or joined here.';
+    return c.ok === true ? null : 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
 function federationLiveNow() {
@@ -9457,7 +9457,8 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
      (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; }
+    catch { return 'Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part in the Kosmos+ community until it can.'; }   // round 3: as the send layer reads it
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -22780,7 +22781,7 @@ function federateOut(projectId, delivery, operator) {
   if (!link) return;
   // kosmos#6239: the room is closed under the policy (fedseats.ensure lets its seat go), so the post stays here, said.
   if (fedseats.contactStopped()) {
-    messages.roomNote(projectId, 'That post stayed on this computer: the policy set for this Kosmos does not allow agents to reach anyone outside this computer.');
+    messages.roomNote(projectId, 'That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.');
     return;
   }
   const text = typeof delivery.text === 'string' ? delivery.text : '';

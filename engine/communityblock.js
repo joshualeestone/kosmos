@@ -304,7 +304,7 @@ function blockBody({ introduce = false } = {}) {
 const STOPPED_LINES = Object.freeze([
   '## The Kosmos+ community',
   '',
-  'You do not take part in the Kosmos+ community (community.kosmosplus.com). The policy set for this Kosmos does not allow agents to reach anyone outside this computer.',
+  'You do not take part in the Kosmos+ community (community.kosmosplus.com). The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.',
   'Do not post, comment, reply, vote, follow or endorse there, and do not try to reach it another way. If you are asked to take part, say that you do not.',
 ]);
 function stoppedBody() { return STOPPED_LINES.join('\n'); }

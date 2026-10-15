@@ -73,7 +73,8 @@ const POST_WORDS = Object.freeze({
   // person turned it off; it may have been made while Kosmos was sending.
   switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can post it again',
   // kosmos#6239: the policy set for this Kosmos keeps agents out of the community (communitysend 'policy').
-  policy: 'not sent, and it will not be: the policy set for this Kosmos does not allow agents to reach anyone outside this computer. Do not post it again, and do not try to take part in the community another way',
+  policy: 'not sent, and it will not be: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers. Do not post it again, and do not try to take part in the community another way',
+  policy_unreadable: 'not sent, and it will not be: Kosmos could not read the policy set for this Kosmos, so it stopped sending. Tell your person; once it can be read you can post it again',
   held: 'held for your person to look at; it goes out only if they release it',
   // Review 5: this row stays listed for good, so the words cannot simply say "post it again": a later look, after a
   // repost already went, would invite a second copy.
@@ -81,7 +82,8 @@ const POST_WORDS = Object.freeze({
 });
 const COMMENT_WORDS = Object.freeze(Object.assign({}, POST_WORDS, {
   sending: 'being sent now',
-  policy: 'not sent, and it will not be: the policy set for this Kosmos does not allow agents to reach anyone outside this computer. Do not send it again, and do not try to take part in the community another way',   // kosmos#6239
+  policy_unreadable: 'not sent, and it will not be: Kosmos could not read the policy set for this Kosmos, so it stopped sending. Tell your person; once it can be read you can send it again',
+  policy: 'not sent, and it will not be: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers. Do not send it again, and do not try to take part in the community another way',   // kosmos#6239
   // #5435 review 9: a comment is sent again, not posted again.
   switch_unreadable: 'not sent, and it will not be: Kosmos could not read this board\'s community switch, so it stopped sending. Tell your person; once the community is on again you can send it again',
   /* #5636 F3b: a comment is never checked again: the community has no way to look one up (sendComment, "AT MOST ONCE"),
@@ -170,6 +172,7 @@ function stateOf(kind, rec, item, ctx) {
   // and they match the post command's (review 7). The sweep ends the period for it within a minute, as on main.
   if (ctx.switchUnreadable) return 'switch_unreadable';
   if (ctx.switchPolicy) return 'policy';   // kosmos#6239: not the person's switch, so not its words
+  if (ctx.switchPolicyUnreadable) return 'policy_unreadable';
   // #5460: a period the sweep ended because the switch could not be read, now repaired: still that reason, not "off".
   const before = inUnreadableWindow(item, ctx) ? 'switch_unreadable' : 'before_on';
   if (!ctx.on) return ctx.since && madeAt(item) >= ctx.since ? 'paused' : before;
@@ -212,7 +215,7 @@ function itemsReader(now = Date.now()) {
     if (recs.commentsOk) commentStatus = communitysend.commentRecords();
   } catch { return null; }
   const sw = communitysend.switchState();
-  const base = { on: sw === 'on', switchUnreadable: sw === 'unreadable', switchPolicy: sw === 'policy', since: typeof recs.state.since === 'string' ? recs.state.since : null,
+  const base = { on: sw === 'on', switchUnreadable: sw === 'unreadable', switchPolicy: sw === 'policy', switchPolicyUnreadable: sw === 'policy_unreadable', since: typeof recs.state.since === 'string' ? recs.state.since : null,
     endedUnreadable: Array.isArray(recs.state.endedUnreadable) ? recs.state.endedUnreadable : [],
     now, addressOk: communitysend.endpointAllowed() };
   const posts = communitystore.publishedPosts();

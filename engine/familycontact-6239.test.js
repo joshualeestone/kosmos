@@ -71,7 +71,7 @@ test('#6239: under the policy the community reads as stopped by it, with its own
     apply(STOP);
     assert.equal(communitysend.switchState(), 'policy');
     assert.equal(communitysend.switchOn(), false);
-    assert.match(communitysend.notOnWords('policy'), /^the policy set for this Kosmos does not allow agents to reach anyone outside this computer, so the Kosmos\+ community is off on this board/);
+    assert.match(communitysend.notOnWords('policy'), /^the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so the Kosmos\+ community is off on this board/);
     const w = communitysend.willSend('Scout', Date.now(), 'post');
     assert.deepEqual([w.sends, w.why], [false, 'policy']);
     assert.match(communitysend.notSendingWords('post', 'policy'), /policy set for this Kosmos/);
@@ -88,9 +88,11 @@ test('#6239: a policy read that throws sends nothing, in its own words, and the 
   communitysend.setSwitch(() => ({ on: true, ok: true }));
   communitysend.setContact(() => { throw new Error('boom'); });
   try {
-    assert.equal(communitysend.switchState(), 'policy');
-    assert.match(communitysend.notOnWords('policy'), /^Kosmos cannot read the policy set for this Kosmos just now, so the Kosmos\+ community is off/);
-    assert.doesNotMatch(communitysend.notOnWords('policy'), /switch/, 'a policy fault read as the switch file');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    assert.match(communitysend.notOnWords('policy_unreadable'), /^Kosmos cannot read the policy set for this Kosmos just now, so the Kosmos\+ community is off/);
+    assert.doesNotMatch(communitysend.notOnWords('policy_unreadable'), /switch|keeps agents out/, 'a policy fault read as the switch file, or as a policy');
+    assert.deepEqual([communitysend.willSend('Scout', Date.now(), 'post').why], ['policy_unreadable']);
+    assert.match(communitysend.notSendingWords('post', 'policy_unreadable'), /cannot read the policy/);
   } finally { communitysend.setContact(null); }
   const ae = require('./agentevents');
   const real = ae.recordRefusal; const seen = [];
@@ -195,15 +197,34 @@ test('#6239: a policy record that cannot be read closes contact instead of readi
   try {
     fs.writeFileSync(file, '{ not json');
     assert.throws(() => orgpolicy.contactAllows(), 'a corrupt record read as no policy');
-    assert.equal(communitysend.switchState(), 'policy');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
     assert.equal(communityswitch.participating(), false);
     assert.equal(fedseats.contactStopped(), true);
     // A read that fails (here EISDIR), not only one that does not parse.
     fs.rmSync(file); fs.mkdirSync(file);
     assert.throws(() => orgpolicy.contactAllows(), 'an unreadable record read as no policy');
-    assert.equal(communitysend.switchState(), 'policy');
+    assert.equal(communitysend.switchState(), 'policy_unreadable');
+    // Half a record is a fault too.
+    fs.rmSync(file, { recursive: true }); fs.writeFileSync(file, JSON.stringify({ version: 3 }));
+    assert.throws(() => orgpolicy.contactAllows(), 'half a record read as no policy');
     fs.rmSync(file, { recursive: true });
     assert.deepEqual(orgpolicy.contactAllows(), { ok: true }, 'CONTROL: no record at all is no policy');
     assert.equal(communitysend.switchState(), 'on', 'CONTROL');
   } finally { communitysend.setSwitch(null); fs.rmSync(file, { recursive: true, force: true }); fs.writeFileSync(file, good); apply(OPEN); }
+});
+
+test('#6239: a computer that left its company has no policy: the record clear() leaves opens everything again (round 3)', () => {
+  communitysend.setSwitch(() => ({ on: true, ok: true }));
+  try {
+    apply(STOP);
+    assert.equal(communitysend.switchState(), 'policy', 'CONTROL: the policy is in force first');
+    orgpolicy.clear();
+    const rec = JSON.parse(fs.readFileSync(orgpolicy.APPLIED(), 'utf8'));
+    assert.ok(rec && rec.marks && !('policy' in rec), 'CONTROL: clear() left the marks-only record this test is about: ' + JSON.stringify(rec));
+    assert.deepEqual(orgpolicy.contactAllows(), { ok: true });
+    assert.deepEqual(orgpolicy.quietAllows(), { ok: true });
+    assert.equal(communitysend.switchState(), 'on');
+    assert.equal(communityswitch.participating(), communityswitch.read().on === true);
+    assert.equal(fedseats.contactStopped(), false);
+  } finally { communitysend.setSwitch(null); apply(OPEN); }
 });

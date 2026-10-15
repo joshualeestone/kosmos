@@ -27,13 +27,19 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
    refused and reported; `createAgent` refuses. A person's message refused for it is reported (thread route).
 
 ## Decided
-- Fail directions: a policy read that throws sends nothing to the community ('policy', its own words and log line)
+- What outside_contact covers, said as such in every sentence (round 3): the Kosmos+ community and projects shared
+  with other computers. It does not stop an agent's own outside tools (its connections, email, its own network
+  use); the words say "keeps agents out of the Kosmos+ community and out of projects shared with other computers",
+  never "anyone outside this computer".
+- Fail directions: a policy read that throws sends nothing to the community ('policy_unreadable', its own words,
+  status, readiness and Settings lines, never the policy's)
   and closes rooms, but does not stop messages, starts or creation. At a restart it reads as not taking part, so the
   community block is removed (as with the switch off) and the stopped lines are not written.
 - Hot paths (every message, every community send check, instruction composition, room seats) read the applied
   policy without applying a bundle; the routes, Start, Restore and create apply a fresh bundle first (inForce). A
   bundle arrives on the board's status pass, as before. Both read the record strictly (round 2): only a missing
-  record is "no policy"; one that cannot be read or parsed is a fault, under each path's fault rule above.
+  record, or the marks-only record clear() leaves when an enrollment ends (round 3), is "no policy"; one that cannot
+  be read or parsed, or half a record, is a fault, under each path's fault rule above.
 - Both keys are held to exact shapes, as the coordinator holds them. The cost, accepted: if the coordinator ever
   adds a field to either, an older board refuses the whole bundle and keeps the last good one (safe, but a lifted
   policy would not lift there until it updates).
@@ -63,12 +69,14 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   unconfirmed send): it only removes content, never sends any.
 - engine/win32inbox.js (fleet tooling behind an operator's ps1, not a customer path) types into Windows agents
   without deliverWithGap.
+- An agent's own outside tools (connections, email, its network use) under outside_contact off: a later slice
+  (a parent approval gate or a connections allowlist), named on the card.
 - Under-13 consent and kid-profile pieces; family wording across the console; tamper resistance against the
   computer's own user.
 
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
   engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
-  red (11 engine and 7 server, then 9 for round 1's fixes and 3 for round 2's); one redundant gate (fedseats.ensureAll) found unwatched and
+  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's and 5 for round 3's); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

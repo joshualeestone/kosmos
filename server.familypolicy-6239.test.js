@@ -95,7 +95,7 @@ test('#6239: no project is shared or joined under the policy, and nothing is sig
   ]) {
     const r = await call('POST', route, body, SCREEN);
     assert.equal(r.status, 403, route + ' ' + JSON.stringify(r.json));
-    assert.match(r.json.error, /^The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so a project cannot be shared or joined here\.$/, route);
+    assert.match(r.json.error, /^The policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so a project cannot be shared or joined here\.$/, route);
   }
   assert.equal(signed.length, before, 'something was signed for the coordinator under the policy');
   apply({ outside_contact: { enabled: true } });
@@ -108,9 +108,16 @@ test('#6239: Settings\' community switch says the policy overrides it, and nothi
   apply({ outside_contact: { enabled: false } });
   const r = await call('GET', '/api/community-setting');
   assert.equal(r.status, 200);
-  assert.match(r.json.stopped, /^The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so they do not take part in the Kosmos\+ community whatever this switch says\.$/);
+  assert.match(r.json.stopped, /^The policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so they do not take part in the Kosmos\+ community whatever this switch says\.$/);
   apply({ outside_contact: { enabled: true } });
   assert.equal((await call('GET', '/api/community-setting')).json.stopped, null, 'CONTROL');
+  // Round 3: a record that cannot be read is said as that (the send layer refuses on it), not as nothing. The bundle
+  // is taken away first, so the route has nothing to apply over the damaged record.
+  const bundle = fs.readFileSync(orgpolicy.BUNDLE()); const good = fs.readFileSync(orgpolicy.APPLIED());
+  try {
+    fs.rmSync(orgpolicy.BUNDLE()); fs.writeFileSync(orgpolicy.APPLIED(), '{ not json');
+    assert.match((await call('GET', '/api/community-setting')).json.stopped, /^Kosmos cannot read the policy set for this Kosmos just now, so agents do not take part/);
+  } finally { fs.writeFileSync(orgpolicy.BUNDLE(), bundle); fs.writeFileSync(orgpolicy.APPLIED(), good); }
 });
 
 test('#6239: the person\'s Start is refused in quiet hours and reported; outside them it is not', async () => {
@@ -166,6 +173,6 @@ test('#6239: a shared room under the policy says it is closed, and a post there 
   assert.doesNotMatch(closed, /every post here is sent to them/);
   const r = await call('POST', '/api/project/' + encodeURIComponent(pid) + '/room', { text: 'Who has chapter three?' }, SCREEN);
   assert.ok(r.status < 300, JSON.stringify(r.json));
-  assert.match(await roomText(), /That post stayed on this computer: the policy set for this Kosmos does not allow agents to reach anyone outside this computer\./);
+  assert.match(await roomText(), /That post stayed on this computer: the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers\./);
   apply({ outside_contact: { enabled: true } });
 });

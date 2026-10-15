@@ -4,7 +4,8 @@
  * kosmos#6239 (first Kosmos+Kids slice): the two policy keys this board enforces, as engine/orgpolicy.js reads them.
  * outside_contact stops contact only for { enabled: false }; quiet_hours is a window in local time in a named zone,
  * belonging to the day it starts on, and with school_nights only windows starting Sunday to Thursday count. A bundle
- * whose values are not the coordinator's exact shapes, or whose zone this runtime cannot read, is refused whole.
+ * whose values are not the coordinator's exact shapes is refused whole; a well-formed zone this runtime cannot read
+ * is not (it keeps quiet hours all day: familyquiet-6239).
  *
  *   node --test engine/orgpolicy-family-6239.test.js
  */
@@ -47,7 +48,7 @@ const SUN = 0, MON = 1, THU = 4, FRI = 5, SAT = 6;
 test('outside_contact: only enabled false stops contact, with a sentence that names no company', () => {
   const off = orgpolicy.contactAllows({ outside_contact: { enabled: false } });
   assert.equal(off.ok, false);
-  assert.match(off.because, /does not allow agents to reach anyone outside this computer/);
+  assert.match(off.because, /keeps agents out of the Kosmos\+ community and out of projects shared with other computers/);
   assert.doesNotMatch(off.because, /company/i);
   for (const p of [null, {}, { outside_contact: { enabled: true } }, { outside_contact: null }]) {
     assert.deepEqual(orgpolicy.contactAllows(p), { ok: true }, JSON.stringify(p));
@@ -95,7 +96,7 @@ test('quietAllows says until when, in which zone, and names no company; no polic
   assert.deepEqual(orgpolicy.quietAllows({}, at(SUN, '22:00')), { ok: true });
 });
 
-test('a bundle with either key in another shape, or a zone this runtime cannot read, is refused whole', () => {
+test('a bundle with either key in another shape is refused whole; a well-formed unknown zone is not', () => {
   assert.equal(apply({ outside_contact: { enabled: false }, quiet_hours: QH }).refused, null, 'CONTROL: the good one applies');
   const bad = [
     { outside_contact: { enable: false } },

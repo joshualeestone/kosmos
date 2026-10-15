@@ -181,7 +181,11 @@ function currentStrict() {
     throw e;
   }
   const j = JSON.parse(raw);
-  if (!(j && Number.isInteger(j.version) && j.policy && typeof j.policy === 'object')) throw new Error('the applied policy record is not one this Kosmos understands');
+  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('the applied policy record is not one this Kosmos understands');
+  /* Round 3: clear() leaves the marks alone ({ marks }) when an enrollment ends, and that is no policy, not a fault:
+     reading it as one shut the community and every room on a computer that had merely left. Half a record is a fault. */
+  if (!('policy' in j) && !('version' in j)) return null;
+  if (!(Number.isInteger(j.version) && j.policy && typeof j.policy === 'object')) throw new Error('the applied policy record is not one this Kosmos understands');
   return j.policy;
 }
 
@@ -241,7 +245,7 @@ const POLICY_SETTER = 'the policy set for this Kosmos';
 function contactAllows(policy = currentStrict()) {
   const oc = policy && policy.outside_contact;
   if (oc && typeof oc === 'object' && oc.enabled === false) {
-    return { ok: false, because: `${POLICY_SETTER} does not allow agents to reach anyone outside this computer` };
+    return { ok: false, because: `${POLICY_SETTER} keeps agents out of the Kosmos+ community and out of projects shared with other computers` };
   }
   return { ok: true };
 }

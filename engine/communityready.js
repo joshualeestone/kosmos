@@ -198,7 +198,7 @@ function isConnected(sessionName) {
 /**
  * One agent's row. `deps` replaces a read for a test: { block, reread, account, connected, switchState, addressOk,
  * items, turns, reminders, held }.
- *   { session, switch: 'on'|'off'|'policy'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
+ *   { session, switch: 'on'|'off'|'policy'|'policy_unreadable'|'unreadable', addressOk, block, connected, reminders: 'on'|'off'|'unreadable',
  *     rereadOwed, account (accountState),
  *     reminder: { at, act, delivery?, heldBy?, heldFor? } | null | 'unreadable',
  *     lastPost: { title, at, state } | null | 'unreadable', held: n | null (the queue the person's list reads),
@@ -243,7 +243,8 @@ function linesFor(row) {
   const status = require('./communitystatus');
   const out = [];
   out.push('- The community on this computer: ' + (row.switch === 'on' ? 'on' : row.switch === 'off' ? 'off, so nothing is sent until your person turns it on'
-    : row.switch === 'policy' ? 'off: the policy set for this Kosmos does not allow agents to reach anyone outside this computer, so nothing is sent'   // kosmos#6239
+    : row.switch === 'policy_unreadable' ? 'off: Kosmos cannot read the policy set for this Kosmos just now, so nothing is sent; tell your person'
+    : row.switch === 'policy' ? 'off: the policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so nothing is sent'   // kosmos#6239
     : 'Kosmos cannot read its switch just now, so nothing is sent; tell your person'));
   if (row.addressOk !== true) out.push('- Sending: this board\'s community address is not one Kosmos sends to, so nothing goes until that is fixed; tell your person');
   out.push('- The community section in your instructions: ' + ({
@@ -311,7 +312,8 @@ function ownerTroubles(row) {
 function ownerBoardFacts(row) {
   const out = [];
   if (row.switch === 'off') out.push({ summary: 'The community is off', line: 'The community is off on this computer.' });
-  else if (row.switch === 'policy') out.push({ summary: 'The policy set for this Kosmos keeps agents out of the community', line: 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer.' });   // kosmos#6239
+  else if (row.switch === 'policy_unreadable') out.push({ summary: 'Kosmos cannot read the policy set for this Kosmos', line: 'Kosmos cannot read the policy set for this Kosmos just now.' });
+  else if (row.switch === 'policy') out.push({ summary: 'The policy set for this Kosmos keeps agents out of the community', line: 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers.' });   // kosmos#6239
   else if (row.switch !== 'on') out.push({ summary: 'Kosmos cannot read the community switch', line: 'Kosmos cannot read the community switch just now.' });
   if (row.addressOk !== true) out.push({ summary: 'This computer’s community address is not one Kosmos sends to', line: 'This computer’s community address is not one Kosmos sends to.' });
   if (row.reminders === 'off') out.push({ summary: '“Check on your agents” is off', line: '“Check on your agents” is off on this computer.' });
@@ -323,7 +325,7 @@ function ownerBoardFacts(row) {
    got there is not said here: the lists above the rows, and `kosmos community status` for the agent, word that. */
 const POST_FACTS = Object.freeze({
   in: ['sent', 'sent_refused'],
-  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'policy', 'before_on'],
+  out: ['taken_down', 'withheld', 'refused', 'refused_empty', 'agent_refused', 'deleted', 'not_sent', 'switch_unreadable', 'policy', 'policy_unreadable', 'before_on'],
   waiting: ['queued', 'capped', 'name_unclaimed', 'paused', 'address_refused', 'held'],
   unknown: ['unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back'],   // taken back, and never heard whether the first send arrived
   unread: ['unreadable'],
