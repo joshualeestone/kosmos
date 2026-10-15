@@ -18,7 +18,7 @@
  * FIRST RING, defined from the render: a root's wire starts at the hub centre, so a node whose wire-start is
  * nearest the hub (not another face) is a first-ring node. The rule under test is every first-ring hub line
  * clearing every OTHER node's face by at least ORG_LINE_CLEAR at the scale the chart was drawn at (12px at a
- * desktop, floored at ORG_LINE_CLEAR * ORG_SQUEEZE_MIN on a squeezed phone), read per width (see drawnScale).
+ * desktop, floored at ORG_LINE_CLEAR * ORG_SQUEEZE_MIN on a squeezed phone), read per width (see drawnK).
  *
  * 🔑 NON-VACUITY. (1) Measured on the PR: against PRE-#4499 main on this board the first ring grazes ~6.3px at
  * placement, which a tree's settle preserves (no flat-only clearance force), so the check reds below the per-width
@@ -45,12 +45,12 @@ const FIRST_RING_MIN = 12;   // the first ring must have at least this many node
 
 /* The 12px rule is a NATURAL-space rule; as drawn it is ORG_LINE_CLEAR * (the scale the chart was drawn at),
    bottoming out at ORG_LINE_CLEAR * ORG_SQUEEZE_MIN (the deepest squeeze orgFit allows on a phone). So the
-   threshold is per-width: LINE_CLEAR read from the page, times the drawn scale (drawnScale below), floored at
+   threshold is per-width: LINE_CLEAR read from the page, times the drawn radius scale k (drawnK below), floored at
    CLEAR_FLOOR. A fixed 8.4 (12 * 0.7) is right only at the deepest squeeze; at desktop scale 1 the real promise is
    12px, and 8.4 would pass 8.5 to 12px through (Liu Kang m5643). */
 let LINE_CLEAR = NaN;    // ORG_LINE_CLEAR, the 12px rule, read from the page
 let CLEAR_FLOOR = NaN;   // LINE_CLEAR * ORG_SQUEEZE_MIN: the deepest-squeeze floor (8.4)
-let SQUEEZE_MIN = NaN;   // ORG_SQUEEZE_MIN (0.7): orgFit's deepest scale, used to sanity-gate drawnScale
+let SQUEEZE_MIN = NaN;   // ORG_SQUEEZE_MIN (0.7): orgFit's deepest scale, used to sanity-gate drawnK
 async function readConsts(pg) {
   const src = await pg.content();
   const num = (k) => Number((src.match(new RegExp('const\\s+' + k + '\\s*=\\s*([\\d.]+)\\s*;')) || [])[1]);
@@ -59,24 +59,39 @@ async function readConsts(pg) {
   LINE_CLEAR = line; CLEAR_FLOOR = line * squeeze; SQUEEZE_MIN = squeeze;
 }
 
-/* The scale the chart was actually DRAWN at (Liu Kang m5645: measure the drawn artifact, not a recompute of
-   orgFit's k, which is what the code MEANT to draw): the rendered chart square over the natural square. The
-   rendered width is read from the orgmap element; the natural square is orgNatural(maxR) from the page's own
-   layout of its LAST agents (orgPlaceGated when present, else orgPlace, matching paintOrg). NaN if unreadable.
-   Note: this is the canvas scale (size/natural); it equals 1 at desktop (no squeeze) and is floored by CLEAR_FLOOR
-   at a phone, the two widths this check drives, so it tracks the radius scale there. */
-async function drawnScale(pg) {
+/* The radius scale k the chart was actually DRAWN at (Liu Kang m5697: read it from the drawn artifact, not a
+   recompute of orgFit's k, and not the canvas scale size/natural, which understates k because orgFit pads the
+   size with ORG_PAD_MIN while orgNatural uses the larger ORG_PAD). paintOrg scales every placement radius by k
+   (spot.r *= fit.k), so for a rendered face k = (its rendered distance from the hub) / (its own placement radius).
+   Every face scales by the SAME k, so we read SEVERAL and require them to agree within 0.5% -- a cheap control
+   that the reading is real (the positions are what we think). Fewer than three readable faces, or a spread past
+   0.5%, returns NaN so the caller fails loud rather than measuring against a lie. The placement radius is the
+   page's own layout of its LAST agents (orgPlaceGated when present, else orgPlace, matching paintOrg), honouring
+   ?limit=; faces with a tiny radius are skipped (their ratio is noise). */
+async function drawnK(pg) {
   return pg.evaluate(() => {
     try {
-      const orgmap = document.getElementById('orgmap');
-      const drawnW = orgmap ? orgmap.getBoundingClientRect().width : 0;
+      const map = document.getElementById('orgmap');
+      const hubEl = map.querySelector('.hub');
+      const hx = parseFloat(hubEl.style.left); const hy = parseFloat(hubEl.style.top);
       const lim = new URLSearchParams(location.search).get('limit');
       const all = (typeof LAST !== 'undefined' && LAST ? LAST : []).filter((a) => a && a.sessionName && !(a.isGuide === true));
       const agents = lim ? all.slice(0, Number(lim)) : all;
       const place = (typeof orgPlaceGated === 'function' ? orgPlaceGated : orgPlace);
-      const maxR = place(orgTreeOf(agents)).maxR;
-      const natural = orgNatural(maxR);
-      return (drawnW > 0 && natural > 0) ? drawnW / natural : NaN;
+      const placed = place(orgTreeOf(agents)).placed;   // Map: name -> { r: natural (pre-squeeze) radius, ... }
+      const ks = [];
+      for (const n of map.querySelectorAll('.onode')) {
+        const key = n.getAttribute('data-agent');
+        const spot = placed && placed.get ? placed.get(key) : (placed ? placed[key] : null);
+        if (!spot || !(spot.r > 1)) continue;   // skip hub-adjacent / tiny-radius faces (noisy ratio)
+        const rd = Math.hypot(parseFloat(n.style.left) - hx, parseFloat(n.style.top) - hy);
+        ks.push(rd / spot.r);
+      }
+      if (ks.length < 3) return NaN;
+      ks.sort((a, b) => a - b);
+      const med = ks[Math.floor(ks.length / 2)];
+      if (!(med > 0) || (ks[ks.length - 1] - ks[0]) / med > 0.005) return NaN;   // the faces must agree (one k)
+      return med;
     } catch (e) { return NaN; }
   });
 }
@@ -151,7 +166,7 @@ async function settledRead(pg) {
     say(firstRing.length >= FIRST_RING_MIN, label + ': the first ring has at least ' + FIRST_RING_MIN + ' roots found from the wires (non-vacuity)', firstRing.length + ' roots');
     const ringSet = new Set(firstRing);
     const at = new Map(m.nodes.map((n) => [n.key, n]));
-    /* Every first-ring hub line clears every OTHER node's face by the 12px rule at the drawn scale, as drawn. The
+    /* Every first-ring hub line clears every OTHER node's face by the 12px rule at the drawn radius scale k, as drawn. The
        #4499 bug is a hub line to an outer-lane root grazing an inner root's face; so the pairs that matter are a
        first-ring wire against every other face. */
     let least = Infinity; let where = '';
@@ -163,17 +178,17 @@ async function settledRead(pg) {
         if (d < least) { least = d; where = s.name + ' past ' + n.key; }
       }
     }
-    const scale = await drawnScale(pg);
-    /* The scale read is load-bearing, so gate it rather than trust it: orgFit floors k at ORG_SQUEEZE_MIN and caps
-       it at 1, so a drawn scale outside [ORG_SQUEEZE_MIN, 1] (float noise allowed) means the read was skewed -- an
-       orgmap padding/border/transform, or a LAST-vs-paintOrg filter mismatch -- and would shift the threshold
-       silently. A NaN read (every comparison false) fails here too. Fail loud instead of measuring against a lie. */
-    say(scale >= SQUEEZE_MIN - 0.03 && scale <= 1.03, label + ': the drawn scale read plausibly (ORG_SQUEEZE_MIN..1)', Number.isFinite(scale) ? scale.toFixed(3) : String(scale));
-    /* Threshold = the 12px rule AT the drawn scale, floored at CLEAR_FLOOR (8.4 on a squeezed phone). The scale is
-       capped at 1, so a marginally-high read can never demand MORE than the 12px desktop promise (a false red); and
-       an unreadable scale falls back to 1, the strictest value, so a bad read reds here and never greens falsely. */
-    const threshold = Math.max(CLEAR_FLOOR, LINE_CLEAR * Math.min(1, scale > 0 ? scale : 1));
-    say(least >= threshold, label + ': no first-ring hub line comes nearer than ' + threshold.toFixed(1) + 'px (the ' + LINE_CLEAR + 'px rule at drawn scale ' + (scale > 0 ? scale.toFixed(3) : '?') + ', floored at ' + CLEAR_FLOOR.toFixed(1) + ') to any face', 'least ' + least.toFixed(1) + 'px (' + where + ')');
+    const k = await drawnK(pg);
+    /* k is the TRUE radius scale, read from the drawn faces, so the gate [ORG_SQUEEZE_MIN, 1] is exact (orgFit
+       floors k at ORG_SQUEEZE_MIN and caps it at 1): a reading outside it, or a NaN (every comparison false, which
+       is also what the faces-disagree-past-0.5% control returns), means the read was not real. Fail loud rather
+       than measure the clearance against a lie. */
+    say(k >= SQUEEZE_MIN - 0.01 && k <= 1.01, label + ': the drawn radius scale k read plausibly (ORG_SQUEEZE_MIN..1)', Number.isFinite(k) ? k.toFixed(3) : String(k));
+    /* Threshold = the 12px rule AT the drawn radius scale (paintOrg scales clearances by k), floored at CLEAR_FLOOR
+       (8.4 on a fully squeezed phone). k is capped at 1 so it can never demand MORE than the 12px desktop promise
+       (a false red); an unreadable k falls back to 1, the strictest value, so a bad read reds and never greens falsely. */
+    const threshold = Math.max(CLEAR_FLOOR, LINE_CLEAR * Math.min(1, k > 0 ? k : 1));
+    say(least >= threshold, label + ': no first-ring hub line comes nearer than ' + threshold.toFixed(1) + 'px (the ' + LINE_CLEAR + 'px rule at drawn k ' + (k > 0 ? k.toFixed(3) : '?') + ', floored at ' + CLEAR_FLOOR.toFixed(1) + ') to any face', 'least ' + least.toFixed(1) + 'px (' + where + ')');
     const shot = path.join(OUT, 'org-first-ring-6196-' + label + '.png');
     await pg.locator('#orgview').screenshot({ path: shot });
     console.log('      screenshot: ' + shot);
