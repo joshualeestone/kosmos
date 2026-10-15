@@ -108,7 +108,10 @@ test('only the newest seven day folders are listed: a report eight days back is 
   const h = home();
   const old = writeRollout(h, '01', '09-00-00', [tokenRow('2026-10-14T11:00:00Z', rl(win(70, 10080, NOW + 864e5), null))]);
   touch(old, NOW - 60e3);   // written recently, but its folder is eight folders back
-  for (const d of ['02', '03', '04', '05', '06', '07', '08']) writeRollout(h, d, '09-00-00', [{ timestamp: '2026-10-' + d + 'T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+  for (const d of ['02', '03', '04', '05', '06', '07', '08']) {
+    const f = writeRollout(h, d, '09-00-00', [{ timestamp: '2026-10-' + d + 'T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+    touch(f, NOW - 2 * 3600e3);   // older than the report's file, so only the folder bound can keep the report out
+  }
   assert.equal(codexlimits.DAYS_LISTED, 7);
   assert.equal(codexlimits.read(h, NOW), null);
 });
@@ -155,8 +158,12 @@ test('several homes: the account folder and its agents\' private ones are read t
 
 test('a home lists at most LISTED_PER_HOME files, newest day folders first', () => {
   const h = home();
-  writeRollout(h, '01', '09-00-00', [tokenRow('2026-10-01T09:00:00Z', rl(win(77, 10080, NOW + 864e5), null))]);   // the oldest folder
-  for (let i = 0; i < 12; i++) writeRollout(h, '14', '09-' + String(i).padStart(2, '0') + '-00', [{ timestamp: '2026-10-14T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+  const rep = writeRollout(h, '01', '09-00-00', [tokenRow('2026-10-01T09:00:00Z', rl(win(77, 10080, NOW + 864e5), null))]);   // the oldest folder
+  touch(rep, NOW - 60e3);   // but the newest write, so only the listing cap can keep it out
+  for (let i = 0; i < 12; i++) {
+    const f = writeRollout(h, '14', '09-' + String(i).padStart(2, '0') + '-00', [{ timestamp: '2026-10-14T09:00:00Z', type: 'event_msg', payload: { type: 'task_started' } }]);
+    touch(f, NOW - 2 * 3600e3);
+  }
   assert.equal(codexlimits.LISTED_PER_HOME, 12);
   assert.equal(codexlimits.read(h, NOW), null, 'twelve newer files fill the listing; the oldest folder is not listed');
 });

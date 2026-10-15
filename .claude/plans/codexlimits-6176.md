@@ -58,11 +58,14 @@ the default account). My first version read only the account folder and would ne
 - Every home of an account (its folder and its agents' private ones) counts only reports written since its auth.json
   was last written (a re-sign-in under another login leaves the old login's sessions in both); an agent's home also
   waits for its own job's last change.
-  A token refresh also rewrites auth.json. Measured 2026-10-14: auth.json is written with `last_refresh` and not
-  otherwise (this computer's: both Oct 5, an idle sign-in). A refresh happens when Codex runs, and that run writes a
-  new report moments later, so the gap is seconds of an active session, not a long-lived blank. Rejected: keying on
-  the sign-in's account_id across refreshes, which needs a stored record per account for that gap. A token refresh also rewrites auth.json: a missing meter for a
-  while, never a wrong figure.
+  A token refresh also rewrites auth.json, and then hides the account's earlier reports. Measured 2026-10-14, one
+  sign-in: its auth.json was last written at its own `last_refresh` (both Oct 5), so there it changed only on a
+  refresh. Reasoned, not measured: a refresh while an agent works is followed within moments by that run's own report,
+  so the gap is short. NOT measured: whether Kosmos's own sign-in check (`codex doctor --json`, codexsigninlive)
+  can refresh the token. If it can, an idle account loses its still-current meter until an agent next works on it,
+  which can be days: a missing meter, never a wrong one. Not measured on purpose: a refresh can rotate the sign-in's
+  token, and running one against a copy of a real sign-in could log the real one out. Rejected: keying on the
+  sign-in's account_id across refreshes, which needs a stored record per account.
 - Each home lists at most 12 files, newest day folder first and by name within a day, before ranking by write time:
   on a busy day a session from yesterday resumed today may not be listed. A long session whose last 256 KB holds no
   rate_limits row reads as no report from that file.
