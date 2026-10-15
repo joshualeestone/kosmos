@@ -361,6 +361,6 @@ test('#5532 Windows: this PC\'s real print exists, is stable, and PowerShell rea
     cp._testRunner(() => { throw new Error('Registry editing has been disabled by your administrator'); }, { platform: 'win32', fallback: 'real' });
     c = cp._testFingerprint(SALT, ORG);
   }
-  assert.ok(c !== null, 'the PowerShell fallback read nothing in 3 tries (powershell.exe timed out each time)');
+  assert.ok(c !== null, 'the PowerShell fallback read nothing in 3 tries');
   assert.ok(c === a, 'the PowerShell fallback read a different value');
 });
