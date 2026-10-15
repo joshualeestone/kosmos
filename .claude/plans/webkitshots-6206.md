@@ -17,10 +17,11 @@ follow it. A one-load probe in WebKit with the same stub drew the row, which is 
 docs/browser-checks/mobile-shots.js: `noServiceWorker: true` on settings-accounts-expiring, settings-accounts-landed,
 settings-add-qwen and settings-add-qwen-downloading (settings-add-qwen is the base the downloading screen runs; it
 was not named on the card but has the same gap).
-Found by reading every screen with the guard's reader (review 1 widened it): a screen stubs if its body calls .route(
+Found by reading every screen with the guard's reader: a screen stubs if its body calls .route(
 on the page or its context, calls a helper that does at any depth (openConsAgents, connectPending, joinWaiting,
 orgConnected, stubRebootNote; every caller already flagged), or runs another screen that does, in either SCREENS.find
-form the file uses. Bodies are brace-matched, skipping strings and comments. Exactly these four were unflagged.
+form. The reader first drops comments in one pass that knows strings, template literals (with ${} at any depth) and
+regex literals, then bounds each body by its braces. Exactly these four were unflagged.
 
 ## Guard
 tools.mobile-shots-serviceworker-6206.test.js: every stubbing screen sets the flag; CONTROL that the reader sees
@@ -33,5 +34,6 @@ light and dark, webkit and chromium: 64 shots, 0 errors, 0 overflow; the webkit 
 
 ## Weakest premise
 That the worker is the only WebKit difference for these screens. The 64-shot run says it is enough today. The
-reader is a text reader: a stub reached in a way it does not model (a helper passed as a value, a regex literal that
-holds a brace or quote) can still slip past it.
+reader is a text reader: a stub reached in a way it does not model (a helper passed as a value, an object method, a
+regex literal after a word it does not list) can still slip past it. Sanity checks keep it honest on the real file:
+it must find every declared screen and the five helpers known to stub.
