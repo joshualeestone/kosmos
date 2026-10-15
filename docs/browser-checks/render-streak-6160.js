@@ -324,10 +324,19 @@ const read = (pg) => pg.evaluate(() => {
 
   // a board that keeps saying no is asked a handful of times, not every minute forever
   {
-    let calls = 0;
+    let calls = 0; const statuses = [];
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
-    await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"no"}' }).catch(() => {}); });
+    // The refusal is the BOARD's own (#6188): the request goes on to it as if from another website, and its cross-site
+    // write guard answers 403. A refusal Playwright makes up arrives whole, so it cannot show a body left unread.
+    await pg.route('**/api/streak', async (route) => {
+      calls++;
+      try {
+        const resp = await route.fetch({ headers: { ...route.request().headers(), origin: 'https://elsewhere.example' } });
+        statuses.push(resp.status());
+        await route.fulfill({ response: resp });
+      } catch { await route.abort().catch(() => {}); }
+    });
     // #6188: each refused request must FINISH (the page reads the refusal's body): left unread it stays open, and a
     // page waiting for the network to go quiet waits forever.
     const streakReqs = new Set(); let ended = 0;
@@ -339,6 +348,7 @@ const read = (pg) => pg.evaluate(() => {
     await pg.clock.runFor(30 * 60 * 1000);
     await pg.waitForTimeout(300);
     say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
+    say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
     say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
     await pg.close();
   }
