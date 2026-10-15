@@ -5,8 +5,7 @@ the agent under the new account, though it still runs on the old one until it re
 
 ## Finished looks like
 In Settings, AI Models, an agent moved to another account whose process is still running on its old account (the move
-came back partial because its window could not be closed) is listed under the account it was moved to, with "(still on
-running on its old account)" after its name, while that same session runs. Once it has restarted the marker
+came back partial because its window could not be closed) is listed under the account it was moved to, with "(still running on its old account)" after its name, while that same session runs. Once it has restarted the marker
 goes. A restart that came from the still-loaded old launch job (a crash, the agent exiting) can still be on the old
 account and is then unmarked: under-marking, never a wrong mark (review 9). Every other agent reads as before.
 
