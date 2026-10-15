@@ -22951,7 +22951,12 @@ function companyPolicyClearOwed() {
 /* Retry the owed hand-over, at most hourly. Returns whether it ran companyPolicySync this call (for tests). */
 function companyPolicyRetryIfOwed(now = Date.now()) {
   if (!companyPolicyClearOwed()) return false;
-  if (now < ORG_POLICY_RETRY_AT) return false;   // at most once an hour, even on the five-minute tick
+  /* At most once an hour -- BUT a clock set back before the last retry counts as DUE, so a wrong clock cannot
+     hold the retry off (the same rule orgRefreshIfDue uses for the hourly ask, via `now < ORG_ASKED_AT`, #6232
+     review 3). Block only when we are genuinely still inside the hour since the last retry
+     (ORG_POLICY_RETRY_AT - ORG_POLICY_RETRY_MS is when that retry ran). */
+  const lastRetryAt = ORG_POLICY_RETRY_AT - ORG_POLICY_RETRY_MS;
+  if (now >= lastRetryAt && now < ORG_POLICY_RETRY_AT) return false;
   ORG_POLICY_RETRY_AT = now + ORG_POLICY_RETRY_MS;
   companyPolicySync();
   return true;

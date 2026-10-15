@@ -980,3 +980,33 @@ test('#6240: the no-company retry is wired into orgRefreshIfDue, so a refactor c
   assert.match(src, /function orgRefreshIfDue\b[\s\S]*?companyPolicyRetryIfOwed\(now\)/,
     'orgRefreshIfDue no longer calls companyPolicyRetryIfOwed: the no-company retry would never run on the tick');
 });
+
+test('#6240: a clock set back before the last retry counts as due, so a wrong clock cannot hold the retry off', (t) => {
+  const HOUR = 60 * 60 * 1000, MIN = 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
+  const live = require('./engine/live-execution');
+  _orgRefreshResetForTests(); live.resetForTests();
+  assert.ok(!live.liveExecutionAllowed(), 'needs live execution OFF so orgEnrollRefresh is inert');
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }]; };   // always stuck, so the clear stays owed
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); live.resetForTests(); });
+
+  companyPolicySync();            // records the company text
+  entry = null;                   // ending with a stuck agent: a clear is owed and stays owed
+  orgEnrollmentEnded(store.ROOT);
+  assert.equal(syncs, 1, 'the ending ran the hand-over once');
+  const T = 10 * HOUR;
+  orgRefreshIfDue(T);
+  assert.equal(syncs, 2, 'the first due tick retried');
+  orgRefreshIfDue(T + 5 * MIN);
+  assert.equal(syncs, 2, 'within the hour: no retry');
+  // Clock set back a full day, before the last retry at T. The old `now < ORG_POLICY_RETRY_AT` gate would hold
+  // this off for the whole set-back; it must instead count as due and retry (mirrors orgRefreshIfDue, #6232 rev 3).
+  orgRefreshIfDue(T - 24 * HOUR);
+  assert.equal(syncs, 3, 'a clock set back before the last retry must retry, not be held off for the set-back');
+});
