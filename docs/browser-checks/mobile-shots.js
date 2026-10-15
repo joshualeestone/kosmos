@@ -82,6 +82,8 @@ const { spawn, execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #6205: bound every browser/context close so a dead engine fails the run in seconds instead of hanging it.
+const { closeContextBounded, closeBrowserBounded, childPidsOf } = require('./lib-bounded-close.js');
 
 const REPO = path.resolve(__dirname, '..', '..');
 
@@ -2402,7 +2404,11 @@ async function run() {
     const ctxData = await seed(board.base, board.roots);
     await preflight(board.base);
     for (const en of args.engines) {
+      /* #6205: the engine's own pid(s), so a wedged close can be force-killed by pid (never a pattern). Playwright's
+         Browser from launch() exposes no process(), so read node's child table across the launch: the new child is it. */
+      const childrenBefore = childPidsOf(process.pid);
       const browser = await engines[en].launch();
+      const enginePids = childPidsOf(process.pid).filter((p) => !childrenBefore.includes(p));
       try {
         for (const sz of args.sizes) {
           const s = SIZES[sz];
@@ -2492,7 +2498,7 @@ async function run() {
                 }
                 if (!s.desktop) { fit = await fitOf(page); audited = true; }
               } catch (e) {
-                if (e.leak) { await ctx.close(); throw e; }
+                if (e.leak) { await closeContextBounded(ctx); throw e; }
                 errors++;
                 note = 'ERROR ' + String(e.message || e).split('\n')[0];
               }
@@ -2519,7 +2525,7 @@ async function run() {
               const inReport = hitsIn(JSON.stringify(fit) + ' ' + note);
               if (inReport.length) {
                 try { fs.rmSync(path.join(out, file), { force: true }); } catch { /* best effort */ }
-                await ctx.close();
+                await closeContextBounded(ctx);
                 const err = new Error('LEAK GUARD: this screen\'s report would carry real data (' + inReport.length + ' hits, e.g. '
                   + inReport[0] + '). Its shot is deleted. Stopping with no further shots.');
                 err.leak = true;
@@ -2529,11 +2535,11 @@ async function run() {
               console.log((note ? 'FLAG  ' : 'ok    ') + file + (note ? '  ' + note : '')
                 + (!audited ? '  phone audits: n/a'
                   : `  taps<${MIN_TAP_PX}: ${fit.taps.length}  fields<${MIN_FIELD_FONT_PX}px: ${fit.fields.length}  covers: ${(fit.covers || []).length}`));
-              await ctx.close();
+              await closeContextBounded(ctx);
             }
           }
         }
-      } finally { await browser.close(); }
+      } finally { await closeBrowserBounded(browser, enginePids); }
     }
     if (args.keep) {
       console.log(`\n--keep: the throwaway board stays up at ${board.base} (data in ${board.roots.DATA}); Ctrl-C to stop.`);
