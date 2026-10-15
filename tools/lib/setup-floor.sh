@@ -70,23 +70,30 @@ kosmos_setup_floor_pointer_ok() {
   # parser, so a pointer with any backslash is refused (the real writer, write-latest-pointer.js, never emits one).
   # One line: a key whose colon sits on the next line ("version"<newline>:"0.6.1") hid from a per-line count, while a
   # JSON parser reads it; so newlines and returns become spaces before the counts and the extractors read the pointer.
-  json=$(printf '%s' "$json" | tr '\n\r' '  ')
+  # Printable ASCII only, and every tool here under LC_ALL=C: in a UTF-8 locale tr stops at the first invalid byte and
+  # passes on only the part before it, so a 0xFF could hide a second key from every check below while a JSON parser
+  # reads it. The real writer emits ASCII; anything else is refused.
+  if [ "$(printf '%s' "$json" | LC_ALL=C tr -d ' -~\n\r\t' | wc -c | tr -d ' ')" != 0 ]; then
+    echo "setup floor (kosmos#6149): $label has a byte outside printable ASCII -- refusing" >&2
+    return 1
+  fi
+  json=$(printf '%s' "$json" | LC_ALL=C tr '\n\r' '  ')
   case "$json" in
     *\\*) echo "setup floor (kosmos#6149): $label has a backslash (a JSON escape could hide a key) -- refusing" >&2; return 1 ;;
   esac
-  if [ "$(printf '%s' "$json" | grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
-     [ "$(printf '%s' "$json" | grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
+  if [ "$(printf '%s' "$json" | LC_ALL=C grep -o '"version"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ] ||
+     [ "$(printf '%s' "$json" | LC_ALL=C grep -o '"artifact"[[:space:]]*:' | wc -l | tr -d ' ')" -gt 1 ]; then
     echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2
     return 1
   fi
-  v=$(printf '%s' "$json" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
-  art=$(printf '%s' "$json" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
+  v=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
+  art=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
   kosmos_setup_floor_ok "$label" "$v" || return 1
   [ -n "$art" ] || {
     echo "setup floor (kosmos#6149): $label names no artifact, so what it installs cannot be checked -- refusing" >&2
     return 1
   }
-  av=$(printf '%s' "$art" | sed -n 's/^kosmos-\(.*\)-[a-z0-9_][a-z0-9_]*\.tar\.gz$/\1/p')
+  av=$(printf '%s' "$art" | LC_ALL=C sed -n 's/^kosmos-\(.*\)-[a-z0-9_][a-z0-9_]*\.tar\.gz$/\1/p')
   if [ -z "$av" ] || [ "$av" != "$v" ]; then
     echo "setup floor (kosmos#6149): $label says version $v but names artifact $art -- refusing (the tarball is what installs)" >&2
     return 1
