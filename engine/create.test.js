@@ -6923,7 +6923,7 @@ test('#5534 review 2/3: Gemini without a model is its pinned default, and a swit
   try {
     const g = create.policyAllows('google', '');
     assert.equal(g.ok, false);
-    assert.match(g.because, /does not allow the model gemini-2\.5-flash on Google Gemini/, 'Gemini without a model was not asked about its pinned default');
+    assert.match(g.because, /does not allow the model gemini-2\.5-flash on Google Gemini \(API key\)/, 'Gemini without a model was not asked about its pinned default');
     assert.equal(create.policyAllows('xai', '').ok, true, 'CONTROL: a provider with no list needs no model');
     assert.equal(create.policyAllows('google', 'gemini-2.5-pro').ok, true, 'CONTROL: the listed Gemini model');
     fs.writeFileSync(orgpolicy.APPLIED(), JSON.stringify({ org: 'org-1', version: 2, applied_at: 1,

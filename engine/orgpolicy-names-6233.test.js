@@ -17,7 +17,7 @@ const orgpolicy = require('./orgpolicy');
 const SCREEN = {
   anthropic: 'Anthropic Claude',
   openai: 'OpenAI',
-  google: 'Google Gemini',
+  google: 'Google Gemini (API key)',
   antigravity: 'Google Gemini (Google subscription)',
   xai: 'xAI Grok',
   meta: 'Meta Muse',
@@ -58,9 +58,25 @@ test('#6233: the names are the provider menus\' own words (a rename on either si
   const optionText = (value) => [...html.matchAll(new RegExp('<option value="' + value + '"[^>]*>([^<]*)', 'g'))].map((m) => m[1]);
   // The Add a provider menu says "Anthropic Claude" on its 'claude' row; the create menu's 'anthropic' row says "Anthropic / Claude".
   const menuValue = { anthropic: 'claude' };
+  // Exact, except a row the menu marks as not yet available ("Meta Muse \u00b7 coming soon").
+  const soon = (t, name) => t.startsWith(name + ' &middot; ') || t.startsWith(name + ' \u00b7 ');
   for (const [id, name] of Object.entries(SCREEN)) {
     const texts = optionText(menuValue[id] || id);
     assert.ok(texts.length > 0, 'CONTROL: no <option value="' + (menuValue[id] || id) + '"> in web/index.html');
-    assert.ok(texts.some((t) => t === name || t.startsWith(name + ' ')), id + ': no provider menu row reads ' + JSON.stringify(name) + ' (it has ' + JSON.stringify(texts) + ')');
+    assert.ok(texts.some((t) => t === name || soon(t, name)), id + ': no provider menu row reads ' + JSON.stringify(name) + ' (it has ' + JSON.stringify(texts) + ')');
+  }
+});
+
+test('#6233: every provider the board accepts for a new agent has a name (a new provider cannot fall to "this provider")', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  // createAgentInner's accept test: every id it names, compared either way (provider !== 'x' / provider === 'x').
+  const at = src.indexOf("const steps = [];\n  if (provider !== 'anthropic'");
+  assert.ok(at >= 0, 'CONTROL: createAgentInner\'s provider accept test moved; find the new list');
+  const block = src.slice(at, src.indexOf('{', src.indexOf(')) {', at)));
+  const ids = [...new Set([...block.matchAll(/provider [!=]== '([a-z]+)'/g)].map((m) => m[1]))];
+  assert.ok(ids.length >= 7, 'CONTROL: only ' + ids.length + ' provider ids read from the accept test: ' + ids.join(', '));
+  for (const id of ids) {
+    assert.notEqual(orgpolicy.providerName(id), 'this provider', id + ' is accepted for a new agent but its policy refusal would say "this provider"');
+    assert.equal(orgpolicy.providerName(id), SCREEN[id], id + ': the name differs from the one this test checks against the menus');
   }
 });
