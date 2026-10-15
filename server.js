@@ -22798,8 +22798,9 @@ const ORG_TICKET_MS = 10 * 60 * 1000;
     applied policy version change, not for ordinary work, or an agent event (engine/agentevents.js), sent only for a
     refusal or a flag; each then refreshes at once. A board in no company sends nothing
     (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)
-    and asks to be polled "on the order of hours" (kosmos-relay org.rs POLICY_TTL_SECS), so not more often than this
-    without a cheaper route. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
+    and asks to be polled "on the order of hours" (kosmos-relay org.rs, the doc comment above POLICY_TTL_SECS), so not
+    more often than this without a cheaper route. The bound relies on each ask ending: the signed coordinator call
+    times out after 20 seconds (engine/remote.js MAC_REQUEST_TIMEOUT_MS), so a hung ask cannot hold later ones. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
     live execution is allowed (nothing is sent). */
 const ORG_REFRESH_MS = 60 * 60 * 1000;
 /** #6232 review 3: the hour is measured on the clock, checked this often, not by a one-hour timer: a Mac's timers stop
@@ -22867,7 +22868,8 @@ function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REF
    company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
    caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
    restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
-   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents, and the rollup child
+   (engine/orgenroll.js onEnrollmentEnded). It runs inside the refresh, while its one-at-a-time queue is held: one
+   roster pass, once per ending. Another Kosmos's root is not this board's agents, and the rollup child
    that serves another Kosmos (orgrollup elsewhereRunner) runs in its own process with no listener, which is right. Known and older than this
    (review 11): an agent that cannot be told at that moment keeps the old text until the board restarts, because a
    board in no company asks nothing more that would retry it. Not an ending, so not told here (review 13): an answer
