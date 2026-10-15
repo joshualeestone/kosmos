@@ -2,7 +2,8 @@
 
 ## Finished looks like
 After an admin removes a member, that member's board shows enrolled:false and has lifted the company policy within a
-stated bound while online: at most an hour (sooner when its agents or projects change).
+stated bound while online: at most an hour on the clock plus five minutes (sooner when its agents or projects change).
+Not covered: an unreachable coordinator (nothing changes) and a board before live execution is allowed (nothing sent).
 
 ## What the code says (read, both repos)
 - The coordinator has no channel to start a message to a Mac: every Mac route is one the board calls
@@ -15,7 +16,9 @@ stated bound while online: at most an hour (sooner when its agents or projects c
   bound (review 1 corrected my first reading, which said any working board learned in ten minutes).
 
 ## The call
-ORG_REFRESH_MS goes from 24 hours to 1 hour. A board in no company still sends nothing (orgEnrollRefresh returns
+ORG_REFRESH_MS goes from 24 hours to 1 hour, measured on the clock: a check every five minutes (orgRefreshIfDue) asks
+when an hour has passed since the last ask, or when the clock went back (review 3: a Mac's timers stop while it
+sleeps, so a one-hour timer let a laptop asleep past the hour wait up to another hour after waking). A board in no company still sends nothing (orgEnrollRefresh returns
 before asking), so only enrolled boards (and a pending Leave or unknown join) make the extra calls.
 
 ## Rejected
@@ -51,3 +54,10 @@ is for the first run after merge.
 - Four more places called this refresh daily (server.js beside the join, a test header, a test title, a test
   comment); a repo-wide search for every wording of it now finds none. The rollup's own "daily" sends are a different
   thing and stay. The server comment names the policy version among what sends a rollup early.
+
+## Review 3 (opus), and what changed
+- The hour was an hour of awake time (Node's timers stop while a Mac sleeps). Now a five-minute check asks when an
+  hour has passed on the clock, or the clock went back. Tested: before the hour no ask, after a long sleep an ask, a
+  clock set back an ask; removing the clock-back rule, asking every check, or the old one-hour timer each fail it.
+- The unknown-join comment and test title say "not only hourly"; long comment lines re-wrapped; the comment names what
+  the hour does not cover (an unreachable coordinator, a board before live execution).
