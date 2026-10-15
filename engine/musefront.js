@@ -182,8 +182,9 @@ function shortOf(text) {
    where .kosmos/.gitignore lists it (read as text, not asked of git: a log git already tracks stays tracked): it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
    one exists that does not name both, or holds any negation (someone else's file is not edited). The .gitignore it creates
    is itself a new, harmless file in the person's tree (two file names). A busy digest's opening comes from its first
-   post (the text after its header), not from the header. A hard link at the file is refused after the open (a
-   link count above one; the cut, too, acts only on the opened file), and at the lstat as well, a second layer; a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   post (the text after its header), not from the header. A hard link at the file is refused twice: at the lstat
+   (before any rotation) and after the open (a link count above one; the cut acts only on the opened file). Measured:
+   the tests fail only with both removed, so they prove the pair, not each layer; a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -191,8 +192,8 @@ const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a diff
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
 /* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
-   reminders ("Kosmos here:" with a colon; safe because today's producers put no words of the person's in their first
-   60 units, so a new "Kosmos here:" line must keep that). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
+   reminders ("Kosmos here:" with a colon; today's producers put no words of the person's in their first 60 units, though
+   the agent's own post title can appear, and a new "Kosmos here:" line must keep the person's words out of them). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
    person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
    post (below). */
 const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
@@ -206,7 +207,8 @@ function turnRecord(text, at, arrived = null) {
   const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
-  // tz: this front's offset from UTC in minutes at `at` (the board's clock stamps Sent; they share a machine), so a Sent stamp (local wall-clock time) lines up with at /
+  // tz: this front's offset from UTC in minutes at `at` (the board's clock stamps Sent; they share a machine, and
+  // differ only if the two processes run with different TZ settings), so a Sent stamp (local wall-clock time) lines up with at /
   // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
   const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
     digestPosts: digest ? Number(digest[1]) : null };
