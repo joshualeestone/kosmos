@@ -609,7 +609,8 @@ test('#6232: an enrolled board asks its company hourly, not daily, and a board i
 
 test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the hour asks at the next check; a clock set back is due)', async (t) => {
   const live = require('./engine/live-execution');
-  const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
   const realRefresh = oe.refresh;
@@ -635,7 +636,8 @@ test('#6232 review 3: the hourly ask is measured on the clock (a sleep past the 
 
 test('#6232 review 4: an ask with no clear answer is asked again after the retry, not a whole hour later; an answered one waits the hour', async (t) => {
   const live = require('./engine/live-execution');
-  const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
   const realRefresh = oe.refresh;
@@ -677,7 +679,8 @@ test('#6232 review 4: an ask with no clear answer is asked again after the retry
 
 test('#6232 review 5: an older ask finishing late without an answer does not move the clock a newer ask set', async (t) => {
   const live = require('./engine/live-execution');
-  const { orgEnrollRefresh, orgRefreshIfDue } = require('./server');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();   // review 6: this test does not depend on the one before it
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
   const realRefresh = oe.refresh;
@@ -704,4 +707,27 @@ test('#6232 review 5: an older ask finishing late without an answer does not mov
     await orgRefreshIfDue(T + 5 * M + 30 * M);
     assert.equal(calls, 2, 'the older ask\'s miss moved the clock the newer, answered ask set');
   } finally { Date.now = realNow; live.resetForTests(); }
+});
+
+test('#6232 review 6: right after a miss (due in 15 minutes), a clock set back by less than that still asks', async (t) => {
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh, orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
+  fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; return { ok: false, because: 'not checked' }; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  live.allowLiveExecution();
+  const M = 60 * 1000;
+  try {
+    await orgEnrollRefresh();   // the first miss: the next ask is due in 15 minutes
+    assert.equal(calls, 1, 'CONTROL: the first ask was not sent');
+    const at = Date.now();
+    await orgRefreshIfDue(at + 5 * M);
+    assert.equal(calls, 1, 'CONTROL: asked again before the retry wait');
+    await orgRefreshIfDue(at - 30 * M);   // the clock went back half an hour
+    assert.equal(calls, 2, 'a clock set back by less than the retry wait held the ask off');
+  } finally { live.resetForTests(); }
 });
