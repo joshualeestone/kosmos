@@ -13774,9 +13774,10 @@ const server = http.createServer(async (req, res) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         const fromDirs = new Map();   // #6174: name -> the account folder it ran on before this move
+        const savedAt = new Map();    // #6231: name -> when this move saved its new account (taken just before the write)
         const started = accountmove.start(body, {
           /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
-          setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); return create.setAccount(n, dir); },
+          setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); savedAt.set(n, Date.now()); return create.setAccount(n, dir); },
           moveRefusal: (n) => removal.moveRefusal(n),   // #6190: a held agent is refused before its account is written
           REFUSED: create.OUTCOME.REFUSED,
           forget: (n) => observed.forgetAgent(n),
@@ -13795,10 +13796,17 @@ const server = http.createServer(async (req, res) => {
           putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
           /* #6231: an agent left saved on the new account but still running on its old one gets #6174's note, as a
              partial restart does: its session's start, read without blocking, is the one noted. */
+          /* Only a session that started before the move saved the new account can be the one still on the old account: the
+             agent is released by now, so a restart since (its page's) would come up on the new one. tmux reads whole
+             seconds, so a full second of margin; anything else, or nothing read, clears an earlier note (the safe side). */
           leftOnOld: (n) => {
             const name = create.cleanName(n) || n;
+            const at = savedAt.get(n);
             sessionStartForAsync(name)
-              .then((s) => noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s }))
+              .then((s) => {
+                if (!(Number.isFinite(s) && Number.isFinite(at) && s + 1000 <= at)) { require('./engine/accountmoving').clear(name); return; }
+                noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s });
+              })
               .catch(() => {});
           },
         });

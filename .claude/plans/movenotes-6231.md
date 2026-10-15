@@ -31,7 +31,14 @@ end, web/index.html engineRestartClick), so a later #6214 round can mean a rebas
 - Mutations: removing the engine's two leftOnOld calls reds 3; the press check reds the page test; a no-op board
   leftOnOld reds both board tests.
 
+## Review 1
+- The board notes only a session that started at least a whole second before the move saved the new account (the
+  route records that moment per agent, just before the write); a later session, or none read, clears an earlier note.
+  The agent is released before the note's read, so a restart from its page could otherwise be noted as the old one.
+- The hold-failure path (agents saved, never restarted) notes them too; a missing readAccount gets its own words, as a
+  missing putBack does.
+
 ## Weakest premise
-That an agent the move never reached still runs on its old account: true because its restart was never tried (its
-saved job names the new account, its session predates the move). A crash between the save and the end of the move
-would restart it on the new account while noted as old; the note then clears at its next session change (#6174).
+That a session which started before the move saved the new account still runs on the old account. True unless the
+process restarted inside the same tmux session onto the new account, which #6174's note already accepts as an
+over-mark it cannot see.
