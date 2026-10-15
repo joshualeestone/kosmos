@@ -54,6 +54,10 @@ const liveExec = require('./live-execution');
 const win32live = require('./win32live');
 const win32sessions = require('./win32sessions');
 
+/* #6183: the timeout for every taskkill this module runs -- the sync run()'s own execFileSync and the async
+   endSteps, which yields the taskkill to remove.js's run() -- so the two share one value and cannot drift. */
+const TASKKILL_TIMEOUT_MS = 20000;
+
 /* The command seam, in the shape win32job uses: tests replace it, production
    shells taskkill. Returns { ok, out, code } and never throws, so every caller
    reports rather than unwinds. */
@@ -78,7 +82,7 @@ function run(args) {
     return { ok: true, out: '', dryRun: true };
   }
   try {
-    const out = cp.execFileSync('taskkill.exe', args, { encoding: 'utf8', timeout: 20000 });
+    const out = cp.execFileSync('taskkill.exe', args, { encoding: 'utf8', timeout: TASKKILL_TIMEOUT_MS });
     return { ok: true, out: String(out || '') };
   } catch (e) {
     return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
@@ -283,7 +287,7 @@ function* endSteps(name, opts) {
   const found = resolve(name, opts);
   if (found.unknown) return { ok: false, because: 'we could not check what is running on this computer' };
   if (!found.found) return { ok: true, already: true };
-  const r = yield { exec: ['taskkill.exe', ['/PID', String(found.pid), '/T', '/F'], { timeout: 20000 }] };
+  const r = yield { exec: ['taskkill.exe', ['/PID', String(found.pid), '/T', '/F'], { timeout: TASKKILL_TIMEOUT_MS }] };
   return finishKill(require('./win32job').win32StepResult(r), found.pid, found.sessionId);
 }
 
