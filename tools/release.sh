@@ -640,9 +640,11 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
 . "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
 _floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
 [ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
-# (No check of this cut's OWN version: #4075's forward-only rule already refuses a cut older than main, which is past
-# 0.7.45, and the release-gate fixtures cut 0.6.x on purpose. What reaches users is checked below: the installer, the
-# untouched pair, and the export before vercel.)
+# This cut's OWN version: #4075's forward-only rule refuses a cut older than this checkout's package.json, and any
+# checkout carrying this step is past 0.7.45, so only its override can name a version below the floor. Check that case
+# (the release-gate fixtures cut 0.6.x without the override, on purpose). What reaches users is checked below too: the
+# installer, the untouched pair, and the export before vercel.
+[ "$_allow_jump" != 1 ] || kosmos_setup_floor_ok "this cut's version (KOSMOS_ALLOW_VERSION_JUMP is set)" "$V" || exit 1
 kosmos_setup_floor_installer_ok "this cut's install/setup.sh" "$REPO/install/setup.sh" || exit 1
 # Read origin/main's copies (what the cut's fresh-main site commit will carry), not a checkout that may be behind:
 # fetch, then lay the four files out in a scratch dir (removed after). If the fetch fails, check the checkout, and say so.
@@ -952,7 +954,7 @@ release_freeze_notice "$SHA" "$BUILD" "$V" "$CUT_CHANNEL"
 # kosmos#6149: the installer this cut publishes is the FROZEN tree's (step 1a-floor checked the checkout's, which a
 # pinned or behind-main cut does not ship): check it here, after the freeze and before the build and the site push.
 # Step 2's version-bump push comes BEFORE this (the freeze follows it): for an unpinned cut step 1a already checked the
-# same file before that push; for a pinned one the bump can be on origin when this refuses (a stated limit).
+# checkout's copy before that push; for a pinned one the bump can be on origin when this refuses (a stated limit).
 kosmos_setup_floor_installer_ok "the frozen install/setup.sh this cut publishes" "$BUILD/install/setup.sh" || exit 1
 step "== 2b-ii. the What's new highlights, again, in the tree that ships (#3955) =="
 # The shared checkout can move between step 1 and the freeze (two cuts in a row were fast-forwarded

@@ -200,8 +200,9 @@ s4="$(grep -n '^step "== 4\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$fz" ] && [ -n "$fr" ] && [ -n "$s4" ] && [ "$fr" -lt "$fz" ] && [ "$fz" -lt "$s4" ]; } && pass "release.sh checks the FROZEN installer after the freeze (line $fz) and before the build (step 4, line $s4)" || bad "frozen-installer check line '${fz:-none}', freeze '${fr:-none}', step 4 '${s4:-none}'"
 n="$(live '\. "\$REPO/tools/lib/setup-floor.sh"' "$HERE/release.sh" | wc -l | tr -d ' ')"
 [ "$n" = 1 ] && pass "release.sh sources the floor library once (at step 1a, never from the frozen tree)" || bad "release.sh sources setup-floor.sh $n times"
-n="$(live 'kosmos_setup_floor_ok "this' "$HERE/release.sh" | wc -l | tr -d ' ')"
-[ "$n" = 0 ] && pass "release.sh does not refuse on its own version (#4075 already does; release-gate fixtures cut 0.6.x)" || bad "release.sh checks its own version again ($n lines)"
+n="$(live '\[ "\$_allow_jump" != 1 \] || kosmos_setup_floor_ok "this cut.s version (KOSMOS_ALLOW_VERSION_JUMP is set)" "\$V" || exit 1' "$HERE/release.sh" | wc -l | tr -d ' ')"
+m="$(live 'kosmos_setup_floor_ok "this' "$HERE/release.sh" | wc -l | tr -d ' ')"
+{ [ "$n" = 1 ] && [ "$m" = 1 ]; } && pass "release.sh checks its own version only under KOSMOS_ALLOW_VERSION_JUMP (#4075 covers the rest; release-gate fixtures cut 0.6.x)" || bad "release.sh own-version check: $n guarded, $m in all"
 
 # deploy-site.sh is run for real by tools/test-deploy-site-promote.sh (its kosmos#6149 arms: the real floor refuses
 # a committed pointer below it with nothing deployed, and a pointer whose tarball is older than its version).

@@ -37,9 +37,10 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
     own install/setup.sh (the checkout's), then, right after the freeze (step 2b), the FROZEN install/setup.sh it
     actually publishes (a pinned or behind-main cut ships the frozen one): both before anything is built (the frozen
     one after step 2's bump push, see Known limits).
-    release.sh does NOT check the version the cut names: #4075's forward-only rule already refuses a cut older than
-    main (past 0.7.45), and tools.release-gate.test.js cuts 0.6.x fixtures on purpose (an own-version check reddened
-    17 of its tests in the Mortals validation of 97ec10391).
+    release.sh checks the version the cut names ONLY under KOSMOS_ALLOW_VERSION_JUMP: otherwise #4075's forward-only
+    rule refuses a cut older than the checkout's package.json, which is past 0.7.45 in any checkout carrying this
+    step. An unconditional check reddened 17 tests of tools.release-gate.test.js (its fixtures cut 0.6.x on purpose)
+    in the Mortals validation of 97ec10391.
     The library is loaded once, at step 1a; after the freeze REPO is the frozen tree, which a pinned cut's older sha
     may not hold, so it is never sourced from there.
 - deploy-site's early committed-pointer check is a fail-fast: its export check would refuse the same pointers;
