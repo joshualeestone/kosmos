@@ -457,8 +457,7 @@ const SEEN_MAX = 700;
    there, so successive budget-limited reads reach every thread's tail instead of re-reading its first pages. A thread
    read to its end keeps no place and is paged from its start next time, as before #6204, so a read that can afford it
    holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
-   to it that read, as it was before #6204). The one exception: a page holding a new reply the 30-cap left unshown is
-   read again from that page. At most THREADS_MAX per post, this read's first: the most comments one read can see
+   to it that read, as it was before #6204). At most THREADS_MAX per post, this read's first: the most comments one read can see
    (round 1's page and every round-2 page an older-comments page), so this read's places always fit. A post's mark
    never passes the last reply read in a thread the budget, the window or a 429 left waiting (the unread rest sorts
    after it), so a tail read later is still new; a thread whose OWN page failed keeps #6201's bounded hold instead
@@ -830,11 +829,12 @@ function lastRead(c) {
   const r = c.replies.filter((x) => validAt(x.ts));
   return r.length ? r[r.length - 1] : c;
 }
-/* #6204: where each thread this read did not finish goes on next time: a page holding a new reply the 30-cap left
-   unshown is read again; else the page still waiting (budget, window or a failed page; a thread the budget never reached
+/* #6204: where each thread this read did not finish goes on next time: the first page holding a new reply the
+   30-cap left unshown; else the page still waiting (budget, window or a failed page; a thread the budget never reached
    waits at its first cursor, so it goes ahead of finished threads next time). A thread read to its end keeps no place.
    A saved place whose comment this read did not see is kept only while the post's older comments were not all read (it
-   may be on a page not reached); once they were, its comment is gone and the place is dropped. This read's threads come
+   may be on a page not reached) and for at most MARK_HOLD_MAX reads unseen; once they were all read, its comment is
+   gone and the place is dropped. This read's threads come
    first, then the older places, at most THREADS_MAX. */
 function placesOf(th, old, unshownIds) {
   const out = {};
@@ -845,12 +845,15 @@ function placesOf(th, old, unshownIds) {
   };
   for (const c of th.comments) {
     const pg = (c.pages || []).find((x) => x.ids.some((id) => unshownIds.has(id)));
-    if (pg) put(c, pg.cursor, pg.before, pg.prev);
+    // Review 7: only in a thread also cut; a thread read to its end restarts whole (the mark keeps its unshown items new).
+    if (pg && c.waitCursor) put(c, pg.cursor, pg.before, pg.prev);
     else if (c.waitCursor) put(c, c.waitCursor, readOf(c), lastRead(c));
   }
   for (const [cid, v] of Object.entries(old)) {
     if (Object.keys(out).length >= THREADS_MAX) break;
-    if (th.olderUnread && !out[cid] && !th.comments.some((c) => c.id === cid)) out[cid] = v;
+    // Review 7: a place carried unseen ages like a failed page's hold, so it cannot cap the mark for ever.
+    const waited = Math.min((v.waited || 0) + 1, 1e6);
+    if (th.olderUnread && waited <= MARK_HOLD_MAX && !out[cid] && !th.comments.some((c) => c.id === cid)) out[cid] = { ...v, waited };
   }
   return Object.fromEntries(Object.entries(out).slice(0, THREADS_MAX));
 }

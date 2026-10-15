@@ -14,14 +14,17 @@ were never reached.
   read's places always fit; review 4), this read's threads first.
 - Round 2 starts a comment's paging at its saved cursor (`pagingOf`). Replies before it are counted (`readOf`) so the
   "N replies were not reached" numbers stay right.
-- Where a thread goes on next time (`placesOf`): a page holding a new reply the 30-cap left unshown is read again; else
-  the page still waiting (budget, window or failed page). A thread read to its end keeps NO place and is paged from its
+- Where a thread goes on next time (`placesOf`): in a thread the read also cut, the first page holding a new reply the
+  30-cap left unshown; else the page still waiting (budget, window or failed page). A finished thread whose items the
+  30-cap held back restarts whole (review 7: resuming it mid-thread lost a person's owed mark for that read; main's
+  30-cap mark logic keeps those items new). A thread read to its end keeps NO place and is paged from its
   start next time, as on main (review 1: #5623's owed-person check needs the whole thread in hand, and a finished
   thread kept at its last page never is; a re-check of finished threads also pinned the mark).
 - Review 3: threads with a saved place go first in their post's turn, longest-waiting first, and a thread the budget
   never reached is saved at its first cursor, so threads take turns across reads (10 busy posts: none starves).
 - Review 3: a saved place whose comment this read did not see (an older-comments page not reached) is kept only while
   the older comments were not all read, and caps the mark like a cut thread; once they were all read, it is dropped.
+  Review 7: it is also dropped after MARK_HOLD_MAX reads unseen (its `waited` grows), so it cannot pin the mark for ever.
 - Review 3: a replies cursor already read for the comment in this read is not followed (cycles, not only self-loops).
 - The post's mark never passes the last reply read in a thread the budget or the window cut (the lowest id at that
   reply's time), so a tail read on a later read is still new.
@@ -75,6 +78,8 @@ service.
 - A cursor cycle A, B, A is read twice and said.
 - THREADS_MAX covers one read's comments; spoiled places (bad cursor, pos, at, id, null) are not used, a good one is.
 - A run of 429s longer than MARK_HOLD_MAX after a read that saved places: every tail is still shown once.
+- A person's reply the 30-cap held back is marked owed on the next read.
+- A carried place unseen for more than MARK_HOLD_MAX reads is dropped and the mark moves on.
 - A changed cursor spelling: every saved place refused, nothing lost.
 - A cursor naming its own page: read once, said.
 - Mutations (17): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
