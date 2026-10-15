@@ -12,8 +12,9 @@ the fix passes everything until the next cut.
 ## What this branch adds
 - tools/test-install-sbroot-6275.sh: lifts, as written in their files, the harness's sandbox-root derivation (from
   `_ti_tmp="$(printf ... TMPDIR` to the `SB="$(mktemp -d` line, and the '//' refusal after it when present) and its
-  `BOARD_LABEL_SUFFIX=` line, and setup.sh's two KOSMOS_HOME normalization lines and its first `_board_label=` line
-  (setup.sh's under sh, as it runs). Under a macOS-shaped TMPDIR (trailing '/'), an interior '//', and a plain one
+  `BOARD_LABEL_SUFFIX=` line and its first `export KOSMOS_HOME=` (the install that label is for), and setup.sh's two
+  KOSMOS_HOME normalization lines and its `_board_label=` line, which must be identical everywhere setup.sh computes it
+  (setup.sh's under sh, as it runs, with the harness's export). Under a macOS-shaped TMPDIR (trailing '/'), an interior '//', and a plain one
   (control), each must make a new $SB under the squeezed TMPDIR with no '//', and the two labels must be equal.
   A built-in negative control removes the slash handling from the lifted block and must see '//' and two labels.
 - package.json test:shell runs it (beside test-mktemp-template-4298.sh), so the suite and CI do.
@@ -22,7 +23,9 @@ the fix passes everything until the next cut.
 - Passes under this shell's TMPDIR (which itself ends in '/') and under TMPDIR=/tmp/.
 - Real-file mutants in a scratch copy, each red for its own reason: the harness hashing "$SB//home" (labels differ, all
   three arms; review 1 found the first version blind to this); the trailing-strip and tr -s removed (the harness's
-  refusal fires, shown with its text); those plus the refusal removed (the #4298 shape: "$SB has '//'").
+  refusal fires, shown with its text); those plus the refusal removed (the #4298 shape: "$SB has '//'"); the harness
+  exporting KOSMOS_HOME="$SB/home2" while hashing "$SB/home" (labels differ; review 2); setup.sh's second label line
+  made different from the first (the lift refuses; review 2).
 - tools.every-test-runs.test.js passes; control: with the package.json entry removed it names this file.
 - tools/test-mktemp-template-4298.sh: 0 failures (the scratch dir is templated under TMPDIR).
 
