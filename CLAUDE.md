@@ -304,8 +304,10 @@ from a night in this codebase, kosmos#2616.)
    (#4273, #4298). Write a template instead: `mktemp -d "${TMPDIR:-/tmp}/<name>.XXXXXXXXXX"`, and
    the name says which test left one. `tools/test-mktemp-template-4298.sh` enforces it with a
    STATIC source check (`tools/mktemp-template-check.js`), because the runtime scan cannot see the
-   leak on macOS. It is scoped to the test scripts the suite executes; a production script is
-   `bash -n`'d, not run, so it is out of scope until it is shown to leak.
+   leak on macOS. It is scoped to `tools/test-*.sh`. Non-test scripts stay out of scope unless a
+   run shows one leaking into the real temp root; several carry bare calls and are named by tests
+   (`bin/agent-supervisor.sh`, `tools/release.sh`, `tools/verify-served.sh`), and being named is
+   not being run, so whether a test executes one is measured, not assumed.
 
 ### This list is intentionally incomplete
 
