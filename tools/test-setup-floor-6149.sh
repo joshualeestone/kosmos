@@ -183,7 +183,9 @@ live() { grep -n "$1" "$2" | grep -v '^[0-9]*:[[:space:]]*#'; }
 # (release.sh's cannot run in the suite; this is the arm that fails if it is moved below the deploy or deleted.)
 for f in release.sh deploy-site.sh; do
   # (the order pin assumes one vercel deploy line per script, as today; a second deploy above the check would need its own pin)
-  chk="$(live 'kosmos_setup_floor_tree_ok ".*|| {.*exit 1; }$' "$HERE/$f" | head -1 | cut -d: -f1)"
+  # It also pins WHICH tree is checked: the export each script hands vercel, never the working checkout.
+  case "$f" in release.sh) ex='"\$_site_export"' ;; *) ex='"\$EXPORT"' ;; esac
+  chk="$(live "kosmos_setup_floor_tree_ok \".*\" $ex || {.*exit 1; }\$" "$HERE/$f" | head -1 | cut -d: -f1)"
   dep="$(grep -n 'vercel deploy --prod --yes' "$HERE/$f" | grep -v '^[0-9]*:[[:space:]]*#' | head -1 | cut -d: -f1)"
   if [ -n "$chk" ] && [ -n "$dep" ] && [ "$chk" -lt "$dep" ]; then pass "$f checks its export (line $chk) before its vercel deploy (line $dep)"
   else bad "$f: tree check line '${chk:-none}', deploy line '${dep:-none}'"; fi

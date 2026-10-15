@@ -131,7 +131,7 @@ deploy, promote or cut that is valid today is refused by this change.
 - release.sh step 1a reads origin/main after a fetch (a stale checkout once refused a valid cut in review 15's
   reading); if the fetch fails it reads the checkout and says so.
 - deploy-site's own #4819 refusal is shadowed for a malformed staging artifact by the floor's earlier refusal in
-  test-deploy-site-promote.sh arm 20; it is still covered by test-deploy-site-staged-mac-4819.sh (st8, st13).
+  test-deploy-site-promote.sh's FIRST arm 20 (the malformed staging pointer; the file numbers two arms 20); it is still covered by test-deploy-site-staged-mac-4819.sh (st8, st13).
 - deploy-site.sh, promote-channel.sh and publish-staging-pointer.sh honour the knob (their tests use it); only
   release.sh refuses it. Every lowered check warns.
 
