@@ -43,3 +43,13 @@ replies still misses some; the count says so.
 - A failed post's tasks are dropped, not counted against the budget. The post line no longer implies a later read
   gets there: "could not be read, as the thread is longer than a read reaches, so new ones there are not listed".
 - Kept: one failed page still holds the whole post (unchanged behaviour; its mark stays, everything comes later).
+
+## Review 2 (sonnet), and what changed
+- Only a page still WAITING in the queue (budget or time window) is "not reached". A comment whose cursor ran out or
+  brought nothing new was read to its end even when the service counts more (a malformed row is dropped), so it is not
+  counted and does not keep the post from settling; before, such a post repeated the line for ever.
+- The line now says what happens: "N replies were not reached in this read, and new ones among them will not be
+  listed" (a post cut this way still moves its mark to round 1's newest, as review 2 of #4833 decided).
+- ROUND2_START_MS 2 s (18 s a read at most: 8 + 2 + 8), stale timing comments fixed; the test-only window option can
+  only shorten the window; the queue-order comment says what it does (posts, then comments, newest first; continuation
+  pages behind).

@@ -428,7 +428,7 @@ const REPLIES_FIRST_DAYS = 7;
    hold once one read fetches hundreds. The settle window is longer than any read, so an item that lands during a read
    (stamped after the read began) is never passed. */
 const REPLY_PAGES_MAX = 30;
-const ROUND2_START_MS = 3000;
+const ROUND2_START_MS = 2000;
 const MARK_SETTLE_MS = 3 * 60 * 1000;
 /* The reply nudge's count (freshReplies) still reads only the newest REPLY_PAGES_PER_POST comments' first hidden page, one
    post at a time and paced: it names only comments owed an answer, which are top-level, and a deep reply under a
@@ -576,10 +576,10 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Review 14: it
    waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
    another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
-   two rounds well under the CLI's 30 s (a read that outwaited its caller still ran and moved the marks, so the agent saw
+   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most) under the CLI's 30 s (a read that outwaited its caller still ran and moved the marks, so the agent saw
    "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
 const FRESH_WAIT_MS = 20 * 1000;
-const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (two 8 s rounds at most), see readReplies
+const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (#6201: up to 8 s + ROUND2_START_MS + 8 s), see readReplies
 let replyReadWaiting = 0;   // own reads waiting for the lock: the count steps aside, and does not start, while there is one
 let replyReadSession = null;   // review 12: whose own read holds the lock
 const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)
@@ -603,7 +603,7 @@ async function readRepliesLocked(sessionName, opts) {
   const waitUntil = t0 + (Number.isFinite(opts.freshWaitMs) ? opts.freshWaitMs : FRESH_WAIT_MS);
   /* #4951 review 14 (Opus): another agent's own read is waited for too (the nudge tells agents one after another, and a
      refused read left the replies it was told about unanswered). Bounded shorter (READ_WAIT_MS), so a wait plus this
-     read's own two rounds stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
+     read's own rounds (see READ_WAIT_MS) stays inside the CLI's 30 s. One after another costs the service no more than refuse-and-retry. */
   const readWaitUntil = Math.min(waitUntil, t0 + (Number.isFinite(opts.readWaitMs) ? opts.readWaitMs : READ_WAIT_MS));
   replyReadWaiting += 1;   // review 15: the session counts as reading from entry (readReplies), waiting included
   try {
@@ -804,7 +804,8 @@ async function repliesFor(sessionName, opts) {
   }));
   /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
      first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
-     the queue. Newest comments first, so the budget goes where a new reply is likeliest. A page that fails holds the
+     the queue. Posts newest first and, within one, comments newest first; a continuation page queues behind what is
+     already waiting, so the budget is spread across threads before it goes deep into one. A page that fails holds the
      post (failed), as before; a cursor not in the service's plain shape is not used. */
   const queue = [];
   const repliesTask = (th, c, cursor) => ({ th, c, cursor });
@@ -815,7 +816,8 @@ async function repliesFor(sessionName, opts) {
   }
   let pagesRead = 0;
   const round2Start = Date.now();
-  const round2Ms = Number.isFinite(opts.round2Ms) ? opts.round2Ms : ROUND2_START_MS;   // tests only
+  // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer).
+  const round2Ms = Number.isFinite(opts.round2Ms) ? Math.max(0, Math.min(opts.round2Ms, ROUND2_START_MS)) : ROUND2_START_MS;
   const runTask = async (task) => {
     const { th } = task;
     if (th.failed) return;
@@ -864,11 +866,17 @@ async function repliesFor(sessionName, opts) {
     pagesRead += wave.length;
     await Promise.all(wave.map(runTask));
   }
-  // What the budget left, per post: replies of read comments still unread (exact), and older comments not reached.
+  /* What the budget or the window left, per post: only a page still WAITING in the queue is "not reached". A comment
+     whose cursor ran out (or brought nothing new) was read to its end even if the service's count says more (a row it
+     lists can be dropped as malformed), so it is not counted and does not keep the post from settling (#6201 review 2). */
+  for (const task of queue) {
+    if (task.comments) task.th.olderPending = true;
+    else task.c.pending = true;
+  }
   for (const th of threads) {
     if (th.failed || th.gone) continue;
-    th.unreadReplies = th.comments.reduce((n, c) => n + Math.max(0, c.replyCount - c.replies.length), 0);
-    th.olderUnread = !!th.commentsCursor;
+    th.unreadReplies = th.comments.reduce((n, c) => n + (c.pending ? Math.max(0, c.replyCount - c.replies.length) : 0), 0);
+    th.olderUnread = !!th.olderPending;
     // #6201 review 1: a post read to its end may settle its mark (see MARK_SETTLE_MS).
     if (!th.unreadReplies && !th.olderUnread) {
       let newest = null;
@@ -937,7 +945,7 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone || !(th.unreadReplies || th.olderUnread)) continue;
     const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : '')
       + (th.unreadReplies && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + ' could not be read, as the thread is longer than a read reaches, so new ones there are not listed)', '');
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, and new ones among them will not be listed)', '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
