@@ -76,6 +76,8 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
   window is recorded, unlike an unreadable switch's).
 - Under the policy the send sweep still runs its take-down housekeeping (deletes, take-down reads, settling an
   unconfirmed send): it only removes content, never sends any.
+- Settings' held list words a release from the policy as it read when the page was painted; a policy (or a fault)
+  that changes while the page stays open is seen at the next repaint, as the switch-OFF words already are.
 - engine/win32inbox.js (fleet tooling behind an operator's ps1, not a customer path) types into Windows agents
   without deliverWithGap.
 - An agent's own outside tools (connections, email, its network use) under outside_contact off: a later slice
@@ -86,6 +88,6 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
   engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
-  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's, 1 for round 6's, 6 for round 7's (the held-list row through its browser check) and 1 for round 8's); one redundant gate (fedseats.ensureAll) found unwatched and
+  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's, 1 for round 6's, 6 for round 7's (the held-list row through its browser check), 1 for round 8's and 1 for round 9's); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

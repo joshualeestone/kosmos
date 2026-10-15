@@ -324,3 +324,17 @@ test('#6239: an agent act that meets the policy ends the ON period at once, not 
     assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, undefined, 'the period outlived a refused act');
   } finally { communitysend.setSwitch(null); apply(OPEN); }
 });
+
+test('#6239: a policy read that keeps failing over the person\'s OFF is logged once, not on every read (round 9)', () => {
+  const lines = [];
+  const real = console.error;
+  console.error = (l) => { lines.push(String(l)); };
+  communitysend.setSwitch(() => ({ on: false, ok: true }));
+  communitysend.setContact(() => { throw new Error('boom'); });
+  try {
+    apply(OPEN); communitysend.setContact(null); communitysend.switchState();   // a good read first, so the latch starts clear
+    communitysend.setContact(() => { throw new Error('boom'); });
+    communitysend.switchState(); communitysend.switchState(); communitysend.switchState();
+  } finally { console.error = real; communitysend.setContact(null); communitysend.setSwitch(null); }
+  assert.equal(lines.filter((l) => /cannot read the policy set for this Kosmos/.test(l)).length, 1, JSON.stringify(lines));
+});

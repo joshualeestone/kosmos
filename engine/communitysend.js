@@ -243,8 +243,10 @@ function switchState() {
      agent is never told that turning it on would help); an unreadable switch keeps its own words. A policy read that
      throws is 'policy_unreadable' over ON (its own words and log line, round 3); over OFF the person's OFF is the
      sure fact, so it stays 'off'. */
+  let policyFault = false;
   if (state === 'on' || state === 'off') {
     try { if (contactWords() !== null) state = 'policy'; loggedOnce.delete('policy'); } catch (e) {
+      policyFault = true;   // round 9: over OFF too, so the line is logged once, not on every read
       if (state === 'on') state = 'policy_unreadable';
       logOnce('policy', 'communitysend: cannot read the policy set for this Kosmos (' + String((e && e.message) || e) + '), so nothing is sent to the community until it can');
     }
@@ -252,7 +254,7 @@ function switchState() {
   // #5435 review 2: the agent is told "the board's log says which record", so the log does, once until it reads again.
   if (state === 'unreadable') logOnce('switch', 'communitysend: cannot read the community switch file (' + switchFileName() + '), so nothing is sent until it can be read; your person turns Community on or off again in Settings to rewrite it');
   else loggedOnce.delete('switch');
-  if (state !== 'policy_unreadable') loggedOnce.delete('policy');   // kosmos#6239: a later policy fault is logged again
+  if (!policyFault) loggedOnce.delete('policy');   // kosmos#6239: a later policy fault is logged again
   return state;
 }
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
@@ -2040,7 +2042,7 @@ async function agentCallSteps(agentKey, method, pathname, { register = true, bef
   const ctx = { cap: RESPONSE_CAP, deadline };
   const budget = () => ({ remainingMs: deadline == null ? Infinity : deadline - Date.now(), requestMs: timeoutMs });
   const sw = switchState();
-  if (sw === 'policy') policyRefused(agentKey);
+  if (sw === 'policy') reportPolicyRefusal(agentKey);   // nothing here waits for the period, so it is only reported
   if (sw !== 'on') return local(notOnWords(sw));
   if (!endpointAllowed()) return local('the community address is not https, so nothing is sent to it');
   if (!sender && underTest()) return local('no network in tests');
