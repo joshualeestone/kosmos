@@ -11362,11 +11362,11 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
   fs.rmSync(communityEngine.FILE, { force: true });
   const put = (on) => req('/api/community-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
   try {
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, stopped: null },
       'the community switch is not ON by default with an unmeasured share (and, #4820, no notice field)');
     const off = await put(false);
     assert.equal(off.status, 200, off.body);
-    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null });
+    assert.deepEqual(JSON.parse(off.body), { on: false, ok: true, share: null, stopped: null });
     assert.equal(JSON.parse((await req('/api/community-setting')).body).on, false, 'OFF did not persist');
     assert.equal(communityEngine.participating(), false, 'the gate the send layer reads still says participating');
     const on = await put(true);
@@ -11379,7 +11379,7 @@ test('community: /api/community-setting is ON by default, round-trips, and repor
     // draws could-not-read, never a confident Off (review 2: a route that always said ok passed before).
     fs.rmSync(communityEngine.FILE, { force: true });
     fs.mkdirSync(communityEngine.FILE, { recursive: true });
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null },
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: false, ok: false, share: null, stopped: null },
       'an unreadable community setting did not reach the page as could-not-read');
   } finally {
     fs.rmSync(communityEngine.FILE, { force: true, recursive: true });
@@ -11395,11 +11395,11 @@ test('community: #4820 an existing install is ON with no notice field, and notic
   try {
     assert.deepEqual(communityEngine.migrate(), { ok: true, wrote: true });
     const got = JSON.parse((await req('/api/community-setting')).body);
-    assert.deepEqual(got, { on: true, ok: true, share: null }, 'an existing install is not simply ON');
+    assert.deepEqual(got, { on: true, ok: true, share: null, stopped: null }, 'an existing install is not simply ON');
     assert.equal('noticeSeen' in got, false, 'the answer still carries the notice field');
     // A file an older board wrote while the notice was owed: still ON, still no field.
     fs.writeFileSync(communityEngine.FILE, JSON.stringify({ on: true, autopublishNoticeSeen: false }));
-    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null });
+    assert.deepEqual(JSON.parse((await req('/api/community-setting')).body), { on: true, ok: true, share: null, stopped: null });
     const seen = await req('/api/community-setting/notice-seen', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.notEqual(seen.status, 200, 'POST /api/community-setting/notice-seen still answers: ' + seen.body);
     // CONTROL: the route next to it still answers, so the refusal above is the removal, not a dead board.

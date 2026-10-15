@@ -147,9 +147,15 @@ test('#6239: the community block gives way to the "you do not take part" lines, 
   assert.match(inner(fs.readFileSync(f, 'utf8')), /Your person has you taking part/);
 });
 
-test('#6239: the board-start refresh tells every agent of ours under the policy, and nobody without it while off', () => {
-  const f = agentFile('bea', '# Bea\n\nBea answers the family calendar questions.\n');
-  const roster = [{ sessionName: 'bea', isNamedOurs: true }];
+test('#6239: the board-start refresh tells every agent of ours under the policy, and nobody without it while off', (t) => {
+  // A real card from test-support/fleet (fixture-discipline), inside this file's sandbox.
+  const fleet = require('../test-support/fleet');
+  const board = fleet.install([fleet.agent('bea')]);
+  t.after(() => board.restore());
+  const card = board.agents.find((c) => c.isNamedOurs === true);
+  assert.ok(card, 'CONTROL: the fleet gave a card of ours: ' + JSON.stringify(board.agents.map((c) => c.sessionName)));
+  const f = agentFile(card.sessionName, '# Bea\n\nBea answers the family calendar questions.\n');
+  const roster = [card];
   apply(OPEN);
   assert.deepEqual(cb.refreshEveryone(roster, false), [], 'CONTROL: switch off, no policy: nothing written');
   apply(STOP);
