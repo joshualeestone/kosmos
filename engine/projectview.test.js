@@ -671,10 +671,17 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // pinned here on a runner whose working is not capped (grok): working from 400 to now, cleared by a person at 325.
   const clearedOnly = () => { const a = [{ state: 'working', at: at(400) }, { state: 'idle', at: at(325), by: 'operator' }]; a.truncated = false; return a; };
   assert.equal(v.workExcused(stale(331), Object.assign({}, idleNow, { runner: 'grok' }), clearedOnly, NOW).state, 'stale', 'an operator clear read as the agent stopping (grok)');
-  assert.equal(v.workExcused(stale(331), idleNow, hist([['working', 400], ['idle', 325]]), NOW).state, 'worked', 'CONTROL: the agent\'s own idle');
+  // CONTROL, on grok too (review 7: on Claude the capped working adds nothing either way): the agent's own idle at 325
+  // ends the stretch, 6 min after the summary; without it the working runs on to now and reads stale.
+  const grokIdle = Object.assign({}, idleNow, { runner: 'grok' });
+  const own = v.workExcused(stale(331), grokIdle, hist([['working', 400], ['idle', 325]]), NOW);
+  assert.equal(own.state, 'worked', 'CONTROL: the agent\'s own idle');
+  assert.equal(own.workMinutes, 6);
+  assert.equal(v.workExcused(stale(331), grokIdle, hist([['working', 400]]), NOW).state, 'stale', 'CONTROL: no idle, the working runs on');
   // CONTROL: more than four hours of work since: stale. 331 min, idle for only 60 of them.
   assert.equal(v.workExcused(stale(331), claude, hist([...beats(400, 200), ['idle', 200], ...beats(140, 0)]), NOW).state, 'stale');
-  // A wait for a person counts as work (errs toward stale).
+  // A wait for a person counts as work (errs toward stale); the 325 min of needs_you alone makes this stale, the capped
+  // working before it adds nothing.
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 400], ['needs_you', 325]]), NOW).state, 'stale');
   // No report at or before the summary: the stretch up to the first one counts as work (300 min here): stale.
   assert.equal(v.workExcused(stale(600), claude, hist([['idle', 300]]), NOW).state, 'stale');

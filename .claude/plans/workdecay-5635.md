@@ -7,8 +7,8 @@ after any busy report as work until the next report, so the trailing `working` c
 
 ## Call
 In workExcused, for a Claude member only, a `working` stretch counts at most to that report's time plus 30 min
-(summarydue-nudge.js WORK_GAP_CAP_MS, read lazily: the cap the nudge already puts on a working gap, so the two readers of
-these rows agree). A Claude turn heartbeats working once a minute while it runs tools (install/kosmos-report-hook.sh), and
+(summarydue-nudge.js WORK_GAP_CAP_MS, read lazily: the same value the nudge puts on a working gap (anchored at the
+report's own time here, at the previous row there)). A Claude turn heartbeats working once a minute while it runs tools (install/kosmos-report-hook.sh), and
 selfreport.history returns every row. Review 2 moved the cap from the board's 5-min decay to 30 min: 5 undercounted a long
 tool call, thinking, or a subagent run, none of which heartbeats, toward current (the wrong direction for this function).
 Not capped: every other runner (Gemini, Grok, Muse and the Windows per-turn runners can file one working at a turn's
@@ -54,3 +54,8 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
 - No BLOCKER. WARNINGs: the title still said the board's (5-min) decay, and "The call" gave the pre-review-5 reason for
   Antigravity: both corrected. NIT taken: a Claude working filed 120 min before the summary with nothing after adds
   nothing (pins the cap to the report's time, not each stretch's start). Controls: antigravity, gemini, muse, grok.
+
+## Review 7 (sonnet), and what changed
+- No BLOCKER. WARNING: "CONTROL: the agent's own idle" passed either way on Claude (the capped working adds nothing):
+  it now runs on grok, asserts 6 minutes, with a no-idle control reading stale. WARNING: the needs_you comment says the
+  wait alone makes it stale. NIT: "same value, different anchor" instead of "the two readers agree".
