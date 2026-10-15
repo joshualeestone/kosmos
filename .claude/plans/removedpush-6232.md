@@ -46,3 +46,8 @@ is for the first run after merge.
   hourly refresh is the bound for almost every board. Comment, plan and weakest premise rewritten.
 - Every "daily" that described this refresh (orgenroll.js 8 places, orgpolicy.js, server.js beside the timer) now
   says hourly; my first sweep matched one exact phrase only.
+
+## Review 2 (sonnet), and what changed
+- Four more places called this refresh daily (server.js beside the join, a test header, a test title, a test
+  comment); a repo-wide search for every wording of it now finds none. The rollup's own "daily" sends are a different
+  thing and stay. The server comment names the policy version among what sends a rollup early.

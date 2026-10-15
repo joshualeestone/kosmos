@@ -10729,7 +10729,7 @@ const server = http.createServer(async (req, res) => {
           const spent = body.accepted === true ? ORG_TICKET : null;
           if (spent) ORG_TICKET = null;   // one use
           r = await oe.enroll(body.code == null ? null : body.code, body.accepted === true, spent ? { consentHash: spent.consentHash, consent: spent.consent, orgId: spent.orgId, computerSalt: spent.computerSalt, review: spent.review === true } : undefined);
-          /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next daily refresh.
+          /* #5534 review 1: a fresh join fetches and applies the company's policy now, not at the next hourly refresh.
              Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
              policy applied when the fetch lands, and an agent made before then is not checked against it. */
           if (r && r.ok === true) {
@@ -22792,7 +22792,7 @@ const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
     daily: a removed member's board kept applying the company's policy for up to a day. For almost every board this is
     the bound: a rollup (refused org_not_member, after which engine/orgrollup.js refreshes at once) goes out early only
-    when its agents or projects change, not for ordinary work. A board in no company sends nothing (orgEnrollRefresh
+    when its agents, projects or applied policy version change, not for ordinary work. A board in no company sends nothing (orgEnrollRefresh
     returns first). The coordinator's status answer carries
     the signed policy (up to about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs
     POLICY_TTL_SECS), so not more often than this without a cheaper route. */
