@@ -22789,8 +22789,13 @@ function federateOut(projectId, delivery, operator) {
 let ORG_TICKET = null;
 /** How long a fetched consent may be accepted: a screen left open longer is asked to check the code again. */
 const ORG_TICKET_MS = 10 * 60 * 1000;
-/** How often an enrolled world asks the company whether it is still enrolled (also once at start). */
-const ORG_REFRESH_MS = 24 * 60 * 60 * 1000;
+/** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
+    daily: a removed member's board kept applying the company's policy for up to a day. A board doing work learns sooner
+    still (its next rollup is refused org_not_member, and engine/orgrollup.js refreshes at once); this bounds an idle
+    one. A board in no company sends nothing (orgEnrollRefresh returns first). The coordinator's status answer carries
+    the signed policy (up to about 22 KB) and asks to be polled "on the order of hours" (kosmos-relay org.rs
+    POLICY_TTL_SECS), so not more often than this without a cheaper route. */
+const ORG_REFRESH_MS = 60 * 60 * 1000;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not daily (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
 function orgEnrollRefresh() {

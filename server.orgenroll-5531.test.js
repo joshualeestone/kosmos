@@ -580,3 +580,27 @@ test('#5670 review 2: the real start arms live execution before it calls start()
   assert.ok(go > 0, 'CONTROL: the real start calls start()');
   assert.ok(arm < go, 'the real start calls start() before it arms live execution, so the at-start refresh would be skipped');
 });
+
+test('#6232: an enrolled board asks its company hourly, not daily, and a board in no company still sends nothing', (t) => {
+  // The interval: an hour bounds how long a removed member's idle board keeps the company's policy. Not shorter: the
+  // coordinator's status answer carries the signed policy and asks to be polled on the order of hours.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const m = /const ORG_REFRESH_MS = ([0-9 *]+);/.exec(src);
+  assert.ok(m, 'CONTROL: ORG_REFRESH_MS is no longer a plain product of numbers');
+  const ms = m[1].split('*').reduce((a, x) => a * Number(x.trim()), 1);
+  assert.ok(ms <= 60 * 60 * 1000, 'an enrolled board asks its company only every ' + ms / 60000 + ' minutes: a removed member keeps the policy that long');
+  assert.ok(ms >= 30 * 60 * 1000, 'an enrolled board asks every ' + ms / 60000 + ' minutes: more often than the coordinator\'s policy-carrying answer is meant for');
+  assert.match(src, /setInterval\(orgEnrollRefresh, ORG_REFRESH_MS\)/, 'the refresh timer no longer uses ORG_REFRESH_MS');
+  // In no company (no enrollment, no pending Leave, no unknown join), with live execution armed: nothing is sent.
+  const live = require('./engine/live-execution');
+  const { orgEnrollRefresh } = require('./server');
+  fs.rmSync(enrollmentFile(), { force: true });
+  assert.ok(!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown(), 'CONTROL: the fixture is a board in no company');
+  const realRefresh = oe.refresh;
+  let calls = 0;
+  oe.refresh = async () => { calls += 1; };
+  t.after(() => { oe.refresh = realRefresh; live.resetForTests(); });
+  live.allowLiveExecution();
+  try { orgEnrollRefresh(); } finally { live.resetForTests(); }
+  assert.equal(calls, 0, 'a board in no company asked a company (every board would, hourly)');
+});
