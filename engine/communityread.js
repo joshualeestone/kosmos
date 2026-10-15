@@ -458,7 +458,7 @@ const SEEN_MAX = 700;
    read to its end keeps no place and is paged from its start next time, as before #6204, so a read that can afford it
    holds the whole thread (#5623's owed-person check needs every reply in hand; a thread a read cannot finish is unknown
    to it that read, as it was before #6204). At most THREADS_MAX per post, this read's first: the most comments one read can see
-   (round 1's page and every round-2 page an older-comments page), so this read's places always fit. A post's mark
+   (round 1's page, and every round-2 page if each were an older-comments page), so this read's places always fit. A post's mark
    never passes the last reply read in a thread the budget, the window or a 429 left waiting (the unread rest sorts
    after it), so a tail read later is still new; a thread whose OWN page failed keeps #6201's bounded hold instead
    (MARK_HOLD_MAX), so a page that always fails cannot pin the mark. */
@@ -511,11 +511,13 @@ function threadsOf(t) {
     if (Object.keys(out).length >= THREADS_MAX) break;
     if (!UUID_RE.test(cid) || !v) continue;
     // Review 8: a thread once read to its end, with no place to go on from.
-    if (v.done === true && v.cursor === undefined) { out[cid.toLowerCase()] = { done: true }; continue; }
+    // doneAt (review 9): the newest item the read that finished it saw on the post; any reply added later is newer.
+    const doneAt = validAt(v.doneAt) ? v.doneAt : 0;
+    if (v.done === true && v.cursor === undefined) { if (doneAt) out[cid.toLowerCase()] = { done: true, doneAt }; continue; }
     if (typeof v.cursor !== 'string' || !PAGE_CURSOR_RE.test(v.cursor)) continue;
     if (!Number.isInteger(v.pos) || v.pos < 0 || v.pos > 1e6 || !validAt(v.at) || !UUID_RE.test(String(v.id || ''))) continue;
     const waited = Number.isInteger(v.waited) && v.waited > 0 && v.waited <= 1e6 ? v.waited : 0;
-    out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase(), waited, done: v.done === true };
+    out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase(), waited, done: v.done === true && doneAt > 0, doneAt };
   }
   return out;
 }
@@ -839,12 +841,12 @@ function lastRead(c) {
    may be on a page not reached) and for at most MARK_HOLD_MAX reads unseen; once they were all read, its comment is
    gone and the place is dropped. This read's threads come
    first, then the older places, at most THREADS_MAX. */
-function placesOf(th, old, unshownIds) {
+function placesOf(th, old, unshownIds, newestSeen) {
   const out = {};
   // waited: reads in a row this thread got no page, so the one that waited longest goes first next time.
   const put = (c, cursor, pos, last) => {
     const waited = c.pages && c.pages.length ? 0 : Math.min(((c.resume && c.resume.waited) || 0) + 1, 1e6);
-    out[c.id] = { cursor, pos, at: last.ts, id: last.id, waited, done: !!c.done };
+    out[c.id] = { cursor, pos, at: last.ts, id: last.id, waited, done: !!c.done, doneAt: c.done ? c.doneAt : 0 };
   };
   for (const c of th.comments) {
     const pg = (c.pages || []).find((x) => x.ids.some((id) => unshownIds.has(id)));
@@ -852,7 +854,7 @@ function placesOf(th, old, unshownIds) {
     if (pg && c.waitCursor) put(c, pg.cursor, pg.before, pg.prev);
     else if (c.waitCursor) put(c, c.waitCursor, readOf(c), lastRead(c));
     // Review 8: read to its end (nothing said as not reached): remembered as done, with no place.
-    else if (!c.pending && ((c.pages || []).length || c.done)) out[c.id] = { done: true };
+    else if (!c.pending && ((c.pages || []).length || c.done) && validAt(newestSeen)) out[c.id] = { done: true, doneAt: newestSeen };
   }
   for (const [cid, v] of Object.entries(old)) {
     if (Object.keys(out).length >= THREADS_MAX) break;
@@ -912,7 +914,7 @@ async function repliesFor(sessionName, opts) {
      always sends one) is said as not reached. */
   const pagingOf = (th, c) => {
     const saved = marks[th.post.remoteId] && marks[th.post.remoteId].threads && marks[th.post.remoteId].threads[c.id];
-    if (saved && saved.done) c.done = true;
+    if (saved && saved.done) { c.done = true; c.doneAt = saved.doneAt; }
     if (saved && saved.cursor) {
       c.resume = saved;
       c.skipped = Math.max(0, saved.pos - c.replies.length);
@@ -1130,7 +1132,9 @@ async function repliesFor(sessionName, opts) {
   for (const th of threads) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
-    const threadsNext = placesOf(th, (next[pid] && next[pid].threads) || {}, unshownIds);
+    let newestSeen = 0;   // review 9: service time of the newest item this read saw on the post
+    for (const c of th.comments) for (const x of [c, ...c.replies]) if (validAt(x.ts) && x.ts > newestSeen) newestSeen = x.ts;
+    const threadsNext = placesOf(th, (next[pid] && next[pid].threads) || {}, unshownIds, newestSeen);
     let top = th.r1top;
     /* Review 9: a post with a failed round-2 page holds its mark (what failed comes next time); its shown items join
        "seen". Review 10: at most MARK_HOLD_MAX reads in a row, then it moves as usual. */
@@ -1148,8 +1152,10 @@ async function repliesFor(sessionName, opts) {
        unread rest sorts after that reply, so the lowest id at its time keeps every one of them after the mark (one
        already shown above the old mark is in "seen"; one at or below it is filtered as before). */
     for (const c of th.comments) {
-      if (!c.waitCursor || c.ownFail || c.done || !top) continue;
-      const last = lastRead(c);
+      if (!c.waitCursor || c.ownFail || !top) continue;
+      /* Review 9: a thread read to its end before holds nothing unjudged up to then, and a reply added since is newer
+         than the newest item that read saw, so it caps there, not at its last read reply (which would pin the mark). */
+      const last = c.done ? { ts: c.doneAt } : lastRead(c);
       if (!validAt(last.ts)) continue;   // an item with no readable time cannot place a cap
       const cap = { ts: last.ts, id: LOW_ID };
       if (byPos(cap, top) < 0) top = cap;
@@ -1157,7 +1163,7 @@ async function repliesFor(sessionName, opts) {
     // Review 3: a kept place whose comment this read did not reach (an older page not read) caps the mark the same way.
     for (const [cid, v] of Object.entries(threadsNext)) {
       if (!top || !v.cursor || th.comments.some((c) => c.id === cid)) continue;
-      const cap = { ts: v.at, id: LOW_ID };
+      const cap = { ts: v.done ? v.doneAt : v.at, id: LOW_ID };
       if (byPos(cap, top) < 0) top = cap;
     }
     if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: heldNext, threads: threadsNext }; continue; }

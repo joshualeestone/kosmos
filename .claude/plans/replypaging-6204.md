@@ -26,9 +26,12 @@ were never reached.
   the older comments were not all read, and caps the mark like a cut thread; once they were all read, it is dropped.
   Review 7: it is also dropped after MARK_HOLD_MAX reads unseen (its `waited` grows), so it cannot pin the mark for ever.
 - Review 3: a replies cursor already read for the comment in this read is not followed (cycles, not only self-loops).
-- Review 8: a thread read to its end is remembered as `{ done: true }` (no place). A done thread paged again and cut
-  does not cap the mark: every reply up to its end was judged, and a reply added since is newer than the mark. Without
-  this, a post needing more pages than the budget cut a restarted thread every read and held its mark for ever. A thread
+- Review 8, corrected in review 9: a thread read to its end is remembered as `{ done: true, doneAt }` (no place),
+  doneAt being the newest item that read saw on the post. A done thread paged again and cut caps the mark at doneAt,
+  not at its last read reply: every reply up to its end was judged, and a reply added since is newer than doneAt.
+  Capping at the last read reply held the mark at the floor for good on a post always over budget (measured: threads
+  of 11 to 24 pages out of step); not capping at all (review 8's first version) lost a reply added to a done thread
+  when a newer comment moved the mark (review 9, measured). A thread
   said as not reached without a page waiting (a cut page, a cursor cycle) is not remembered as done.
 - Review 8: within a post's turn the newest thread never read to its end goes first, then saved threads (longest
   waiting first), then the rest, so a new comment's thread is not held behind the backlog.
@@ -86,7 +89,8 @@ service.
 - A run of 429s longer than MARK_HOLD_MAX after a read that saved places: every tail is still shown once.
 - A person's reply the 30-cap held back is marked owed on the next read.
 - A carried place unseen for more than MARK_HOLD_MAX reads is dropped and the mark moves on.
-- Steady state (every thread done, the post still over budget): a newer comment moves the mark to it.
+- Steady state (threads of 11 to 24 pages, out of step, all done): a newer comment moves the mark to it within 8 reads.
+- Replies added to every done thread, then a newer comment: every reply is still shown once.
 - A new comment's thread is paged in a read that has time for one wave, ahead of 8 saved threads.
 - A thread whose cursor cycled is not remembered as done.
 - A changed cursor spelling: every saved place refused, nothing lost.
