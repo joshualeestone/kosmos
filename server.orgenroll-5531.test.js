@@ -733,122 +733,25 @@ test('#6232 review 6: right after a miss (due in 15 minutes), a clock set back b
   } finally { live.resetForTests(); }
 });
 
-test('#6232 review 7: once a removal clears the company policy elsewhere, the next check hands the agents the change', async (t) => {
-  const live = require('./engine/live-execution');
+test('#6232 review 10: when this board\'s enrollment ends (any path), its agents are handed the change; another Kosmos\'s ending is not theirs', (t) => {
   const policy = require('./engine/policy');
-  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  const store = require('./engine/store');
+  const { companyPolicySync, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
   _orgRefreshResetForTests();
   const realEntry = policy.companyEntry;
   const realSync = policy.syncEveryone;
-  let entry = null;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
   let syncs = 0;
   policy.companyEntry = () => entry;
   policy.syncEveryone = () => { syncs += 1; return []; };
-  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); });
-  // A board whose agents hold no company text (no enrollment here): the check does nothing, not even the courtesy line
-  // companyPolicySync writes when an applied policy carries text no agent can be handed (it would repeat every check).
-  fs.rmSync(enrollmentFile(), { force: true });
-  const orgpolicy = require('./engine/orgpolicy');
-  const realApplied = orgpolicy.appliedNow;
-  orgpolicy.appliedNow = () => ({ version: 3, policy: { ai_policy: { text: 'cannot be handed' } } });
-  const realWrite = process.stderr.write;
-  let said = 0;
-  companyPolicySync();   // records "no company text"
-  process.stderr.write = function (chunk, ...rest) { if (/did not hand your company/.test(String(chunk))) { said += 1; return true; } return realWrite.call(this, chunk, ...rest); };
-  try { await orgRefreshIfDue(); await orgRefreshIfDue(); } finally { process.stderr.write = realWrite; orgpolicy.appliedNow = realApplied; }
-  assert.equal(syncs, 0, 'a board with no company text handed its agents something on a check');
-  assert.equal(said, 0, 'a board with no company text read and complained about the policy on every check');
-  // A company text is applied: the agents are told (CONTROL that the stubs reach the real code).
-  entry = { name: 'Acme', text: 'Use only approved tools.' };
-  companyPolicySync();
-  assert.equal(syncs, 1, 'CONTROL: a new company text was not handed to the agents');
-  await orgRefreshIfDue();
-  assert.equal(syncs, 1, 'an unchanged company text was handed again on a check');
-  // The removal was caught by a refused rollup (oe.refresh there): the policy is gone, and nothing is enrolled, so the
-  // ask returns early. The check must still hand the agents the change.
-  entry = null;
-  await orgRefreshIfDue();
-  assert.equal(syncs, 2, 'the agents kept the removed company\'s AI policy text after the check');
-});
-
-test('#6232 review 8: an agent that cannot be told is retried hourly from the check, not every five minutes', async (t) => {
-  const live = require('./engine/live-execution');
-  const policy = require('./engine/policy');
-  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
-  _orgRefreshResetForTests();
-  const realEntry = policy.companyEntry;
-  const realSync = policy.syncEveryone;
-  const realWrite = process.stderr.write;
-  let entry = { name: 'Acme', text: 'Use only approved tools.' };
-  let syncs = 0;
-  let stuck = false;
-  policy.companyEntry = () => entry;
-  policy.syncEveryone = () => { syncs += 1; return stuck ? [{ state: 'could-not', agent: 'ari', because: 'its session is gone' }] : []; };
-  let warned = 0;
-  process.stderr.write = function (chunk, ...rest) { if (/could not hand your company/.test(String(chunk))) { warned += 1; return true; } return realWrite.call(this, chunk, ...rest); };
-  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; process.stderr.write = realWrite; live.resetForTests(); _orgRefreshResetForTests(); });
-  fs.rmSync(enrollmentFile(), { force: true });
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
   companyPolicySync();   // records the company text the agents hold
-  entry = null;          // removed elsewhere; one agent cannot be told
-  stuck = true;
-  const M = 60 * 1000;
-  const at = Date.now();
-  await orgRefreshIfDue(at);
-  assert.equal(syncs, 1, 'CONTROL: the removal was not handed to the agents');
-  assert.equal(warned, 1, 'CONTROL: the stuck agent was not reported');
-  await orgRefreshIfDue(at + 5 * M);
-  await orgRefreshIfDue(at + 30 * M);
-  assert.equal(syncs, 1, 'a stuck agent was retried on every five-minute check (a roster pass each time)');
-  assert.equal(warned, 1, 'the same warning was written on every five-minute check');
-  await orgRefreshIfDue(at + 61 * M);
-  assert.equal(syncs, 2, 'a stuck agent was never retried from the check');
-  // Told at last: the text is recorded, and later checks do nothing.
-  stuck = false;
-  await orgRefreshIfDue(at + 122 * M);
-  assert.equal(syncs, 3, 'CONTROL: the hourly retry did not run');
-  await orgRefreshIfDue(at + 127 * M);
-  assert.equal(syncs, 3, 'a text every agent holds was handed again');
-});
-
-test('#6232 review 9: after a boot that could not tell every agent, a removal caught elsewhere still reaches the agents', async (t) => {
-  const live = require('./engine/live-execution');
-  const policy = require('./engine/policy');
-  const { orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
-  _orgRefreshResetForTests({ bootRetry: true });   // the boot's retry mark, not a recorded text
-  const realEntry = policy.companyEntry;
-  const realSync = policy.syncEveryone;
-  let entry = null;   // the removal has cleared the company policy already (a refused rollup's refresh)
-  let syncs = 0;
-  policy.companyEntry = () => entry;
-  policy.syncEveryone = () => { syncs += 1; return []; };
-  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); });
-  fs.rmSync(enrollmentFile(), { force: true });
-  await orgRefreshIfDue();
-  assert.equal(syncs, 1, 'the agents kept the removed company\'s text because the boot had left a retry mark');
-  await orgRefreshIfDue();
-  assert.equal(syncs, 1, 'every agent told, yet the check handed it again');
-});
-
-test('#6232 review 9: the hourly ask\'s hand-over counts, so a stuck agent is retried once an hour, not twice', async (t) => {
-  const policy = require('./engine/policy');
-  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
-  _orgRefreshResetForTests();
-  const realEntry = policy.companyEntry;
-  const realSync = policy.syncEveryone;
-  const realWrite = process.stderr.write;
-  let entry = { name: 'Acme', text: 'Use only approved tools.' };
-  let syncs = 0;
-  policy.companyEntry = () => entry;
-  policy.syncEveryone = () => { syncs += 1; return [{ state: 'could-not', agent: 'ari', because: 'its session is gone' }]; };
-  process.stderr.write = function (chunk, ...rest) { if (/could not hand your company/.test(String(chunk))) return true; return realWrite.call(this, chunk, ...rest); };
-  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; process.stderr.write = realWrite; _orgRefreshResetForTests(); });
-  companyPolicySync();   // records the text the agents hold
-  entry = { name: 'Acme', text: 'A new version.' };
-  companyPolicySync();   // as the hourly ask does after its refresh: one agent cannot be told
-  assert.equal(syncs, 1, 'CONTROL: the hourly ask did not hand the change over');
-  const M = 60 * 1000;
-  await orgRefreshIfDue(Date.now() + 5 * M);
-  assert.equal(syncs, 1, 'the check handed the same change again minutes after the hourly ask did');
-  await orgRefreshIfDue(Date.now() + 61 * M);
-  assert.equal(syncs, 2, 'CONTROL: a stuck agent was never retried');
+  entry = null;          // the ending cleared the applied policy
+  orgEnrollmentEnded(path.join(store.ROOT, 'another-kosmos'));
+  assert.equal(syncs, 0, 'another Kosmos\'s ending re-handed this board\'s agents their policy');
+  orgEnrollmentEnded(store.ROOT);
+  assert.equal(syncs, 1, 'this board\'s enrollment ended and its agents kept the company\'s AI policy text');
+  // Wired at start: the board registers it with engine/orgenroll.js.
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /onEnrollmentEnded\(orgEnrollmentEnded\)/, 'start() no longer registers orgEnrollmentEnded');
 });

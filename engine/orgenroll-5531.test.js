@@ -1165,3 +1165,27 @@ test('#5791: when the company changes its words, the board takes the new ones on
   assert.equal(r2.ok, false, JSON.stringify(r2));
   assert.equal(sent.slice(n).filter((x) => x.route === org.ROUTES.enroll).length, 0, 'an enroll was sent with no hash to echo');
 });
+
+test('#6232 review 10: an enrollment ending tells onEnrollmentEnded once, with that Kosmos\'s root; a refresh with nothing enrolled tells nothing', async (t) => {
+  const { a } = sandbox(t);
+  const state = {};
+  const remote = fakeRemote(state);
+  const ended = [];
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  t.after(off);
+  const pv = await org.preview('ACME-JOIN-1234', { root: a, remote });
+  assert.ok(pv && pv.ok !== false, 'CONTROL: the code did not preview: ' + JSON.stringify(pv));
+  const j = await org.enroll('ACME-JOIN-1234', true, { root: a, remote });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll: ' + JSON.stringify(j));
+  assert.deepEqual(ended, [], 'joining told the listener an enrollment ended');
+  state.member = false; state.world = null;   // the admin removed this member
+  await org.refresh({ root: a, remote });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'CONTROL: the removal did not end the enrollment');
+  assert.deepEqual(ended, [a], 'the ending did not tell the listener, with this Kosmos\'s root, exactly once');
+  await org.refresh({ root: a, remote });
+  assert.deepEqual(ended, [a], 'a refresh with nothing enrolled told the listener again');
+  // A Leave with nothing enrolled clears locally (clearEnrollment with no record): not an ending to tell.
+  const lv = await org.leave({ root: a, remote });
+  assert.ok(lv && lv.localOnly === true, 'CONTROL: the leave did not take the nothing-enrolled path: ' + JSON.stringify(lv));
+  assert.deepEqual(ended, [a], 'clearing with nothing enrolled told the listener an enrollment ended');
+});
