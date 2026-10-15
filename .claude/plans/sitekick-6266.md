@@ -15,7 +15,7 @@ why), without a person dispatching it.
 - tools/site-deploy-kick.sh, run every 15 minutes by launchd on Mortals (the runner box, whose gh login has the
   workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
   job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
-  running, or a deploy run was created or last updated (a finished run: when it ended) under 14 minutes ago (a
+  running, or a deploy run was created, or (one that failed) ended, under 14 minutes ago (a
   backstop, never an extra tick: the job's one retry and its parking keep their 15-minute pace). A STUCK run (not
   finished 3 hours after creation: GitHub stamps startedAt at creation, so queue and running time cannot be told
   apart) is said, is not waited on and does not hold the gap, and the tick exits 1 so launchctl's
@@ -37,7 +37,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 8) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 11) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -95,3 +95,11 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   taken: the plan's print list includes the stuck line; a long comment rewrapped; the stuck comment states the
   near-3-hour false positive; the installer records the source commit and --check prints it; the installer's retry
   and failure message are tested.
+
+## Review 6 (sonnet), and what changed
+- WARNING: counting every run's last update left a minute of slack against the 15-minute tick, so a slow green run
+  (or a skip behind CI) pushed the next ask to 30 minutes: only a FAILED run's end counts now (failure, timed_out,
+  startup_failure), others count from creation (tests both ways; mutants red). WARNING: no visible failure signal:
+  each tick leaves last-result (exit code and last line) and --check shows it (test). NITs taken: the source commit
+  is marked -dirty when the installed script differs from it; this plan's test count; the log's size (about 10 KB a
+  day at worst).

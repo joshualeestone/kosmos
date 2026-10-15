@@ -12,6 +12,7 @@
 #   bash ~/.local/libexec/kosmos-site-deploy-kick/kick.sh --check     what a tick would decide, dispatching nothing
 #   launchctl print gui/$(id -u)/com.stonesyndicate.kosmos-site-deploy-kick | grep -E 'state|last exit code'
 #   cat ~/.local/libexec/kosmos-site-deploy-kick/last-tick            the time of the last tick launchd STARTED
+#   cat ~/.local/libexec/kosmos-site-deploy-kick/last-result          the last tick's exit code and its last line
 #   tail ~/.local/libexec/kosmos-site-deploy-kick/kick.log            what the ticks DID (asked, or could not read)
 # To stop dispatching without uninstalling, create ~/.kosmos-site-autodeploy/paused (it stops the deploy job too).
 # Env (tests only): KOSMOS_KICK_HOME (the home it installs into), KOSMOS_LAUNCHCTL (the launchctl to call).
@@ -28,7 +29,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
   rm -f "$PLIST.new"
-  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick" "$DIR/source"
+  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick" "$DIR/last-result" "$DIR/source"
   rmdir "$DIR" 2>/dev/null || true   # kick.log is kept (review 3): the record of what it did outlives it
   echo "removed $LABEL$([ -e "$DIR/kick.log" ] && printf '; its log is kept at %s' "$DIR/kick.log")"
   exit 0
@@ -42,7 +43,10 @@ cp "$SRC" "$DIR/kick.sh.new"
 chmod 755 "$DIR/kick.sh.new"
 mv "$DIR/kick.sh.new" "$DIR/kick.sh"
 # Review 5: which kosmos commit this copy came from, so a copy left behind main can be seen (kick.sh --check prints it).
-git -C "$(dirname "$SRC")" rev-parse HEAD > "$DIR/source" 2>/dev/null || echo unknown > "$DIR/source"
+# A checkout whose copy of the script differs from its commit is marked -dirty (review 6).
+{ sha="$(git -C "$(dirname "$SRC")" rev-parse HEAD 2>/dev/null)" && [ -n "$sha" ] \
+    && { [ -z "$(git -C "$(dirname "$SRC")" status --porcelain -- site-deploy-kick.sh 2>/dev/null)" ] && echo "$sha" || echo "$sha-dirty"; } \
+    || echo unknown; } > "$DIR/source"
 cat > "$PLIST.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
