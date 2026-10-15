@@ -68,7 +68,7 @@ test('#6256 item 3: the unsent sentence says Kosmos tries to send it with the ne
     arm([EMPTY, box(MSG)]);
     const v = chat.deliver('al', MSG, board.agents);
     assert.equal(v.unsubmitted, true, 'PRECONDITION: left in the box');
-    assert.match(v.because, /still sitting there, and Kosmos tries to send it first with its next message to this agent in the next 10 minutes, if the box still shows only that line/);
+    assert.match(v.because, /still sitting there, and Kosmos tries to send it first with the next line it types to this agent in the next 10 minutes, if the box still shows only that line/);
   } finally { board.restore(); }
 });
 
