@@ -23266,15 +23266,16 @@ async function engineRestartClick() {
       ENGINE_RESTARTING = false;
       if (btn) { btn.disabled = false; btn.textContent = 'Restart Kosmos'; }
       /* No remedy is promised: which one works depends on how this board was started, and a wrong one is worse. */
-      said('Kosmos could not restart itself');
+      /* #6231: refused because an account move holds the board: the title says so at every width, written once, so the
+         reason is what is announced, not a generic line replaced a moment later. */
+      const moveHeld = r.status === 409 && out && out.moveStoppable && (small || title);
+      said(moveHeld ? 'An account move is running, so Kosmos cannot restart yet' : 'Kosmos could not restart itself');
       if (small) small.textContent = 'Kosmos could not restart itself, so it keeps running the old copy until it is next started.';
       /* #6214: refused because an account move holds the board: say that instead, and offer to stop the move. At narrow
          widths the small line is hidden, so the title says it, and the stop's answer is written there. */
-      if (r.status === 409 && out && out.moveStoppable && (small || title)) {
+      if (moveHeld) {
         if (small) small.textContent = String(out.because || '');
         const shown = small && getComputedStyle(small).display !== 'none' ? small : title;
-        /* #6231: the title says why at every width, not only where the small line is hidden. */
-        if (title) title.textContent = 'An account move is running, so Kosmos cannot restart yet';
         offerStopMove(btn || shown, shown);
       }
       return;
@@ -28466,14 +28467,18 @@ async function paintAccounts(opts) {
              not come until the move ends. */
           if (b && !(b.nextElementSibling && b.nextElementSibling.hasAttribute('data-acct-move-stop'))) {
             const stopBtn = document.createElement('button');
-            stopBtn.type = 'button'; stopBtn.setAttribute('data-acct-move-stop', ''); acctStopLabel(stopBtn, false);
+            stopBtn.type = 'button'; stopBtn.setAttribute('data-acct-move-stop', '');
+            /* #6231: a stop pressed elsewhere (beside a refused restart) before this was drawn: drawn as stopping, as a
+               repaint would draw it. */
+            const already = !!(cur && cur.stopping);
+            stopBtn.disabled = already; acctStopLabel(stopBtn, already);
             stopBtn.addEventListener('click', () => acctStopClick(stopBtn));
             b.after(stopBtn);
             /* #6231: the pressed Move button is disabled, so focus is on it or on the page (engines differ): give it to
                the one control the row offers now, which also says it to a screen reader. Only when focus has not moved
                since the press; clicking plain text after it leaves focus on the page and is not detected. */
             const at = document.activeElement;
-            if (at === b || (at === focusAtPress && (at === btn || at === document.body))) stopBtn.focus({ preventScroll: true });
+            if (!already && (at === b || (at === focusAtPress && (at === btn || at === document.body)))) stopBtn.focus({ preventScroll: true });
           }
         }, stoppedAtClick);
       } catch (e) {

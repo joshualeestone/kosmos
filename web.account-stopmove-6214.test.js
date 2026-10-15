@@ -160,19 +160,22 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
      had the move would be told none is running. */
   assert.match(paint, /const cur = ACCT_MOVE\.get\(from\); if \(cur && cur\.moving\) \{ cur\.progress = t; cur\.onBoard = true; \}/,
     'a repaint never learns the board has the move');
-  assert.match(paint, /if \(b\) b\.textContent = cur && cur\.stopping \? 'Moving…' : t;[^\n]*\n(?:[^\n]*\n){3}\s+if \(b && !\(b\.nextElementSibling && b\.nextElementSibling\.hasAttribute\('data-acct-move-stop'\)\)\) \{\n\s+const stopBtn = document\.createElement\('button'\);\n\s+stopBtn\.type = 'button'; stopBtn\.setAttribute\('data-acct-move-stop', ''\); acctStopLabel\(stopBtn, false\);\n\s+stopBtn\.addEventListener\('click', \(\) => acctStopClick\(stopBtn\)\);\n\s+b\.after\(stopBtn\);/,
+  assert.match(paint, /if \(b\) b\.textContent = cur && cur\.stopping \? 'Moving…' : t;[^\n]*\n(?:[^\n]*\n){3}\s+if \(b && !\(b\.nextElementSibling && b\.nextElementSibling\.hasAttribute\('data-acct-move-stop'\)\)\) \{\n\s+const stopBtn = document\.createElement\('button'\);\n\s+stopBtn\.type = 'button'; stopBtn\.setAttribute\('data-acct-move-stop', ''\);\n(?:[^\n]*\n){4}\s+stopBtn\.addEventListener\('click', \(\) => acctStopClick\(stopBtn\)\);\n\s+b\.after\(stopBtn\);/,
     'the move does not offer the stop once the board has it');
   const restart = page.lift(SCRIPT, 'engineRestartClick');
-  assert.match(restart, /if \(r\.status === 409 && out && out\.moveStoppable && \(small \|\| title\)\) \{/, 'Restart Kosmos does not offer the stop');
+  assert.match(restart, /const moveHeld = r\.status === 409 && out && out\.moveStoppable && \(small \|\| title\);/, 'Restart Kosmos does not know a move holds the board');
+  assert.match(restart, /if \(moveHeld\) \{/, 'Restart Kosmos does not offer the stop');
   /* At narrow widths the toast hides its small line: the title says it, and the stop answers there (round 6). */
   assert.match(restart, /const shown = small && getComputedStyle\(small\)\.display !== 'none' \? small : title;/);
   assert.match(restart, /offerStopMove\(btn \|\| shown, shown\);/);
-  /* #6231: the title says why at every width, not only when the small line is hidden. */
-  assert.match(restart, /\n\s+if \(title\) title\.textContent = 'An account move is running, so Kosmos cannot restart yet';/,
-    'at wide widths the title still says Kosmos could not restart itself');
+  /* #6231: the title says why at every width, written once through said() so the reason is what is announced. */
+  assert.match(restart, /said\(moveHeld \? 'An account move is running, so Kosmos cannot restart yet' : 'Kosmos could not restart itself'\);/,
+    'a refusal held by a move does not title the toast with the move');
   /* #6231: the inserted stop takes focus only from the disabled Move button or the page, never from elsewhere. */
   assert.match(paint, /const focusAtPress = document\.activeElement;/, 'the press does not record where focus was');
-  assert.match(paint, /const at = document\.activeElement;\n\s+if \(at === b \|\| \(at === focusAtPress && \(at === btn \|\| at === document\.body\)\)\) stopBtn\.focus\(\{ preventScroll: true \}\);/,
+  assert.match(paint, /const already = !!\(cur && cur\.stopping\);\n\s+stopBtn\.disabled = already; acctStopLabel\(stopBtn, already\);/,
+    'a stop drawn after a stop was pressed elsewhere comes up enabled');
+  assert.match(paint, /const at = document\.activeElement;\n\s+if \(!already && \(at === b \|\| \(at === focusAtPress && \(at === btn \|\| at === document\.body\)\)\)\) stopBtn\.focus\(\{ preventScroll: true \}\);/,
     'the stop the Move press inserts is not focused, so a screen reader never hears it');
   /* The 15 s repaint waits while an offer is on screen, so a press still out is not answered into a removed node. */
   assert.match(restart, /if \(sl\.querySelector\('\[data-stop-move-offer\]'\) && \+\+holds < 20\) \{ setTimeout\(release, ENGINE_SAID_HOLD_MS\); return; \}/);
