@@ -102,6 +102,29 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     }
     await browser.close();
   }
+  /* A list left open across a Codex window's reset is read again just after it, and that window's meter goes while the
+     weekly one stays (the same timer as Claude's five-hour line). The page clock is installed so it can run forward. */
+  {
+    const browser = await pw.chromium.launch({ headless: process.env.HEADED === '0' });
+    const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await page.clock.install({ time: new Date(now) });
+    await page.goto('file://' + PAGE);
+    const rows = [openai('soon', { limits: { windows: [win(70, 300, now + 10 * 60e3), win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })];
+    const before = await page.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      return [...document.querySelectorAll('#set-accounts .acct-usage-codex')].map((m) => m.dataset.resets && m.querySelector('.acct-usage-line').textContent.trim().slice(0, 30));
+    }, rows);
+    await page.clock.runFor(11 * 60e3); await page.waitForTimeout(300);
+    const after = await page.evaluate(() => ({ lines: [...document.querySelectorAll('#set-accounts .acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim().slice(0, 30)), reads: window.__reads }));
+    say(before.length === 2 && before.every(Boolean) && after.reads === 2 && after.lines.length === 1 && /weekly/.test(after.lines[0]),
+      '[chromium open] a Codex window past its reset on a list left open is read again and goes; the weekly one stays', JSON.stringify({ before, after }));
+    await browser.close();
+  }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');
   process.exit(fails.length ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
