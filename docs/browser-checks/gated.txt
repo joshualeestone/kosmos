@@ -10,6 +10,7 @@ live-connect
 render-account-badge-1921
 render-account-codex-6176
 render-account-dup-reauth-2584
+render-account-fivehour-6176
 render-account-name-2095
 render-account-problem-3723
 render-account-usage-6108

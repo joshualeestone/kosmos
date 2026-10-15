@@ -51,12 +51,22 @@ const HISTORY_MAX = 400;
    stamped slightly differently by two sessions" from "the next week" with room
    on both sides. */
 const SAME_WEEK_TOLERANCE_SECONDS = 86400;
+/* #6176: the five-hour reading, in its own file so the weekly file's history and its calibration are untouched. Its
+   windows reset five hours apart, so readings within an hour of each other's reset time are the same window. */
+const FIVE_HOUR_FILE = 'kosmos-fivehour.json';
+const SAME_WINDOW_TOLERANCE_SECONDS = 3600;
+/* #6176: no five-hour window resets further out than this; a reset beyond it is a bad reading or file. One value, used
+   by record() here and by allowance.readFiveHour, so the writer and the reader cannot disagree. */
+const FIVE_HOUR_MAX_AHEAD_SECONDS = 6 * 3600;
 
 /** The seven-day reading from a statusline payload, or null. Validated, not
  *  presence-checked: a present field of the wrong shape is worse than none. */
-function weeklyOf(payload) {
+function weeklyOf(payload) { return windowOf(payload, 'seven_day'); }
+/** The five-hour reading (#6176), validated the same way, or null. */
+function fiveHourOf(payload) { return windowOf(payload, 'five_hour'); }
+function windowOf(payload, key) {
   const rl = payload && typeof payload === 'object' ? payload.rate_limits : null;
-  const s = rl && typeof rl === 'object' && !Array.isArray(rl) ? rl.seven_day : null;
+  const s = rl && typeof rl === 'object' && !Array.isArray(rl) ? rl[key] : null;
   if (!s || typeof s !== 'object' || Array.isArray(s)) return null;
   const pct = s.used_percentage;
   const resets = s.resets_at;
@@ -65,18 +75,29 @@ function weeklyOf(payload) {
   return { usedPct: pct, resetsAt: resets };
 }
 
-/** Record a reading in `dir`. True when it wrote, false when unchanged or it could not. */
-function record(dir, reading, now) {
-  const file = path.join(dir, FILE);
+/** Record a reading in `dir`. True when it wrote, false when unchanged or it could not. The weekly file by default;
+ *  `opt` names another window's file, its same-window tolerance, and whether it keeps history (#6176). */
+function record(dir, reading, now, opt = {}) {
+  const file = path.join(dir, opt.file || FILE);
+  const tolerance = opt.tolerance ?? SAME_WEEK_TOLERANCE_SECONDS;
+  const keepHistory = opt.history !== false;
   let cur = null;
   try { cur = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* absent or unreadable: start fresh */ }
+  /* #6176: a stored reset further out than this window can be (a bad file) is not a window to compare against, or every
+     real reading after it would be refused as older until that impossible time passed. */
+  if (cur && opt.maxAheadSeconds && typeof cur.resetsAt === 'number' && cur.resetsAt > now / 1000 + opt.maxAheadSeconds) cur = null;
+  // And an incoming one like that is not recorded: it would replace a good reading with one nothing will show.
+  if (opt.maxAheadSeconds && reading.resetsAt > now / 1000 + opt.maxAheadSeconds) return false;
   if (cur && typeof cur.usedPct === 'number' && typeof cur.resetsAt === 'number') {
-    const sameWeek = Math.abs(reading.resetsAt - cur.resetsAt) < SAME_WEEK_TOLERANCE_SECONDS;
-    if (sameWeek ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
+    const sameWindow = Math.abs(reading.resetsAt - cur.resetsAt) < tolerance;
+    if (sameWindow ? reading.usedPct <= cur.usedPct : reading.resetsAt < cur.resetsAt) return false;
   }
-  const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
-  history.push([now, reading.usedPct, reading.resetsAt]);
-  const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now, history };
+  const next = { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: now };
+  if (keepHistory) {
+    const history = cur && Array.isArray(cur.history) ? cur.history.slice(-(HISTORY_MAX - 1)) : [];
+    history.push([now, reading.usedPct, reading.resetsAt]);
+    next.history = history;
+  }
   const data = JSON.stringify(next) + '\n';
   /* #5434 slice 5: flushed before the rename (a crash otherwise can leave the file zero-filled, #5431), through
      securewrite, required only when there is something to write (this runs on every repaint and must stay cheap and
@@ -112,8 +133,9 @@ function main(argv, input, now) {
   try { if (!fs.statSync(dir).isDirectory()) return; } catch { return; }
   let payload = null;
   try { payload = JSON.parse(input); } catch { return; }
-  const reading = weeklyOf(payload);
-  if (reading) record(dir, reading, now);
+  // Each reading on its own: a failure recording one must never cost the other.
+  try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
+  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {
@@ -123,4 +145,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, weeklyOf, record, main };
+module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, main };

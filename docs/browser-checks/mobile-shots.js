@@ -912,6 +912,26 @@ const SCREENS = [
       await page.waitForSelector('#set-accounts .acct-box.acct-land', { state: 'visible', timeout: 5000 });
     }
   } },
+  /* #6176: AI Models with each Claude account's weekly AND five-hour readings: one with both (the second line under the
+     first), one close to its five-hour limit, and one with only a weekly reading (the control). Only the account list
+     is stubbed, with example.com accounts. */
+  { name: 'settings-accounts-fivehour', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    // A pinned afternoon, so the shot always shows the time-only reset form, whatever hour it is taken.
+    const H = 3600000, now = (() => { const d = new Date(); d.setHours(15, 0, 0, 0); return d.getTime(); })();
+    await page.clock.setFixedTime(new Date(now));
+    const row = (email, dir, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email, label: email, dir,
+      organization: null, isDefault: false, keyTail: null, memoryShared: true, offerable: true, apiKey: false,
+      connection: { state: 'connected', badge: 'working', checkedLive: true, plan: null }, agentsHere: { names: [], complete: true }, ...extra });
+    const accounts = [
+      row('work@example.com', '/home/.claude-work', { weekly: { usedPct: 41, resetsAt: now + 60 * H, at: now - H }, fiveHour: { usedPct: 64, resetsAt: now + 2 * H, at: now - 3 * 60000 } }),
+      row('busy@example.com', '/home/.claude-busy', { weekly: { usedPct: 22, resetsAt: now + 90 * H, at: now - H }, fiveHour: { usedPct: 86, resetsAt: now + H, at: now - 60000 } }),
+      row('quiet@example.com', '/home/.claude-quiet', { weekly: { usedPct: 9, resetsAt: now + 120 * H, at: now - 5 * H }, fiveHour: null }),
+    ];
+    await page.route((u) => new URL(u).pathname === '/api/accounts', (route) => route.fulfill({
+      status: 200, contentType: 'application/json', body: JSON.stringify({ accounts }) }));
+    await at(page, '?tab=settings&sec=accounts');
+    await page.waitForSelector('#set-accounts .acct-usage-five', { state: 'visible', timeout: 12000 });
+  } },
   /* #5977: Add a provider, Qwen picked: the address and model fields (labelled), and the panel for Qwen on this
      computer. The Ollama route is stubbed (needs_model: Ollama has qwen2.5:7b, Kosmos's 16k copy is not made yet), so
      the shot never depends on this Mac's own Ollama. */

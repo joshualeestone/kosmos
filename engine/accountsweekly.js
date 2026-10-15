@@ -26,6 +26,15 @@ function weeklyOf(a, nowMs) {
   } catch { return null; }
 }
 
+/** #6176: the account's five-hour reading, or null when there is none (an API key, none recorded, unreadable, the window
+    has reset). Same units as weeklyOf: resetsAt and at in epoch ms. */
+function fiveHourOf(a, nowMs) {
+  try {
+    const r = a && a.dir && !a.apiKey ? require('./allowance').readFiveHour(a.dir, nowMs) : null;
+    return r ? { usedPct: r.usedPct, resetsAt: r.resetsAt * 1000, at: r.at } : null;
+  } catch { return null; }
+}
+
 /** Why there can be NO reading for this account, when that is known: 'windows', 'own-statusline', 'not-wired',
     'linked-settings' (#6175) or 'unreadable-settings'. null when Kosmos's own status line is there, so a reading comes once an agent on it works. */
 function weeklyBlockedOf(a, platform = process.platform) {
@@ -75,4 +84,4 @@ function summary(list, nowMs = Date.now()) {
 
 function resetForTests() { cached = null; }
 
-module.exports = { weeklyOf, weeklyBlockedOf, summary, CACHE_MS, MAX_ACCOUNTS, resetForTests };
+module.exports = { weeklyOf, fiveHourOf, weeklyBlockedOf, summary, CACHE_MS, MAX_ACCOUNTS, resetForTests };

@@ -735,6 +735,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-usage-meter { display: flex; align-items: center; gap: 10px; }
 .acct-usage-meter .bar { flex: 0 0 120px; }
 .acct-usage-next { margin-top: 6px; }   /* #6176: a second window's meter, a short step under the first */
+.acct-usage-five { margin-top: 6px; }   /* #6176: the five-hour meter, a short step under the weekly one */
 #set-accounts .acct-usage-line, #set-accounts .acct-agents-line { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); }
 #set-accounts .acct-usage-none { color: var(--label-2); }
 #set-accounts .acct-usage-warn { margin: 0; font-size: .8125rem; line-height: 1.4; color: var(--label); display: flex; gap: 8px; align-items: baseline; }
@@ -26574,6 +26575,7 @@ function asgFailoverClick() {
 document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-toggle').addEventListener('click', asgFailoverClick);
 
 async function paintSettings() {
+  acctSettingsOpenAt = Date.now();   // #6176: a Settings open is under way: its own paintAccounts below reads the list
   paintYouName();
   paintYouTz();
   paintAutomation();
@@ -26625,6 +26627,7 @@ async function paintSettings() {
      none of them need. paintAccounts() paints its own loading state
      immediately and fills in the real answer whenever it lands; nothing
      later in this function reads its result. */
+  acctSettingsOpenAt = 0;
   paintAccounts();
   await refreshHistory();
   await refreshYou();
@@ -27255,6 +27258,95 @@ function acctFollowUp(n, busy) {
     paintAccounts({ followUp: n });
   }, ACCT_FOLLOWUP.ms);
 }
+/* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
+   shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
+   as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
+let acctFiveTimer = null, acctFiveMisses = 0;
+/* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
+   panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
+   (acctFiveHourOnShow), so nothing is lost by stopping. */
+function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
+/* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
+   reset, otherwise arm the timer for the soonest reset it shows. */
+let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
+let acctSettingsOpenAt = 0;   // when a Settings open began, until it paints the list itself (0: none under way)
+let acctOnShowTimer = null;   // one pending look at a time: switching to AI Models twice queues one read, not two
+function acctFiveHourOnShow() {
+  /* A moment later, and only if nothing has repainted the list meanwhile: opening Settings onto AI Models repaints it
+     itself (paintSettings, after its own read), and reading here too would run every account's live check twice. */
+  const mine = ACCT_EPOCH;
+  clearTimeout(acctOnShowTimer);
+  acctOnShowTimer = setTimeout(() => {
+    acctOnShowTimer = null;
+    if (acctSettingsOpenAt && Date.now() - acctSettingsOpenAt < 30e3) return;   // a Settings open is about to paint (and read) the list itself
+    if (acctReadOpen && Date.now() - acctReadOpenAt < 30e3) return;   // a read is already out and re-arms the timer when it lands (one out over 30 s has hung: look anyway)
+    if (mine !== ACCT_EPOCH || !acctListShown()) return;
+    const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+    if (!shown.length) return;
+    if (acctListBusy(document.getElementById('set-accounts'))) return;   // busy: the timers already armed carry on; a look never spends their tries
+    if (shown.some((t) => t <= Date.now())) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
+    acctFiveHourRetry();
+  }, 1500);
+}
+/* A Mac that sleeps does not count that time on a page timer, so the reset timer can wake late: coming back to the
+   window looks again (the same check as a section switch). */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
+window.addEventListener('focus', () => acctFiveHourOnShow());
+/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
+   in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
+function acctFiveHourRetry() {
+  if (!acctListShown()) return;
+  const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+  const due = shown.some((t) => t <= Date.now());
+  /* A background read that failed BEFORE any reset still cancelled the timer (it raised ACCT_EPOCH): set it again from
+     the resets on screen, so the line still goes when its window does. */
+  if (!due) { acctFiveHourArm(shown, true); return; }
+  if (acctFiveMisses >= 10) { acctFiveHourArm(shown, true); return; }   // spent on the line past its reset: the others keep their own reset
+  acctFiveMisses++;
+  clearTimeout(acctFiveTimer);
+  const mine = ACCT_EPOCH;
+  const wait = () => {
+    acctFiveTimer = setTimeout(() => {
+      acctFiveTimer = null;
+      if (mine !== ACCT_EPOCH || !acctListShown()) return;
+      // Busy (a Check, a half-armed Disconnect): wait another minute without reading, as the main timer does.
+      if (acctListBusy(document.getElementById('set-accounts'))) {
+        if (acctFiveMisses < 10) { acctFiveMisses++; wait(); return; }
+        acctFiveHourArm(shown.filter((t) => t > Date.now()), true);   // spent: the lines not yet due keep their own reset
+        return;
+      }
+      paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+    }, 60e3);
+  };
+  wait();
+}
+function acctFiveHourRepaint(list) {
+  acctFiveMisses = 0;
+  acctFiveHourArm((list || []).map((a) => a && a.fiveHour && a.fiveHour.resetsAt), false);
+}
+/* The one timer: read the list again just after the soonest reset still ahead. `keep` keeps the miss count (a re-arm
+   after a failed read, not a fresh paint). A list busy at that moment (a Check under way, a half-pressed Disconnect) is tried again
+   a minute later within the same ten-try budget, rather than handed to a follow-up that can run out. */
+function acctFiveHourArm(times, keep) {
+  clearTimeout(acctFiveTimer); acctFiveTimer = null;
+  if (!keep) acctFiveMisses = 0;
+  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
+  if (!soon.length) return;
+  const mine = ACCT_EPOCH;
+  const fire = (delay) => {
+    acctFiveTimer = setTimeout(() => {
+      acctFiveTimer = null;
+      if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
+      if (acctListBusy(document.getElementById('set-accounts'))) {
+        if (acctFiveMisses < 10) { acctFiveMisses++; fire(60e3); return; }
+        acctFiveHourArm(soon.filter((t) => t > Date.now()), true);   // spent: the lines not yet due keep their own reset
+        return;
+      }
+      paintAccounts({ followUp: ACCT_FOLLOWUP.max });
+    }, delay);
+  };
+  fire(Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
+}
 /* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
    it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.
    Only what Kosmos knows: the weekly reading exists for accounts Kosmos set up, while an agent on them runs, so a row
@@ -27271,7 +27363,9 @@ function acctBulkTarget(x, fromDir) {
   return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
     && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100);   // a full account cannot run them either (rounded as its row shows it)
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it)
+    // #6176: nor one at its five-hour limit until that resets (a reading past its reset is over and does not count)
+    && !(x.fiveHour && Number.isFinite(x.fiveHour.usedPct) && Math.round(x.fiveHour.usedPct) >= 100 && !(Number.isFinite(x.fiveHour.resetsAt) && x.fiveHour.resetsAt <= Date.now()));
 }
 /* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
    One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
@@ -27307,7 +27401,7 @@ function acctUsageHtml(a, list) {
   if (a && a.provider === 'openai') return acctCodexUsageHtml(a);
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
-  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !a.agentsHere)) return '';
+  if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !('fiveHour' in a) && !a.agentsHere)) return '';
   const here = a.agentsHere && Array.isArray(a.agentsHere.names) ? a.agentsHere : null;
   const w = a.weekly && Number.isFinite(a.weekly.usedPct) ? a.weekly : null;
   /* The setup guide is left out, as everywhere the page lists or counts agents (#3739); it is not moved either. The
@@ -27340,6 +27434,32 @@ function acctUsageHtml(a, list) {
     'linked-settings': 'This is the last reading Kosmos saw. It will not update, because this account\'s settings file is a link to a file elsewhere (or to nothing).',
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[a.weeklyBlocked] || '';
+  /* #6176: the same, for two readings (weekly and five-hour), said once after both. Its own words, not a rewrite of the
+     singular ones, so rewording one cannot silently leave two meters under a singular note. Every frozenSay reason
+     needs one here: render-account-fivehour-6176 checks the two tables name the same reasons. (Two tables, not one,
+     because #6178's other-computers section mirrors frozenSay word for word and its test compares the two.) */
+  const frozenBothSay = {
+    'windows': 'These are the last readings Kosmos saw. They will not update on Windows yet.',
+    'own-statusline': 'These are the last readings Kosmos saw. They will not update, because this account is set up its own way.',
+    'unreadable-settings': 'These are the last readings Kosmos saw. They will not update, because Kosmos cannot read this account\'s settings.',
+    'linked-settings': 'These are the last readings Kosmos saw. They will not update, because this account\'s settings file is a link to a file elsewhere (or to nothing).',
+    'not-wired': 'These are the last readings Kosmos saw. They will not update, because Kosmos is not set up to read this account\'s usage.',
+  }[a.weeklyBlocked] || '';
+  /* #6176: the five-hour limit, from the same status line, as its own line under the weekly one. It resets within
+     hours, so it warns but never suggests a move (the cure for a five-hour limit is waiting, not another account). */
+  const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) && Number.isFinite(a.fiveHour.at)
+    && a.fiveHour.resetsAt > Date.now() ? a.fiveHour : null;   // past its reset: not drawn (acctFiveHourRepaint repaints an open list then)
+  let five = '';
+  if (f && !a.apiKey) {
+    const fp = Math.max(0, Math.min(100, Math.round(f.usedPct)));
+    const fband = fp >= ACCT_HIGH_PCT ? 'high' : fp >= ACCT_WARN_PCT ? 'warn' : 'ok';
+    const sameDay = new Date(f.resetsAt).toDateString() === new Date().toDateString();
+    const fresets = new Date(f.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+    const fage = agoWords(Math.max(0, Date.now() - f.at));
+    five = '<div class="acct-usage-meter acct-usage-five" data-resets="' + Math.round(f.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + fband + '" style="width:' + fp + '%"></i></span>'
+      + '<p class="acct-usage-line">' + fp + '% of its 5-hour limit used · resets ' + esc(fresets) + (fage ? ' · Kosmos last saw it change ' + esc(fage) : '') + '</p></div>'
+      + (fp >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (fband === 'high' ? ' high' : '') + '">' + (fp >= 100 ? 'At its 5-hour limit until ' + esc(fresets) + '.' : 'Close to its 5-hour limit.') + '</p>' : '');
+  }
   let usage = '';
   /* #6175: an account with no status line at all can have the reading set up here (the same wiring as when Kosmos
      creates an account; a status line of the person's own is never replaced, which is 'own-statusline', not this). */
@@ -27359,9 +27479,17 @@ function acctUsageHtml(a, list) {
       const age = agoWords(Date.now() - w.at);
       usage = '<div class="acct-usage-meter"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
         + '<p class="acct-usage-line">' + pct + '% of its weekly limit used · resets ' + esc(resets) + (age ? ' · Kosmos last saw it change ' + esc(age) : '') + '</p></div>'   // what Kosmos saw: use elsewhere (claude.ai, another computer) is not seen
-        + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup
+        + (frozenSay && !five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + (five ? '' : usageSetup)
         + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its weekly limit.' : 'Close to its weekly limit.')
-          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '');
+          + (canMove ? ' Move its ' + (names.length === 1 ? 'agent' : 'agents') + ' to another account' + (pct >= 100 ? (allRunning ? ' to get ' + (names.length === 1 ? 'it' : 'them') + ' working again.' : '.') : (allRunning ? ' before ' + (names.length === 1 ? 'it stops.' : 'they stop.') : '.')) : '') + '</p>' : '')
+        + five   // after the weekly block whole, so the weekly warning's move suggestion never reads as the five-hour line's
+        /* Both readings and neither will update: one note after both, so the five-hour meter is not read as live. */
+        + (frozenSay && five ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenBothSay || frozenSay) + '</p>' : '')   // a reason with no plural words yet still gets a note
+        + (five ? usageSetup : '');   // #6175's offer after the note it answers, never between the meters and their note
+    } else if (five) {
+      /* A five-hour reading with no weekly one: "no reading yet" would contradict it, so it stands alone (and is said
+         to be the last one when the account cannot be read any more). */
+      usage = five + (frozenSay ? '<p class="acct-usage-line acct-usage-none">' + esc(frozenSay) + '</p>' : '') + usageSetup;
     } else {
       /* "Cannot read" only when the server knows there will be no reading; otherwise one comes once an agent works. */
       usage = '<p class="acct-usage-line acct-usage-none">' + esc(blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.') + '</p>' + usageSetup;
@@ -27504,6 +27632,8 @@ async function paintAccounts(opts) {
      slower older fetch resolving after a faster newer one used to be
      able to paint stale data over fresh -- unlikely when this was an
      instant stat, a real risk now. */
+  /* #6176: raising the epoch cancels the five-hour timer; every way out of this function below must end in
+     acctFiveHourRepaint or acctFiveHourRetry (or draw no five-hour line), or a line can stay past its reset. */
   const mine = ++ACCT_EPOCH;
   /* #3997: the follow-up read (below) repaints in place, without the placeholder flash. */
   if (!followUp) box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';
@@ -27516,15 +27646,18 @@ async function paintAccounts(opts) {
   // real, multi-second one and had no announcement for that span at all.
   if (msg && !followUp) msg.textContent = 'Checking your accounts…';
   let list = [];
+  acctReadOpen = mine; acctReadOpenAt = Date.now();   // #6176: a read is out, so a look on window return does not start a second one beside it
   try {
     const res = await fetch('/api/accounts?agents=1', { cache: 'no-store' });   // #6108: only Settings asks for each account's agents
     if (mine !== ACCT_EPOCH) return;
     if (!res.ok) throw new Error('no');
     list = ((await res.json()) || {}).accounts || [];
+    if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
   } catch {
+    if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) return;   // #3997: a failed background re-read keeps the list the person is looking at
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
@@ -27542,11 +27675,17 @@ async function paintAccounts(opts) {
   }
   /* #3997 round 10: the person may have started something WHILE this follow-up was reading (a Check now, a
      half-pressed Disconnect): look again before rebuilding, and if so wait a turn instead. */
-  if (followUp && acctListBusy(box)) { acctFollowUp(followUp, 1); return; }   // busy: wait, do not spend a read (round 15)
+  if (followUp && acctListBusy(box)) {   // busy: wait, do not spend a read (round 15)
+    /* #6176: this read raised ACCT_EPOCH, so any five-hour timer is gone, and the follow-up below can give up; keep the
+       five-hour line's own retry (or its next reset) armed, so a line past its reset does not stay for good. */
+    acctFiveHourRetry();
+    acctFollowUp(followUp, 1); return;
+  }
   accountsRead(list);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
+  acctFiveHourRepaint(list);
   if (!followUp) {
     acctCancelSay();  /* post-await writer, same reason as the catch above */
     if (msg) msg.textContent = '';
@@ -42479,6 +42618,9 @@ function settingsGo(section, opts) {
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
   if (section === 'accounts' && typeof aoKick === 'function') aoKick();   // #6178: the other computers' accounts, read on arrival
+  /* #6176: the five-hour timer stops while the accounts list is hidden, and moving between sections does not repaint
+     it: coming back to AI Models, a line past its reset is read again now, and otherwise the timer is set again. */
+  if (section === 'accounts' && typeof acctFiveHourOnShow === 'function') acctFiveHourOnShow();
   /* #4313: the community list is a fetch, not the poll, and the send sweep changes it on its
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */

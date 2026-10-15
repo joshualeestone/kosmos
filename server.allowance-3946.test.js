@@ -203,6 +203,22 @@ test('#6108 /api/accounts: a Claude row carries its weekly reading and its agent
   assert.equal(row2.weekly, null, 'a reading from a week that has reset was shown as current');
 });
 
+/* #6176: the row also carries the five-hour reading, in the same units as the weekly one, and none once it has reset. */
+test('#6176 /api/accounts: a Claude row carries its five-hour reading', async (t) => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  t.after(() => fs.rmSync(path.join(def, statusline.FIVE_HOUR_FILE), { force: true }));   // the default dir is shared with later tests, pass or fail
+  const at = Date.now() - 5 * 60e3, soon = Math.floor(Date.now() / 1000) + 2 * 3600;
+  fs.writeFileSync(path.join(def, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 64, resetsAt: soon, at }));
+  const pick = (rows) => rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+  const row = pick(((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || []);
+  assert.ok(row, 'the default Claude account is not listed');
+  assert.deepEqual(row.fiveHour, { usedPct: 64, resetsAt: soon * 1000, at }, 'the five-hour reading did not arrive, or not in ms');
+  fs.writeFileSync(path.join(def, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 99, resetsAt: Math.floor(Date.now() / 1000) - 60, at }));
+  const row2 = pick(((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || []);
+  assert.equal(row2.fiveHour, null, 'a reading from a window that has reset was shown as current');
+});
+
 test('#6108 the shared walk: a guard counts the setup guide, the accounts list does not', () => {
   const { enumerateAgentsOnAccount, claudeAgentsByAccount } = require('./server');
   const acct = account('acct-6108-guide');
