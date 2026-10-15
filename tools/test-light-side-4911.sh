@@ -12,13 +12,14 @@ unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SID
 # (the blind spot #4298 is about), so the trap below removes $T on EVERY catchable exit path, with
 # INT/TERM/HUP routed through exit so the EXIT cleanup still runs (only SIGKILL can escape it).
 T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
+# Arm the cleanup BEFORE spawning the holders, so a signal in that window still removes $T.
+trap 'rm -rf "$T"' EXIT; trap 'exit 143' INT TERM HUP
 sleep 600 </dev/null >/dev/null 2>&1 & HOLDER=$!
 sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
 # A stand-in suite that is NOT this shell's descendant (this shell holds a queue marker in the side arms, and a
 # waiter's descendants are not suites): orphaned at once, so its parent is launchd, as a real agent's suite's is not ours.
 ORPHAN="$(sh -c 'sleep 600 </dev/null >/dev/null 2>&1 & echo $!')"
-trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT
-trap 'exit 143' INT TERM HUP   # a signal routes through exit so the EXIT trap still removes the /tmp $T
+trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT   # now also kill the holders (INT/TERM/HUP already routed above)
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
 fails=0
 pass() { echo "PASS  $1"; }
