@@ -16,9 +16,10 @@
 #                        hook is ~6 seconds late by design and is unused);
 #                        working "running <tool>" instead when Kosmos's own
 #                        allow hook answers the request (#5495, no box shows)
-#   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you or
-#                        an auto blocked; DOES clear a standing auto needs_you, a
-#                        permission prompt, once the turn moves on; #900/#1949/#2456)
+#   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you; DOES
+#                        clear a standing auto needs_you, a permission prompt, once
+#                        the turn moves on, and (#6209) an auto provider blocked,
+#                        unless that block had replaced a deliberate wait; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #   PostToolUseFailure -> no report: `kosmos tool-failed`, a digest of the failed call the
@@ -37,7 +38,7 @@
 # The guard fires for `auto === true && (state === 'idle' || 'working' ||
 # 'needs_you')` (#900 refused `idle`; #1949 added `working`; #2456 added an auto
 # `needs_you` clobber-guard). It refuses those over a standing PROTECTED wait --
-# a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked` --
+# a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked` (#6209: an auto idle clears that one) --
 # but NOT over a standing auto `needs_you`, which a permission prompt writes and
 # which the following auto idle/working is meant to clear. What --auto also
 # changes is that the record can now say who wrote a line.

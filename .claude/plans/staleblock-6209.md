@@ -19,7 +19,8 @@ blocked for days. An agent's own deliberate `blocked`, and every other protected
 - An automatic `idle` (a turn that ended normally) clears a standing AUTOMATIC provider blocked (by auto, on "provider api
   (...)"). A turn that ends normally proves the provider answered a whole turn after the failure.
 - An automatic `working` (PreToolUse heartbeat, mid-turn) still does not clear it: the turn could still fail.
-- Untouched: a deliberate blocked or needs_you (by agent or operator), a legacy unmarked line, and the quota hold (a
+- Untouched: a deliberate blocked or needs_you (by agent or operator) standing on the card, a legacy unmarked line, and
+  the quota hold (a
   rate_limit report with `until` is held by its own rules; a later normal turn end after the reset is the same proof).
 - Parts 2 (overdue summary prompt) and 3 (task on hold while work goes on elsewhere) are separate slices on this card.
 
@@ -27,3 +28,15 @@ blocked for days. An agent's own deliberate `blocked`, and every other protected
 That Claude Code fires StopFailure INSTEAD of Stop for a failed turn (from its hook documentation, as #5805 records; not
 measured on a live agent). If both fired for one failed turn, the block would clear at once: still visible in the
 activity log, but no longer red.
+
+## Review 1 (opus), and what changed
+- BLOCKER, fixed: an incoming automatic blocked may overwrite a deliberate wait (left unguarded on purpose), so clearing
+  the block would have erased the agent's question too and read idle. The clear now looks at the line the block
+  replaced (lineUnderProviderBlock, from the record's tail) and is refused when that is a deliberate or unmarked
+  blocked/needs_you; an automatic permission wait under it does not stop the clear. Tested both ways (switching the
+  check off fails the question test, measured); a legacy unmarked provider block is tested too.
+- Comments fixed: the #2456 block in selfreport.js, the hook's own doc (engine/kosmos-report-hook.js) and
+  install/kosmos-report-hook.sh no longer say an auto idle never clears an auto blocked.
+- Known, added to the weakest premise: the hook sends reports in the background, so turn N's late Stop idle could in
+  principle land after turn N+1's StopFailure and clear a fresh block (it needs a new prompt plus an immediate failure
+  inside one report's latency). The next failed turn writes the block again.
