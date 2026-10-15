@@ -22870,6 +22870,7 @@ function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REF
 function orgEnrollmentEnded(root) {
   // Compared as resolved paths (review 14): a trailing slash or another spelling of this board's root is still it.
   if (typeof root !== 'string' || path.resolve(root) !== path.resolve(require('./engine/store').ROOT)) return;
+  ORG_REFRESH_MISSES = 0;   // review 15: a later join starts its retries at 15 minutes, not where this one left off
   companyPolicySync();
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
