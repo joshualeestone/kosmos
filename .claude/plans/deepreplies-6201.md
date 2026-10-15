@@ -28,3 +28,18 @@ replies still misses some; the count says so.
 
 ## Not done
 - freshReplies (the count behind the reply nudge) still counts from round 1 only; a deep reply there is "unknown".
+
+## Review 1 (opus), and what changed
+- BLOCKER, fixed: deep replies are often newer than a post's round-1 page, so its mark (round 1's newest) never passed
+  them and only "seen" (SEEN_MAX 120) kept them from repeating; one read now fetches hundreds, so a reply-heavy post
+  cycled repeats. A post read to its end now settles its mark at the newest item read that is MARK_SETTLE_MS (3 min)
+  older than its newest, also when the 30 cap cut it (the earlier of that and the last shown). The window is longer
+  than any read, so an item landing during a read is never passed. Test: 200 deep replies over 9 reads, none twice
+  (turning the settle off repeats, measured). Limit: more than SEEN_MAX items within 3 minutes of each other.
+- The nudge's count (freshReplies) names nobody when it could not see a whole thread (older comments, replies past its
+  3 pages): the read's cap position is then unknown, so all owed comments go to `more` ("more are waiting").
+- Budget re-derived: REPLY_PAGES_MAX 30 (with round 1's 10, the documented 40 a read), and no new batch after
+  ROUND2_START_MS (3 s) into round 2, so READ_WAIT_MS + round 1 + window + last batch stays under the CLI's 30 s.
+- A failed post's tasks are dropped, not counted against the budget. The post line no longer implies a later read
+  gets there: "could not be read, as the thread is longer than a read reaches, so new ones there are not listed".
+- Kept: one failed page still holds the whole post (unchanged behaviour; its mark stays, everything comes later).
