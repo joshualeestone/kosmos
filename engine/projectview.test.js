@@ -640,7 +640,7 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   // The report: written in the morning round, idle from then, woken by a request a minute ago. 331 min on the clock,
   // 6 + 1 min of work: current.
   // A Claude turn heartbeats `working` once a minute while it runs tools (install/kosmos-report-hook.sh), so the turn
-  // from 400 to 325 min ago leaves a row each minute; #5635 F2 (0.7.50) counts a working row only for the board's decay.
+  // from 400 to 325 min ago leaves a row each minute; #5635 F2 (0.7.50) counts a working row for at most 30 min.
   const beats = (from, to) => Array.from({ length: from - to }, (_, i) => ['working', from - i]);
   const woken = hist([...beats(400, 325), ['idle', 325], ['working', 1]]);
   const r = v.workExcused(stale(331), claude, woken, NOW);
@@ -768,7 +768,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   const raw = { id: 'wk2', name: 'Work Time', folder: '/p/wk2', agents: ['mark'], tasks: [] };
   const described = projects.describe(raw, BOARD.agents, [raw]);
   const folder = agentFolder('mark-wk2', [['2026-09-29-11.md', 331]]);
-  // Heartbeats once a minute through the turn, as a real Claude turn files them (#5635 F2, 0.7.50: each counts for 5 min).
+  // Heartbeats once a minute through the turn, as a real Claude turn files them (#5635 F2, 0.7.50: each counts for at most 30 min).
   const rows = [...Array.from({ length: 75 }, (_, i) => ({ state: 'working', at: NOW - (400 - i) * 60000 })), { state: 'idle', at: NOW - 325 * 60000 }, { state: 'working', at: NOW - 60000 }];
   const view = (readHistory) => v.overviewOf(described, BOARD.agents, { now: NOW, folderOf: () => folder, readBrief: () => ({ found: false }),
     readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
@@ -811,7 +811,9 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   const rows = [['working', wrote + 1], ['working', last + 0.3], ['idle', last + 0.02], ['working', last]];
   const r = v.workExcused(summary, claude, hist(rows), NOW);
   assert.equal(r.state, 'worked', 'the idle night still counted as work: ' + JSON.stringify(r));
-  assert.ok(r.workMinutes <= 2 * 30 + 1, 'more than two 30-minute caps of work counted: ' + r.workMinutes);
+  // The heartbeat before the summary counts to its cap (29 min after the summary), the trailing working its 30: about an
+  // hour, pinned on both sides so a different cap is seen.
+  assert.ok(r.workMinutes >= 55 && r.workMinutes <= 61, 'not about two 30-minute caps of work: ' + r.workMinutes);
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
   assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.

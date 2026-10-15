@@ -32,3 +32,7 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
   re-pinned on grok (mutant: filter removed, that test red). W2/NIT: the 5-min cap undercounted toward current and
   disagreed with summarydue-nudge's 30-min gap cap; now the same 30 min. Mutants: no cap -> F2 test red; no operator
   filter -> the grok clear test red. 38/38.
+- Round 3 (Sonnet): CONVERGED, no blocker or warning. Confirmed: no circular-require hazard (lazy, call-time), span math
+  sound, fixtures still mean what their comments say, the F2 test fails uncapped. NITs taken: two stale "5 min" test
+  comments; the F2 bound pinned on both sides (55 to 61 min, so a different cap is seen). Left: a member with no runner is
+  uncapped (Claude members always carry runner 'claude', cardRunnerOf defaults to it; round 2 checked).
