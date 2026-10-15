@@ -22812,37 +22812,44 @@ const ORG_REFRESH_RETRY_MS = 15 * 60 * 1000;
 let ORG_REFRESH_MISSES = 0;
 /** While a join's outcome is not known (org-join-unknown.json), it is asked about this often, not only hourly (review 26). */
 const ORG_UNSURE_MS = 2 * 60 * 1000;
-/** When this board last asked its company (a clock time; 0 before the first ask). */
-let ORG_REFRESHED_AT = 0;
+/** When this board last asked its company, and when the next ask is due (clock times; 0 before the first ask). Two
+    values, not one (review 6): a clock set back is told by "now is before the last ask", which a due time moved
+    earlier by a retry could not show. */
+let ORG_ASKED_AT = 0;
+let ORG_NEXT_AT = 0;
 function orgEnrollRefresh() {
   // #5670: a refresh sends to the company, so it waits for live execution, as the rollup tick does (#5532).
   if (!liveExecution.liveExecutionAllowed()) return;
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    // Set before the ask, so an ask still in flight is not sent again at the next check (refresh runs one at a time).
+    // Recorded before the ask, so an ask still in flight is not sent again at the next check (refresh runs one at a time).
     const askedAt = Date.now();
-    ORG_REFRESHED_AT = askedAt;
+    ORG_ASKED_AT = askedAt;
+    ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
     return oe.refresh().catch(() => { /* best effort: an unreachable company changes nothing */ }).then((r) => {
-      // No clear answer: the next ask comes sooner than the hour, doubling each time (reviews 4 and 5). Only for the
-      // latest ask: an older one finishing late does not move the clock a newer ask set.
-      if (r && r.ok === true) ORG_REFRESH_MISSES = 0;
-      else if (ORG_REFRESHED_AT === askedAt) {
-        const wait = Math.min(ORG_REFRESH_RETRY_MS * 2 ** ORG_REFRESH_MISSES, ORG_REFRESH_MS);
-        ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
-        ORG_REFRESHED_AT = askedAt - ORG_REFRESH_MS + wait;
+      // Only the latest ask moves the schedule: an older one finishing late changes nothing (reviews 5 and 6).
+      if (ORG_ASKED_AT === askedAt) {
+        if (r && r.ok === true) ORG_REFRESH_MISSES = 0;
+        else {
+          // No clear answer: asked again sooner than the hour, the wait doubling with each miss in a row (reviews 4, 5).
+          ORG_NEXT_AT = askedAt + Math.min(ORG_REFRESH_RETRY_MS * 2 ** ORG_REFRESH_MISSES, ORG_REFRESH_MS);
+          ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
+        }
       }
       companyPolicySync();
       return r;
     });
   } catch { /* best effort */ }
 }
-/* #6232 review 3: ask when an hour has passed on the clock since the last ask. A clock set back counts as due, so a
-   wrong clock can never hold the ask off. */
+/* #6232 review 3: ask once the due time has passed on the clock. A clock set back before the last ask counts as due,
+   so a wrong clock cannot hold the ask off. */
 function orgRefreshIfDue(now = Date.now()) {
-  if (now - ORG_REFRESHED_AT >= ORG_REFRESH_MS || now < ORG_REFRESHED_AT) return orgEnrollRefresh();
+  if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
+/* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
+function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
    Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other
@@ -24525,6 +24532,7 @@ module.exports = {
   statusForSibling, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
+  _orgRefreshResetForTests, // #6232 review 6: tests only
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test

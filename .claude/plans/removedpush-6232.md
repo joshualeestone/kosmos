@@ -43,6 +43,8 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
 - review 3: an answered ask waits the hour; a long sleep asks at the next check; a clock set back asks.
 - review 4/5: a miss is retried after 15 minutes, a second miss after 30; an answered ask starts the misses over.
 - review 5: an older ask ending late without an answer does not move the clock a newer, answered ask set.
+- review 6: right after a miss, a clock set back by less than the retry wait still asks; each test starts the
+  schedule over (_orgRefreshResetForTests).
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -81,3 +83,10 @@ is for the first run after merge.
 - The bound in the plan and the comment includes the retries.
 - Tested: doubling, the reset, and the overlap guard (each fails its mutation; the guard test first hung on the
   mutation instead of failing, fixed so any third ask answers at once). The review 3 test now awaits answered asks.
+
+## Review 6 (sonnet), and what changed
+- One stored time did two jobs (last ask, and due time moved earlier by a retry), so after a miss a clock set back by
+  less than the wait was not seen. Now two values: ORG_ASKED_AT and ORG_NEXT_AT; due when now passes the due time or
+  is before the last ask. Only the latest ask moves either (an older one answering late no longer resets the misses).
+- Tests start the schedule over. The clock-back test is aimed after the first miss (a 15-minute wait): placed after
+  the third miss it passed the old one-value logic too, because the wait there is the full hour (measured).
