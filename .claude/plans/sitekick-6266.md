@@ -114,3 +114,11 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   commented (one run at a time, superseded pending runs cancelled). NITs taken: "differs from", a gh fallback through
   PATH, tests for timed_out, startup_failure and cancelled, both scripts in test:shell's bash -n list, the RunAtLoad
   note.
+
+## Review 8 (sonnet), and what changed
+- No BLOCKER; it checked the test data against real gh output (unfinished conclusion "", startedAt equal to
+  createdAt) and found it matches. WARNINGs stated, not fixed, now in the script header: GitHub's own schedule can
+  land just after an ask (two runs minutes apart, the job's retry alarm sooner; rare, as the schedule is); a lost gh
+  login fails every tick and is seen only in kick.log, last-result and launchctl (accepted, the weakest premise);
+  live gone back to an older commit while main is unchanged is left to the job's schedule. NITs taken: a test label
+  that said "failed" for a green run; the log-size figure.

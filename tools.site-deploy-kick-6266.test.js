@@ -82,7 +82,7 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     ['waiting', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['waiting', 60]]) }],
     ['requested', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['requested', 60]]) }],
     ['pending', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['pending', 60]]) }],
-    ['a failed run 5 min ago (its retry is the next tick, not now)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 300], ['completed', 4000]]) }],
+    ['a run created 5 min ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 300], ['completed', 4000]]) }],
     ['a run queued long that FAILED a minute ago (review 3: from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'failure']]) }],
     ['a run that timed out a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'timed_out']]) }],
     ['a run that failed to start a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'startup_failure']]) }],
