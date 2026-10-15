@@ -1582,6 +1582,57 @@ const SCREENS = [
     fs.writeFileSync(file, kept.join('\n'));
     data.heldLines = null;
   } },
+  /* #6178: Settings > AI Models with "On your other computers". That section reads each other computer only from this
+     computer's own Kosmos+ address over https, so this screen serves the board at https://laptop.kosmosplus.com (a
+     route onto the throwaway board) and answers three made-up other computers: studio with two example.com accounts
+     (82%, and one with no reading) and an agent on each, mortals behind its gate (this browser not let in), oldmac
+     with a Kosmos from before #6178. Nothing here is real, and nothing reaches the network. */
+  { name: 'settings-accounts-other', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
+    const board = new URL(page.url()).origin;
+    const HOME = 'https://laptop.kosmosplus.com';
+    const now = Date.now();
+    const computers = { ok: true, domain: 'kosmosplus.com', computers: [
+      { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'studio', address: 'studio.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'mortals', address: 'mortals.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'oldmac', address: 'oldmac.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+    ] };
+    const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-credentials': 'true', vary: 'Origin', 'content-type': 'application/json' };
+    const studio = {
+      checkedAt: new Date(now).toISOString(),
+      agents: [
+        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', account: { dir: '/home/p/.claude', email: 'person@example.com' } },
+        { sessionName: 'ben', name: 'Ben', state: 'idle', runner: 'claude', account: { dir: '/home/p/.claude-work', email: 'work@example.com' } },
+      ],
+      accountsWeekly: [
+        { dir: '/home/p/.claude', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: now + 3 * 864e5, at: now - 3600e3 }, blocked: null },
+        { dir: '/home/p/.claude-work', email: 'work@example.com', weekly: null, blocked: null },
+      ],
+    };
+    await page.route(HOME + '/**', async (r) => {
+      try {   // #6022: a late answer after close is caught, not a crash
+        const u = new URL(r.request().url());
+        if (u.pathname === '/api/remote/computers') return await r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(computers) });
+        const resp = await r.fetch({ url: board + u.pathname + u.search });
+        return await r.fulfill({ response: resp });
+      } catch { await r.abort().catch(() => {}); }
+    });
+    await page.route('https://studio.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify(studio) }));
+    await page.route('https://mortals.kosmosplus.com/**', (r) => r.fulfill({ status: 401, headers: cors, body: '{}' }));
+    await page.route('https://oldmac.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify({ agents: [] }) }));
+    await page.goto(HOME + '/?tab=settings&sec=accounts', { waitUntil: 'load' });
+    if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');
+    await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 8000 });
+    await page.waitForFunction(() => document.querySelectorAll('#set-other .ao-acct').length >= 2
+      && /older Kosmos/.test(document.getElementById('set-other').textContent), null, { timeout: 20000 });
+    await page.evaluate(() => document.getElementById('set-other-wrap').scrollIntoView({ block: 'start' }));
+    await page.waitForTimeout(400);
+  }, verify: async (page) => {
+    const t = await page.evaluate(() => (document.getElementById('set-other') || {}).textContent || '');
+    for (const want of ['82% of its weekly limit used', 'Its agents on studio: Ada', 'not let in on mortals', 'oldmac has an older Kosmos']) {
+      if (!t.includes(want)) throw new Error('the other computers section does not say "' + want + '"');
+    }
+  } },
 ];
 
 /* ------------------------------------------------------------------ args */
