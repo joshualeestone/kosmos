@@ -36,15 +36,29 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = TMUX_BIN;
 
 const accountmove = require('./engine/accountmove');
 const updates = require('./engine/update');
-const REAL = { busy: accountmove.busy, stop: accountmove.stop, boardBusyBecause: accountmove.boardBusyBecause };
-const REAL_UPD = { available: updates.available, selfInstallRefusal: updates.selfInstallRefusal, rollbackOffer: updates.rollbackOffer };
+const removal = require('./engine/remove');
+const create = require('./engine/create');
+const REAL = { busy: accountmove.busy, stop: accountmove.stop, boardBusyBecause: accountmove.boardBusyBecause, start: accountmove.start };
+const REAL_UPD = { available: updates.available, selfInstallRefusal: updates.selfInstallRefusal, rollbackOffer: updates.rollbackOffer,
+  installedRoot: updates.installedRoot };
+const REAL_REMOVAL = { restartingNow: removal.restartingNow };
+const REAL_CREATE = { readJob: create.readJob };
+function restoreAll() {
+  Object.assign(accountmove, REAL); Object.assign(updates, REAL_UPD); Object.assign(removal, REAL_REMOVAL); Object.assign(create, REAL_CREATE);
+}
 /* Update and Roll back refuse earlier for their own reasons (nothing newer published, no earlier build kept, a platform
    that cannot self-install); those are set aside here so the request reaches the move check, which is what is tested. */
 function updatesReachMoveCheck() {
   updates.available = () => ({ version: '9.9.9' });
   updates.selfInstallRefusal = () => null;
   updates.rollbackOffer = () => ({ version: '0.0.1' });
+  updates.installedRoot = () => null;   // past the move check the route stops here: nothing installs, whatever the layout
 }
+/* The board held by something other than a move (a restart a removal gave up on): it refuses, and offers no stop. */
+function heldByOther(on) {
+  removal.restartingNow = on ? () => true : REAL_REMOVAL.restartingNow;
+}
+const SOURCE_ONLY = 'this Kosmos runs from its source code, so it updates from git, not from here';
 function moveRunning(on) {
   accountmove.busy = on ? () => true : REAL.busy;
   accountmove.boardBusyBecause = on ? () => 'an account move is running' : REAL.boardBusyBecause;
@@ -53,8 +67,8 @@ function moveRunning(on) {
 const { start, server } = require('./server');
 let base = '';
 test.before(async () => { await start(0); base = 'http://127.0.0.1:' + server.address().port; });
-test.after(() => { Object.assign(accountmove, REAL); Object.assign(updates, REAL_UPD); server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
-test.afterEach(() => { Object.assign(accountmove, REAL); Object.assign(updates, REAL_UPD); });
+test.after(() => { restoreAll(); server.close(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.afterEach(restoreAll);
 
 const post = async (path, body) => {
   const r = await fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}) });
@@ -75,7 +89,7 @@ test('#6231: the stop route passes the engine\'s answer through, status and body
   assert.deepEqual(r, { status: 202, body: { stopped: true, waitingFor: 'bo' } });
 });
 
-test('#6231: Update and Roll back refused while a move runs say moveStoppable, and do not without a move', async () => {
+test('#6231: Update and Roll back refused while a move runs say moveStoppable; held by anything else they do not', async () => {
   updatesReachMoveCheck();
   for (const path of ['/api/update', '/api/update/rollback']) {
     moveRunning(true);
@@ -84,18 +98,38 @@ test('#6231: Update and Roll back refused while a move runs say moveStoppable, a
     assert.equal(held.body.error, 'an account move is running', path + ': refused for another reason first: ' + JSON.stringify(held.body));
     assert.equal(held.body.moveStoppable, true, path + ' ' + JSON.stringify(held.body));
     moveRunning(false);
+    heldByOther(true);
+    const other = await post(path);
+    assert.equal(other.status, 409, path + ' ' + JSON.stringify(other.body));
+    assert.equal(other.body.moveStoppable, undefined, path + ': a board held by something else offers to stop a move: ' + JSON.stringify(other.body));
+    heldByOther(false);
     const free = await post(path);
-    assert.ok(!(free.body && free.body.moveStoppable), path + ': a refusal with no move running offers to stop one: ' + JSON.stringify(free.body));
+    assert.deepEqual(free, { status: 409, body: { error: SOURCE_ONLY } }, path + ': with nothing holding the board it did not go on to the next check');
   }
 });
 
-test('#6231: a Kosmos switch refused while a move runs says moveStoppable, and does not without a move', async () => {
+test('#6231: a Kosmos switch refused while a move runs says moveStoppable; held by anything else it does not', async () => {
   moveRunning(true);
   const held = await post('/api/worlds/active', { id: 'another-kosmos', agents: 'keep' });
   assert.equal(held.status, 409, JSON.stringify(held.body));
   assert.equal(held.body.moveStoppable, true, JSON.stringify(held.body));
   assert.equal(held.body.because, 'an account move is running');
   moveRunning(false);
-  const free = await post('/api/worlds/active', { id: 'another-kosmos', agents: 'keep' });
-  assert.ok(!(free.body && free.body.moveStoppable), 'a switch with no move running offers to stop one: ' + JSON.stringify(free.body));
+  heldByOther(true);
+  const other = await post('/api/worlds/active', { id: 'another-kosmos', agents: 'keep' });
+  assert.equal(other.status, 409, JSON.stringify(other.body));
+  assert.equal(other.body.moveStoppable, undefined, 'a board held by something else offers to stop a move: ' + JSON.stringify(other.body));
+});
+
+test('#6231: the bulk move reads each agent\'s account strictly: an unreadable job throws, never "the default account"', async () => {
+  let deps = null;
+  accountmove.start = (body, d) => { deps = d; return { status: 202, body: { id: 'm1', done: false, agents: [] } }; };
+  const r = await post('/api/agents/account', { names: ['ghost'], dir: '/acct/new' });
+  assert.equal(r.status, 202, JSON.stringify(r.body));
+  assert.equal(typeof (deps && deps.readAccount), 'function', 'the board gave the move no strict account read');
+  assert.throws(() => deps.readAccount('ghost'), /launch job could not be read/, 'an agent with no readable job was read as some account');
+  create.readJob = () => ({ configDir: '/acct/old' });
+  assert.equal(deps.readAccount('al'), '/acct/old', 'a readable job\'s account was not returned');
+  create.readJob = () => ({});
+  assert.equal(deps.readAccount('al'), null, 'a job with no account folder (the default account) was not null');
 });
