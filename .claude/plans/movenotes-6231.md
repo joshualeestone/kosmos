@@ -21,7 +21,7 @@ end, web/index.html engineRestartClick), so a later #6214 round can mean a rebas
   the move brings the agent up on the new account although the answer says it stays on the old one).
 
 ## Tests
-- engine/accountmove-notes-6231.test.js 7/7: a failed put-back is noted and a working one is not; an agent changed by
+- engine/accountmove-notes-6231.test.js 8/8 (the eighth, review 3: a put-back that throws past its guard): a failed put-back is noted and a working one is not; an agent changed by
   hand to a third account is noted and one changed back to its old account is not; agents never reached are noted;
   the hold-failure path notes its agents; a throwing note changes nothing; items 10's two wordings. #6214's
   engine/accountmove-stop-6214.test.js still 12/12, web.account-stopmove-6214.test.js 9/9.

@@ -13794,10 +13794,9 @@ const server = http.createServer(async (req, res) => {
             return job.configDir || null;
           },
           putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
-          /* #6231: an agent left saved on the new account but still running on its old one gets #6174's note, as a
-             partial restart does: its session's start, read without blocking, is the one noted. */
-          /* #6231: called for an agent left saved on another account while it still runs on its old one (a failed or thrown
-             put-back, a hand change to a third account, the move's time cap, its hold failing).
+          /* #6231: #6174's note, as a partial restart writes it, for an agent left saved on another account while it still
+             runs on its old one (a failed or thrown put-back, a hand change to a third account, the move's time cap, its
+             hold failing). Its session's start is read without blocking.
              Only a session that started before the move saved the new account can be the one still on the old account: the
              agent is released by now, so a restart since (its page's) would come up on the new one. tmux reads whole
              seconds, so a full second of margin; anything else, or nothing read, clears an earlier note (the safe side). */
