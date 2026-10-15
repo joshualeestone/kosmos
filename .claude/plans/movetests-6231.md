@@ -37,7 +37,11 @@ Boots the real board in a sandbox and drives its routes. The engine's busy / sto
 - web 4/4, server 5/5. Mutations: removing the page's two offerStopMove calls reds item 5's two positive tests
   (controls stay green); removing `...moveStoppableNote()` reds the Update/Roll back and switch tests; a note that
   always offers the stop reds them through the held-by-something-else arms; a stop route that ignores the engine's
-  answer reds both stop tests; a readAccount that folds an unreadable job into null reds the strict-read test.
+  answer reds both stop tests; a readAccount that folds an unreadable job into null reds the strict-read test; a
+  moveHoldsBoard that ignores the removal hold reds both held-by-something-else arms (review 2: the Update arm now
+  asserts the board-busy sentence, so an unheld 409 cannot pass it).
+- The board's update check is stubbed (engine/update setFetcher), and TMUX / TMUX_PANE are unset, so the test touches
+  neither the network nor the runner's tmux.
 
 ## Weakest premise
 That patching the engine module's exports reaches the board: true while server.js calls `accountmove.busy()` and

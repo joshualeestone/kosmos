@@ -28,6 +28,8 @@ process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
+delete process.env.TMUX;        // never the runner's own tmux, whatever a code path shells out to
+delete process.env.TMUX_PANE;
 const CLAUDE_BIN = nodePath.join(BIN, 'claude');
 const TMUX_BIN = nodePath.join(BIN, 'tmux');
 for (const b of [CLAUDE_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
@@ -42,6 +44,7 @@ const REAL = { busy: accountmove.busy, stop: accountmove.stop, boardBusyBecause:
 const REAL_UPD = { available: updates.available, selfInstallRefusal: updates.selfInstallRefusal, rollbackOffer: updates.rollbackOffer,
   installedRoot: updates.installedRoot };
 const REAL_REMOVAL = { restartingNow: removal.restartingNow };
+updates.setFetcher(async () => ({ ok: false, status: 503, json: async () => null }));   // the board's update check stays off the network
 const REAL_CREATE = { readJob: create.readJob };
 function restoreAll() {
   Object.assign(accountmove, REAL); Object.assign(updates, REAL_UPD); Object.assign(removal, REAL_REMOVAL); Object.assign(create, REAL_CREATE);
@@ -102,6 +105,7 @@ test('#6231: Update and Roll back refused while a move runs say moveStoppable; h
     const other = await post(path);
     assert.equal(other.status, 409, path + ' ' + JSON.stringify(other.body));
     assert.equal(other.body.moveStoppable, undefined, path + ': a board held by something else offers to stop a move: ' + JSON.stringify(other.body));
+    assert.equal(other.body.error, REAL.boardBusyBecause(), path + ': not refused as held (the hold never reached the route): ' + JSON.stringify(other.body));
     heldByOther(false);
     const free = await post(path);
     assert.deepEqual(free, { status: 409, body: { error: SOURCE_ONLY } }, path + ': with nothing holding the board it did not go on to the next check');

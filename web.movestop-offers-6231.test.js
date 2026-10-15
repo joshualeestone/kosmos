@@ -61,6 +61,7 @@ test('#6231 CONTROL: a 409 for anything else offers no stop', async () => {
 
 /* The Update / Roll back dialog: its uc-go click listener, lifted whole and clicked. */
 const UC_AT = PAGE.indexOf("document.getElementById('uc-go').addEventListener('click', async () => {");
+assert.ok(UC_AT >= 0, 'the Update dialog\'s uc-go listener moved or was renamed; re-anchor this test');
 const UC = PAGE.slice(UC_AT, PAGE.indexOf('\n});\n', UC_AT) + 5);
 
 async function runUpdate(mode, status, body) {
