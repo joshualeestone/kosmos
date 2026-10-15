@@ -852,3 +852,92 @@ test('#6232 review 18: end to end, a real refresh the company answers "gone" rea
   assert.equal(oe.readEnrollment(), null, 'CONTROL: the removal did not end the enrollment: ' + JSON.stringify(r));
   assert.equal(syncs, 1, 'the ending did not reach the board\'s registered listener, so the agents kept the company\'s text');
 });
+
+/* #6240: the no-company hand-over retry. After an enrollment ends, an agent that could not be told keeps the
+   company AI-policy text; once nothing is enrolled orgEnrollRefresh returns before companyPolicySync, so the
+   stuck agent was left on the old text until a board restart (the #6232 review-11 residual). The retry
+   (companyPolicyRetryIfOwed) rides the five-minute orgRefreshIfDue tick and re-hands it at most hourly until the
+   agent is told. These drive companyEntry + syncEveryone the way the #6232 tests do and count syncEveryone calls.
+   No live execution is allowed, so orgEnrollRefresh is inert here and the only companyPolicySync calls are the
+   retry's own. */
+test('#6240: a stuck agent after an ending is re-handed the cleared policy, at most once an hour, until it is told', (t) => {
+  const HOUR = 60 * 60 * 1000, MIN = 60 * 1000;
+  const TOLD = require('./engine/projects').TOLD;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, orgEnrollmentEnded, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  let stuck = true;   // the one agent that could not be told at the ending
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return stuck ? [{ agent: 'ava', state: TOLD.COULD_NOT, because: 'its session is gone' }] : []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+
+  companyPolicySync();            // records the company text the agents hold; the first call does not sync
+  assert.equal(syncs, 0, 'the first call only records the seen text, it does not sync');
+  entry = null;                   // the ending cleared the applied policy
+  orgEnrollmentEnded(store.ROOT); // the ending hands the change over: syncEveryone runs, the stuck agent is not told
+  assert.equal(syncs, 1, 'the ending ran the hand-over once');
+  assert.ok(companyPolicyClearOwed(), 'a clear is still owed: an agent kept the old company text');
+
+  // The five-minute tick retries the owed hand-over, but at most once an hour.
+  const T = 10 * HOUR;
+  orgRefreshIfDue(T);
+  assert.equal(syncs, 2, 'the first due tick retried the hand-over');
+  orgRefreshIfDue(T + 5 * MIN);
+  assert.equal(syncs, 2, 'a second tick within the hour did not retry again (bounded to hourly)');
+  orgRefreshIfDue(T + 20 * MIN);
+  assert.equal(syncs, 2, 'still within the hour: no extra retry');
+
+  // After the hour, one more retry, and this time the agent is finally told, so the clear is no longer owed.
+  stuck = false;
+  orgRefreshIfDue(T + HOUR + MIN);
+  assert.equal(syncs, 3, 'after the hour the hand-over retried once more');
+  assert.ok(!companyPolicyClearOwed(), 'the agent was told, so nothing is owed now');
+
+  // It self-terminates: no further retries once the agent is told, however many ticks pass.
+  orgRefreshIfDue(T + 3 * HOUR);
+  orgRefreshIfDue(T + 5 * HOUR);
+  assert.equal(syncs, 3, 'the retry stopped once the agent was told (self-terminating)');
+});
+
+test('#6240: a board that never joined a company is quiet, the tick never retries', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let syncs = 0;
+  policy.companyEntry = () => null;   // never a company
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+
+  companyPolicySync();   // records: the seen text is null (no company), no sync
+  assert.ok(!companyPolicyClearOwed(), 'nothing is owed on a board that never joined a company');
+  orgRefreshIfDue(10 * HOUR);
+  orgRefreshIfDue(20 * HOUR);
+  assert.equal(syncs, 0, 'a never-joined board ran no hand-over');
+});
+
+test('#6240: a board whose company text was already cleared and fully told stays quiet', (t) => {
+  const HOUR = 60 * 60 * 1000;
+  const policy = require('./engine/policy');
+  const { companyPolicySync, orgRefreshIfDue, companyPolicyClearOwed, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry, realSync = policy.syncEveryone;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };   // every agent is told (no stuck row)
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); });
+
+  companyPolicySync();   // records the company text (seen = the company string), no sync
+  entry = null;          // the ending cleared the applied policy
+  companyPolicySync();   // the hand-over: every agent told, so the seen text clears to null
+  assert.equal(syncs, 1, 'the hand-over ran once and told everyone');
+  assert.ok(!companyPolicyClearOwed(), 'nothing is owed once the clear reached every agent');
+  orgRefreshIfDue(10 * HOUR);
+  orgRefreshIfDue(20 * HOUR);
+  assert.equal(syncs, 1, 'an already-cleared board ran no extra retry');
+});

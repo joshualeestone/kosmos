@@ -22858,12 +22858,16 @@ function orgEnrollRefresh() {
 /* #6232 review 3: ask once the due time has passed on the clock. A clock set back before the last ask counts as due,
    so a wrong clock cannot hold the ask off. `now` is for the comparison only (tests); an ask records the real time. */
 function orgRefreshIfDue(now = Date.now()) {
+  // #6240: the no-company hand-over retry rides this five-minute tick, but is bounded to hourly inside (and
+  // to only when a clear is owed), independently of the company ask's own due time below. It is a local
+  // roster sync, so it runs whether or not an ask is due and needs no live-execution gate.
+  companyPolicyRetryIfOwed(now);
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses) and forget the company text the agents were last
    handed, so a test does not depend on the one before it. */
-function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; COMPANY_POLICY_SEEN = undefined; }
+function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; ORG_POLICY_RETRY_AT = 0; COMPANY_POLICY_SEEN = undefined; }
 /* #6232 review 10: when this board's own enrollment ends by any path (the hourly ask, or a rollup or agent event the
    company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
    caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
@@ -22912,6 +22916,36 @@ function companyPolicySync() {
   } catch (err) {
     process.stderr.write(`Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`);
   }
+}
+/* #6240: the no-company hand-over retry. After an enrollment ENDS, companyPolicySync clears the company's
+   AI-policy text from every agent -- but an agent that cannot be told at that moment (its session gone, its
+   file not writable) keeps the old text, and once nothing is enrolled orgEnrollRefresh returns before
+   companyPolicySync (a board in no company asks nothing more), so the stuck agent was left on the old text
+   until a board restart (the #6232 review-11 residual, documented at orgEnrollmentEnded above). This retries
+   that hand-over on the same five-minute tick that drives the refresh, until the agent is told.
+   WHAT BOUNDS IT: (1) at most one retry per ORG_POLICY_RETRY_MS (one hour), gated by ORG_POLICY_RETRY_AT even
+   though the tick is five-minutely; (2) it self-terminates -- companyPolicySync clears COMPANY_POLICY_SEEN to
+   null once every agent is told, after which nothing is owed; (3) it never starts for a board that never joined
+   a company or whose text was already cleared (SEEN is null / undefined / the boot RETRY symbol, never a
+   company-text string); (4) it makes NO company call -- companyPolicySync is a local roster sync -- so unlike
+   the hourly ask it needs no live-execution gate and cannot hang on the network. */
+const ORG_POLICY_RETRY_MS = ORG_REFRESH_MS;   // one hour: the same bound the hourly company ask uses
+let ORG_POLICY_RETRY_AT = 0;                   // clock time the next no-company retry is allowed (0 = due now)
+/* Is a company-policy hand-over still owed to a stuck agent? Only when a company text was recorded as
+   last-handed (COMPANY_POLICY_SEEN is a [name,text] string) AND the applied policy no longer carries one
+   (companyEntry() is null): an ending cleared the policy but an agent could not be told. A null/undefined SEEN
+   (never joined, or already cleared and all told) or the boot RETRY symbol is nothing owed. */
+function companyPolicyClearOwed() {
+  if (typeof COMPANY_POLICY_SEEN !== 'string') return false;
+  try { return !policyEngine.companyEntry(); } catch { return false; }
+}
+/* Retry the owed hand-over, at most hourly. Returns whether it ran companyPolicySync this call (for tests). */
+function companyPolicyRetryIfOwed(now = Date.now()) {
+  if (!companyPolicyClearOwed()) return false;
+  if (now < ORG_POLICY_RETRY_AT) return false;   // at most once an hour, even on the five-minute tick
+  ORG_POLICY_RETRY_AT = now + ORG_POLICY_RETRY_MS;
+  companyPolicySync();
+  return true;
 }
 /** #5532: how often the work Kosmos checks whether its rollup is due (it sends daily, and on a change at most every
     ten minutes; engine/orgrollup.js decides). */
@@ -24567,6 +24601,8 @@ module.exports = {
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
   _orgRefreshResetForTests, // #6232 review 6: tests only
   companyPolicySync, // #5534: handing agents the company's AI policy, tested by behaviour (#6232)
+  companyPolicyRetryIfOwed, // #6240: the no-company hand-over retry (hourly-bounded), tested by behaviour
+  companyPolicyClearOwed, // #6240: whether a cleared-policy hand-over is still owed a stuck agent
   orgEnrollmentEnded, // #6232 review 10
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
