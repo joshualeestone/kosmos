@@ -1682,10 +1682,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   }
   /* kosmos#6239: in the policy's quiet hours (orgpolicy.quietAllows) nothing new is typed at any agent: not a person's
      message, another agent's, a room's or the board's own nudges, since every one comes through here. The commands that
-     look after an agent without setting it to work still go, bare (QUIET_LOOK_AFTER, kosmos#6244). `quiet: true` lets a caller that
+     look after an agent without setting it to work still go, bare and with nothing riding on them: no envelope and no
+     trailer, since those are typed around the command and carry words of their own (QUIET_LOOK_AFTER, kosmos#6244; the
+     Compact and Clear buttons send exactly that). `quiet: true` lets a caller that
      knows a person asked report it (server.js's thread route). A policy read that throws is not quiet: an agent that
      cannot be reached because of a fault is worse than one reached at night. */
-  if (!QUIET_LOOK_AFTER.test(String(raw).trim())) {
+  const bareLookAfter = QUIET_LOOK_AFTER.test(String(raw).trim())
+    && !(typeof envelope === 'string' && envelope.trim()) && !(typeof trailer === 'string' && trailer.trim());
+  if (!bareLookAfter) {
     let q = { ok: true };
     try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
     if (q.ok !== true) {
