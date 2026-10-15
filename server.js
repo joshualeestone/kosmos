@@ -16919,9 +16919,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: postSender,
           senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
@@ -16934,6 +16935,20 @@ const server = http.createServer(async (req, res) => {
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
+        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
+        // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
+        // posts come from the screen, not this token route). The tap target is the app's call (the room for
+        // posted, the agent for the other kinds); the board sends both session and project so it can route.
+        try {
+          if (postSender && postSender.ok && delivery && delivery.id) {
+            const pj = projects.get(body.project, roster);
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+              id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
+              session: (postSender.card && postSender.card.sessionName) || null, project: pj ? pj.name : null });
+          }
+        } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
            that this agent is working in THIS project -- "the activity carries which
            project it belongs to". Carry that project onto the poster's state so the
