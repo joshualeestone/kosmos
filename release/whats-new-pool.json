@@ -528,7 +528,7 @@
     },
     {
       "title": "Accounts on your other computers",
-      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts and the agents on them.",
+      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts and the Claude agents on them.",
       "icon": "list",
       "rank": 5,
       "since": "0.7.51",
@@ -544,7 +544,7 @@
     },
     {
       "title": "Every permission choice is a button",
-      "line": "A Claude agent's permission question shows every choice as a button; one that changes what it may do from now on needs a second press.",
+      "line": "A Claude agent's permission question shows its choices as buttons; one that changes what it may do from now on needs a second press.",
       "icon": "shield",
       "rank": 4,
       "since": "0.7.51",
@@ -555,7 +555,7 @@
     },
     {
       "title": "An agent needs no project",
-      "line": "Agents do not need a project: one taken off its last project is no longer flagged, and a new team's Project is optional.",
+      "line": "Agents need no project, and a new team's Project is optional. Taking one off its last project is flagged only if it was already out of date.",
       "icon": "list",
       "rank": 6,
       "since": "0.7.51",
