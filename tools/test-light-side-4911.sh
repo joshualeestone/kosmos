@@ -8,7 +8,9 @@ unset $KOSMOS_WAIT_CONTROL_VARS KOSMOS_SIDE_LANE KOSMOS_SIDE_MAX_LOAD KOSMOS_SID
   KOSMOS_MACHINE_CLAIM_COOKIE KOSMOS_QUEUE_CLASS KOSMOS_QUEUE_STARVE_S
 # NOT ${TMPDIR}: a child of $T serves as a NON-sandbox cwd ($T/elsewhere), but during the suite
 # ${TMPDIR} is itself run-tests.sh's kt<digits> sandbox, so that child would wrongly match it (#4298).
-# A plain /tmp root (as test-cut-guard.sh uses) avoids that; the EXIT trap below removes $T.
+# A plain /tmp root (as test-cut-guard.sh uses) avoids that. /tmp is OUTSIDE the leak guard's scan
+# (the blind spot #4298 is about), so the trap below removes $T on EVERY catchable exit path, with
+# INT/TERM/HUP routed through exit so the EXIT cleanup still runs (only SIGKILL can escape it).
 T="$(mktemp -d "/tmp/test-light-side-4911.XXXXXXXXXX")"
 sleep 600 </dev/null >/dev/null 2>&1 & HOLDER=$!
 sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
@@ -16,6 +18,7 @@ sleep 600 </dev/null >/dev/null 2>&1 & OTHER=$!
 # waiter's descendants are not suites): orphaned at once, so its parent is launchd, as a real agent's suite's is not ours.
 ORPHAN="$(sh -c 'sleep 600 </dev/null >/dev/null 2>&1 & echo $!')"
 trap 'kill "$HOLDER" "$OTHER" "$ORPHAN" 2>/dev/null; rm -rf "$T"' EXIT
+trap 'exit 143' INT TERM HUP   # a signal routes through exit so the EXIT trap still removes the /tmp $T
 export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$KOSMOS_RUN_MARKER_DIR"
 fails=0
 pass() { echo "PASS  $1"; }
