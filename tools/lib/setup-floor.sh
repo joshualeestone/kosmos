@@ -10,7 +10,7 @@
 #
 # Usage: source this file, then call one check; each returns 0 (passes) or 1 (refused, the reason on stderr). The
 # scripts named are the DIRECT callers; tree_ok and site_untouched_ok also run pointer_ok and installer_ok:
-#   kosmos_setup_floor_ok <label> <version>              a version at or above the floor (publish-staging-pointer.sh)
+#   kosmos_setup_floor_ok <label> <version>              a version (publish-staging-pointer.sh; release.sh, override)
 #   kosmos_setup_floor_pointer_ok <label> <json>          a pointer (promote-channel.sh, deploy-site.sh's early check)
 #   kosmos_setup_floor_installer_ok <label> <file>        an installer (promote-channel.sh, release.sh step 1a and 2b)
 #   kosmos_setup_floor_tree_ok <who> <dir>                a site tree's pointers and installers (the exports)
@@ -68,6 +68,9 @@ kosmos_setup_floor_pointer_ok() {
   # version and is refused, which fails closed.
   # No escapes: a key spelled with a JSON escape (\u0076ersion) is invisible to these extractors yet read by a JSON
   # parser, so a pointer with any backslash is refused (the real writer, write-latest-pointer.js, never emits one).
+  # One line: a key whose colon sits on the next line ("version"<newline>:"0.6.1") hid from a per-line count, while a
+  # JSON parser reads it; so newlines and returns become spaces before the counts and the extractors read the pointer.
+  json=$(printf '%s' "$json" | tr '\n\r' '  ')
   case "$json" in
     *\\*) echo "setup floor (kosmos#6149): $label has a backslash (a JSON escape could hide a key) -- refusing" >&2; return 1 ;;
   esac
