@@ -114,3 +114,10 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   (now: an allowlisted line with the envelope later keeps no opening); the answering-quote path was untested (now: a
   room reply in messages.js's shape keeps its own words, not the quoted ones). CONVENTION: "The call" names the
   allowlist. NITs: comments on a typed imitation of an envelope, whose clock tz is, and the precise swap window.
+
+## Review 12 (sonnet), and what changed
+- No BLOCKER. WARNING: the ignore check reads .kosmos/.gitignore as text; a log git already tracks stays tracked
+  (spawning git every turn was rejected): the comment says so. WARNING: a "Kosmos here:" line with an early "]" lost its
+  start to shortOf's envelope cut: those lines keep their own first 60 units (tested). WARNING, stated not fixed: a
+  colleague who relays the person's words without an envelope puts them in that colleague line's opening; the file is
+  0600, git-ignored, in the agent's own folder (goes in the PR description).

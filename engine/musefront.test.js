@@ -1151,6 +1151,11 @@ test('#6065 N1: a room post answering another keeps its own words, not the quote
   assert.ok(!r.opening.includes('quoted'), 'the quoted words are not the opening');
 });
 
+test('#5636 F7a: a community reminder keeps its own start, even with a "]" inside it', () => {
+  const r = front.turnRecord('Kosmos here: [community] your last post was 3 hours ago or more.', 'T');
+  assert.match(r.opening, /^Kosmos here: \[community\] your last post/);
+});
+
 test('#5636 F7a: a task line quoting the person keeps no opening', () => {
   const r = front.turnRecord('[Kosmos: you were given task 12 in "Q4": rewrite the pricing page for the board. Say when it is done.]', 'T');
   assert.equal(r.opening, undefined);

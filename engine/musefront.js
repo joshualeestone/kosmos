@@ -178,7 +178,7 @@ function shortOf(text) {
    lines starting with a colleague's or Kosmos's envelope, so a colleague's words (quoted or pasted, even a secret) can reach this 0600 file in
    the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none.
    The folder may be the person's own git repository (as engine/messages.js's Inbox notes), so the log writes only
-   where git ignores it: it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
+   where .kosmos/.gitignore lists it (read as text, not asked of git: a log git already tracks stays tracked): it creates .kosmos/.gitignore naming its two files when there is none, and writes nothing when
    one exists that does not name both, or holds any negation (someone else's file is not edited). The .gitignore it creates
    is itself a new, harmless file in the person's tree (two file names). A busy digest's opening comes from its first
    post (the text after its header), not from the header. A hard link at the file is refused at the lstat
@@ -194,6 +194,7 @@ function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-t
    person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
    post (below). */
 const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
+function clipOpening(text) { const one = String(text).replace(/\s+/g, ' '); return one.length > 60 ? one.slice(0, 57) + '...' : one; }
 const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
 function turnRecord(text, at, arrived = null) {
   const t = String(text);
@@ -213,7 +214,10 @@ function turnRecord(text, at, arrived = null) {
      themselves). */
   // A digest's own header has no words: its opening is its first post's (after that post's envelope).
   const first = digest ? t.slice(t.indexOf('\n') + 1).split('\n')[0] : t;
-  if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(first);
+  if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) {
+    // A Kosmos line has no envelope to skip, so its own start is kept (a "]" inside it must not move the cut).
+    rec.opening = first.startsWith('Kosmos here:') ? clipOpening(first) : shortOf(first);
+  }
   return rec;
 }
 const TURN_LOG_IGNORE = 'muse-turns.log\nmuse-turns.log.1\n';
