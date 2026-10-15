@@ -22855,18 +22855,21 @@ function orgRefreshIfDue(now = Date.now()) {
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
-/* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
+/* TESTS ONLY: start the hourly schedule over (no ask yet, no misses) and forget the company text the agents were last
+   handed, so a test does not depend on the one before it. */
 function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; ORG_ASK_SEQ = 0; COMPANY_POLICY_SEEN = undefined; }
 /* #6232 review 10: when this board's own enrollment ends by any path (the hourly ask, or a rollup or agent event the
    company refused, which call oe.refresh themselves), its agents are handed the change at once. Before, a removal
    caught by a refused rollup cleared the applied policy, but the agents kept the company's AI policy text until a
    restart, because every later ask returns before companyPolicySync once nothing is enrolled. Registered at start
-   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents. Known and older than this
+   (engine/orgenroll.js onEnrollmentEnded); another Kosmos's root is not this board's agents, and the rollup child
+   that serves another Kosmos (orgrollup elsewhereRunner) runs in its own process with no listener, which is right. Known and older than this
    (review 11): an agent that cannot be told at that moment keeps the old text until the board restarts, because a
    board in no company asks nothing more that would retry it. Not an ending, so not told here (review 13): an answer
    naming another company swaps the applied policy inside a refresh; the hourly ask's companyPolicySync hands that over. */
 function orgEnrollmentEnded(root) {
-  if (root !== require('./engine/store').ROOT) return;
+  // Compared as resolved paths (review 14): a trailing slash or another spelling of this board's root is still it.
+  if (typeof root !== 'string' || path.resolve(root) !== path.resolve(require('./engine/store').ROOT)) return;
   companyPolicySync();
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
