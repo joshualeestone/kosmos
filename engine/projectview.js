@@ -251,7 +251,8 @@ function workingCapMs(member) {
    - Known, as for idleExcused: reports reach the store only while the board runs, so work while it was down reads as
      whatever the last report said, and with no cap on the clock age for the timed runners (decided in the plan; turn-
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
-     outage. Unlike idleExcused this also applies to a member working now.
+     outage, except for a Claude member since 0.7.50: its last working counts at most WORK_GAP_CAP_MS (30 min), so
+     hours worked through an outage read as half an hour (errs toward current; #5635 F2). Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
@@ -316,7 +317,7 @@ function workExcused(summary, member, readHistory, nowMs) {
      between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. A Claude member whose report hook is
      missing or failing files working only by hand, and each such report also counts only to the cap. Known cost
      the other way (review 8): the hook sends reports in the background and the board stamps arrival, so a turn's last
-     heartbeat can land just after its idle (the F2 night may be that); each such turn adds up to the cap, 30 min, of
+     heartbeat can land just after its idle (the F2 night may be that); each such turn adds up to the cap (WORK_GAP_CAP_MS) of
      work that did not happen, where it used to add all the time to the next report. */
   const cap = workingCapMs(member);
   const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
