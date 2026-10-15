@@ -66,8 +66,17 @@ activity log, but no longer red.
 - Fixed: the re-shown wait keeps its ORIGINAL asking time (askedAt on the restored line, from the covered wait's own run
   start; read() honours it when it starts a run), so a days-old question is not re-dated: its age, the stale-report
   reminder's clock and a person's notice stay. Tested (askedAt equals the first report's time; ignoring it fails).
-- Fixed: only the wait's own fields are restored (state, words, on, owner, project, writer), not the old line's
-  instance, until, left, waiting or final; an unmarked legacy wait stays unmarked.
+- Fixed: only the wait's own fields are restored (state, words, on, owner, project, writer; until added in review 5),
+  not the old line's instance, left, waiting or final; an unmarked legacy wait stays unmarked.
 - Known: two concurrent Stop reports could both re-append the wait (a duplicate line, same words and askedAt: harmless).
 - The weakest premise (StopFailure INSTEAD of Stop) stands, unmeasured; if both fired for one failed turn, the block
   (the #5805 rate-limit red included) would clear at once. Measuring it needs a live failed turn on a real agent.
+
+## Review 5 (opus), and what changed
+- The restore re-implemented read()'s rules and disagreed with them (project carry, the cut-tail rule, until). Fixed by
+  splitting read() into readTail (the record's tail as rows) and latestOf (what read() reports for rows, pure), and
+  reading what the block covered as latestOf(the rows before the run): one window and one set of rules. The restored
+  line keeps the wait's until, its askedAt as read() computes it, and its project only when it stated one. A wait whose
+  start is past the front of a cut tail (askedAt unknown) keeps the block. Tests for each (dropping until, or restoring
+  an unknown start, fails them, measured); the split itself passes every existing selfreport test unchanged.
+- Line wording: "may be missed" style unchanged; the hook doc says a covered wait is shown again.
