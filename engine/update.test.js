@@ -256,6 +256,34 @@ test('#6173: an automatic install waits while an account move runs, and the next
   } finally { update.setAutoDefer(null); }
 });
 
+test('#6173 Liu Kang m5496: a move whose restart never answers still ends at its cap, and the update it held then installs', async () => {
+  const accountmove = require('./accountmove');
+  const started = autoSetup({ latest: '99.0.0', pref: { on: true, ok: true }, root: INSTALL_ROOT });
+  update.setAutoDefer(() => accountmove.busy());   // the board's own wiring (server.js)
+  const held = new Set();
+  try {
+    const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, {
+      setAccount: () => ({ outcome: 'changed', account: { email: 'spare@example.com' } }),
+      REFUSED: 'refused', forget: () => {}, RESTARTED: 'restarted',
+      restartAsync: () => new Promise(() => {}),   // a step that never returns
+      hold: (names) => names.forEach((n) => held.add(n)), release: (n) => held.delete(n),
+      agentCapMs: 100,
+    });
+    assert.equal(accountmove.busy(), true);
+    await update.refresh();
+    assert.equal(started(), 0, 'an update installed (and restarted the board) under a running move');
+    await out.done;
+    assert.equal(accountmove.busy(), false, 'the move never ended');
+    assert.deepEqual([...held], [], 'the cap left an agent held');
+    const al = accountmove.read(out.body.id).agents[0];
+    assert.equal(al.outcome, 'partial', 'an agent whose restart never answered was said as moved');
+    assert.match(al.because, /could not start it again: its restart did not answer within/);
+    update.resetCache();
+    await update.refresh();
+    assert.equal(started(), 1, 'the update the move held never installed once it ended');
+  } finally { update.setAutoDefer(null); accountmove.resetForTests(); }
+});
+
 test('the switch off means the same look installs nothing', async () => {
   const started = autoSetup({ latest: '99.0.0', pref: { on: false, ok: true }, root: INSTALL_ROOT });
   await update.refresh();

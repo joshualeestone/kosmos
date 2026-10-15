@@ -319,11 +319,14 @@ function driveSync(gen) {
   }
   return r.value;
 }
-async function driveAsync(gen) {
+async function driveAsync(gen, ctl) {
   let r = gen.next();
   while (!r.done) {
     let answer;
     try { answer = await answerAsync(r.value); } catch (err) { r = gen.throw(err); continue; }
+    /* Abandoned at its cap (restartAsync): the answer that came in late is not acted on, and no further command is
+       sent, so a restart given up on can never bootstrap after its hold was released. */
+    if (ctl && ctl.abandoned) { try { gen.return(); } catch { /* nothing to finish */ } return null; }
     r = gen.next(answer);
   }
   return r.value;
@@ -2426,13 +2429,45 @@ function restart(name, cause, opts) {
  * wait on a timer. Same outcomes and sentences as `restart`. On the Mac only: Windows' and Linux's job acts are not
  * written as steps yet, so there each act still runs synchronously (a follow-up card).
  */
+/* #6173 (Liu Kang m5496): what bounds one async restart, whatever a step does. Each command already has its own limit
+   (20 s, a tmux look 5 s), the unload wait its 25 s budget and the retry wait 2 s; this cap also covers a step whose
+   answer never comes at all. A move holds updates and board restarts, so it must end. */
+const ASYNC_RESTART_CAP_MS = 180 * 1000;
+function asyncRestartCapMs() {
+  const v = Number(process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS);   // a test's seam; production keeps 180 s
+  return Number.isFinite(v) && v > 0 ? v : ASYNC_RESTART_CAP_MS;
+}
+
 async function restartAsync(name, cause, opts) {
   const busy = busyRefusal(name, { held: false });   // the move that holds it is the one restarting it
   if (busy) return busy;
   const clean = create.cleanName(name);
+  const cap = asyncRestartCapMs();
+  const ctl = { abandoned: false };
+  let timer = null;
   RESTARTING.add(clean);
-  try { return markDryRun(await driveAsync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead))); }
-  finally { RESTARTING.delete(clean); }
+  try {
+    const capped = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        ctl.abandoned = true;
+        /* It may have stopped the old job and not loaded the new one: if it got as far as recording the restart, the
+           card says the restart did not come back (needs a look), never that it is fine. */
+        try { if (disruption.read(clean).found) disruption.fail(clean, { abandonedAfterMs: cap }); } catch { /* never fatal */ }
+        resolve({
+          outcome: OUTCOME.PARTIAL,
+          steps: [],
+          because: `its restart did not finish within ${Math.round(cap / 1000)} seconds, so we stopped waiting for it`,
+        });
+      }, cap);
+    });
+    const driven = driveAsync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead), ctl)
+      .then((v) => (ctl.abandoned ? null : markDryRun(v)));
+    const out = await Promise.race([driven, capped]);
+    return out || (await capped);
+  } finally {
+    clearTimeout(timer);
+    RESTARTING.delete(clean);
+  }
 }
 
 /**

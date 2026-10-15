@@ -187,3 +187,33 @@ test('#6173 review 2: a hold that throws ends the move with a sentence, restarts
   assert.deepEqual(d.order, [], 'a restart ran without its hold');
   assert.equal(accountmove.busy(), false);
 });
+
+test('#6173 Liu Kang m5496: the move\'s overall cap starts no further agent; the ones not reached are not restarted, and nothing stays held', async () => {
+  const d = deps();
+  d.moveCapMs = 30;
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo', 'cy'] }, d);
+  await new Promise((r) => setTimeout(r, 60));   // the first restart outlasts the whole move's cap
+  d.pending.get('al').resolve({ outcome: RESTARTED });
+  await out.done;
+  assert.deepEqual(d.order, ['al'], 'an agent was started after the move ran out of time');
+  const end = accountmove.read(out.body.id);
+  assert.deepEqual(end.agents.map((a) => a.outcome), ['changed', 'partial', 'partial']);
+  assert.match(end.agents[1].because, /could not start it again: the move ended \(it ran out of time, or failed\) before it reached this agent/);
+  assert.deepEqual([...d.held], []);
+  assert.equal(accountmove.busy(), false);
+});
+
+test('#6173 Liu Kang m5496: one agent whose restart never settles is given up at the agent cap, and the move goes on', async () => {
+  const d = deps();
+  d.agentCapMs = 40;
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al', 'bo'] }, d);   // al's promise is never settled
+  await new Promise((r) => setTimeout(r, 80));
+  assert.deepEqual(d.order, ['al', 'bo'], 'the move waited on a restart past its cap');
+  assert.deepEqual([...d.held], ['bo'], 'al stayed held after it was given up');
+  d.pending.get('bo').resolve({ outcome: RESTARTED });
+  await out.done;
+  const end = accountmove.read(out.body.id);
+  assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'changed']);
+  assert.match(end.agents[0].because, /its restart did not answer within 0 seconds\./);
+  assert.equal(accountmove.busy(), false);
+});

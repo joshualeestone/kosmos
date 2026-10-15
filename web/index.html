@@ -27458,7 +27458,7 @@ async function moveAccountAgents(fromDir, toDir, names, onProgress, stoppedAtCli
     const finished = (m) => m.agents.filter((a) => a && a.outcome !== 'pending').length;
     if (onProgress) onProgress(finished(last), names.length);
     /* Long enough for every restart to take its full wait, and a bound, so a stuck read still ends in a sentence. */
-    const until = Date.now() + 15e3 + names.length * 120e3;   // one restart can take two 25 s unload waits and slow launchctl calls
+    const until = Date.now() + 15e3 + names.length * 225e3;   // past the board's own 210 s per agent cap (engine/accountmove.js)
     let misreads = 0;
     while (!last.done && Date.now() < until && misreads < 5) {
       await new Promise((r) => setTimeout(r, 1000));
