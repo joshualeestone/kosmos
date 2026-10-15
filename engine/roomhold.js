@@ -366,6 +366,10 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     if (askedOnly === true && !ids.some(limitAsk)) { restore(name, projectId, ids); continue; }
     let shown = projectId;
     try { shown = shownOf(projectId) || projectId; } catch { /* the id reads fine */ }
+    /* #4926 N7 diagnostic: the member's own posts since each post told, read BEFORE the line is typed (so a reply the
+       member posts in that moment is not counted). Best effort: a failed read logs nothing extra. */
+    let after = null;
+    if (typeof afterOf === 'function') { try { after = afterOf(projectId, ids.map(plainId), name) || null; } catch { after = null; } }
     let state;
     let capped = false;
     let limitUntil = null;
@@ -380,11 +384,6 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    /* #4926 N7 diagnostic (Meta only, 0.7.50): for each post told, whether the member had already posted in the room
-       after it, citing it or not (messages.memberAfter), so the board log can say whether a post told "again" was one
-       the member had answered without citing it. Best effort: a failed read logs nothing extra. */
-    let after = null;
-    if (typeof afterOf === 'function') { try { after = afterOf(projectId, ids.map(plainId), name) || null; } catch { after = null; } }
     out.push({ projectId, n: ids.length, state, ...(after ? { after } : {}) });
   }
   return out;
@@ -472,13 +471,25 @@ function toldLine(name, d, after = '') {
     ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
     : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}${afterNote(d.after)}\n`;
 }
-/* #4926 N7 diagnostic: ", since each: m12 cited, m13 uncited, m14 none" ("cited": the member's reply names it;
-   "uncited": the member posted in the room after it without naming it; "none": no post by the member since). */
-const AFTER_WORDS = new Set(['cited', 'uncited', 'none']);
+/* #4926 N7 diagnostic: "; since each, the member's own posts here: m12: m13 (no reply), m15 (replies to m14); m16:
+   none". Ids only, never text. `total` past the ones listed is said as "+N more". */
 function afterNote(after) {
   if (!after || typeof after !== 'object') return '';
-  const parts = Object.entries(after).filter(([id, v]) => /^m\d+$/.test(id) && AFTER_WORDS.has(v)).map(([id, v]) => id + ' ' + v);
-  return parts.length ? ', since each: ' + parts.join(', ') : '';
+  const one = ([id, o]) => {
+    if (!/^m\d+$/.test(id) || !o || !Array.isArray(o.after)) return null;
+    if (!o.after.length) return id + ': none';
+    const listed = o.after.filter((a) => a && /^m\d+$/.test(a.id))
+      .map((a) => a.id + (a.cites && /^m\d+$/.test(a.cites) ? ' (replies to ' + a.cites + ')' : ' (no reply)'));
+    const more = Number.isInteger(o.total) && o.total > o.after.length ? ' +' + (o.total - o.after.length) + ' more' : '';
+    return id + ': ' + listed.join(', ') + more;
+  };
+  const parts = Object.entries(after).map(one).filter(Boolean);
+  return parts.length ? '; since each, the member\'s own posts here: ' + parts.join('; ') : '';
+}
+/* #4926 N7 (round 1): held posts that ride on a live arrival (messages.js) are told without a flush line; this says so
+   in the same words, so every telling of a held post is in the log. */
+function carriedLine(name, projectId, ids, after) {
+  return `room-hold: ${name} told of ${ids.length} held post(s) in ${projectId} on an arrival there${afterNote(after)}\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, carriedLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };

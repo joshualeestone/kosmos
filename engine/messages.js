@@ -1186,26 +1186,30 @@ const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 const ROOM_READ_ROWS = 40;
 /* The row kinds that read shows: kept equal to server.js's room-read filter by roomhold-stale-4926.test.js. */
 const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'refused']);
-/* #4926 N7 diagnostic: for each id, what `member` posted in the room after it: 'cited' (a reply to it), 'uncited' (a
-   post after it that names no reply, or names another), or 'none'. An id not in the record is left out. Never throws. */
+/* #4926 N7 diagnostic (round 1: facts, not a verdict): for each id, the member's own posts in that room after it, oldest
+   first, as { id, cites } (cites: the post id it replies to, or null), at most AFTER_MAX of them, plus how many there
+   were in all. A reader with the room open then judges whether the member answered it (a later post that cites it, or
+   one that plainly answers it without citing). After = later in the log's own order (the order posts were written), so
+   two posts in one millisecond are still ordered. An id not in the record is left out. One pass. Never throws. */
+const AFTER_MAX = 6;
 function memberAfter(projectId, ids, member, log) {
   const out = {};
   try {
     const rows = Array.isArray(log) ? log : readLog();
     const want = new Set(ids || []);
-    const at = new Map();
-    for (const r of rows) if (r && r.kind === 'post' && r.project === projectId && want.has(r.id)) at.set(r.id, Date.parse(r.at));
-    for (const [id, t] of at) {
-      if (!Number.isFinite(t)) continue;
-      let v = 'none';
-      for (const r of rows) {
-        if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member) continue;
-        if (r.replyTo === id) { v = 'cited'; break; }
-        if (Date.parse(r.at) > t) v = 'uncited';
+    const open = [];   // the wanted ids seen so far, in log order
+    for (const r of rows) {
+      if (!r || r.kind !== 'post' || r.project !== projectId) continue;
+      if (want.has(r.id) && !(r.id in out)) { out[r.id] = { after: [], total: 0 }; open.push(r.id); continue; }
+      if (r.from !== member || !open.length) continue;
+      const cites = typeof r.replyTo === 'string' ? r.replyTo : null;
+      for (const id of open) {
+        const o = out[id];
+        o.total += 1;
+        if (o.after.length < AFTER_MAX) o.after.push({ id: String(r.id), cites });
       }
-      out[id] = v;
     }
-  } catch { /* a diagnostic: nothing is said rather than something false */ }
+  } catch { return {}; }   // a diagnostic: nothing is said rather than something false
   return out;
 }
 function staleHeld(projectId, ids, log, now, member) {
@@ -2632,6 +2636,8 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
     const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
+    // #4926 N7 diagnostic: this telling of held posts is in the log too (the flush logs its own).
+    if (heldIds.length) { try { process.stdout.write(roomhold.carriedLine(name, projectId, heldIds.map(roomhold.plainId), memberAfter(projectId, heldIds.map(roomhold.plainId), name, log))); } catch { /* never breaks a send */ } }
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
        than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line

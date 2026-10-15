@@ -29,36 +29,55 @@ const LOG = [
   { kind: 'post', id: 'm9', project: 'other', from: 'meta', at: at(6), text: 'another room' },
 ];
 
-test('#4926 N7: memberAfter says cited, uncited or none for each post, in its room only', () => {
-  assert.deepEqual(messages.memberAfter(P, ['m1', 'm2', 'm3', 'm6', 'm404'], 'meta', LOG),
-    { m1: 'uncited', m2: 'cited', m3: 'uncited', m6: 'none' });
-  // CONTROL: a member who never posted has none for all; another room's post does not count.
-  assert.deepEqual(messages.memberAfter(P, ['m1', 'm6'], 'zoe', LOG), { m1: 'none', m6: 'none' });
-  assert.deepEqual(messages.memberAfter('other', ['m1'], 'meta', LOG), {}, 'a post of another room');
-  assert.deepEqual(messages.memberAfter(P, ['m1'], 'meta', 'not a log'), {}, 'an unreadable log says nothing');
+test('#4926 N7: memberAfter lists the member\'s own later posts in that room, with what each replies to', () => {
+  const got = messages.memberAfter(P, ['m1', 'm2', 'm3', 'm6', 'm404'], 'meta', LOG);
+  assert.deepEqual(got, {
+    m1: { after: [{ id: 'm4', cites: 'm2' }, { id: 'm5', cites: null }], total: 2 },
+    m2: { after: [{ id: 'm4', cites: 'm2' }, { id: 'm5', cites: null }], total: 2 },
+    m3: { after: [{ id: 'm4', cites: 'm2' }, { id: 'm5', cites: null }], total: 2 },
+    m6: { after: [], total: 0 },
+  });
+  // CONTROL: another member's view; another room's post does not count; an unreadable log says nothing.
+  assert.deepEqual(messages.memberAfter(P, ['m1'], 'zoe', LOG), { m1: { after: [], total: 0 } });
+  assert.deepEqual(messages.memberAfter('other', ['m1'], 'meta', LOG), {});
+  assert.deepEqual(messages.memberAfter(P, ['m1'], 'meta', 'not a log'), {});
+  // Round 1: log order, not the clock, so two posts in one millisecond are still ordered; and at most six are listed.
+  const same = [{ kind: 'post', id: 'm1', project: P, from: 'ann', at: at(0) }, { kind: 'post', id: 'm2', project: P, from: 'meta', at: at(0) }];
+  assert.deepEqual(messages.memberAfter(P, ['m1'], 'meta', same), { m1: { after: [{ id: 'm2', cites: null }], total: 1 } });
+  const many = [{ kind: 'post', id: 'm1', project: P, from: 'ann', at: at(0) }];
+  for (let k = 2; k < 12; k += 1) many.push({ kind: 'post', id: 'm' + k, project: P, from: 'meta', at: at(k) });
+  const m = messages.memberAfter(P, ['m1'], 'meta', many).m1;
+  assert.equal(m.after.length, 6); assert.equal(m.total, 10);
 });
 
-test('#4926 N7: the "told of" line says it; a refused one, or none given, says nothing more', () => {
-  const told = roomhold.toldLine('meta', { n: 2, projectId: P, state: chat.DELIVERY.PLACED, after: { m1: 'uncited', m2: 'cited', bad: 'cited', m7: 'weird' } });
-  assert.match(told, /told of 2 held post\(s\) in proj-1, delivery=placed, since each: m1 uncited, m2 cited\n$/);
+test('#4926 N7: the told line lists them by id, never text; a refused one, or none given, adds nothing', () => {
+  const after = { m1: { after: [{ id: 'm4', cites: 'm2' }, { id: 'm5', cites: null }], total: 3 }, m6: { after: [], total: 0 }, bad: { after: [], total: 0 } };
+  const told = roomhold.toldLine('meta', { n: 2, projectId: P, state: chat.DELIVERY.PLACED, after });
+  assert.match(told, /told of 2 held post\(s\) in proj-1, delivery=placed; since each, the member's own posts here: m1: m4 \(replies to m2\), m5 \(no reply\) \+1 more; m6: none\n$/);
   assert.match(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.PLACED }), /delivery=placed\n$/, 'CONTROL: no diagnostic, no suffix');
-  assert.doesNotMatch(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.COULD_NOT, after: { m1: 'none' } }), /since each/);
+  assert.doesNotMatch(roomhold.toldLine('meta', { n: 1, projectId: P, state: chat.DELIVERY.COULD_NOT, after }), /since each/);
+  assert.match(roomhold.carriedLine('meta', P, ['m6'], { m6: { after: [], total: 0 } }), /^room-hold: meta told of 1 held post\(s\) in proj-1 on an arrival there; since each, the member's own posts here: m6: none\n$/);
 });
 
-test('#4926 N7: the idle flush asks afterOf for the ids it told and hands the answer on', async () => {
+test('#4926 N7: the idle flush reads it before typing the line, and hands it on', async () => {
   roomhold.hold('meta', P, 'm1');
   roomhold.hold('meta', P, 'm3');
-  const asked = [];
+  const order = [];
   const done = await roomhold.flushOnIdle('meta', {
-    deliver: async () => ({ state: chat.DELIVERY.PLACED }), roster: [], DELIVERY: chat.DELIVERY, env: {},
-    shownOf: () => 'Room', afterOf: (p, ids, who) => { asked.push([p, ids, who]); return { m1: 'uncited', m3: 'uncited' }; },
+    deliver: async () => { order.push('deliver'); return { state: chat.DELIVERY.PLACED }; }, roster: [], DELIVERY: chat.DELIVERY, env: {},
+    shownOf: () => 'Room', afterOf: (p, ids, who) => { order.push(['after', p, ids, who]); return { m1: { after: [], total: 0 } }; },
   });
-  assert.deepEqual(asked, [[P, ['m1', 'm3'], 'meta']]);
-  assert.deepEqual(done.map((d) => d.after), [{ m1: 'uncited', m3: 'uncited' }]);
-  // CONTROL: without afterOf, the result has no `after`.
+  assert.deepEqual(order, [['after', P, ['m1', 'm3'], 'meta'], 'deliver'], 'read after typing, or with other ids');
+  assert.deepEqual(done.map((d) => d.after), [{ m1: { after: [], total: 0 } }]);
   roomhold.hold('meta', P, 'm6');
-  const plain = await roomhold.flushOnIdle('meta', { deliver: async () => ({ state: chat.DELIVERY.PLACED }), roster: [], DELIVERY: chat.DELIVERY, env: {}, shownOf: () => 'Room' });
-  assert.equal('after' in plain[0], false);
+  const thrown = await roomhold.flushOnIdle('meta', { deliver: async () => ({ state: chat.DELIVERY.PLACED }), roster: [], DELIVERY: chat.DELIVERY, env: {}, shownOf: () => 'Room', afterOf: () => { throw new Error('boom'); } });
+  assert.equal(thrown[0].state, chat.DELIVERY.PLACED, 'a failing diagnostic changed the delivery');
+  assert.equal('after' in thrown[0], false);
+});
+
+test('#4926 N7: the arrival path logs the held posts it carries (source pin)', () => {
+  const SRC = fs.readFileSync(path.join(__dirname, 'messages.js'), 'utf8');
+  assert.match(SRC, /if \(heldIds\.length\) \{ try \{ process\.stdout\.write\(roomhold\.carriedLine\(name, projectId, heldIds\.map\(roomhold\.plainId\), memberAfter\(projectId, heldIds\.map\(roomhold\.plainId\), name, log\)\)\); \} catch/);
 });
 
 test('#4926 N7: both of the board\'s flushes (turn end and the timed retry) pass the diagnostic (source pin)', () => {
