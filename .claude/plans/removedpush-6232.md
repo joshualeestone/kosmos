@@ -132,3 +132,13 @@ is for the first run after merge.
   retry for an agent that could not be told stays as it was: the next ask that reaches it, or a restart).
 - Which ask is the latest is a counter, not a millisecond time (two asks in one millisecond are still two).
 - Measured: never telling, telling with nothing enrolled, ignoring the root, and ignoring the counter each fail.
+
+## Review 11 (opus), and what changed
+- The ending was told from clearEnrollment, which a Leave also calls BEFORE the company answers; a Leave refused as
+  the last admin then rewrote every agent's policy twice (cleared, then back). Now only a refresh's final endings tell
+  listeners (the company's clear answer, or no id of its own); the Leave route already hands its outcome over.
+- An ask that ended the enrollment no longer hands the policy over a second time after the listener did.
+- Stated, older than this: an agent that cannot be told when the enrollment ends keeps the old text until a restart
+  (a board in no company asks nothing more that would retry it); the companyPolicySync comment says so.
+- Tests: a refused Leave tells no listener; a throwing listener does not stop an ending; no double hand-over. Each
+  fails its mutation (measured). CLAUDE.md names the new pieces.

@@ -1189,3 +1189,24 @@ test('#6232 review 10: an enrollment ending tells onEnrollmentEnded once, with t
   assert.ok(lv && lv.localOnly === true, 'CONTROL: the leave did not take the nothing-enrolled path: ' + JSON.stringify(lv));
   assert.deepEqual(ended, [a], 'clearing with nothing enrolled told the listener an enrollment ended');
 });
+
+test('#6232 review 11: a Leave the company refuses (last admin) tells no listener; a listener that throws does not stop an ending', async (t) => {
+  const { a } = sandbox(t);
+  const ended = [];
+  const off = org.onEnrollmentEnded((root) => ended.push(root));
+  const offThrow = org.onEnrollmentEnded(() => { throw new Error('a broken listener'); });
+  t.after(() => { off(); offThrow(); });
+  const state = {};
+  await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote(state) });
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the world did not enroll');
+  // The Leave clears first and is then refused: the enrollment stands, and nothing ended.
+  const r = await org.leave({ root: a, remote: here(a, { macRequest: async () => ({ ok: false, because: '409 {"because":"org_last_admin"}' }) }) });
+  assert.equal(r.still, true, 'CONTROL: the leave was not refused as the last admin');
+  assert.ok(org.isEnrolledHere({ root: a }), 'CONTROL: the refused leave did not put the enrollment back');
+  assert.deepEqual(ended, [], 'a Leave the company refused told the listener the enrollment ended');
+  // A removal then ends it: the broken listener throws, and the ending still completes and the other listener hears.
+  state.member = false; state.world = null;
+  await org.refresh({ root: a, remote: fakeRemote(state) });
+  assert.equal(org.isEnrolledHere({ root: a }), false, 'a throwing listener stopped the ending');
+  assert.deepEqual(ended, [a], 'the ending did not reach the other listener');
+});

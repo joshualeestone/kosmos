@@ -130,17 +130,19 @@ function writeWhole(file, text) {
 }
 const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
 
-/* #6232 review 10: told when an enrollment ends here (with that Kosmos's root), so the board hands its agents the change
-   whichever path ended it. A listener's failure never stops an ending. */
+/* #6232 review 10: told when a refresh ends an enrollment here (with that Kosmos's root): the company's clear answer, or
+   no id of its own. Every caller of refresh (the hourly ask, a refused rollup or agent event) reaches it, so the board
+   hands its agents the change whichever one caught the removal. Review 11: NOT on a Leave's clear, which runs before
+   the company answers and is undone when it refuses (last admin); the Leave route hands the agents the outcome itself.
+   A listener's failure never stops an ending. */
 const ENDED_LISTENERS = new Set();
 function onEnrollmentEnded(fn) { if (typeof fn === 'function') ENDED_LISTENERS.add(fn); return () => ENDED_LISTENERS.delete(fn); }
+function tellEnded(opts) { for (const fn of ENDED_LISTENERS) { try { fn(storeRoot(opts)); } catch { /* a listener never stops an ending */ } } }
 function clearEnrollment(opts) {
-  const had = (() => { try { return fs.existsSync(path.join(storeRoot(opts), ENROLLMENT_FILE)); } catch { return false; } })();
   try { fs.rmSync(path.join(storeRoot(opts), ENROLLMENT_FILE), { force: true }); } catch { /* already gone */ }
   // #5534 review 1: every end of an enrollment comes through here, so the company's policy ends with it.
   try { policyMod(opts).clear(); } catch { /* best effort */ }
   eventsStopped(opts);   // #5683 review 38/40: once the record is gone (synchronous: no tick runs in between)
-  if (had) for (const fn of ENDED_LISTENERS) { try { fn(storeRoot(opts)); } catch { /* a listener never stops an ending */ } }
 }
 
 /* This world's id if it was ever minted; never mints (the gate and a page read must not write). */
@@ -890,6 +892,7 @@ async function refreshNow(opts) {
     if (before && !fs.existsSync(path.join(storeRoot(opts), WORLD_ID_FILE))) {
       clearEnrollment(opts);
       setStopped((before.org && before.org.name) || 'your company', opts);   // the screen says once that it stopped (review 22)
+      tellEnded(opts);   // #6232
     }
     return { ok: false, because: 'This Kosmos has no id of its own.', enrolled: false };
   }
@@ -902,7 +905,7 @@ async function refreshNow(opts) {
   const verdict = statusVerdict(d, world);
   if (verdict !== 'here') {
     if (verdict === 'unclear') return { ok: false, because: 'Your company\'s answer was not complete.', enrolled: !!before };
-    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); }
+    if (before) { clearEnrollment(opts); setStopped((before.org && before.org.name) || 'your company', opts); retireWorldId(opts); tellEnded(opts); }
     return { ok: true, enrolled: false, member: d.member === true, stopped: !!before, org: d.member === true ? cleanOrg(d.org) : null };
   }
   const org = cleanOrg(d.org);
