@@ -104,3 +104,17 @@ test('#6263 board review 3: the re-read line names exactly the headings a block 
   assert.equal(named.length, new Set(blocks.map((b) => b.split('\n')[0])).size, famLine);
   enrolledAs(null);
 });
+
+test('#6263 board review 5: create\'s step label is the family\'s only when the family\'s policy is in force', () => {
+  const LABEL = "could not add your company's AI policies to its instructions; Kosmos adds them again the next time it starts";
+  assert.equal(policy.aboutPolicies(LABEL, 'company', true), LABEL);
+  assert.equal(policy.aboutPolicies(LABEL, null, false), LABEL);
+  assert.equal(policy.aboutPolicies(LABEL, 'family', true), "could not add your family's AI policies to its instructions; Kosmos adds them again the next time it starts");
+  assert.equal(policy.aboutPolicies(LABEL, 'family', false), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
+  // The defaults read this Kosmos: a family with no family policy applied here.
+  enrolledAs('family');
+  assert.equal(policy.aboutPolicies(LABEL), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
+  enrolledAs(null);
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  assert.match(src, /label: require\('\.\/policy'\)\.aboutPolicies\('could not add your company\\'s AI policies/, 'create.js no longer words its label through aboutPolicies');
+});

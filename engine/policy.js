@@ -290,6 +290,15 @@ function headingsHere(kind = orgKindNow()) {
   return [...new Set(all.map((h) => h.replace(/^## /, '')))];
 }
 
+/* Board review 5: a sentence about "your company's AI policies" said elsewhere (create's step label), by heading()'s
+   rule: on a family's Kosmos it is the family's only when the family's policy is in force; otherwise "your AI
+   policies". Any other Kosmos keeps the sentence as written. */
+function aboutPolicies(text, kind = orgKindNow(), hasOrgPolicy = !!companyEntry()) {
+  if (kind !== 'family') return text;
+  if (hasOrgPolicy) return inOrgKind(text, kind);
+  return String(text).replace(/\byour company's AI polic/g, 'your AI polic');
+}
+
 /** One policy's provenance line, shared by both block shapes. */
 function fromLine(policy, kind = orgKindNow()) {
   const when = policy.savedAt ? policy.savedAt.slice(0, 10) : 'an unknown date';
@@ -446,7 +455,7 @@ function syncEveryone(roster) {
 }
 
 module.exports = {
-  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone, headingsHere,
+  add, rename, removeOne, clear, read, effective, companyEntry, bodyFor, blockBody, stackedBody, tellAgent, syncEveryone, headingsHere, aboutPolicies,
   COMPANY_ID,
   START, END, TEXT_MAX, NAME_MAX, BLOCK_MAX, DEFAULT_NAME, FILE,
 };

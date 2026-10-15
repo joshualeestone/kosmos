@@ -5870,8 +5870,7 @@ function createAgentInner(opts) {
           }
         } catch { /* reported below rather than swallowed */ }
         if (!policyLanded) {
-          const oe = require('./orgenroll');
-          steps.push({ label: oe.inKind(oe.kindHere(), 'could not add your company\'s AI policies to its instructions; Kosmos adds them again the next time it starts'), ok: false });   // kosmos#6263
+          steps.push({ label: require('./policy').aboutPolicies('could not add your company\'s AI policies to its instructions; Kosmos adds them again the next time it starts'), ok: false });   // kosmos#6263
         }
       }
       /* #3614: where to save a file it makes for the person in a direct message, with

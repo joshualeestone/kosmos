@@ -7,8 +7,7 @@ A family's policy is said as the family's, everywhere the board words an org's p
 - engine/orgpolicy.js allows(): the three create refusals ("your company's policy does not allow ...").
 - engine/policy.js: the agent's instruction block (heading, "Set by your company in its Kosmos policy") for one
   policy or a stack, and the oversize refusal.
-- engine/create.js: the step label when the policies could not be added (not tested: reached only when the splice
-  fails; it is the same inKind call as the others).
+- engine/create.js: the step label when the policies could not be added, through policy.aboutPolicies (round 5).
 - server.js: the policy entry the Policies tab reads carries `kind`; web/index.html words its two lines by it.
 
 ## Decided
@@ -58,3 +57,11 @@ A family's policy is said as the family's, everywhere the board words an org's p
 - companyPolicySync's three log lines go through inKind too (they are the operator's terminal, but the same sentence).
 - orgenroll.kindNow() is the one 'family'/'company' mapping server.js uses for the page and the sync key.
 - Kept (NIT): the create step label untested (reached only when the splice fails); policySection's fallback.
+
+## Round 5 (opus) fixes
+- create's step label follows heading()'s rule (policy.aboutPolicies): the family's only when the family's policy
+  is in force, else "your AI policies"; a company's and no org's unchanged. Tested for every case and that create.js
+  routes through it; red when the rule is dropped.
+- policySection's comment says what it does (names the family's headings and "Your AI policy"; the file has one).
+- companyPolicySync requires orgenroll once.
+- Kept (NIT): /api/org and the join answer map the kind inline (familysayboard-6251's lines, not this branch's).
