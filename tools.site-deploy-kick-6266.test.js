@@ -29,7 +29,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
-if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,createdAt,updatedAt --jq" ]; then
+if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq" ]; then
   [ -n "\${FAKE_LIST_FAIL:-}" ] && exit 1
   printf '%s' "\${FAKE_RUNS:-[]}" | "$FAKE_JQ" -r "\${14}"; exit $?
 fi
@@ -58,7 +58,8 @@ function state(files = {}) {
 }
 /* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
    (measured 2026-10-15), so the script does not ask for it. */
-const runs = (list) => JSON.stringify(list.map(([status, ago, upd]) => ({ status, createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
+const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion]) => ({
+  status, conclusion: conclusion || (status === 'completed' ? 'success' : null), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
 /* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip (review 2). */
 const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
@@ -81,7 +82,7 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     ['requested', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['requested', 60]]) }],
     ['pending', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['pending', 60]]) }],
     ['a failed run 5 min ago (its retry is the next tick, not now)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 300], ['completed', 4000]]) }],
-    ['a run queued long but finished a minute ago (review 3: from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60]]) }],
+    ['a run queued long that FAILED a minute ago (review 3: from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'failure']]) }],
   ]) {
     const r = kick(state(files), env);
     assert.equal(r.status, 0, why + ': ' + r.out);
@@ -89,6 +90,8 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     assert.equal(r.out, '', why + ': a quiet tick prints nothing');
   }
   // CONTROLs: no runs at all, or the newest finished 15 minutes ago, are asked for.
+  // Review 6: a GREEN run created 1000 s ago that ended a minute ago does not hold the next ask (only a failure's end does).
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 1000, 60, 'success']]) }).dispatched, 1);
   // A parked sha other than main does not hold main back (the job parks one sha, until main moves).
   assert.equal(kick(state({ 'last-deployed': OLD, parked: 'c'.repeat(40) }), { FAKE_RUNS: runs([['completed', 3600]]) }).dispatched, 1);
   // A paused tick still writes its heartbeat: launchd started it.
@@ -163,6 +166,22 @@ test('#6266: --check says what a tick would decide and dispatches nothing', need
   assert.match(r.out, /check: site main aaaaaaaaa, last deployed bbbbbbbbb/);
   assert.match(r.out, /check: would ask for a site deploy/);
   assert.equal(fs.existsSync(r.beat), false, 'a check is not a tick');
+  assert.equal(fs.existsSync(path.join(path.dirname(r.beat), 'last-result')), false, 'a check leaves no result');
+});
+
+test('#6266: each tick leaves its exit code and last line in last-result, and --check shows it (review 6)', needJq, () => {
+  const st = state({ 'last-deployed': OLD });
+  const beatDir = fs.mkdtempSync(path.join(SANDBOX, 'beatdir-'));
+  const env = { FAKE_RUNS: runs([['completed', 3600]]), FAKE_DISPATCH_FAIL: '1', FAKE_STDERR: 'HTTP 401', KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') };
+  const r = kick(st, env);
+  assert.equal(r.status, 1);
+  const result = fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8');
+  assert.match(result, / rc=1 could not dispatch the site deploy for main aaaaaaaaa \(gh: HTTP 401\)\n$/);
+  const c = kick(st, { ...env, FAKE_DISPATCH_FAIL: '' }, ['--check']);
+  assert.match(c.out, /check: last tick: .* rc=1 could not dispatch/);
+  // A quiet tick (main deployed) records rc=0 (quiet).
+  kick(state({ 'last-deployed': MAIN }), { KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
+  assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=0 \(quiet\)\n$/);
 });
 
 test('#6266: the installer copies the script, writes a 15-minute launchd job, re-runs cleanly, and removes everything', () => {
@@ -192,7 +211,7 @@ test('#6266: the installer copies the script, writes a 15-minute launchd job, re
   assert.match(xml, new RegExp('<key>KOSMOS_KICK_HEARTBEAT</key><string>' + esc(dir) + '/last-tick</string>'));
   assert.equal((fs.readFileSync(lc, 'utf8').match(/^bootstrap gui\/\d+ .*kosmos-site-deploy-kick\.plist$/mg) || []).length, 2);
   fs.writeFileSync(path.join(dir, 'kick.sh.new'), 'left by an interrupted install');
-  assert.match(fs.readFileSync(path.join(dir, 'source'), 'utf8'), /^([0-9a-f]{40}|unknown)\n$/, 'the installed copy records its kosmos commit');
+  assert.match(fs.readFileSync(path.join(dir, 'source'), 'utf8'), /^([0-9a-f]{40}(-dirty)?|unknown)\n$/, 'the installed copy records its kosmos commit');
   const u = spawnSync('/bin/bash', [INSTALL, '--uninstall'], { encoding: 'utf8', env });
   assert.equal(u.status, 0);
   assert.equal(fs.existsSync(plist), false);
