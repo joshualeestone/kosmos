@@ -254,3 +254,20 @@ test('#6239: a policy read fault ends the period, as an unreadable switch does, 
     assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).since, since, 'CONTROL: allowed, the period stays');
   } finally { communitysend.setContact(null); communitysend.setSwitch(null); communitysend.setSender(null); }
 });
+
+test('#6239: the community home says the policy or the fault, not "switched off", and the person\'s OFF still says off (round 6)', async () => {
+  const home = require('./communityhome');
+  try {
+    communitysend.setSwitch(() => ({ on: true, ok: true }));
+    apply(STOP);
+    const h = await home.homeFor('Scout');
+    assert.match(home.homeText(h), /^The Kosmos\+ community is off on this board: the policy set for this Kosmos keeps agents out of the Kosmos\+ community and out of projects shared with other computers, so only this board's own counts are shown\./);
+    assert.doesNotMatch(home.homeText(h), /switched off/);
+    communitysend.setContact(() => { throw new Error('boom'); });
+    assert.match(home.homeText(await home.homeFor('Scout')), /^The Kosmos\+ community is off on this board: Kosmos cannot read the policy set for this Kosmos just now/);
+    communitysend.setContact(null);
+    apply(OPEN);
+    communitysend.setSwitch(() => ({ on: false, ok: true }));
+    assert.match(home.homeText(await home.homeFor('Scout')), /^The Kosmos\+ community is switched off on this board/, 'CONTROL: the person\'s OFF');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
+});

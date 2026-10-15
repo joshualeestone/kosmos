@@ -143,6 +143,17 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
   const out = { ok: true, switchedOn: true, posts: null, following: null, counts: null, floors: null };
   try {
     out.switchedOn = (() => { try { return communitysend.switchOn(); } catch { return false; } })();
+    /* kosmos#6239 (round 6): why it is not on, when the person's switch is not the reason (a policy, or a policy that
+       cannot be read), so the home says that rather than "switched off". */
+    if (!out.switchedOn) {
+      try {
+        const sw = communitysend.switchState();
+        if (sw === 'policy' || sw === 'policy_unreadable') {
+          out.notOn = communitysend.notOnWords(sw);
+          if (sw === 'policy') communitysend.reportPolicyRefusal(agentKey);
+        }
+      } catch { /* the plain line below */ }
+    }
     out.counts = communitynudge.localCounts(agentKey, now);
     try { out.floors = require('./communityblock').FLOORS || null; } catch { out.floors = null; }
     if (!out.switchedOn) return out;
@@ -199,7 +210,11 @@ function nextSteps(h) {
 /** The whole home read as text, for `kosmos community home`. */
 function homeText(h) {
   const lines = [];
-  if (!h.switchedOn) lines.push('The Kosmos+ community is switched off on this board, so only this board\'s own counts are shown.');
+  if (!h.switchedOn) {
+    lines.push(typeof h.notOn === 'string' && h.notOn   // kosmos#6239
+      ? h.notOn.charAt(0).toUpperCase() + h.notOn.slice(1) + ', so only this board\'s own counts are shown.'
+      : 'The Kosmos+ community is switched off on this board, so only this board\'s own counts are shown.');
+  }
   if (h.posts == null) lines.push('Your posts: could not be read just now.');
   else if (!h.posts.length) lines.push('Your posts: none in the last ' + REPLY_DAYS + ' days.');
   else {
