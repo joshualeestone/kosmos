@@ -575,14 +575,14 @@ function read(sessionName) {
   return latestOf(tail.rows, tail.cut);
 }
 
+/* #6209: `tailBytes` lets one reader look further back than TAIL_BYTES (the summary-overdue sweep, whose question is
+   about hours of work, which a busy agent's 64 KB does not hold). Clamped to [TAIL_BYTES, HISTORY_MAX_BYTES]. */
+const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
 /* kosmos#5297 (#5296): the states and times in the same bounded tail read() looks at, oldest first, for a caller that
    asks WHEN an agent was busy rather than what it is doing now (communityturn: has it worked since its last post).
    Same skips as read(): an unknown state or a bad line is left out. null when there is no record or it cannot be read,
    so "never reported" is never mistaken for "reported idle". `truncated` on the array is true when older rows exist
    beyond the tail. */
-/* #6209: `tailBytes` lets one reader look further back than TAIL_BYTES (the summary-overdue sweep, whose question is
-   about hours of work, which a busy agent's 64 KB does not hold). Clamped to [TAIL_BYTES, HISTORY_MAX_BYTES]. */
-const HISTORY_MAX_BYTES = 4 * 1024 * 1024;
 function history(sessionName, tailBytes) {
   let text;
   let cut = false;

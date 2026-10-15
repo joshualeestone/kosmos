@@ -27,8 +27,8 @@
 const projectview = require('./projectview');
 
 const MAX_TRIES = 3;
-/* Review 4: a working Claude agent reports `working` as tool calls start (the PreToolUse heartbeat, at most one a
-   minute; real streams show about one every two minutes), so a gap far longer than that is usually not work (an
+/* a working Claude agent reports `working` as tool calls start (the PreToolUse heartbeat, at most one a
+   minute; real streams show a median of about a minute), so a gap far longer than that is usually not work (an
    interrupted turn sends no Stop); each gap counts at most this. One tool call longer than the cap sends nothing until it
    ends, so it is undercounted, which errs toward not telling. */
 const WORK_GAP_CAP_MS = 30 * 60 * 1000;
@@ -68,22 +68,22 @@ function filePrompted() {
   };
 }
 
-/* Review 1: REPORTED work since the summary, needing positive evidence (unlike projectview.workExcused, which leaves a
+/* REPORTED work since the summary, needing positive evidence (unlike projectview.workExcused, which leaves a
    summary stale whenever it cannot tell, the right bias for a passive status line and the wrong one for a line typed
    into the agent). The state at the summary is its last report at or before it; none known counts as NOT busy. A missing
-   history reads as unknown (null); one cut short after the summary is a lower bound (review 3). Only `working` is
-   counted (review 3). Work counts across a restart (review 6): the summary is the card's, and a restarted session writes
+   history reads as unknown (null); one cut short after the summary is a lower bound. Only `working` is
+   counted. Work counts across a restart: the summary is the card's, and a restarted session writes
    it from its handoff and the card, so the words say the work was reported on this card, not by this session. */
 function workedSinceMs(rows, wroteAt, now) {
   if (!Array.isArray(rows) || !Number.isFinite(wroteAt) || !Number.isFinite(now) || wroteAt > now) return null;
   const read = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string' && r.by !== 'operator');
-  /* Review 3: a history cut short (selfreport keeps its last 64 KB, about 10 to 20 hours of a busy agent) is NOT
+  /* a history cut short (selfreport keeps its last 64 KB, about 10 to 20 hours of a busy agent) is NOT
      unknown when all of it is after the summary: the work counted from its first row (start state unknown, so not busy)
      is a lower bound, and a lower bound over the rhythm is positive evidence. Returning null there silenced exactly the
      days-stale summary this exists for. A cut history with no rows is nothing to count. */
   if (rows.truncated === true && !read.length) return null;
   const valid = read.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
-  // Review 3: only `working` is work here. A wait (blocked, needs_you, an automatic provider block or permission prompt)
+  // only `working` is work here. A wait (blocked, needs_you, an automatic provider block or permission prompt)
   // is not, unlike workExcused, which errs toward stale for a status line; this line is typed into the agent.
   const busy = (st) => st === 'working';
   // At least one busy report AFTER the summary: a state carried from before it (a crash, a board that was down) is not
@@ -97,7 +97,7 @@ function workedSinceMs(rows, wroteAt, now) {
     if (busy(state)) worked += Math.min(r.at - from, WORK_GAP_CAP_MS);
     state = r.state; from = r.at;
   }
-  /* Review 2: nothing after the last report counts. A turn that was interrupted or crashed sends no Stop, so its last
+  /* nothing after the last report counts. A turn that was interrupted or crashed sends no Stop, so its last
      busy report would otherwise run to now (the card reads idle; it may be days); a working Claude agent reports busy on
      every tool call, so this costs at most the time since its last call. */
   return worked;
@@ -135,11 +135,19 @@ function plan(card, summary, workedMs, entry, now, promptedAt) {
 function defaultScreen(session, roster) { return require('./stalereport-nudge').screenOpen(session, roster); }
 function pauseNow(session) { return require('./swarm').pauseOf(require('./store').readProfile(session)); }
 function folderNow(session) { try { return require('./create').workerDir(session); } catch { return null; } }
-/* Review 7 (measured on this machine's six busy agents): the default 64 KB tail is about 350 rows, 9 to 21 hours, but
+/* the default 64 KB tail is about 350 rows, 9 to 21 hours, but
    only about 4 hours of counted `working`, so the rhythm was almost never crossed and a days-stale summary went untold.
    This sweep reads HISTORY_TAIL_BYTES (about ten days of a busy agent), and only for an idle card with a stale summary
    it has not already been told about. */
 const HISTORY_TAIL_BYTES = 1024 * 1024;
+const RECENT_WORK_MS = 24 * 3600 * 1000;
+/* The time of the agent's last `working` report (not an operator's row), or null. */
+function lastWorkingAt(rows) {
+  if (!Array.isArray(rows)) return null;
+  let last = null;
+  for (const r of rows) if (r && r.state === 'working' && r.by !== 'operator' && Number.isFinite(r.at) && (last === null || r.at > last)) last = r.at;
+  return last;
+}
 function historyNow(session) { try { return require('./selfreport').history(session, HISTORY_TAIL_BYTES); } catch { return null; } }
 
 function sweepOnce(o) {
@@ -165,10 +173,17 @@ function sweepOnce(o) {
       const entry = book.get(session);
       let promptedAt = null;
       try { promptedAt = prompted.get(session); } catch { promptedAt = null; }
-      // Review 5: already told about this summary: no history read.
+      // already told about this summary: no history read.
       if (promptedAt === summary.at || (entry && entry.forAt === summary.at && entry.nudgedAt != null)) continue;
+      // Gave up on this summary already: no history read.
+      if (entry && entry.forAt === summary.at && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) continue;
+      let rows = null;
+      try { rows = historyOf(session); } catch { rows = null; }
+      // Only an agent that has worked within RECENT_WORK_MS: a dormant one is not woken to summarise old work (this also
+      // keeps the first sweep after an update from typing to every agent that went quiet days ago).
+      if (!(Number.isFinite(lastWorkingAt(rows)) && now - lastWorkingAt(rows) <= RECENT_WORK_MS)) continue;
       let workedMs = null;
-      try { workedMs = workedSinceMs(historyOf(session), Date.parse(summary.at), now); } catch { workedMs = null; }
+      try { workedMs = workedSinceMs(rows, Date.parse(summary.at), now); } catch { workedMs = null; }
       const p = plan(card, summary, workedMs, entry, now, promptedAt);
       if (p.act !== 'nudge') continue;
       let pz = null;
@@ -238,7 +253,7 @@ function makeTick(deps) {
         folder: deps.folder, history: deps.history, paused: deps.paused, prompted: deps.prompted, screen: deps.screen,
         deliver: deps.deliver, DELIVERY: deps.DELIVERY, log: deps.log,
       });
-      // Review 6: a sweep that failed says so once per reason, so a broken sweep is visible in the board's log.
+      // a sweep that failed says so once per reason, so a broken sweep is visible in the board's log.
       if (out && out.skipped && out.skipped !== lastSkipped && typeof deps.log === 'function') {
         try { deps.log({ name: '-', session: '-', act: 'skipped', because: out.skipped }); } catch { /* never breaks a tick */ }
       }
@@ -248,4 +263,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES, WORK_GAP_CAP_MS, HISTORY_TAIL_BYTES };
+module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, lastWorkingAt, MAX_TRIES, WORK_GAP_CAP_MS, HISTORY_TAIL_BYTES, RECENT_WORK_MS };

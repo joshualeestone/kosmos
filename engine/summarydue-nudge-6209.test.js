@@ -266,3 +266,15 @@ test('#6209 review 7: real report density, read through the real selfreport file
     paused: () => ({ paused: false }), DELIVERY, deliver: (s, text) => { sent.push(text); return { state: DELIVERY.PLACED }; } });
   assert.equal(sent.length, 1, 'a day-stale summary on a busy agent was not told (the sweep read too short a tail)');
 });
+
+test('#6209: a dormant agent (no working report within RECENT_WORK_MS) is not woken; a recent one with the same work is', () => {
+  const [old, recent] = cardsFor([['sumdormant', 'idle'], ['sumrecent', 'idle']]);
+  const folders = { [old.sessionName]: folderWith('sumdormant', 5 * 24 * H), [recent.sessionName]: folderWith('sumrecent', 5 * 24 * H) };
+  const hist = {
+    [old.sessionName]: [...beats(NOW - 4 * 24 * H, NOW - 4 * 24 * H + 6 * H), { state: 'idle', at: NOW - 3 * 24 * H }],
+    [recent.sessionName]: [...beats(NOW - 8 * H, NOW - 2 * H), { state: 'idle', at: NOW - H }],
+  };
+  const { sent } = run([old, recent], folders, hist);
+  assert.deepEqual(sent.map((x) => x.s), [recent.sessionName], 'not exactly the recently working agent was told');
+  assert.equal(nudge.lastWorkingAt([{ state: 'working', at: 5, by: 'operator' }, { state: 'idle', at: 9 }]), null);
+});

@@ -51,7 +51,7 @@ told, and one whose reports overstate work is told early.
   told. The cut tail now counts as a lower bound (start state unknown, so not busy); over the rhythm it is evidence.
 - Fixed: only `working` counts as work; a wait (blocked, needs_you, an automatic provider block or permission prompt)
   does not. Both tested; restoring either old rule fails its test (measured).
-- The not-told test has a positive control. Decided, stated: an agent that worked, then went idle for days, is still
+- The not-told test has a positive control. (REVERSED in review 8.) Decided, stated: an agent that worked, then went idle for days, is still
   told when it next sits idle (its summary is still owed for that work), as project status also leaves it stale.
 
 ## Review 4 (sonnet), and what changed
@@ -63,7 +63,7 @@ told, and one whose reports overstate work is told early.
   again every sweep (no try spent).
 
 ## Review 5 (opus), and what changed
-- Fixed: a new session (a `started` row) starts the count again, so the session told about the work is the one that
+- (REVERSED in review 6, see below.) Fixed: a new session (a `started` row) starts the count again, so the session told about the work is the one that
   did it (a restarted session may not remember earlier work, and would be asked to summarise it).
 - The cap comment says "at most once a minute" (a single long tool call sends nothing until it ends, so the cap can
   undercount, the safe side; measured on real streams: one gap over 30 minutes after a working row).
@@ -94,3 +94,12 @@ told, and one whose reports overstate work is told early.
 - Stated, not changed: an agent that files a deliberate wait and works on other things reports no `working` (selfreport
   refuses automatic heartbeats over a standing wait), so it is not told (errs toward silence). UNCONFIRMED counts as told.
 - Focused list widened to every test that touches selfreport: 1809/1809.
+
+## Review 8 (sonnet), and what changed
+- REVERSED review 3's "worked, then idle for days, is still told": only an agent with a `working` report within
+  RECENT_WORK_MS (24 hours) is told. A dormant agent is not woken to summarise old work, and the first sweep after an
+  update no longer types to every agent that went quiet days ago with an untold stale summary (the record starts empty).
+  Tested with a recent control; removing the rule fails it (measured).
+- An agent given up on (MAX_TRIES) is skipped before its history is read. The history read (about 3 to 4 ms for 1 MB,
+  measured by the reviewer) otherwise runs only for an idle card with a stale, untold summary.
+- Comments state the rule without review labels; the selfreport note sits above history()'s own comment.
