@@ -16,8 +16,8 @@
 # on a simulator or device, a signed build or export, or APNs delivery.
 #
 # The asset catalog (icon, launch colour) only compiles on a Mac with an iOS
-# simulator runtime installed; the runner has one, the Mac mini does not yet, so
-# this workflow is where the icon and launch screen are proven (#4089).
+# simulator runtime installed. The runner has one, so this workflow is where the
+# icon and launch screen are proven for every change (#4089).
 
 name: ios
 
@@ -114,8 +114,8 @@ jobs:
           ios/tools/test-check-ipa-entitlements.sh | tee "$RUNNER_TEMP/ipa-check.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/ipa-check.log"
 
-      # #4089: archive.sh's signing settings checks, including that io.kosmos.app is never built under the
-      # interim Stone Syndicate team (Apple cannot transfer an app never released on the App Store).
+      # #4089, #6262: archive.sh's signing settings checks, including that io.kosmos.app is built only under
+      # Kosmos Agent Manager, Inc.'s team.
       - name: Archive signing settings refuse what they should
         run: |
           set -o pipefail

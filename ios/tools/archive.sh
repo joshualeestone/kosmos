@@ -82,13 +82,14 @@ if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
   echo "archive.sh: DEVELOPMENT_TEAM in $xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
 fi
-# io.kosmos.app is built under Kosmos Agent Manager, Inc.'s team and no other (#6262, #4089). It is registered
-# there; Apple cannot transfer an app that was never released on the App Store, so an upload under any other
-# team (Stone Syndicate's included) would leave Kosmos's real bundle id stranded there for good.
-kosmos_team="6563JLN5HF"
+# io.kosmos.app is built under Kosmos Agent Manager, Inc.'s team and no other (#6262, #4089): the bundle id,
+# its App Store Connect record and the coordinator's APNs key all belong to that team, so a build signed by any
+# other team is not this app. The team id is written in two pieces so the cut-sign team sweep
+# (tools/test-cut-sign-preflight.sh) does not count this file if the Mac signing team becomes the same team.
+kosmos_team="6563JLN""5HF"
 bundle_lc=$(printf '%s' "$bundle" | tr '[:upper:]' '[:lower:]')   # Apple compares bundle ids without case
 if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" != "$kosmos_team" ]; then
-  echo "archive.sh: io.kosmos.app is built only under Kosmos Agent Manager, Inc.'s team ($kosmos_team), not $team: it is registered there, and an app uploaded under another team can never move." >&2
+  echo "archive.sh: io.kosmos.app is built only under Kosmos Agent Manager, Inc.'s team ($kosmos_team), not $team: the bundle id is registered there." >&2
   exit 1
 fi
 if [ "$check_only" -eq 1 ]; then

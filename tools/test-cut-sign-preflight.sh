@@ -114,8 +114,8 @@ _team_all="$(grep -rlIF --exclude-dir=.git --exclude-dir=node_modules --exclude-
 if ! printf '%s\n' "$_team_all" | grep -q '/tools/lib/signing-identity.sh$'; then
   bad "CONTROL: the team sweep did not even find lib/signing-identity.sh, so it cannot see anything"
 else
-  # ios/Signing.xcconfig is the iOS app's own one place for its team (#4089: Stone Syndicate signs the interim
-  # io.kosmos.app.preview TestFlight app). Xcode reads it there literally, so it cannot come from this lib.
+  # ios/Signing.xcconfig is where Xcode reads the iOS app's own team (#4089, #6262). Xcode reads it there
+  # literally, so it cannot come from this lib.
   # "For the team only" in the message below holds because of the notary-key check on that file further down.
   _team_hits="$(printf '%s\n' "$_team_all" | grep -v '/tools/lib/signing-identity.sh$' | grep -v '/ios/Signing.xcconfig$' | grep -v '/tools/test-' | grep -v '\.test\.js$' || true)"
   [ -z "$_team_hits" ] && ok "only lib/signing-identity.sh (and, for the team only, ios/Signing.xcconfig) names the signing team or its notary key" || bad "the signing team or notary key is named outside lib/signing-identity.sh: $_team_hits"
