@@ -459,6 +459,44 @@ test('#6174 restartForMove reads the start BEFORE the restart, notes only a PART
   assert.ok(!('rf-same' in accountmoving.notes()), 'a full restart left the note');
 });
 
+test('#6173: the several-agents move notes the same way (restartForMoveAsync): read before, PARTIAL with the same session only', async () => {
+  const { restartForMoveAsync } = require('./server');
+  const accountmoving = require('./engine/accountmoving');
+  const remove = require('./engine/remove');
+  const run = async (name, outcome, before, after, from) => {
+    let reads = 0; let readsAtRestart = null; const freshness = [];
+    const deps = {
+      sessionOf: (n) => n + '-discord',
+      startedAt: (s, fresh) => { reads += 1; freshness.push(fresh); return reads === 1 ? before : after; },
+      restartAsync: async () => { readsAtRestart = reads; return { outcome }; },
+    };
+    const back = await restartForMoveAsync(name, from, deps);
+    assert.equal(readsAtRestart, 1, name + ': the start was not read before the restart');
+    assert.ok(freshness.every((f) => f === true), name + ': a cached session start was read');
+    return back;
+  };
+  for (const k of ['ra-new', 'ra-refused']) accountmoving.note(k, 1000e3, '/acct/z');
+  await run('ra-same', remove.OUTCOME.PARTIAL, 1000e3, 1000e3, '/acct/a');
+  await run('ra-new', remove.OUTCOME.PARTIAL, 1000e3, 2000e3, '/acct/a');
+  await run('ra-refused', remove.OUTCOME.REFUSED, 1000e3, 1000e3, '/acct/a');
+  const n = accountmoving.notes();
+  assert.deepEqual(n['ra-same'], { started: 1000e3, from: '/acct/a' }, 'a partial bulk move with the same session running was not noted');
+  for (const k of ['ra-new', 'ra-refused']) assert.ok(!(k in n), k + ' was noted');
+  // A restart that throws is a partial, and the note still follows the session.
+  const thrown = await restartForMoveAsync('ra-throw', '/acct/a', { sessionOf: (x) => x, startedAt: () => 7e6, restartAsync: async () => { throw new Error('gone'); } });
+  assert.equal(thrown.outcome, 'partial');
+  assert.deepEqual(accountmoving.notes()['ra-throw'], { started: 7e6, from: '/acct/a' });
+  /* Liu Kang m5607: nothing in it reads tmux synchronously (the sync helper or the sync roster), so a bulk move of N
+     agents does not hold the board for N pairs of reads. */
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
+  const body = (fn) => { const i = src.indexOf('function ' + fn + '('); return src.slice(i, src.indexOf('\n}\n', i)); };
+  for (const fn of ['restartForMoveAsync', 'sessionStartForAsync']) {
+    const b = body(fn);
+    assert.ok(b.length > 50, 'CONTROL: ' + fn + ' was not found');
+    assert.doesNotMatch(b, /sessionStartFor\(|paneRoster\(\)|sessionStartedAtFromTmux\(/, fn + ' reads tmux synchronously');
+  }
+});
+
 test('#6174 accountmoving: a failed reading marks nobody and keeps the note; isMoving is read-only; clearIf drops only that note', () => {
   const accountmoving = require('./engine/accountmoving');
   assert.equal(accountmoving.note('', 1), false);

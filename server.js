@@ -2657,10 +2657,41 @@ function restartForMove(rawName, fromDir, deps = {}) {
   noteMoveOutcome(name, back && back.outcome, startedBefore, fromDir, deps);
   return back;
 }
-function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}) {
+/* #6173: restartForMove for the several-agents move, the same note around remove.restartAsync, so an agent a bulk move
+   could not close is marked as still on its old account exactly as one moved alone is. Its session and the session's
+   start are read without blocking the board's thread (paneRosterAsync, sessionStartedAtFromTmuxAsync; Liu Kang
+   m5607), both reads fresh, the same reads restartForMove makes. */
+async function sessionStartForAsync(name, deps = {}) {
+  let session;
+  if (deps.sessionOf) session = deps.sessionOf(name);
+  else {
+    let roster = deps.roster;
+    if (!Array.isArray(roster)) { try { roster = await require('./engine/status').paneRosterAsync(); } catch { return null; } }
+    session = ourSessionFor(name, roster);
+  }
+  if (!session) return null;
+  try {
+    return deps.startedAt ? await deps.startedAt(session, true)
+      : await require('./engine/status').sessionStartedAtFromTmuxAsync(session);
+  } catch { return null; }
+}
+async function restartForMoveAsync(rawName, fromDir, deps = {}) {
+  const name = create.cleanName(rawName) || rawName;
+  const startedBefore = await sessionStartForAsync(name, deps);
+  let back;
+  try { back = await (deps.restartAsync || removal.restartAsync)(name, 'account'); }
+  catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+  const outcome = back && back.outcome;
+  const after = outcome === removal.OUTCOME.PARTIAL ? await sessionStartForAsync(name, deps) : null;
+  noteMoveOutcome(name, outcome, startedBefore, fromDir, deps, { after });
+  return back;
+}
+function noteMoveOutcome(name, outcome, startedBefore, fromDir, deps = {}, known = null) {
   try {
     const accountmoving = require('./engine/accountmoving');
-    const after = outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null;
+    // #6173: the async move passes the start it read after the restart (known.after), so nothing here blocks.
+    const after = known && 'after' in known ? known.after
+      : (outcome === removal.OUTCOME.PARTIAL ? sessionStartFor(name, true, deps) : null);
     if (!(Number.isFinite(startedBefore) && after === startedBefore)) { accountmoving.clear(name); return; }
     const prior = accountmoving.notes()[name];
     // Moved again while the same session runs: it still runs where it ran before its first partial move.
@@ -13687,11 +13718,13 @@ const server = http.createServer(async (req, res) => {
       .then((raw) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const fromDirs = new Map();   // #6174: name -> the account folder it ran on before this move
         const started = accountmove.start(body, {
-          setAccount: (n, dir) => create.setAccount(n, dir),
+          /* #6174: each agent's account folder is read BEFORE its account is written, as the one-agent route does. */
+          setAccount: (n, dir) => { fromDirs.set(n, moveFromDir(n)); return create.setAccount(n, dir); },
           REFUSED: create.OUTCOME.REFUSED,
           forget: (n) => observed.forgetAgent(n),
-          restartAsync: (n, cause) => removal.restartAsync(n, cause),
+          restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
           RESTARTED: removal.OUTCOME.RESTARTED,
           boardRestarting: () => boardRestartingSoon(),
           hold: (names) => removal.holdForMove(names),
@@ -24349,7 +24382,7 @@ module.exports = {
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
   ASSIGNER_VIEW, // #6072: the Assigner memory the project list reads, for its test
   calibrateSwarmAllowances, // #3946: the sweep's calibration step, for its test
-  enumerateAgentsOnAccount, claudeAgentsByAccount, restartForMove, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
+  enumerateAgentsOnAccount, claudeAgentsByAccount, restartForMove, restartForMoveAsync, // #6108 (+ #6174's note): the shared walk's two readings (guards count the guide, lists do not), for their tests
   HEARD_PER_AGENT_MAX, HEARD_RUNAWAY_MAX, spendHeardBudgetForTests, // #3961: the per-assignee paging allowance, for its tests
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests

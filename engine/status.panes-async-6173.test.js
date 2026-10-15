@@ -75,3 +75,16 @@ test('#6173: a tmux that cannot be asked fails the async roster the way it fails
     });
   });
 });
+
+test('#6173 (Liu Kang m5607): a session start is read without holding the board, and reads what the sync read reads', async () => {
+  await withTmux(slowTmux("printf 'dana\\t1700000000\\nother\\t1600000000\\n'"), async () => {
+    let turns = 0;
+    const iv = setInterval(() => { turns++; }, 5);
+    const got = await status.sessionStartedAtFromTmuxAsync('dana');
+    clearInterval(iv);
+    assert.ok(turns > 5, `the board's thread barely turned while tmux answered (${turns}); the sync read turns it 0 times`);
+    assert.equal(got, 1700000000 * 1000);
+    assert.equal(got, status.sessionStartedAtFromTmux('dana', Date.now(), { fresh: true }), 'the two reads disagree');
+    assert.equal(await status.sessionStartedAtFromTmuxAsync('nobody'), null, 'a session that is not there has a start');
+  });
+});
