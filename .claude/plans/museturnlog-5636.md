@@ -76,3 +76,13 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   a hard link could have its other name emptied: the link count is checked at the lstat, before any rotation (tested).
   WARNINGs (comment): the ignore check is exact-line, not git (fail closed for /x or *.log); a digest's opening is its
   first post.
+
+## Review 7 (opus), and what changed
+- BLOCKERS (file-scanning guards a musefront-only run cannot see): the fifo arm's `process.platform` branch tripped
+  engine/windows-tests-1777's host-branch check (the arm now runs only where mkfifo exists, with no platform branch);
+  the rotation's rename tripped engine/caches.fsync-5434's move count (EXPECTED moves: 1, noted as a diagnostic log's
+  rotation, as filepreview's). Every test naming musefront plus the standing guards now pass, each file run alone.
+- WARNING: nothing tested the production wiring (the default logger): a test runs createFront with no log against a
+  real folder (a no-op default fails it). WARNING: the .gitignore read is now bounded and non-blocking
+  (workerfile.readWorkerFile, as keepModel reads). NITs taken: tz (local offset) beside the local Sent stamp; a
+  blocked rotation cuts the opened file (ftruncate), not the path; the header says "hands to Muse".

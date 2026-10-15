@@ -167,7 +167,7 @@ function shortOf(text) {
   return one.length > 60 ? one.slice(0, 57) + '...' : one;
 }
 
-/* #5636 F7a and #6065 N1: one line per message this front runs into Muse, in the agent's own folder
+/* #5636 F7a and #6065 N1: one line per message this front hands to Muse (logged before the turn, whatever its result), in the agent's own folder
    (.kosmos/muse-turns.log), so a report from a Meta seat can say what reached the agent and when. Both findings were
    Meta-only and left no trace on the board: a community reminder the board logged once a day arriving again, and long
    room posts arriving shortened. One line per turn (a busy digest is one line, digestPosts saying how many posts; a
@@ -197,7 +197,8 @@ function turnRecord(text, at, arrived = null) {
   const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
-  const rec = { at, arrived, kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
+  // tz: this machine's offset from UTC in minutes, so a Sent stamp (local wall-clock time) lines up with at / arrived.
+  const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
     digestPosts: digest ? Number(digest[1]) : null };
   // The person's words stay out: their own messages, and any line that quotes them (a stop note carries their envelope).
   if (kind !== 'operator' && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
@@ -215,9 +216,13 @@ function turnLogIgnored(dir) {
     try { fs.writeFileSync(ig, TURN_LOG_IGNORE, { flag: 'wx', mode: 0o600 }); return true; } catch { return false; }
   }
   if (!st.isFile()) return false;
+  // Read bounded and non-blocking, as keepModel reads (review 7), so a swap at the name cannot hang this front.
+  const got = require('./workerfile').readWorkerFile(ig, path.dirname(dir));
+  if (!got || !got.ok) return false;
   // Exact lines, not a git check: both names must be listed (the .1 copy is the same text), so "/muse-turns.log" or
   // "*.log" reads as not ignored and nothing is written (fail closed).
-  try { const lines = fs.readFileSync(ig, 'utf8').split(/\r?\n/); return lines.includes('muse-turns.log') && lines.includes('muse-turns.log.1'); } catch { return false; }
+  const lines = got.buf.toString('utf8').split(/\r?\n/);
+  return lines.includes('muse-turns.log') && lines.includes('muse-turns.log.1');
 }
 function logTurn(workspace, text, at, arrived = null) {
   try {
@@ -229,15 +234,19 @@ function logTurn(workspace, text, at, arrived = null) {
     try { st = fs.lstatSync(file); } catch { st = null; }
     if (st && (!st.isFile() || st.nlink !== 1)) return;   // a hard link is refused before rotation could touch it
     if (!turnLogIgnored(dir)) return;   // never into a file git would carry out of the person's repository
+    let cut = false;
     if (st && st.size > TURN_LOG_MAX) {
       // The bound: about twice TURN_LOG_MAX in all. A rename that fails (a folder at .1) must not end the logging.
-      try { fs.renameSync(file, file + '.1'); } catch { try { fs.truncateSync(file, 0); } catch { return; } }
+      try { fs.renameSync(file, file + '.1'); } catch { cut = true; }   // cut on the opened file below, not by path
     }
     const c = fs.constants;
     const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
     try {
       const f = fs.fstatSync(fd);
-      if (f.isFile() && f.nlink === 1) fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n');
+      if (f.isFile() && f.nlink === 1) {
+        if (cut) fs.ftruncateSync(fd, 0);
+        fs.writeSync(fd, JSON.stringify(turnRecord(text, at, arrived)) + '\n');
+      }
     } finally { fs.closeSync(fd); }
   } catch { /* the turn runs whatever the log does */ }
 }

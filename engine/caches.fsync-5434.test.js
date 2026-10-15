@@ -181,7 +181,7 @@ const EXPECTED = {
   'engine/filepreview.js': { moves: 1, flushed: /writeSecret\([^;]*0o600/ },
   'engine/instructionreread.js': { moves: 0, flushed: /saveFlushed\(/ },
   'engine/musestatus.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
-  'engine/musefront.js': { moves: 0, flushed: /ownTempsOnly: true/ },
+  'engine/musefront.js': { moves: 1, flushed: /ownTempsOnly: true/ },   // #5636: the turn log's rotation to .1, a diagnostic needing no flush
   'engine/pagecontext.js': { moves: 0, flushed: /writeSecret\([^;]*0o600[^;]*ownTempsOnly: true/ },
   'engine/prompternudge.js': { moves: 0, flushed: /writeSecret\([^;]*0o600/ },
   'engine/replynudge.js': { moves: 0, flushed: /saveFlushed\(/ },
