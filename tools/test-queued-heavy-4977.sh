@@ -10,7 +10,14 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"; ROOT="$(cd "$HERE/.." && pwd)"
 U=$((1000000 + $$ * 10))   # sleep lengths U+1..U+9 belong to this run alone: live pids are unique, so two copies differ by >= 10
 REAL_QH="$HERE/queued-heavy.sh"
-S=$(mktemp -d "${TMPDIR:-/tmp}/test-queued-heavy-4977.XXXXXXXXXX"); mkdir -p $S/m $S/tmp
+# #4298 exception, same mechanism as test-light-side-4911: root $S in a literal /tmp, not ${TMPDIR}.
+# In the suite TMPDIR is run-tests.sh's kt<digits> sandbox; rooting the wrapper tree inside it makes
+# cut-guard/process-fixture's kt-sandbox cwd rule (_kosmos_path_in_kt_sandbox) misfire and hangs the
+# side-turn poller past this file's 900s watchdog (measured: templated 918s exit 137 with 2 BADs vs a
+# literal-/tmp 501s PASS, under the same kt-shaped TMPDIR). A literal /tmp escapes the sandbox rule as
+# main's bare mktemp -d did by landing in the real root. /tmp is outside the leak guard's per-run-root
+# scan, so the EXIT trap below removes $S on every catchable path (TERM routes through exit); only SIGKILL escapes.
+S=$(mktemp -d "/tmp/test-queued-heavy-4977.XXXXXXXXXX"); mkdir -p $S/m $S/tmp
 export TMPDIR=$S/tmp   # review 2: the wrapper's own mktemp files stay inside this test's dir
 BG=""   # every background wrapper this test starts, stopped by pid on exit
 # Review 2: a pid in BG is stopped only while it still runs this test's shim or wrapper (a pid reused by another agent's
