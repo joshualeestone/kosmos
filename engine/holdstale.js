@@ -9,8 +9,9 @@
  * board's own typing path (chat.deliverAutomatic, as engine/missedtell.js and engine/agentnudge.js do), counted against
  * Agent Communication's limit. The line names the task, when it was put on hold and by whom, and how many posts the
  * owner made since, and asks the owner to take it off hold if its work is going on (or, for the person's own hold, to
- * ask the person), or to say on the task why it stays held. The posts are the room's, not the task's, so an owner
- * holding several held tasks in one project gets ONE line naming them all, not one line per task on the same evidence.
+ * ask the person), or to say on the task why it stays held. The posts are the room's, not the task's, so the held tasks
+ * of one owner in one project that are owed in the same pass go in ONE line naming them all. A hold that becomes owed
+ * later (it reached MIN_AGE_MS after the others were told) gets its own line.
  *
  * Once: the task stores, per owner, the hold it was told about (holdStaleTold: { <owner>: <hold time> }). A new hold
  * (taken off and put back) can be told about again. A delivery that reached nothing is tried again on later sweeps, up
@@ -142,7 +143,7 @@ function markTold(item, outcome) {
 /**
  * One pass. `o`: { projects, rows (messages.readLog()), items (owed()'s answer, when the caller already has it), roster, now, allowed (live execution and the brake), limit ({ on, perHour }), sent
  * (the board-wide hour of Kosmos-to-agent lines, shared with the nudge), book (Map of { tries | told, at } per owner, project
- * and the held tasks told together; an entry is dropped 30 days after it was written), idleSeen
+ * and the held tasks told together; a tries entry is dropped 30 days after it was written, a told one never), idleSeen
  * (Map), idleSince(session), deliver(session, text, roster) -> { state }, DELIVERY, read (task history), log }.
  * Never throws.
  */
@@ -155,7 +156,9 @@ function sweep(o) {
     while (sent.length && now - sent[0] >= HOUR_MS) sent.shift();
     /* Review 7: an entry is pruned by when it was WRITTEN, not by how old its hold is. A hold can last longer than any
        window, and pruning by the hold's age wiped its tries every pass, so it was retried every minute for ever. */
-    for (const [k, e] of [...book.entries()]) if (!e || typeof e !== 'object' || !Number.isFinite(e.at) || now - e.at > 30 * 24 * HOUR_MS) book.delete(k);
+    /* Review 8: a told entry is never pruned (its group is told once; keys are bounded by the holds there are), so a group
+       whose mark on the task was lost is not retyped a month later. */
+    for (const [k, e] of [...book.entries()]) if (!e || typeof e !== 'object' || (e.told !== true && (!Number.isFinite(e.at) || now - e.at > 30 * 24 * HOUR_MS))) book.delete(k);
     const cap = o.limit && o.limit.on === true && Number.isInteger(o.limit.perHour) ? o.limit.perHour : Infinity;
     const cards = new Map((Array.isArray(o.roster) ? o.roster : []).filter((a) => a && a.sessionName).map((a) => [a.sessionName, a]));
     const seen = o.idleSeen instanceof Map ? o.idleSeen : new Map();

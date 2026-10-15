@@ -266,3 +266,13 @@ test('#6209 part 3 review 7: a hold older than any window still gives up after M
   projects.mutate(lost.id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === lost.n ? { ...t, holdStaleTold: undefined } : t)) }));
   assert.equal(pass(lost.id, rows(lost.id), holdAt(31 * 24 * HOUR), { book: b2 }).sent.length, 0, 'retyped a told group whose mark was lost');
 });
+
+test('#6209 part 3 review 8: the book keeps a told entry for good and drops a stale tries entry', () => {
+  const { id } = fixture();
+  const rows = [post(id, REX, 2 * HOUR), post(id, REX, HOUR), post(id, REX, 0.5 * HOUR)];
+  const book = new Map([['x:old-told@1/1', { told: true, at: NOW - 400 * 24 * HOUR }], ['x:old-tries@1/1', { tries: 1, at: NOW - 31 * 24 * HOUR }], ['x:fresh-tries@1/1', { tries: 1, at: NOW - HOUR }]]);
+  pass(id, rows, holdAt(3 * HOUR), { book });
+  assert.ok(book.has('x:old-told@1/1'), 'a told entry was pruned');
+  assert.ok(!book.has('x:old-tries@1/1'), 'a tries entry 31 days old was kept');
+  assert.ok(book.has('x:fresh-tries@1/1'), 'control: a fresh tries entry was pruned');
+});

@@ -9,7 +9,8 @@ Signal: the holders of an open part of the task (as missedtell's review 4; one w
 posting in that project's room after the hold was set. At least MIN_POSTS
 (3) posts by the owner since the hold, and the hold at least MIN_AGE_MS (2 h) old, so a hold set mid-conversation is
 not flagged at once. Each such owner gets ONE line per hold, typed into its session like the missed-run tell. The posts are the room's,
-not a task's, so an owner holding several held tasks in one project gets one line naming them all: the
+not a task's, so the held tasks of one owner in one project that are owed in the same pass share one line (a hold that
+becomes owed later gets its own, at a cost of one line): the
 task, when it was put on hold and by whom, how many times it posted in the room since, and `kosmos task unhold
 <project> <n>` (or, for the person's own hold, to ask the person, since only they can lift it), else to say on the task
 why it stays held.
