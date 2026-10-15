@@ -147,3 +147,13 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   not strictly fair across posts; the marks file can hold about 26 KB of ids per post. The turn test asserts the first
   wave is one burst of at most 30.
 - Duplicate of recorded decisions: a repeat is possible only past SEEN_MAX ids above one mark.
+
+## Review 13 (opus)
+- Fixed: the first-wave test's window was 1 ms (could lose the first wave on a clock tick); now 10 ms against 30 ms pages.
+- Fixed: while a failed page holds the mark, the post's line says the rest "will be looked at again next time"; after
+  the hold, "may be missed" (tested both ways). Tests added for a failing older-comments page (said, mark held) and a
+  bad cursor on a page with rows (said); removing either branch fails them (measured). Two long comment lines wrapped.
+- Decided: a 429 or unanswered page stops the waves for every post; the failed post holds its mark, the others are
+  treated as budget-cut (their waiting tails said and their marks move as usual), the same as the budget case.
+- Kept (rare): a comment whose previewed reply the board drops as malformed reads as one reply not reached, and makes
+  the nudge's count name nobody; it needs a malformed row from the service.
