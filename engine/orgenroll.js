@@ -132,7 +132,8 @@ const policyMod = (opts) => (opts && opts.orgpolicy) || require('./orgpolicy');
 
 /* #6232 review 10: told when a refresh ends an enrollment here (with that Kosmos's root): the company's clear answer, or
    no id of its own. Every caller of refresh (the hourly ask, a refused rollup or agent event) reaches it, so the board
-   hands its agents the change whichever one caught the removal. Review 11: NOT on a Leave's clear, which runs before
+   hands its agents the change whichever one caught the removal. A pending Leave sent again inside refresh ends
+   without telling: the board's ask hands that over itself (server.js orgEnrollRefresh). Review 11: NOT on a Leave's clear, which runs before
    the company answers and is undone when it refuses (last admin); the Leave route hands the agents the outcome itself.
    A listener's failure never stops an ending. */
 const ENDED_LISTENERS = new Set();

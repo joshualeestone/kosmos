@@ -10733,6 +10733,7 @@ const server = http.createServer(async (req, res) => {
              Review 3: and the join answers once it has, waiting up to 5 seconds; a company slower than that gets its
              policy applied when the fetch lands, and an agent made before then is not checked against it. */
           if (r && r.ok === true) {
+            ORG_REFRESH_MISSES = 0;   // #6232 review 17: a fresh join's retries start at 15 minutes, whatever came before
             const fetched = orgEnrollRefresh();
             if (fetched) await Promise.race([fetched, new Promise((done) => setTimeout(done, 5000).unref())]);
           }
@@ -22872,8 +22873,9 @@ function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REF
    board in no company asks nothing more that would retry it. Not an ending, so not told here (review 13): an answer
    naming another company swaps the applied policy inside a refresh; the hourly ask's companyPolicySync hands that over. */
 function orgEnrollmentEnded(root) {
-  // Compared as resolved paths (review 14): a trailing slash or another spelling of this board's root is still it.
-  if (typeof root !== 'string' || path.resolve(root) !== path.resolve(require('./engine/store').ROOT)) return;
+  // Compared as real paths (reviews 14, 17): a trailing slash or a symlinked spelling of this board's root is still it.
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  if (typeof root !== 'string' || real(root) !== real(require('./engine/store').ROOT)) return;
   ORG_REFRESH_MISSES = 0;   // review 15: a later join starts its retries at 15 minutes, not where this one left off
   companyPolicySync();
 }

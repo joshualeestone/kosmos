@@ -181,3 +181,9 @@ is for the first run after merge.
 - The review 15 reset was undone on the "no id of its own" ending (that refresh answers ok: false, which counted as
   a miss). An ask that leaves the board in no company is now not a miss. Tested; removing it fails (measured).
 - Tests reset the schedule in t.after too; the bound says about 65 minutes.
+
+## Review 17 (opus), and what changed
+- A Leave through the screen never reset the misses (it runs no ask), so a later join could retry its first miss
+  after an hour. The join route resets them before its first ask: one place every new join passes through (pinned).
+- The listener compares real paths (a symlinked spelling of the root); the overlap test resets in t.after; the
+  engine comment says a pending Leave sent again ends without telling (the ask hands it over).
