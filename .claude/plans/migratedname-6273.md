@@ -27,10 +27,13 @@ Every entry in policy.json is the person's own: the company's policy is never st
   This change stays in the read path, whose lines that branch does not touch.
 
 ## Weakest premise
-That nobody renamed the `p1` entry to exactly "Company AI policy" themselves. `p1` only comes from migration, but a person
-could rename it back to that exact name; this change would then rename it again on read. Judged rare (it needs the
-pre-#685 record, then a rename to that exact string), and the result is the neutral "AI policy", not a wrong owner.
-What would change my mind: a way to tell a person-chosen name from the migrated one. The record does not keep one.
+Originally: that nobody renames p1 back to exactly "Company AI policy". Review 1 showed that case was real and worse than
+rare: the page said "Renamed" and the rename reverted on the next read. Fixed: persist() now writes version 3, and the
+rename on read applies only to a record written before #6273 (version 1 or 2). Once this build has written the record,
+p1's name is whatever the person last chose, including "Company AI policy".
+Remaining premise: that no v2 record holds a "Company AI policy" on p1 that the person chose BEFORE this build. That
+needs the pre-#685 record, then a rename to that exact string, both before this ships. It is renamed once, to the
+neutral name, and a rename back then sticks.
 
 ## Not done
 - If another entry already wears "AI policy", the migrated entry keeps "Company AI policy" (the case the card is about,
@@ -49,6 +52,7 @@ random id untouched, no rename when "AI policy" is taken), plus the company fall
 (policy-company-5534 test, unchanged).
 
 MEASURED: the #6273 and migration tests 3/3; both policy test files 15/15; the 13 test files that touch the policy name,
-read or re-read 364/364. Mutants: no rename on read (2 red), any id renamed (control red), no collision guard (red).
+read or re-read 364/364. Mutants: no rename on read (2 red), any id renamed (control red), no collision guard (red), no version guard (the
+rename-back arm red, review 1).
 Mutant "new migrations named DEFAULT_NAME" survives and is EQUIVALENT: a v1 record migrates with id p1 as its only entry,
 so rename on read fixes it either way.
