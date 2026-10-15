@@ -497,7 +497,7 @@ test('#4833 slice 2 review 1 / #6201: a third or later reply is read through the
   });
   const cut = await cr.readReplies('Ivy4833', { now: NOW });
   // #6201 review 2: an empty page adds nothing, so its cursor is not followed; the comment was read to its end, so the 25
-  // the service counts are NOT said as unreached (nothing was left waiting) and the post can settle.
+  // the service counts are NOT said as unreached (nothing was left waiting).
   assert.ok(!/not reached in this read/.test(cut.text), 'a comment read to its end was said to be unreached: ' + cut.text);
   // Review 2: holding the mark could not reach the rest either (the same pages come back), so it moves.
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
@@ -1871,7 +1871,7 @@ test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_
   const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
   const shown = [];
   for (let k = 0; k < 9; k += 1) shown.push(...ids((await cr.readReplies('Rep6201', { now: NOW + k * 1000 })).text));
-  assert.ok(200 > cr.SEEN_MAX, 'fixture: not past SEEN_MAX');
+  assert.ok(200 > 120, 'fixture: not past the 120-id list this test was written against');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
   assert.equal(shown.length, 201, 'not every item (the comment and its 200 replies) was shown once');
 });
@@ -1892,7 +1892,7 @@ test('#6201 review 1: no new batch starts past round 2\'s time window; what is l
   assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was not reached in this read/);
 });
 
-test('#6201 review 3: a deep reply stamped inside MARK_SETTLE_MS of the newest that shows up only on a later read is still shown', async () => {
+test('#6201 review 3: a deep reply stamped just before the newest that shows up only on a later read is still shown', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lat6201', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const B = Date.parse('2026-10-01T05:00:00Z');
@@ -1911,7 +1911,7 @@ test('#6201 review 3: a deep reply stamped inside MARK_SETTLE_MS of the newest t
   assert.match(one.text, /newest B/);
   late = true;
   const two = await cr.readReplies('Lat6201', { now: NOW + 1000 });
-  assert.match(two.text, /late C/, 'a deep reply stamped within the settle window of the newest was passed by the mark');
+  assert.match(two.text, /late C/, 'a deep reply stamped before the newest, seen only on a later read, was passed by the mark');
   assert.ok(!/deep old|newest B|pre1/.test(two.text), 'something shown before was shown again');
 });
 
@@ -1932,10 +1932,24 @@ test('#6201 review 3: a post that keeps hitting the page budget still moves on b
   });
   const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
   const shown = []; let lastText = '';
-  for (let k = 0; k < 7; k += 1) { lastText = (await cr.readReplies('Bud6201', { now: NOW + k * 1000 })).text; shown.push(...ids(lastText)); }
-  assert.ok(shown.length > cr.SEEN_MAX, 'fixture: not past SEEN_MAX');
+  // #6201 review 5: 12 reads, past where the old 120-id "seen" list overflowed (read 8) on a mark that cannot move.
+  for (let k = 0; k < 12; k += 1) { lastText = (await cr.readReplies('Bud6201', { now: NOW + k * 1000 })).text; shown.push(...ids(lastText)); }
+  assert.ok(shown.length > 120, 'fixture: not past the old 120-id list');
   assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice on a budget-limited post');
   assert.match(lastText, /were not reached in this read/, 'CONTROL: the post was not budget-limited');
+  // And nothing is lost: every item at or below the post's final mark was shown (fails if the mark passed a waiting
+  // thread's replies without showing them).
+  const mark = JSON.parse(fs.readFileSync(seenPath('Bud6201'), 'utf8')).posts[RP(1)];
+  const markTs = mark.at;
+  const below = [];
+  for (let i = 0; i < 10; i += 1) for (let k = 0; k < 200; k += 1) {
+    const x = repl(i, k); const ts = Date.parse(x.created_at);
+    if (ts < markTs || (ts === markTs && x.id <= mark.id)) below.push(x.id);
+  }
+  const seenSet = new Set(shown);
+  // The mark may stay put (round 1's newest), so progress is shown by the reads themselves: 30 new ones every read.
+  assert.equal(shown.length, 12 * 30, 'a read did not move on by 30 new replies');
+  assert.deepEqual(below.filter((id) => !seenSet.has(id)), [], 'a reply at or below the mark was never shown');
 });
 
 test('#6201 review 3: the count names nobody when a post has a full first comments page with more behind it', async () => {

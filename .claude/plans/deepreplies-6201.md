@@ -29,7 +29,8 @@ order is fixed, so the same threads win the budget each time and the tails of th
 missed on every read. The post's line says so. Resumable cursors stored with the marks would fix it; not built here.
 
 ## Not done
-- freshReplies (the count behind the reply nudge) still counts from round 1 only; a deep reply there is "unknown".
+- freshReplies (the count behind the reply nudge) reads round 1 and the first hidden page of its newest
+  REPLY_PAGES_PER_POST comments, not the deeper pages; where it cannot see a whole thread it names nobody.
 
 ## Review 1 (opus), and what changed
 - BLOCKER, fixed: deep replies are often newer than a post's round-1 page, so its mark (round 1's newest) never passed
@@ -80,3 +81,16 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   to "more are waiting").
 - A waiting page whose comment's count lags is said as "some replies" (untested: the state needs a page to bump the
   count mid-read under budget pressure).
+
+## Review 5 (opus), and what changed: the settled mark is REMOVED
+- Review 5 measured repeats again past 7 reads on a post the budget always cuts: paging restarts each read, so a
+  partial settle's floor never moved and "seen" (120) overflowed. Reviews 1, 3, 4 and 5 all found defects in the
+  settled mark (added in review 1). Decided: remove it, and fix the cause instead. SEEN_MAX is now 700, at least
+  everything one read can fetch of one post (30 pages x 20 + round 1's 30), so a mark that cannot move never drops an id
+  it can read again; ids read at or below the mark are pruned, and past SEEN_MAX ids this read did not see go first.
+  Marks move exactly as before this change. Tests: 200 deep replies over 9 reads and a budget-cut post over 12 reads,
+  none twice, 30 new each read (SEEN_MAX 120 fails both, measured).
+- A waiting comment's or a cut page's rest is not silently passed: a round-1 or older page longer than asked counts as
+  older comments not reached.
+- Weakest premise now: that the set of a post's items above its mark stays within SEEN_MAX. One read fetches at most
+  630 of a post; ids the next reads cannot see are kept until overflow, then dropped first.

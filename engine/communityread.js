@@ -403,8 +403,8 @@ function feedFooter(spec, next) {
    a post that cannot be reached holds only itself. A mark is { at, id }: the next read shows what is strictly after it
    in (time, id) order. After a read it is the last item shown on that post when the 30-cap cut it, else the newest
    item from its FIRST-round page (review 5: the extra reply pages are fetched seconds later and could hold a reply newer
-   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen") so they are not
-   shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
+   than a comment that landed in between), and the ids shown above that mark are kept with it ("seen", at most SEEN_MAX,
+   #6201) so they are not shown twice. So a burst in one second is never shown twice or skipped, and the board's clock is
    compared with the service's only once: the first-look window, which is also a new post's starting mark (review 8; a
    board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite
    (#6201, F7d): round 1 holds a post's newest 10 top-level comments by when they were WRITTEN with 2 replies each; round 2
@@ -422,14 +422,11 @@ const REPLIES_FIRST_DAYS = 7;
    at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below),
    REPLY_PAGES_AT_ONCE at a time, and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
    READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
-   What that leaves is said on its post. A post read to its end (nothing left, nothing failed) has its mark moved to
-   the newest item read that is at least MARK_SETTLE_MS older than the newest one (#6201 review 1): replies deep in a
-   thread are often newer than its top-level page, and only "seen" kept them from repeating, which SEEN_MAX could not
-   hold once one read fetches hundreds. The settle window is longer than any read, so an item that lands during a read
-   (stamped after the read began) is never passed. */
+   What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
+   when the 30 cap cut it): deep replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
+   can fetch of a post, so none is shown twice (#6201 reviews 1 and 5). */
 const REPLY_PAGES_MAX = 30;
 const ROUND2_START_MS = 2000;
-const MARK_SETTLE_MS = 3 * 60 * 1000;
 /* The reply nudge's count (freshReplies) still reads only the newest REPLY_PAGES_PER_POST comments' first hidden page, one
    post at a time and paced: it names only comments owed an answer, which are top-level, and a deep reply under a
    comment is never owed. Where it cannot see a whole thread it names nobody (#6201 review 1, see freshReplies). */
@@ -437,7 +434,10 @@ const REPLY_PAGES_PER_POST = 3;
 const REPLY_PAGES_AT_ONCE = 6;
 const PAGE_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;   // the service's opaque cursor, as commentOf's repliesCursor
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
-const SEEN_MAX = 120;              // ids kept per post above its mark (#6201: a fully read post's mark settles, see MARK_SETTLE_MS)
+/* ids kept per post above its mark. #6201 review 5: at least what one read can fetch of one post (REPLY_PAGES_MAX pages
+   of 20, plus round 1's 10 comments with 2 replies each, 630), so a mark that cannot move (a post the budget always
+   cuts) never drops an id it can still read again; ids read at or below the mark are pruned first. */
+const SEEN_MAX = 700;
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
 const UNDER_COMMENT = 'under comment';
@@ -800,9 +800,10 @@ async function repliesFor(sessionName, opts) {
     try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { return { post: p, failed: true, comments: [] }; }
     // #6201: older comments are paged in round 2 through the service's cursor (a longer list than asked is cut here).
     const commentsCursor = typeof t.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(t.json.next_cursor) ? t.json.next_cursor : '';
+    const cutHere = list.length > COMMENTS_ASKED;   // review 5: a page longer than asked is cut here, so its rest is unread
     let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
     for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
-    return { post: p, comments, r1top, commentsCursor };
+    return { post: p, comments, r1top, commentsCursor, olderPending: cutHere };
   }));
   /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
      first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
@@ -831,6 +832,7 @@ async function repliesFor(sessionName, opts) {
       if (!list) { th.failed = true; return; }
       let more;
       try { more = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c, false, POST_COMMENT_CAP)).filter(Boolean); } catch { th.failed = true; return; }
+      if (list.length > COMMENTS_ASKED) th.olderPending = true;   // review 5: cut here, so the rest is unread
       const known = new Set(th.comments.map((c) => c.id));
       for (const c of more) {
         if (known.has(c.id)) continue;
@@ -881,28 +883,6 @@ async function repliesFor(sessionName, opts) {
     // A waiting page whose comment's count already says read (the count lags): said without a number.
     th.someUnreached = th.comments.some((c) => c.pending && c.replyCount <= c.replies.length);
     th.olderUnread = !!th.olderPending;
-    /* #6201 reviews 1 and 3: the mark may settle (see MARK_SETTLE_MS). A post read to its end settles below its newest
-       item. A post whose only unreached part is replies under comments settles below the earliest of those comments'
-       last read item too: replies come oldest first, so what waits behind a cursor is newer than what was read before
-       it. Older comments not reached can carry replies of any time, so such a post does not settle. The cap limits the
-       settle only: round 1's newest item still sets the mark when it is later (#4833 review 2: holding a post that is
-       always too long would jam it), so a waiting thread's tail older than that may be missed, as the post's line says. */
-    if (!th.olderUnread) {
-      let newest = null;
-      let cap = null;   // the earliest last-read item of a comment still waiting
-      for (const c of th.comments) {
-        for (const x of [c, ...c.replies]) if (x.ts && (!newest || byPos(x, newest) > 0)) newest = x;
-        if (c.pending) {
-          const last = c.replies.length ? c.replies[c.replies.length - 1] : c;
-          if (last.ts && (!cap || byPos(last, cap) < 0)) cap = last;
-        }
-      }
-      let settled = null;
-      if (newest) for (const c of th.comments) for (const x of [c, ...c.replies]) {
-        if (x.ts && x.ts <= newest.ts - MARK_SETTLE_MS && (!cap || byPos(x, cap) <= 0) && (!settled || byPos(x, settled) > 0)) settled = x;
-      }
-      th.settled = settled;
-    }
   }
   // Every new item, per post after that post's own mark, then all of them oldest first, capped.
   const fresh = [];
@@ -967,9 +947,11 @@ async function repliesFor(sessionName, opts) {
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
      is the newest item of its FIRST-round page, or, when the 30-cap cut the post, the earlier of that and the last item
-     shown (a round-2 reply can be newer than a comment that landed between the rounds). The mark never moves back
+     shown (a round-2 reply can be newer than a comment that landed between the rounds). #6201: replies deep in a thread
+     are often newer than that, so they wait above the mark in "seen", which SEEN_MAX sizes to hold all one read can
+     fetch of a post. The mark never moves back
      (the later of the old mark and the candidate), and every id shown above it joins the post's "seen" list, which is
-     carried over, never cleared, so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
+     carried over (pruned of ids read at or below the mark, #6201), so nothing above the mark is shown twice. Marks of posts no longer the agent's drop. */
   const lastShown = new Map();
   for (const { x, post } of shownItems) lastShown.set(post, x);
   const unshownPosts = new Set(fresh.slice(shownItems.length).map((f) => f.post));
@@ -988,21 +970,24 @@ async function repliesFor(sessionName, opts) {
     if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
       if (!x) continue;   // nothing of this post shown: its mark stays
-      // #6201 review 1: a post read to its end may pass round 1's newest, up to the earlier of the settled item and the
-      // last one shown, so a thread whose new items are deep replies still moves on by what was shown.
-      const floor = th.settled && (!top || byPos(th.settled, top) > 0) ? th.settled : top;
-      top = floor && byPos(floor, x) < 0 ? floor : x;
-    } else if (th.settled && (!top || byPos(th.settled, top) > 0)) {
-      top = th.settled;   // #6201 review 1: read to its end, so the mark may pass round 1's newest (settled, see MARK_SETTLE_MS)
+      top = top && byPos(top, x) < 0 ? top : x;
     }
     if (!top) continue;
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
        window that this read held back is never shown as new next time (else the window leaks on the second read). */
     const old = next[pid];
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
-    const keep = (old && old.seen ? old.seen : []).slice();
+    let keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
-    // "seen" can keep ids the mark has since passed until they age out of SEEN_MAX: harmless (bounded).
+    /* #6201 review 5: an id this read saw at or below the mark is no longer needed; past SEEN_MAX, ids this read did not
+       see go first (oldest first), so an id still readable above a mark that cannot move is the last to go. */
+    const readNow = new Map();
+    for (const c of th.comments) for (const x of [c, ...c.replies]) readNow.set(x.id, x);
+    keep = keep.filter((id) => { const x = readNow.get(id); return !x || !x.ts || byPos(x, base) > 0; });
+    if (keep.length > SEEN_MAX) {
+      const drop = new Set(keep.filter((id) => !readNow.has(id)).slice(0, keep.length - SEEN_MAX));
+      keep = keep.filter((id) => !drop.has(id));
+    }
     next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
@@ -1012,4 +997,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, MARK_SETTLE_MS, SEEN_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
