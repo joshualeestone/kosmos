@@ -103,9 +103,13 @@ kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
 # squeezes repeated slashes out of KOSMOS_HOME before hashing it into the board's login-job label; this harness hashes
 # "$SB/home" as written (BOARD_LABEL_SUFFIX), so with '//' in $SB the two name different plists and every login-job
 # check fails. Strip the trailing slash so $SB carries none.
-_ti_tmp="${TMPDIR:-/tmp}"
-SB="$(mktemp -d "${_ti_tmp%/}/test-install.XXXXXXXXXX")"
-case "$SB" in *//*) echo "test-install: the sandbox path $SB has '//' in it; refusing (setup.sh would hash it differently)" >&2; exit 1 ;; esac
+# Squeezed the way setup.sh squeezes (so a '//' inside TMPDIR is fixed, not refused), then the trailing '/' dropped;
+# an empty result (TMPDIR=/) falls back to /tmp rather than templating at the filesystem root.
+_ti_tmp="$(printf '%s' "${TMPDIR:-/tmp}" | /usr/bin/tr -s '/')"
+_ti_tmp="${_ti_tmp%/}"
+[ -n "$_ti_tmp" ] || _ti_tmp=/tmp
+SB="$(mktemp -d "$_ti_tmp/test-install.XXXXXXXXXX")"
+case "$SB" in *//*) rmdir "$SB" 2>/dev/null; echo "test-install: the sandbox path $SB has '//' in it; refusing (setup.sh would hash it differently)" >&2; exit 1 ;; esac
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per
