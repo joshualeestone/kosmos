@@ -664,6 +664,21 @@ function jobOps(platform) {
           status: st,
         };
       },
+      /* #6183: the same acts as steps, for the restart body's async driver (the Mac's `steps: MAC_STEPS` analog). The
+         sync acts above stay for removeInner and other sync callers; restartSteps prefers these when present. Each
+         step yields its systemctl call, which THIS module's run()/runAsync answers -- the same executor the sync acts
+         reach through `via` (lj.runWith(run, ...)), so a dry run and the live gate hold here too. `loaded` keeps the
+         sync arm's DRY_RUN short-circuit (is-active returns no stdout under a dry run, which the parse would read as
+         not-loaded). */
+      steps: {
+        stopNow: (name, job) => lj.stopSteps(name, wid(job)),
+        startNow: (name, job) => lj.startOnlySteps(name, wid(job)),
+        loaded: (name, job) => lj.loadedSteps(name, wid(job)),   // a dry run is answered as loaded inside the step (its run() returns dryRun)
+        diagnose: function* (name, job) {
+          const status = yield* lj.statusSteps(name, wid(job));
+          return { label: lj.unitName(name, wid(job)), unitExists: fs.existsSync(lj.unitPath(name, wid(job))), status };
+        },
+      },
     };
   }
   return {
