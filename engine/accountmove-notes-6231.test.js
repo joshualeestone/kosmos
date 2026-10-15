@@ -1,7 +1,8 @@
 'use strict';
 
 /**
- * #6231 items 9 and 10 (follow-up to #6214): an agent a move leaves saved on the new account while it still runs on its
+ * #6231 items 9 and 10 (follow-up to #6214; item 9 covers a failed or thrown put-back, a hand change to a third account,
+ * the move's time cap and its hold failing): an agent a move leaves saved on the new account while it still runs on its
  * old one (its put-back after a stop failed, or the move ended before it reached it) gets #6174's note through
  * deps.leftOnOld, as a partial restart does; and a caller with no putBack is told so in its own words. Driven with the
  * dependencies stated, as accountmove-stop-6214.test.js is.

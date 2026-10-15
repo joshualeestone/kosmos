@@ -286,10 +286,10 @@ function putBack(m, a) {
     if (now !== a.from.dir) leftOnOld(deps, a.name);
     return;
   }
-  /* Linux (#6231): the move's own restarts reload systemd (each runs daemon-reload), which also loads every held agent's
-     rewritten unit, so in a move of two or more agents a held agent that crashes and respawns before its put-back comes
-     up on the new account although this says it stays on the old one. That needs a crash during the move. A Mac keeps
-     the definition launchd loaded until the agent's own restart. */
+  /* Linux (#6231): the move's own restarts run `systemctl --user daemon-reload` (linuxjob.js), so a held agent's
+     rewritten unit can be loaded during a move of two or more agents; one that then crashes and respawns before its
+     put-back can come up on the new account although this says it stays on the old one. Read from the source, not
+     measured; it needs a crash during the move. A Mac keeps the definition launchd loaded until the agent's own restart. */
   let back;
   try { back = deps.putBack(a.name, a.from.dir); }
   catch (err) { failed(String((err && err.message) || err)); return; }
