@@ -509,7 +509,15 @@ function* tmuxPanesSteps() {
   let got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]];
   /* The wall, or the tmux itself gone (ran false and the file missing: a `brew uninstall`): either way another tmux may
      read the server. A run that timed out is also ran false but its file is there, so it starts no search. */
-  if (((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) && tmuxRepick()) { bin = tmuxBin(); got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]]; }
+  /* #6190: this look's own search is kept here, read the moment its synchronous re-pick returns. The module's
+     TMUX_LAST_SEARCH can be reset by the board's own poll while the async driver awaits, so the detail line below
+     would otherwise be worded from another look's search. */
+  let searched = 'none';
+  if ((got.ran && got.status !== 0 && isVersionWall(got)) || (!got.ran && tmuxGone())) {
+    const switched = tmuxRepick();
+    searched = TMUX_LAST_SEARCH;
+    if (switched) { bin = tmuxBin(); got = yield [bin, ['list-panes', '-a', '-F', PANE_FORMAT]]; }
+  }
   if (got.ran && got.status === 0) { LAST_LOOK_PROBLEM = null; TMUX_READ_BY = bin; return got.out; }
   // ⚠️ An empty STRING, not null. `readPanes('')` is zero panes and zero
   // rejects, which is the honest reading of "tmux answered, and there are no
@@ -534,7 +542,7 @@ function* tmuxPanesSteps() {
      what came back"), it exists so that a cause reaches the screen instead of
      a terminal, and a cause with the actor removed is not a cause. The four
      sites marked here are all that channel. (Mona Lisa, 2026-08-22.) */
-  LAST_LOOK_PROBLEM = lookProblemFor(got, bin, TMUX_LAST_SEARCH);
+  LAST_LOOK_PROBLEM = lookProblemFor(got, bin, searched);
   return null;
 }
 /** The tmux this board would run is not a file any more (it was removed after launch). */
@@ -9559,6 +9567,7 @@ module.exports = {
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
   setPaneSource, setPaneCapture, setCreatedSource, createdKeys, createdKeysStrict, tmuxSaidNoServer, lookProblemFor,
   // #2955: the version-wall switch, and its test seams (excused by name in engine.reachable.test.js).
+  _tmuxPanesStepsForTests: tmuxPanesSteps,   // #6190: lets a test interleave another look between two steps
   tmuxRepick, tmuxPanes, launcherTmux, readerTmux, attachTmux, ownTmux, setOwnTmux: (p) => { TMUX_OWN_SEAM = p; }, setTmuxCandidates: (c) => { TMUX_CANDIDATES_SEAM = c; TMUX_REPICK_MISSED_AT = 0; TMUX_LAST_SEARCH = 'none'; }, setLauncherTmux: (v) => { TMUX_LAUNCHER_SEAM = v; TMUX_SWITCHED_TO = null; TMUX_LAST_SEARCH = 'none'; TMUX_READ_BY = null; }, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */

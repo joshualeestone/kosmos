@@ -40,3 +40,11 @@ read-only moveFromDir, and no test passes with the fix reverted. Left: CONVENTIO
 text (the same pin the base branch uses for the provider and model guards in this file; kept for consistency); NITs on two
 assertion messages worded as the failure (the file's style) and the untested `|| 'that did not work'` fallback.
 web.codex-account-mover-2338.test.js run by me after the round.
+
+## Part 2 (Splinter 01:20: same base, one rebase)
+engine/status.js tmuxPanesSteps kept TMUX_LAST_SEARCH as module state across the async driver's await, so a failed look
+could word its detail line from a search the board's poll ran in between. The look now keeps its own `searched`, read the
+moment its synchronous tmuxRepick returns, and words the line from that. TMUX_LAST_SEARCH is still set (no other reader;
+the seams reset it). Test: interleave a poll's not-allowed search between the two steps; the line must match this look's
+search ('none', it switched). Mutant (word from TMUX_LAST_SEARCH again) turns it red. status.test.js 242/0.
+Part 3 (two writers the hold does not cover) stays as the card left it: reasoned low risk, no code.
