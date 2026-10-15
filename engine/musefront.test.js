@@ -1034,6 +1034,21 @@ test('#5636 F7a: a line the first stop drops leaves no arrival for the same word
   assert.ok(Date.parse(w[0].arrived) >= before - 5, 'it carries its own arrival: ' + w[0].arrived);
 });
 
+test('#5636 F7a: with no log passed (as main() runs it), the front writes the real log file', async () => {
+  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-wired-'));
+  try {
+    const f = front.createFront({ workspace: ws, sessionId: '11111111-2222-4333-8444-555555555555',
+      runTurn: () => Promise.resolve(OK('done')), report: () => {}, write: () => {} });
+    f.feed('hello there\r');
+    await within(f.drained(), 'never drained');
+    const lines = fsx.readFileSync(front.turnLogFile(ws), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0].opening, 'hello there');
+    assert.equal(typeof lines[0].arrived, 'string');
+    assert.equal(typeof lines[0].tz, 'number');
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
+});
+
 test('#5636 F7a: a throwing log stops nothing, and is called once per message', async () => {
   const order = [];
   const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });
@@ -1093,9 +1108,11 @@ test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or
     fsx.symlinkSync(target, front.turnLogFile(ws));
     front.logTurn(ws, 'x', 'A');
     assert.equal(fsx.readFileSync(target, 'utf8'), '', 'nothing written through a link at the file');
-    if (process.platform !== 'win32') {
-      fsx.unlinkSync(front.turnLogFile(ws));
-      require('node:child_process').execFileSync('mkfifo', [front.turnLogFile(ws)]);
+    // A fifo (only where mkfifo exists; a machine without it skips this arm).
+    fsx.unlinkSync(front.turnLogFile(ws));
+    let fifo = false;
+    try { require('node:child_process').execFileSync('mkfifo', [front.turnLogFile(ws)], { stdio: 'ignore' }); fifo = true; } catch { fifo = false; }
+    if (fifo) {
       const t0 = Date.now();
       front.logTurn(ws, 'x', 'A');   // a blocking open would hang the test here
       assert.ok(Date.now() - t0 < 2000, 'a fifo did not hang the log');
