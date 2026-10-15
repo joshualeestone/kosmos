@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: acctmoving-6174
-diff_hash: 64ffb7628aab16f01f43bfa2f44f5bc755ac2ffadf19a8023316fe415a394238
-validation: pending (Mortals full suite queued for code hash 56aba9838498 at f90c54dbd; the only later commit is plan prose. Focused 4236/4236 locally after the rebase's last code change)
+diff_hash: 0599753305ea06a6509ed88bd6fddd200e985356408f69b716d0b6c961357e8a
+validation: pending (Mortals full suite running for code hash 42eac17012fc at 0d966b740; the only later commit adds one assertion to server.allowance-3946.test.js and fixes plan prose, focused with guards 69/69)
 subdir_audit: passed
-timestamp: 2026-10-14T22:30:03Z
-iterations: 14
+timestamp: 2026-10-15T00:04:58Z
+iterations: 16
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 14
-**Converged:** Yes (iteration 14: every finding repeated a concern an earlier round settled; decisions recorded in the plan)
-**Total actionable findings:** 0 BLOCKERs, 31 WARNINGs, 2 CONVENTIONs (plus NITs)
-**Fixed:** 27 | **Deferred (decided, in plan):** 6 | **Asked (awaiting user):** 0
+**Iterations:** 16
+**Converged:** Yes (iteration 16: no BLOCKER or WARNING; nits only)
+**Total actionable findings:** 0 BLOCKERs, 32 WARNINGs, 2 CONVENTIONs (plus NITs)
+**Fixed:** 28 | **Deferred (decided, in plan):** 6 | **Asked (awaiting user):** 0
 
 Reviewer models alternated: odd iterations opus, even iterations sonnet. Rounds 5 to 8 added and then removed a
 held-old-job mark; rounds 11, 12 and 14 moved the marker wording, settled in round 14.
@@ -100,7 +100,18 @@ held-old-job mark; rounds 11, 12 and 14 moved the marker wording, settled in rou
 - [WARNING] marker wording states a fact the code only infers --> DEFERRED (decided in plan: rotation is churn; cases listed in header)
 - [WARNING] fresh read cost per noted agent per list --> DEFERRED (bounded, accepted in plan)
 - [WARNING] unlocked notes file --> duplicate of iteration 12
-- No new actionable finding: CONVERGED.
+- No new actionable finding at the time; the loop was resumed after the full suite on Mortals failed one
+  test (engine/lastworked-5959.test.js anchored on the literal account restart moved into restartForMove; fixed with
+  a control, mutation measured).
+
+#### Iteration 15
+**Reviewer model:** opus
+- [WARNING] no test pinned that the move route reads the session start fresh (a cached read after the restart could note an agent that did relaunch) --> FIXED (the test asserts both reads are fresh; a cached read fails it, measured)
+- [NIT] plan fragment, comment placement, source-slice windows --> plan fixed; others noted
+
+#### Iteration 16
+**Reviewer model:** sonnet
+- No BLOCKER or WARNING (nits only: an unreachable null-dir row under-marks; header density; source-slice indentation). CONVERGED.
 
 ### Deferred, with reasons (all in .claude/plans/acctmoving-6174.md)
 - Held old launch job: unmarked (any session after it could be a real relaunch).
