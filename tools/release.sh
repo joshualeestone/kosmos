@@ -635,8 +635,8 @@ step "== 1a-floor. the setup floor on the pair this cut re-publishes untouched (
 # A cut's site deploy (step 8) re-publishes the OTHER channel's pointer and installer as the site holds them. This is a
 # fail-fast, seconds in, on the site's origin/main (fetched; the checkout if the fetch fails), so a site below the floor
 # refuses before anything is built; the export check before the deploy reads the bytes actually published and is the
-# authority. Every floor refusal here (the knob, the own version, the own installer, the untouched pair) is one line
-# ending in exit 1, and tools/test-setup-floor-6149.sh pins each by that line.
+# authority. Every floor refusal here (the knob, the own installer, the untouched pair) ends in exit 1, and
+# tools/test-setup-floor-6149.sh pins each by source.
 . "$REPO/tools/lib/setup-floor.sh" || { echo "could not load tools/lib/setup-floor.sh"; exit 1; }
 _floor_knob="KOSMOS_SETUP_FLOOR_TEST / KOSMOS_SETUP_FLOOR_LOWER are set: they lower the setup floor for test fixtures and must never reach a cut -- refusing"
 [ -z "${KOSMOS_SETUP_FLOOR_TEST:-}${KOSMOS_SETUP_FLOOR_LOWER:-}" ] || { echo "$_floor_knob"; exit 1; }
