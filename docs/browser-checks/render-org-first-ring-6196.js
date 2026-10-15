@@ -50,12 +50,13 @@ const FIRST_RING_MIN = 12;   // the first ring must have at least this many node
    12px, and 8.4 would pass 8.5 to 12px through (Liu Kang m5643). */
 let LINE_CLEAR = NaN;    // ORG_LINE_CLEAR, the 12px rule, read from the page
 let CLEAR_FLOOR = NaN;   // LINE_CLEAR * ORG_SQUEEZE_MIN: the deepest-squeeze floor (8.4)
+let SQUEEZE_MIN = NaN;   // ORG_SQUEEZE_MIN (0.7): orgFit's deepest scale, used to sanity-gate drawnScale
 async function readConsts(pg) {
   const src = await pg.content();
   const num = (k) => Number((src.match(new RegExp('const\\s+' + k + '\\s*=\\s*([\\d.]+)\\s*;')) || [])[1]);
   const line = num('ORG_LINE_CLEAR'); const squeeze = num('ORG_SQUEEZE_MIN');
   if (!(line > 0 && squeeze > 0)) throw new Error('a layout constant is no longer declared in the page: ORG_LINE_CLEAR ' + line + ', ORG_SQUEEZE_MIN ' + squeeze);
-  LINE_CLEAR = line; CLEAR_FLOOR = line * squeeze;
+  LINE_CLEAR = line; CLEAR_FLOOR = line * squeeze; SQUEEZE_MIN = squeeze;
 }
 
 /* The scale the chart was actually DRAWN at (Liu Kang m5645: measure the drawn artifact, not a recompute of
@@ -163,8 +164,15 @@ async function settledRead(pg) {
       }
     }
     const scale = await drawnScale(pg);
-    say(scale > 0, label + ': the drawn scale could be read from the page', Number.isFinite(scale) ? scale.toFixed(3) : String(scale));
-    const threshold = Math.max(CLEAR_FLOOR, LINE_CLEAR * (scale > 0 ? scale : 1));
+    /* The scale read is load-bearing, so gate it rather than trust it: orgFit floors k at ORG_SQUEEZE_MIN and caps
+       it at 1, so a drawn scale outside [ORG_SQUEEZE_MIN, 1] (float noise allowed) means the read was skewed -- an
+       orgmap padding/border/transform, or a LAST-vs-paintOrg filter mismatch -- and would shift the threshold
+       silently. A NaN read (every comparison false) fails here too. Fail loud instead of measuring against a lie. */
+    say(scale >= SQUEEZE_MIN - 0.03 && scale <= 1.03, label + ': the drawn scale read plausibly (ORG_SQUEEZE_MIN..1)', Number.isFinite(scale) ? scale.toFixed(3) : String(scale));
+    /* Threshold = the 12px rule AT the drawn scale, floored at CLEAR_FLOOR (8.4 on a squeezed phone). The scale is
+       capped at 1, so a marginally-high read can never demand MORE than the 12px desktop promise (a false red); and
+       an unreadable scale falls back to 1, the strictest value, so a bad read reds here and never greens falsely. */
+    const threshold = Math.max(CLEAR_FLOOR, LINE_CLEAR * Math.min(1, scale > 0 ? scale : 1));
     say(least >= threshold, label + ': no first-ring hub line comes nearer than ' + threshold.toFixed(1) + 'px (the ' + LINE_CLEAR + 'px rule at drawn scale ' + (scale > 0 ? scale.toFixed(3) : '?') + ', floored at ' + CLEAR_FLOOR.toFixed(1) + ') to any face', 'least ' + least.toFixed(1) + 'px (' + where + ')');
     const shot = path.join(OUT, 'org-first-ring-6196-' + label + '.png');
     await pg.locator('#orgview').screenshot({ path: shot });
