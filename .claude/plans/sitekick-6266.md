@@ -21,7 +21,7 @@ why), without a person dispatching it.
   apart) is said, is not waited on and does not hold the gap, and the tick exits 1 so launchctl's
   last exit code shows it; each tick writes a heartbeat;
   --check says what a tick would decide without dispatching. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
-  It prints only when it dispatches or cannot read something.
+  It prints only when it dispatches, cannot read something, or sees a stuck run.
 - tools/install-site-deploy-kick.sh installs it the way the box's other ops jobs are installed: the script copied into
   ~/.local/libexec/kosmos-site-deploy-kick/, a LaunchAgent run with /bin/bash every 900 s. --uninstall removes both.
 - Rejected: waiting inside the skipped job until the cut ends (it would hold the site repo's single runner, which PR
@@ -31,8 +31,9 @@ why), without a person dispatching it.
 
 ## Not yet done (after merge, branches only until UNHOLD)
 - Install on Mortals: `bash tools/install-site-deploy-kick.sh` from a checkout of main, as mortalkombat. Then: kick.sh
-  --check (what it would decide), `launchctl print ... | grep -E 'state|last exit code'`, and last-tick advancing
-  after 15 minutes (proves launchd runs it with a working gh, not only this shell).
+  --check (what it would decide, and the commit it was installed from), `launchctl print ... | grep -E 'state|last
+  exit code'`, last-tick advancing (launchd starts it), and kick.log: an "asked" line, or no "could not read" line
+  after a tick with main ahead, is what proves gh works under launchd.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
@@ -86,3 +87,11 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   per 15 minutes on the shared runner, which is the pace the schedule was meant to have. NITs taken: a parked sha
   other than main still dispatches (test); a paused tick writes its heartbeat (test); the installer names launchctl
   enable; the header says heartbeat = started, log = what it did.
+
+## Review 5 (opus), and what changed
+- WARNING: the plan said an advancing heartbeat proves gh works under launchd: it proves launchd started the tick;
+  the post-install step now names kick.log as the proof. WARNING: with no state folder (or the wrong one) it read
+  nothing as paused/parked/deployed and would ask every tick: it now refuses with a line and exits 1 (test). NITs
+  taken: the plan's print list includes the stuck line; a long comment rewrapped; the stuck comment states the
+  near-3-hour false positive; the installer records the source commit and --check prints it; the installer's retry
+  and failure message are tested.
