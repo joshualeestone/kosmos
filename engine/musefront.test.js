@@ -899,7 +899,7 @@ test('#5636 F7a: a line that waited behind a long turn keeps the time it arrived
   const h = harness(['hold', OK('two')]);
   h.f.feed('long job\r');
   h.f.feed('waiting line\r');
-  await new Promise((r) => setTimeout(r, 40));
+  await new Promise((r) => setTimeout(r, 150));   // a wide gap: the assertion keeps 30 ms, so load cannot flake it
   h.pending[0]({ ok: true, text: 'done', because: null });
   await within(h.f.drained(), 'never drained');
   const w = h.logged.find((l) => l.t === 'waiting line');
