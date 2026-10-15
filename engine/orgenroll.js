@@ -485,7 +485,7 @@ function recKind(opts) { const r = readEnrollment(opts); return r && r.org ? r.o
 function pendingKind(opts) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(storeRoot(opts), LEAVE_PENDING_FILE), 'utf8'));
-    if (j && j.rec && j.rec.org) return j.rec.org.kind;
+    if (j && j.rec && j.rec.org && j.rec.org.kind) return j.rec.org.kind;   // a record from before kinds has none: the stored kind
     return j && (j.orgKind === 'family' || j.orgKind === 'company') ? j.orgKind : null;
   } catch { return null; }
 }
@@ -779,7 +779,7 @@ async function settleUnknownJoin(unsure, opts) {
   }
   if (verdict === 'notHere' && !unsure.move && namesThisWorld(d, world)) {
     // The join's own salt, company and whether it sent a print, from the marker (review 17), so the undo carries the print.
-    const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true };
+    const joinPrint = { computerSalt: unsure.computerSalt || undefined, orgId: unsure.orgId || undefined, printSent: unsure.printPinned === true, orgKind: KIND || undefined };   // kosmos#6251 board review 5: the undo is said in the join's kind
     setLeavePending(true, Object.assign({}, opts, joinPrint), null, true, unsure.consentHash);   // bound elsewhere: the undo is sent by the pending-leave path
     return leaveNow(opts, true);
   }
