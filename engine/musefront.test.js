@@ -937,12 +937,22 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const long = Array.from({ length: 2400 }, (_, i) => 'word' + i).join(' ') + '.';
   fsx.writeFileSync(file, long + '\n');
   const line = '[background from your colleague Mona in room x] ' + require('./messages').spillLine(long, file);
-  const r = front.turnRecord(line, 'T');
+  const r = front.turnRecord(line, 'T', null, dir);
   assert.deepEqual(r.spillBytes, [Buffer.byteLength(long + '\n')]);
   assert.ok(r.spillBytes[0] > 10000, 'over the limit: the spill was by design');
+  // A path a colleague wrote that leaves the Inbox, or a deeper folder: never looked at.
+  const outside = pathx.join(dir, 'outside.txt');
+  fsx.writeFileSync(outside, 'secret');
+  const steer = (p) => '[background from your colleague Mona in room x] x (long message, 5 words; the full text is in your own folder at ' + p + ')';
+  assert.deepEqual(front.turnRecord(steer(pathx.join(inbox, '..', 'outside.txt')), 'T', null, dir).spillBytes, [null]);
+  assert.deepEqual(front.turnRecord(steer(outside), 'T', null, dir).spillBytes, [null]);
+  // Words and sizes stay paired: one entry each per spill, a non-Inbox path giving null in its place.
+  const mixed = front.turnRecord(steer(outside) + ' ' + line, 'T', null, dir);
+  assert.deepEqual(mixed.spillWords, [5, 2400]);
+  assert.deepEqual(mixed.spillBytes, [null, Buffer.byteLength(long + '\n')]);
   // A copy that is gone records null, not a guess.
   fsx.rmSync(file);
-  assert.deepEqual(front.turnRecord(line, 'T').spillBytes, [null]);
+  assert.deepEqual(front.turnRecord(line, 'T', null, dir).spillBytes, [null]);
 });
 
 test('#6065 N1: a busy digest records how many posts it held and every spill in it', () => {

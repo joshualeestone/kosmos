@@ -17,7 +17,8 @@ words) or something else.
 ## The call
 engine/musefront.js logs one JSON line per turn it hands to Muse (before the turn; a digest of several posts is one) to <workspace>/.kosmos/muse-turns.log:
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
-post count, and a 60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
+post count, each spill's saved-copy size (spillBytes, only for a file directly in <workspace>/Inbox), and a
+60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
 post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where .kosmos/.gitignore
 lists both the log and its .1 copy (read as text; a negation reads as not ignored). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
@@ -142,3 +143,11 @@ fewer than its characters) answers it; chars is the shortened line's length.
   under 10000 bytes proves under the limit (tested, with a missing copy recording null). NITs: a retried stop note's
   one log line is asserted in the existing busy test; the attachment-trailer path in a short post's opening is stated;
   "The call" says ".gitignore lists" (text), not "git ignores".
+
+## Review 16 (sonnet), and what changed
+- No BLOCKER. WARNING: spillSizes lstat'ed any path a line named (a colleague could probe a file's size, or stall the
+  front on a network mount): the size is now read only for a path that is exactly a file directly in
+  <workspace>/Inbox (normalized, no ".."), else null; nothing else is touched (tested with ../ and an outside path).
+  WARNING: words and sizes came from two regexes and could misalign: one match now yields both, a non-Inbox path
+  giving null in its place (tested with a mixed line). The path is bounded to 1024 characters. If a Meta agent's
+  Inbox is not <workspace>/Inbox, spillBytes is null: the safe miss, to read on the next report.
