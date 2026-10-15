@@ -198,3 +198,9 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   started 10 minutes ago is waited on (mutant red). NITs taken: why() says "perl or gh" for 127; the --check header
   and its installed-copy line say what they show. Left: the source record has no branch name (the header asks for a
   checkout of main).
+
+## Review 18 (sonnet), and what changed
+- No BLOCKER. WARNING: the re-run rule was tested only through an unfinished re-run (which the active guard also
+  holds): a finished re-run started 5 minutes ago now holds the gap (test; mutant red), and one that just failed.
+  WARNING: a tick stopped by a signal mid-call recorded rc=143 with no cause: why() names it. NITs taken: the header's
+  timeout wording; a comment on why every TSV column must be non-empty.

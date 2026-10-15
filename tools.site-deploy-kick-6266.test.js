@@ -124,6 +124,10 @@ test('#6266: a run not finished 3 hours after creation is stuck: said, not waite
   // The 3-hour limit is pinned on both sides: 10900 s is stuck, 10700 s is waited on.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10900]]) }).dispatched, 1, '10900 s');
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10700]]) }).dispatched, 0, '10700 s');
+  // A FINISHED re-run of an old run that started 5 minutes ago holds the gap too (its attempt is recent), and a failed
+  // one that ended a minute ago as well.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 20000, 200, 'success', 300]]) }).dispatched, 0, 'a recent re-run did not hold the gap');
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 20000, 60, 'failure', 900]]) }).dispatched, 0, 'a re-run that just failed did not hold the gap');
   // A re-run of a 6-hour-old run that started 10 minutes ago is not stuck: its attempt is new.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['in_progress', 21600, 60, null, 600]]) }).dispatched, 0, 'a fresh re-run was called stuck');
   // CONTROLs: an hour queued behind CI on the shared runner, or running after a long wait, is waited on.

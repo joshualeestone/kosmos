@@ -56,7 +56,7 @@ GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 [ -x "$GH" ] || GH="$(command -v gh 2>/dev/null || echo "$GH")"   # another install path (the plist PATH has it)
 # every gh call has a wall clock (perl's alarm, as the deploy job's own network calls do), so one call hung
 # on a stalled connection cannot hold the backstop for ever (launchd never starts a second copy while one runs). A
-# timed-out call fails like any other, with "(timed out)" in its line.
+# timed-out call fails like any other, with "timed out after N s" in its line.
 GH_MAX_S="${KOSMOS_KICK_GH_TIMEOUT:-90}"
 case "$GH_MAX_S" in ''|*[!0-9]*|0*) GH_MAX_S=90 ;; esac   # never 0: perl's alarm 0 would mean no limit at all
 # gh is a Go program and Go ignores SIGALRM, so exec under an alarm never stopped it (measured: a call to an
@@ -103,6 +103,7 @@ why() { local rc=$?; local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"
   [ "$rc" = 127 ] && l="${l:+$l; }perl or gh could not be run ($GH: not found or not executable?)"
   [ "$rc" = 126 ] && l="${l:+$l; }could not start gh (fork failed)"
   [ "$rc" = 125 ] && l="${l:+$l; }lost track of the gh process"
+  [ "$rc" = 143 ] && l="${l:+$l; }stopped by a signal (launchd unloading the job, or a Ctrl-C)"
   [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 
@@ -130,6 +131,8 @@ runs="$(ghb run list --repo "$REPO" --workflow site-deploy.yml --branch main --l
 active=0; newest=""; stuck=""
 # Its own line goes to stderr: stamp runs inside $( ), whose stdout is the value (launchd logs both).
 stamp() { local v; v="$(epoch "$1")"; case "$v" in ''|*[!0-9]*) say "site deploy run time read as '${1:0:40}'; nothing asked" >&2; exit 1 ;; esac; printf '%s' "$v"; }
+# Every column must be non-empty: a tab is IFS whitespace, so read merges adjacent tabs and an empty field would shift
+# the rest (hence "-" for an empty conclusion and createdAt for an empty startedAt in the filter above).
 while IFS=$'\t' read -r status concl created updated started; do
   [ -n "${status:-}" ] || continue
   # The parent sets LAST_LINE itself: stamp's own say runs in the $( ) subshell.
