@@ -178,7 +178,9 @@ function mayReport(opts) {
 function cleanOrg(o) {
   if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !o.id || o.id.length > 128) return null;
   const { externalName } = require('./externalname');
-  return { id: o.id, name: externalName(o.name, NAME_MAX), slug: externalName(o.slug, NAME_MAX) };
+  /* kosmos#6239: `kind` ('family' or not) decides whether a parent reads the words before this computer joins; any
+     other value, or none (an older coordinator), is a company's, which joins with no screen (#5791). */
+  return { id: o.id, name: externalName(o.name, NAME_MAX), slug: externalName(o.slug, NAME_MAX), kind: o.kind === 'family' ? 'family' : 'company' };
 }
 function cleanList(a) {
   if (!Array.isArray(a)) return [];
@@ -271,7 +273,7 @@ const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
    applied and whether it refused one. The line that names the VERSION, not any line with the word in it (review 5:
    the update line mentions the policy too, and promises no version): the coordinator's CONSENT_NAMES_POLICY is pinned
    to the same phrase. Read from the words each time, so words accepted before this existed answer for themselves. */
-const NAMES_POLICY = /\bversion of your company's policy\b/i;
+const NAMES_POLICY = /\bversion of (?:your company's|the family's) policy\b/i;   // kosmos#6239: a family's words too
 /* #5532 widening: whether the accepted words name reports from every Kosmos on this computer, so the other Kosmoses
    here may send theirs. The coordinator's CONSENT_NAMES_EVERY_KOSMOS is pinned to the same phrase and refuses another
    Kosmos's report until its words name it. Read from the words each time, as NAMES_POLICY is. */
@@ -485,6 +487,9 @@ async function enrollNow(code, accepted, opts) {
      that fact: sent here and recorded below, so what is recorded is always what was sent (consenthash review 3). The
      contract says boards echo it and never recompute it (the two encodings could drift). */
   if (opts && typeof opts.consentHash === 'string' && /^[0-9a-f]{64}$/.test(opts.consentHash)) body.consentHash = opts.consentHash;
+  /* kosmos#6239: the person read the words on this screen and accepted them there (a family joins only so; the
+     coordinator refuses a family's join without it, org_family_words_unseen). Never set by an automatic accept. */
+  if (opts && opts.wordsShown === true && body.consentHash) body.wordsShown = true;
   // The code first (review 10): a malformed one costs no hardware read.
   if (code != null) {
     if (typeof code !== 'string' || !CODE.test(code.trim())) return { ok: false, because: 'That is not a join code. Check it and try again.' };

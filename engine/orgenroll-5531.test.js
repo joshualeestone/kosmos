@@ -1040,7 +1040,7 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const r = await org.reviewHere({ root: a, remote: withConsent() });
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(r.review, true); assert.equal(r.move, true);
-  assert.deepEqual(r.org, ORG);
+  assert.deepEqual(r.org, { ...ORG, kind: 'company' });   // kosmos#6239: a coordinator that names no kind is a company's
   assert.deepEqual(r.consent.reports, org.cleanConsent(CONSENT).reports);
   // Another company's words are never shown as this record's (the account moved companies since).
   const other = await org.reviewHere({ root: a, remote: withConsent({ org: { id: 'org_2', name: 'Other', slug: 'other' } }) });

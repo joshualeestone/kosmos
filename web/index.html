@@ -19522,6 +19522,20 @@ window.kosmosMeasureScrollbarWidth();
             <input type="text" class="tk-inp" id="plus-org-code" autocomplete="off" spellcheck="false" maxlength="128" aria-label="Your company's code" placeholder="Company code">
             <button class="btn uprime" type="button" id="plus-org-check">Connect Account</button>
           </div>
+          <!-- kosmos#6239 (Josh 10-15 10:42): a FAMILY account's words are read and accepted here before this computer
+               joins; a company joins with none (#5791). Filled from the family's own words (the coordinator's). -->
+          <div id="plus-org-family" hidden>
+            <p class="fhint" id="plus-org-family-lead"></p>
+            <p class="fhint">What the family will see from this computer:</p>
+            <ul class="fhint" id="plus-org-family-reports"></ul>
+            <p class="fhint">Who can see it:</p>
+            <ul class="fhint" id="plus-org-family-readers"></ul>
+            <p class="fhint" id="plus-org-family-never"></p>
+            <div class="frow">
+              <button class="btn uprime" type="button" id="plus-org-family-accept">Accept and join</button>
+              <button class="btn" type="button" id="plus-org-family-no">Not now</button>
+            </div>
+          </div>
         </div>
         <p class="fmsg" id="plus-org-msg" role="alert" aria-live="assertive"></p>
       </div>
@@ -50870,6 +50884,8 @@ async function plusOrgConnect() {
   try {
     const p = await plusOrgPost('preview', { code });
     if (!p.ok) { msg.textContent = p.because || 'That code could not be checked.'; return; }
+    /* kosmos#6239: a family's words are shown first; Accept and join sends the enroll (plusOrgFamilyAccept). */
+    if (p.org && p.org.kind === 'family') { plusOrgFamilyShow(code, p); return; }
     const r = await plusOrgPost('enroll', p.move ? { accepted: true, ticket: p.ticket } : { code, accepted: true, ticket: p.ticket });
     if (!r.ok) {
       msg.textContent = r.because || 'Connecting did not go through.';
@@ -50886,8 +50902,58 @@ async function plusOrgConnect() {
   // The engine's own answer (whether it reports yet), once busy is clear: plusOrgMaybe does nothing while busy (review 3).
   if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
 }
+/* kosmos#6239: the family's words, as the coordinator served them, for a parent or guardian to read and accept. */
+let PLUS_ORG_FAMILY = null;
+function plusOrgFamilyShow(code, p) {
+  PLUS_ORG_FAMILY = { code, p };
+  const c = p.consent && typeof p.consent === 'object' ? p.consent : {};
+  const fill = (id, lines) => {
+    const ul = document.getElementById(id);
+    ul.replaceChildren();
+    for (const line of Array.isArray(lines) ? lines : []) { const li = document.createElement('li'); li.textContent = String(line); ul.append(li); }
+  };
+  const name = p.org && p.org.name ? p.org.name : 'This family';
+  document.getElementById('plus-org-family-lead').textContent = name + ' is a family account. As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
+  fill('plus-org-family-reports', c.reports);
+  fill('plus-org-family-readers', c.readers);
+  const never = Array.isArray(c.never) && c.never.length ? 'Never sent: ' + c.never.join(', ') + '.' : '';
+  document.getElementById('plus-org-family-never').textContent = never;
+  document.getElementById('plus-org-family').hidden = false;
+  document.getElementById('plus-org-family-accept').focus();
+}
+function plusOrgFamilyHide() {
+  PLUS_ORG_FAMILY = null;
+  const box = document.getElementById('plus-org-family');
+  if (box) box.hidden = true;
+}
+async function plusOrgFamilyAccept() {
+  const msg = document.getElementById('plus-org-msg');
+  const f = PLUS_ORG_FAMILY;
+  if (!f || PLUS_ORG.busy) return;
+  const btn = document.getElementById('plus-org-family-accept');
+  PLUS_ORG.busy = true; btn.disabled = true; msg.textContent = '';
+  try {
+    const body = f.p.move ? { accepted: true, ticket: f.p.ticket, wordsShown: true } : { code: f.code, accepted: true, ticket: f.p.ticket, wordsShown: true };
+    const r = await plusOrgPost('enroll', body);
+    if (!r.ok) {
+      msg.textContent = r.because || 'Connecting did not go through.';
+      if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
+      return;
+    }
+    plusOrgFamilyHide();
+    document.getElementById('plus-org-code').value = '';
+    PLUS_ORG.open = false;
+    PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
+    PLUS_ORG.at = 0;
+    plusOrgPaint();
+  } finally { PLUS_ORG.busy = false; btn.disabled = false; }
+  if (PLUS_ORG.at === 0 && PLUS_ORG.state && PLUS_ORG.state.enrolled === true) plusOrgMaybe();
+}
+document.getElementById('plus-org-family-accept').addEventListener('click', plusOrgFamilyAccept);
+document.getElementById('plus-org-family-no').addEventListener('click', () => { plusOrgFamilyHide(); document.getElementById('plus-org-msg').textContent = 'Nothing was joined.'; });
 function plusOrgCancel() {
   PLUS_ORG.open = false;
+  plusOrgFamilyHide();   // kosmos#6239
   // The company note it closes stays closed (#5791 review 1): Cancel must close the pane, whatever opened it.
   PLUS_ORG.dismissed = (PLUS_ORG.state && PLUS_ORG.state.stoppedFor) || PLUS_ORG.dismissed || null;
   document.getElementById('plus-org-code').value = '';
