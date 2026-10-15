@@ -78,7 +78,10 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 25), stated rather than closed
+## Known limits (reviews 9 to 27), stated rather than closed
+- The tree checks read the committed setup, setup-staging and dist/latest*.json; they do not read vercel.json. A
+  redirect or rewrite of /setup or a Mac pointer added there (the site already redirects /dist/latest-win.json)
+  would serve something else past every check. None exists today for those paths.
 - Without the version-jump override, release.sh relies on #4075 to keep a cut's own version above the floor, which
   assumes the checkout's package.json is past 0.7.45. Only a hand revert breaks that; such a cut would push its site
   commit (step 7b) before the export check refused it. Nothing is served.

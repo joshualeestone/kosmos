@@ -666,10 +666,10 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
       KOSMOS_ENTRY_FILE: undefined,
       /* 0.7.25 cut: a staging cut exports KOSMOS_CUT_CHANNEL=staging, which turned on step 1f here (see sandboxEnv). */
       KOSMOS_CUT_CHANNEL: undefined,
-      /* #6149: these arms cut 0.6.x, below the setup floor. A cut made with KOSMOS_ALLOW_VERSION_JUMP=1 runs this file at
-         step 3 with it exported, and release.sh then checks the cut's own version against the floor, so every arm past
-         step 1 would refuse at 1a-floor; the floor's test knob is refused outright by release.sh. The arm that tests the
-         override passes it in `env`. */
+      /* #6149: these arms cut 0.6.x, below the setup floor. Under KOSMOS_ALLOW_VERSION_JUMP=1 release.sh checks the cut's
+         own version against the floor, so a shell that exported it (an operator's; release.sh itself unsets it before
+         step 3, so a cut never passes it here) would stop every arm past step 1 at 1a-floor: measured, 17 red. The
+         floor's test knob is refused outright by release.sh. The arm that tests the override passes it in `env`. */
       KOSMOS_ALLOW_VERSION_JUMP: undefined,
       KOSMOS_SETUP_FLOOR_TEST: undefined,
       KOSMOS_SETUP_FLOOR_LOWER: undefined,
