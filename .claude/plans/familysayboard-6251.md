@@ -60,3 +60,14 @@ coordinator half changes nothing a family's computer shows. This branch is where
 - refresh reads the kind from the record it reads, after the paths that settle or leave first.
 - Stated at the site: a join with no known kind is recorded as a company's.
 - Kept (NIT): the no-op plusOrgIn on the joined line's first part; the preview's sayFor with no kind (its codes fit both).
+
+## Round 5 (opus) fixes
+- A lost join settled as bound elsewhere is undone in the join's kind (its marker's), not a company's; tested through
+  refresh for both kinds, red without it.
+- Swept every writer of the pending leave and the unknown join for the same gap: undoFirstJoin passes the call's kind,
+  the settle undo now passes the marker's, and leave's own rewrites carry the kind already in the file forward
+  (pendingKind is read before the write).
+- pendingKind falls back to the stored kind when a record from before kinds has none.
+- Kept (NIT): "Your family could not undo joining your family" when a family has no name (rare; the follow-up wording
+  pass, #6263); inKind's "its company's" rule is lower-case only (no sentence starts with it); a curly apostrophe in
+  familywords-6239's lead sentence (that branch's).

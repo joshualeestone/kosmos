@@ -209,3 +209,21 @@ test('#6251 board review 4: a family\'s undone join that could not be confirmed 
     assert.match(again.because, new RegExp('it will tell your ' + kind + ' again\\.$'), again.because);
   }
 });
+
+test('#6251 board review 5: a lost join found bound elsewhere is undone in the join\'s kind, from its marker alone', async (t) => {
+  for (const kind of ['family', 'company']) {
+    const r = root(t);
+    const c = scripted(kind, { [oe.ROUTES.enroll]: { ok: false, because: 'timeout' }, [oe.ROUTES.status]: { ok: true, data: { member: true } } });
+    const en = await oe.enroll('RIVE-JOIN-1234', true, { root: r, remote: c, consentHash: HASH, consent: WORDS, orgId: 'o', orgKind: kind });
+    assert.equal(en.code, 'org_join_unknown', JSON.stringify(en));
+    // Old enough to settle as not made here.
+    const f = path.join(r, 'org-join-unknown.json');
+    const j = JSON.parse(fs.readFileSync(f, 'utf8')); j.at = new Date(Date.now() - oe.SETTLE_AFTER_MS - 60000).toISOString(); fs.writeFileSync(f, JSON.stringify(j));
+    // The coordinator names this world on another computer: the join landed there, so it is undone; the undo is lost.
+    c.answers[oe.ROUTES.status] = (org, w) => ({ ok: true, data: { member: true, org, role: 'admin', enrolled: { computer: 'x', world: w, thisComputer: false } } });
+    c.answers[oe.ROUTES.leave] = { ok: false, because: 'the tunnel program did not answer in time' };
+    const s = await oe.refresh({ root: r, remote: c });
+    assert.equal(s.pending, true, JSON.stringify(s));
+    assert.match(s.because, new RegExp('it will tell your ' + kind + ' again\\.$'), s.because);
+  }
+});
