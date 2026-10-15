@@ -853,8 +853,11 @@ function placesOf(th, old, unshownIds, newestSeen) {
     // Review 7: only in a thread also cut; a thread read to its end restarts whole (the mark keeps its unshown items new).
     if (pg && c.waitCursor) put(c, pg.cursor, pg.before, pg.prev);
     else if (c.waitCursor) put(c, c.waitCursor, readOf(c), lastRead(c));
-    // Review 8: read to its end (nothing said as not reached): remembered as done, with no place.
-    else if (!c.pending && ((c.pages || []).length || c.done) && validAt(newestSeen)) out[c.id] = { done: true, doneAt: newestSeen };
+    /* Review 8: read to its end (nothing said as not reached): remembered as done, with no place. Review 11: not while
+       the 30-cap holds any of its items back (they are older than newestSeen, so a cap at doneAt would let a newer
+       comment carry the mark past them); it is remembered once a read shows them. */
+    else if (!c.pending && ((c.pages || []).length || c.done) && validAt(newestSeen)
+      && ![c, ...c.replies].some((x) => unshownIds.has(x.id))) out[c.id] = { done: true, doneAt: newestSeen };
   }
   for (const [cid, v] of Object.entries(old)) {
     if (Object.keys(out).length >= THREADS_MAX) break;

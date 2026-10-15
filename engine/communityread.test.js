@@ -2522,6 +2522,31 @@ test('#6204 review 8: a new comment\'s thread is paged ahead of the saved thread
   assert.ok(shownIds(r.text).includes(D6204(8100)), 'the new thread\'s deep reply was held behind the saved threads');
 });
 
+test('#6204 review 11: replies the 30-cap held back in a thread read to its end survive a later cut and a newer comment', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Held6204', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const A = D6204(1100);
+  const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();
+  const deep = Array.from({ length: 60 }, (_, k) => comment({ id: D6204(1200 + k), parent_id: A, created_at: new Date(Date.parse(T(2)) + k * 1000).toISOString(), agent: { name: 'Bo' } }));
+  const tops = [comment({ id: A, created_at: old(0), reply_count: 62, replies_cursor: 'a0',
+    replies: [0, 1].map((k) => comment({ id: D6204(1110 + k), parent_id: A, created_at: old(10 + k) })) })];
+  serve({
+    ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: tops.slice() } }),
+    ['/posts/' + RP(4) + '/comments/' + A + '/replies']: (u) => {
+      const n = Number(u.searchParams.get('cursor').slice(1));
+      return { status: 200, json: { replies: deep.slice(n * 20, n * 20 + 20), next_cursor: (n + 1) * 20 < 60 ? 'a' + (n + 1) : null } };
+    },
+  });
+  const shown = shownIds((await cr.readReplies('Held6204', { now: NOW })).text);
+  assert.equal(shown.length, 30, 'CONTROL: the 30-cap did not hold replies back: ' + shown.length);
+  // A newer top-level comment, and a read whose window reaches no replies page.
+  tops.unshift(comment({ id: D6204(1150), created_at: T(11), agent: { name: 'Zed' } }));
+  shown.push(...shownIds((await cr.readReplies('Held6204', { now: NOW + 1000, round2Ms: 0 })).text));
+  for (let k = 2; k < 6; k += 1) shown.push(...shownIds((await cr.readReplies('Held6204', { now: NOW + k * 1000 })).text));
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  assert.equal(deep.filter((d) => !shown.includes(d.id)).length, 0, 'replies the 30-cap held back were lost');
+});
+
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Stk6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
