@@ -23,7 +23,9 @@
  * is caught only because the `x=` assignment arm swallows the one word), so extend WRAP when one appears.
  * It checks that a template EXISTS, not that it sits under TMPDIR: a literal `/tmp/...XXXXXX` passes
  * and does not land in the per-run root, so such a call needs its own cleanup (the in-tree ones have
- * traps). Only a `-t` BEFORE the template is seen; after it, macOS getopt has stopped reading flags.
+ * traps). A RELATIVE template (`mktemp -d x.XXXXXX`, no `/` or `$`) passes too and lands in the cwd,
+ * which is the checkout root under tools/shell-shard.js; none exist in-tree today, but it is the same
+ * class as the literal-`/tmp` gap. Only a `-t` BEFORE the template is seen; after it, macOS getopt has stopped reading flags.
  * The negative control pins the shapes it finds.
  */
 const fs = require('node:fs');

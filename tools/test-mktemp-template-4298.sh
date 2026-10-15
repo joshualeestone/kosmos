@@ -34,6 +34,9 @@ trap 'rm -rf "$T"' EXIT
 # The scope: every tracked tools/test-*.sh, except this file (its fixtures below
 # are bare on purpose). A glob that matched nothing would pass the clean arm
 # vacuously, so it carries a floor.
+# git ls-files means TRACKED files only: a brand-new tools/test-*.sh is checked
+# once it is staged, not before. The commit path stages first, so a bare call is
+# caught before the commit lands; a pre-add run of this guard will not see it.
 scope=()
 while IFS= read -r f; do
   [ "$f" = "tools/test-mktemp-template-4298.sh" ] && continue
