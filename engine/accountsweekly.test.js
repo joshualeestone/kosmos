@@ -34,7 +34,7 @@ test('#6178 summary: one entry per Claude account, with its reading; an API key 
   assert.equal(out[0].weekly.usedPct, 40);
   assert.equal(out[0].weekly.resetsAt, FUTURE * 1000, 'resetsAt is not in ms');
   assert.equal(out[1].weekly, null, 'an account with no reading was given one');
-  assert.equal(out[1].blocked, process.platform === 'win32' ? 'windows' : 'not-wired', 'no settings file: nothing records a reading');
+  assert.equal(out[1].blocked, aw.weeklyBlockedOf({ dir: b }), 'the summary\'s reason is not the helper\'s');   // per platform: weeklyBlockedOf's own test pins each
 });
 
 test('#6178 summary is kept for CACHE_MS, and an account change does not wait for it', () => {

@@ -12,6 +12,26 @@ const fs = require('node:fs');
 const nodePath = require('node:path');
 const { makeDom } = require('./test-support/fake-dom');
 
+/* Another computer's /api/status agents are the board's own cards, so these take REAL ones from test-support/fleet
+   (fixture-discipline), as web.allagents-4812.test.js does; `over` sets the fields this section reads. */
+const os = require('node:os');
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'otheraccounts-6178-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+const fleet = require('./test-support/fleet');
+const CARDS = new Map();
+function card(name, over) {
+  if (!CARDS.has(name)) {
+    const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+    CARDS.set(name, board.agents[0]);
+    fleet.restore();
+  }
+  return Object.assign(JSON.parse(JSON.stringify(CARDS.get(name))), over || {});
+}
+
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 function slice(name) {
   let at = PAGE.indexOf('async function ' + name + '(');
@@ -57,12 +77,12 @@ function load({ protocol = 'https:', hostname = 'laptop.kosmosplus.com', list = 
 }
 const STATUS = {
   agents: [
-    { sessionName: 'ann', name: 'Ann', account: { dir: '/Users/p/.claude', email: 'p@example.com' } },
-    { sessionName: 'bo', name: 'Bo', account: { dir: '/Users/p/.claude-work', email: 'w@example.com' } },
-    { sessionName: 'guide', name: 'Guide', isGuide: true, account: { dir: '/Users/p/.claude' } },
-    { sessionName: 'nobody', name: 'Nobody', runner: 'claude', account: null },
-    { sessionName: 'cody', name: 'Cody', runner: 'codex', account: null },
-    { sessionName: 'stray', name: 'Stray', runner: null, account: null },
+    card('ann', { name: 'Ann', runner: 'claude', account: { dir: '/Users/p/.claude', email: 'p@example.com' } }),
+    card('bo', { name: 'Bo', runner: 'claude', account: { dir: '/Users/p/.claude-work', email: 'w@example.com' } }),
+    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', account: { dir: '/Users/p/.claude' } }),
+    card('nobody', { name: 'Nobody', runner: 'claude', account: null }),
+    card('cody', { name: 'Cody', runner: 'codex', account: null }),
+    card('stray', { name: 'Stray', runner: null, account: null }),
   ],
   accountsWeekly: [
     { dir: '/Users/p/.claude', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
