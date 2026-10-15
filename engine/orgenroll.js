@@ -353,7 +353,7 @@ const SAY = Object.freeze({
   org_code_used: 'That code has already been used. Ask whoever sent it for a new one.',
   org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
   org_other_org: 'This Kosmos+ account is already in another company or family account.',
-  org_wrong_domain: "That code is only for accounts with their own email address, and this account's address is different.",
+  org_wrong_domain: "That code was sent for a different email address than this account's.",
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
@@ -494,7 +494,7 @@ async function undoFirstJoin(lead, opts) {
   const pf = opts && opts.computerSalt && opts.orgId ? pinnedWait(printFields(opts.computerSalt, opts.orgId), opts.printSent === true) : { send: 'none', fields: {} };
   const undo = pf.send === 'later' || pf.send === 'error' ? { ok: false, because: 'no print yet' } : await signed('POST', ROUTES.leave, pf.fields, opts);
   // org_code_used: the code is spent, so the route keeps no ticket for it and the page goes back to the code field.
-  if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: inKind(KIND, lead + ' Joining was undone, so nothing was joined. That code is used up: ask your company for a new one.') }; }
+  if (undo.ok || codeOf(undo.because) === 'org_not_member') { retireWorldId(opts); return { ok: false, code: 'org_code_used', because: inKind(KIND, lead + ' Joining was undone, so nothing was joined. That code is used up: ask whoever sent it for a new one.') }; }
   setLeavePending(true, opts, null, true, opts && opts.consentHash);   // an undo, retried on the next pass if this file, at least, can be written
   // A code: the code may be spent, so no ticket is kept for it and the page goes back to the code field (review 25).
   return { ok: false, code: 'org_undo_pending', because: inKind(KIND, lead + ' Joining could not be undone yet, so your company may still list this Kosmos. It is not reporting.') };

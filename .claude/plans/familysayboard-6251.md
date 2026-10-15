@@ -37,3 +37,9 @@ coordinator half changes nothing a family's computer shows. This branch is where
 ## Not done here
 - Family copy keeps "your work Kosmos" in the derived sentences, while FAMILY_SAY's hand-written ones avoid it. A
   wording pass for a family's whole panel is a follow-up on #6251.
+
+## Round 2 (sonnet) fixes
+- An undone first join says the used code goes back to "whoever sent it", as the preview's code sentences do (inKind
+  had made it "ask your family"). The wrong-domain sentence says what is wrong: "sent for a different email address".
+- Out of scope, stated: the company sign-in (plus-signin-company, its lead line) is a company's own single sign-on,
+  which a family has none of; the join entry's aria-label and placeholder stay with Josh's #5791 copy (above).

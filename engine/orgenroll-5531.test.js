@@ -176,7 +176,7 @@ test('#5531: the coordinator\'s public error codes are said in plain words; an u
   const used = await org.preview('ACME-JOIN-1234', { root: a, remote: said('HTTP 400: {"because":"org_code_used"}') });
   assert.equal(used.code, 'org_code_used'); assert.equal(used.because, org.SAY.org_code_used);
   const dom = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said('403 org_wrong_domain') });
-  assert.match(dom.because, /own email address/);
+  assert.equal(dom.because, org.SAY.org_wrong_domain); assert.match(dom.because, /different email address/);   // kosmos#6251: said for a company or a family
   const odd = await org.preview('ACME-JOIN-1234', { root: a, remote: said('the tunnel program did not answer in time') });
   assert.equal(odd.code, null); assert.match(odd.because, /could not be checked through Kosmos\+/);   // review 4: an unknown error is a fixed sentence, the raw line goes to the log
   await org.enroll('ACME-JOIN-1234', true, { root: a, remote: fakeRemote({}) });   // leave is sent only from the work Kosmos
