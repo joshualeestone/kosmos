@@ -1,16 +1,19 @@
 #!/bin/bash
 # Archive, export and (with --upload) upload the iOS app to App Store Connect (kosmos #4089, #718).
 #
-# Signs as the team, with the bundle id, in ios/Signing.xcconfig (for now the Stone Syndicate team and the
-# interim io.kosmos.app.preview, #4089). It stops before archiving if the bundle id is malformed, or if the
+# Signs as the team, with the bundle id, in ios/Signing.xcconfig (Kosmos Agent Manager, Inc. and
+# io.kosmos.app, #6262). It stops before archiving if the bundle id is malformed, or if the
 # Team ID is empty or not 10 uppercase letters or digits.
 #
 #   ios/tools/archive.sh --build <N>            archive + export an .ipa, then check it
 #   ios/tools/archive.sh --build <N> --upload   the same, then upload that build to App Store Connect
 #   ios/tools/archive.sh --check-config         only the signing-settings checks below, then stop
 #
-# It refuses io.kosmos.app under the Stone Syndicate team (#4089): Apple cannot transfer an app never
-# released on the App Store, so that pairing would leave Kosmos's real bundle id there for good.
+# It refuses io.kosmos.app under any team but Kosmos Agent Manager, Inc.'s (#6262, #4089): Apple cannot
+# transfer an app never released on the App Store, so another pairing would strand Kosmos's real bundle id.
+#
+# Run for real, it signs with -allowProvisioningUpdates: with an API key, that CREATES a distribution
+# certificate and provisioning profile in the team's account if none fits. --check-config never does.
 #
 # --build is required: App Store Connect refuses a build number it has seen before, so the number is
 # chosen on purpose for every upload rather than read from the project.
@@ -22,7 +25,8 @@
 #
 # Nothing is uploaded unless the exported .ipa passes check-ipa-entitlements.sh (aps-environment
 # production, this team, this bundle id), and the upload sends that same .ipa file. That makes the
-# signing right for push; it does not make push work: the interim preview app never gets push.
+# signing right for push; it does not make push work: that also needs the team's APNs key on the
+# coordinator (docs/phone-push-go-live.md).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -78,13 +82,13 @@ if ! printf '%s' "$team" | LC_ALL=C grep -Eq '^[A-Z0-9]{10}$'; then
   echo "archive.sh: DEVELOPMENT_TEAM in $xcconfig is '$team', not a Team ID (10 uppercase letters or digits)." >&2
   exit 1
 fi
-# io.kosmos.app is never built under the Stone Syndicate team (#4089): Apple cannot transfer an app that was
-# never released on the App Store, so one upload would leave Kosmos's real bundle id there for good. The team id
-# is written in two pieces so the cut-sign sweep (tools/test-cut-sign-preflight.sh) does not count this file.
-stone_team="864QZ""69GF2"
+# io.kosmos.app is built under Kosmos Agent Manager, Inc.'s team and no other (#6262, #4089). It is registered
+# there; Apple cannot transfer an app that was never released on the App Store, so an upload under any other
+# team (Stone Syndicate's included) would leave Kosmos's real bundle id stranded there for good.
+kosmos_team="6563JLN5HF"
 bundle_lc=$(printf '%s' "$bundle" | tr '[:upper:]' '[:lower:]')   # Apple compares bundle ids without case
-if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" = "$stone_team" ]; then
-  echo "archive.sh: io.kosmos.app must not be built under the Stone Syndicate team: the interim app is io.kosmos.app.preview. Change DEVELOPMENT_TEAM to Kosmos Agent Manager, Inc.'s Team ID in the same edit." >&2
+if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" != "$kosmos_team" ]; then
+  echo "archive.sh: io.kosmos.app is built only under Kosmos Agent Manager, Inc.'s team ($kosmos_team), not $team: it is registered there, and an app uploaded under another team can never move." >&2
   exit 1
 fi
 if [ "$check_only" -eq 1 ]; then

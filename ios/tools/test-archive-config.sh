@@ -6,6 +6,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 stone="864QZ""69GF2"   # in pieces, as in archive.sh, so the cut-sign sweep does not count this file
+kosmos="6563JLN5HF"   # Kosmos Agent Manager, Inc. (#6262), the one team io.kosmos.app builds under
 fail=0
 # expect NAME WANT(0|1) TEAM BUNDLE
 expect() {
@@ -17,14 +18,18 @@ expect() {
     echo "FAIL  $1: wanted rc=$2, got rc=$rc: $out"; fail=1
   fi
 }
-expect preview-under-stone      0 "$stone"     io.kosmos.app.preview
-expect real-under-other-team    0 ABCDE12345   io.kosmos.app
+expect real-under-kosmos        0 "$kosmos"    io.kosmos.app
+expect real-under-kosmos-case   0 "$kosmos"    IO.Kosmos.App
+expect real-under-other-team    1 ABCDE12345   io.kosmos.app
 expect real-under-stone         1 "$stone"     io.kosmos.app
 expect real-under-stone-case    1 "$stone"     IO.Kosmos.App
-printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$stone" > "$work/pin.xcconfig"
-if KOSMOS_IOS_XCCONFIG="$work/pin.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'must not be built under the Stone Syndicate team'; then
-  echo "PASS  the refusal of io.kosmos.app under Stone Syndicate is the pairing check's own"
-else echo "FAIL  io.kosmos.app under Stone Syndicate was not refused by the pairing check"; fail=1; fi
+expect other-id-under-other     0 ABCDE12345   io.kosmos.app.preview
+for t in "$stone" ABCDE12345; do
+  printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = io.kosmos.app\n' "$t" > "$work/pin.xcconfig"
+  if KOSMOS_IOS_XCCONFIG="$work/pin.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'is built only under Kosmos Agent Manager'; then
+    echo "PASS  io.kosmos.app under $t is refused by the pairing check itself"
+  else echo "FAIL  io.kosmos.app under $t was not refused by the pairing check"; fail=1; fi
+done
 expect empty-team               1 ""           io.kosmos.app.preview
 expect short-team               1 ABC          io.kosmos.app.preview
 expect bad-bundle-dots          1 "$stone"     io..kosmos
