@@ -202,10 +202,13 @@ prod's `/setup` (the switch and the lift came in one change, so an installer tha
 string check, not a proof).
 NOT covered, because each goes around every script: a rollback done in Vercel itself (the dashboard's Instant
 Rollback, `vercel rollback`, or `vercel promote` of an older deployment), and any other hand-run `vercel deploy
---prod` (the site's README still shows one; the manual release.sh step-8 fallback above runs the floor's check on its export first). Never use any of them for the site once 0.7.49 is out: roll back by committing the
-older pointer and installer and running deploy-site.sh, which checks them.
-The way out for a person an old installer reached anyway is `chmod -R u+w` on the app folder
-(`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
+--prod` (the site's README still shows one; the manual release.sh step-8 fallback above runs the floor's check on
+its export first). Nor is a redirect or rewrite in the site's `vercel.json`: the checks read the committed `setup`,
+`setup-staging` and pointers, so a rule serving `/setup` or a Mac pointer from elsewhere would go around them (none
+exists today; `/dist/latest-win.json` is already redirected). Never use any of them for the site once 0.7.49 is out:
+roll back by committing the older pointer and installer and running deploy-site.sh, which checks them. The way out
+for a person an old installer reached anyway is `chmod -R u+w` on the app folder (`~/.local/share/kosmos/app`) and
+the install line again, which nothing on their screen tells them.
 
 ## Windows (the same model, two more pointers)
 
