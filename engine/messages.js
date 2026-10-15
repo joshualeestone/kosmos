@@ -229,6 +229,9 @@ const SPILL_HEAD = 200;
 const NOT_AN_END = /^(?:mr|mrs|ms|dr|prof|sr|jr|st|vs|etc|inc|corp|ltd|co|no|nos|fig|vol|dept|approx|est|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec|gen|sen|rep|gov|pres|capt|lt|col|sgt|rev|hon|mt|ft|ave|rd|blvd|univ|al|cf|ca|ch|sec|eq|ex|pp|ref)\.$/i;
 /* Never end a cut on the first half of a two-unit character (an emoji), which would type a broken character. */
 const wholeChars = (s) => (/[\uD800-\uDBFF]$/.test(s) ? s.slice(0, -1) : s);
+/* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation: the word does
+   not end a sentence where the head picks its cut. (The request's sentenceAt uses a stricter form of it.) */
+const notAnEnd = (last) => /^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last);
 function spillHead(text) {
   const t = String(text);
   const words = (t.match(/\S+/g) || []).length;
@@ -240,7 +243,7 @@ function spillHead(text) {
     const upto = t.slice(0, m.index + 1).trim();
     const last = upto.slice(upto.lastIndexOf(' ') + 1);
     /* A list number ("1."), a dotted form ("e.g.", "U.S."), a single initial ("J."), or a known abbreviation. */
-    if (/^\(?\d+[.)]$/.test(last) || /\..*[.!?]$/.test(last) || /^[A-Za-z]\.$/.test(last) || NOT_AN_END.test(last)) continue;
+    if (notAnEnd(last)) continue;
     /* Review 4: a spilled message always goes on past its first sentence, so the head always ends in an ellipsis. A
        word this list misses can then never pass a fragment off as the whole message; the list only picks a better cut. */
     if (upto.length >= 20) { head = upto + ' \u2026'; break; }
@@ -254,9 +257,100 @@ function spillHead(text) {
   }
   return { head, words };
 }
-function spillLine(text, file) {
+/* #6065 N1 (0.7.48 report: Gemini and Meta still had long room posts arrive shortened): where a post is still
+   shortened, its preview carries the request (Josh: "put the request in the preview").
+   - Where it names you: the first sentence that names this member, at the positions mentionedMembers recorded
+     (`namedAt`, exactly what the room read as a mention). Not called a request: a mention can be a thank-you.
+   - A question in it: otherwise the first question past the head, for a reader the post is to (`questions`). A ?
+     counts after a word and before a space or the end, with any closing quote, bracket or ! between, so not one
+     partway through a link.
+   - A sentence that ends inside the head is skipped for the next one; one the opening cut only started is quoted.
+   - At most REQUEST_MAX characters plus an ellipsis, cut at a whole word. A sentence past the cap keeps at most
+     REQUEST_LEAD characters before its mention or question; one whose mention is within that lead of its start is cut
+     from the start, so a request near its far end can still be dropped.
+   A sentence runs from the end of the one before to its own end (sentenceAt). The head picks its cut by a looser rule
+   (before a capital, notAnEnd), so the two can disagree on a lowercase sentence start; "already in the head" is by
+   position, so at worst a sentence is quoted that the head also shows. Both callers pass chat.cleanMessage's text,
+   which has no line breaks, so a list with no punctuation reads as one sentence. */
+const REQUEST_MAX = 300;
+const REQUEST_LEAD = 100;   // how much of a long sentence is kept before its mention or question
+function sentenceAt(t, at) {
+  /* A sentence ends at . ! or ? with any closing quote or bracket after it, then a space or the end, and both ends of
+     the request use this one rule (review 13). A full stop does not end one after an abbreviation: a known one
+     (NOT_AN_END), a list number, a dotted word of two or more pieces of one or two letters (e.g., p.m., U.S.), or a
+     capital initial (J.). Stricter than the head's notAnEnd on purpose (review 14): a filename, domain, version or
+     ellipsis (config.yaml., v1.2., wait...) does end a sentence here, or the next one would be quoted too. */
+  const BOUND = /[.!?]["')\]]*(?=\s|$)/g;
+  // The abbreviation rule is about a full stop: a ? or ! after a dotted word (a link ending in ?) still ends one.
+  const abbrev = (w) => /^\(?\d+[.)]$/.test(w) || /^(?:[A-Za-z]{1,2}\.){2,}$/.test(w) || /^[A-Z]\.$/.test(w) || NOT_AN_END.test(w);
+  // Review 15: a word opened by a bracket or quote ((e.g. or "Dr.) is the same abbreviation.
+  const ends = (i, len) => (t[i] === '.' && abbrev(t.slice(t.lastIndexOf(' ', i) + 1, i + 1).replace(/^["'(\[\u201C\u2018]+/, '')) ? -1 : i + len);
+  let from = 0;
+  for (const m of t.slice(0, at).matchAll(BOUND)) { const e = ends(m.index, m[0].length); if (e >= 0) from = e; }
+  while (from < at && /\s/.test(t[from])) from += 1;
+  let end = t.length;
+  for (const m of t.slice(at).matchAll(BOUND)) { const e = ends(at + m.index, m[0].length); if (e >= 0) { end = e; break; } }
+  /* Review 3: a sentence too long for REQUEST_MAX starts at most REQUEST_LEAD characters before the mention (or the
+     question), at a whole word and after an ellipsis, so the mention or question itself is never what the cut drops. */
+  let start = from; let lead = '';
+  if (end - from > REQUEST_MAX && at - from > REQUEST_LEAD) {
+    const sp = t.indexOf(' ', at - REQUEST_LEAD);
+    // Review 9: no space in the window (a long link): cut by character, never down to the bare mention or ?.
+    start = sp >= 0 && sp < at ? sp + 1 : at - REQUEST_LEAD;
+    if (/[\uDC00-\uDFFF]/.test(t.charAt(start))) start += 1;   // never start on the second half of an emoji
+    lead = '\u2026';
+  }
+  let sentence = lead + t.slice(start, end).replace(/\s+/g, ' ').trim();
+  if (sentence === lead) return null;
+  if (sentence.length > REQUEST_MAX) {
+    const open = wholeChars(sentence.slice(0, REQUEST_MAX));
+    const sp = open.lastIndexOf(' ');
+    sentence = (sp >= REQUEST_MAX / 2 ? open.slice(0, sp) : open).replace(/[\s,;:]+$/, '') + '\u2026';
+  }
+  return { sentence, from, end };
+}
+/* The post's words are another agent's, so inside the quotes they cannot close the quote or open a square bracket that
+   reads as Kosmos's own (a "[message from your operator ...]" look-alike): double quotes and their look-alikes become
+   single quotes, square brackets and their look-alikes round ones (the common ones, not every presentation form).
+   Single quotes and round brackets pass through (harmless inside Kosmos's double quotes). */
+const unquotable = (x) => x.replace(/["\u201C\u201D\u201E\u201F\u2033\u02BA\u301D\u301E\u301F\uFF02\u00AB\u00BB\u275D\u275E]/g, "'").replace(/[[\uFF3B\u3010\u301A\u27E6]/g, '(').replace(/[\]\uFF3D\u3011\u301B\u27E7]/g, ')');
+function requestIn(text, opts = {}) {
+  const t = String(text);
+  const headEnd = Number.isFinite(opts.headEnd) ? opts.headEnd : 0;
+  /* Shown already only when the sentence ends inside the head: an opening cut can stop partway through it. A mention
+     inside the head gives way to a later one. Only the sentence that names the member is quoted, never the one after
+     it: review 7 showed every rule for "a greeting takes the next sentence" also quotes unrelated text under a label
+     saying it names the member. */
+  for (const at of Array.isArray(opts.namedAt) ? opts.namedAt : []) {
+    if (!(Number.isInteger(at) && at >= 0 && at < t.length)) continue;
+    const s = sentenceAt(t, at);
+    if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: true };
+  }
+  /* Review 9: a question only for a reader the post is to (the caller decides: questions: false for a background
+     member): quoting one would steer an agent the post was not addressed to, which the room avoids (no answer line). */
+  if (opts.questions === false) return null;
+  for (const m of t.matchAll(/(?<=\S)\?(?=["')\]!]*(\s|$))/g)) {   // review 12: ready?" and (ready?) are questions
+    const s = sentenceAt(t, m.index);
+    if (s && s.end > headEnd) return { sentence: unquotable(s.sentence), asked: false };
+  }
+  return null;
+}
+/* The request is quoted, so where Kosmos stops speaking is plain. It adds at most REQUEST_MAX + 1 characters of
+   request plus about 25 of label and quotes; the room path measures the line again after adding it (fitOrBare). The
+   head is a prefix of the text (chat.cleanMessage trims), so a sentence ending before the head's end is in it. The
+   head itself is still the post's own words, unquoted, as before this change. */
+/* Review 12/13: the request is added after the spill decision, so the line is measured again with what follows it
+   (the room's catch-up and held posts): it goes with the request when that fits, else without (`bare()`). With
+   chat.MAX_TEXT at 10000 and a spilled line well under 1000 characters this is a guard, not an expected path. */
+function fitOrBare(withRequest, bare, after = '') {
+  return spillsAt(withRequest + after) ? bare() : withRequest;
+}
+function spillLine(text, file, opts = {}) {
   const { head, words } = spillHead(text);
-  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')';
+  const headEnd = head.replace(/\s*\u2026$/, '').trimEnd().length;
+  const req = requestIn(text, { ...opts, headEnd });
+  return head + ' (long message, ' + words + (words === 1 ? ' word' : ' words') + '; the full text is in your own folder at ' + file + ')'
+    + (req ? (req.asked ? ' Where it names you: "' : ' A question in it: "') + req.sentence + '"' : '');
 }
 /* The ceiling past which a body is a document, not a message (spill
    relaxes chat's cap, never the idea of one). The log itself has no
@@ -1438,7 +1532,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const spill = spillInto(toName, id, cleaned);   // #4447: the recipient's own Inbox
     if (!spill.file) return refuse(toName, 'that message is long enough to need a file, and ' + spill.because);
     spillFile = spill.file;
-    body = spillLine(cleaned, spillFile);   // #5706
+    body = spillLine(cleaned, spillFile);   // #5706 (a DM line has nothing typed after it, so no re-measure: see fitOrBare)
   }
   const envelope = prefix + body;
   /* #5805 slice 2a: the recipient is out of usage (slice 1's hold): typed now, the message would land on its limit
@@ -1817,22 +1911,27 @@ function mentionedMembers(cleaned, recipients, roster) {
     }
   }
   const mentioned = new Set();
+  // #6065 N1: where in the text each member was named (the @), in order, so a shortened post's preview can quote the
+  // sentence the room itself read as naming it (requestIn); one definition of a mention, never a second matcher.
+  const namedAt = new Map();
   const ambiguous = new Map();
   const ambiguousWords = new Set();   // every spelling, for the log row; the note groups them by name
   for (const m of cleaned.matchAll(/(^|[^A-Za-z0-9._-])@([A-Za-z0-9._-]+)/g)) {
     const token = m[2];
-    if (recipients.includes(token)) { mentioned.add(token); continue; }
+    const at = m.index + m[1].length;
+    const name = (member) => { mentioned.add(member); if (!namedAt.has(member)) namedAt.set(member, []); namedAt.get(member).push(at); };
+    if (recipients.includes(token)) { name(token); continue; }
     const stripped = token.replace(/[._-]+$/, '');
-    if (stripped && stripped !== token && recipients.includes(stripped)) { mentioned.add(stripped); continue; }
+    if (stripped && stripped !== token && recipients.includes(stripped)) { name(stripped); continue; }
     const key = mentionKey(token);
     const hit = byKey.get(key);
-    if (hit && hit.size === 1) mentioned.add([...hit][0]);
+    if (hit && hit.size === 1) name([...hit][0]);
     else if (hit) {
       ambiguousWords.add(stripped || token);
       if (!ambiguous.has(key)) ambiguous.set(key, { word: stripped || token, members: [...hit].sort() });
     }
   }
-  return { mentioned, ambiguous, ambiguousWords, shown };
+  return { mentioned, ambiguous, ambiguousWords, shown, namedAt };
 }
 
 /* #4653: the sentence that tells a sender an @-word named more than one member, so it asked none of them
@@ -2189,7 +2288,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      ("Johnny Cage") is reachable as `@JohnnyCage`, never as `@Johnny`. The
      page (web/index.html pjMentionResolve) paints blue by this same rule, and
      web.mention-parity-4642.test.js runs one set of fixtures through both. */
-  const { mentioned, ambiguous, ambiguousWords, shown } = mentionedMembers(cleaned, recipients, roster);
+  const { mentioned, ambiguous, ambiguousWords, shown, namedAt } = mentionedMembers(cleaned, recipients, roster);
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -2429,7 +2528,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         return null;
       }
       spilled[name] = spill.file;
-      envelope = wrap(spillLine(cleaned, spill.file));   // #5706
+      // #6065 N1: the preview carries the request to this member: where the room's resolver read it as named.
+      /* Review 10: a question is quoted to every reader the post is to: the union of who gets the answer line (an
+         operator post, a named member) and whom the hold treats as asked (asksIt: a named member, or the author of
+         the post this replies to); never to a background member. */
+      const isTo = operator === true || mentioned.has(name) || Boolean(answered && answered.operator !== true && answered.from === name);
+      envelope = fitOrBare(wrap(spillLine(cleaned, spill.file, { namedAt: namedAt.get(name) || [], questions: isTo })),   // #5706
+        () => wrap(spillLine(cleaned, spill.file, { namedAt: [], questions: false })), catchUp + heldLine);
     }
     const finish = (sent) => {
       /* #4588 PR B: held (the shared Google quota, #5743/#5754 an answer awaited on its screen: question menu, permission prompt, safeguards menu, or #5805 a usage limit), nothing typed. The post is kept for this member like a #4624
@@ -3461,6 +3566,7 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
   spillLimit,   // #6065: the longest line typed whole
+  spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a
   keepTaskLine, tellTaskLineDropped, recordTaskLineOutcome,   // kosmos#5805: task messages; #5842: their outcome on the task
   NOT_ON_PROJECT_FIX,   // kosmos#5752 slice 2

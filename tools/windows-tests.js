@@ -82,7 +82,8 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
 // shims file before the helper moved.
 const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.js', 'report-hook-allowed-5495.test.js',
   'test-support.remove-tree.test.js',
-  'tools.cleanup-fixture-tokens-5418.test.js'];   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
+  'tools.cleanup-fixture-tokens-5418.test.js',   // #5418 ask 2: the cleanup tool must plan and remove the same way on Windows
+  'engine.reachable.test.js'];   // #5548: its caller keys are posix so a module is not its own caller; measured red here before
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {

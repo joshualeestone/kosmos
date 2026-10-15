@@ -11104,17 +11104,25 @@ const server = http.createServer(async (req, res) => {
             })(),
             /* #6108: why there can be NO reading for this account, when that is known: 'windows' (the statusline that
                records it is not wired there) or 'own-statusline' (the account already has a status line of its own, which
-               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one only when an account is added).
-               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess. */
+               Kosmos leaves alone) or 'not-wired' (no status line: nothing records a reading; Kosmos wires one when an account is added, or when the person asks on the row via POST /api/accounts/claude/usage-reading, #6175).
+               null when Kosmos's own status line is there, so a reading comes once an agent on it works. The page says "cannot read" only for these, never as a guess.
+               #6175 review 13: 'linked-settings' instead of 'not-wired' when settings.json is a link whose file is not in this
+               folder (or points at nothing): the set-up route refuses those every time, so the row must not offer it. */
             weeklyBlocked: (() => {
               if (a.apiKey || typeof a.dir !== 'string' || !a.dir) return null;   // no folder: nothing to say about it
               if (process.platform === 'win32') return 'windows';
+              const sp = path.join(a.dir, 'settings.json');
+              const linkedAway = () => {   // the same test the route makes before it writes
+                try { if (!fs.lstatSync(sp).isSymbolicLink()) return false; } catch { return false; }
+                try { return path.dirname(fs.realpathSync(sp)) !== fs.realpathSync(a.dir); } catch { return true; }   // a link to nothing
+              };
+              const unwired = () => (linkedAway() ? 'linked-settings' : 'not-wired');
               try {
-                const j = JSON.parse(fs.readFileSync(path.join(a.dir, 'settings.json'), 'utf8'));
+                const j = JSON.parse(fs.readFileSync(sp, 'utf8'));
                 const sl = j && j.statusLine;
-                if (sl === undefined || sl === null) return 'not-wired';   // nothing records a reading here
+                if (sl === undefined || sl === null) return unwired();   // nothing records a reading here
                 return require('./engine/allowance').isOurs(sl) ? null : 'own-statusline';
-              } catch (e) { return e && e.code === 'ENOENT' ? 'not-wired' : 'unreadable-settings'; }   // missing: nothing records one; unreadable: Kosmos cannot tell
+              } catch (e) { return e && e.code === 'ENOENT' ? unwired() : 'unreadable-settings'; }   // missing (or a link to nothing): nothing records one; unreadable: Kosmos cannot tell
             })(),
             /* #6108: the agents on this account on THIS computer, by session name. complete is false when any could not
                be read, so the page can say the list may be short rather than call it whole. */
@@ -11959,6 +11967,53 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #6175: set up the usage reading on an EXISTING Claude account (Kosmos wires its status line only when it creates
+     an account). It runs the same ensureStatusLine as account creation, so a status line the person set up themselves
+     is left alone (it answers wired:false with why). Only a Claude account this computer lists. Narrower than creation
+     on purpose: an API-key account is refused (it has no weekly limit to read; creation wires one anyway in case the key
+     is later swapped for a sign-in). The page offers this only on a 'not-wired' row; a status line of ours aimed at
+     another copy reads as wired there and is not offered, so its repoint happens only on a direct POST. */
+  if (pathname === '/api/accounts/claude/usage-reading' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const dir = body && typeof body === 'object' ? String(body.dir || '') : '';
+        if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const resolved = path.resolve(dir);
+        /* Review 11: this writes into the person's own Claude Code setup, so only the person, from Settings (as other
+           person-only Settings changes are); an agent's token is refused. Review 12: before any lookup, so a
+           refused caller learns nothing about which folders are accounts. */
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'only you can change this, from Settings' }); return; }
+        const acct = accounts.list().find((a) => a.dir === resolved);
+        if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        if (acct.apiKey) { sendJson(res, 400, { error: 'an account that uses an API key has no weekly limit to read' }); return; }
+        /* Review 11: a settings file that is a link to a file outside this account's folder (one shared with another
+           account, say) is left alone: the status line names ONE account's folder, so wiring it there would send every
+           account that shares the file's readings to this one. */
+        const settingsFile = path.join(acct.dir, 'settings.json');
+        try {
+          if (path.dirname(fs.realpathSync(settingsFile)) !== fs.realpathSync(acct.dir)) {
+            sendJson(res, 409, { wired: false, because: 'this account\u2019s settings file is a link to a file elsewhere, so it was left alone' });   // review 13: true for a subfolder too
+            return;
+          }
+        } catch { /* no settings file yet (or no folder): ensureStatusLine decides, as for a new account */ }
+        let r;
+        try { r = require('./engine/allowance').ensureStatusLine(settingsFile); }
+        catch (e) {   // review 5: a throw is a fault, 500 (a refusal ensureStatusLine ANSWERS, including a failed save, is 409)
+          try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }
+          sendJson(res, 500, { error: 'the usage reading could not be set up' });
+          return;
+        }
+        if (!r || r.wired !== true) { sendJson(res, 409, { wired: false, because: (r && r.because) || 'the usage reading could not be set up' }); return; }
+        sendJson(res, 200, { wired: true, changed: r.changed === true });
+      }, () => sendJson(res, 400, { error: 'we could not read that request' }))   // the body could not be read
+      .catch((e) => {   // review 2: a fault after reading is the server's, not an unreadable request
+        try { console.error('usage-reading: ' + String((e && e.stack) || e)); } catch { /* best effort */ }   // review 3: the detail (paths) stays in the log
+        if (!res.headersSent) sendJson(res, 500, { error: 'the usage reading could not be set up' });
+      });
+    return;
+  }
   if (pathname === '/api/accounts/claude/check' && req.method === 'POST') {
     readBody(req)
       .then(async (raw) => {
@@ -23461,6 +23516,7 @@ function start(port = PORT) {
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
+          stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
           deliver: (session, text, r) => chat.deliverAutomatic(session, text, r, undefined, undefined),
           DELIVERY: chat.DELIVERY,
           log: (r) => process.stdout.write(`community-turn: ${r.name} (${r.session}) ${r.act}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),

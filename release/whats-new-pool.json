@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.47",
+  "lastProd": "0.7.49",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -87,7 +87,7 @@
     },
     {
       "title": "Quiet runs of a recurring task roll up",
-      "line": "Runs of a recurring task that found nothing new, or repeated the same note, fold into one row; its card says when something last changed.",
+      "line": "Runs of a recurring task that found nothing new fold into one row in its history; the task says when something last changed.",
       "icon": "list",
       "rank": 10,
       "since": "0.7.32",
@@ -382,7 +382,8 @@
       ],
       "rank": 5,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "Long task and room messages arrive whole",
@@ -417,7 +418,8 @@
       "icon": "shield",
       "rank": 6.5,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "An agent's page shows the imports question",
@@ -425,7 +427,8 @@
       "icon": "chat",
       "rank": 7,
       "since": "0.7.48",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "The Agents list fits a narrow window",
@@ -471,7 +474,8 @@
       ],
       "rank": 4.5,
       "since": "0.7.49",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.49"
     },
     {
       "title": "A project says when goal planning is stuck",
@@ -479,6 +483,34 @@
       "icon": "tasks",
       "rank": 8.5,
       "since": "0.7.49",
+      "status": "shown",
+      "shownIn": "0.7.49"
+    },
+    {
+      "title": "Kosmos has its own iPad layouts",
+      "line": "Sideways at full width, an iPad shows Agents and Projects side by side (View is set per iPad); upright, most put agent cards two across.",
+      "icon": "phone",
+      "rank": 3,
+      "since": "0.7.49",
+      "status": "pending"
+    },
+    {
+      "title": "Decision tasks say who needs you",
+      "line": "A task in Needs Your Decision now names the agent waiting on you, when one is, and why.",
+      "icon": "tasks",
+      "rank": 6,
+      "since": "0.7.50",
+      "status": "pending"
+    },
+    {
+      "title": "A restart after an update stops taking focus",
+      "line": "From the next update on, when Kosmos restarts itself onto a new version while another app is in front, it no longer takes focus.",
+      "icon": "spark",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.50",
       "status": "pending"
     }
   ]

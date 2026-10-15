@@ -239,6 +239,7 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.ok(row, 'the default Claude account is not listed');
     return row.weeklyBlocked;
   };
+  const away = path.join(SANDBOX, 'away-settings-6175.json');
   if (process.platform === 'win32') { assert.equal(await blockedOf(), 'windows'); return; }
   try {
     fs.rmSync(settings, { force: true });
@@ -249,7 +250,101 @@ test('#6108 /api/accounts says when an account cannot have a reading: its own st
     assert.equal(await blockedOf(), 'own-statusline', 'an account with its own status line was not marked');
     fs.writeFileSync(settings, '{ not json');
     assert.equal(await blockedOf(), 'unreadable-settings', 'a settings file that cannot be parsed was promised a set-up that cannot happen');
-  } finally { fs.rmSync(settings, { force: true }); }
+    // #6175 review 13: a settings file that is a link away (or to nothing) is not offered a set-up the route always refuses.
+    fs.rmSync(settings, { force: true });
+    fs.writeFileSync(away, '{"theme":"light"}'); fs.symlinkSync(away, settings);
+    assert.equal(await blockedOf(), 'linked-settings', 'a settings file linked elsewhere was offered a set-up that is always refused');
+    fs.writeFileSync(away, JSON.stringify({ statusLine: { type: 'command', command: 'node /x/' + allowance.MARKER + ' ' + def } }));
+    assert.equal(await blockedOf(), null, 'CONTROL: a linked file that already carries Kosmos\'s status line reads as set up');
+    fs.rmSync(away, { force: true });
+    assert.equal(await blockedOf(), 'linked-settings', 'a link to nothing was offered a set-up that is always refused');
+  } finally { fs.rmSync(settings, { force: true }); fs.rmSync(away, { force: true }); }
+});
+
+/* #6175: an existing Claude account with no status line can have its usage reading set up from Settings; one with a
+   status line of the person's own is left exactly as it is. */
+test('#6175 the usage-reading route wires a not-set-up account and never replaces the person\'s own status line', async () => {
+  const def = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude');
+  fs.mkdirSync(def, { recursive: true });
+  fs.writeFileSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'person@example.com', accountUuid: 'u-6175' } }));
+  const settings = path.join(def, 'settings.json');
+  const post = async (body) => {
+    const r = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify(body) });   // the page, as the browser sends it
+    return { status: r.status, j: await r.json() };
+  };
+  const blockedOf = async () => {
+    const rows = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    const row = rows.find((a) => a && a.provider === 'anthropic' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(def));
+    return row ? row.weeklyBlocked : 'unlisted';
+  };
+  if (process.platform === 'win32') {
+    const r = await post({ dir: def });
+    assert.equal(r.status, 409, 'Windows has no weekly reading to wire: ' + JSON.stringify(r));
+    return;
+  }
+  const keyed = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-keyed6175');
+  try {
+    fs.rmSync(settings, { force: true });
+    assert.equal(await blockedOf(), 'not-wired', 'precondition: the account has no status line');
+    // Review 11: only the person, from Settings: a request that is not from the page is refused and writes nothing.
+    const noScreen = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: def }) });
+    assert.equal(noScreen.status, 403, 'a request not from the page was let through');
+    assert.ok(!fs.existsSync(settings), 'a request not from the page wrote a settings file');
+    // Review 11: a settings file linked to a file outside the account's folder is left alone, byte for byte.
+    const shared = path.join(SANDBOX, 'shared-settings-6175.json');
+    fs.writeFileSync(shared, '{"theme":"light"}');
+    fs.symlinkSync(shared, settings);
+    const linked = await post({ dir: def });
+    assert.equal(linked.status, 409, JSON.stringify(linked));
+    assert.match(linked.j.because, /a link to a file elsewhere/, linked.j.because);
+    assert.equal(fs.readFileSync(shared, 'utf8'), '{"theme":"light"}', 'a shared settings file was written');
+    fs.rmSync(settings, { force: true }); fs.rmSync(shared, { force: true });
+    const r = await post({ dir: def });
+    assert.equal(r.status, 200, JSON.stringify(r));
+    assert.equal(r.j.wired, true);
+    assert.ok(allowance.isOurs(JSON.parse(fs.readFileSync(settings, 'utf8')).statusLine), 'the settings file does not carry Kosmos\'s status line');
+    assert.equal(await blockedOf(), null, 'the row still says it is not set up');
+    assert.equal((await post({ dir: def })).j.changed, false, 'a second press rewrote a status line that was already right');
+    // The person's own status line: refused, and the file is byte-for-byte as it was.
+    const own = JSON.stringify({ statusLine: { type: 'command', command: '/usr/local/bin/my-status.sh' }, theme: 'dark' });
+    fs.writeFileSync(settings, own);
+    const refused = await post({ dir: def });
+    assert.equal(refused.status, 409, JSON.stringify(refused));
+    assert.match(refused.j.because, /its own status line/, refused.j.because);
+    assert.equal(fs.readFileSync(settings, 'utf8'), own, 'the person\'s own status line was touched');
+    // An API-key account (a stored key, no sign-in) is refused, and nothing is written into it (review 1). Review 3: the
+    // key's live check is stubbed, so the fixture key never goes to Anthropic, and the folder is removed after.
+    require('./engine/claudeaccounts').setFetcher(async () => ({ status: 401, body: { type: 'error', error: { type: 'authentication_error' } } }));
+    fs.mkdirSync(keyed, { recursive: true });
+    fs.writeFileSync(require('./engine/claudeaccounts').keyFile(keyed), 'sk-ant-api03-' + 'x'.repeat(40) + '\n', { mode: 0o600 });
+    const listedKeyed = ((await (await fetch(base + '/api/accounts')).json()) || {}).accounts || [];
+    assert.ok(listedKeyed.some((a) => a && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(keyed) && a.apiKey === true), 'precondition: the key account is listed as an API key');
+    assert.equal((await post({ dir: keyed })).status, 400, 'an API-key account was wired');
+    // Review 12: a caller not from the page is refused before any lookup: the same 403 for a key account and a non-account.
+    const notPage = async (d) => (await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dir: d }) })).status;
+    assert.equal(await notPage(keyed), 403, 'a caller not from the page learned the folder is an API-key account');
+    assert.equal(await notPage(path.join(SANDBOX, 'not-an-account')), 403, 'a caller not from the page learned the folder is not an account');
+    assert.ok(!fs.existsSync(path.join(keyed, 'settings.json')), 'a settings file was written into an API-key account');
+    // Only an account this computer lists, and a request it can read.
+    assert.equal((await post({ dir: path.join(SANDBOX, 'not-an-account') })).status, 404);
+    assert.equal((await post({})).status, 400);
+    // A fault after the request was read is 500, and says no path (review 5).
+    const al = require('./engine/allowance'); const realEnsure = al.ensureStatusLine;
+    al.ensureStatusLine = () => { throw new Error('EACCES: permission denied, open \'/Users/someone/.claude/settings.json\''); };
+    const errLog = console.error; console.error = () => {};
+    try {
+      const fault = await post({ dir: def });
+      assert.equal(fault.status, 500, JSON.stringify(fault));
+      assert.ok(!/\/Users\//.test(JSON.stringify(fault.j)), 'a path reached the page: ' + JSON.stringify(fault.j));
+    } finally { al.ensureStatusLine = realEnsure; console.error = errLog; }
+    const bad = await fetch(base + '/api/accounts/claude/usage-reading', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{' });
+    assert.equal(bad.status, 400, 'a body that is not JSON was not refused as unreadable');
+  } finally {
+    fs.rmSync(settings, { force: true });
+    fs.rmSync(path.join(SANDBOX, 'shared-settings-6175.json'), { force: true });
+    fs.rmSync(keyed, { recursive: true, force: true });
+    require('./engine/claudeaccounts').setFetcher(null);
+  }
 });
 
 /* #6108: the page's "Moved X (stopped). It is not running now" depends on what the account route answers for a stopped

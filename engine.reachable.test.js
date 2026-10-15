@@ -305,23 +305,27 @@ const TRIAGED_5548 = {
 const engineDir = path.join(__dirname, 'engine');
 const engineFiles = fs.readdirSync(engineDir).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'));
 
-/* Every non-test source a caller could live in. */
+/* Every non-test source a caller could live in. #5548 (#6113 item 3): every key is posix, because findOrphans compares
+   it with a module's posix rel to skip the module's own file; a path.join key is engine\x.js on Windows, never equal,
+   so every module counted as its own caller: the windows job measured all 31 TRIAGED_5548 names as "gaining a caller",
+   and by the same cause the guard could find no orphan there (reasoned, not measured).
+   Reads and stats go through path.join(__dirname, key), which takes the posix key on Windows too. */
 const CALLER_FILES = [
-  ...engineFiles.map((f) => path.join('engine', f)),
+  ...engineFiles.map((f) => path.posix.join('engine', f)),
   'server.js',
-  path.join('web', 'index.html'),
-  path.join('install', 'kosmos'),
-  path.join('install', 'setup.sh'),
-  ...fs.readdirSync(path.join(__dirname, 'tools')).map((f) => path.join('tools', f)),
-  ...fs.readdirSync(path.join(__dirname, 'test-support')).map((f) => path.join('test-support', f)),
+  'web/index.html',
+  'install/kosmos',
+  'install/setup.sh',
+  ...fs.readdirSync(path.join(__dirname, 'tools')).map((f) => path.posix.join('tools', f)),
+  ...fs.readdirSync(path.join(__dirname, 'test-support')).map((f) => path.posix.join('test-support', f)),
   // #5548 slice 2: bin/ holds real callers (bin/class1-autohandle.js calls sweepClass1; bin/agent-supervisor.sh calls
   // sendertoken.retireLauncher in a node -e), which this sweep could not see.
-  ...fs.readdirSync(path.join(__dirname, 'bin')).map((f) => path.join('bin', f)),
+  ...fs.readdirSync(path.join(__dirname, 'bin')).map((f) => path.posix.join('bin', f)),
 ].filter((f) => { try { return fs.statSync(path.join(__dirname, f)).isFile(); } catch { return false; } });
 
 const read = (f) => { try { return fs.readFileSync(path.join(__dirname, f), 'utf8'); } catch { return ''; } };
 const testFiles = [
-  ...fs.readdirSync(engineDir).filter((f) => f.endsWith('.test.js')).map((f) => path.join('engine', f)),
+  ...fs.readdirSync(engineDir).filter((f) => f.endsWith('.test.js')).map((f) => path.posix.join('engine', f)),
   ...fs.readdirSync(__dirname).filter((f) => f.endsWith('.test.js')).map((f) => f),
 ];
 const testBlob = testFiles.map(read).join('\n');
@@ -451,12 +455,20 @@ function findOrphans(modules, callerSources, tests, skip) {
    a trailing # after code: agent-supervisor.sh carries JS inside node -e '...', where a # can be code). Done here, not
    where sources is built, because codeOnly's REGEX_AFTER is declared below that line. */
 for (const s2 of sources) {
-  if (!/^bin[\/\\]/.test(s2.f)) continue;
+  if (!/^bin\//.test(s2.f)) continue;
   s2.text = s2.f.endsWith('.js') ? codeOnly(s2.text) : s2.text.split('\n').map((l) => (/^\s*#/.test(l) ? '' : l)).join('\n');
 }
 
 // posix keys, so the file-keyed lists compare the same on Windows (#5548 review 2)
-const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.join('engine', f)) }));
+const engineModules = engineFiles.map((f) => ({ rel: path.posix.join('engine', f), text: read(path.posix.join('engine', f)) }));
+
+/* Only Windows can fail this (path.join already gives / on a Mac or Linux), so the windows job is what arms it. */
+test('#5548: every engine module is a caller file under the same key, so findOrphans can skip its own file', () => {
+  const keys = new Set(sources.map((s2) => s2.f));
+  const missing = engineModules.map((m) => m.rel).filter((r) => !keys.has(r));
+  assert.deepEqual(missing, [], 'caller keys and module keys are spelled differently (a path.join key on Windows), so every module counts as its own caller');
+  assert.ok(sources.every((s2) => !s2.f.includes('\\')), 'a caller key holds a backslash');
+});
 
 /* EXCUSED is by name (an excuse covers the name wherever it is exported); SEAMS_5548 and TRIAGED_5548 are by file, so a pending
    name cannot cover a new orphan of the same name in another module (#5548 review 1). */
@@ -542,12 +554,16 @@ test('#5548 self-test: a one-line exports block, a comment mention and a string 
   // review 2: a regex at the start of a template ${} is a regex, so its quote does not hide the code after it
   const tre = 'function viaTemplate() {}\nfunction user(s) { return `${/\'/.test(s) ? viaTemplate() : 0}`; }\nmodule.exports = { viaTemplate, user };\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/t.js', text: tre }], [{ f: 'server.js', text: 'user()' }], 'viaTemplate() user()', () => false), []);
+  // #5548 (#6113 item 3): the module's own file is in the caller list, as it is for real; it must not count as a caller
+  const own = 'function selfOnly() {}\nmodule.exports = { selfOnly };\n';
+  assert.deepEqual(findOrphans([{ rel: 'engine/s.js', text: own }], [{ f: 'engine/s.js', text: own }], 'selfOnly()', () => false), ['engine/s.js exports selfOnly'],
+    'a module counted as its own caller hides every orphan');
   const multi2 = 'function lonelyExport() {}\nmodule.exports = {\n  lonelyExport, // lonelyExport\n};\n';
   assert.deepEqual(findOrphans([{ rel: 'engine/m.js', text: multi2 }], [], 'lonelyExport()', () => false), ['engine/m.js exports lonelyExport']);
 });
 
 test('#5548 slice 2 review 1: a bin/ comment naming an export does not count as a call', () => {
-  const sh = sources.find((s2) => /^bin[\/\\]agent-supervisor\.sh$/.test(s2.f));
+  const sh = sources.find((s2) => /^bin\/agent-supervisor\.sh$/.test(s2.f));
   assert.ok(sh, 'fixture: bin/agent-supervisor.sh is a caller file');
   assert.ok(/retireLauncher/.test(sh.text), 'CONTROL: its real call (inside node -e) survives the comment strip');
   assert.ok(!/^\s*#/m.test(sh.text), 'no full-line comment is left in a bin shell script');

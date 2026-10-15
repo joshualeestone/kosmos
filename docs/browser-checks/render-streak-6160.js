@@ -12,6 +12,10 @@
  *   dismiss    -> the X empties the slot; from the keyboard, focus moves to the K mark
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
+ *   (the retry, hidden-load and midnight arms are listed where they run)
+ *   refused    -> the board's own refusal (403 to the streak, 404 to the first-run read): every refused request
+ *                 finishes, so the page's network goes quiet (#6188). Every arm but the first-run one loads through
+ *                 gotoReady, which answers first run as done.
  *   none       -> count 0: no label, and the K mark is not described by an empty one
  *   click      -> a click on the K mark still goes to Agents
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)
@@ -30,6 +34,14 @@ const { chromium } = require('playwright');
 const path = require('node:path');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17372';
+/* #6188: first run is over for this check. The welcome overlay opens on its own after load, and the Escape below
+   only puts it away when it is already open: when it opened later it took focus from the dismiss arm (a flake on
+   main too). Answering /api/first-run as done keeps it shut, as render-allagents-4812 does. */
+const firstRunDone = (pg) => pg.route('**/api/first-run', (route) => route.fulfill({
+  status: 200, contentType: 'application/json', body: JSON.stringify({ done: true }),
+}).catch(() => {}));
+// Every arm loads the page through this, so none can forget the first-run answer.
+const gotoReady = async (pg) => { await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' }); };
 const OUT = process.argv[2] || '/tmp/stshots';
 const fail = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
@@ -49,7 +61,7 @@ async function open(b, answer, opts = {}) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answer(body)) }).catch(() => {});
   });
   const asked = pg.waitForResponse((r) => r.url().endsWith('/api/streak'), { timeout: 15000 }).then(() => true, () => false);
-  await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+  await gotoReady(pg);
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
   say(await asked, (opts.key || 'page') + ': the page asked the board for the streak');
   // Measure the app, not its loading screen: the K mark is visible once the board view is up.
@@ -104,7 +116,7 @@ const read = (pg) => pg.evaluate(() => {
     const at = new Date(NOON - 7 * 60000).toISOString();
     await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { lastAliveAt: at, bootAt: at, upAt: new Date(NOON).toISOString() } }) }).catch(() => {}));
     await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}));
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     const up = await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false);
     say(up, 'together (' + vp.width + 'px): the app is up (the K mark is visible)');
@@ -284,7 +296,7 @@ const read = (pg) => pg.evaluate(() => {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill(calls === 1 ? { status: 200, contentType: 'application/json', body: '{"count":0,"congrats":false}' } : { status: 200, contentType: 'application/json', body: JSON.stringify({ count: 5, congrats: false }) }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     const first = await read(pg);
@@ -306,7 +318,7 @@ const read = (pg) => pg.evaluate(() => {
       window.__show = () => { hidden = false; document.dispatchEvent(new Event('visibilitychange')); };
     });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await gotoReady(pg);
     await pg.waitForSelector('#klink', { state: 'attached', timeout: 15000 }).catch(() => {});
     await pg.waitForTimeout(1500);
     const whileHidden = calls;
@@ -320,16 +332,66 @@ const read = (pg) => pg.evaluate(() => {
 
   // a board that keeps saying no is asked a handful of times, not every minute forever
   {
-    let calls = 0;
+    let calls = 0; const statuses = [];
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
-    await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"no"}' }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    // The refusal is the BOARD's own (#6188): the request goes on to it as if from another website, and its cross-site
+    // write guard answers 403. Measured: a refusal made with route.fulfill and a literal body finished even with the
+    // fix reverted, and this one does not; why the two differ (headers or framing) was not measured.
+    await pg.route('**/api/streak', async (route) => {
+      calls++;
+      try {
+        // 403 because elsewhere.example is not this board (crossSiteWrite compares Origin to Host, and it is not in
+        // AGENT_WORKFORCE_ALLOWED_HOSTS); the request still goes to the loopback board at KOSMOS_URL.
+        const resp = await route.fetch({ headers: { ...route.request().headers(), origin: 'https://elsewhere.example' } });
+        statuses.push(resp.status());
+        await route.fulfill({ response: resp });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    // #6188: each refused request must FINISH (the page reads the refusal's body): left unread it stays open, and a
+    // page waiting for the network to go quiet waits forever.
+    const streakReqs = new Set(); let ended = 0;
+    pg.on('request', (q) => { if (q.url().endsWith('/api/streak')) streakReqs.add(q); });
+    pg.on('requestfinished', (q) => { if (streakReqs.has(q)) ended++; });   // an aborted request is not a read body
+    let failed = 0; pg.on('requestfailed', (q) => { if (streakReqs.has(q)) failed++; });   // settled, but not a read body
+    await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
-    await pg.clock.runFor(30 * 60 * 1000);
-    await pg.waitForTimeout(300);
-    say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
+    // One minute at a time, letting each real refusal arrive and be read before the next tick, so the count depends
+    // far less on how fast this machine is (a tick while an ask is pending is skipped; 2 to 6 leaves room for that).
+    // Up to 2 s per step for the refusals in flight to settle (finished or failed), so a red run reports in about a minute.
+    const settle = async () => { for (let i = 0; i < 20 && ended + failed < streakReqs.size; i++) await pg.waitForTimeout(100); };
+    await settle();
+    for (let m = 0; m < 30; m++) { await pg.clock.runFor(60 * 1000); await pg.waitForTimeout(50); await settle(); }
+    // The page stops after five misses in a row (streakMisses >= 5): the load, then four ticks. A tick skipped while an
+    // ask is pending only delays the next, so 30 minutes always reach exactly five. It assumes the page stays visible
+    // (headless never changes it): a return to the page resets the misses and would ask again.
+    say(calls === 5 && streakReqs.size === calls, 'refused: asked five times in all, then stopped (30 minutes)', 'calls=' + calls + ' seen=' + streakReqs.size);
+    say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
+    say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
+    await pg.close();
+  }
+
+  // #6188: the first-run read at load, refused by the board, ends too (the page reads the refusal's body). The refusal
+  // is the board's own 404 (a route it does not have), passed through as the answer to /api/first-run.
+  {
+    const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
+    const sent = new Set(); let finished = 0; const statuses = [];
+    pg.on('request', (q) => { if (q.url().endsWith('/api/first-run')) sent.add(q); });
+    pg.on('requestfinished', (q) => { if (sent.has(q)) finished++; });
+    await pg.route('**/api/first-run', async (route) => {
+      try {
+        const resp = await route.fetch({ url: URL.replace(/\/$/, '') + '/api/zz-no-such-route-6188' });
+        statuses.push(resp.status());
+        await route.fulfill({ response: resp });
+      } catch { await route.abort().catch(() => {}); }
+    });
+    await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '{"count":3,"congrats":false}' }).catch(() => {}));
+    await pg.goto(URL, { waitUntil: 'domcontentloaded' });   // not gotoReady: that answers /api/first-run, which this arm must refuse
+    for (let i = 0; i < 80 && (sent.size === 0 || finished < sent.size); i++) await pg.waitForTimeout(100);
+    say(sent.size >= 1, 'first run refused: the page sent its first-run read', 'sent=' + sent.size);
+    say(statuses.length >= 1 && statuses.every((x) => x === 404), 'first run refused: the board itself refused (404)', JSON.stringify(statuses));
+    say(sent.size >= 1 && finished === sent.size, 'first run refused: the refused read finished (its body was read, #6188)', 'sent=' + sent.size + ' finished=' + finished);
     await pg.close();
   }
 

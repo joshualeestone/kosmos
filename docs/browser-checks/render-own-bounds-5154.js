@@ -52,9 +52,10 @@ const { chromium } = require('playwright');
       try { for (const a of [quota, nudge, first, notRaised, healthy, ownQuestion]) cardHtml[a.sessionName] = card(a); }
       catch (e) { return { error: 'card() threw: ' + e.message }; }
       // The grid card shows the STATE LABEL (cardStOf), never the reported sentence: card() renders taskLine
-      // with noQuote, and in fact NO surface renders stateReason's quoted-because (every taskLine caller passes
-      // noQuote). So the precedence a person actually sees is on the CARD: a needs_you own-question agent reads as
-      // its own calm "Question" (st-question), and the Kosmos give-up sentence must not sit on that card.
+      // with card:true, and no surface renders a quoted reported sentence at all (#6118 removed stateReason's
+      // quoted-because arm and the noQuote opt-out that fed it). So the precedence a person actually sees is on
+      // the CARD: a needs_you own-question agent reads as its own calm "Question" (st-question), and the Kosmos
+      // give-up sentence must not sit on that card.
       return {
         quotaText: cardHtml.q, nudgeText: cardHtml.n, firstText: cardHtml.f, notRaisedText: cardHtml.c, ownQuestionText: cardHtml.o,
         attnQuota: agentNeedsAttention(quota), attnNudge: agentNeedsAttention(nudge), attnFirst: agentNeedsAttention(first),

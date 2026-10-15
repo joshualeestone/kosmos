@@ -2,8 +2,9 @@
 /**
  * #4569 fix 4: a busy Muse agent's card says how many messages wait and whether the person's is next.
  * Runs the page's own taskLine / stateReason / waitingLine source on the card shapes the board sends, called the
- * way the card (.atask), the list row (.ltask) and the agent page (#d-task) call them: with noQuote, which hides
- * an agent's own reported words for a working agent (#986, #3271) and so hid this line in the first version.
+ * way the card (.atask), the list row (.ltask) and the agent page (#d-task) call them: the cards pass card:true,
+ * the agent page nothing. A working agent's own reported words stay hidden regardless (#986, #3271; #6118 removed
+ * the noQuote opt-out), which is why this waiting line was hidden in the first version.
  *
  *   node --test web.muse-waiting-4569.test.js
  */
@@ -29,7 +30,7 @@ const api = new Function([pageFnSource('waitingLine'), pageFnSource('stateReason
 const MUSE = (waiting, extra) => ({ state: 'working', runner: 'muse', stateReported: true, because: 'it says it is working', waiting, ...extra });
 
 test('#4569 fix 4: the card, list and agent page line says what waits, in Kosmos\'s words, unquoted', () => {
-  for (const opts of [{ noQuote: true }, undefined]) {
+  for (const opts of [{ card: true }, undefined]) {
     assert.equal(api.taskLine(MUSE({ n: 15, yours: 1 }), opts), '15 messages waiting, yours is next');
     assert.equal(api.taskLine(MUSE({ n: 3, yours: 2 }), opts), '3 messages waiting, yours are next');
     assert.equal(api.taskLine(MUSE({ n: 2, yours: 2 }), opts), '2 messages waiting, all yours');
@@ -40,9 +41,9 @@ test('#4569 fix 4: the card, list and agent page line says what waits, in Kosmos
 
 test('#4569 fix 4: no count, a nonsense count, or a state other than working shows nothing new', () => {
   // CONTROL: the same working Muse card with no queue reads as before (nothing on the card, #986).
-  assert.equal(api.taskLine(MUSE(null), { noQuote: true }), '');
-  assert.equal(api.taskLine(MUSE({ n: 0, yours: 0 }), { noQuote: true }), '');
-  assert.equal(api.taskLine(MUSE({ n: 'x', yours: 1 }), { noQuote: true }), '');
-  assert.equal(api.taskLine({ ...MUSE({ n: 4, yours: 1 }), state: 'idle' }, { noQuote: true }), '', 'an idle card claimed a queue');
+  assert.equal(api.taskLine(MUSE(null)), '');
+  assert.equal(api.taskLine(MUSE({ n: 0, yours: 0 })), '');
+  assert.equal(api.taskLine(MUSE({ n: 'x', yours: 1 })), '');
+  assert.equal(api.taskLine({ ...MUSE({ n: 4, yours: 1 }), state: 'idle' }), '', 'an idle card claimed a queue');
   assert.equal(api.waitingLine({ n: 2, yours: 9 }), '2 messages waiting, all yours', 'yours above n is capped at n');
 });

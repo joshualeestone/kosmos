@@ -56,6 +56,8 @@ const ACCOUNTS = [
   claude('sleepy@example.com', 'sleepy', { weekly: { usedPct: 50, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: ['s-z'], complete: true } }),
   claude('unwired@example.com', 'unwired', { weekly: null, weeklyBlocked: 'not-wired', agentsHere: { names: [], complete: true } }),
   claude('mine@example.com', 'mine', { weekly: null, weeklyBlocked: 'own-statusline', agentsHere: { names: [], complete: true } }),
+  claude('linkedset@example.com', 'linkedset', { weekly: null, weeklyBlocked: 'linked-settings', agentsHere: { names: [], complete: true } }),
+  claude('stalewired@example.com', 'stalewired', { weekly: { usedPct: 30, resetsAt: now + 50 * H, at: now - 30 * H }, weeklyBlocked: 'not-wired', agentsHere: { names: [], complete: true } }),
   claude('default@example.com', 'default', { isDefault: true, weekly: null, agentsHere: { names: [], complete: true } }),
   claude('noshare@example.com', 'noshare', { memoryShared: false, weekly: { usedPct: 5, resetsAt: now + 50 * H, at: now - H }, agentsHere: { names: [], complete: true } }),
 ];
@@ -232,8 +234,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /* Sideways overflow of the page itself, with the list in its real place. */
         return { contrast, incMove, warmstop, frozen, unknown, fullmix, tgMove, lostMove, fullstop, weekout, weekoutDay: new Date(Date.now() + 162 * 3600e3).getDate(), staleMove, ncMove, sleepyMove, mine, unwired, unsureNote, pickKept, before, moved, busyAfter, mixed, expired, sideways: frame.scrollWidth - window.innerWidth };
       }, { accounts: ACCOUNTS, agents: AGENTS });
-      await page.close();
-      if (r.error) { say(false, tag + ' ' + r.error); continue; }
+      /* #6175: the page stays open for the set-up step below; it is closed after it (and here, on an error). */
+      if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
       const { busy, fresh, calm, key, old, def, guideonly, full, sleepy } = r.before;
       say(!!busy && busy.has && busy.fill === '82%', tag + ' an 82% row draws its meter at 82%', JSON.stringify(busy && busy.fill));
       say(!!busy && busy.vis && busy.font === '13px' && busy.color === busy.labelRgb && busy.margin === '0px', tag + ' inside the real Settings panel the usage line keeps its own size, ink and spacing (the panel\'s paragraph rule does not win)', JSON.stringify(busy && { vis: busy.vis, font: busy.font, color: busy.color, label: busy.labelRgb, margin: busy.margin }));
@@ -289,7 +291,121 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.sideways <= 0, tag + ' the page does not scroll sideways', String(r.sideways));
       say(r.contrast.warnDot >= 3 && r.contrast.highDot >= 3, tag + ' the warning dots stand out from the card (3:1 or more) in this theme', JSON.stringify(r.contrast));
       say(r.contrast.moveText >= 4.5, tag + ' Move\'s label is readable on its button in this theme (4.5:1 or more)', JSON.stringify(r.contrast));
+      /* #6175: a "not set up" row offers to set the reading up; an own-status-line row does not. A refusal is said on the
+         row (a second replaces the first), and a success repaints the row without the offer. The route is stubbed like
+         the engine: refused twice, then wired (the next list no longer says not-wired). */
+      const s6175 = await page.evaluate(async () => {
+        const row = (n) => document.querySelector('#set-accounts .acct-box[data-acct-dir="/home/.claude-' + n + '"]');
+        const btnOf = (n) => row(n) && row(n).querySelector('[data-usage-setup]');
+        const out = { offer: !!btnOf('unwired'), offerText: btnOf('unwired') ? btnOf('unwired').textContent.trim() : null,
+          explain: row('unwired') ? row('unwired').textContent.replace(/\s+/g, ' ') : '', ownOffer: !!btnOf('mine'), posts: [],
+          linked: { offer: !!btnOf('linkedset'), text: row('linkedset') ? row('linkedset').textContent.replace(/\s+/g, ' ') : '' } };
+        /* a row that still shows an old reading is offered it too, with the same explainer */
+        const sb = btnOf('stalewired'), sd = sb && document.getElementById(sb.getAttribute('aria-describedby') || '');
+        out.stale = { offer: !!sb, describedBy: sd ? sd.textContent : null, stillShows: (() => { const i = row('stalewired') && row('stalewired').querySelector('.acct-usage-meter .bar i'); return !!i && i.style.width === '30%'; })() };
+        let refuse = 2; let staleN = 0; let listDown = false;
+        const posts1 = () => out.posts.length;
+        const prior = window.fetch;
+        window.fetch = (u, opts) => {
+          if (String(u).indexOf('/api/accounts/claude/usage-reading') !== -1) {
+            const dir = JSON.parse(opts.body).dir;
+            /* Review 10: the stale row answers wired first (its row is left not-wired, so the offer stays), then refused. */
+            if (dir === '/home/.claude-stalewired') {
+              staleN++;
+              if (staleN === 1 || staleN === 3) return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
+              return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'the settings file could not be read' }) });
+            }
+            out.posts.push(dir);
+            /* Review 5: the button loses focus during the refusal (some engines keep it on a disabled button), so the arm
+               below fails unless the handler gives it back. */
+            if (refuse > 0) { refuse--; if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return Promise.resolve({ ok: false, status: 409, json: async () => ({ wired: false, because: 'this account already has its own status line, so it was left alone' }) }); }
+            (window.__acctPatch = window.__acctPatch || {})[dir] = { weeklyBlocked: null };
+            return Promise.resolve({ ok: true, status: 200, json: async () => ({ wired: true, changed: true }) });
+          }
+          if (listDown && String(u).indexOf('/api/accounts') !== -1) return Promise.reject(new TypeError('the list is down (stub)'));   // review 13
+          return prior(u, opts);
+        };
+        /* Waits on the state each step reads (review 1), never a fixed sleep: a refusal is done when the button is enabled
+           again with its label back; the success when the offer is gone. */
+        const until = async (cond) => { for (let i = 0; i < 100 && !cond(); i++) await new Promise((r) => setTimeout(r, 25)); return cond(); };
+        const idle = () => btnOf('unwired') && !btnOf('unwired').disabled && btnOf('unwired').textContent === 'Set up usage reading';
+        if (!btnOf('unwired')) { window.fetch = prior; return out; }   // review 4: no offer is a FAIL line below, not a thrown evaluate
+        const b0 = btnOf('unwired'); const why0 = b0 && document.getElementById(b0.getAttribute('aria-describedby') || '');
+        out.describedBy = why0 ? why0.textContent.trim() : null;
+        btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => posts1() >= 1 && idle());   // review 4: from the button, as a keyboard user
+        out.refocus = document.activeElement === btnOf('unwired');
+        out.say1 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
+        await until(() => document.getElementById('set-accounts-msg').textContent === (out.say1[0] || '\u0000'));   // review 9: written a frame later
+        out.msg1 = document.getElementById('set-accounts-msg').textContent;
+        /* Review 9: the same refusal again must change the status line (emptied, then written), or a screen reader stays silent. */
+        const seen = []; const mo = new MutationObserver(() => seen.push(document.getElementById('set-accounts-msg').textContent));
+        mo.observe(document.getElementById('set-accounts-msg'), { childList: true, characterData: true, subtree: true });
+        btnOf('unwired').click(); await until(() => posts1() >= 2 && idle());
+        await until(() => seen.length >= 2 && seen[seen.length - 1] === out.msg1); mo.disconnect();
+        out.reSaid = seen.indexOf('') >= 0 && seen[seen.length - 1] === out.msg1;
+        out.rowFocusable = row('unwired') ? row('unwired').getAttribute('tabindex') === '-1' : false;
+        out.say2 = [...row('unwired').querySelectorAll('[data-usage-say]')].map((e) => e.textContent);
+        btnOf('unwired').focus(); btnOf('unwired').click(); await until(() => !btnOf('unwired') && /Usage reading set up/.test(document.getElementById('set-accounts-msg').textContent));
+        out.after = { offer: !!btnOf('unwired'), line: row('unwired') && row('unwired').querySelector('.acct-usage-line') ? row('unwired').querySelector('.acct-usage-line').textContent.trim() : null,
+          msg: document.getElementById('set-accounts-msg').textContent, focusIsRow: document.activeElement === row('unwired'),
+          ring: (() => {   // the row focused from code draws no ring (as .dsec). A weaker ring rule stands in for the engine's
+            const st = document.createElement('style'); st.textContent = '.acct-box:focus { outline: 2px solid red; }';   // own, which headless may not draw
+            document.head.appendChild(st); const o = getComputedStyle(document.activeElement).outlineStyle; st.remove(); return o;
+          })() };
+        /* Review 4: another writer's sentence and a focus the person moved both stand during the re-claim second. */
+        const sentinel = document.createElement('input'); document.body.appendChild(sentinel); sentinel.focus();
+        document.getElementById('set-accounts-msg').textContent = 'Moved Dana to spare@example.com.';
+        await new Promise((r) => setTimeout(r, 400));
+        out.foreign = { msg: document.getElementById('set-accounts-msg').textContent, focusKept: document.activeElement === sentinel };
+        sentinel.remove();
+        /* Review 10: a refusal pressed during an earlier success's re-claim second is what the status line says, not the
+           older "set up" sentence. */
+        await new Promise((r) => setTimeout(r, 1100));   // the unwired press's re-claim second is over
+        const sb2 = () => btnOf('stalewired');
+        if (sb2()) {
+          /* Review 17: this press is a KEY press (Enter), so the row it lands on draws the keyboard-only ring. */
+          if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          sb2().click();
+          document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', bubbles: true }));
+          await until(() => staleN >= 1 && document.getElementById('set-accounts-msg').textContent.indexOf('Usage reading set up') === 0 && sb2() && !sb2().disabled);
+          const kr = row('stalewired');
+          out.kbdRing = { onRow: document.activeElement === kr, landed: !!kr && kr.classList.contains('kbd-landed'), ring: kr ? getComputedStyle(kr).outlineStyle : null };
+          sb2().click(); await until(() => staleN >= 2 && sb2() && !sb2().disabled);
+          await new Promise((r) => setTimeout(r, 400));
+          out.newerRefusal = { n: staleN, msg: document.getElementById('set-accounts-msg').textContent };
+          /* Review 13: wired, but the list cannot be read after: the error stands alone, never "set up" beside it. */
+          await new Promise((r) => setTimeout(r, 300));   // the refusal's deferred write has landed
+          listDown = true;
+          sb2().click();
+          await until(() => staleN >= 3 && /We could not read the accounts on this computer/.test(document.getElementById('set-accounts').textContent));
+          await new Promise((r) => setTimeout(r, 400));
+          out.listDown = { n: staleN, listError: /We could not read the accounts on this computer/.test(document.getElementById('set-accounts').textContent), msg: document.getElementById('set-accounts-msg').textContent };
+          listDown = false;
+        }
+        window.fetch = prior;
+        return out;
+      });
+      say(s6175.offer && s6175.offerText === 'Set up usage reading' && /adds Kosmos\u2019s status line to this account\u2019s Claude Code/.test(s6175.explain), tag + ' #6175 a not-set-up row offers to set the reading up, and says what it adds', JSON.stringify({ offer: s6175.offer, text: s6175.offerText }));
+      say(/adds Kosmos\u2019s status line/.test(s6175.describedBy || ''), tag + ' #6175 the button is described by the line that says what it adds', JSON.stringify(s6175.describedBy));
+      say((s6175.say1 || []).length === 1 && s6175.msg1 === s6175.say1[0], tag + ' #6175 a refusal is also said in the panel\'s status line (heard by a screen reader)', JSON.stringify(s6175.msg1));
+      say((s6175.after || {}).focusIsRow && (s6175.after || {}).msg === 'Usage reading set up. Kosmos reads it once an agent on this account is working.', tag + ' #6175 a success is said in the status line and focus lands on the row', JSON.stringify({ focus: (s6175.after || {}).focusIsRow, msg: (s6175.after || {}).msg }));
+      say(!!s6175.newerRefusal && s6175.newerRefusal.n === 2 && s6175.newerRefusal.msg === 'Not set up: the settings file could not be read.', tag + ' #6175 a refusal pressed during an earlier success\'s re-claim second stands in the status line', JSON.stringify(s6175.newerRefusal));
+      say(!!s6175.listDown && s6175.listDown.n === 3 && s6175.listDown.listError && !/Usage reading set up/.test(s6175.listDown.msg), tag + ' #6175 a set-up whose list cannot be read after does not say "set up" beside the error', JSON.stringify(s6175.listDown));
+      say(s6175.reSaid === true, tag + ' #6175 the same refusal twice is emptied and said again, so a screen reader hears it again', String(s6175.reSaid));
+      say(s6175.rowFocusable === true, tag + ' #6175 the row itself takes focus, so a repaint can hand focus back to it', String(s6175.rowFocusable));
+      say(!!s6175.kbdRing && s6175.kbdRing.onRow && s6175.kbdRing.landed && s6175.kbdRing.ring === 'solid', tag + ' #6175 a press made while a key is down (the flag read at the click) lands on a row that draws the keyboard-only ring', JSON.stringify(s6175.kbdRing));
+      say((s6175.after || {}).focusIsRow && (s6175.after || {}).ring === 'none', tag + ' #6175 the row focused from code after a press draws no focus ring', JSON.stringify((s6175.after || {}).ring));
+      say(s6175.refocus === true, tag + ' #6175 after a refusal, focus is back on the button for a keyboard user', String(s6175.refocus));
+      say(!!s6175.foreign && s6175.foreign.msg === 'Moved Dana to spare@example.com.' && s6175.foreign.focusKept, tag + ' #6175 the re-claim leaves another writer\'s sentence and a focus the person moved alone', JSON.stringify(s6175.foreign));
+      say((s6175.stale || {}).offer && /adds Kosmos\u2019s status line/.test((s6175.stale || {}).describedBy || '') && (s6175.stale || {}).stillShows, tag + ' #6175 a row still showing an old reading is offered it too, described by its explainer', JSON.stringify(s6175.stale));
+      say(!(s6175.linked || {}).offer && /Its settings file is a link to a file elsewhere \(or to nothing\), and Kosmos leaves that alone\./.test((s6175.linked || {}).text), tag + ' #6175 a row whose settings file is a link elsewhere says so and is not offered a set-up that is always refused', JSON.stringify(s6175.linked));
+      say(!s6175.ownOffer, tag + ' #6175 a row with the person\'s own status line is not offered it (control)', String(s6175.ownOffer));
+      say((s6175.say1 || []).length === 1 && (s6175.say1 || [])[0] === 'Not set up: this account already has its own status line, so it was left alone.', tag + ' #6175 a refusal is said on the row', JSON.stringify(s6175.say1));
+      say((s6175.say2 || []).length === 1, tag + ' #6175 a second refusal replaces the first', JSON.stringify(s6175.say2));
+      say((s6175.posts || []).length === 3 && (s6175.posts || []).every((d) => d === '/home/.claude-unwired') && !(s6175.after || {}).offer && (s6175.after || {}).line === 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', tag + ' #6175 once set up, the row repaints without the offer and says a reading comes', JSON.stringify(s6175.after));
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
+      await page.close();
     }
     await browser.close();
   }
