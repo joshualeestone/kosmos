@@ -28,7 +28,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_STDERR:-}" ] && printf '%s\\n' "$FAKE_STDERR" >&2
 [ -n "\${FAKE_IGNORE_ALRM:-}" ] && trap '' ALRM   # as gh (Go) does
 [ -n "\${FAKE_PIDFILE:-}" ] && echo $$ > "$FAKE_PIDFILE"
-[ -n "\${FAKE_SLEEP:-}" ] && sleep "$FAKE_SLEEP"
+[ -n "\${FAKE_SLEEP:-}" ] && exec sleep "$FAKE_SLEEP"   # the fake becomes the sleep (an ignored ALRM survives exec), as one gh process
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
@@ -196,7 +196,7 @@ test('#6266: a gh that is not there says so', { skip: systemGh ? 'a gh on /usr/b
   assert.match(none.out, /could not read site main \(owner\/site\) \(gh: gh could not be run \(.*no-gh-here: not found or not executable\)\)/);
 });
 
-test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes the gh group with it', async () => {
+test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a stopped job) takes gh with it', async () => {
   const { spawn } = require('node:child_process');
   const pf = path.join(SANDBOX, 'gh-pid-' + Math.random().toString(36).slice(2));
   const log = path.join(SANDBOX, 'gh-term.log');
@@ -205,17 +205,25 @@ test('#6266: stopping the tick mid-call (launchd unloading it, a Ctrl-C) takes t
     KOSMOS_AUTODEPLOY_STATE: state({ 'last-deployed': OLD }), KOSMOS_SITE_REPO: 'owner/site', KOSMOS_KICK_HEARTBEAT: path.join(SANDBOX, 'term-beat', 'last-tick'),
     FAKE_LOG: log, FAKE_MAIN: MAIN, FAKE_SLEEP: '30', FAKE_IGNORE_ALRM: '1', FAKE_PIDFILE: pf, KOSMOS_KICK_GH_TIMEOUT: '60' } });
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  for (let i = 0; i < 50 && !fs.existsSync(pf); i += 1) await wait(100);
-  const gh = Number(fs.readFileSync(pf, 'utf8').trim());
-  assert.ok(gh > 1, 'PRECONDITION: the fake gh started');
   const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  let gh = 0;
   try {
-    process.kill(-child.pid, 'SIGTERM');   // the tick's own group (bash and perl), as launchd's bootout does; gh is in its own
-    for (let i = 0; i < 60 && alive(-gh); i += 1) await wait(100);
-    assert.equal(alive(-gh), false, 'the gh group outlived the tick');
+    for (let i = 0; i < 50 && !fs.existsSync(pf); i += 1) await wait(100);
+    gh = Number(fs.readFileSync(pf, 'utf8').trim());
+    assert.ok(gh > 1, 'PRECONDITION: the fake gh started');
+    process.kill(-child.pid, 'SIGKILL');   // no handler can run: only gh's place in the group can save it from orphaning
+    for (let i = 0; i < 30 && alive(gh); i += 1) await wait(100);
+    assert.equal(alive(gh), false, 'gh outlived a hard kill of the tick\'s process group');
   } finally {
-    if (alive(-gh)) { try { process.kill(-gh, 'SIGKILL'); } catch { /* gone */ } }   // never leave the fake behind
+    try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ }
+    if (gh > 1 && alive(gh)) { try { process.kill(gh, 'SIGKILL'); } catch { /* gone */ } }   // never leave the fake behind
   }
+});
+
+test('#6266: a gh time limit of 0 (no limit to perl) is refused and the default used', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 3600]]), KOSMOS_KICK_GH_TIMEOUT: '0' }, ['--check']);
+  assert.match(r.out, /check: each gh call is limited to 90 s/);
+  assert.match(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 3600]]), KOSMOS_KICK_GH_TIMEOUT: '7' }, ['--check']).out, /limited to 7 s/, 'CONTROL');
 });
 
 test('#6266: --check says what a tick would decide and dispatches nothing', needJq, () => {
@@ -276,7 +284,10 @@ test('#6266: the installer copies the script, writes a 15-minute launchd job, re
   assert.match(xml, new RegExp('<key>KOSMOS_KICK_HEARTBEAT</key><string>' + esc(dir) + '/last-tick</string>'));
   assert.equal((fs.readFileSync(lc, 'utf8').match(/^bootstrap gui\/\d+ .*kosmos-site-deploy-kick\.plist$/mg) || []).length, 2);
   fs.writeFileSync(path.join(dir, 'kick.sh.new'), 'left by an interrupted install');
-  assert.match(fs.readFileSync(path.join(dir, 'source'), 'utf8'), /^([0-9a-f]{40}(-dirty)?|unknown)\n$/, 'the installed copy records its kosmos commit');
+  // The installed copy records its kosmos commit: a real sha here (this runs in a checkout); "unknown" only without git.
+  const head = spawnSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+  const want = head.status === 0 ? new RegExp('^' + head.stdout.trim() + '(-dirty)?\\n$') : /^unknown\n$/;
+  assert.match(fs.readFileSync(path.join(dir, 'source'), 'utf8'), want);
   const u = spawnSync('/bin/bash', [INSTALL, '--uninstall'], { encoding: 'utf8', env });
   assert.equal(u.status, 0);
   assert.equal(fs.existsSync(plist), false);
