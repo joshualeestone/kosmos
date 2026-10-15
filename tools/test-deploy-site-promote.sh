@@ -613,5 +613,22 @@ run_deploy_real "$S40" "$L40" --promote
 { [ "$RC" = 0 ] && [ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L40/dist/latest.json")" = 0.7.49 ]; } \
   && pass "#6149 repair: restoring the whole set from the good commit deploys it under the real floor (LIVE serves 0.7.49)" || bad "#6149 repair: restored set (rc=$RC) out=$out"
 
+# 41) The doc's USUAL case, on arm 40's site: live now serves the good set, so after another broken set is refused and
+#     the same restore is committed, the pointer equals live: --promote refuses ("equals LIVE") and --publish deploys.
+GOODLIVE41="$(cat "$L40/dist/latest.json")"
+write_ptr "$S40/dist/latest.json" 0.7.38 "$(sha_of "$L40/dist/kosmos-0.7.49-arm64.tar.gz")" kosmos-0.7.38-arm64.tar.gz
+printf 'an installer from before 0.7.42\n' > "$S40/setup"; ( cd "$S40" && shasum -a 256 setup > setup.sha256 )
+git -C "$S40" add -A && git -C "$S40" commit -q -m "a prod set below the floor, again"
+run_deploy_real "$S40" "$L40" --publish
+{ [ "$RC" = 1 ] && has "$out" "setup floor (kosmos#6149)"; } \
+  && pass "#6149 repair (usual case): the broken set is refused, nothing deployed" || bad "#6149 repair usual: broken set (rc=$RC) out=$out"
+git -C "$S40" checkout -q "$GOOD40" -- dist/latest.json setup setup.sha256 && git -C "$S40" commit -q -m "restore the good prod set, again"
+run_deploy_real "$S40" "$L40" --promote
+{ [ "$RC" = 1 ] && has "$out" "already equals LIVE"; } \
+  && pass "#6149 repair (usual case): --promote refuses, the restored pointer equals live" || bad "#6149 repair usual: --promote (rc=$RC) out=$out"
+run_deploy_real "$S40" "$L40" --publish
+{ [ "$RC" = 0 ] && [ "$(cat "$L40/dist/latest.json")" = "$GOODLIVE41" ]; } \
+  && pass "#6149 repair (usual case): --publish deploys the restored set, as the doc says" || bad "#6149 repair usual: --publish (rc=$RC) out=$out"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi
