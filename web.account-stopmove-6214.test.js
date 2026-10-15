@@ -92,7 +92,7 @@ test('#6214: a refusal offers one Stop the move button, and pressing it says the
   assert.equal(box.kids[2], after, 'the button goes right after the sentence, not at the end');
   await b.click();
   assert.equal(box.kids.includes(b), false, 'a stop that worked takes its button away');
-  assert.equal(say.textContent, 'The move is stopping once bo has finished restarting. The agents it had not reached stay on their old account. Try again in a minute.');
+  assert.equal(say.textContent, 'The move is stopping once bo has finished restarting. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.');
 });
 
 test('#6214: with no restart under way the sentence names nobody; a refused press keeps the button to try again', async () => {
@@ -100,7 +100,7 @@ test('#6214: with no restart under way the sentence names nobody; a refused pres
   let box = parent(); let say = box.append(el('p'));
   f.offerStopMove(say, say);
   await box.kids[1].click();
-  assert.equal(say.textContent, 'The move is stopping. The agents it had not reached stay on their old account. Try again in a minute.');
+  assert.equal(say.textContent, 'The move is stopping. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.');
 
   f = load([{ status: 409, body: { outcome: 'refused', because: 'No account move is running.' } }]);
   box = parent(); say = box.append(el('p'));

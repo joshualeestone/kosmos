@@ -130,3 +130,42 @@ test('review 1: the account route does not move an OpenAI agent onto a Qwen fold
   assert.match(r.because, /to move it to Qwen, switch its provider to Qwen/);
   assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before);
 });
+
+/* #6214: a stopped bulk move puts an unreached agent back with create.restoreAccount. It rewrites the job only, with
+   every other field as it is, for any runner; for Qwen the profile record Repair rebuilds from goes back too. */
+test('#6214: a Qwen agent put back after a stopped move is back on its old account in the job AND in the profile', () => {
+  const a = qwenAccount('pbA'), b = qwenAccount('pbB');
+  const name = born('qw-putback', 'codex', a, 'alibaba');
+  store.writeProfile(name, { qwenAccount: a });
+  const moved = create.setAccount(name, b);
+  assert.equal(moved.outcome, 'created', moved.because);
+  assert.equal(store.readProfile(name).qwenAccount, b, 'PRECONDITION: the move recorded B');
+  const back = create.restoreAccount(name, a);
+  assert.equal(back.outcome, 'created', back.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, a);
+  assert.equal(job.runner, 'codex');
+  assert.equal(create.jobProvider(job), 'alibaba', 'still Qwen');
+  assert.equal(store.readProfile(name).qwenAccount, a, 'Repair would rebuild it on the move\'s account');
+});
+
+test('#6214: an OpenAI agent on its default home is put back with no home written, still on codex', () => {
+  const name = born('cx-putback', 'codex', null, 'openai');
+  const restored = create.restoreAccount(name, null);
+  assert.equal(restored.outcome, 'created', restored.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, null, 'a home path was written where the job had none');
+  assert.equal(job.runner, 'codex');
+  assert.equal(restored.account, null, 'no Claude row named for a codex agent');
+});
+
+test('#6214: a Gemini agent is put back on the folder it carried, its runner kept', () => {
+  const dir = nodePath.join(HOME, '.gemini-old');
+  fs.mkdirSync(dir, { recursive: true });
+  const name = born('gm-putback', 'gemini', nodePath.join(HOME, '.gemini-new'), 'google');
+  const restored = create.restoreAccount(name, dir);
+  assert.equal(restored.outcome, 'created', restored.because);
+  const job = create.readJob(name);
+  assert.equal(job.configDir, dir);
+  assert.equal(job.runner, 'gemini');
+});
