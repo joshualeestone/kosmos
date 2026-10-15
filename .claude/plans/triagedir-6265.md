@@ -87,4 +87,11 @@ a pull needs --dir; the note on every run tells them which folder was read.
 - No BLOCKER. WARNING: the own-store hint printed an unquoted path, and the Mac data root holds a space: it now uses
   feedback.shellArg, the one quoting both suggested commands use (PowerShell on Windows, POSIX elsewhere). WARNING: the
   Mac pull could report a written pull as failed if nextLine threw: the line has a fallback, as on Windows. NITs
-  taken: a path starting with - gets ./; the link test skips on Windows (a symlink needs elevated rights there).
+  taken: a path starting with - gets ./. (A win32 skip on the link test was tried and taken out again: it made the
+  file branch on a win32 host, which engine/windows-tests-1777 rightly refuses, and this file is not run on Windows.)
+
+## Review 10 (sonnet): CONVERGED
+- No BLOCKER, CONVENTION or new WARNING (its one WARNING is the stated weakest premise, a stale pull shadowing the own
+  store; already in this ledger four times). NIT taken: samePath's comment back above samePath. Left: the
+  exception-only fallback next line prints the folder unquoted (reached only if nextLine itself throws); samePath on a
+  path that does not exist compares the resolved path (only a missing own store, refused either way).
