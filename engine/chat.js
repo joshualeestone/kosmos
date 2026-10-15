@@ -788,6 +788,117 @@ function pasteWire(target, wire) {
   return { ran: true, spawnFailed: false, status: 0, out: '', err: '', pastedAny };
 }
 
+/* ── #6249: is it still in the input box? ─────────────────────────────────── */
+
+/**
+ * #6249: a line typed into an IDLE Claude Code agent was twice left in its input box, unsent, while the log said
+ * placed: `placed` meant only that tmux took the Enter. So for a Claude Code pane the board now reads the input box
+ * before it pastes (never behind text that is not ours) and after the Enter (still there: one more Enter if it is
+ * only ours, else said as unsubmitted).
+ *
+ * The input box is read from an ANSI capture (`capture-pane -e`), measured on Claude Code 2.1.296 to 2.1.300:
+ *   - the LIVE box is the last line that starts with ❯ and a NO-BREAK SPACE (U+00A0). Prompts already sent, a line
+ *     queued behind a busy turn, and a menu option all draw ❯ with a plain space, and a slash menu's ❯ is indented;
+ *   - it runs down to the next rule line (─), wrapped rows indented;
+ *   - DIM text (SGR 2, until SGR 0 or 22) is not typed text: the placeholder ("Try ..."), the queued hint ("Press up
+ *     to edit queued messages") and suggestions are drawn dim (bulletin ghost-text-needs-ansi-capture);
+ *   - a long box scrolls: only its last rows show, so ours is matched by its tail.
+ * Answers { ok: true, text } (text '' when empty), or { ok: false } when no live box is on screen (a menu, a dialog,
+ * another program): then the caller does what it did before this card.
+ */
+const COMPOSER_RULE = /^─{10,}/;
+function visibleWithoutDim(line) {
+  let out = '';
+  let dim = false;
+  const re = /\x1b\[([0-9;]*)m/g;
+  let at = 0;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    if (!dim) out += line.slice(at, m.index);
+    const codes = m[1] === '' ? ['0'] : m[1].split(';');
+    for (let i = 0; i < codes.length; i += 1) {
+      const c = codes[i];
+      if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
+      if (c === '2') dim = true;
+      else if (c === '0' || c === '22') dim = false;
+    }
+    at = re.lastIndex;
+  }
+  if (!dim) out += line.slice(at);
+  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');   // any other escape
+}
+function composerText(ansi) {
+  if (typeof ansi !== 'string' || !ansi) return { ok: false };
+  const rows = ansi.split('\n').map(visibleWithoutDim);
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
+  if (at < 0) return { ok: false };
+  const parts = [];
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
+  const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
+  return { ok: true, text };
+}
+/* Whitespace is not compared: wrapping puts a row break where the message had a space, or in the middle of a long word. */
+const squash = (s) => String(s == null ? '' : s).replace(/[\s ]+/g, '');
+/* 'empty', 'ours' (what is there is the end of what we pasted, and nothing else), or 'other'. */
+function composerHolds(text, wire) {
+  const t = squash(text);
+  if (!t) return 'empty';
+  return squash(wire).endsWith(t) ? 'ours' : 'other';
+}
+/* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
+function readComposer(target) {
+  const got = tmux(['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
+  if (!got.ran || got.status !== 0) return { ok: false };
+  return composerText(got.out);
+}
+/* Only Claude Code's box is read this way; other runners draw their own and keep today's verdict. */
+const composerReadable = (card) => !!card && String(card.runner || 'claude') === 'claude';
+/* After the Enter, how long the box may take to empty before it is called not sent (measured: up to about a second
+   on Claude Code 2.1.296), how often it is looked at, and the one retry. */
+const SUBMIT_SETTLE_MS = 1500;
+const SUBMIT_LOOK_MS = 150;
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
+const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
+const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
+/**
+ * #6249: after the Enter, watch the box. Yields { wait: ms } for the driver (synchronous or not, as the gap is);
+ * returns { outcome, retried }: 'sent' (it emptied), 'unread' (no live box to read: a menu or the turn's own screen,
+ * so today's verdict stands), 'unsent' (only ours still there after one more Enter), 'other' (something besides ours:
+ * the person's typing or another sender's text, so Enter is NEVER pressed on it).
+ * The one retry is pressed only on a box that holds nothing but the end of what we pasted, on a pane still an agent's.
+ */
+function* submitConfirmSteps(card, target, wire) {
+  let waited = 0;
+  let retried = false;
+  for (;;) {
+    yield { wait: SUBMIT_LOOK_MS };
+    waited += SUBMIT_LOOK_MS;
+    const box = readComposer(target);
+    if (!box.ok) return { outcome: 'unread', retried };
+    const holds = composerHolds(box.text, wire);
+    if (holds === 'empty') return { outcome: 'sent', retried };
+    if (holds === 'other') return { outcome: 'other', retried };
+    if (waited < SUBMIT_SETTLE_MS) continue;
+    if (retried) return { outcome: 'unsent', retried };
+    if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
+    const again = tmux(['send-keys', '-t', target, 'Enter']);
+    if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried };
+    retried = true;
+    waited = 0;
+  }
+}
+/* The verdict a confirm turns a placed one into. */
+function confirmedVerdict(placed, result) {
+  if (!result || result.outcome === 'sent' || result.outcome === 'unread') {
+    return result && result.retried ? { ...placed, enterRetried: true } : placed;
+  }
+  return {
+    ...placed, state: DELIVERY.UNCONFIRMED, queued: false, unsubmitted: true,
+    because: result.outcome === 'other' ? UNSENT_OTHER_BECAUSE : UNSENT_BECAUSE,
+  };
+}
+
 /* ── who may be sent to ──────────────────────────────────────────────────── */
 
 /**
@@ -1824,6 +1935,16 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   if (!still.ok) {
     return { state: DELIVERY.COULD_NOT, because: still.because, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
   }
+  /* #6249: never paste behind text already in a Claude Code agent's input box: an earlier line left unsent, or the
+     person's own typing. Pasted behind it, one Enter would send both as one message (case 1 on the card: a reminder
+     left there at 09:14 and a ruling pasted after it at 09:49). Nothing is typed, so this is COULD_NOT; `inputHeld`
+     says why. A box that cannot be read (a menu, a dialog) is left to the gates above, as before. */
+  if (composerReadable(allowed.card)) {
+    const box = readComposer(target);
+    if (box.ok && box.text) {
+      return { state: DELIVERY.COULD_NOT, because: NOT_OURS_BECAUSE, inputHeld: true, at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT) };
+    }
+  }
 
   // ⚠️ TWO STEPS, in this order, never one: put the text in, THEN a SEPARATE
   // Enter submits it. Folding them would submit each chunk, and an Enter sent
@@ -1957,12 +2078,39 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const isQueued = paneState === status.STATE.WORKING && !paneBackgroundWait && (allowed.card.runner === 'antigravity');
   return { state: DELIVERY.PLACED, queued: isQueued, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
 };
+  /* #6249: `placed` is no longer only "tmux took the Enter": on a Claude Code pane the box is watched until it empties
+     (submitConfirmSteps), and a line left in it is said as UNCONFIRMED with `unsubmitted: true`. Not a fourth state:
+     every sender already treats UNCONFIRMED as "may be there, do not type it again", which is exactly the case. */
+  const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
+  const settle = (v, result) => {
+    const out = confirmedVerdict(v, result);
+    return out.state === v.state ? out : { ...out, paneNote: noteFor(out.state) };
+  };
+  const confirmSync = (v) => {
+    if (!needsConfirm(v)) return v;
+    const steps = submitConfirmSteps(allowed.card, target, wire);
+    let step = steps.next();
+    while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
+    return settle(v, step.value);
+  };
+  const confirmAsync = async (v) => {
+    if (!needsConfirm(v)) return v;
+    const steps = submitConfirmSteps(allowed.card, target, wire);
+    let step = steps.next();
+    while (!step.done) {
+      const ms = step.value.wait;
+      if (pauser) await pauser(ms);
+      else if (!runner) await new Promise((resolve) => setTimeout(resolve, ms));
+      step = steps.next();
+    }
+    return settle(v, step.value);
+  };
   if (asynchronousGap) {
-    if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmit);
-    if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmit);
+    if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmit).then(confirmAsync);
+    if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmit).then(confirmAsync);
   }
   submitGap(gapMs);
-  return finishSubmit();
+  return confirmSync(finishSubmit());
 }
 
 /* #5400: the failover's "your part was moved" notice rides on WHATEVER Kosmos next types into an owed agent. A person
@@ -4296,6 +4444,7 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
+  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS,   // #6249
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
