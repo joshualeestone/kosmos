@@ -27598,7 +27598,7 @@ function offerStopMove(afterEl, sayEl) {
     if (out.ok) {
       b.remove();
       if (sayEl) sayEl.textContent = 'The move is stopping' + (out.waitingFor ? ' once ' + out.waitingFor + ' has finished restarting' : '')
-        + '. The agents it had not reached stay on their old account. Try again in a minute.';
+        + '. Kosmos puts the agents it had not reached back on their old account, and the moving row in Settings, AI Models says how each one ended. Try again once the move has ended.';
     } else {
       b.disabled = false; b.textContent = 'Stop the move';
       if (sayEl) sayEl.textContent = out.said;

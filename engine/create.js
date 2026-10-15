@@ -1722,10 +1722,22 @@ function restoreAccount(name, dir, platform) {
   const job = verdict.job;
   if (!job) return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   const configDir = dir == null || dir === '' ? null : String(dir);
+  /* A Qwen agent's account is also recorded in its profile, which Repair rebuilds from (setQwenAccount, review 6):
+     put that back too, before the job, and restore the record if the job cannot be rewritten. */
+  const qwenJob = job.runner === 'codex' && jobProvider(job) === 'alibaba';
+  let qwenBefore = null;
+  if (qwenJob) {
+    try { qwenBefore = store.readProfile(clean).qwenAccount || null; } catch { qwenBefore = null; }
+    try { store.writeProfile(clean, { qwenAccount: configDir }); }
+    catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
+  }
   const unwritten = rewriteAgentJob(clean, spoken, {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner,
   }, platform);
-  if (unwritten) return unwritten;
+  if (unwritten) {
+    if (qwenJob) { try { store.writeProfile(clean, { qwenAccount: qwenBefore }); } catch { /* the job did not move */ } }
+    return unwritten;
+  }
   /* The account's name for the sentence, where a cheap read has it (Claude's list); otherwise the caller says "their
      old account". */
   let account = null;

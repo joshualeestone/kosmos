@@ -6201,7 +6201,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
      left the suite GREEN. Counting the CONSTANT'S USES closes that direction, and all
      seven sites then go red. */
   for (const [sentence, constant, uses] of [
-    ['that is not a name we can act on', 'REFUSE_NAME', 3],
+    ['that is not a name we can act on', 'REFUSE_NAME', 4],   // +1 (#6214): restoreAccount
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
     ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 6],
   ]) {
