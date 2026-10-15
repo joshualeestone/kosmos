@@ -222,7 +222,7 @@ test('#6249 round 1: the line the board left unsent is sent by the next delivery
   assert.equal(v.state, chat.DELIVERY.COULD_NOT, 'the second line is not typed behind the first');
   assert.equal(v.earlierSubmitted, true);
   assert.equal(v.busy, true, 'busy, so a sender tries again rather than count a failure');
-  assert.match(v.because, /earlier message was still sitting unsent.*pressed Enter on that one.*send this one again/);
+  assert.match(v.because, /earlier message was still sitting unsent.*pressed Enter on that one, so this one was not typed behind it/);
   assert.equal(t2.enters(), 1, 'one Enter, on our own earlier line');
   assert.equal(t2.pasted(), 0);
   // Once only: if it is still there, the next line is refused plainly and nothing more is pressed.
@@ -375,3 +375,29 @@ test('#6249 round 4: the retry reads the box right before its Enter: text typed 
   } finally { board.restore(); }
 });
 
+
+test('#6249 round 6: a person rewriting the board\'s earlier line (cut down to its start) is not sent', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: left there, remembered');
+  const t = arm([box(MSG.slice(0, 50))]);   // the end deleted, to rewrite it
+  const v = chat.deliver('al', 'a later line', roster);
+  assert.equal(t.enters(), 0, 'never an Enter on a half-edited line');
+  assert.equal(v.inputHeld, true);
+  // CONTROL: the whole line still there is sent.
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const t2 = arm([box(MSG)]);
+  assert.equal(chat.deliver('al', 'a later line', roster).earlierSubmitted, true);
+  assert.equal(t2.enters(), 1);
+}));
+
+test('#6249 round 6: a box that cannot be read right before the retry keeps today\'s verdict, not "other text"', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const t = arm([EMPTY, box(MSG), ...Array(LOOKS + 1).fill(box(MSG)), screen('after-turn')]);   // a menu by then
+    const v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 1);
+    assert.equal(v.state, chat.DELIVERY.PLACED);
+    assert.equal(v.unsubmitted, undefined);
+  } finally { board.restore(); }
+});

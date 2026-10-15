@@ -41,7 +41,7 @@ test('#6249 round 5: a person\'s room post refused by text in the box does not s
   const at = PAGE.indexOf("input box already holds text|earlier message was still sitting unsent");
   assert.ok(at > 0, 'the room post sentence does not know the input-box refusal');
   const seg = PAGE.slice(at - 300, at + 300);
-  assert.match(seg, /input box held text that had not been sent, so it was not told yet/);
+  assert.match(seg, /input box held text that had not been sent, so it was not told\./);
   // The pattern matches the engine's own sentences, so the branch is reachable from a real refusal.
   const engine = fs.readFileSync(nodePath.join(__dirname, 'engine', 'chat.js'), 'utf8');
   for (const said of ['its input box already holds text that was not sent', 'an earlier message was still sitting unsent']) {

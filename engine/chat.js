@@ -828,6 +828,14 @@ function composerHolds(text, wire) {
      start. The box was empty before the paste, so text from anyone else is not a run of ours. */
   return w.includes(t) ? 'ours' : 'other';
 }
+/* Round 6: before pressing Enter on a line the board left earlier, the box must still hold ALL of it (or, in a box
+   that scrolled, its whole visible end): a person who cut it down or is rewriting it is not sent. The prefix rule in
+   composerHolds is for a box Claude is still drawing, which cannot be the case for a line left there earlier. */
+function composerIsAll(text, wire) {
+  const t = squash(text);
+  const w = squash(wire);
+  return !!t && (t === w || (t.length >= 40 && w.endsWith(t)));
+}
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
   const got = tmux(['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
@@ -843,7 +851,7 @@ const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empt
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
-const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos pressed Enter on that one, so send this one again in a moment';
+const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its input box; Kosmos pressed Enter on that one, so this one was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
@@ -872,7 +880,8 @@ function* submitConfirmSteps(card, target, wire, mayRetry) {
     if (retried || !mayRetry) return { outcome: 'unsent', retried };
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
     const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
-    if (!now.ok || composerHolds(now.text, wire) !== 'ours') return { outcome: now.ok && !now.text ? 'sent' : 'other', retried };
+    if (!now.ok) return { outcome: 'unread', retried };   // round 6: a box that cannot be read is not someone's text
+    if (composerHolds(now.text, wire) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried };
     retried = true;
@@ -1939,7 +1948,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       const kept = unsentWires.get(target);
       const earlier = kept && Date.now() - kept.at <= UNSENT_REMEMBER_MS ? kept.wire : null;
       if (kept && !earlier) unsentWires.delete(target);
-      if (earlier && composerHolds(box.text, earlier) === 'ours' && verifyAtSend(allowed.card).ok) {
+      if (earlier && composerIsAll(box.text, earlier) && verifyAtSend(allowed.card).ok) {
         unsentWires.delete(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
