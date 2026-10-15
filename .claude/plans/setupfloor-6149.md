@@ -80,10 +80,12 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 deploy, promote or cut that is valid today is refused by this change.
 
 ## Known limits (reviews 9 to 35), stated rather than closed
-- If BOTH channels' pointers (or both installers) are below the floor, every cut refuses (each checks the other
-  channel's pair). The recovery needs no cut: publish-staging-pointer.sh of a build at or above the floor whose
-  tarball is still in dist (0.7.49's are) repairs staging, then a promote repairs prod. The floor only reaches that
-  state through a path around these tools (a hand deploy, a Vercel rollback).
+- If BOTH channels' pointers or both installers are below the floor, every cut refuses (each checks the other
+  channel's pair). Both POINTERS old: publish-staging-pointer.sh of a build at or above the floor whose tarball is
+  still in dist (0.7.49's are) repairs staging, then a promote repairs prod. Both INSTALLERS old: neither tool writes
+  an installer (promote refuses an old one), so commit the current install/setup.sh as setup and setup-staging, with
+  their .sha256 sidecars, by hand and run deploy-site.sh, which checks them (release.sh's refusal hint says so). The
+  floor only reaches either state through a path around these tools (a hand deploy, a Vercel rollback).
 - A NUL byte in a pointer is dropped by command substitution before the ASCII check sees it. The installer's own
   $(curl ...) capture drops it too (so it reads what the check read), and JSON.parse rejects the pointer, so the
   app's update path fails closed rather than installing something old.
@@ -113,8 +115,9 @@ deploy, promote or cut that is valid today is refused by this change.
   cut refuses. It is never served by these tools (site-autodeploy runs deploy-site.sh, which refuses it), but every
   site deploy then stays refused until a fix lands. Checking inside site_commit_on_fresh_main before the push would
   close it; not done here, to keep tools/lib/site-deploy.sh out of this change.
-- release.sh's calls are tested by source (order, presence, and their failure tails), not run: a cut cannot run in
-  the suite.
+- release.sh's export check is tested by source (its order above vercel and its failure tail), not run: a cut
+  cannot reach step 8 in the suite. Step 1a-floor IS run, by two arms of tools.release-gate.test.js through the real
+  release.sh: the version-jump refusal, and a control that passes the own-installer and untouched-pair checks.
 - docs/staging-channel.md's manual fallback commits and pushes the pointer BEFORE its floor check (which runs on the
   export, before vercel): the same class as release.sh's step 7b. Never served (the site does not deploy main by
   itself, and site-autodeploy runs deploy-site.sh, which refuses it), but site deploys stay refused until fixed.
