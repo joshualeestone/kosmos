@@ -118,6 +118,9 @@ function view(m) {
  * #6214: readAccount(name) -> the account folder the agent's job is saved on now (null: the default account; throws
  * when it cannot be read), and putBack(name, dir) -> create.restoreAccount's answer. Both only for a stop (`stop` below):
  * without readAccount, a stop cannot put an agent back and says so.
+ * #6231: leftOnOld(name), optional: an agent left saved on the new account while it still runs on its old one (its
+ * put-back failed, or the move ended before it reached it) is noted as running on its old account (#6174's note), as a
+ * restart that came back partial is. Never throws into the move.
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
 function start(body, deps) {
@@ -231,6 +234,7 @@ function start(body, deps) {
         try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move ended (it ran out of time, or failed) before it reached this agent.' }, deps.RESTARTED); }
         catch { said = { outcome: 'partial', because: 'The move stopped before it reached this agent.' }; }
         a.outcome = said.outcome; a.because = said.because;
+        leftOnOld(deps, a.name);   // #6231: saved on the new account, still running on its old one
       }
       m.done = true; m.finishedAt = Date.now(); m.deps = null;
       running = null;
@@ -248,6 +252,10 @@ function start(body, deps) {
    the one this move wrote; a person who changed it since keeps their change. The read and the write are one synchronous
    block, so nothing in this board process can change it in between (another process writing the job file
    in that moment, such as a hand edit, is not covered). */
+/* #6231: deps.leftOnOld, guarded: the note is not the move. */
+function leftOnOld(deps, name) {
+  try { if (deps && typeof deps.leftOnOld === 'function') deps.leftOnOld(name); } catch { /* the note is not the move */ }
+}
 function putBack(m, a) {
   const deps = m.deps;
   /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
@@ -257,8 +265,11 @@ function putBack(m, a) {
     const who = acct.name || acct.email || acct.label || 'the new account';
     a.outcome = 'partial';
     a.because = `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
+    leftOnOld(deps, a.name);   // #6231: noted as still running on its old account, as a partial restart is
   };
-  if (!a.from || !a.from.ok || !a.to || !a.to.ok || typeof deps.putBack !== 'function') { failed('we could not read which account it was on'); return; }
+  /* #6231: a caller that cannot put an agent back says so in its own words (the board always can). */
+  if (typeof deps.putBack !== 'function') { failed('this Kosmos cannot put an agent back on its old account'); return; }
+  if (!a.from || !a.from.ok || !a.to || !a.to.ok) { failed('we could not read which account it was on'); return; }
   let now;
   try { now = deps.readAccount(a.name); } catch { failed('we could not read its account just now'); return; }
   if (now !== a.to.dir) {
@@ -267,6 +278,10 @@ function putBack(m, a) {
     delete a.account;
     return;
   }
+  /* Linux (#6231): putBack rewrites the unit file and nothing reloads systemd until a restart, as the move's own write
+     does not either. If something else reloads systemd during the move and this agent then crashes and respawns, it
+     comes up on the new account although this says it stays on the old one; that needs a crash during the move. A Mac
+     keeps the definition launchd loaded until the agent's own restart. */
   let back;
   try { back = deps.putBack(a.name, a.from.dir); }
   catch (err) { failed(String((err && err.message) || err)); return; }

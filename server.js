@@ -13793,6 +13793,14 @@ const server = http.createServer(async (req, res) => {
             return job.configDir || null;
           },
           putBack: (n, dir) => create.restoreAccount(n, dir),   // the job only: not setAccount's destination checks
+          /* #6231: an agent left saved on the new account but still running on its old one gets #6174's note, as a
+             partial restart does: its session's start, read without blocking, is the one noted. */
+          leftOnOld: (n) => {
+            const name = create.cleanName(n) || n;
+            sessionStartForAsync(name)
+              .then((s) => noteMoveOutcome(name, removal.OUTCOME.PARTIAL, s, fromDirs.has(n) ? fromDirs.get(n) : null, {}, { after: s }))
+              .catch(() => {});
+          },
         });
         sendJson(res, started.status, started.body);
       })
