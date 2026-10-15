@@ -958,6 +958,44 @@ test('#5636 F7a: a stop note is logged once, and the person\'s words in it stay 
   assert.ok(!JSON.stringify(r).includes('privately'), 'the person\'s dropped words are not in the record');
 });
 
+test('#5636 F7a: a line dropped by Escape leaves no arrival for a later identical line', async () => {
+  const h = harness(['hold', OK('again')]);
+  h.f.feed('long job\r');
+  h.f.feed('same words\r');
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.stop();   // Escape: the waiting "same words" is dropped
+  await within(h.f.drained(), 'the stop never settled');
+  const before = Date.now();
+  h.f.feed('same words\r');
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.filter((l) => l.t === 'same words');
+  assert.equal(w.length, 1, 'only the second copy ran');
+  assert.ok(Date.parse(w[0].arrived) >= before - 5, 'it carries its own arrival, not the dropped copy\'s: ' + w[0].arrived);
+});
+
+test('#5636 F7a: a second stop while the first note runs: its note records an arrival, and what it drops leaves none', async () => {
+  // Turns 0 and 1 hold: the long job, then the first stop's note, still running when the second stop comes.
+  const h = harness((input, i) => ((i === 0 || i === 1) ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed('[message from your operator Josh] stop\r');
+  await within(new Promise((r) => { const t = setInterval(() => { if (h.calls.length === 2) { clearInterval(t); r(); } }, 5); }), 'the first note never started');
+  h.f.feed('[message from your operator Josh] the in-between words\r');
+  await new Promise((r) => setTimeout(r, 30));
+  h.f.feed('[message from your operator Josh] stop\r');   // the second stop: drops the in-between words
+  h.pending[1]({ ok: true, text: 'stopped', because: null });
+  await within(h.f.drained(), 'never drained');
+  const again = h.logged.filter((l) => l.t.startsWith('[Kosmos: your operator asked you to stop again'));
+  assert.equal(again.length, 1, 'the second stop note ran once');
+  assert.equal(typeof again[0].arrived, 'string', 'it carries its arrival');
+  // The dropped in-between message left no arrival behind: the same words sent later carry their own.
+  const before = Date.now();
+  h.f.feed('[message from your operator Josh] the in-between words\r');
+  await within(h.f.drained(), 'never drained');
+  const later = h.logged.filter((l) => l.t === '[message from your operator Josh] the in-between words');
+  assert.equal(later.length, 1);
+  assert.ok(Date.parse(later[0].arrived) >= before - 5, 'it carries its own arrival: ' + later[0].arrived);
+});
+
 test('#5636 F7a: a throwing log stops nothing, and is called once per message', async () => {
   const order = [];
   const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });

@@ -327,7 +327,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
      many). At most DIGEST_MAX go in (review round 1: one argv string); the rest are counted, not sent. */
   function next() {
     const first = queue.shift();
-    lastArrived = takeArrived(first);   // a digest is dated by its first (oldest) post
+    lastArrived = takeArrived(first);   // a digest is dated by its first (oldest) post, even if the cut below leaves it out
     if (kindOf(first) !== 'background') return first;
     const rest = [];
     for (let i = queue.length - 1; i >= 0; i--) if (kindOf(queue[i]) === 'background') rest.unshift(queue.splice(i, 1)[0]);
@@ -428,6 +428,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     queue.length = 0;
     STOP_NOTES.clear();        // housekeeping: a stop note Escape drops is no longer waiting (nothing reads a stale one)
     dmReceivedAt.clear();      // #4612 review: the DMs Escape drops take their arrival times with them
+    arrivedAt.clear();         // #5636 F7a: and every dropped line's, or a later identical line would inherit it
     stopNoteRunning = false;   // a note Escape ends is not "already stopping" for the next stop (review round 5)
     line = '';
     if (dropped) write('\n(' + dropped + (dropped === 1 ? ' waiting message was' : ' waiting messages were') + ' dropped)\n');
@@ -445,7 +446,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     if (stopNoteRunning || queue.some((t) => STOP_NOTES.has(t))) {
       const extra = queue.filter((t) => !STOP_NOTES.has(t));
       queue.splice(0, queue.length, ...queue.filter((t) => STOP_NOTES.has(t)));
-      for (const t of extra) takeReceived(t);   // dropped unread: their receipt times go with them
+      for (const t of extra) { takeReceived(t); takeArrived(t); }   // dropped unread: their receipt times go with them
       write('(already stopping' + (extra.length ? '; ' + extra.length + (extra.length === 1 ? ' more waiting message was' : ' more waiting messages were') + ' dropped' : '') + ')\n');
       /* Review round 3: the person's own messages this drops are named to the agent too, in a short note
          after the first one, never only in the pane (the person reads the DM, not the pane). */
@@ -459,7 +460,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
         if (mine.length) said.push('these messages from them, sent in between, were dropped unread: ' + mine.map((t) => '"' + shortOf(t) + '"').join(', '));
         if (asked) said.push(asked + (asked === 1 ? ' message addressed to you was' : ' messages addressed to you were') + ' dropped too');
         const more = '[Kosmos: your operator asked you to stop again, and ' + said.join('; ') + '.]\n' + text;
-        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); }
+        if (!queue.includes(more)) { STOP_NOTES.add(more); queue.push(more); received(more, at); arrive(more, at); }
       }
       return;
     }
