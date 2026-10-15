@@ -897,6 +897,15 @@ test('#6149: with the version-jump override, a cut below the setup floor is refu
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+test('#6149 CONTROL: with the version-jump override, a cut at or above the setup floor gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.7.49');
+  const r = run_git(dir, '0.7.50', home, site, { env: { KOSMOS_ALLOW_VERSION_JUMP: '1' } });
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-600));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
 /* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,
    because step 3's `yarn test` inherits them and would run part of the suite. Driven through the REAL release.sh,
    which tools/test-cut-testpart-guard-5934.sh (the extracted guard) cannot see. */

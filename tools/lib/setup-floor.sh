@@ -5,8 +5,8 @@
 # touched. Installers from 0.7.42 on can lift it (#4449); 0.7.45 is the first such installer served on prod. So no Mac
 # pointer (dist/latest.json, dist/latest-staging.json) may name a build older than KOSMOS_SETUP_FLOOR (0.7.45,
 # stricter than needed, which fails closed), and no /setup or /setup-staging may be an installer that cannot lift
-# the lock (the marker, below). There is no override: serving such an installer breaks installs, so the fix is a
-# newer build, never a flag.
+# the lock (the marker, below). There is no override for real use (only the test knob below, which only lowers the
+# floor, warns, and release.sh refuses): serving such an installer breaks installs, so the fix is a newer build.
 #
 # Usage: source this file, then call one check; each returns 0 (passes) or 1 (refused, the reason on stderr). The
 # scripts named are the DIRECT callers; tree_ok and site_untouched_ok also run pointer_ok and installer_ok:
