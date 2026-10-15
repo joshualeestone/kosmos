@@ -38,7 +38,7 @@ why), without a person dispatching it.
 - A one-line pointer in chaoskosmos-site's .github/workflows/site-deploy.yml header to this job.
 
 ## Evidence
-- tools.site-deploy-kick-6266.test.js (now 11) with a fake gh that checks every call's exact arguments and applies the
+- tools.site-deploy-kick-6266.test.js (now 15) with a fake gh that checks every call's exact arguments and applies the
   script's own --jq filter with jq, and a sandboxed state folder: one dispatch when behind;
   none when deployed, parked, paused or a run is active (quiet); a first run asks; every unreadable input exits 1
   with a line and dispatches nothing; the installer writes a valid plist (plutil on macOS), copies the script exactly,
@@ -155,3 +155,12 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   2 s grace before KILL), "timed out after 3 s" in the line, no gh left running. The fake gh now ignores SIGALRM as Go
   does, and the test asserts the call returns in under 10 s while the fake sleeps 20. NIT taken: a gh that is not
   there says "no gh found". Left: the -dirty mark covers the script itself, not the installer or a stale checkout.
+
+## Review 13 (opus), and what changed
+- No BLOCKER. WARNING: the wrapper copied only half of the deploy job's grouped_timeout: gh in its own group was out
+  of reach of launchd's bootout and of a Ctrl-C, so an uninstall or reinstall mid-call could leave a gh workflow run
+  dispatching afterwards. Now the full shape: TERM/INT/HUP handlers before the fork pass the signal to the gh group,
+  the group is set from both sides (test: TERM the tick's group, the fake gh's group is gone; mutant without the
+  handler red). NITs taken: the alarm is cancelled once gh is reaped; KOSMOS_KICK_GH_TIMEOUT is validated (never 0)
+  and listed in the header; why() names 125, 126 and 127 honestly; the no-gh case is its own test; this plan's test
+  count (15); a long header line rewrapped.
