@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: company-policy-retry-6240
-diff_hash: bb54d53b8c07af853278f6a3c727fb8e7f0b16f0cef1908a84bd2c93640a66b0
+diff_hash: 374ad9637b1dc4bbd5ded0a4ee2c2ae5eea77fb82eea11b0bb2b79c50d12c504
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-15T22:37:55Z
-iterations: 2
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
-**Converged:** Yes
-**Total findings:** 8 (0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 6 NITs)
-**Fixed:** 5 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Iterations:** 3 (2 blind-agent passes, then 1 PM review by Liu Kang m5884)
+**Converged:** Yes (blind loop converged at iteration 2; iteration 3 is the PM review, one finding fixed)
+**Total findings:** 9 (0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 6 NITs)
+**Fixed:** 6 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
 6.0 baseline: full suite clean (first run failed on pure contention from non-suite load; the three reds all passed in isolation, a clean rerun recorded clean). 6j final validation on HEAD 3d2d176a0: full suite PASSED, tests 20995 / pass 20743 / fail 0 / cancelled 0 / skipped 252.
 
@@ -40,6 +40,17 @@ converged: true
 - [NIT] server.js companyPolicyClearOwed swallows a companyEntry() throw as false (fail-closed) --> DEFERRED (defensive, harmless, no change needed)
 - [NIT] server.js the first tick after an ending retries immediately, in addition to the ending's own sync --> DEFERRED (benign/desirable, still within the hourly bound)
 **Converged** -- no new actionable findings; convergence witnessed by two models (sonnet, opus).
+
+#### Iteration 3 (PM review, Liu Kang m5884 -- not a blind-agent pass)
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 0 NITs
+- [WARNING] server.js companyPolicyRetryIfOwed -- a CLOCK SET BACK held the retry off for the full set-back
+  (`now < ORG_POLICY_RETRY_AT`), unlike orgEnrollRefresh which treats a clock set back before the last ask as due
+  (#6232 review 3) --> FIXED (8d937962c): block only when now is genuinely inside the hour since the last retry
+  (`now >= lastRetryAt && now < ORG_POLICY_RETRY_AT`); added a test arm (a clock set back a day before the last
+  retry must retry, not be held off).
+**Validation of this confined edit (per Liu m5884, no new full suite needed):** server.orgenroll-5531.test.js alone
+= 39 pass / 0 fail; the PR's CI is the full run. (The challenge-loop 6j full suite passed clean on the pre-fix
+converged HEAD 3d2d176a0: 20995 tests, 0 fail.)
 
 ### Final Ledger
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
