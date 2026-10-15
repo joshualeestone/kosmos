@@ -30,5 +30,10 @@ getReader or bodyUsed in the page; a clone tees the body, the original stays rea
 buffered once more, and a refusal that streamed without end would be buffered whole; the board's refusals are small
 JSON.
 
+## CI
+The scope line puts the check in the PR CI job for any web/index.html change, on a Linux runner, where neither arm
+was measured before this PR (review 3). This PR's own CI is that measurement: it changes web/index.html, so the
+check runs there before merge, and a red CONTROL blocks the merge rather than reaching main.
+
 ## Not changed
 community/ready was the one request open without refusals; the card says it may be held by design. Left alone.
