@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: bulkmove-6173
 diff_hash: abb766db4edbc11b249c99cf62beabf2908a667daa69fbce2426ac8c757710ea
-validation: passed (full tools/run-tests.sh on e4daf1d7c after the rebase onto main 3db9fd64e: rc 0, node 20505 pass 0 fail 252 skipped, shell 236/236; earlier on 596440e34 the same, and browser check render-account-usage-6108 432 PASS 0 FAIL)
+validation: passed (full tools/run-tests.sh on e4daf1d7c after the rebase onto main 3db9fd64e: rc 0, node 20505 pass 0 fail 252 skipped, shell 236/236; earlier, before the leftover fix and rebase, on 596440e34: rc 0, node 20444 pass 0 fail, shell 236/236; browser check render-account-usage-6108 432 PASS 0 FAIL)
 subdir_audit: passed
 timestamp: 2026-10-15T06:51:19Z
 iterations: 7
