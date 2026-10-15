@@ -644,3 +644,25 @@ test('#5003: the win32 arm reads a stopped leftover\'s own spelling from its fol
   if (!fs.existsSync(create.workerDir('ida5003'))) { t.skip('this disk tells case apart'); return; }
   assert.equal(win.name || 'refused: ' + win.because, 'Ida5003');
 });
+
+test('#6173 (Liu Kang m5550): an agent a move holds is not a leftover in its restart gap: plan and delete both refuse, and nothing is moved', () => {
+  /* The gap: the move's restart has closed the agent's window and not yet loaded its new job, so there is no live
+     session and the files and job file are all there, exactly what a leftover looks like. */
+  leftoverAgent('midmove');
+  quiet();
+  remove.holdForMove(['midmove']);
+  try {
+    const p = mac.plan('midmove');
+    assert.equal(p.ok, false, 'the plan offered to delete an agent a move holds');
+    assert.match(p.because, /is part of an account move that has not finished with it yet, so we left it alone/);
+    const done = mac.del('midmove');
+    assert.equal(done.outcome, leftover.OUTCOME.REFUSED, 'a delete ran on an agent a move holds');
+    assert.match(done.because, /is part of an account move that has not finished with it yet/);
+    assert.ok(fs.existsSync(nodePath.join(create.workerDir('midmove'), 'CLAUDE.md')), 'its folder was moved');
+    assert.ok(fs.existsSync(create.plistPath('midmove')), 'its job file was moved');
+    assert.deepEqual(calls, [], 'a command ran for an agent a move holds');
+    assert.equal(fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH).filter((n) => n.startsWith('midmove')).length, 0, 'it reached the Trash');
+  } finally { remove.releaseFromMove('midmove'); }
+  /* The control: released, the same leftover is offered (the refusal was the hold, not the fixture). */
+  assert.equal(mac.plan('midmove').ok, true, 'the control: released, the leftover is not offered');
+});
