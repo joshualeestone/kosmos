@@ -20,7 +20,8 @@ test('#6256 item 6: a dim suggestion that wraps onto a second row is not read as
     '  ? for shortcuts',
   ].join('\n');
   assert.deepEqual(status.composerText(screen), { ok: true, text: '' });
-  // CONTROL: the same rows with the dim escape removed are typed text, so the empty read above is the carried dim.
+  // CONTROL: the same rows with the dim escape removed are typed text, so this reader does read text on these rows.
+  // (The carry itself is pinned by the assertion above: without it the second row reads as typed text.)
   assert.equal(status.composerText(screen.replace(ESC + '[2m', '')).text, 'Try "write a test for the parser and run it"');
 });
 

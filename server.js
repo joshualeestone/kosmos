@@ -23295,7 +23295,7 @@ function start(port = PORT) {
             isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
             boxEmpty: chat.inputBoxEmpty,   // #6256 item 1: posts held by text in a Claude agent's box, once it empties
           }).then((done) => {
-            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3
+            for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, d.why === 'input' ? 'once its input box was empty' : 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3; #6256
           }).catch(() => { /* the posts stay held for the next minute */ });
         } catch { /* the posts stay held for the next minute */ }
         /* #5805 slice 2a: `kosmos msg` messages kept while their recipient was out of usage are typed, in order, once
