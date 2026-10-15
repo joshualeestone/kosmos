@@ -208,9 +208,9 @@ its export first). Nor is a redirect or rewrite in the site's `vercel.json`: the
 exists today; `/dist/latest-win.json` is already redirected). Nor is site-autodeploy's `KOSMOS_AUTODEPLOY_DEPLOY`
 test seam, which runs a given command instead of deploy-site.sh: never set it on a real autodeploy. Never use any of
 them for the site once 0.7.49 is out: roll back only to a build at or above 0.7.45, by committing that pointer and
-its installer and running deploy-site.sh, which checks them; below that, cut a newer build instead. The way out for
-a person an old installer reached anyway is `chmod -R u+w` on the app folder (`~/.local/share/kosmos/app`) and the
-install line again, which nothing on their screen tells them.
+its installer and running `deploy-site.sh --promote` (without a flag it is a dry run), which checks them; below
+that, cut a newer build instead. The way out for a person an old installer reached anyway is `chmod -R u+w` on the
+app folder (`~/.local/share/kosmos/app`) and the install line again, which nothing on their screen tells them.
 
 ## Windows (the same model, two more pointers)
 
