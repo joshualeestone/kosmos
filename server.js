@@ -23676,7 +23676,7 @@ function start(port = PORT) {
       if (missedTellTick && typeof missedTellTick.unref === 'function') missedTellTick.unref();
       /* kosmos#6209 part 3: an owner that keeps posting in a held task's project room is asked, once per hold, whether the
          hold still stands (engine/holdstale.js holds the rules and is tested there). The same gates as the missed-run tell;
-         the message log is read only when some open task is on hold, so a board with none costs one projects read a minute. */
+         the message log is read only when some open task is on hold and Kosmos may type into agents. */
       const HOLD_STALE_BOOK = new Map();
       const HOLD_STALE_IDLE = new Map();
       const holdStaleTick = setInterval(() => {
@@ -23684,10 +23684,12 @@ function start(port = PORT) {
           const projs = projects.readAll();
           const anyHeld = projs.some((p) => p && !p.archived && Array.isArray(p.tasks) && p.tasks.some((t) => tasks.isOnHold(t) && !tasks.progressOf(t).closed));
           if (!anyHeld) return;
+          // Nothing is told while Kosmos may not type into agents, so the log is not read then either.
+          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
+          if (!allowed) return;
           const rows = messages.readLog();
           const owed = holdstale.owed(projs, rows);
           if (!owed.length) return;
-          const allowed = agentnudge.nudgeEnabled(liveExecution.liveExecutionAllowed(), process.env);
           const r = allowed && owed.some((x) => !x.swarmOff && x.members.includes(x.owner)) ? safeRoster() : null;
           holdstale.sweep({
             projects: projs, rows, items: owed, roster: r, now: Date.now(),

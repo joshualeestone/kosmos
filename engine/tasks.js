@@ -1833,8 +1833,9 @@ function lastActivityOf(projectId, task) {
       try { events = taskchat.read(projectId, task.number) || []; } catch { events = []; }
       /* kosmos#4787 slice 3 (review 5): Kosmos's own note that a run was MISSED is not activity: a dead job must not sort
          as freshly active under "Quietest first". #5842: nor is its note that a kept message was dropped (nothing
-         happened for a day); one sent is, since work went out to an agent (confirmed or not). */
-      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped'))) consider(e && e.at);
+         happened for a day); one sent is, since work went out to an agent (confirmed or not). #6209: nor is its note that
+         an owner was asked about a held task's hold (the task did not move). */
+      for (const e of events) if (!(e && (e.kind === 'missed' || e.kind === 'kept-dropped' || e.kind === 'hold-stale'))) consider(e && e.at);
     }
   }
   return newest;
