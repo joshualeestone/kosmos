@@ -219,7 +219,7 @@ test('#6249 round 1 (reworked in round 7): the line the board left unsent is sen
   assert.equal(t1.enters(), 1);
   // Still there when the next line comes: Enter on it, the box empties, then the next line goes as usual.
   const NEXT = 'a second line for later, long enough to read';
-  const t2 = arm([box(MSG), EMPTY, box(NEXT), EMPTY]);
+  const t2 = arm([box(MSG), EMPTY, EMPTY, box(NEXT), EMPTY]);
   const v = chat.deliver('al', NEXT, roster);
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
   assert.equal(v.earlierSubmitted, true);
@@ -366,7 +366,7 @@ test('#6249 round 7: on the automatic path the earlier line goes first and the n
     arm([EMPTY, box(MSG)]);
     chat.deliver('al', MSG, board.agents);   // left there, remembered
     const POST = 'a room post that is long enough to read';
-    const t = arm([box(MSG), EMPTY, box(POST), EMPTY]);
+    const t = arm([box(MSG), EMPTY, EMPTY, box(POST), EMPTY]);
     const v = await chat.deliverAutomaticAsync('al', POST, board.agents);
     assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
     assert.equal(v.earlierSubmitted, true);
@@ -402,7 +402,7 @@ test('#6249 round 6: a person rewriting the board\'s earlier line (cut down to i
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
   const LATER = 'a later line that is long enough to read';
-  const t2 = arm([box(MSG), EMPTY, box(LATER), EMPTY]);
+  const t2 = arm([box(MSG), EMPTY, EMPTY, box(LATER), EMPTY]);
   assert.equal(chat.deliver('al', LATER, roster).earlierSubmitted, true);
   assert.equal(t2.enters(), 2);
 }));
@@ -448,3 +448,14 @@ test('#6249 round 9: ours went and the person started typing within a look: plac
     assert.equal(u.unsubmitted, true);
   } finally { board.restore(); }
 });
+
+test('#6249 round 10: after the earlier line goes, a box someone has started typing in is not pasted behind', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  // The watch reads the person's new words (none of our ending): the earlier line went. The box is read again: theirs.
+  const t = arm([box(MSG), box('can you also look at'), box('can you also look at')]);
+  const v = chat.deliver('al', 'a later line that is long enough', roster);
+  assert.equal(t.enters(), 1, 'only the Enter on our own earlier line');
+  assert.equal(t.pasted(), 0, 'nothing pasted behind the person\'s words');
+  assert.equal(v.inputHeld, true);
+}));
