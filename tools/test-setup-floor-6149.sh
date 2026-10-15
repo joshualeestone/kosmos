@@ -203,6 +203,14 @@ i1="$(live 'kosmos_setup_floor_installer_ok "this cut.s install/setup.sh" "\$REP
 s2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$i1" ] && [ -n "$s2" ] && [ "$i1" -lt "$s2" ]; } && pass "release.sh checks the cut's own installer (line $i1) before step 2" || bad "release.sh own-installer check line '${i1:-none}'"
 printf 'an installer from before 0.7.45\n' > "$T/old-installer"
+# GREP_OPTIONS=-v inverts macOS grep; none of the checks may be decided by it (review 33 measured an old /setup served).
+printf 'x KOSMOS_READONLY_APP\n' > "$T/new-installer"
+out="$(GREP_OPTIONS=-v bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/old-installer" 2>&1)" \
+  && bad "GREP_OPTIONS=-v let an installer without the marker pass" || pass "GREP_OPTIONS=-v does not let an installer without the marker pass"
+GREP_OPTIONS=-v bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/new-installer" 2>/dev/null \
+  && pass "CONTROL: under GREP_OPTIONS=-v a current installer still passes" || bad "GREP_OPTIONS=-v refused a current installer"
+GREP_OPTIONS=-v bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" '{"version":"0.6.1","version":"0.7.49","artifact":"kosmos-0.7.49-arm64.tar.gz","sha256":"bb"}' 2>/dev/null \
+  && bad "GREP_OPTIONS=-v let a doubled version key pass" || pass "GREP_OPTIONS=-v does not let a doubled version key pass"
 for low in 0.7.44 0.0.0; do
   out="$(KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=$low bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/old-installer" 2>&1)" \
     && bad "under a floor lowered to $low an installer without the marker passed" \
