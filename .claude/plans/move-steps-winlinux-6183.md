@@ -135,7 +135,9 @@ changes, I ping Sonya to rebase.
   diagnose). Sync acts unchanged (removeInner + other callers).
 - `engine/linuxwiring-4918.test.js`: async-proof (every systemctl via the async
   runner, none via the sync one, board keeps turning) + sync control (board held,
-  a timer never fires). All 32 pass; linuxjob/linux-parity/remove suites green.
+  a timer never fires). All 36 pass (the #6183 coverage grew across the challenge-loop: the async-routing
+  proof and sync control, dry-run-as-loaded, failed-reload, sandbox-yields-nothing, and sync/step argv+return
+  parity); linuxjob/linux-parity/remove suites green.
 
 **Windows half: designed, NOT yet built — a separate PR.** Why split: the win32
 executor migration has real blast radius that deserves its own focused review,
