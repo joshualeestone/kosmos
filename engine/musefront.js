@@ -167,6 +167,36 @@ function shortOf(text) {
   return one.length > 60 ? one.slice(0, 57) + '...' : one;
 }
 
+/* #5636 F7a and #6065 N1: one line per message this front runs into Muse, in the agent's own folder
+   (.kosmos/muse-turns.log), so a report from a Meta seat can say what reached the agent and when. Both findings were
+   Meta-only and left no trace on the board: a community reminder the board logged once a day arriving again, and long
+   room posts arriving shortened. Each line records the time, the kind (operator, background, other), the length, the
+   community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
+   spilled to a file (engine/messages.js spillLine), its word count. The opening words are kept for every kind except
+   the person's own messages, whose words stay out of the log. Bounded: past TURN_LOG_MAX the file moves to a .1 copy.
+   It never throws: a log that cannot be written must not stop the turn. */
+const TURN_LOG_MAX = 256 * 1024;
+const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
+const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
+function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
+function turnRecord(text, at) {
+  const t = String(text);
+  const kind = kindOf(t);
+  const sent = SENT_RE.exec(t);
+  const spill = SPILL_RE.exec(t);
+  const rec = { at, kind, chars: Array.from(t).length, sent: sent ? sent[1] : null, spillWords: spill ? Number(spill[1]) : null };
+  if (kind !== 'operator') rec.opening = shortOf(t);
+  return rec;
+}
+function logTurn(workspace, text, at) {
+  try {
+    const file = turnLogFile(workspace);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    try { if (fs.statSync(file).size > TURN_LOG_MAX) fs.renameSync(file, file + '.1'); } catch { /* no file yet */ }
+    fs.appendFileSync(file, JSON.stringify(turnRecord(text, at)) + '\n', { mode: 0o600 });
+  } catch { /* the turn runs whatever the log does */ }
+}
+
 /** While a turn runs, working is said again this often, so a long turn never reads as stale on the board. */
 const WORKING_EVERY_MS = 50 * 1000;   // under the report bridge's 60 s throttle, so no beat is dropped
 /* #4569 review round 1: the most background posts one digest turn carries. */
@@ -201,7 +231,7 @@ const DIGEST_MAX_CHARS = 32 * 1024;
  * Returns { feed(bytes), stop(), drained() }. feed takes raw input; stop ends the running turn and drops
  * the waiting ones; drained resolves once no turn is queued or running (tests only).
  */
-function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS }) {
+function createFront({ workspace, sessionId, runTurn, report, write, workingEveryMs = WORKING_EVERY_MS, busyRetryMs = BUSY_RETRY_MS, noteEveryMs = NOTE_EVERY_MS, log = logTurn }) {
   let line = '';
   const queue = [];
   /* #4612 review: when each queued copy of the person's DM reached this front, oldest first per text (the same words
@@ -281,6 +311,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     try {
       while (queue.length) {
         const prompt = next();
+        log(workspace, prompt, new Date().toISOString());   // #5636 F7a / #6065 N1: what reached the agent, and when
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
         // #4612: an answer to the person's DM still pending rides on this turn's working reports.
@@ -515,4 +546,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { turnRecord, logTurn, turnLogFile, TURN_LOG_MAX, createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };

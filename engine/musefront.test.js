@@ -28,8 +28,9 @@ function harness(answers, opts = {}) {
     }
     return Promise.resolve(a);
   };
-  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, ...opts });
-  return { f, calls, reports, out: () => out, pending, stops };
+  const logged = [];   // #5636 F7a / #6065 N1: kept in memory, so no test writes a log into a real folder
+  const f = front.createFront({ workspace: '/w', sessionId: '11111111-2222-4333-8444-555555555555', runTurn, report: (s) => reports.push(s), write: (t) => { out += t; }, log: (w, t, at) => logged.push({ w, t, at }), ...opts });
+  return { f, calls, reports, out: () => out, pending, stops, logged };
 }
 const OK = (text) => ({ ok: true, text, because: null });
 /* A turn that is never stopped never ends, so a broken Stop must fail here rather than hang the file. */
@@ -876,4 +877,62 @@ test('#4603 R7: the front keeps the model while the turn still runs, so whoami c
   assert.equal(kept(), 'muse-spark-7', 'the model was not kept until the turn ended');
   h.pending[0]({ ok: true, text: 'done', model: 'muse-spark-7' });
   await h.f.drained();
+});
+
+// ---- #5636 F7a / #6065 N1: one log line per message the front runs into Muse
+const os = require('node:os');
+const fsx = require('node:fs');
+const pathx = require('node:path');
+
+test('#5636 F7a: every message the front runs is handed to the log, once, before its turn', async () => {
+  const h = harness([OK('one'), OK('two')]);
+  h.f.feed('first\r');
+  h.f.feed('second\r');
+  await within(h.f.drained(), 'the turns never finished');
+  assert.deepEqual(h.logged.map((l) => [l.w, l.t]), [['/w', 'first'], ['/w', 'second']]);
+  assert.ok(h.logged.every((l) => /^\d{4}-\d{2}-\d{2}T/.test(l.at)), 'each line is dated');
+});
+
+test('#5636 F7a: a community reminder records its Sent stamp; an unstamped one records none', () => {
+  const ct = require('./communityturn');
+  const stamped = ct.stamped(ct.TURN_TEXT, new Date(2026, 9, 15, 9, 41).getTime());
+  const r = front.turnRecord(stamped, 'T');
+  assert.equal(r.sent, '2026-10-15 09:41');
+  assert.equal(r.kind, 'other');
+  assert.match(r.opening, /^Kosmos here: your last post in the Kosmos\+ community/);
+  // CONTROL: the same words without a stamp (an older build, or a second sender) record no Sent time.
+  assert.equal(front.turnRecord(ct.TURN_TEXT, 'T').sent, null);
+});
+
+test('#6065 N1: a spilled room post records its word count; a whole one records none', () => {
+  const spilled = '[background from your colleague Mona in room x] The plan is ready \u2026 (long message, 2400 words; the full text is in your own folder at /a/Inbox/1.txt)';
+  const r = front.turnRecord(spilled, 'T');
+  assert.equal(r.spillWords, 2400);
+  assert.equal(r.kind, 'background');
+  assert.equal(r.chars, Array.from(spilled).length);
+  assert.equal(front.turnRecord('[background from your colleague Mona in room x] short', 'T').spillWords, null, 'control');
+});
+
+test('#5636 F7a: the person\'s own words stay out of the log', () => {
+  const r = front.turnRecord('[message from your operator Josh] my private plan for the launch', 'T');
+  assert.equal(r.kind, 'operator');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('private plan'));
+});
+
+test('#5636 F7a: logTurn appends JSON lines in .kosmos, moves a full file aside, and never throws', () => {
+  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
+  try {
+    front.logTurn(ws, 'hello', 'A');
+    front.logTurn(ws, 'again', 'B');
+    const file = front.turnLogFile(ws);
+    const lines = fsx.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.deepEqual(lines.map((l) => [l.at, l.opening]), [['A', 'hello'], ['B', 'again']]);
+    fsx.writeFileSync(file, 'x'.repeat(front.TURN_LOG_MAX + 1));
+    front.logTurn(ws, 'after', 'C');
+    assert.ok(fsx.existsSync(file + '.1'), 'the full file moved aside');
+    assert.equal(JSON.parse(fsx.readFileSync(file, 'utf8')).at, 'C');
+    // A folder that cannot be written: no throw.
+    assert.doesNotThrow(() => front.logTurn(pathx.join(file, 'not-a-dir'), 'x', 'D'));
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
