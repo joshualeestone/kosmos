@@ -7,8 +7,9 @@
  *
  * Who is told, all of:
  *  - its newest summaries/YYYY-MM-DD-HH.md (projectview.summaryFreshness, in its own folder, create.workerDir) is older
- *    than the rhythm (SUMMARY_RHYTHM_HOURS), AND it has REPORTED more than the rhythm of work since that summary
- *    (workedSinceMs: positive evidence only; a missing or cut history, or no known state at the summary, is not work).
+ *    than the rhythm (SUMMARY_RHYTHM_HOURS), AND it has REPORTED more than the rhythm of `working` since that summary
+ *    (workedSinceMs: positive evidence only; a missing history, no known state at the summary, or a wait is not work;
+ *    a history cut short after the summary counts as a lower bound).
  *    An idle agent is not expected to write, so a stale file alone is not owed. Project status also re-labels a stale
  *    summary quiet or idle (projectview's quietExcused, idleExcused); this does not, by decision (see the plan).
  *    An agent with no summary file at all is not told (a role without the rhythm never writes one);
@@ -38,7 +39,8 @@ function filePrompted() {
   try { const v = JSON.parse(fs.readFileSync(file, 'utf8')); if (v && typeof v === 'object' && !Array.isArray(v)) map = v; } catch { map = {}; }
   return {
     get: (session) => (typeof map[session] === 'string' ? map[session] : null),
-    /* An entry is dropped only when its agent is off the board AND it is over PRUNE_MS old. False when the write failed. */
+    /* An entry is dropped only when its agent is off the board AND its summary was written over PRUNE_MS ago (the stored
+       time is the summary's). False when the write failed. */
     set: (session, at, live, now) => {
       const next = {};
       const t = Number.isFinite(now) ? now : Date.now();
@@ -69,9 +71,15 @@ function filePrompted() {
 function workedSinceMs(rows, wroteAt, now) {
   if (!Array.isArray(rows) || !Number.isFinite(wroteAt) || !Number.isFinite(now) || wroteAt > now) return null;
   const read = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string' && r.by !== 'operator');
-  if (rows.truncated === true && (!read.length || read[0].at > wroteAt)) return null;
+  /* Review 3: a history cut short (selfreport keeps its last 64 KB, about 10 to 20 hours of a busy agent) is NOT
+     unknown when all of it is after the summary: the work counted from its first row (start state unknown, so not busy)
+     is a lower bound, and a lower bound over the rhythm is positive evidence. Returning null there silenced exactly the
+     days-stale summary this exists for. A cut history with no rows is nothing to count. */
+  if (rows.truncated === true && !read.length) return null;
   const valid = read.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
-  const busy = (st) => st !== null && st !== 'idle' && st !== 'started' && st !== 'stopped';
+  // Review 3: only `working` is work here. A wait (blocked, needs_you, an automatic provider block or permission prompt)
+  // is not, unlike workExcused, which errs toward stale for a status line; this line is typed into the agent.
+  const busy = (st) => st === 'working';
   // At least one busy report AFTER the summary: a state carried from before it (a crash, a board that was down) is not
   // evidence of work since.
   if (!valid.some((r) => r.at > wroteAt && busy(r.state))) return 0;

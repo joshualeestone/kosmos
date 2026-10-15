@@ -101,6 +101,10 @@ test('#6209 part 2: a current summary, no summary at all, a working agent and a 
   const histories = { [fresh.sessionName]: worked, [none.sessionName]: worked, [working.sessionName]: worked, [codex.sessionName]: worked };
   const { sent } = run([fresh, none, working, { ...codex, runner: 'codex' }], folders, histories);
   assert.deepEqual(sent, [], 'one of them was told: ' + JSON.stringify(sent.map((x) => x.s)));
+  // CONTROL (review 3): the same history and a stale folder on an idle Claude card IS told, so the inputs can reach a nudge.
+  const [ctl] = cardsFor([['sumctl', 'idle']]);
+  const c = run([ctl], { [ctl.sessionName]: folderWith('sumctl', 6 * H) }, { [ctl.sessionName]: [{ state: 'working', at: NOW - 9 * H }, { state: 'working', at: NOW - H }] });
+  assert.equal(c.sent.length, 1, 'CONTROL: the shared inputs never produce a nudge');
 });
 
 test('#6209 part 2: a new summary that goes stale later is a new stretch and is told again; an open screen types nothing', () => {
@@ -109,7 +113,7 @@ test('#6209 part 2: a new summary that goes stale later is a new stretch and is 
   const folder = folderWith('sumagain', 6 * H);
   const hist = { [a.sessionName]: [{ state: 'working', at: NOW - 30 * H }, { state: 'working', at: NOW - H }, { state: 'working', at: NOW + H }, { state: 'working', at: NOW + 5 * H }] };
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted }).sent.length, 1);
-  // A newer summary, itself stale a day later: told again.
+  // A newer summary, itself stale six hours later: told again.
   folderWith('sumagain', 0, '2026-10-15-12.md');
   const later = NOW + 6 * H;
   assert.equal(run([a], { [a.sessionName]: folder }, hist, { prompted, now: later }).sent.length, 1, 'a new stale summary was not told');
@@ -179,10 +183,15 @@ test('#6209 review 2: a last busy report does not run to now; a cut history is u
   // Worked an hour after the summary, then the turn was interrupted (no Stop): only the reported hour counts, not 6 days.
   const interrupted = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'working', at: W0 + 2 * H }];
   assert.equal(nudge.workedSinceMs(interrupted, W0, NOW), H, 'the last busy report ran to now');
-  // A history cut short after the summary: unknown.
-  const cut = [{ state: 'working', at: W0 + H }, { state: 'working', at: W0 + 9 * H }];
+  // Review 3: a history cut short after the summary is a lower bound, not unknown (a days-stale summary must be told).
+  const cut = [{ state: 'working', at: W0 + 5 * 24 * H }, { state: 'working', at: W0 + 5 * 24 * H + 10 * H }];
   cut.truncated = true;
-  assert.equal(nudge.workedSinceMs(cut, W0, NOW), null, 'a cut history was read as known');
+  assert.equal(nudge.workedSinceMs(cut, W0, NOW), 10 * H, 'a cut history was read as unknown, silencing a stale summary');
+  const empty = []; empty.truncated = true;
+  assert.equal(nudge.workedSinceMs(empty, W0, NOW), null);
+  // Review 3: a wait is not work: a provider block overnight, then a prompt in the morning, is not 12 hours of work.
+  const waited = [{ state: 'idle', at: W0 - H }, { state: 'blocked', at: W0 + H }, { state: 'working', at: W0 + 13 * H }, { state: 'idle', at: W0 + 13 * H + 60000 }];
+  assert.equal(nudge.workedSinceMs(waited, W0, NOW), 60000, 'a wait was counted as work');
   // An operator clear in the middle is not the agent's report (as projectview.workExcused).
   const op = [{ state: 'idle', at: W0 - H }, { state: 'working', at: W0 + H }, { state: 'idle', at: W0 + 2 * H, by: 'operator' }, { state: 'idle', at: W0 + 6 * H }];
   assert.equal(nudge.workedSinceMs(op, W0, NOW), 5 * H, 'an operator clear ended the agent\'s reported work');

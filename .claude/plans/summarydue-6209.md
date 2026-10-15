@@ -44,3 +44,12 @@ told, and one whose reports overstate work is told early.
   costs at most the time since its last call. Tested (counting the trailing stretch fails it, measured).
 - Tests added: a cut history is unknown; an operator clear is not the agent's report (as workExcused); a held delivery
   spends no try; the tick reads nothing when live execution is off. Module header names the quiet/idle gap.
+
+## Review 3 (opus), and what changed
+- BLOCKER, fixed: a history cut short after the summary returned unknown, but selfreport keeps only its last 64 KB
+  (about 10 to 20 hours of a busy agent), so a days-stale summary on a working agent (the reported case) was never
+  told. The cut tail now counts as a lower bound (start state unknown, so not busy); over the rhythm it is evidence.
+- Fixed: only `working` counts as work; a wait (blocked, needs_you, an automatic provider block or permission prompt)
+  does not. Both tested; restoring either old rule fails its test (measured).
+- The not-told test has a positive control. Decided, stated: an agent that worked, then went idle for days, is still
+  told when it next sits idle (its summary is still owed for that work), as project status also leaves it stale.
