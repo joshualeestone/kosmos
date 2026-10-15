@@ -65,7 +65,7 @@ const NAME_MAX = 60;
    the file with the agent's own words and every other managed block. */
 const BLOCK_MAX = 128 * 1024;
 
-/* 🔑 The name the migrated single policy wears (#685). Josh's model is that
+/* 🔑 The company policy's fallback name (companyEntry); until #6273 also the name the migrated single policy wore (#685). Josh's model is that
    a policy's name says who MANDATES it, and the one policy that predates
    names was mandated by nobody nameable -- it is simply the company's. Not
    an example row: it only ever appears wrapping a policy the person
@@ -107,12 +107,17 @@ function problem({ name, text, source } = {}) {
 function newId() { return crypto.randomBytes(12).toString('hex'); }
 
 /* The v1 record was ONE policy, shaped {text, source, savedAt} (#479). It
-   migrates as the first entry of the list, named DEFAULT_NAME, under a
+   migrates as the first entry of the list, named MIGRATED_NAME (#6273), under a
    FIXED id -- deterministic because migration happens lazily on read, and
    an id that changed between a GET and the POST acting on it would make
    the screen's rename and remove race their own listing. The first
    mutation persists the migrated shape. */
 const MIGRATED_ID = 'p1';
+
+/* #6273 review 1: the record's version. 3 means written by a build that already names the migrated entry MIGRATED_NAME,
+   so a "Company AI policy" on p1 in a version-3 record was chosen by the person and stays. An older reader looks only at
+   `policies`, so a downgrade still reads it. */
+const RECORD_VERSION = 3;
 
 function entriesOf(rec) {
   if (rec && typeof rec === 'object' && Array.isArray(rec.policies)) {
@@ -127,7 +132,7 @@ function entriesOf(rec) {
 function persist(policies) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
   // #5434 slice 17: flushed before it replaces the file (store.saveFlushed), so a crash cannot leave it zero-filled.
-  store.saveFlushed(FILE, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
+  store.saveFlushed(FILE, JSON.stringify({ version: RECORD_VERSION, policies }, null, 2) + '\n');
 }
 
 /**
@@ -169,9 +174,11 @@ function read() {
     });
   }
   /* #6273: a record migrated before the name changed still holds "Company AI policy" on its p1 entry. Renamed on read
-     (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name: an entry the
-     person named themselves has a random id. Kept when another entry already wears MIGRATED_NAME, so no two collide. */
-  const old = policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+     (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name, and only in a
+     record written before #6273 (review 1: once a version-3 record holds it, the person chose it, so a rename back to
+     it sticks). An entry the person named themselves has a random id. Kept when another entry already wears
+     MIGRATED_NAME, so no two collide. */
+  const old = rec.version !== RECORD_VERSION && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
   if (old && !policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }

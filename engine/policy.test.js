@@ -131,7 +131,7 @@ test('removeOne takes one and keeps the rest in order; the last removal leaves a
   policy.clear();
 });
 
-test('the #479 single record migrates: first entry, default name, stable id, and NO rewrite of the block (#685)', () => {
+test('the #479 single record migrates: first entry, the neutral migrated name (#6273), stable id, and NO rewrite of the block (#685)', () => {
   // A v1 record written by the shipped build, planted byte-for-byte.
   // #1856: policy.FILE now lives under the Kosmos leaf; this test writes it
   // DIRECTLY (no policy.add() first), so make its dir -- otherwise it only passed
@@ -164,7 +164,7 @@ test('the #479 single record migrates: first entry, default name, stable id, and
   // The first mutation persists the v2 shape and keeps the migrated entry.
   policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
   const rec = JSON.parse(fs.readFileSync(policy.FILE, 'utf8'));
-  assert.equal(rec.version, 2);
+  assert.equal(rec.version, 3, '#6273: the record is not marked as written by a build that names the migrated entry');
   assert.equal(rec.policies[0].name, policy.MIGRATED_NAME);
   assert.equal(rec.policies[1].name, 'Branding');
   policy.clear();
@@ -192,6 +192,11 @@ test('#6273 a stored migrated entry named "Company AI policy" reads as "AI polic
     assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'Company AI policy', 'read rewrote the record');
     policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
     assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'AI policy', 'the next mutation did not persist it');
+
+    // Review 1: once this build has written the record, a rename BACK to "Company AI policy" is the person's and sticks.
+    policy.rename('p1', 'Company AI policy');
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).version, 3);
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a rename the person made was reverted on read');
 
     // CONTROL: an entry the person named "Company AI policy" has a random id, and keeps its name.
     plant([{ ...legal, id: 'def456', name: 'Company AI policy' }, legal]);
