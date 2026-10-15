@@ -32,6 +32,9 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
   After it: 3 of 3 runs passed, 78 PASS each.
 - The refused arm with the board's own 403: 80 PASS with the fix; with the page fix reverted it fails
   (sent=5 finished=0).
+- After iteration 2 (helper, deterministic wait, non-awaited drain): 3 of 3 runs 80 PASS; the control with the page fix
+  reverted fails the same line (sent=5 finished=0). The early 28-pass stop seen once before the check change was not
+  seen again in 8 later runs; its log was not kept, so its cause is unknown.
 - server.streak-6160 and engine streak-6160 tests: 16/16.
 
 ## The class (measured, filed separately)
