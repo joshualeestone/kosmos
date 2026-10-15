@@ -2,7 +2,8 @@
 
 ## Problem
 Found while fixing #6188: when the board refuses a request and the page never reads the reply's body, the request
-never finishes. With every GET under /api/ refused at load, 19 requests were still open 20 s later. Anything that
+did not finish. With every GET under /api/ refused at load, 19 requests were still open (20 s later on the card;
+8 s later here, in Chromium). Anything that
 waits for the page's network to go quiet then hangs (#6188's check did).
 
 ## Change
