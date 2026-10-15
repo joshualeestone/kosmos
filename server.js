@@ -23222,8 +23222,8 @@ function start(port = PORT) {
       });
       const stalereportSweep = setInterval(stalereportTick, Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STALEREPORT_NUDGE_MS) : 5 * 60 * 1000); // the env is the test seam only
       if (stalereportSweep && typeof stalereportSweep.unref === 'function') stalereportSweep.unref();
-      /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's rhythm and
-         work reading) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
+      /* #6209 part 2: an agent whose running summary is overdue while it has been working (projectview's freshness and
+         rhythm; the work is the module's own workedSinceMs) is told ONCE per stale summary (kept on disk), typed into its session (engine/summarydue-nudge.js).
          Same gating as the sweeps above: inert under `node --test` and before the live-execution opt-in, operator brake
          AGENT_WORKFORCE_SUMMARYDUE_NUDGE_OFF=1, own timer, unref'd, best-effort. */
       const SUMMARYDUE_BOOK = new Map();

@@ -16,7 +16,7 @@ and a non-Claude agent are not told.
 - Words follow the role's own (roles.js SUMMARY_RHYTHM): where the file goes and what goes in it.
 
 ## Decided
-- Only "stale after workExcused" is owed: a stale file alone is a fact, not a fault (an idle agent is not expected to
+- Only a stale summary with more than the rhythm of reported `working` since (workedSinceMs; review 1 replaced workExcused) is owed: a stale file alone is a fact, not a fault (an idle agent is not expected to
   write). An agent with no summary file at all is not told (a role without the rhythm never writes one).
 - Claude only, idle only: the screen readers that keep a typed line out of an open menu know Claude Code's screens.
 
@@ -61,3 +61,11 @@ told, and one whose reports overstate work is told early.
 - Stated: "once per summary" is permanent until a new summary: an agent that ignores the line, or whose delivery was
   unconfirmed, is not told again for that summary (as the #5959 model). A held or screen-blocked agent is looked at
   again every sweep (no try spent).
+
+## Review 5 (opus), and what changed
+- Fixed: a new session (a `started` row) starts the count again, so the session told about the work is the one that
+  did it (a restarted session may not remember earlier work, and would be asked to summarise it).
+- The cap comment says "at most once a minute" (a single long tool call sends nothing until it ends, so the cap can
+  undercount, the safe side; measured on real streams: one gap over 30 minutes after a working row).
+- An agent already told about this summary is skipped before its history is read. A threshold test pins 3.5 hours (not
+  told) against 4.5 hours (told). The plan's decision line and the server comment name workedSinceMs.
