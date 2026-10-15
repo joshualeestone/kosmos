@@ -36,3 +36,9 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
   sound, fixtures still mean what their comments say, the F2 test fails uncapped. NITs taken: two stale "5 min" test
   comments; the F2 bound pinned on both sides (55 to 61 min, so a different cap is seen). Left: a member with no runner is
   uncapped (Claude members always carry runner 'claude', cardRunnerOf defaults to it; round 2 checked).
+
+## Review 4 (opus, Angel after the hand-over), and what changed
+- No BLOCKER. WARNING: the out-of-order assertion passed with the sort removed once the cap existed: it now uses an
+  uncapped (grok) member. WARNING: Antigravity on the Mac heartbeats working before every model call
+  (engine/agyhooks.js), the same shape as Claude, so it is capped too; Gemini, Grok and Muse still file working only
+  at a turn's start and stay uncapped. NIT: a subagent's tool calls most likely heartbeat, so its run is usually counted.

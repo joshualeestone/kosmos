@@ -723,7 +723,8 @@ test('#5635 F2 workExcused: a summary reads current while the member has worked 
   assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { tied: false }), woken, NOW).state, 'stale');
   // Review 1: rows out of time order (a clock stepped back) are read in time order. Idle at 325 then working from 300 to
   // now is 6 + 300 min of work: stale. Read in file order, the step back subtracts 25 min and it read 6 min: current.
-  assert.equal(v.workExcused(stale(331), claude, hist([...beats(300, 0), ['idle', 325]]), NOW).state, 'stale');
+  // A grok member (no cap), so the 30-minute cap cannot make this pass with the sort removed (review 4).
+  assert.equal(v.workExcused(stale(331), Object.assign({}, claude, { runner: 'grok' }), hist([['working', 300], ['idle', 325]]), NOW).state, 'stale');
   assert.equal(v.workExcused(stale(331), claude, hist([['working', 1], ['idle', 325], ...beats(400, 325)]), NOW).workMinutes, 7, 'CONTROL: sorted, the report timeline');
   // Boundaries: a report exactly at the summary is its state then; one after now is not read; stopped is not work.
   assert.equal(v.workExcused(stale(331), idleNow, hist([['idle', 331]]), NOW).workMinutes, 0);
@@ -814,6 +815,8 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   // The heartbeat before the summary counts to its cap (29 min after the summary), the trailing working its 30: about an
   // hour, pinned on both sides so a different cap is seen.
   assert.ok(r.workMinutes >= 55 && r.workMinutes <= 61, 'not about two 30-minute caps of work: ' + r.workMinutes);
+  // Review 4: Antigravity heartbeats working before every model call on the Mac, so it is capped the same way.
+  assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'antigravity' }), hist(rows), NOW).state, 'worked', 'antigravity was not capped');
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
   assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
