@@ -194,8 +194,7 @@ function nextLine(dir, platform = process.platform) {
   /* Review 6/7: anything beyond plain path characters is single-quoted for the shell that will read it: on Windows
      PowerShell (an inner ' doubled; a backslash is a plain path character there), elsewhere a POSIX shell (an inner '
      closed and reopened; a backslash is quoted, since bash would drop it). */
-  if (platform === 'win32') return 'next: kosmos feedback triage --dir ' + (/^[\w./:\\@-]+$/.test(dir) ? dir : "'" + dir.replace(/'/g, "''") + "'");
-  return 'next: kosmos feedback triage --dir ' + (/^[\w./:@-]+$/.test(dir) ? dir : "'" + dir.replace(/'/g, "'\\''") + "'");
+  return 'next: kosmos feedback triage --dir ' + require('./feedback').shellArg(dir, platform);
 }
 
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by

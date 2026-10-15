@@ -82,3 +82,9 @@ a pull needs --dir; the note on every run tells them which folder was read.
   which-folder note is on stderr only, so a caller reading only stdout sees no signal; the card asked for exactly a
   stderr note, and the digest itself is unchanged. NITs taken: both commands' usage say what triage reads with no
   --dir; the pull's own help names its default folder.
+
+## Review 9 (opus), and what changed
+- No BLOCKER. WARNING: the own-store hint printed an unquoted path, and the Mac data root holds a space: it now uses
+  feedback.shellArg, the one quoting both suggested commands use (PowerShell on Windows, POSIX elsewhere). WARNING: the
+  Mac pull could report a written pull as failed if nextLine threw: the line has a fallback, as on Windows. NITs
+  taken: a path starting with - gets ./; the link test skips on Windows (a symlink needs elevated rights there).
