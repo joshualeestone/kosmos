@@ -84,8 +84,8 @@ tests, 0 failed, 243 skipped; audit clean.
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs (NITs only)
 - Converged before the rebase (proof 36ef71dcfb, now superseded).
 
-### After the rebase onto main (#6203, #6175, then #6178): iterations 9 to 22
-The branch was rebased twice (onto #6203 and #6175, then onto #6178). The conflicts were resolved (de7d9797e4: #6175's
+### After the rebases onto main (#6203, #6175, #6178, then the #6206 fix): iterations 9 to 22
+The branch was rebased three times (onto #6203 and #6175, then onto #6178, then onto main with Angel's #6206 test fix). The conflicts were resolved (de7d9797e4: #6175's
 set-up offer follows the five-hour rows' note and is offered on a five-hour-only row; the check counts notes apart from
 the offer; two controls red), and the loop was run again on the resolved diff.
 
