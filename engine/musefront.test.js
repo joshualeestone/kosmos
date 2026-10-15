@@ -940,7 +940,7 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const r = front.turnRecord(line, 'T', null, dir);
   assert.deepEqual(r.spillBytes, [Buffer.byteLength(long + '\n')]);
   assert.ok(r.spillBytes[0] > 10000, 'over the limit: the spill was by design');
-  assert.equal(r.envChars, line.indexOf(']') + 1, 'the envelope length, which the board\'s limit also counts');
+  assert.deepEqual(r.envChars, [line.indexOf(']') + 1], 'the envelope length, which the board\'s limit also counts');
   // A path a colleague wrote that leaves the Inbox, or a deeper folder: never looked at.
   const outside = pathx.join(dir, 'outside.txt');
   fsx.writeFileSync(outside, 'secret');
@@ -978,6 +978,8 @@ test('#6065 N1: a busy digest records how many posts it held and every spill in 
     const r = front.turnRecord(h.logged[1].t, 'T');
     assert.equal(r.digestPosts, 2);
     assert.deepEqual(r.spillWords, [300, 500]);
+    // Each post's own envelope, not the digest header's.
+    assert.deepEqual(r.envChars, [p1.indexOf(']') + 1, p2.indexOf(']') + 1]);
     assert.ok(r.opening && !r.opening.startsWith('[background'), 'the opening is the first post\'s words, not an envelope: ' + r.opening);
   });
 });

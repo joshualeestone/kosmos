@@ -17,10 +17,11 @@ words) or something else.
 ## The call
 engine/musefront.js logs one JSON line per turn it hands to Muse (before the turn; a digest of several posts is one) to <workspace>/.kosmos/muse-turns.log:
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
-post count, each spill's saved-copy size (spillBytes, only for a file directly in <workspace>/Inbox), and a
+post count, each spill's saved-copy size (spillBytes, only for a file directly in a real <workspace>/Inbox) and envelope length
+(envChars, per spill), and a
 60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
 post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where .kosmos/.gitignore
-lists both the log and its .1 copy (read as text; a negation reads as not ignored). Bounded (256 KB, then a
+lists both the log and its .1 copy (read as text; a negation reads as not ignored; it creates that .gitignore when there is none). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
 
 ## Rejected
@@ -159,3 +160,8 @@ alone is not enough; chars is the shortened line's length.
   the comment and "Not known yet" say how to read them (UTF-8 bytes equal characters only for ASCII). WARNING: a
   linked Inbox let the size lookup leave it: the Inbox must be a real directory, not a link (tested, and a link at a
   file inside it). NIT: only .kosmos is ever created, never a missing workspace (tested).
+
+## Review 18 (sonnet), and what changed
+- No BLOCKER. WARNINGs: envChars measured a digest's header and was one number for several spills: it is now one per
+  spill, read on that post's own line, paired with spillWords and spillBytes (tested in the digest). The garbled
+  bytes-versus-characters sentence is rewritten; "The call" lists envChars and the .gitignore creation.
