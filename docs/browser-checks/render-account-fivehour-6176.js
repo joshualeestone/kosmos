@@ -245,6 +245,28 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const freed = await p5.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(hasCheck && atReset.reads === 2 && atReset.fives === 2 && freed.fives === 1, '[chromium open] a read at the reset that comes back to a busy list still clears the line once it is free', JSON.stringify({ hasCheck, atReset, freed }));
     await p5.close();
+    // Another Settings section open across the reset (the timer stops while the list is hidden), then back to AI Models:
+    // the line past its reset is read again then, not left until the next full repaint.
+    const p6 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p6.clock.install({ time: new Date(now) });
+    await p6.goto('file://' + PAGE);
+    await p6.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      settingsGo('profile');   // another section: the accounts list is hidden, not repainted
+    }, rows);
+    const away = await p6.evaluate(() => document.getElementById('set-accounts').getClientRects().length === 0);
+    await p6.clock.runFor(12 * 60e3); await p6.waitForTimeout(200);   // past the reset while away
+    const whileAway = await p6.evaluate(() => window.__reads);
+    await p6.evaluate(() => settingsGo('accounts'));
+    await p6.clock.runFor(2e3); await p6.waitForTimeout(300);
+    const back = await p6.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads, shown: document.getElementById('set-accounts').getClientRects().length > 0 }));
+    say(away && whileAway === 1 && back.shown && back.fives === 1, '[chromium open] back on AI Models after a reset passed in another section, the line is read again and goes', JSON.stringify({ away, whileAway, back }));
+    await p6.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });

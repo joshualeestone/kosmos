@@ -27263,8 +27263,18 @@ let acctFiveTimer = null, acctFiveMisses = 0;
 /* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 /* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
-   panel has no boxes. Opening Settings paints the list again anyway, so nothing is lost by stopping. */
+   panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
+   (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
+/* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
+   reset, otherwise arm the timer for the soonest reset it shows. */
+function acctFiveHourOnShow() {
+  if (!acctListShown()) return;
+  const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
+  if (!shown.length) return;
+  if (shown.some((t) => t <= Date.now()) && !acctListBusy(document.getElementById('set-accounts'))) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
+  acctFiveHourRetry();
+}
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
   const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
@@ -27295,7 +27305,7 @@ function acctFiveHourArm(times, keep) {
     acctFiveTimer = setTimeout(() => {
       acctFiveTimer = null;
       if (mine !== ACCT_EPOCH || !acctListShown()) return;   // Settings closed: nobody is reading the line
-      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses++ < 10) fire(60e3); return; }
+      if (acctListBusy(document.getElementById('set-accounts'))) { if (acctFiveMisses < 10) { acctFiveMisses++; fire(60e3); } return; }
       paintAccounts({ followUp: ACCT_FOLLOWUP.max });
     }, delay);
   };
@@ -42575,6 +42585,9 @@ function settingsGo(section, opts) {
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
   if (section === 'accounts' && typeof aoKick === 'function') aoKick();   // #6178: the other computers' accounts, read on arrival
+  /* #6176: the five-hour timer stops while the accounts list is hidden, and moving between sections does not repaint
+     it: coming back to AI Models, a line past its reset is read again now, and otherwise the timer is set again. */
+  if (section === 'accounts' && typeof acctFiveHourOnShow === 'function') acctFiveHourOnShow();
   /* #4313: the community list is a fetch, not the poll, and the send sweep changes it on its
      own clock (a post goes out, a delete lands), so repaint it each time Automation opens
      rather than only at page load. */

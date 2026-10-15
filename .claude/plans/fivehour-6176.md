@@ -55,3 +55,5 @@ shows its age, and a reading from a window that has reset is not drawn at all.
 - Known, accepted: every repaint replaces the five-hour timer only once its read succeeds, so a line can sit past its
   reset for the length of one read. The failed-read retries and the busy-list retries share one budget of ten tries
   in a row; a successful paint starts it again.
+- Switching back to AI Models from another Settings section reads the list again if a five-hour line on it is past its
+  reset (the timer stops while the list is hidden, and a section switch does not repaint), or sets the timer again.
