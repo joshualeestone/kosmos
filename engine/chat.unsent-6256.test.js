@@ -62,13 +62,13 @@ const LATER = 'a later line that is long enough to read';
 test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-test('#6256 item 3: the unsent sentence says Kosmos sends it with the next message, so it is not typed again', () => {
+test('#6256 item 3: the unsent sentence says Kosmos tries to send it with the next message, and when', () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
   try {
     arm([EMPTY, box(MSG)]);
     const v = chat.deliver('al', MSG, board.agents);
     assert.equal(v.unsubmitted, true, 'PRECONDITION: left in the box');
-    assert.match(v.because, /still sitting there, and the next message Kosmos types to this agent within 10 minutes sends it first/);
+    assert.match(v.because, /still sitting there, and Kosmos tries to send it first with its next message to this agent in the next 10 minutes, if the box still shows only that line/);
   } finally { board.restore(); }
 });
 
@@ -141,32 +141,105 @@ test('#6256 item 2 CONTROL: a line some other sender left (no message row) write
   } finally { messages.setRunner(null); board.restore(); }
 });
 
-test('#6256 item 1: posts held by text in the box are told once it reads empty, with no wake', async () => {
+test('#6256 item 1: posts held by text in the box are told once it reads empty, only their projects, with no wake', async () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
   try {
     const roster = board.agents;
     roomhold.hold('al', 'p1', 'm9');
-    roomhold.noteInput('al');
+    roomhold.noteInput('al', 'p1', 'm9');
+    roomhold.hold('al', 'p2', 'm8');   // a plain post the ordinary hold kept for the next wake
     const told = [];
     const deliver = async (name, text) => { told.push({ name, text }); return { state: chat.DELIVERY.PLACED }; };
     const base = {
       isAgy: () => false, readReport: () => null, now: Date.now(), decayMs: 5 * 60 * 1000, deliver,
-      shownOf: () => 'Project', DELIVERY: chat.DELIVERY, env: {}, stale: () => new Set(),
+      shownOf: (p) => p, DELIVERY: chat.DELIVERY, env: {}, stale: () => new Set(),
     };
     // Text still in the box: nothing told, the post stays held.
-    let out = await roomhold.flushReleased(roster, { ...base, boxEmpty: () => false });
+    await roomhold.flushReleased(roster, { ...base, boxEmpty: () => false });
     assert.equal(told.length, 0);
     assert.deepEqual(roomhold.heldIn('al', 'p1'), ['m9']);
-    // CONTROL: without the input note the same empty box tells nothing (the ordinary hold waits for a wake).
-    roomhold.forgetInput('al');
-    out = await roomhold.flushReleased(roster, { ...base, boxEmpty: () => true });
-    assert.equal(told.length, 0);
-    // With it, the empty box tells the member, and the note goes once nothing is held.
-    roomhold.noteInput('al');
-    out = await roomhold.flushReleased(roster, { ...base, boxEmpty: () => true });
+    // The box empties: p1 is told, p2 (nothing the box held) waits for the wake, and the note goes.
+    const out = await roomhold.flushReleased(roster, { ...base, boxEmpty: () => true });
     assert.equal(told.length, 1, JSON.stringify(out));
-    assert.equal(told[0].name, 'al');
+    assert.match(told[0].text, /p1/);
+    assert.equal(out[0].why, 'input', 'the log line names the cause');
     assert.deepEqual(roomhold.heldIn('al', 'p1'), []);
-    assert.equal(roomhold.inputNoted('al'), false);
-  } finally { roomhold.forgetInput('al'); roomhold.forget && roomhold.forget('al', 'p1'); board.restore(); }
+    assert.deepEqual(roomhold.heldIn('al', 'p2'), ['m8'], 'a plain post was told with it');
+    // CONTROL: with no input note left, the empty box tells p2 nothing.
+    await roomhold.flushReleased(roster, { ...base, boxEmpty: () => true });
+    assert.equal(told.length, 1);
+  } finally { roomhold.forget('al'); board.restore(); }
+});
+
+test('#6256 item 1: a note whose post was taken another way (a later arrival) wakes nobody', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    roomhold.hold('al', 'p1', 'm9');
+    roomhold.noteInput('al', 'p1', 'm9');
+    roomhold.take('al', 'p1');   // told by a later arrival in the room
+    roomhold.hold('al', 'p1', 'm7');   // a newer plain post in the same project
+    const told = [];
+    await roomhold.flushReleased(board.agents, {
+      isAgy: () => false, readReport: () => null, now: Date.now(), decayMs: 5 * 60 * 1000,
+      deliver: async (name, text) => { told.push(text); return { state: chat.DELIVERY.PLACED }; },
+      shownOf: (p) => p, DELIVERY: chat.DELIVERY, env: {}, stale: () => new Set(), boxEmpty: () => true,
+    });
+    assert.equal(told.length, 0, 'woke the member for a post that asks nothing of it');
+  } finally { roomhold.forget('al'); board.restore(); }
+});
+
+test('#6256 item 1: a usage limit or sign-out on the member keeps the input-held posts waiting (no churn)', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  const real = chat.accountHeldVerdict;
+  try {
+    roomhold.hold('al', 'p1', 'm9');
+    roomhold.noteInput('al', 'p1', 'm9');
+    const told = [];
+    const deps = {
+      isAgy: () => false, readReport: () => null, now: Date.now(), decayMs: 5 * 60 * 1000,
+      deliver: async (name, text) => { told.push(text); return { state: chat.DELIVERY.PLACED }; },
+      shownOf: (p) => p, DELIVERY: chat.DELIVERY, env: {}, stale: () => new Set(), boxEmpty: () => true,
+    };
+    chat.accountHeldVerdict = () => ({ held: true, heldBy: 'limit' });
+    await roomhold.flushReleased(board.agents, deps);
+    assert.equal(told.length, 0, 'tried while a usage limit held the member');
+    assert.deepEqual(roomhold.heldIn('al', 'p1'), ['m9']);
+    chat.accountHeldVerdict = real;
+    await roomhold.flushReleased(board.agents, deps);
+    assert.equal(told.length, 1, 'CONTROL: told once nothing holds the member');
+  } finally { chat.accountHeldVerdict = real; roomhold.forget('al'); board.restore(); }
+});
+
+test('#6256 item 1: a room post held by text in the box notes it at the hold site, and the real box read decides', async () => {
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('al', { state: 'idle' })]);
+  try {
+    messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+    arm([box('the person is still writing something here')]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'lease', text: 'an update for the room' }, board.agents, ['leo', 'al']);
+    assert.deepEqual(roomhold.heldIn('al', 'lease').map(roomhold.plainId), [sent.id], 'PRECONDITION: held, not typed');
+    const al = board.agents.find((c) => c.sessionName === 'al');
+    // The hold site noted it: the sweep tells this project once the box reads empty (a real read of the box).
+    const told = [];
+    const deps = {
+      isAgy: () => false, readReport: () => null, now: Date.now(), decayMs: 5 * 60 * 1000,
+      deliver: async (name, text) => { told.push(text); return { state: chat.DELIVERY.PLACED }; },
+      shownOf: (p) => p, DELIVERY: chat.DELIVERY, env: {}, stale: () => new Set(), boxEmpty: chat.inputBoxEmpty,
+    };
+    arm([box('the person is still writing something here')]);
+    await roomhold.flushReleased(board.agents, deps);
+    assert.equal(told.length, 0, 'told while the box still held text');
+    arm([EMPTY]);
+    await roomhold.flushReleased(board.agents, deps);
+    assert.equal(told.length, 1, 'the hold site did not note it, or the empty box was not read as empty');
+    assert.match(told[0], /lease/);
+    arm([box('the person is still writing something here')]);
+    assert.equal(chat.inputBoxEmpty(al), false, 'text in the box');
+    arm([EMPTY]);
+    assert.equal(chat.inputBoxEmpty(al), true, 'an empty box');
+    const unread = arm([EMPTY]);
+    chat.setRunner((args) => (args[0] === 'capture-pane' ? { ran: true, status: 1, out: '', err: 'no pane' } : unread(args)));
+    assert.equal(chat.inputBoxEmpty(al), false, 'a box that cannot be read');
+    arm([EMPTY]);
+    assert.equal(chat.inputBoxEmpty({ ...al, runner: 'codex' }), false, 'another runner\'s box is not read');
+  } finally { messages.setRunner(null); roomhold.forget('al'); board.restore(); }
 });

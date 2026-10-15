@@ -4,10 +4,12 @@ Stacked on msgsubmit-6249 (0b5088a133, Sonya's #6249, not merged yet); rebased o
 routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fixed or closed with a reason.
 
 ## Fixed
-1. **Room posts held by text in the box.** messages.js notes the member (roomhold.noteInput) when a post is held
-   with heldBy 'input'. roomhold.flushReleased (the once-a-minute sweep) then tells every held project of a noted member
-   once chat.inputBoxEmpty(card) reads the box empty, the member is not in a fresh working turn, and it is addressable.
-   The note goes once nothing is held. Kept in memory: after a restart these wait for the next wake, as before.
+1. **Room posts held by text in the box.** messages.js notes the post (roomhold.noteInput: member, project, id) when it
+   is held with heldBy 'input'. roomhold.flushReleased (the once-a-minute sweep) then tells only the projects still
+   holding a noted post, once chat.inputBoxEmpty(card) reads the box empty, the member is not in a fresh working turn,
+   is addressable, and no usage limit or sign-out holds it (accountHeldVerdict). Notes for posts told another way are
+   dropped, so they wake nobody. Kept in memory: after a restart these wait for the next wake, as before. The server
+   log line says "once its input box was empty".
    Rejected: flushing when the card's unsentInput clears (it only shows after 3 minutes, so a box cleared sooner never
    set it).
 2. **The record.** Each remembered line has a number (unsentSeq on its verdict). messages.js keeps message rows marked
@@ -15,8 +17,9 @@ routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fix
    and messages appends `{ kind: 'unsent-submitted', of: <id>, from, to, at }`. The reader accepts the new kind, as it
    does held-delivered. A line some other sender left (a nudge, a room post) has no message row and writes nothing.
    `earlierSubmitted` stays on the verdict (tests read it).
-3. **The sentence** now says the next message Kosmos types to this agent within 10 minutes sends it first, if nothing
-   else has been typed into the box.
+3. **The sentence** now says Kosmos tries to send it first with its next message to this agent in the next 10 minutes,
+   if the box still shows only that line. It is a try, not a promise: a line too long to show whole (item 5), or a
+   next line held by a menu or a limit, is not pressed.
 4. **The remembered line.** If the box still holds exactly the earlier line after the 300 ms watch (or tmux refused
    the Enter), it is remembered again with its original time and number.
 6. **Dim across rows.** Measured on a scratch tmux server: capture-pane -e writes an escape only where the style
@@ -43,5 +46,15 @@ routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fix
   server.projects 178, web.unsent-input-6249 5, and the scanning guards.
 
 ## Weakest premise
-Item 1 tells every held project of a noted member once its box empties, including plain posts held for its next wake.
-That is a wake the member would have had anyway (the input-held post was meant to go now).
+Item 1's note is in memory only: a board restart while a box holds text leaves those posts for the next wake, as
+before this card. Nothing reads the new unsent-submitted rows yet (item 2); they keep the log true for whoever reads it.
+
+## Review 1 (opus), and what changed
+- WARNING: a noted member was told every held project, and the note outlived its post: now only projects still
+  holding a noted post id. WARNING: no limit or sign-out gate (#4797 churn): accountHeldVerdict added. WARNING: the
+  sentence promised a send that a long line never gets: now "tries ... if the box still shows only that line".
+  WARNING: the hold site and the real box read were untested: sendPost test and inputBoxEmpty cases added (mutants
+  red). CONVENTION: flushReleased docblock and the server log suffix now name the input case. NIT: forget() drops the
+  notes. Left: unsentSeq rides on chat's verdict (a local board API; harmless).
+- Found while validating: engine.reachable flagged test-only exports (inputNoted, inputProjects, forgetInput); they
+  are no longer exported, and the tests assert what the sweep tells instead.

@@ -125,12 +125,31 @@ function limitKept(name, projectId, id, now = Date.now()) {
 
 function off(env) { return !!(env && env.AGENT_WORKFORCE_ROOM_HOLD_OFF === '1'); }
 
-/* #6256 item 1: members holding posts because text sat in their input box (#6249, heldBy 'input'). No wake may come
-   for those (a person can clear the box by hand with no turn), so flushReleased retries them once the box reads empty.
-   Kept in memory: after a restart they wait for the member's next wake, as every hold did before. */
-const inputHeld = new Set();
-function noteInput(name) { if (name) inputHeld.add(String(name)); }
-function inputNoted(name) { return inputHeld.has(String(name)); }
+/* #6256 item 1: the posts held because text sat in a member's input box (#6249, heldBy 'input'), by member, project
+   and id. No wake may come for those (a person can clear the box by hand with no turn), so flushReleased tells the
+   projects still holding one once the box reads empty. Only those projects: a plain post the #4624 idle hold kept in
+   another project still waits for the next wake. Kept in memory: after a restart they wait for the next wake. */
+const inputHeld = new Map();   // name -> Map(projectId -> Set(plain id))
+function noteInput(name, projectId, id) {
+  if (!name || !projectId || !id) return;
+  const byProject = inputHeld.get(String(name)) || new Map();
+  const ids = byProject.get(String(projectId)) || new Set();
+  ids.add(plainId(String(id)));
+  byProject.set(String(projectId), ids);
+  inputHeld.set(String(name), byProject);
+}
+/* The projects that still hold one of the member's input-held posts; notes for posts gone since are dropped. */
+function inputProjects(name) {
+  const byProject = inputHeld.get(String(name));
+  if (!byProject) return [];
+  const live = [];
+  for (const [p, ids] of [...byProject]) {
+    const still = new Set(heldIn(String(name), p).map(plainId).filter((x) => ids.has(x)));
+    if (still.size) { byProject.set(p, still); live.push(p); } else byProject.delete(p);
+  }
+  if (!byProject.size) inputHeld.delete(String(name));
+  return live;
+}
 function forgetInput(name) { inputHeld.delete(String(name)); }
 
 /* #4588 PR B: a post held because the member is an Antigravity agent paused on the shared Google quota may @-name
@@ -291,6 +310,7 @@ function dropShown(name, projectId, shownIds) {
 
 /* The member was removed: nothing held for it is told to anyone who later takes its name. */
 function forget(name) {
+  forgetInput(name);   // #6256 item 1
   try { fs.rmSync(limitFileFor(name), { force: true }); } catch { /* the held file is what matters */ }
   try { fs.rmSync(fileFor(name), { force: true }); return true; } catch { return false; }
 }
@@ -360,10 +380,11 @@ function withoutStale(projectId, ids, stale, name) {
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf, only }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
+    if (Array.isArray(only) && !only.includes(projectId)) continue;   // #6256 item 1: the projects named, the rest untouched
     /* #5805: the Claude retry (flushReleased) tells only a project holding an ask a usage limit kept (limitKept), and
        only once it survives the staleness rule; any other project is left untouched (not taken and rewritten every
        minute, #4797) for the member's next wake. */
@@ -402,24 +423,26 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    is held too and its ids are put back, with no further idle report until the agent's next turn. So once a minute,
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
-   holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
+   holding an ask a usage limit kept (see the loop), and #6256 a project holding a post that text in a Claude member's
+   input box held, once the box reads empty (see the loop). Every other #4624 hold is exactly as before. Never throws. */
 async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf, boxEmpty }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
     try {
       if (!card || !card.sessionName) continue;
-      /* #6256 item 1: a member whose posts were held by text in its input box is told once the box reads empty (and it
-         is not in a fresh working turn, and something can be typed into it). Every held project is told then, as at a
-         wake. Until the box empties, or when it cannot be read, its posts wait as before. */
+      /* #6256 item 1: the projects still holding a post that text in this member's input box held are told once the box
+         reads empty, when the member is not in a fresh working turn, can be typed into, and no usage limit or sign-out
+         holds it (accountHeldVerdict: a try then would only be refused and its ids put back, every minute, #4797). Until
+         then, or when the box cannot be read, those posts wait as before; nothing else here changes for this member. */
       const inName = String(card.sessionName);
-      if (inputNoted(inName)) {
-        if (!heldProjects(inName).length) forgetInput(inName);
-        else if (typeof boxEmpty === 'function' && !workingNow(readReport, inName, now, decayMs)
-          && require('./chat').addressable(inName, roster).ok === true && boxEmpty(card) === true) {
-          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale });
-          if (!heldProjects(inName).length) forgetInput(inName);
-          for (const d of done) out.push({ name: inName, ...d });
+      const inProjects = typeof boxEmpty === 'function' ? inputProjects(inName) : [];
+      if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
+        const chatMod = require('./chat');
+        if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && boxEmpty(card) === true) {
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, only: inProjects });
+          inputProjects(inName);   // drop the notes for posts now told
+          for (const d of done) out.push({ name: inName, why: 'input', ...d });
           continue;
         }
       }
@@ -521,4 +544,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, inputNoted, forgetInput, toldLine, carriedLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, inputNoted, forgetInput, carriedLine };
