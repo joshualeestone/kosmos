@@ -16,9 +16,11 @@
 #     starts; a merge made while one is already running waits for the next tick;
 #   - a site deploy run on main was created, or (one that FAILED) ended, less than KICK_GAP_S (14 minutes) ago:
 #     nothing is asked (review 6: only a failure's end counts, so a slow green run, a skip behind a cut or a retry exit
-#     does not push the next ask to 30 minutes), so this backstop never adds a tick of its own beside a recent run (the job
-#     retries a failure once on the next tick and then parks it; asking sooner would spend that retry within minutes,
-#     reviews 1 and 3). GitHub's push and schedule triggers still fire on their own, as before, so a schedule run can
+#     does not push the next ask to 30 minutes). So it never asks beside a recent run's creation or a recent failure
+#     (the job retries a failure once on the next tick and then parks it; asking sooner would spend that retry within
+#     minutes, reviews 1 and 3). A green "try again later" exit (the live site moving, a mirror or checksum retry)
+#     from a run that took over 13 minutes can be followed by an ask within minutes, which brings that retry count's
+#     alarm sooner; such runs are rare (review 9). GitHub's push and schedule triggers still fire on their own, as before, so a schedule run can
 #     land just after an ask: two runs minutes apart, which brings the job's retry alarm (4 ticks) sooner. Rare, as
 #     the schedule itself is (six times on 2026-10-15);
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
@@ -32,8 +34,9 @@
 # not being able to see when a run started. While a release cut runs, each tick's run is skipped by the job in
 # seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have.
 # Each tick writes the time to its heartbeat file (it proves launchd STARTED the tick, not that gh worked; the log
-# says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it asks, cannot read something, or sees a stuck run
-# (at most two lines); the log is not rotated (about 10 to 20 KB a day at worst; kept by --uninstall).
+# says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it
+# asks, cannot read something, or sees a stuck run (at most two lines); the log is not rotated (about 10 to 20 KB a
+# day at worst; kept by --uninstall).
 #
 # Not covered (the job's schedule run still covers it): live gone back to an older commit while main is unchanged;
 # this compares main with last-deployed only. Accepted: a lost gh login or workflow scope fails every tick, seen only
@@ -58,14 +61,16 @@ say() { LAST_LINE="$*"; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*";
 note() { [ "$CHECK" = 1 ] && say "check: $*"; return 0; }
 # BSD date on macOS (Mortals); GNU date's -d on Linux, where the tests also run.
 epoch() { date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null; }
-ERR="$(mktemp -t kick-err.XXXXXX 2>/dev/null)" || { say "could not make a temporary file; nothing asked"; exit 1; }
 # Review 6: every tick leaves its result (exit code and its last line) in last-result, beside the heartbeat, so a
-# failing backstop is one file to look at, and --check shows it.
+# failing backstop is one file to look at, and --check shows it. Heartbeat and trap come first (review 9), so even a
+# tick that cannot make its temporary file leaves both.
 RESULT="$(dirname "$BEAT")/last-result"
-trap 'rc_=$?; rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S %Z")" "$rc_" "${LAST_LINE:-(quiet)}" > "$RESULT" 2>/dev/null' EXIT
+ERR=""
+trap 'rc_=$?; [ -n "$ERR" ] && rm -f "$ERR"; [ "$CHECK" = 1 ] || printf "%s rc=%s %s\n" "$(date "+%Y-%m-%d %H:%M:%S %Z")" "$rc_" "${LAST_LINE:-(quiet)}" > "$RESULT" 2>/dev/null' EXIT
+[ "$CHECK" = 1 ] || { mkdir -p "$(dirname "$BEAT")" 2>/dev/null; date '+%Y-%m-%d %H:%M:%S %Z' > "$BEAT" 2>/dev/null; }
+ERR="$(mktemp -t kick-err.XXXXXX 2>/dev/null)" || { ERR=""; say "could not make a temporary file; nothing asked"; exit 1; }
 why() { local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"; [ -n "$l" ] && printf ' (gh: %s)' "$l"; }
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
-[ "$CHECK" = 1 ] || { mkdir -p "$(dirname "$BEAT")" 2>/dev/null; date '+%Y-%m-%d %H:%M:%S %Z' > "$BEAT" 2>/dev/null; }
 
 if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -n 1 "$(dirname "$BEAT")/source")"; fi
 if [ "$CHECK" = 1 ] && [ -r "$RESULT" ]; then note "last tick: $(head -n 1 "$RESULT")"; fi
@@ -101,7 +106,7 @@ while IFS=$'\t' read -r status concl created updated; do
   fi
   # When it was made; for a run that FAILED, when it ended (reviews 3 and 6: the job's one retry keeps its 15-minute
   # pace; a green run's length does not delay the next ask). Newest by time. A stuck run does not count.
-  if [ -z "$this_stuck" ]; then
+  if [ -z "$this_stuck" ]; then   # for clarity only: a stuck run is older than the gap anyway
     last=$c
     case "$concl" in failure|timed_out|startup_failure) [ "$u" -gt "$last" ] && last=$u ;; esac
     { [ -z "$newest" ] || [ "$last" -gt "$newest" ]; } && newest="$last"
@@ -111,7 +116,7 @@ rc=0
 STUCK_LINE=""
 if [ -n "$stuck" ]; then STUCK_LINE="a site deploy run has been $stuck, past its limit; not waiting on it"; say "$STUCK_LINE"; rc=1; fi
 [ "$active" -gt 0 ] && { note "$active run(s) queued or running: would ask nothing"; exit "$rc"; }
-if [ -n "$newest" ] && [ $((NOW - newest)) -lt "$KICK_GAP_S" ]; then note "a run started $((NOW - newest)) s ago: would ask nothing"; exit "$rc"; fi
+if [ -n "$newest" ] && [ $((NOW - newest)) -lt "$KICK_GAP_S" ]; then note "a run was created, or failed, $((NOW - newest)) s ago: would ask nothing"; exit "$rc"; fi
 if [ "$CHECK" = 1 ]; then note "would ask for a site deploy"; exit "$rc"; fi
 if "$GH" workflow run site-deploy.yml --repo "$REPO" --ref main >/dev/null 2>"$ERR"; then
   say "asked for a site deploy: main ${main:0:9}, last deployed ${deployed:0:9}"

@@ -27,6 +27,7 @@ DOMAIN="gui/$(id -u)"
 SRC="$(cd "$(dirname "$0")" && pwd)/site-deploy-kick.sh"
 
 if [ "${1:-}" = "--uninstall" ]; then
+  [ $# -eq 1 ] || { echo "usage: $0 [--uninstall]" >&2; exit 2; }
   "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
   rm -f "$PLIST.new"
