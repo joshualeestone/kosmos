@@ -10752,7 +10752,7 @@ const server = http.createServer(async (req, res) => {
              sends wordsShown after showing them); checked before the ticket is spent, so the person can read and accept.
              As strong as isViaScreen above, as #5791's ticket is: it cannot prove a parent rather than a child pressed. */
           if (body.accepted === true && ORG_TICKET && ORG_TICKET.family === true && body.wordsShown !== true) {
-            sendJson(res, 200, { ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent or guardian reads and accepts its words on this computer. Nothing was joined. Press Connect Account to read them.' });
+            sendJson(res, 200, { ok: false, code: 'org_family_words_unseen', because: oe.SAY.org_family_words_unseen });   // one copy (kosmos#6251 board review 1)
             return;
           }
           const spent = body.accepted === true ? ORG_TICKET : null;

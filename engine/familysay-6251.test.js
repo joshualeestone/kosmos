@@ -23,18 +23,20 @@ function coordinator(kind, refuse) {
   let w = null;
   return {
     refuse,
-    macRequest: async (m, route, body) => {
-      if (route === oe.ROUTES.redeem) return { ok: true, data: { org, role: 'admin', consent: WORDS, consentHash: HASH } };
+    status: null,   // set to answer status with something else
+    macRequest: async function (m, route, body) {
+      if (route === oe.ROUTES.redeem) return refused(route) ? { ok: false, because: '409 ' + refused(route) } : { ok: true, data: { org, role: 'admin', consent: WORDS, consentHash: HASH } };
       if (route === oe.ROUTES.enroll) {
-        if (this_refuse(route)) return { ok: false, because: '409 ' + this_refuse(route) };
+        if (refused(route)) return { ok: false, because: '409 ' + refused(route) };
         w = body.world; return { ok: true, data: { ok: true, org, role: 'admin', enrolled: { computer: 'c', world: w, thisComputer: true } } };
       }
-      if (route === oe.ROUTES.leave && this_refuse(route)) return { ok: false, because: '409 ' + this_refuse(route) };
+      if (route === oe.ROUTES.leave && refused(route)) return { ok: false, because: '409 ' + refused(route) };
+      if (route === oe.ROUTES.status && this.status) return this.status;
       if (route === oe.ROUTES.status) return { ok: true, data: { member: true, org, role: 'admin', enrolled: { computer: 'c', world: w, thisComputer: true } } };
       return { ok: false, because: 'unexpected ' + route };
     },
   };
-  function this_refuse(route) { return refuse && refuse[route]; }
+  function refused(route) { return refuse && refuse[route]; }   // read live, so a test can add a refusal later
 }
 const NO_COMPANY = (s) => !/company/i.test(s) && !s.includes('this Mac') && !s.includes('—');
 
@@ -44,7 +46,7 @@ test('#6251: every family sentence names no company, and the codes said at previ
     assert.ok(NO_COMPANY(s), code + ': ' + s);
   }
   // Refused before any org is known to this board: no kind to word them by.
-  for (const code of ['org_code_unknown', 'org_code_used', 'org_code_expired', 'org_other_org', 'org_wrong_domain']) {
+  for (const code of ['org_code_unknown', 'org_code_used', 'org_code_expired', 'org_other_org', 'org_wrong_domain']) {   // board review 1: org_already_member is worded by the status read's org, tested below
     assert.ok(!/your company/i.test(oe.SAY[code]), code + ': ' + oe.SAY[code]);
   }
 });
@@ -81,4 +83,30 @@ test('#6251: the family\'s last admin leaving is told in the family\'s words, fr
     assert.equal(lv.code, 'org_last_admin', JSON.stringify(lv));
     assert.equal(lv.because, kind === 'family' ? oe.FAMILY_SAY.org_last_admin : oe.SAY.org_last_admin, kind);
   }
+});
+
+test('#6251 board review 1: a preview refused as already a member is said in the org\'s words from the status read; a failed read reads as a company', async (t) => {
+  for (const kind of ['family', 'company']) {
+    const c = coordinator(kind, { [oe.ROUTES.redeem]: 'org_already_member' });
+    c.status = { ok: true, data: { member: true, org: { id: 'o', name: 'Rivera', slug: 'rivera', kind } } };   // no role or words: not a move
+    const pv = await oe.preview('RIVE-JOIN-1234', { root: root(t), remote: c });
+    assert.equal(pv.code, 'org_already_member', JSON.stringify(pv));
+    assert.equal(pv.because, kind === 'family' ? oe.FAMILY_SAY.org_already_member : oe.SAY.org_already_member, kind);
+  }
+  const c = coordinator('family', { [oe.ROUTES.redeem]: 'org_already_member' });
+  c.status = { ok: false, because: 'no answer' };
+  const pv = await oe.preview('RIVE-JOIN-1234', { root: root(t), remote: c });
+  assert.equal(pv.because, oe.SAY.org_already_member, 'no org known: a company\'s, as decided');
+});
+
+test('#6251 board review 1: an unknown join keeps the kind it was for, so a company join on a board with a family record is not said as a family\'s', async (t) => {
+  const r = root(t);
+  const fam = coordinator('family', {});
+  const pv = await oe.preview('RIVE-JOIN-1234', { root: r, remote: fam });
+  assert.equal((await oe.enroll('RIVE-JOIN-1234', true, { root: r, remote: fam, consentHash: pv.served, consent: pv.consent, orgId: pv.org.id, wordsShown: true, orgKind: 'family' })).ok, true);
+  // A company join whose answer is lost (no reason), and whose status read then answers nothing useful.
+  const lost = { macRequest: async (m, route) => (route === oe.ROUTES.enroll ? { ok: false, because: 'timeout' } : { ok: false, because: 'no answer' }) };
+  await oe.enroll('ACME-JOIN-5678', true, { root: r, remote: lost, consentHash: HASH, consent: WORDS, orgId: 'acme', orgKind: 'company' });
+  const j = JSON.parse(fs.readFileSync(path.join(r, 'org-join-unknown.json'), 'utf8'));
+  assert.equal(j.orgKind, 'company', JSON.stringify(j));
 });
