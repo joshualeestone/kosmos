@@ -202,6 +202,19 @@ test('signedInSince: a token refresh keeps the login\'s start; a different login
   assert.ok(!fs.readFileSync(rec, 'utf8').includes('acct-two'), 'the login is kept only as a hash');
 });
 
+test('signedInSince: a colleague in the same workspace (same account_id, another person) is a new login', () => {
+  const dir = home(), rec = path.join(home(), 'codex-signins.json'), auth = path.join(dir, 'auth.json');
+  const tok = (claims) => 'x.' + Buffer.from(JSON.stringify(claims)).toString('base64url') + '.y';
+  const write = (claims, ms) => { fs.writeFileSync(auth, JSON.stringify({ auth_mode: 'chatgpt', tokens: { account_id: 'ws-shared', id_token: tok(claims) } })); touch(auth, ms); };
+  const t1 = Date.parse('2026-10-10T09:00:00Z'), t2 = Date.parse('2026-10-11T09:00:00Z'), t3 = Date.parse('2026-10-12T09:00:00Z');
+  write({ sub: 'user-a', email: 'a@example.com' }, t1);
+  assert.equal(codexlimits.signedInSince(dir, rec), t1);
+  write({ sub: 'user-a', email: 'a@example.com' }, t2);   // a refresh for the same person
+  assert.equal(codexlimits.signedInSince(dir, rec), t1);
+  write({ sub: 'user-b', email: 'b@example.com' }, t3);   // a colleague, same workspace
+  assert.equal(codexlimits.signedInSince(dir, rec), t3, 'a colleague in the same workspace kept the first person\'s clock');
+});
+
 test('signedInSince: no account_id, or no record file, falls back to auth.json\'s time; no auth.json is null', () => {
   const dir = home(), auth = path.join(dir, 'auth.json'), t = Date.parse('2026-10-11T09:00:00Z');
   assert.equal(codexlimits.signedInSince(dir, path.join(home(), 'r.json')), null);

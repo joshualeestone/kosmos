@@ -190,6 +190,6 @@ test('#6176 a ChatGPT row whose last report is over carries limits: null', async
   for (const d of [CODEX, CODEX_WORK]) fs.rmSync(nodePath.join(d, 'sessions'), { recursive: true, force: true });
   // Written AFTER the sign-in (three hours ago), so only the window being over can keep it off the row.
   writeReport(CODEX, new Date(Date.now() - 3600e3).toISOString(), { used_percent: 90, window_minutes: 300, resets_at: Math.floor(Date.now() / 1000) - 60 }, null);
-  const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt');
+  const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt' && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
   assert.equal(sub.limits, null);
 });

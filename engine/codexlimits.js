@@ -147,7 +147,7 @@ function read(homes, now = Date.now()) {
 /**
  * When this folder's current ChatGPT login began, as far as Kosmos can tell, in ms; null when auth.json cannot be read.
  * A token refresh rewrites auth.json but keeps the login, so it must not hide the account's reports; a different login
- * must. So the login (auth.json tokens.account_id, kept only as a hash) is recorded in `recordFile` with the time it
+ * must. So the login (auth.json tokens.account_id with the id_token's person, kept only as a hash) is recorded in `recordFile` with the time it
  * was first seen: the same login keeps that time, a new one starts again. First sight uses auth.json's own time, the
  * latest the login can have begun. A sign-in with no account_id falls back to auth.json's time. Never throws.
  */
@@ -157,8 +157,17 @@ function signedInSince(dir, recordFile) {
     const file = path.join(dir, 'auth.json');
     mtime = fs.statSync(file).mtimeMs;
     const auth = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const raw = auth && auth.tokens && typeof auth.tokens.account_id === 'string' ? auth.tokens.account_id : '';
-    if (raw) id = require('node:crypto').createHash('sha256').update(raw).digest('hex').slice(0, 32);
+    const t = auth && auth.tokens && typeof auth.tokens === 'object' ? auth.tokens : {};
+    const acct = typeof t.account_id === 'string' ? t.account_id : '';
+    /* On a Team or Business plan account_id names the workspace, not the person, and limits are per person: the
+       person comes from the id_token's own claims (sub, else email), so a colleague in the same workspace is a new
+       login. A token that cannot be decoded adds nothing. */
+    let who = '';
+    try {
+      const claims = JSON.parse(Buffer.from(String(t.id_token || '').split('.')[1] || '', 'base64url').toString('utf8'));
+      who = claims && typeof claims.sub === 'string' ? claims.sub : (claims && typeof claims.email === 'string' ? claims.email : '');
+    } catch { who = ''; }
+    if (acct) id = require('node:crypto').createHash('sha256').update(acct + '\n' + who).digest('hex').slice(0, 32);
   } catch { /* unreadable: whatever was read stands */ }
   if (mtime == null || !id || !recordFile) return mtime;
   try {

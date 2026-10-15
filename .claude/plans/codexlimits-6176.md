@@ -56,8 +56,9 @@ the default account). My first version read only the account folder and would ne
   Any other rewrite of the job (a rename, a model change) also hides that agent's earlier reports until Codex reports
   again: a missing meter for a while, never a wrong figure.
 - Every home of an account (its folder and its agents' private ones) counts only reports written since the folder's
-  current login began (`codexlimits.signedInSince`): the login (auth.json `tokens.account_id`, stored only as a hash)
-  is recorded in `<data>/codex-signins.json` with the time it was first seen. A token refresh rewrites auth.json but
+  current login began (`codexlimits.signedInSince`): the login (auth.json `tokens.account_id` with the id_token's
+  person, `sub` else email, since on Team and Business plans account_id names the workspace; stored only as a hash)
+  is recorded in `<data>/codex-signins.json` (never pruned: one hashed line per folder ever seen) with the time it was first seen. A token refresh rewrites auth.json but
   keeps the login, so it hides nothing; a different login starts the clock again. First sight uses auth.json's own
   time, the latest the login can have begun, so a board that first sees a sign-in just after a refresh hides older
   reports once, until the next one. A sign-in with no account_id falls back to auth.json's time. An agent's home also

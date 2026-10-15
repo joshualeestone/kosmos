@@ -11189,6 +11189,7 @@ const server = http.createServer(async (req, res) => {
                under another login leaves the old login's sessions in the account folder AND in its agents' private
                homes; a token refresh keeps the login, so it hides nothing). An agent's home also waits for its own
                job's last change (a move). */
+            // This read records a login it has not seen before (first sight), so the route writes that one small file.
             const signedIn = require('./engine/codexlimits').signedInSince(a.dir, path.join(store.ROOT, 'codex-signins.json'));
             const later = (x) => (x == null ? signedIn : (signedIn == null ? x : Math.max(x, signedIn)));
             const agents = [...(a.isDefault ? onDefault : []), ...((key && byDir.get(key)) || [])].map((h) => ({ home: h.home, since: later(h.since) }));
