@@ -262,7 +262,7 @@ function _testRunner(fn, opts) {
   if (typeof o.fallback === 'function') defaultFallback = o.fallback;
   else if (!fn || o.fallback === 'real') {
     const wait = o.fallbackTimeoutMs || null;
-    defaultFallback = wait ? () => readPowerShell(wait) : () => readPowerShell();
+    defaultFallback = wait ? () => readPowerShell(wait) : readPowerShell;
   } else defaultFallback = null;
   testPlatform = o.platform || null;
   testNow = o.now != null ? o.now : null;
