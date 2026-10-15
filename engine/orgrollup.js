@@ -869,7 +869,7 @@ async function tick(opts) {
     }
     /* The company no longer takes this world's reports: ask it at once (refresh stops this world on a clear answer). */
     if (r && /\borg_not_enrolled\b|\borg_not_member\b/.test(String(r.because || ''))) {
-      try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
+      try { await oe.refresh(eo); } catch { /* the hourly refresh tries again (#6232) */ }
     }
     return { sent: false, because: 'the company did not take it' };
   } finally { releaseRunLock(root, lockToken); }

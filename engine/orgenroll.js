@@ -852,7 +852,7 @@ async function leaveNow(opts, retry) {
   return { ok: false, pending: true, code, because: 'Leaving could not be confirmed yet. This Kosmos has stopped reporting, and it will tell your company again.' };
 }
 
-/* On start and daily: ask the coordinator. member:false, or an enrollment naming another world, clears this world's
+/* On start and hourly (#6232; server.js ORG_REFRESH_MS): ask the coordinator. member:false, or an enrollment naming another world, clears this world's
    record (removed, left, or moved elsewhere). An unreachable coordinator changes nothing. */
 async function refresh(opts) { return oneAtATime(() => refreshNow(opts)); }
 function pendingAt(opts) {

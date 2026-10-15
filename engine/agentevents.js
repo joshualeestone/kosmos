@@ -1802,7 +1802,7 @@ async function tickOnce(opts) {
           return { sent, because: 'the company\'s words changed; Kosmos takes them on and sends again' };
         }
         if (/\borg_not_enrolled\b|\borg_not_member\b/.test(why)) {
-          try { await oe.refresh(eo); } catch { /* the daily refresh tries again */ }
+          try { await oe.refresh(eo); } catch { /* the hourly refresh tries again (#6232) */ }
         }
         const failed = readStateForUpdate(root);
         if (!failed) return { sent, because: 'the state could not be read; nothing changed' };   // her review 43
