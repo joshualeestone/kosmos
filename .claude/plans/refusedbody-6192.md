@@ -25,8 +25,10 @@ Wired: tools/browser-checks.sh run_one (B8 group), docs/browser-checks/b8-board.
 
 ## Weakest premise
 That draining a clone finishes the original request. Measured for the board's own 404s in Chromium (the check). Not
-measured: WebKit, and whether any page fetch reads a refusal as a stream it expects to own alone (none found; a
-clone tees the body, the original stays readable).
+measured: WebKit, and whether any page fetch reads a refusal as a stream it expects to own alone (none found: no
+getReader or bodyUsed in the page; a clone tees the body, the original stays readable). Cost: a refused body is
+buffered once more, and a refusal that streamed without end would be buffered whole; the board's refusals are small
+JSON.
 
 ## Not changed
 community/ready was the one request open without refusals; the card says it may be held by design. Left alone.
