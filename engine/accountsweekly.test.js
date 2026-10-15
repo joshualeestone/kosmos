@@ -18,7 +18,7 @@ function acct(name, pct) {
   return d;
 }
 
-test('#6178 summary: one entry per Claude account, with its reading; an API key is left out', () => {
+test('#6178 summary: one entry per Claude account, with its reading; an API key is listed with no reading', () => {
   aw.resetForTests();
   const a = acct('a', 40);
   const b = acct('b');
@@ -27,7 +27,9 @@ test('#6178 summary: one entry per Claude account, with its reading; an API key 
     { dir: b, email: 'b@example.com', label: 'B' },
     { dir: acct('k'), email: null, apiKey: true },
   ], Date.now());
-  assert.equal(out.length, 2, 'an API-key account was sent: ' + JSON.stringify(out));
+  assert.equal(out.length, 3, 'an account was dropped: ' + JSON.stringify(out));
+  assert.deepEqual([out[2].apiKey, out[2].weekly, out[2].blocked], [true, null, null], 'an API-key account was given a reading or a reason');
+  assert.equal(out[0].apiKey, false);
   assert.equal(out[0].dir, a);
   assert.equal(out[0].email, 'a@example.com');
   assert.equal(out[0].isDefault, true);
@@ -61,10 +63,11 @@ test('#6178 weeklyBlockedOf names why there can be no reading', () => {
   assert.equal(aw.weeklyBlockedOf({ dir: d, apiKey: true }, 'darwin'), null, 'a key account was given a reason');
 });
 
-test('#6178 an account that becomes an API key leaves the summary at once, not after the cache', () => {
+test('#6178 an account that becomes an API key says so at once, not after the cache', () => {
   aw.resetForTests();
   const d = acct('f', 20);
   const now = Date.now();
   assert.equal(aw.summary([{ dir: d, email: 'f@example.com' }], now).length, 1);
-  assert.equal(aw.summary([{ dir: d, email: 'f@example.com', apiKey: true }], now + 1000).length, 0, 'a key account stayed listed inside the cache window');
+  const after = aw.summary([{ dir: d, email: 'f@example.com', apiKey: true }], now + 1000);
+  assert.deepEqual([after[0].apiKey, after[0].weekly], [true, null], 'the old reading was kept inside the cache window');
 });

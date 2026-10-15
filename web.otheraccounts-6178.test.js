@@ -77,17 +77,18 @@ function load({ protocol = 'https:', hostname = 'laptop.kosmosplus.com', list = 
 }
 const STATUS = {
   agents: [
-    card('ann', { name: 'Ann', runner: 'claude', acct: 'a0', tied: true }),
-    card('bo', { name: 'Bo', runner: 'claude', acct: 'a1', tied: true }),
-    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', acct: 'a0', tied: true }),
-    card('nobody', { name: 'Nobody', runner: 'claude', acct: null, tied: false }),
-    card('keyed', { name: 'Keyed', runner: 'claude', acct: null, tied: true }),
-    card('cody', { name: 'Cody', runner: 'codex', acct: null, tied: false }),
-    card('stray', { name: 'Stray', runner: null, acct: null, tied: false }),
+    card('ann', { name: 'Ann', runner: 'claude', acct: 'a0' }),
+    card('bo', { name: 'Bo', runner: 'claude', acct: 'a1' }),
+    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', acct: 'a0' }),
+    card('nobody', { name: 'Nobody', runner: 'claude', acct: null }),
+    card('keyed', { name: 'Keyed', runner: 'claude', acct: 'a2' }),
+    card('cody', { name: 'Cody', runner: 'codex', acct: null }),
+    card('stray', { name: 'Stray', runner: null, acct: null }),
   ],
   accountsWeekly: [
     { key: 'a0', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
     { key: 'a1', email: 'w@example.com', weekly: null, blocked: 'not-wired' },
+    { key: 'a2', email: 'key@example.com', apiKey: true, weekly: null, blocked: null },
   ],
 };
 const text = (n) => n.textContent;
@@ -96,16 +97,17 @@ test('#6178 the other computer\'s accounts are kept checked: bad entries dropped
   const { api } = load();
   const got = api.aoAccountsOf({ accountsWeekly: [
     ...STATUS.accountsWeekly,
-    { email: 'no-dir@example.com' },
+    { email: 'no-key@example.com' },
     { key: 'a9', weekly: { usedPct: 'lots', resetsAt: 1, at: 1 }, blocked: '<script>' },
     null,
   ] });
-  assert.equal(got.length, 3, 'an entry with no folder was kept: ' + JSON.stringify(got));
+  assert.equal(got.length, 4, 'an entry with no key was kept: ' + JSON.stringify(got));
   assert.equal(got[0].weekly.usedPct, 82);
-  assert.equal(got[2].weekly, null, 'a non-number reading was kept');
-  assert.equal(got[2].blocked, null, 'a reason this page does not know was kept');
+  assert.equal(got[3].key, 'a9', 'CONTROL: index 3 is the malformed entry');
+  assert.equal(got[3].weekly, null, 'a non-number reading was kept');
+  assert.equal(got[3].blocked, null, 'a reason this page does not know was kept');
   assert.equal(api.aoAccountsOf({ agents: [] }), null, 'an older Kosmos (no accountsWeekly) must read as unknown, not as no accounts');
-  assert.deepEqual(api.aoAgentsOf(STATUS).map((a) => [a.name, a.acct]), [['Ann', 'a0'], ['Bo', 'a1']],
+  assert.deepEqual(api.aoAgentsOf(STATUS).map((a) => [a.name, a.acct]), [['Ann', 'a0'], ['Bo', 'a1'], ['Keyed', 'a2']],
     'the guide or an agent with no account was listed');
 });
 
@@ -201,7 +203,7 @@ test('#6178 the real read keeps the accounts AND still keeps the agents (#4812 u
   assert.ok(r && r.state === 'ok', 'the read did not come back ok: ' + JSON.stringify(r));
   assert.deepEqual(r.agents.map((a) => a.sessionName), ['ann', 'bo', 'nobody', 'keyed', 'cody', 'stray'], 'the Agents view lost its agents');
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
-  assert.ok(kept && Array.isArray(kept.accounts) && kept.accounts.length === 2, 'the accounts were not kept: ' + JSON.stringify(kept));
+  assert.ok(kept && Array.isArray(kept.accounts) && kept.accounts.length === 3, 'the accounts were not kept: ' + JSON.stringify(kept));
   const gate = load({ fetchImpl: async () => ({ status: 401, json: async () => ({}) }) });
   gate.api.AO_SEEN.set('studio.kosmosplus.com', kept);
   await gate.api.oaReadOne({ name: 'studio', address: 'studio.kosmosplus.com', online: true });

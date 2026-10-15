@@ -30463,6 +30463,7 @@ function aoAccountsOf(body) {
     return {
       key: aoStr(e.key, 16), email: aoStr(e.email), label: aoStr(e.label), organization: aoStr(e.organization),
       isDefault: e.isDefault === true,
+      apiKey: e.apiKey === true,
       weekly: w ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
       blocked: ['windows', 'own-statusline', 'unreadable-settings', 'linked-settings', 'not-wired'].includes(e.blocked) ? e.blocked : null,
     };
@@ -30480,7 +30481,7 @@ function aoAgentsOf(body) {
 function aoUnknownOf(body) {
   if (!body || !Array.isArray(body.agents)) return 0;
   return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
-    && a.runner === 'claude' && a.tied !== true).length;   // tied: found, even on an account with no weekly limit (an API key)
+    && a.runner === 'claude' && !aoStr(a.acct, 16)).length;   // an API-key account is listed too, so no key means not on a listed account
 }
 /* That computer's clock against this page's: its answer's checkedAt against this read's time. The difference also holds
    the read's own round trip (under OA_READ_LIMIT_MS), so one under AO_SKEW_MIN_MS is taken as none. 0 when it sent none. */
@@ -30577,7 +30578,7 @@ function aoGroup(c, seen, ao, now) {
       const who = e.email || e.label || (e.isDefault ? 'The first Claude account' : 'A Claude account');
       const also = e.organization || (e.label && e.label !== who ? e.label : '');   // two logins on one email differ here
       row.appendChild(aoEl('p', 'ao-acct-name', who + (also ? ' · ' + also : '')));
-      const u = aoUsageWords(e, now, ao.skew);
+      const u = e.apiKey ? { pct: null, line: '' } : aoUsageWords(e, now, ao.skew);   // a key: no usage line, as its own row there
       if (u.pct !== null) {
         const meter = aoEl('div', 'acct-usage-meter');
         const bar = aoEl('span', 'bar');
@@ -30589,7 +30590,7 @@ function aoGroup(c, seen, ao, now) {
         meter.appendChild(aoEl('p', 'acct-usage-line', u.line));
         row.appendChild(meter);
         if (u.frozen) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.frozen));
-      } else row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
+      } else if (u.line) row.appendChild(aoEl('p', 'acct-usage-line acct-usage-none', u.line));
       const names = ao.agents.filter((a) => a.acct === e.key).map((a) => a.name);
       const some = ao.unknown > 0 ? ' (some could not be checked)' : '';   // the row's own words for an incomplete list
       row.appendChild(aoEl('p', 'acct-agents-line', names.length
@@ -30621,7 +30622,8 @@ function aoPaint() {
   noteEl.textContent = 'As each computer reads its own accounts. Usage on one computer is not added to another\'s.';
   const now = Date.now();
   /* One group at a time, only when its words changed, so focus in an unchanged group stays (web.otheraccounts-6178).
-     Age words alone ("2 minutes ago") are written into the kept group in place. */
+     Age words alone ("2 minutes ago") are written into the kept group in place; the meter is not rewritten there, which
+     holds because its percent is in the line's words. */
   const ageless = (t) => t.replace(/\b(?:just now|\d+ (?:seconds?|minutes?|hours?|days?) ago)\b/g, '~');
   const groups = others.map((c) => aoGroup(c, OA_SEEN.get(c.address), AO_SEEN.get(c.address) || null, now));
   const shown = [...list.children];

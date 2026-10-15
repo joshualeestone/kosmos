@@ -4511,7 +4511,7 @@ function isSiblingRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
 }
-function statusForSibling(json) {
+function statusForSibling(json, site) {
   let full = null;
   try { full = JSON.parse(json); } catch { full = null; }
   const agents = full && Array.isArray(full.agents) ? full.agents : [];
@@ -4520,7 +4520,13 @@ function statusForSibling(json) {
      and organization to that browser (one this computer admitted, from the account's own computers: the relay's
      siblingcors-4812 rule, not this code). Keyed by an opaque per-answer id ("a0", "a1", ...), never by its folder: a
      folder path names this Mac's user, which #4973 keeps here. Each agent carries that id (acct) and its runner, so the
-     page can join them; null accountsWeekly is "could not read them", and so is a missing one. */
+     page can join them. Only a same-site read (one of the account's own computers) gets them; any other sibling read
+     gets #4973's agents-only answer, so this does not rest on the relay alone. A full answer without accountsWeekly
+     is sent as null (the page's "could not read"); the page reads a field that is absent as "an older Kosmos". */
+  if (site !== 'same-site') {
+    return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })) });
+  }
   const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
   const keyOf = new Map();
   const accountsWeekly = weekly === null ? null : weekly.filter((e) => e && typeof e === 'object' && typeof e.dir === 'string' && e.dir)
@@ -4529,7 +4535,7 @@ function statusForSibling(json) {
       if (!keyOf.has(e.dir)) keyOf.set(e.dir, key);   // two entries on one folder: its agents stay with the first
       const w = e.weekly && typeof e.weekly === 'object' ? e.weekly : null;
       return {
-        key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true,
+        key, email: str(e.email) || null, label: str(e.label) || null, organization: str(e.organization) || null, isDefault: e.isDefault === true, apiKey: e.apiKey === true,
         weekly: w && [w.usedPct, w.resetsAt, w.at].every((n) => typeof n === 'number' && Number.isFinite(n)) ? { usedPct: w.usedPct, resetsAt: w.resetsAt, at: w.at } : null,
         blocked: str(e.blocked) || null,
       };
@@ -4542,8 +4548,7 @@ function statusForSibling(json) {
       .map((a) => ({
         sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
         runner: str(a.runner) || null,
-        acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,
-        tied: !!(a.account && typeof a.account === 'object'),   // its account was found, even one not in accountsWeekly (an API key)
+        acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,   // null: not on a listed account
       })),
   });
 }
@@ -6595,7 +6600,7 @@ const server = http.createServer(async (req, res) => {
       res.end(JSON.stringify({ error: String(err && err.message), detail: detail || undefined }));
       return;
     }
-    if (isSiblingRead(req)) body = statusForSibling(body);   // #4973: another computer's page reads the agents only
+    if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
     res.end(body);
     return;

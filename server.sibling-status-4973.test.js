@@ -65,14 +65,16 @@ test('#4973: a sibling read (same-site, cross-site) gets the agents and (#6178) 
     for (const site of ['same-site', 'cross-site']) {
       const r = await status(site);
       assert.equal(r.code, 200, site);
-      // #6178 widened the cut on purpose to exactly these: an exact set, so any later widening is a decision made here too.
-      assert.deepEqual(Object.keys(r.body).sort(), ['accountsWeekly', 'agents', 'checkedAt'], site + ': a sibling read carried more than it should: ' + Object.keys(r.body).join(','));
+      // #6178 widened the SAME-SITE cut on purpose to exactly these (an exact set, so any later widening is a decision
+      // made here too); a cross-site read keeps #4973's agents-only answer.
+      const sameSite = site === 'same-site';
+      assert.deepEqual(Object.keys(r.body).sort(), sameSite ? ['accountsWeekly', 'agents', 'checkedAt'] : ['agents'], site + ': a sibling read carried more than it should: ' + Object.keys(r.body).join(','));
       for (const e of Array.isArray(r.body.accountsWeekly) ? r.body.accountsWeekly : []) {
-        assert.deepEqual(Object.keys(e).sort(), ['blocked', 'email', 'isDefault', 'key', 'label', 'organization', 'weekly'], site + ': an account carried more than its usage: ' + Object.keys(e).join(','));
+        assert.deepEqual(Object.keys(e).sort(), ['apiKey', 'blocked', 'email', 'isDefault', 'key', 'label', 'organization', 'weekly'], site + ': an account carried more than its usage: ' + Object.keys(e).join(','));
       }
       const mara = r.body.agents.find((a) => a.sessionName === 'mara');
       const fullMara = full.body.agents.find((a) => a.sessionName === 'mara');
-      assert.deepEqual(Object.keys(mara).sort(), ['acct', 'name', 'runner', 'sessionName', 'state', 'tied'], site + ': not the fields the Agents view and AI Models use');
+      assert.deepEqual(Object.keys(mara).sort(), sameSite ? ['acct', 'name', 'runner', 'sessionName', 'state'] : ['name', 'sessionName', 'state'], site + ': not the fields the Agents view and AI Models use');
       assert.equal(mara.name, fullMara.name, site);
       assert.equal(mara.state, fullMara.state, site);
       assert.ok(full.body.agents.some((a) => a.sessionName === 'guidebot'), 'CONTROL: the guide is in the full answer');

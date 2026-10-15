@@ -17,10 +17,12 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
 
 - Who can read it. Another computer's browser reads /api/status as a sibling read (Sec-Fetch-Site same-site), and
   #4973 cuts that answer down (server.js statusForSibling) so this computer's paths and user name stay here. #6178
-  widens the cut on purpose and no further: `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
-  label, organization, isDefault, weekly and blocked; each agent's `acct` (that id), `runner` and `tied` (its account was found,
-  even an API key with no weekly limit); `checkedAt`. #4973's own guard (server.sibling-status-4973.test.js) pins these exact
-  fields, so a later widening is a decision made there too. No folder
+  widens the SAME-SITE cut on purpose and no further (any other sibling read keeps #4973's agents-only answer, so
+  this does not rest on the relay alone): `accountsWeekly` keyed by an opaque per-answer id ("a0", ...) with email,
+  label, organization, isDefault, apiKey, weekly and blocked; each agent's `acct` (that id, null when it is on no listed
+  account) and `runner`; `checkedAt`. API-key accounts are listed (apiKey true, no reading) so their agents join to
+  them, and an untied Claude agent is "could not be checked". #4973's own guard (server.sibling-status-4973.test.js)
+  pins these exact fields for both kinds of read, so a later widening is a decision made there too. No folder
   path goes out. The reader is a browser that computer already admitted (kosmos-relay siblingcors-4812).
 - Found in review 15, and the reason the server test sends a real sibling read: the first build added the fields to the
   full answer only, and every test handed the page a hand-written answer, so the sibling cut dropped all of it unseen.

@@ -117,7 +117,7 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   assert.ok(entry && /^a\d+$/.test(entry.key) && !('dir' in entry), 'the account is not keyed by an opaque id: ' + JSON.stringify(entry));
   assert.equal(entry.weekly.usedPct, 71);
   const agent = sib.agents.find((a) => a.sessionName === 'sib-on-default');
-  assert.ok(agent && agent.acct === entry.key && agent.runner === 'claude' && agent.tied === true, 'the agent does not carry its account key, runner and tie: ' + JSON.stringify(agent));
+  assert.ok(agent && agent.acct === entry.key && agent.runner === 'claude', 'the agent does not carry its account key and runner: ' + JSON.stringify(agent));
 
   const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const slice = (name) => { const i = PAGE.indexOf('function ' + name + '('); assert.ok(i >= 0, name + ' moved'); return PAGE.slice(i, PAGE.indexOf('\n}\n', i) + 2); };
@@ -143,7 +143,8 @@ test('#6178 two accounts on one folder: the sibling answer keeps that folder\'s 
     ],
     agents: [{ sessionName: 's', name: 'S', state: 'idle', runner: 'claude', account: { dir: '/x/.claude' } }],
   });
-  const sib = JSON.parse(statusForSibling(full));
+  const sib = JSON.parse(statusForSibling(full, 'same-site'));
+  assert.deepEqual(Object.keys(JSON.parse(statusForSibling(full, 'cross-site'))), ['agents'], 'CONTROL: a cross-site read got the accounts');
   assert.deepEqual(sib.accountsWeekly.map((e) => e.key), ['a0', 'a1']);
   assert.equal(sib.agents[0].acct, 'a0', 'the second entry on the same folder took its agents');
   assert.ok(!JSON.stringify(sib).includes('/x/.claude'), 'a folder path went out');

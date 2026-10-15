@@ -49,13 +49,13 @@ let cached = null;   // { key, at, value }
 
 /* What makes a cached summary wrong before its time: an account added, removed or renamed. */
 function listKey(list) {
-  return JSON.stringify(list.map((a) => [a.dir || '', a.email || '', a.label || '', a.organization || '', a.isDefault === true]));
+  return JSON.stringify(list.map((a) => [a.dir || '', a.email || '', a.label || '', a.organization || '', a.isDefault === true, a.apiKey === true]));
 }
 
 /** The Claude accounts on this computer with their weekly facts, for /api/status. `list` is accounts.list() (Claude
-    rows only). API-key accounts are left out: they have no weekly limit. */
+    rows only). An API-key account is listed with apiKey true and no reading. */
 function summary(list, nowMs = Date.now()) {
-  const rows = (Array.isArray(list) ? list : []).filter((a) => a && !a.apiKey && typeof a.dir === 'string' && a.dir)
+  const rows = (Array.isArray(list) ? list : []).filter((a) => a && typeof a.dir === 'string' && a.dir)
     .slice(0, MAX_ACCOUNTS);
   const key = listKey(rows);
   if (cached && cached.key === key && nowMs - cached.at >= 0 && nowMs - cached.at < CACHE_MS) return cached.value;
@@ -65,6 +65,7 @@ function summary(list, nowMs = Date.now()) {
     label: typeof a.label === 'string' ? a.label : null,
     organization: typeof a.organization === 'string' ? a.organization : null,
     isDefault: a.isDefault === true,
+    apiKey: a.apiKey === true,   // listed so its agents join to it; a key has no weekly limit (weeklyOf, weeklyBlockedOf: null)
     weekly: weeklyOf(a, nowMs),
     blocked: weeklyBlockedOf(a),
   }));
