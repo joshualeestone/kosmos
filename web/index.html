@@ -21236,8 +21236,9 @@ function stateReason(a, opts) {
     if (a.stuckError.state === 'rate_limited') return 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
   }
   /* #6249: text has sat in its input box, unsent, for a few minutes (engine status unsentInputOf): a message left
-     there is never read by an idle agent, so the card says so and how to clear it. */
-  if (a && a.unsentInput && typeof a.unsentInput.since === 'string') {
+     there is never read by an idle agent, so the card says so and how to clear it. Idle only (round 2): a signed-out,
+     limited or restarting agent keeps its own sentence, which matters more. */
+  if (a && a.state === 'idle' && a.unsentInput && typeof a.unsentInput.since === 'string') {
     const since = Date.parse(a.unsentInput.since);
     const mins = Number.isFinite(since) ? Math.max(3, Math.round((Date.now() - since) / 60000)) : 3;
     return 'Text has been sitting unsent in its input box for about ' + mins + ' minutes. Open it to send it with Enter, or clear it.';
