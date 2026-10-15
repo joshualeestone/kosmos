@@ -68,3 +68,11 @@ a pull needs --dir; the note on every run tells them which folder was read.
 - No BLOCKER. WARNING (a pulled folder however old wins) is the stated weakest premise; the note dates the pulled data
   and names --dir for the own store. CONVENTIONs: this plan's test count; two long lines rewrapped. NITs taken:
   nextLine uses feedback.samePath (one comparison); a path with any unusual character is single-quoted.
+
+## Review 7 (opus), and what changed
+- No BLOCKER. WARNING: the next line quoted for POSIX on Windows too: nextLine quotes for PowerShell on win32 (an
+  inner ' doubled) and for a POSIX shell elsewhere (a backslash quoted). WARNING: the Windows pull could report a
+  successful pull as failed if the next line threw: it is worked out after the pull's try, with the old line as the
+  fallback. NITs taken: a pulled folder whose files all failed to read says "none could be read"; the doc's own-store
+  sentence is exact. Noted: the own store only ever holds YYYY-MM-DD.md files (feedback.write), so reading it through
+  list() drops nothing a plain read would have found.

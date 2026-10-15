@@ -31,7 +31,8 @@ decides.
    reports (the local feedback store, `engine/feedback.js`). Every run that
    reads says on stderr which folder it read (kosmos#6265). `--dir` reads
    another folder; `--dir` naming this machine's own store reads it as the
-   default does.
+   store (as the default does when nothing is pulled); a missing store is
+   refused.
    Only `*.md` files are read; a report with any other extension is skipped
    without a note.
 
