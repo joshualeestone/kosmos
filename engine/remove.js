@@ -358,7 +358,9 @@ function execAsync(file, args, opts) {
     try {
       child = execFile(file, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
         if (!err) { answer({ ok: true, stdout }); return; }
-        answer({ ok: false, code: typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
+        /* Killed at its limit: no exit code, on every platform (Windows reports a terminated process as exit 1, which
+           would read as a real answer; review 7). */
+        answer({ ok: false, code: !err.killed && typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
       });
     } catch (err) { answer({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
     hard = setTimeout(() => answer({ ok: false, code: null, stdout: '', stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
