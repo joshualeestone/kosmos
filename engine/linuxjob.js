@@ -61,9 +61,8 @@ function ensureRuntimeDir() {
    share one value and cannot drift on it. */
 const SYSTEMCTL_TIMEOUT_MS = 30000;
 
-/* ONE arg builder for the `systemctl --user ...` calls that exist in BOTH a sync function and its async step twin
-   (stop, daemon-reload, start, is-active, is-enabled), so the two forms of each act share one source and cannot drift
-   on the flags. #6183. */
+/* ONE arg builder for every `systemctl --user ...` call in this module, sync functions and async step twins alike,
+   so the two forms of each act share one source for the --user prefix and cannot drift on it. #6183. */
 const userctl = (...rest) => ['--user', ...rest];
 
 /* The real systemctl/loginctl runner, ONE definition, shared with linuxboard.js. A test that forgot its seam never
@@ -400,12 +399,12 @@ function daemonReload() {
 
 function enable(name, worldId) {
   const u = unitName(name, worldId);
-  return runner('systemctl', ['--user', 'enable', u]);
+  return runner('systemctl', userctl('enable', u));
 }
 
 function disable(name, worldId) {
   const u = unitName(name, worldId);
-  return runner('systemctl', ['--user', 'disable', u]);
+  return runner('systemctl', userctl('disable', u));
 }
 
 function start(name, worldId) {
@@ -419,7 +418,7 @@ function start(name, worldId) {
   const en = enable(name, worldId);
   if (!en || !en.ok) return { ok: false, because: 'systemd did not enable the agent: ' + ((en && (en.stderr || en.because)) || '').trim() };
   const u = unitName(name, worldId);
-  return runner('systemctl', ['--user', 'start', u]);
+  return runner('systemctl', userctl('start', u));
 }
 
 /* #4918 review 9: start WITHOUT enabling, for a restart or relaunch. The Mac's restart only bootstraps and never
@@ -442,16 +441,13 @@ function status(name, worldId) {
   const u = unitName(name, worldId);
   const act = runner('systemctl', userctl('is-active', u));
   const en = runner('systemctl', userctl('is-enabled', u));
-  return {
-    active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),   // review 28: a result may carry no stdout
-    enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
-  };
+  return statusOf(act, en);
 }
 
 /* #4918 review 5: whether the agent is switched on, for a world switch's pause. { known:false } when systemd could
    not answer (a pause then leaves the agent as it was, as on the other platforms). */
 function enabledState(name, worldId) {
-  const r = runner('systemctl', ['--user', 'is-enabled', unitName(name, worldId)]);
+  const r = runner('systemctl', userctl('is-enabled', unitName(name, worldId)));
   const out = String((r && r.stdout) || '').trim();
   if (/^(enabled|enabled-runtime|linked|alias|static)$/.test(out)) return { known: true, enabled: true };
   if (/^(disabled|masked|masked-runtime)$/.test(out)) return { known: true, enabled: false };
@@ -462,7 +458,7 @@ function enabledState(name, worldId) {
    set (create.disabledJobsResult). No name pattern: systemctl exits non-zero on a pattern that matches nothing on some
    versions, which would read as "could not look". { ok:false } when systemd could not answer. */
 function listUnitFiles() {
-  const r = runner('systemctl', ['--user', 'list-unit-files', '--type=service', '--no-legend', '--no-pager']);
+  const r = runner('systemctl', userctl('list-unit-files', '--type=service', '--no-legend', '--no-pager'));
   if (!r || r.ok === false) return { ok: false };
   const rows = [];
   for (const line of String(r.stdout || '').split('\n')) {
@@ -474,7 +470,7 @@ function listUnitFiles() {
 
 /* #5445: the Kosmos agent units systemd has active (running), for create.runningJobs. */
 function activeUnits() {
-  const r = runner('systemctl', ['--user', 'list-units', '--type=service', '--state=active', '--no-legend', '--no-pager', '--plain']);
+  const r = runner('systemctl', userctl('list-units', '--type=service', '--state=active', '--no-legend', '--no-pager', '--plain'));
   if (!r || r.ok === false) return { ok: false };
   const units = [];
   for (const line of String(r.stdout || '').split('\n')) {
@@ -487,8 +483,7 @@ function activeUnits() {
 function loaded(name, worldId) {
   const u = unitName(name, worldId);
   const r = runner('systemctl', userctl('is-active', u));
-  const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
-  return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
+  return activeOrActivating(r);
 }
 
 function presence(name, worldId) {
@@ -509,12 +504,27 @@ function notLoaded(r) {
 function stoppedOrNotLoaded(r) {
   return Boolean(r && (r.ok || notLoaded(r)));
 }
+/* The is-active parse `loaded` reads (active, or still activating), in ONE place so the sync `loaded` and the async
+   `loadedSteps` cannot drift on it (#6183 review). A result may carry no stdout, so trim a missing one to ''. */
+function activeOrActivating(r) {
+  const out = String((r && r.stdout) || '').trim();
+  return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
+}
+/* The is-active + is-enabled parse `status` reads, shared by the sync `status` and the async `statusSteps` so the two
+   cannot drift (#6183 review). review 28: a result may carry no stdout. */
+function statusOf(act, en) {
+  return {
+    active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),
+    enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
+  };
+}
 
 /* #6183: the Linux restart acts written as STEPS, each systemctl call yielded as `{ exec: [...] }` instead of run
    inline, so engine/remove.js's async driver runs an account move's restarts with execFile and the board's thread
    stays free (the way #6173 did the Mac's MAC_STEPS). There are no waits to yield here: systemd's acts do not poll.
-   These MIRROR the sync acts above (stop/startOnly/loaded/status) command-for-command and share their arg builder
-   (unitName) and parsers (stoppedOrNotLoaded, the is-active test), so the two cannot drift. The sync functions are
+   These MIRROR the sync acts above (stop/startOnly/loaded/status) command-for-command and share their arg builders
+   (unitName, userctl) and parsers (stoppedOrNotLoaded for stop, activeOrActivating for loaded, statusOf for status),
+   so the two cannot drift. The sync functions are
    unchanged, for their own callers. The sandbox gate (sandboxedWithoutSystemd) is applied here too: a sandboxed board
    yields no command and the step reads the SAME refusal the sync runner would return, so it never acts on a real unit
    by name. The command's exit code/output and the SYSTEMCTL_TIMEOUT_MS timeout are exactly the sync path's (via remove.js's run). */
@@ -542,18 +552,14 @@ function* loadedSteps(name, worldId) {
      does (a dry run returns ok with no stdout, which the active test below would otherwise read as not-loaded). The
      command is still yielded, so an injected runner (a test, a real board) answers it as usual. */
   if (r && r.dryRun) return true;
-  const out = String((r && r.stdout) || '').trim();   // a runner may return no stdout on failure
-  return Boolean(r && ((r.ok && out === 'active') || out === 'activating'));
+  return activeOrActivating(r);
 }
 function* statusSteps(name, worldId) {
   const u = unitName(name, worldId);
   const sandbox = sandboxedWithoutSystemd();
   const act = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-active', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
   const en = sandbox ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('is-enabled', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
-  return {
-    active: Boolean(act && act.ok && String(act.stdout || '').trim() === 'active'),
-    enabled: Boolean(en && en.ok && String(en.stdout || '').trim() === 'enabled'),
-  };
+  return statusOf(act, en);
 }
 
 function remove(name, worldId) {
