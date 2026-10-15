@@ -1,4 +1,4 @@
-// Browser-check-surface: st-attn-tile st-attn-noproj-tile data-attn data-noproj BOARD_FILTERS
+// Browser-check-surface: st-attn-tile data-attn BOARD_FILTERS
 'use strict';
 /**
  * #6180 (Josh, 2026-10-14): the "No project" chip and filter are GONE ("people dont have to assign an agent to a

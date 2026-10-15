@@ -49,3 +49,9 @@ That the reported agent really was asking a question. Every path to Issue and th
    pinned by a source match, not a run; staleness is read without the exact session the board passes.
 4. sonnet: no blocker or warning. Converged. NITs already recorded above (source-match wiring; staleness without the
    exact session). Evidence count updated.
+
+## Validation
+First full run at 2a7db4c3d: node 20,658 / 0 fail; one shell test red: tools/test-browser-check-surface-map.sh, because
+render-chip-filters-3423.js still named the removed `st-attn-noproj-tile` and `data-noproj` in its Browser-check-surface
+header (dead tokens). Two reviewers had called that line harmless; the guard says otherwise. Header now names only live
+surfaces (st-attn-tile, data-attn, BOARD_FILTERS); the test passes alone.
