@@ -354,12 +354,11 @@ const read = (pg) => pg.evaluate(() => {
     await gotoReady(pg);
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
-    await pg.clock.runFor(30 * 60 * 1000);
-    await pg.waitForTimeout(300);
-    // Give the last refusal time to arrive and be read: wait until every sent request has ended, up to 5 s.
-    for (let i = 0; i < 50 && ended < streakReqs.size; i++) await pg.waitForTimeout(100);
-    // The count depends on each real refusal settling between the clock's ticks (a pending ask skips a tick), so it
-    // is timing-sensitive: a lower count on a slow machine is that, not a change in how often the page asks.
+    // One minute at a time, letting each real refusal arrive and be read before the next tick, so how many times the
+    // page asks does not depend on how fast this machine is (a tick while an ask is pending is skipped).
+    const settle = async () => { for (let i = 0; i < 50 && ended < streakReqs.size; i++) await pg.waitForTimeout(100); };
+    await settle();
+    for (let m = 0; m < 30; m++) { await pg.clock.runFor(60 * 1000); await pg.waitForTimeout(50); await settle(); }
     say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
     say(statuses.length >= 1 && statuses.every((x) => x === 403), 'refused: the board itself refused (403)', JSON.stringify(statuses));
     say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
