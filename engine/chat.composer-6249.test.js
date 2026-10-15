@@ -153,7 +153,7 @@ test('#6249: the async path retries once: still there after it is unsubmitted, e
     assert.equal(t.enters(), 2, 'one Enter, and one retry, never a third');
     assert.equal(v.unsubmitted, true);
     chat.resetForTests();
-    t = arm([EMPTY, box(MSG), ...Array(LOOKS + 1).fill(box(MSG)), EMPTY]);
+    t = arm([EMPTY, box(MSG), ...Array(LOOKS + 1).fill(box(MSG)), box(MSG), EMPTY]);   // before the paste, before the Enter, the settle, right before the retry, after it
     v = await chat.deliverAsync('al', MSG, board.agents);
     assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
     assert.equal(v.enterRetried, true);
@@ -332,4 +332,46 @@ test('#6249 round 3: a later delivery that finds the box empty forgets the line 
   assert.equal(v.inputHeld, true);
   assert.equal(t.enters(), 0, 'not sent: the board no longer holds it as its own');
 }));
+
+test('#6249 round 4: for an automatic sender, text in the box is a HOLD (a room keeps the post), not a line that reached nothing', () => withAgent({}, (roster) => {
+  arm([box('the person is writing something long here')]);
+  const v = chat.deliverAutomatic('al', MSG, roster);
+  assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+  assert.equal(v.held, true);
+  assert.equal(v.heldBy, 'input');
+  // A person's own send keeps the plain refusal and its sentence.
+  arm([box('the person is writing something long here')]);
+  const own = chat.deliver('al', MSG, roster);
+  assert.equal(own.held, undefined);
+  assert.equal(own.inputHeld, true);
+}));
+
+test('#6249 round 4: the earlier-line Enter on the automatic path is a hold too', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    arm([EMPTY, box(MSG)]);
+    chat.deliver('al', MSG, board.agents);   // left there, remembered
+    const t = arm([box(MSG)]);
+    const v = await chat.deliverAutomaticAsync('al', 'a room post', board.agents);
+    assert.equal(v.earlierSubmitted, true);
+    assert.equal(v.held, true);
+    assert.equal(v.heldBy, 'input');
+    assert.equal(t.enters(), 1);
+  } finally { board.restore(); }
+});
+
+test('#6249 round 4: the start of ours, however short, is ours (Claude still drawing it)', () => {
+  assert.equal(chat.composerHolds('[mess', '[message from your colleague liukang · m1] hello there'), 'ours');
+  assert.equal(chat.composerHolds('hello', '[message from your colleague liukang · m1] hello there'), 'other', 'CONTROL: a short piece that is not the start');
+});
+
+test('#6249 round 4: the retry reads the box right before its Enter: text typed meanwhile is not sent with ours', async () => {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const t = arm([EMPTY, box(MSG), ...Array(LOOKS + 1).fill(box(MSG)), box('typed meanwhile ' + MSG)]);
+    const v = await chat.deliverAsync('al', MSG, board.agents);
+    assert.equal(t.enters(), 1, 'the retry Enter was not pressed');
+    assert.equal(v.unsubmitted, true);
+  } finally { board.restore(); }
+});
 

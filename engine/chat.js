@@ -801,7 +801,7 @@ function pasteWire(target, wire) {
  * placed: `placed` meant only that tmux took the Enter. So for a Claude Code pane the board now reads the input box
  * before it pastes (never behind text that is not ours), right before the Enter (never with text that is not
  * ours), and after it (still there and only ours: one more Enter on the async path; else said as unsubmitted, and a
- * line left there that is only ours is sent by the next delivery).
+ * line left there that is only ours is sent by the next delivery within 10 minutes).
  *
  * The input box is read from an ANSI capture (`capture-pane -e`), measured on Claude Code 2.1.296 to 2.1.300:
  *   - the LIVE box is the last line that starts with ❯ and a NO-BREAK SPACE (U+00A0). Prompts already sent, a line
@@ -821,6 +821,7 @@ function composerHolds(text, wire) {
   const t = squash(text);
   if (!t) return 'empty';
   const w = squash(wire);
+  if (w.startsWith(t)) return 'ours';   // round 4: Claude still drawing our start, however little of it shows yet
   /* A short piece ("ok", ".") could be anyone's: ours only when enough of it shows, or all of a short message. */
   if (t.length < Math.min(20, w.length)) return 'other';
   /* Any unbroken run of ours (round 3): a box that scrolled shows our end, a box Claude is still drawing shows our
@@ -835,10 +836,10 @@ function readComposer(target) {
 }
 /* Only Claude Code's box is read this way; other runners draw their own and keep today's verdict. */
 const composerReadable = (card) => !!card && String(card.runner || 'claude') === 'claude';
-/* After the Enter, how long the box may take to empty before it is called not sent (measured: up to about a second
-   on Claude Code 2.1.296), how often it is looked at, and the one retry. */
+/* After the Enter, how long the box may take to empty before it is called not sent (measured: 25 to 93 ms on 2.1.300,
+   up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
 const SUBMIT_SETTLE_MS = 1500;
-const SUBMIT_LOOK_MS = 150;
+const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
@@ -870,6 +871,8 @@ function* submitConfirmSteps(card, target, wire, mayRetry) {
     }
     if (retried || !mayRetry) return { outcome: 'unsent', retried };
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
+    const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
+    if (!now.ok || composerHolds(now.text, wire) !== 'ours') return { outcome: now.ok && !now.text ? 'sent' : 'other', retried };
     const again = tmux(['send-keys', '-t', target, 'Enter']);
     if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried };
     retried = true;
@@ -2361,7 +2364,14 @@ function deliverAutomatic(sessionName, raw, roster, envelope, trailer, opts = {}
   try { v = deliver(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }   // review 4: a throw reached nothing either
   if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
-  return v;
+  return inputHold(v);
+}
+/* #6249 round 4: for an automatic sender, text in the box (inputHeld, or the earlier line just pressed) is a HOLD, the
+   #5743 shape: a room keeps the post for the member's next arrival and the sweeps wait, rather than drop it as a line
+   that reached nothing. A person's own send (deliver, deliverAsync) keeps the plain refusal and its sentence. */
+function inputHold(v) {
+  if (!v || v.state !== DELIVERY.COULD_NOT || !(v.inputHeld === true || v.earlierSubmitted === true)) return v;
+  return { ...v, held: true, heldBy: 'input' };
 }
 /* The same gate in front of deliverAsync, for the automatic senders on the async path (a colleague's room post
    delivered by sendPostAsync, the #4624 idle flush). */
@@ -2380,7 +2390,7 @@ async function deliverAutomaticAsync(sessionName, raw, roster, envelope, trailer
   try { v = await deliverAsync(sessionName, raw, roster, envelope, trailer); }
   catch (err) { require('./agyquota').releaseCapStart(slot); throw err; }
   if (v && v.state === DELIVERY.COULD_NOT) require('./agyquota').releaseCapStart(slot);
-  return v;
+  return inputHold(v);
 }
 
 async function deliverAsync(sessionName, raw, roster, envelope, trailer, opts) {
