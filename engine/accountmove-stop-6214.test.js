@@ -161,3 +161,39 @@ test('#6214: a stop while the first agent restarts leaves only that one restarte
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'stopped', 'stopped']);
   assert.equal(d.held.size, 0);
 });
+
+test('#6214: the board wires the stop route, the strict account read and the put-back, and says a refusal can stop the move', () => {
+  const fs = require('node:fs');
+  const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  const route = server.slice(server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'"));
+  assert.ok(route.length < server.length, 'the bulk move route is not in server.js');
+  const call = route.slice(0, route.indexOf('sendJson(res, started.status'));
+  /* Strict: a job that cannot be read throws, so the put-back never takes an unreadable agent for one on the default
+     account (moveFromDir folds that into null). */
+  assert.match(call, /readAccount: \(n\) => \{\n\s+const job = create\.readJob\(create\.cleanName\(n\)\);\n\s+if \(!job\) throw new Error\('its launch job could not be read'\);\n\s+return job\.configDir \|\| null;\n\s+\},/,
+    'the move cannot read an agent\'s account strictly');
+  assert.match(call, /putBack: \(n, dir\) => create\.setAccount\(n, dir\),/, 'a stop cannot put an agent back');
+  /* The stop route is matched before the read route, whose pattern would otherwise take "stop" for a move id (and as a
+     GET it would not, but a later method change must not make it). */
+  const stopAt = server.indexOf("if (pathname === '/api/agents/account-moves/stop' && req.method === 'POST') {");
+  const readAt = server.indexOf('const acctMoveRead = pathname.match(');
+  assert.ok(stopAt > 0, 'the stop route is not in server.js');
+  assert.ok(readAt > stopAt, 'the stop route comes after the read route');
+  assert.match(server.slice(stopAt, stopAt + 300), /const stopped = accountmove\.stop\(\);\n\s+sendJson\(res, stopped\.status, stopped\.body\);/);
+  assert.match(server, /function moveStoppableNote\(\) \{ return accountmove\.busy\(\) \? \{ moveStoppable: true \} : \{\}; \}/);
+  /* Every refusal for a held board says whether a stop would help, so each page can offer it. */
+  const refusals = server.match(/if \((?:!isNoop && )?moveHoldsBoard\(\)\) \{ sendJson\(res, 409, \{[^\n]*\}\); return; \}/g) || [];
+  assert.equal(refusals.length, 4, `expected the four board-restart refusals, found ${refusals.length}`);
+  for (const r of refusals) assert.ok(r.includes('...moveStoppableNote()'), `a refusal does not offer the stop: ${r}`);
+});
+
+test('#6214: once a stopped move ends, nothing holds the board, so an Update is no longer refused for it', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  accountmove.stop();
+  assert.equal(accountmove.busy(), true, 'still held while al finishes restarting');
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  assert.equal(accountmove.busy(), false, 'moveHoldsBoard reads busy(): false here is what lets Update through');
+  assert.equal(d.held.size, 0, 'no agent is left held in the engine either');
+});

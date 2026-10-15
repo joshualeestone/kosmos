@@ -302,4 +302,4 @@ function read(id) {
 
 function resetForTests() { moves.clear(); running = null; }
 
-module.exports = { start, stop, read, busy,busyBecause, boardBusyBecause, boardGoingBecause, sentence, resetForTests };
+module.exports = { start, stop, read, busy, busyBecause, boardBusyBecause, boardGoingBecause, sentence, resetForTests };
