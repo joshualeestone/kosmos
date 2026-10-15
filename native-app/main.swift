@@ -742,14 +742,11 @@ enum QuitBehavior {
     static let closingWindowQuits = false
 }
 
-// #5481: every line goes to macOS's unified log (NSLog), which is the only record on a person's Mac: the file below
-// is the test harness's ($KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log), and on a real Mac that folder does not
-// exist, so before this every native diagnostic was written nowhere. Read it with:
-//   log show --last 1d --predicate 'process == "Kosmos"'
-// The file stays for the tests, which set KOSMOS_APP_LOG and read it.
+// Logs to a file rather than relying on stdout, which `open -a` detaches
+// from the launching shell (testing-only path; the real app has no need
+// for this once it's driven by the installer rather than by hand).
 let logFilePath = ProcessInfo.processInfo.environment["KOSMOS_APP_LOG"] ?? "/tmp/kosmos-app-test/app.log"
 func logLine(_ s: String) {
-    NSLog("%@", s)
     let line = s + "\n"
     if let data = line.data(using: .utf8) {
         if let fh = FileHandle(forWritingAtPath: logFilePath) {
@@ -760,6 +757,16 @@ func logLine(_ s: String) {
             FileManager.default.createFile(atPath: logFilePath, contents: data)
         }
     }
+}
+
+/* #5481: a line that must be readable on a person's Mac. logLine writes only the test harness's file, and a real Mac has
+   no /tmp/kosmos-app-test, so its lines are recorded nowhere there; this also writes macOS's unified log (read with
+   log show --last 1d --predicate 'process == "Kosmos"'). 🛑 ONLY for lines built from fixed words, states, counts and
+   times: never a URL (the board URL carries its token, #1946), a page title, a file name, a path or anything a person
+   or a page wrote. The unified log is kept for days and any admin on the Mac can read it. A test pins its callers. */
+func logToSystem(_ s: String) {
+    NSLog("%@", s)
+    logLine(s)
 }
 
 // #1946: the board authenticates the loopback bind so another macOS account
@@ -1688,7 +1695,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
                                          mic: AVCaptureDevice.authorizationStatus(for: .audio), settingsId: settingsId)
         awaitingAllow = outcome.keepOpen
         // Says on the first real use whether the switch was seen without a relaunch (unmeasured until then).
-        logLine("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
+        logToSystem("voice: back from Settings (" + settingsPane + ", \(Int(Date().timeIntervalSince(at))) s): speech " + Self.statusName(SFSpeechRecognizer.authorizationStatus())
                 + ", microphone " + Self.statusName(AVCaptureDevice.authorizationStatus(for: .audio)) + " -> " + (outcome.event?["kind"] ?? (outcome.keepOpen ? "still open" : "closed")))
         if let event = outcome.event { emit(event) }
     }
@@ -1796,7 +1803,7 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
         let asked = Date()
         SFSpeechRecognizer.requestAuthorization { status in
             DispatchQueue.main.async {
-                logLine("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
+                logToSystem("voice: speech permission " + Self.statusName(speechBefore) + " -> " + Self.statusName(status) + " in \(Int(Date().timeIntervalSince(asked) * 1000)) ms")
                 guard mine == self.session else { return }
                 guard status == .authorized else { self.refuse(Self.speechRefusal(status)); return }
                 let micBefore = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -1911,9 +1918,11 @@ final class VoiceBridge: NSObject, WKScriptMessageHandler {
             }
             let said = "voice: ended, " + error.domain + " " + String(error.code)
                 + (under.map { ", under " + $0.domain + " " + String($0.code) } ?? "") + " -> " + (reason.isEmpty ? "(our own stop)" : reason)
-            /* #5311: this must reach the unified log every time, our own stop included. Domain and code only, never
-               words. #5481: logLine now writes the unified log itself, so it is logged once either way. */
-            if reason.isEmpty { NSLog("%@", said) } else {
+            /* #5311: logLine writes to the test harness's log only when /tmp/kosmos-app-test exists, so on a person's
+               computer this error was recorded nowhere. NSLog reaches the unified log, every time (the installed app's
+               process is "Kosmos": log show --predicate 'process == "Kosmos"'). Domain and code only, never words. */
+            NSLog("%@", said)
+            if !reason.isEmpty {
                 logLine(said)
                 emit(["kind": "error", "reason": reason])
             }

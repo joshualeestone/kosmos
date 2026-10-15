@@ -1,10 +1,11 @@
 'use strict';
 
 /**
- * #5481: the native app's log lines must reach somewhere on a person's Mac. logLine wrote only to the test harness's
- * file ($KOSMOS_APP_LOG, else /tmp/kosmos-app-test/app.log, a folder a real Mac does not have), so every native
- * diagnostic, the microphone permission lines #5481 waits on among them, was written nowhere. It now also writes the
- * unified log (NSLog), readable with: log show --last 1d --predicate 'process == "Kosmos"'.
+ * #5481: the microphone permission lines the card waits on must be readable on a person's Mac. logLine writes only
+ * the test harness's file (/tmp/kosmos-app-test, which a real Mac does not have), so those lines went nowhere. They
+ * now go through logToSystem, which also writes macOS's unified log. Only lines built from fixed words, states and
+ * times may: logLine's other callers carry the board URL with its token (#1946), page titles and file names, so
+ * logLine itself must never write the unified log.
  *   node --test native-app.applog-5481.test.js
  */
 
@@ -15,38 +16,54 @@ const path = require('node:path');
 
 const SRC = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
 
-/* The body of `func logLine`, from its opening brace to the matching close. */
-function logLineBody() {
-  const at = SRC.indexOf('func logLine(_ s: String) {');
-  assert.ok(at >= 0, 'CONTROL: func logLine(_ s: String) is gone from main.swift');
+/* The body of `func <name>(_ s: String)`, from its opening brace to the matching close. */
+function bodyOf(name) {
+  const at = SRC.indexOf('func ' + name + '(_ s: String) {');
+  assert.ok(at >= 0, 'CONTROL: func ' + name + '(_ s: String) is gone from main.swift');
   const open = SRC.indexOf('{', at);
   let depth = 0;
   for (let i = open; i < SRC.length; i += 1) {
     if (SRC[i] === '{') depth += 1;
     else if (SRC[i] === '}') { depth -= 1; if (depth === 0) return SRC.slice(open + 1, i); }
   }
-  throw new Error('CONTROL: logLine has no closing brace');
+  throw new Error('CONTROL: ' + name + ' has no closing brace');
 }
 
-test('#5481: every logLine line goes to the unified log, before and whatever the file write does', () => {
-  const body = logLineBody();
-  const lines = body.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
-  assert.equal(lines[0], 'NSLog("%@", s)', 'logLine does not write the unified log first, so a person\'s Mac records nothing');
-  // The format string keeps a % in a line from being read as a format (NSLog(s) would).
+/* Each `logToSystem(` call outside its own definition, with its full argument text (to the matching paren). */
+function systemCalls() {
+  const out = [];
+  const re = /logToSystem\(/g;
+  let m;
+  while ((m = re.exec(SRC))) {
+    if (SRC.slice(Math.max(0, m.index - 5), m.index) === 'func ') continue;
+    let depth = 0;
+    for (let i = m.index + 'logToSystem'.length; i < SRC.length; i += 1) {
+      if (SRC[i] === '(') depth += 1;
+      else if (SRC[i] === ')') { depth -= 1; if (depth === 0) { out.push(SRC.slice(m.index, i + 1)); break; } }
+    }
+  }
+  return out;
+}
+
+test('#5481: logLine never writes the unified log (its callers carry the board token, titles and file names)', () => {
+  const body = bodyOf('logLine');
+  assert.ok(body.includes('logFilePath'), 'CONTROL: this is not logLine\'s body');
+  assert.doesNotMatch(body, /NSLog|os_log|Logger\(|logToSystem/, 'logLine writes the unified log: every caller\'s line, the tokenized board URL among them, would be kept there for days');
+});
+
+test('#5481: logToSystem writes the unified log with a fixed format, and the harness file too', () => {
+  const body = bodyOf('logToSystem');
+  assert.match(body, /NSLog\("%@", s\)/, 'logToSystem does not write the unified log');
   assert.doesNotMatch(body, /NSLog\(s\)/, 'NSLog with the line as its format string');
-  // The test harness still gets its file (tools/test-install.sh sets KOSMOS_APP_LOG and reads it).
-  assert.match(body, /FileHandle\(forWritingAtPath: logFilePath\)/, 'the harness file write is gone');
+  assert.match(body, /logLine\(s\)/, 'the harness file no longer gets the line');
 });
 
-test('#5481: the microphone permission lines the card waits on are written through logLine', () => {
-  assert.match(SRC, /logLine\("voice: back from Settings \("/, 'the return-from-Settings line no longer goes through logLine');
-  assert.match(SRC, /logLine\("voice: speech permission "/, 'the speech permission answer line no longer goes through logLine');
-});
-
-test('#5481: a voice error is logged to the unified log exactly once (#5311 kept, no duplicate)', () => {
-  const at = SRC.indexOf('let said = "voice: ended, "');
-  assert.ok(at >= 0, 'CONTROL: the #5311 voice-ended line is gone');
-  const block = SRC.slice(at, SRC.indexOf('emit(["kind": "error", "reason": reason])', at));
-  // Our own stop (empty reason): NSLog directly. A real error: logLine, which now writes the unified log itself.
-  assert.match(block, /if reason\.isEmpty \{ NSLog\("%@", said\) \} else \{\s*logLine\(said\)/, 'the voice-ended line is not logged once either way');
+test('#5481: only the two microphone permission lines go to the unified log, and neither carries a URL, title, name or path', () => {
+  const calls = systemCalls();
+  assert.equal(calls.length, 2, 'logToSystem has ' + calls.length + ' callers; each new one needs its content checked and this count raised:\n' + calls.join('\n'));
+  assert.ok(calls.some((c) => c.startsWith('logToSystem("voice: back from Settings (')), 'the return-from-Settings line is not one of them');
+  assert.ok(calls.some((c) => c.startsWith('logToSystem("voice: speech permission ')), 'the speech permission answer line is not one of them');
+  for (const c of calls) {
+    assert.doesNotMatch(c, /url|URL|absoluteString|title|Title|path|Path|name\b|token|Token|body\[/, 'a unified-log line carries something a page, a person or the board token could be in: ' + c);
+  }
 });
