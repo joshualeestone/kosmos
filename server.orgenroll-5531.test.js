@@ -672,6 +672,7 @@ test('#6232 review 4: an ask with no clear answer is asked again after the retry
     answer = { ok: false, because: 'not checked' };
     const at3 = Date.now();
     await orgEnrollRefresh();
+    assert.equal(calls, 5, 'CONTROL: the ask after the answered one was not sent');
     await orgRefreshIfDue(at3 + 16 * M);
     assert.equal(calls, 6, 'after an answered ask the next miss did not start again at 15 minutes');
   } finally { live.resetForTests(); }
@@ -730,4 +731,42 @@ test('#6232 review 6: right after a miss (due in 15 minutes), a clock set back b
     await orgRefreshIfDue(at - 30 * M);   // the clock went back half an hour
     assert.equal(calls, 2, 'a clock set back by less than the retry wait held the ask off');
   } finally { live.resetForTests(); }
+});
+
+test('#6232 review 7: once a removal clears the company policy elsewhere, the next check hands the agents the change', async (t) => {
+  const live = require('./engine/live-execution');
+  const policy = require('./engine/policy');
+  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = null;
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); });
+  // A board whose agents hold no company text (no enrollment here): the check does nothing, not even the courtesy line
+  // companyPolicySync writes when an applied policy carries text no agent can be handed (it would repeat every check).
+  fs.rmSync(enrollmentFile(), { force: true });
+  const orgpolicy = require('./engine/orgpolicy');
+  const realApplied = orgpolicy.appliedNow;
+  orgpolicy.appliedNow = () => ({ version: 3, policy: { ai_policy: { text: 'cannot be handed' } } });
+  const realWrite = process.stderr.write;
+  let said = 0;
+  companyPolicySync();   // records "no company text"
+  process.stderr.write = function (chunk, ...rest) { if (/did not hand your company/.test(String(chunk))) { said += 1; return true; } return realWrite.call(this, chunk, ...rest); };
+  try { await orgRefreshIfDue(); await orgRefreshIfDue(); } finally { process.stderr.write = realWrite; orgpolicy.appliedNow = realApplied; }
+  assert.equal(syncs, 0, 'a board with no company text handed its agents something on a check');
+  assert.equal(said, 0, 'a board with no company text read and complained about the policy on every check');
+  // A company text is applied: the agents are told (CONTROL that the stubs reach the real code).
+  entry = { name: 'Acme', text: 'Use only approved tools.' };
+  companyPolicySync();
+  assert.equal(syncs, 1, 'CONTROL: a new company text was not handed to the agents');
+  await orgRefreshIfDue();
+  assert.equal(syncs, 1, 'an unchanged company text was handed again on a check');
+  // The removal was caught by a refused rollup (oe.refresh there): the policy is gone, and nothing is enrolled, so the
+  // ask returns early. The check must still hand the agents the change.
+  entry = null;
+  await orgRefreshIfDue();
+  assert.equal(syncs, 2, 'the agents kept the removed company\'s AI policy text after the check');
 });

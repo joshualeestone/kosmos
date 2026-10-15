@@ -45,6 +45,8 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
 - review 5: an older ask ending late without an answer does not move the clock a newer, answered ask set.
 - review 6: right after a miss, a clock set back by less than the retry wait still asks; each test starts the
   schedule over (_orgRefreshResetForTests).
+- review 7: after a removal clears the policy elsewhere, the next check hands the agents the change; a board whose
+  agents hold no company text does nothing on a check (no read, no repeated warning).
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -90,3 +92,12 @@ is for the first run after merge.
   is before the last ask. Only the latest ask moves either (an older one answering late no longer resets the misses).
 - Tests start the schedule over. The clock-back test is aimed after the first miss (a 15-minute wait): placed after
   the third miss it passed the old one-value logic too, because the wait there is the full hour (measured).
+
+## Review 7 (opus), and what changed
+- Older than this change, but inside the card's "has lifted the policy": a removal caught by a refused rollup or agent
+  event clears the policy file (they call oe.refresh themselves), but nothing told the agents, and every later ask
+  returns before companyPolicySync because nothing is enrolled; the agents kept the company's AI policy text until a
+  restart. The five-minute check now runs companyPolicySync while the agents hold a company text (one small read when
+  nothing changed), so they are told within five minutes. Tested by behaviour: dropping the call, or running it
+  without the guard (a warning on every check for a board with no company text), each fail it (measured).
+- Wording: the "sooner" sentence names agent events too; "in flight" wording; `now` is comparison-only.

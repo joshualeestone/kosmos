@@ -22792,9 +22792,10 @@ const ORG_TICKET_MS = 10 * 60 * 1000;
 /** How often an enrolled world asks the company whether it is still enrolled (also once at start). #6232: hourly, not
     daily: a removed member's board kept applying the company's policy for up to a day. The bound, for almost every
     board, is an hour on the clock plus the five-minute check after an answered ask; an ask without an answer is asked
-    again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner only when a rollup goes out and is
-    refused org_not_member (engine/orgrollup.js then refreshes at once), which happens early only when the board's
-    agents, projects or applied policy version change, not for ordinary work. A board in no company sends nothing
+    again after 15 minutes, then 30, then the hour (ORG_REFRESH_RETRY_MS). Sooner when a send is refused
+    org_not_member: a rollup (engine/orgrollup.js), which goes out early only when the board's agents, projects or
+    applied policy version change, not for ordinary work, or an agent event (engine/agentevents.js), sent only for a
+    refusal or a flag; each then refreshes at once. A board in no company sends nothing
     (orgEnrollRefresh returns first). The coordinator's status answer carries the signed policy (up to about 22 KB)
     and asks to be polled "on the order of hours" (kosmos-relay org.rs POLICY_TTL_SECS), so not more often than this
     without a cheaper route. Not covered by the hour: an unreachable coordinator (nothing changes), and a board before
@@ -22823,7 +22824,7 @@ function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    // Recorded before the ask, so an ask still in flight is not sent again at the next check (refresh runs one at a time).
+    // Recorded before the ask, so an ask still in flight is not sent again before it is due (refresh runs one at a time).
     const askedAt = Date.now();
     ORG_ASKED_AT = askedAt;
     ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
@@ -22843,13 +22844,19 @@ function orgEnrollRefresh() {
   } catch { /* best effort */ }
 }
 /* #6232 review 3: ask once the due time has passed on the clock. A clock set back before the last ask counts as due,
-   so a wrong clock cannot hold the ask off. */
+   so a wrong clock cannot hold the ask off. `now` is for the comparison only (tests); an ask records the real time. */
 function orgRefreshIfDue(now = Date.now()) {
+  /* Review 7: a removal caught by a refused rollup or agent event ends the enrollment and the applied policy there
+     (they call oe.refresh themselves), and every later ask returns before companyPolicySync because nothing is
+     enrolled, so the agents kept the company's AI policy text until a restart. While agents hold a company text, each
+     check hands them the current one (one small read when nothing changed). Not while none is held, so a board in no
+     company does nothing here, and not while some agents could not be told (that retry stays with the next ask). */
+  if (typeof COMPANY_POLICY_SEEN === 'string') companyPolicySync();
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
-function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; }
+function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; COMPANY_POLICY_SEEN = undefined; }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
    Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other
@@ -24533,6 +24540,7 @@ module.exports = {
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
   _orgRefreshResetForTests, // #6232 review 6: tests only
+  companyPolicySync, // #6232 review 7: handing agents the company's AI policy, tested by behaviour
   knowWorld, // #5247: a world this board made counts at its gate, for its test
   taskMessageSummary, // #4540: the sentence the CLIs print after a task message, for its test
   taskFinalWordHint, // #6066: the line a task's holder is told after posting in it, for its test
