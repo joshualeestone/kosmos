@@ -1637,6 +1637,83 @@ function capturePane(target, lines = 40) {
   return sh(tmuxBin(), ['capture-pane', '-p', '-J', '-t', target, '-S', `-${lines}`]);
 }
 
+/* ── #6249: text left in a Claude Code agent's input box ─────────────────── */
+/* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
+   submitted, and the card below to show text left there. The screen it reads is described in chat.js (#6249). */
+const COMPOSER_RULE = /^─{10,}/;
+function visibleWithoutDim(line) {
+  let out = '';
+  let dim = false;
+  const re = /\x1b\[([0-9;]*)m/g;
+  let at = 0;
+  let m;
+  while ((m = re.exec(line)) !== null) {
+    if (!dim) out += line.slice(at, m.index);
+    const codes = m[1] === '' ? ['0'] : m[1].split(';');
+    for (let i = 0; i < codes.length; i += 1) {
+      const c = codes[i];
+      if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
+      if (c === '2') dim = true;
+      else if (c === '0' || c === '22') dim = false;
+    }
+    at = re.lastIndex;
+  }
+  if (!dim) out += line.slice(at);
+  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');   // any other escape
+}
+function composerText(ansi) {
+  if (typeof ansi !== 'string' || !ansi) return { ok: false };
+  const rows = ansi.split('\n').map(visibleWithoutDim);
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
+  if (at < 0) return { ok: false };
+  const parts = [];
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
+  const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
+  return { ok: true, text };
+}
+/* An ANSI capture of one pane (the colours say which text is dim), with its own seam for tests. */
+let ansiCapture = null;
+function setAnsiCapture(fn) { ansiCapture = typeof fn === 'function' ? fn : null; }
+function captureAnsi(target) {
+  if (ansiCapture) return ansiCapture(target);
+  return sh(tmuxBin(), ['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
+}
+/* What the plain capture shows after the live ❯ (the box), or '' for nothing, the placeholder or the queued hint:
+   those are dim, and dim cannot be seen without colours, so only something else is read again with them. */
+const BOX_DIM_ALONE = /^(Try ".*"|Press up to edit queued messages)$/;
+function plainBoxText(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  let at = -1;
+  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('\u276f\u00a0')) at = i;
+  if (at < 0) return '';
+  const parts = [];
+  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
+  const t = parts.join(' ').replace(/^\u276f/, '').replace(/[\s\u00a0]+/g, ' ').trim();
+  return BOX_DIM_ALONE.test(t) ? '' : t;
+}
+/* How long text may sit in the box before the card says so: a person typing, or a line just placed and about to be
+   submitted, is not a stranded message. */
+const UNSENT_SHOW_MS = 3 * 60 * 1000;
+const unsentSeen = new Map();   // agent name -> { text, since }
+function resetUnsentForTests() { unsentSeen.clear(); }
+/* #6249: the card's unsentInput, { since } (ISO) once the same text has sat in a Claude agent's box UNSENT_SHOW_MS,
+   else null. The plain capture this pass already made decides whether to look; only a pane showing something there
+   is captured again with colours, so a quiet board costs nothing more. */
+function unsentInputOf(pane, text, now = Date.now()) {
+  const name = pane && pane.name;
+  const claude = !!pane && (!pane.runner || pane.runner === 'claude')
+    && !isCodexCommand(pane.command) && !isGrokCommand(pane.command) && !isAntigravityCommand(pane.command);
+  const plain = claude ? plainBoxText(text) : '';
+  if (!plain) { unsentSeen.delete(name); return null; }
+  let box;
+  try { box = composerText(captureAnsi(pane.target)); } catch { box = { ok: false }; }
+  if (!box.ok || !box.text) { unsentSeen.delete(name); return null; }
+  const seen = unsentSeen.get(name);
+  if (!seen || seen.text !== box.text) { unsentSeen.set(name, { text: box.text, since: now }); return null; }
+  return now - seen.since >= UNSENT_SHOW_MS ? { since: new Date(seen.since).toISOString() } : null;
+}
+
 /**
  * Is a Claude process running in this pane at all?
  *
@@ -9132,6 +9209,8 @@ function snapshot() {
          claudeLimitUntil), so the card can say when: "Looks like a usage limit until <time>" (every Claude card is a
          screen reading today; a reported one would say "Out of usage until"). Null for any other card or an unread line. */
       limitUntil: claudeLimitUntilIso(pane, status),
+      /* #6249: text has sat unsent in its input box for a few minutes ({ since }), else null. */
+      unsentInput: unsentInputOf(pane, text),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
       because: status.because,
@@ -9532,6 +9611,7 @@ function sessionStartIn(text, want) {
 }
 
 module.exports = {
+  composerText, unsentInputOf, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)
   waitingTotal,   // #3996: the Dock badge's number

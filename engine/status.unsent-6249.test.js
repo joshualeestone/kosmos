@@ -1,0 +1,70 @@
+'use strict';
+/* #6249: status.unsentInputOf, the card's unsentInput. The plain capture decides whether to look; only a pane showing
+   something in its box is captured again with colours; the same text has to sit there UNSENT_SHOW_MS before the card
+   says so. Screens are the real captures in test-support/composer-6249/. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const status = require('./status');
+
+const SCREENS = path.join(__dirname, '..', 'test-support', 'composer-6249');
+const screen = (name) => fs.readFileSync(path.join(SCREENS, name + '.ansi'), 'utf8');
+const plain = (ansi) => ansi.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+const PANE = { name: 'al', target: 'al:0.0', command: '2.1.300', runner: '' };
+const T0 = Date.parse('2026-10-15T10:00:00Z');
+
+function armAnsi(ansi) {
+  let reads = 0;
+  status.setAnsiCapture(() => { reads += 1; return ansi; });
+  return () => reads;
+}
+test.beforeEach(() => status.resetUnsentForTests());
+test.after(() => status.setAnsiCapture(null));
+
+test('#6249: an empty box, the dim placeholder or the queued hint costs no second capture and says nothing', () => {
+  for (const name of ['empty-after-turn', 'empty-placeholder', 'busy-queued']) {
+    const reads = armAnsi(screen(name));
+    assert.equal(status.unsentInputOf(PANE, plain(screen(name)), T0), null, name);
+    assert.equal(reads(), 0, name + ': no colour read for a quiet pane');
+  }
+});
+
+test('#6249: text that stays in the box shows on the card after a few minutes, timed from when it was first seen', () => {
+  const s = screen('typed-short');
+  const reads = armAnsi(s);
+  assert.equal(status.unsentInputOf(PANE, plain(s), T0), null, 'just seen: maybe someone typing');
+  assert.equal(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS - 1), null);
+  assert.deepEqual(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS), { since: new Date(T0).toISOString() });
+  assert.equal(reads(), 3, 'one colour read per pass while something is there');
+  // The box is emptied: the record goes.
+  armAnsi(screen('empty-after-turn'));
+  assert.equal(status.unsentInputOf(PANE, plain(screen('empty-after-turn')), T0 + status.UNSENT_SHOW_MS + 1), null);
+  armAnsi(s);
+  assert.equal(status.unsentInputOf(PANE, plain(s), T0 + status.UNSENT_SHOW_MS + 2), null, 'seen again: the clock starts over');
+});
+
+test('#6249: text that changes (a person typing) restarts the clock', () => {
+  armAnsi(screen('typed-short'));
+  status.unsentInputOf(PANE, plain(screen('typed-short')), T0);
+  armAnsi(screen('ghost-at'));
+  assert.equal(status.unsentInputOf(PANE, plain(screen('ghost-at')), T0 + status.UNSENT_SHOW_MS), null);
+});
+
+test('#6249: what the plain read takes for text but the colours say is dim is not unsent text', () => {
+  // A suggestion drawn dim after the prompt: plain says text, the colour read says empty.
+  const dim = '\x1b[39m❯ \x1b[2mrun the tests again\x1b[0m\n\x1b[38;5;244m' + '─'.repeat(80) + '\n';
+  const reads = armAnsi(dim);
+  assert.equal(status.unsentInputOf(PANE, plain(dim), T0), null);
+  assert.equal(status.unsentInputOf(PANE, plain(dim), T0 + status.UNSENT_SHOW_MS), null);
+  assert.equal(reads(), 2, 'CONTROL: the plain read did ask the colours');
+});
+
+test('#6249: a Codex, Gemini, Grok or Antigravity pane is not read this way', () => {
+  const reads = armAnsi(screen('typed-short'));
+  for (const p of [{ ...PANE, runner: 'codex' }, { ...PANE, runner: 'gemini' }, { ...PANE, command: 'node', runner: 'grok' }]) {
+    assert.equal(status.unsentInputOf(p, plain(screen('typed-short')), T0 + status.UNSENT_SHOW_MS * 2), null, p.runner);
+  }
+  assert.equal(reads(), 0);
+});
