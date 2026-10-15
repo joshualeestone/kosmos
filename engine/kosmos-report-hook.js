@@ -39,7 +39,8 @@
  * -- and an automatic needs_you -- over a standing DELIBERATE wait, and an
  * automatic idle/working/needs_you over an auto `blocked` (a provider outage),
  * except (#6209) the Stop idle of a turn that ended normally over a provider
- * block, which clears it or shows again the deliberate wait it had covered;
+ * block (not a usage-limit or sign-in one), which clears it unless it had
+ * covered a wait on a person or what it covered is unknown;
  * server-side;
  * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
  * PermissionRequest prompt), so the prompt stops sticking once the turn moves

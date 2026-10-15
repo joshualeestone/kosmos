@@ -46,13 +46,14 @@ activity log, but no longer red.
   the front of the tail read, keeps the block (as before #6209). Tested; failing open fails it (measured).
 - Fixed: several blocks in a row are skipped as one run to find what is under them (a run over a fresh start clears;
   stepping back only one line fails the test, measured), and a run over a question keeps it.
-- Helpers moved above the #2808 comment (which describes isAutoPermissionWait again); renamed providerBlockHidesWait;
+- Helpers moved above the #2808 comment (which describes isAutoPermissionWait again); the check became hidesWait;
   isAutoProviderBlock no longer exported.
 - Known and accepted: read() and the check read the file separately (an append between them can only make one clear
   early or late; the next turn end settles it). An authentication_failed block is cleared by a turn that ended
   normally too, which is right (the turn succeeded); the sign-in hold rules (#5948) read the screen, not this line.
 
 ## Review 3 (opus), and what changed
+(SUPERSEDED by review 7: re-showing the covered wait was removed.)
 - Fixed: a provider block that had replaced a deliberate or unmarked wait no longer leaves that wait hidden behind a
   block nobody clears: the turn end that proves the provider answered re-appends the covered line (its own words and
   writer, marked `restored`), so the card shows the question again. Unknown (unreadable record, run past the tail):
@@ -63,6 +64,7 @@ activity log, but no longer red.
   own doc comments are above record() again.
 
 ## Review 4 (sonnet), and what changed
+(SUPERSEDED by review 7: re-showing the covered wait was removed.)
 - Fixed: the re-shown wait keeps its ORIGINAL asking time (askedAt on the restored line, from the covered wait's own run
   start; read() honours it when it starts a run), so a days-old question is not re-dated: its age, the stale-report
   reminder's clock and a person's notice stay. Tested (askedAt equals the first report's time; ignoring it fails).
@@ -73,6 +75,7 @@ activity log, but no longer red.
   (the #5805 rate-limit red included) would clear at once. Measuring it needs a live failed turn on a real agent.
 
 ## Review 5 (opus), and what changed
+(The readTail/latestOf split stands; the restore it fed was removed in review 7.)
 - The restore re-implemented read()'s rules and disagreed with them (project carry, the cut-tail rule, until). Fixed by
   splitting read() into readTail (the record's tail as rows) and latestOf (what read() reports for rows, pure), and
   reading what the block covered as latestOf(the rows before the run): one window and one set of rules. The restored
@@ -82,6 +85,7 @@ activity log, but no longer red.
 - Line wording: "may be missed" style unchanged; the hook doc says a covered wait is shown again.
 
 ## Review 6 (sonnet), and what changed
+(SUPERSEDED by review 7: re-showing the covered wait was removed.)
 - Fixed: the re-shown wait states its project whenever the lines after it (the block run) would carry a different one,
   so a block line with another project cannot re-label it; askedAt is honoured only on a restored line, so no other
   line can set a run's start. Both tested; removing either fails its test (measured).
@@ -91,3 +95,14 @@ activity log, but no longer red.
   is shown again then); its age, the stale-report reminder's clock and a person's notice use askedAt, which is kept.
 - Known: when an automatic idle only re-shows a wait, the Stop report's own fields (a Muse turn answer) are not
   recorded; the "unknown state" warning can print twice for one bad line (read() and the check each read the tail).
+
+## Review 7 (opus), and what changed: re-showing the covered wait is REMOVED
+- Re-showing a wait the block had covered drew a defect in reviews 3, 4, 5, 6 and 7 (re-dating, dropped until, project
+  carry, a re-label, and a question about a project the agent has since left coming back). Decided: remove it. A block
+  that covered a wait on a person (anything but an automatic permission prompt) stays, exactly as before #6209.
+  Residual, stated: such a question stays hidden behind the block until the agent's own next report; part 1 fixes the
+  common case (a provider block over nothing waiting), which is the six days in the report.
+- The usage-limit (rate_limit) and sign-in (authentication_failed) kinds are excluded: their own holds (#5805, #5948)
+  decide, and whether a turn that ends on a limit or sign-in reply fires Stop is unmeasured. Tested both ways.
+- read() is back to its original run rule (no askedAt); the readTail/latestOf split stays (behaviour-identical) and
+  feeds the check of what the block covered.
