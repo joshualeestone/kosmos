@@ -230,10 +230,10 @@ function waitUnloaded(label) {
 }
 /* #6173: the same wait for the async driver. It blocks nothing, so it takes the whole wait and neither spends nor is
    limited by the burst allowance above, which exists only because the synchronous wait freezes the board. */
-async function waitUnloadedAsync(label) {
+async function waitUnloadedAsync(label, ctl) {
   const base = unloadWaitMs();
   if (base <= 0) return true;
-  return driveAsync(unloadSteps(label, base));
+  return driveAsync(unloadSteps(label, base), ctl);   // the restart's own abandon reaches its polls too (review 4)
 }
 /* The polls of one unload wait: true once launchd no longer holds `label`, false if it still does at `budget`. */
 function* unloadSteps(label, budget) {
@@ -302,10 +302,10 @@ function answerSync(y) {
   if (y.roster) return status.paneRoster();
   throw new Error('a restart step yielded something no driver answers');
 }
-async function answerAsync(y) {
+async function answerAsync(y, ctl) {
   if (y.exec) return runAsync(y.exec[0], y.exec[1], y.exec[2]);
   if (y.sleep !== undefined) return new Promise((r) => setTimeout(r, Math.max(0, y.sleep)));
-  if (y.unload !== undefined) return waitUnloadedAsync(y.unload);
+  if (y.unload !== undefined) return waitUnloadedAsync(y.unload, ctl);
   if (y.retry) { const ms = relaunchRetryMs(); return new Promise((r) => setTimeout(r, ms)); }
   if (y.roster) return status.paneRosterAsync();
   throw new Error('a restart step yielded something no driver answers');
@@ -329,7 +329,7 @@ async function driveAsync(gen, ctl) {
     if (ctl && ctl.abandoned) return stop();
     let answer;
     let failed = null;
-    try { answer = await answerAsync(r.value); } catch (err) { failed = { err }; }
+    try { answer = await answerAsync(r.value, ctl); } catch (err) { failed = { err }; }
     if (ctl && ctl.abandoned) return stop();
     r = failed ? gen.throw(failed.err) : gen.next(answer);
   }
@@ -2404,6 +2404,8 @@ function* restartSteps(name, cause, platform, startIfDead) {
    rather than run alongside it: two bootout/bootstrap pairs interleaved on one job is the #3418 class (an agent left
    unloaded). */
 const RESTARTING = new Set();
+/* Whether any async restart still has a command in flight: what a board restart must wait for (server.js). */
+function restartingNow() { return RESTARTING.size > 0; }
 /* #6173 review 1: and the agents a move has not reached yet. A sync restart of one of those ran, and the move then
    restarted it again a minute later; so a move holds every agent it will restart until it has done that one. */
 const HELD = new Set();
@@ -2435,8 +2437,12 @@ function restart(name, cause, opts) {
  */
 /* #6173 (Liu Kang m5496): what bounds one async restart, whatever a step does. Each command already has its own limit
    (20 s, a tmux look 5 s), the unload wait its 25 s budget and the retry wait 2 s; this cap also covers a step whose
-   answer never comes at all. A move holds updates and board restarts, so it must end. */
-const ASYNC_RESTART_CAP_MS = 180 * 1000;
+   answer never comes at all. A move holds updates and board restarts, so it must end.
+   Review 4: 300 s, above a slow but healthy restart (two unload waits, two bootstraps and their checks, the retry and
+   the tmux calls come to about 250 s at every limit), so the cap cuts only a restart that is stuck. And the cap stops
+   the WAITING, not the hold: the agent stays refused to a sync restart or removal until its last command has really
+   ended (each is bounded by its own execFile limit), so nothing can interleave with a command still in flight. */
+const ASYNC_RESTART_CAP_MS = 300 * 1000;
 function asyncRestartCapMs() {
   const v = Number(process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS);   // a test's seam; production keeps 180 s
   return Number.isFinite(v) && v > 0 ? v : ASYNC_RESTART_CAP_MS;
@@ -2466,11 +2472,15 @@ async function restartAsync(name, cause, opts) {
     });
     const driven = driveAsync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead), ctl)
       .then((v) => (ctl.abandoned ? null : markDryRun(v)));
+    /* The hold ends when the driven restart has really ended, not at the cap (review 4): a command it sent before the
+       cap may still be running, and a sync restart beside it is the #3418 interleave. */
+    const release = () => { clearTimeout(timer); RESTARTING.delete(clean); };
+    driven.then(release, release);   // attached before the race, so it runs before restartAsync answers
     const out = await Promise.race([driven, capped]);
     return out || (await capped);
-  } finally {
+  } catch (err) {
     clearTimeout(timer);
-    RESTARTING.delete(clean);
+    throw err;
   }
 }
 
@@ -2528,6 +2538,8 @@ module.exports = {
   holdForMove,      // #6173: engine/accountmove.js holds the agents it has yet to restart
   releaseFromMove,
   heldByMove,       // #6173 review 2: the class-1 sweep leaves a held agent to the move
+  restartingNow,    // #6173 review 4: a board restart waits for every async restart's last command
+  moveRefusal: (name) => busyRefusal(name),   // #6173 review 4: the provider and model routes refuse before writing
   _execAsyncForTests: execAsync,   // #6173 review 1: the real execFile half of runAsync
   resetUnloadWaitsForTests: () => { unloadWaits = []; },   // #4964: the burst ledger only
   setDryRun,

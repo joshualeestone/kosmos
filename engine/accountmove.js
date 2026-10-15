@@ -26,11 +26,12 @@ const MAX_NAMES = 200;
 const KEEP_MS = 10 * 60 * 1000;   // a finished move stays readable this long, then is forgotten
 const KEEP_MAX = 20;
 /* Liu Kang m5496: a move holds updates, board restarts and the Kosmos switch, so it must END. Two bounds:
-   - each agent: remove.restartAsync caps itself at 180 s; AGENT_CAP_MS is a backstop above it, for a restart whose
+   - each agent: remove.restartAsync caps itself at 300 s; AGENT_CAP_MS is a backstop above it, for a restart whose
      promise never settles at all, so one agent can never hold the move longer than this.
    - the whole move: after MOVE_CAP_MS no further agent is started; the ones not reached are said as not restarted.
-   So a move ends within MOVE_CAP_MS + AGENT_CAP_MS (63.5 minutes), and releases every hold when it does. */
-const AGENT_CAP_MS = 210 * 1000;
+   So a move ends within MOVE_CAP_MS + AGENT_CAP_MS (65.5 minutes), and releases every hold when it does. A restart
+   given up on keeps its own hold in remove.js until its last command has ended (each is bounded by its own limit). */
+const AGENT_CAP_MS = 330 * 1000;
 const MOVE_CAP_MS = 60 * 60 * 1000;
 const BUSY = 'Another account move is still running. Try again when it has finished.';
 /* #6173 review 2: what a board restart (a Kosmos switch, the restart button, an update) says while a move runs. A board
@@ -121,7 +122,7 @@ function start(body, deps) {
   if (typeof dir !== 'string' || !dir) return { status: 400, body: { outcome: 'refused', because: 'we need the account to move them to' } };
   if (!Array.isArray(raw) || raw.length === 0) return { status: 400, body: { outcome: 'refused', because: 'we need the agents to move' } };
   if (raw.length > MAX_NAMES) return { status: 400, body: { outcome: 'refused', because: `that is more than ${MAX_NAMES} agents in one move` } };
-  if (raw.some((n) => typeof n !== 'string' || !n)) return { status: 400, body: { outcome: 'refused', because: 'that is not a name we can read' } };
+  if (raw.some((n) => typeof n !== 'string' || !n.trim())) return { status: 400, body: { outcome: 'refused', because: 'that is not a name we can read' } };
   /* One agent once, however it is spelled: the engine trims a name (create.cleanName), so two spellings are one agent
      and would be restarted twice (review 2). The first spelling is kept, as the page sent it. */
   const seen = new Set();
