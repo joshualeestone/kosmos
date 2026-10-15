@@ -27302,7 +27302,9 @@ function acctBulkTarget(x, fromDir) {
   return !!x && x.provider === 'anthropic' && !!x.dir && x.dir !== fromDir && !!x.memoryShared
     && acctOfferableTarget(x)   // the create picker's own test: not refused, not signed out
     && !x.apiKey   // not a key: moving a whole account's agents onto a key changes who pays, so that stays a one-agent choice on its page
-    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100);   // a full account cannot run them either (rounded as its row shows it)
+    && !(x.weekly && Number.isFinite(x.weekly.usedPct) && Math.round(x.weekly.usedPct) >= 100)   // a full account cannot run them either (rounded as its row shows it)
+    // #6176: nor one at its five-hour limit until that resets (a reading past its reset is over and does not count)
+    && !(x.fiveHour && Number.isFinite(x.fiveHour.usedPct) && Math.round(x.fiveHour.usedPct) >= 100 && !(Number.isFinite(x.fiveHour.resetsAt) && x.fiveHour.resetsAt <= Date.now()));
 }
 /* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
    One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
@@ -27377,8 +27379,9 @@ function acctUsageHtml(a, list) {
     'windows': 'These are the last readings Kosmos saw. They will not update on Windows yet.',
     'own-statusline': 'These are the last readings Kosmos saw. They will not update, because this account is set up its own way.',
     'unreadable-settings': 'These are the last readings Kosmos saw. They will not update, because Kosmos cannot read this account\'s settings.',
+    'linked-settings': 'These are the last readings Kosmos saw. They will not update, because this account\'s settings file is a link to a file elsewhere (or to nothing).',
     'not-wired': 'These are the last readings Kosmos saw. They will not update, because Kosmos is not set up to read this account\'s usage.',
-  }[a.weeklyBlocked] || '';
+  }[a.weeklyBlocked] || '';   // every frozenSay reason needs its plural here (render-account-fivehour-6176 checks each)
   /* #6176: the five-hour limit, from the same status line, as its own line under the weekly one. It resets within
      hours, so it warns but never suggests a move (the cure for a five-hour limit is waiting, not another account). */
   const f = a.fiveHour && Number.isFinite(a.fiveHour.usedPct) && Number.isFinite(a.fiveHour.resetsAt) && Number.isFinite(a.fiveHour.at)

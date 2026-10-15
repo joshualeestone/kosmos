@@ -39,3 +39,9 @@ reading record the five-hour one on their next update.
 ## Weakest premise
 The five-hour figure updates only while a Claude agent on that account is running, so it can be hours old. The line
 shows its age, and a reading from a window that has reset is not drawn at all.
+
+## After the rebase onto main (2026-10-15)
+- #6175 landed a "Set up usage reading" offer for accounts that are not set up. On a row with a five-hour reading it comes
+  after the five-hour line and the note (never between the meters and their note), and a five-hour-only row offers it too.
+- Every reason a reading stops updating has its plural words for two readings (linked-settings was missing).
+- The move menu offers no target at its five-hour limit until that resets (a reading past its reset does not count).
