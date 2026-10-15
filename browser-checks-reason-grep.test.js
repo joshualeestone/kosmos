@@ -427,6 +427,7 @@ const SITE_COUNTS = {
   'render-openai-only-2096.js': [1, 1],
   'render-optout-403-2020.js': [1, 1],
   'render-orgchart-phone-718.js': [1, 0],
+  'render-otheraccounts-6178.js': [1, 0],
   'render-owncode-4649.js': [1, 1],
   'render-permission-slider-2620.js': [2, 2],
   'render-personal-instr-4446.js': [1, 0],
