@@ -238,13 +238,14 @@ function switchState() {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
     state = !r ? 'off' : r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off';
   } catch { state = 'unreadable'; }
-  /* kosmos#6239: the policy set for this Kosmos stops outside contact (outside_contact: { enabled: false }), whatever
-     the person's switch says: 'policy', which sends nothing, as off. Read only over an ON switch, so an unreadable
-     switch keeps its own words. A policy read that throws is 'policy' too (nothing sent), with its own log line, never
-     the switch file's (challenge round 1). */
-  if (state === 'on') {
+  /* kosmos#6239: the policy set for this Kosmos keeps agents out (outside_contact: { enabled: false }), whatever the
+     person's switch says: 'policy', which sends nothing, as off. Over ON and OFF alike (round 7: over OFF too, so an
+     agent is never told that turning it on would help); an unreadable switch keeps its own words. A policy read that
+     throws is 'policy_unreadable' over ON (its own words and log line, round 3); over OFF the person's OFF is the
+     sure fact, so it stays 'off'. */
+  if (state === 'on' || state === 'off') {
     try { if (contactWords() !== null) state = 'policy'; loggedOnce.delete('policy'); } catch (e) {
-      state = 'policy_unreadable';   // round 3: a fault is not the policy, so it is not worded as one
+      if (state === 'on') state = 'policy_unreadable';
       logOnce('policy', 'communitysend: cannot read the policy set for this Kosmos (' + String((e && e.message) || e) + '), so nothing is sent to the community until it can');
     }
   }

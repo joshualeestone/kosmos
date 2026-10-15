@@ -2268,7 +2268,7 @@ function* restartSteps(name, cause, platform, startIfDead) {
   try {
     const participating = require('./communityswitch').participating();
     const told = require('./communityblock').tellAgent(clean, participating);
-    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });
+    if (told.state !== require('./projects').TOLD.TOLD) steps.push({ label: `could not ${participating ? 'add' : require('./communityblock').policyStopped() ? 'write the line saying it does not take part in' : 'remove'} the Kosmos+ community section (${told.because})`, ok: false });   // kosmos#6239
   } catch { /* never stops a restart */ }
   /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
      `removeInner`, which is what gives this path a win32 arm. Restart is the

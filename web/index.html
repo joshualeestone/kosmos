@@ -34555,6 +34555,10 @@ document.getElementById('feedback-toggle').addEventListener('click', feedbackTog
    "not measured yet" while the board sends `share: null`, never 0; the OFF note shows only while
    the switch reads Off. */
 let COMMUNITY_EPOCH = 0;
+/* kosmos#6239: the sentence when a policy keeps agents out of the community (the setting route's `stopped`), else
+   null. The held list reads it, so a release is never promised to go while it cannot. */
+let COMMUNITY_POLICY_STOPPED = null;
+const COMMUNITY_HELD_OFF_WORDS = 'The community switch is off, so a post or comment you release now stays on this computer and is not sent to the community, even after you turn it on.';
 function communityShareLine(share) {
   /* No total is no measurement: a share cannot be computed against nothing (review 4). */
   if (!share || typeof share !== 'object' || !(share.total > 0)) return 'Community share of your agents\u2019 tokens, last 7 days: not measured yet';
@@ -34568,7 +34572,15 @@ function communityPaint(r) {
   document.getElementById('community-off-note').hidden = unread || r.on !== false;
   /* #4525: the send sweep only sends a post released while the switch is on (communitysend
      sinceForOnPeriod), so Release under Off publishes on this board alone, for good. Say so. */
-  document.getElementById('community-held-off').hidden = unread || r.on !== false;
+  /* kosmos#6239: under a policy (or when it cannot be read) a release stays here too, whatever the switch says. */
+  const policyStop = !unread && typeof r.stopped === 'string' && r.stopped ? r.stopped : null;
+  const heldOff = document.getElementById('community-held-off');
+  heldOff.textContent = policyStop ? 'A post or comment you release now stays on this computer and is not sent to the community. ' + policyStop : COMMUNITY_HELD_OFF_WORDS;
+  heldOff.hidden = !policyStop && (unread || r.on !== false);
+  if (policyStop !== COMMUNITY_POLICY_STOPPED) {
+    COMMUNITY_POLICY_STOPPED = policyStop;
+    if (typeof refreshCommunityHeld === 'function') refreshCommunityHeld();   // its rows word a release by it
+  }
   document.getElementById('community-share').textContent = unread
     ? 'We could not read this setting just now, so it is not shown. It stays as it was; try again in a moment.'
     : communityShareLine(r.share);
@@ -35387,6 +35399,8 @@ function communityHeldPaint(rows, full) {
         : underHeld ? '. Its post is waiting in this list too: release the post first, then this comment.'
         /* #4994: its agent was deleted, and the store marked it never to send: releasing it keeps it on this board. */
         : r.notSent === true && !stopped ? '. Its agent was deleted, so releasing it never sends it to the public community.'
+        /* kosmos#6239: the policy keeps agents out of the community, so a release stays on this computer. */
+        : COMMUNITY_POLICY_STOPPED && !stopped ? '. Releasing it keeps it on this computer: nothing is sent to the community now.'
         : isComment && !stopped && !r.postId && typeof r.remotePostId === 'string' && r.remotePostId ? '. Releasing it while Community is on sends it to the public community. Once sent, it can be removed from the list below only if the community answered the send. Released while Community is off, it is never sent.'
         : isComment && !stopped ? '. Comments are not sent to the community yet.' : '');
     text.append(title, body);

@@ -76,11 +76,11 @@ test('#6239: under the policy the community reads as stopped by it, with its own
     assert.deepEqual([w.sends, w.why], [false, 'policy']);
     assert.match(communitysend.notSendingWords('post', 'policy'), /policy set for this Kosmos/);
     assert.match(communitysend.notSendingWords('comment', 'policy'), /policy set for this Kosmos/);
-    // A switch that cannot be read keeps its own words; the person's OFF stays off.
+    // A switch that cannot be read keeps its own words; the person's OFF reads as the policy (round 7: never "turn it on").
     communitysend.setSwitch(() => ({ on: false, ok: false }));
     assert.equal(communitysend.switchState(), 'unreadable');
     communitysend.setSwitch(() => ({ on: false, ok: true }));
-    assert.equal(communitysend.switchState(), 'off');
+    assert.equal(communitysend.switchState(), 'policy');
   } finally { communitysend.setSwitch(null); apply(OPEN); }
 });
 
@@ -269,5 +269,42 @@ test('#6239: the community home says the policy or the fault, not "switched off"
     apply(OPEN);
     communitysend.setSwitch(() => ({ on: false, ok: true }));
     assert.match(home.homeText(await home.homeFor('Scout')), /^The Kosmos\+ community is switched off on this board/, 'CONTROL: the person\'s OFF');
+  } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
+});
+
+test('#6239: the stopped lines are not the community rules: block state, the handoff ask, the re-read line (round 7)', () => {
+  const ready = require('./communityready');
+  const handoff = require('./autohandoff-sweep');
+  const ir = require('./instructionreread');
+  const f = agentFile('cy', '# Cy\n\nCy keeps the reading list for the family.\n');
+  apply(OPEN);
+  communityswitch.setOn(true);
+  cb.tellAgent('cy', true);
+  assert.equal(ready.blockState('cy'), 'present', 'CONTROL: the rules');
+  assert.equal(cb.isStoppedSection(fs.readFileSync(f, 'utf8')), false, 'CONTROL');
+  apply(STOP);
+  cb.tellAgent('cy', communityswitch.participating());
+  assert.equal(cb.isStoppedSection(fs.readFileSync(f, 'utf8')), true);
+  assert.equal(ready.blockState('cy'), 'stopped');
+  assert.match(ready.linesFor({ ...ready.rowFor('cy'), block: 'stopped' }).join('\n'), /The community section in your instructions: it says you do not take part in the community/);
+  // The policy lifts with the switch on: the stopped lines stay until a restart, and nothing asks it to take part.
+  apply(OPEN);
+  assert.equal(handoff.communityFor('cy').participating, false, 'the handoff ask read the stopped lines as the rules');
+  const line = ir.lineFor(['community'], { communityStopped: true });
+  assert.match(line, /Its Kosmos\+ community section now says you do not take part in the community: from now on, do not\./);
+  assert.doesNotMatch(line, /the next time you take part/);
+  assert.match(ir.lineFor(['community']), /the next time you take part/, 'CONTROL: the line without the policy');
+});
+
+test('#6239: with the person\'s switch OFF the policy still reads as the policy, so nobody is told to turn it on (round 7)', () => {
+  communitysend.setSwitch(() => ({ on: false, ok: true }));
+  try {
+    apply(STOP);
+    assert.equal(communitysend.switchState(), 'policy');
+    communitysend.setContact(() => { throw new Error('boom'); });
+    assert.equal(communitysend.switchState(), 'off', 'a fault over the person\'s OFF is still their OFF');
+    communitysend.setContact(null);
+    apply(OPEN);
+    assert.equal(communitysend.switchState(), 'off', 'CONTROL');
   } finally { communitysend.setContact(null); communitysend.setSwitch(null); apply(OPEN); }
 });

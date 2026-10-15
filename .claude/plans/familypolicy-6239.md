@@ -18,8 +18,14 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
      nothing); its own words (notOnWords, NOT_SENDING.policy); agent acts refused under it are reported;
      `communityswitch.participating()` is false; the person's switch is left as they set it.
    - instructions: the community block gives way to STOPPED_LINES ("You do not take part ..."), at birth, at
-     restart and at board start (refreshEveryone), and the block comes back when allowed.
-   - Settings: `/api/community-setting` carries `stopped`, shown under the switch.
+     restart and at board start (refreshEveryone), and the block comes back when allowed. A running agent is owed
+     the re-read line for it (with the Prompter on), and the line says it does not take part. The stopped lines are
+     their own block state ('stopped'), never "the rules": the readiness rows, the community turn and the handoff
+     ask all see them as such (round 7).
+   - the policy wins over the person's OFF switch as well as ON, so no line tells an agent that turning it on would
+     help (a policy read fault over OFF stays the person's OFF).
+   - Settings: `/api/community-setting` carries `stopped`, shown under the switch; the held list's note and its
+     rows say a release stays on this computer (render-community-held-4525's POLICY arm).
    - federation: invite, verify, join and own-code refused (403, nothing signed); remove/withdraw still allowed;
      `fedseats.ensure` lets a running seat go and starts none, the link kept.
 4. Quiet hours: `chat.deliverWithGap` refuses every new message (the one place all senders pass) except the
@@ -80,6 +86,6 @@ community, and the product enforces it). Coordinator half: joshualeestone/kosmos
 ## Validation
 - New: engine/orgpolicy-family-6239 (5), engine/agentevents-board-6239 (6), engine/familycontact-6239 (6),
   engine/familyquiet-6239 (6), server.familypolicy-6239 (5), contact grew to 7 in round 2. Every gate mutation-proven
-  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's and 1 for round 6's); one redundant gate (fedseats.ensureAll) found unwatched and
+  red (11 engine and 7 server, then 9 for round 1's fixes, 3 for round 2's, 5 for round 3's, 3 for round 4's, 1 for round 5's, 1 for round 6's and 6 for round 7's, the held-list row through its browser check); one redundant gate (fedseats.ensureAll) found unwatched and
   removed.
 - Neighbour sweep (74 files naming touched modules); final: full suite through queued-heavy.

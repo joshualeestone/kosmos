@@ -117,7 +117,7 @@ function communityFor(session, now = Date.now()) {
   try {
     const cur = require('./instructions').read(session);
     const found = cur && cur.exists ? require('./projects').findBlock(cur.text || '', block.START, block.END) : null;
-    hasRules = !!found && !found.ambiguous;
+    hasRules = !!found && !found.ambiguous && !block.isStoppedSection(cur.text || '');   // kosmos#6239: the stopped lines are not rules
   } catch { hasRules = false; }
   if (!hasRules) return { participating: false, posts: null, max: null };
   const counts = nudge.localCounts(session, now);

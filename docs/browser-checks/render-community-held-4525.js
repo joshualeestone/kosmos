@@ -17,6 +17,8 @@
  *   DISCARD   Discard asks inside the row, Keep it takes focus and sends nothing, Discard it POSTs
  *             exactly {id}.
  *   FAIL      a refused release shows the board's message and leaves the buttons usable.
+ *   POLICY    kosmos#6239: a policy keeping agents out (the setting's `stopped`) with the switch ON shows the note in its
+ *             words and no row promises the community.
  *   EMPTY/403 an empty queue says nothing is waiting; a gated read says it could not read, never
  *             "nothing is waiting".
  *
@@ -252,6 +254,24 @@ async function run() {
       }
       await shot(p1, 'community-held-4525-' + scheme + '.png');
       await p1.close();
+    }
+
+    // POLICY (kosmos#6239): a policy that keeps agents out of the community (the setting's `stopped`) with the switch
+    // ON: the note says a release stays here, and no row promises the community.
+    {
+      const pp = await page({ viewport: { width: 1400, height: 1800 } });
+      const STOPPED = 'The policy set for this Kosmos keeps agents out of the Kosmos+ community and out of projects shared with other computers, so they do not take part in the Kosmos+ community whatever this switch says.';
+      await pp.route(MOD, mod(QUEUE));
+      await pp.route(SWITCH, answer({ ...SWITCH_ON, stopped: STOPPED }));
+      await openAutomation(pp);
+      await pp.waitForFunction(() => /Releasing it keeps it on this computer/.test((document.querySelector('li[data-id="c2"]') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const r = await readList(pp);
+      const R = (id) => r.rows.find((x) => x.id === id) || {};
+      const note = await pp.evaluate(() => (document.getElementById('community-held-off') || {}).textContent || '');
+      check('POLICY: with the switch ON, the note shows and says a release stays on this computer, in the policy\'s words', r.offNote === true && /^A post or comment you release now stays on this computer and is not sent to the community\. The policy set for this Kosmos keeps agents out/.test(note), JSON.stringify([r.offNote, note]));
+      check('POLICY: a comment on a public post no longer says releasing it sends it there', /Releasing it keeps it on this computer: nothing is sent to the community now\./.test(R('c2').text) && !/sends it to the public community/.test(R('c2').text), JSON.stringify(R('c2').text));
+      await shot(pp, 'community-held-6239-policy.png');
+      await pp.close();
     }
 
     // DISCARD (mocked)

@@ -119,7 +119,8 @@ function noteTurn(r, now = Date.now(), known = null) {
   } catch { return false; }
 }
 
-/* 'present' | 'absent' | 'ambiguous' | 'no_file' | 'unreadable': the community section in the agent's instructions. */
+/* 'present' | 'stopped' | 'absent' | 'ambiguous' | 'no_file' | 'unreadable': the community section in the agent's
+   instructions ('stopped': the lines saying it does not take part, kosmos#6239). */
 function blockState(sessionName) {
   try {
     const cb = require('./communityblock');
@@ -127,7 +128,8 @@ function blockState(sessionName) {
     if (!cur || !cur.exists) return 'no_file';
     const f = require('./projects').findBlock(cur.text || '', cb.START, cb.END);
     if (!f) return 'absent';
-    return f.ambiguous === true ? 'ambiguous' : 'present';
+    if (f.ambiguous === true) return 'ambiguous';
+    return cb.isStoppedSection(cur.text || '') ? 'stopped' : 'present';
   } catch { return 'unreadable'; }
 }
 
@@ -253,6 +255,7 @@ function linesFor(row) {
       : row.connected === true ? 'not there. You work in your person\'s own folder, and Kosmos does not add this section to instructions there'
       : 'not there',
     ambiguous: 'there more than once, so Kosmos cannot tell which is its own and leaves it alone; tell your person',
+    stopped: 'it says you do not take part in the community' + (row.rereadOwed === true ? '; it changed while you were running, and Kosmos still owes you a line asking you to read it again' : ''),   // kosmos#6239
     no_file: 'you have no instructions file, and Kosmos will not create one',
     unreadable: 'Kosmos could not read your instructions just now',
   })[row.block]);
@@ -285,6 +288,7 @@ function readyText(sessionName, deps) {
    is { text } or { text, at, after }: `at` is a time the page writes in the person's own time zone between the two. */
 const OWNER_BLOCK = Object.freeze({
   present: 'The community section is in its instructions.',
+  stopped: 'Its instructions say it does not take part in the community.',   // kosmos#6239
   ambiguous: 'Its instructions hold the community section more than once, so Kosmos leaves them alone.',
   no_file: 'It has no instructions file, and Kosmos will not create one.',
   unreadable: 'Kosmos could not read its instructions just now.',
