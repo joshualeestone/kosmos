@@ -194,3 +194,9 @@ is for the first run after merge.
 - No defect; one test gap: nothing ran a real refresh through the board's registered listener. Added an end-to-end
   test (real oe.refresh against a fake "gone" coordinator, the listener registered as start() does). Removing the
   tell on that ending, or a listener that ignores the root, each fail it (measured).
+
+## Review 19 (opus), and what changed
+- The end-to-end test registered the listener itself, so it could not fail if start() stopped registering it (and
+  its cleanup removed start()'s registration). It now relies on start()'s own (test.before); removing that line
+  fails it (measured). It also removes the ending's stopped note. Engine comment: rollups and agent events cannot
+  reach the pending-Leave ending.

@@ -826,7 +826,7 @@ test('#6232 review 16: an ask that left the board in no company is not a miss (a
 
 test('#6232 review 18: end to end, a real refresh the company answers "gone" reaches the board\'s registered listener, and its agents are handed the change', async (t) => {
   const policy = require('./engine/policy');
-  const { companyPolicySync, orgEnrollmentEnded, _orgRefreshResetForTests } = require('./server');
+  const { companyPolicySync, _orgRefreshResetForTests } = require('./server');
   _orgRefreshResetForTests();
   const ACME = { id: 'org_1', name: 'Acme', slug: 'acme' };
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: ACME, role: 'member', world: oe.worldId(), enrolledAt: '2026-10-09T00:00:00.000Z', consentHash: 'cd'.repeat(32) }));
@@ -837,8 +837,13 @@ test('#6232 review 18: end to end, a real refresh the company answers "gone" rea
   let held = { name: 'Acme', text: 'Use only approved tools.' };
   policy.companyEntry = () => (oe.readEnrollment() ? held : null);
   policy.syncEveryone = () => { syncs += 1; return []; };
-  const off = oe.onEnrollmentEnded(orgEnrollmentEnded);   // as start() registers it
-  t.after(() => { off(); policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
+  // Review 19: no registration here. The listener this test reaches is the one start() registered (test.before), so
+  // a start() that stopped registering it fails this test.
+  t.after(() => {
+    policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests();
+    fs.rmSync(enrollmentFile(), { force: true });
+    fs.rmSync(path.join(store.ROOT, 'org-stopped.json'), { force: true });   // the ending's "stopped" note (engine/orgenroll.js STOPPED_FILE)
+  });
   companyPolicySync();   // records the company text the agents hold
   assert.ok(oe.readEnrollment(), 'CONTROL: the board is not enrolled');
   // The real refresh (this board's own root), against a coordinator that says the member is gone.
