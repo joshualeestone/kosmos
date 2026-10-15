@@ -632,6 +632,18 @@ function jobOps(platform) {
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
       startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
+      /* #6183: the same restart acts as STEPS, for the restart body's async driver (the Mac/Linux analog). The
+         sync acts above stay for removeInner and other callers; restartSteps prefers these when present. Each
+         yields its schtasks call (stopNow/startNow) or its liveness waits (loaded yields { sleep } between
+         state-file reads), which remove.js's run()/runAsync answers off the board's thread; the generators
+         normalize that result to win32job's shape and share the sync acts' parsers, so the two cannot drift.
+         Each wraps the generator's { ok } to the Boolean the sync arm returns, since restartSteps records a step
+         ok as `r !== false`. win32 has no diagnose/waitUnloaded step, as the sync arm has none. */
+      steps: {
+        stopNow: function* (name, job) { const r = yield* win32job.endSteps(name, job && job.worldId); return Boolean(r && r.ok); },
+        startNow: function* (name, job) { const r = yield* win32job.startSteps(name, job && job.worldId); return Boolean(r && r.ok); },
+        loaded: function* (name, job, before) { const r = yield* win32job.runningSteps(name, job && job.worldId, { before }); return Boolean(r && r.ok); },
+      },
     };
   }
   if ((platform || process.platform) === 'linux') {
@@ -788,6 +800,10 @@ function sessionOps(platform, tmuxBin) {
     return {
       win32: true,
       end: (session) => Boolean(win32stop.end(session).ok),
+      /* #6183: the session close as a step, for the restart body's async driver. win32stop.endSteps resolves the
+         pid (a read) then yields the taskkill, which remove.js's runAsync runs off the board's thread; wrap its
+         { ok } to the Boolean the sync `end` returns (restartSteps records a step ok as `r !== false`). */
+      endSteps: function* (session) { const r = yield* win32stop.endSteps(session); return Boolean(r && r.ok); },
     };
   }
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
