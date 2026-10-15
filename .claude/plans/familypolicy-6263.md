@@ -65,3 +65,9 @@ A family's policy is said as the family's, everywhere the board words an org's p
 - policySection's comment says what it does (names the family's headings and "Your AI policy"; the file has one).
 - companyPolicySync requires orgenroll once.
 - Kept (NIT): /api/org and the join answer map the kind inline (familysayboard-6251's lines, not this branch's).
+
+## Round 6 (sonnet): converged (zero NEW needing a change)
+- Not changed here, filed as kosmos#6270: on a company's or no org's Kosmos the person's own policies keep the heading
+  "Your company's AI policy" (pre-existing; changing it rewrites every agent's file, the #479 cost).
+- Judged acceptable: kindHere fails soft (an unreadable record reads as no kind, so a company's words), as every
+  refusal's kind does. NITs kept: aboutPolicies' lowercase match (its one caller), the log line's interpolated text.
