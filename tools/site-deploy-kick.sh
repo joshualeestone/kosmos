@@ -38,6 +38,9 @@
 # asks, cannot read something, or sees a stuck run (at most two lines); the log is not rotated (about 10 to 20 KB a
 # day, about 40 KB at the very worst: a stuck run plus a failed dispatch every tick; kept by --uninstall).
 #
+# Unconfirmed: if GitHub reports a run killed at the workflow's 45-minute timeout as "cancelled" rather than
+# "timed_out", its gap counts from creation and the next tick may ask at once (the job's own 15-minute deploy limit
+# makes such a run rare).
 # Not covered (the job's schedule run still covers it): live gone back to an older commit while main is unchanged;
 # this compares main with last-deployed only. Accepted: a lost gh login or workflow scope fails every tick, seen only
 # in kick.log, last-result and launchctl's last exit code; GitHub's push and schedule runs keep working regardless.
@@ -141,10 +144,10 @@ while IFS=$'\t' read -r status concl created updated started; do
   s0="$(stamp "$started")" || { LAST_LINE="site deploy run time read as '${started:0:40}'; nothing asked"; exit 1; }
   # A re-run keeps its run's createdAt but moves startedAt to its own start (equal on a first attempt): the later
   # of the two is when this attempt was made.
-  [ "$s0" -gt "$c" ] && c=$s0
+  made=$created; [ "$s0" -gt "$c" ] && { c=$s0; made=$started; }
   this_stuck=""
   if [ "$status" != completed ]; then
-    [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created ($(( (NOW - c) / 60 )) minutes)"
+    [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $made ($(( (NOW - c) / 60 )) minutes)"
     if [ -n "$this_stuck" ]; then stuck="$this_stuck"; else active=$((active + 1)); fi
   fi
   # When it was made; for a run that FAILED, when it ended (the job's one retry keeps its 15-minute
