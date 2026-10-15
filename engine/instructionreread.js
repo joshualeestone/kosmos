@@ -47,13 +47,14 @@ const SECTIONS = Object.freeze({
   /* kosmos#5320: the projects block (engine/projects.js, rewritten by syncAgent on task and membership changes) carries
      rules a running agent started without, such as `kosmos project pause` (#4982). */
   projects: 'the section headed "Your projects"',
-  // kosmos#5534 slice 3: the AI policies block (the company's from its Kosmos policy, and the person's own).
-  policy: 'the section headed "Your company\'s AI policy" (or "Your company\'s AI policies")',
+  // kosmos#5534 slice 3: the AI policies block (the company's from its Kosmos policy, and the person's own). Used only
+  // when policy.headingsHere cannot be read (kosmos#6270: the person's own policies are "Your AI policy").
+  policy: 'the section headed "Your AI policy" (or "Your AI policies", "Your company\'s AI policy" or "Your company\'s AI policies")',
 });
 
 /* kosmos#6263 board review 3: the policy section by the headings this Kosmos's blocks carry (engine/policy.js
    headingsHere), so a family's agent is sent to the family's headings or "Your AI policy", not to the company's; its
-   file has one of the headings named (or ...). A company's and no org's line is SECTIONS.policy, byte for byte. */
+   file has one of the headings named (or ...). */
 function policySection() {
   let names;
   try { names = require('./policy').headingsHere(); } catch { return SECTIONS.policy; }
