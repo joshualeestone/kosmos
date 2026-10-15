@@ -138,11 +138,11 @@ test('#6249: still only ours after the settle gets ONE more Enter; still there a
   assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
   assert.equal(v.unsubmitted, true);
   assert.match(v.because, /went into its input box and was not sent/);
-  assert.equal(t.reads(), 1 + 2 * LOOKS, 'read before the paste, then through each settle');
+  assert.equal(t.reads(), 1 + 2 * (LOOKS + 1), 'read before the paste, then at once and through each settle');
 }));
 
 test('#6249: a retry that empties the box is placed', () => withAgent({}, (roster) => {
-  const stuck = Array(LOOKS).fill(box(MSG));
+  const stuck = Array(LOOKS + 1).fill(box(MSG));
   const t = arm([EMPTY, ...stuck, EMPTY]);
   const v = chat.deliver('al', MSG, roster);
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);

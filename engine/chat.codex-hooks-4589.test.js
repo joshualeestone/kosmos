@@ -56,10 +56,12 @@ function arm(answers) {
   const fn = (args) => {
     calls.push(args);
     if (args[0] === 'display-message') return okProbe();
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok();   // #6249: the input-box read, apart from the script
     return answers.length ? answers.shift() : ok();
   };
   fn.calls = calls;
-  fn.captures = () => calls.filter((a) => a[0] === 'capture-pane');
+  /* The Codex floor's plain screen reads; #6249's input-box read of a Claude pane (capture-pane -e) is not one of them. */
+  fn.captures = () => calls.filter((a) => a[0] === 'capture-pane' && !a.includes('-e'));
   fn.typedInto = () => calls.filter((a) => a[0] === 'set-buffer' || a[0] === 'paste-buffer' || a[0] === 'send-keys');
   chat.setRunner(fn);
   chat.setDryRun(false);

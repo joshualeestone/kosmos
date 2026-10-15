@@ -104,8 +104,9 @@ test('#5743 CONTROL: an idle agent is typed into as before, and pays no screen r
     const v = await chat.deliverAutomaticAsync('casey', 'A line for Casey.', board.agents);
     assert.notEqual(v.held, true, JSON.stringify(v));
     assert.ok(calls.typed().length > 0, 'nothing was typed to an idle agent');
-    // An idle card's screen is not read (it cannot be showing any of the three screens).
-    assert.equal(calls.filter((c) => c[0] === 'capture-pane').length, 0, 'an idle agent\'s screen was read before typing');
+    // An idle card's screen is not read for a menu (it cannot be showing any of the three screens). #6249's input-box
+    // read (capture-pane -e, before the paste and after the Enter) is a different read, made for every Claude pane.
+    assert.equal(calls.filter((c) => c[0] === 'capture-pane' && !c.includes('-e')).length, 0, 'an idle agent\'s screen was read for a menu before typing');
   });
 });
 

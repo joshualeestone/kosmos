@@ -841,14 +841,17 @@ function* submitConfirmSteps(card, target, wire) {
   let waited = 0;
   let retried = false;
   for (;;) {
-    yield { wait: SUBMIT_LOOK_MS };
-    waited += SUBMIT_LOOK_MS;
+    /* Read first, wait only while ours is still there: a pane with no box to read pays nothing over today. */
     const box = readComposer(target);
     if (!box.ok) return { outcome: 'unread', retried };
     const holds = composerHolds(box.text, wire);
     if (holds === 'empty') return { outcome: 'sent', retried };
     if (holds === 'other') return { outcome: 'other', retried };
-    if (waited < SUBMIT_SETTLE_MS) continue;
+    if (waited < SUBMIT_SETTLE_MS) {
+      yield { wait: SUBMIT_LOOK_MS };
+      waited += SUBMIT_LOOK_MS;
+      continue;
+    }
     if (retried) return { outcome: 'unsent', retried };
     if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
     const again = tmux(['send-keys', '-t', target, 'Enter']);

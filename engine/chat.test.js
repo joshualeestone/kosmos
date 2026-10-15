@@ -101,6 +101,10 @@ function fakeTmux(answers, opts) {
       if (probeSeq && probeSeq.length) return probeSeq.shift();
       return probe;
     }
+    /* #6249: the input-box read (capture-pane -e) before the paste and after the Enter is answered apart from the
+       script too, as the probe is, and by default with a blank screen: no box to read, so the verdict is the one
+       these tests were written for. engine/chat.composer-6249.test.js drives the box itself. */
+    if (args[0] === 'capture-pane' && args.includes('-e')) return { ran: true, spawnFailed: false, status: 0, out: (opts && opts.box) || '', err: '' };
     return answers.length ? answers.shift() : { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
   };
   fn.calls = calls;
@@ -358,8 +362,11 @@ test('a good send PASTES the text then presses Enter, both pinned to the exact p
     // screen is also read first (is its question menu up?), which is read-only too.
     const firstKey = tmux.calls.findIndex((c) => c[0] === 'set-buffer' || c[0] === 'paste-buffer' || c[0] === 'send-keys');
     const before = tmux.calls.slice(0, firstKey).map((c) => c[0]);
-    // Exactly: the floor's screen read (a needs_you card), then the pane check, then the first keystroke.
-    assert.deepEqual(before, ['capture-pane', 'display-message'], 'the reads before the first keystroke changed: ' + before.join(','));
+    // Exactly: the floor's screen read (a needs_you card), then the pane check, then #6249's input-box read (a
+    // capture-pane -e: is anything already in the box?), then the first keystroke.
+    const named = tmux.calls.slice(0, firstKey).map((c) => (c[0] === 'capture-pane' && c.includes('-e') ? 'capture-pane -e' : c[0]));
+    assert.deepEqual(named, ['capture-pane', 'display-message', 'capture-pane -e'], 'the reads before the first keystroke changed: ' + named.join(','));
+    assert.deepEqual(before.slice(0, 2), ['capture-pane', 'display-message']);
   });
 });
 
