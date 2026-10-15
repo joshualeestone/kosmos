@@ -203,6 +203,11 @@ i1="$(live 'kosmos_setup_floor_installer_ok "this cut.s install/setup.sh" "\$REP
 s2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$i1" ] && [ -n "$s2" ] && [ "$i1" -lt "$s2" ]; } && pass "release.sh checks the cut's own installer (line $i1) before step 2" || bad "release.sh own-installer check line '${i1:-none}'"
 printf 'an installer from before 0.7.45\n' > "$T/old-installer"
+printf '#!/bin/sh\n# mentions KOSMOS_READONLY_APP only in a comment\necho old\n' > "$T/comment-only"
+kosmos_setup_floor_installer_ok t "$T/comment-only" 2>/dev/null && bad "an installer naming the marker only in a comment passed" || pass "an installer naming the marker only in a comment is refused"
+printf '#!/bin/sh\n  # a comment\n  if [ -n "$KOSMOS_READONLY_APP" ]; then :; fi\n' > "$T/code-marker"
+kosmos_setup_floor_installer_ok t "$T/code-marker" 2>/dev/null && pass "CONTROL: an installer with the marker on a code line passes" || bad "an installer with the marker in code was refused"
+kosmos_setup_floor_installer_ok t "$HERE/../install/setup.sh" 2>/dev/null && pass "CONTROL: today's install/setup.sh passes the non-comment marker check" || bad "today's install/setup.sh fails the non-comment marker check"
 # An awk that answers nothing (a broken or shadowed tool) must refuse, not pass: PATH points awk at a stub that exits 0.
 mkdir -p "$T/stubawk"; printf '#!/bin/sh\nexit 0\n' > "$T/stubawk/awk"; chmod +x "$T/stubawk/awk"
 PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "{\"version\":\"0.6.1\",\"artifact\":\"kosmos-0.6.1-arm64.tar.gz\"}"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
