@@ -1508,9 +1508,10 @@ async function sweepOnce(now) {
   // that stretch off leaked. Ending it loses what was made since the start and not yet sent: status says so
   // (`switch_unreadable`, also after a repair: #5460 records the ended period in `endedUnreadable`) and the agent can post it
   // again, while a public post the person never meant cannot be taken back.
-  /* kosmos#6239 (round 4): a policy that cannot be read stops sending but keeps the period, so a passing read error
-     does not lose every unsent item; a real policy ends it on the first sweep that reads it. */
-  if (!on && st && sw !== 'policy_unreadable') endOnPeriod(st, sw);
+  /* kosmos#6239 (round 5): a policy that cannot be read ends the period too, as an unreadable switch does (#5435
+     review 5): keeping it (round 4) let items go public later that every status line had called gone, and a public post
+     cannot be taken back. Its unsent items say so while the fault holds; after it, they read as before the period. */
+  if (!on && st) endOnPeriod(st, sw);
   if (sw !== 'unreadable' && st) closeUnreadableWindow(st);
   if (!endpointAllowed()) {
     if (!reportedCorrupt.has('insecure:' + endpoint())) {
