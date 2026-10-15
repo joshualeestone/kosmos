@@ -693,7 +693,7 @@ test('#6232 review 5: an older ask finishing late without an answer does not mov
   t.after(() => { oe.refresh = realRefresh; Date.now = realNow; live.resetForTests(); fs.rmSync(enrollmentFile(), { force: true }); });
   live.allowLiveExecution();
   const M = 60 * 1000;
-  const T = realNow() + 10 * 60 * M;   // ahead of anything an earlier test recorded
+  const T = realNow() + 10 * 60 * M;
   try {
     Date.now = () => T;
     const first = orgEnrollRefresh();
@@ -808,4 +808,47 @@ test('#6232 review 8: an agent that cannot be told is retried hourly from the ch
   assert.equal(syncs, 3, 'CONTROL: the hourly retry did not run');
   await orgRefreshIfDue(at + 127 * M);
   assert.equal(syncs, 3, 'a text every agent holds was handed again');
+});
+
+test('#6232 review 9: after a boot that could not tell every agent, a removal caught elsewhere still reaches the agents', async (t) => {
+  const live = require('./engine/live-execution');
+  const policy = require('./engine/policy');
+  const { orgRefreshIfDue, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests({ bootRetry: true });   // the boot's retry mark, not a recorded text
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = null;   // the removal has cleared the company policy already (a refused rollup's refresh)
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return []; };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; live.resetForTests(); _orgRefreshResetForTests(); });
+  fs.rmSync(enrollmentFile(), { force: true });
+  await orgRefreshIfDue();
+  assert.equal(syncs, 1, 'the agents kept the removed company\'s text because the boot had left a retry mark');
+  await orgRefreshIfDue();
+  assert.equal(syncs, 1, 'every agent told, yet the check handed it again');
+});
+
+test('#6232 review 9: the hourly ask\'s hand-over counts, so a stuck agent is retried once an hour, not twice', async (t) => {
+  const policy = require('./engine/policy');
+  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  const realWrite = process.stderr.write;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return [{ state: 'could-not', agent: 'ari', because: 'its session is gone' }]; };
+  process.stderr.write = function (chunk, ...rest) { if (/could not hand your company/.test(String(chunk))) return true; return realWrite.call(this, chunk, ...rest); };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; process.stderr.write = realWrite; _orgRefreshResetForTests(); });
+  companyPolicySync();   // records the text the agents hold
+  entry = { name: 'Acme', text: 'A new version.' };
+  companyPolicySync();   // as the hourly ask does after its refresh: one agent cannot be told
+  assert.equal(syncs, 1, 'CONTROL: the hourly ask did not hand the change over');
+  const M = 60 * 1000;
+  await orgRefreshIfDue(Date.now() + 5 * M);
+  assert.equal(syncs, 1, 'the check handed the same change again minutes after the hourly ask did');
+  await orgRefreshIfDue(Date.now() + 61 * M);
+  assert.equal(syncs, 2, 'CONTROL: a stuck agent was never retried');
 });

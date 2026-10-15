@@ -22824,7 +22824,8 @@ function orgEnrollRefresh() {
   try {
     const oe = require('./engine/orgenroll');
     if (!oe.readEnrollment() && !oe.leavePending() && !oe.joinUnknown()) return;   // never joined: nothing is sent
-    // Recorded before the ask, so an ask still in flight is not sent again before it is due (refresh runs one at a time).
+    // Recorded before the ask, so the five-minute check does not send another while it is in flight (refresh runs one
+    // at a time, so an ask from another caller queues rather than overlapping).
     const askedAt = Date.now();
     ORG_ASKED_AT = askedAt;
     ORG_NEXT_AT = askedAt + ORG_REFRESH_MS;
@@ -22850,17 +22851,15 @@ function orgRefreshIfDue(now = Date.now()) {
      (they call oe.refresh themselves), and every later ask returns before companyPolicySync because nothing is
      enrolled, so the agents kept the company's AI policy text until a restart. While agents hold a company text, each
      check reads the current one and, when it differs, hands it over. Not while none is held, so a board in no company
-     does nothing here. Review 8: each change is handed once from here, and tried again only hourly while some agent
-     could not be told, so a stuck agent costs no more than the hourly ask (not a roster pass and a warning per check). */
-  if (typeof COMPANY_POLICY_SEEN === 'string') {
+     does nothing here. Review 8: each change is handed over once, and again only hourly while some agent could not be
+     told, counting every hand-over (this check's and the hourly ask's; companyPolicySync records each), so a stuck
+     agent costs one roster pass and one warning an hour. Review 9: "held" includes the retry mark the boot leaves when
+     an agent could not be told then, not only a recorded text. */
+  if (COMPANY_POLICY_SEEN !== undefined && COMPANY_POLICY_SEEN !== null) {
     let held = COMPANY_POLICY_SEEN;
     try { const c = policyEngine.companyEntry(); held = c ? JSON.stringify([c.name, c.text]) : null; } catch { /* unread: leave it */ }
     if (held !== COMPANY_POLICY_SEEN
-      && (held !== COMPANY_CHECK_TRIED || now - COMPANY_CHECK_AT >= ORG_REFRESH_MS || now < COMPANY_CHECK_AT)) {
-      COMPANY_CHECK_TRIED = held;
-      COMPANY_CHECK_AT = now;
-      companyPolicySync();
-    }
+      && (held !== COMPANY_CHECK_TRIED || now - COMPANY_CHECK_AT >= ORG_REFRESH_MS || now < COMPANY_CHECK_AT)) companyPolicySync();
   }
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
@@ -22870,9 +22869,11 @@ function orgRefreshIfDue(now = Date.now()) {
 let COMPANY_CHECK_TRIED;
 let COMPANY_CHECK_AT = 0;
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
-function _orgRefreshResetForTests() {
+function _orgRefreshResetForTests(opts) {
   ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0;
   COMPANY_POLICY_SEEN = undefined; COMPANY_CHECK_TRIED = undefined; COMPANY_CHECK_AT = 0;
+  // As the boot leaves it when some agent could not be told the company text (server start, bootPolicyAllTold).
+  if (opts && opts.bootRetry === true) COMPANY_POLICY_SEEN = COMPANY_POLICY_RETRY;
 }
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
@@ -22896,6 +22897,9 @@ function companyPolicySync() {
     }
     if (COMPANY_POLICY_SEEN === undefined) { COMPANY_POLICY_SEEN = now; return; }
     if (now === COMPANY_POLICY_SEEN) return;
+    // #6232 review 9: every hand-over is recorded, so the five-minute check counts the hourly ask's too.
+    COMPANY_CHECK_TRIED = now;
+    COMPANY_CHECK_AT = Date.now();
     const told = policyEngine.syncEveryone(safeRoster());
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
