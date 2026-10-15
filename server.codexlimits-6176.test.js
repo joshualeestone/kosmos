@@ -141,9 +141,10 @@ test('#6176 a moved agent: a report from before its job last changed does not co
   const week = Math.floor(Date.now() / 1000) + 3 * 86400;
   writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 66, window_minutes: 10080, resets_at: week }, null);
   const job = jobfix.jobPath('codexwork'), j0 = fs.statSync(job).mtime; fs.utimesSync(job, new Date(), new Date());   // the move rewrote the job just now
-  const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
-  assert.equal(work.limits, null, 'the old account\'s report was shown on the new one');
-  fs.utimesSync(job, j0, j0);   // later tests see the agent on its account for hours again
+  try {
+    const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
+    assert.equal(work.limits, null, 'the old account\'s report was shown on the new one');
+  } finally { fs.utimesSync(job, j0, j0); }   // later tests see the agent on its account for hours again, pass or fail
   fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
 });
 
@@ -153,9 +154,10 @@ test('#6176 the account folder counts only since its sign-in: an older login\'s 
   writeReport(CODEX, new Date(Date.now() - 3600e3).toISOString(), { used_percent: 81, window_minutes: 10080, resets_at: week }, null);
   await rows();   // the board has seen this login before
   const restore = relogin(CODEX);   // signed in again just now, under another login
-  const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt' && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
-  assert.equal(sub.limits, null, 'a report from before the sign-in was shown');
-  restore();
+  try {
+    const sub = (await rows()).find((a) => a.provider === 'openai' && a.authMode === 'chatgpt' && fs.realpathSync(a.dir) === fs.realpathSync(CODEX));
+    assert.equal(sub.limits, null, 'a report from before the sign-in was shown');
+  } finally { restore(); }
   fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });
 });
 
@@ -166,9 +168,10 @@ test('#6176 a private home counts only since the account\'s sign-in: an agent\'s
   writeReport(codexruntime.forAgent('codexwork'), new Date(Date.now() - 3600e3).toISOString(), { used_percent: 44, window_minutes: 10080, resets_at: week }, null);
   await rows();   // the board has seen this login before
   const restore = relogin(CODEX_WORK);   // signed in again just now, under another login
-  const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
-  assert.equal(work.limits, null, 'an agent\'s report from before the sign-in was shown');
-  restore();
+  try {
+    const work = (await rows()).find((a) => a.provider === 'openai' && a.dir && fs.realpathSync(a.dir) === fs.realpathSync(CODEX_WORK));
+    assert.equal(work.limits, null, 'an agent\'s report from before the sign-in was shown');
+  } finally { restore(); }
   fs.rmSync(nodePath.join(codexruntime.forAgent('codexwork'), 'sessions'), { recursive: true, force: true });
 });
 
@@ -180,9 +183,10 @@ test('#6176 a token refresh (same login, auth.json rewritten) keeps the meter', 
   assert.equal((await find()).limits.windows[0].usedPct, 52);
   const auth = nodePath.join(CODEX, 'auth.json'), t0 = fs.statSync(auth).mtime;
   fs.utimesSync(auth, new Date(), new Date());   // refreshed just now: same login
-  const after = await find();
-  assert.ok(after.limits && after.limits.windows[0].usedPct === 52, 'a refresh hid the meter: ' + JSON.stringify(after.limits));
-  fs.utimesSync(auth, t0, t0);
+  try {
+    const after = await find();
+    assert.ok(after.limits && after.limits.windows[0].usedPct === 52, 'a refresh hid the meter: ' + JSON.stringify(after.limits));
+  } finally { fs.utimesSync(auth, t0, t0); }
   fs.rmSync(nodePath.join(CODEX, 'sessions'), { recursive: true, force: true });
 });
 

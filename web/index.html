@@ -27295,7 +27295,7 @@ function acctCodexUsageHtml(a) {
     const sameDay = new Date(w.resetsAt).toDateString() === new Date(now).toDateString();
     const resets = new Date(w.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' }
       : w.resetsAt - now > 6 * 864e5 ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
-    return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '" data-window="' + Math.round(w.windowMinutes) + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
+    return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
       + '<p class="acct-usage-line">' + pct + '% of its ' + esc(name) + ' limit used · resets ' + esc(resets) + (age ? ' · Codex last reported it ' + esc(age) : '') + '</p></div>'
       + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its ' + esc(name) + ' limit until ' + esc(resets) + '.' : 'Close to its ' + esc(name) + ' limit.') + '</p>' : '');
   }).join('');

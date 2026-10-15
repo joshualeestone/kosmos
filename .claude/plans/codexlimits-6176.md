@@ -64,6 +64,8 @@ the default account). My first version read only the account folder and would ne
   reports once, until the next one. A sign-in with no account_id falls back to auth.json's time. An agent's home also
   waits for its own job's last change. (Iterations 10 and 11 deferred the refresh gap; iteration 12 raised it a third
   time, and Kosmos's own sign-in check could refresh on an idle account, so it is fixed rather than reasoned away.)
+- The sign-in record is read, changed and written in one synchronous call (no await between), so two requests in
+  one board cannot interleave and lose an entry; two boards never share a data folder.
 - Each home lists at most 12 files, newest day folder first and by name within a day, before ranking by write time:
   on a busy day a session from yesterday resumed today may not be listed. A long session whose last 256 KB holds no
   rate_limits row reads as no report from that file.
