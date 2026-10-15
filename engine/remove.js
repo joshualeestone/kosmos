@@ -667,9 +667,11 @@ function jobOps(platform) {
       /* #6183: the same acts as steps, for the restart body's async driver (the Mac's `steps: MAC_STEPS` analog). The
          sync acts above stay for removeInner and other sync callers; restartSteps prefers these when present. Each
          step yields its systemctl call, which THIS module's run()/runAsync answers -- the same executor the sync acts
-         reach through `via` (lj.runWith(run, ...)), so a dry run and the live gate hold here too. `loaded` keeps the
-         sync arm's DRY_RUN short-circuit (is-active returns no stdout under a dry run, which the parse would read as
-         not-loaded). */
+         reach through `via` (lj.runWith(run, ...)), so a dry run and the live gate hold here too. Unlike the sync
+         `loaded` above (a `DRY_RUN ||` short-circuit that never asks the runner), the step ALWAYS yields is-active and
+         reads a dry run as loaded from the per-result dryRun flag inside loadedSteps, so an injected runner always
+         sees the command -- which the async driver's proof depends on. The two agree wherever it matters (a real
+         board, a dry run with no runner); they differ only in a test that both dry-runs and injects a runner. */
       steps: {
         stopNow: (name, job) => lj.stopSteps(name, wid(job)),
         startNow: (name, job) => lj.startOnlySteps(name, wid(job)),
