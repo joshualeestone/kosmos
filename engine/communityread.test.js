@@ -2184,11 +2184,15 @@ function longThreads(pid, opts = {}) {
   const thread = (i) => Array.from({ length: 100 }, (_, k) => comment({ id: D6204(1000 + i * 200 + 2 + k), parent_id: D6204(i + 1), created_at: old(200 + k) }))
     .concat([comment({ id: D6204(5000 + i), parent_id: D6204(i + 1), created_at: T(5), agent: { name: 'Zed' }, body: 'tail ' + i })], extra.get(i) || []);
   const asked = [];
+  const newer = [];   // top-level comments added after a read, newest first, each { top, replies } (one replies page)
   cr.setFetcher(async (url) => {
     asked.push(url);
+    if (opts.delay) await new Promise((res) => setTimeout(res, opts.delay));
     const u = new URL(url);
     const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
-    if (!m) return { status: 200, json: { comments: [newest, ...tops] } };
+    if (!m) return { status: 200, json: { comments: [...newer.map((n) => n.top), newest, ...tops] } };
+    const n = newer.find((x) => x.top.id === m[1]);
+    if (n) return { status: 200, json: { next_cursor: null, replies: n.replies } };
     const i = tops.findIndex((t) => t.id === m[1]);
     const cur = u.searchParams.get('cursor');
     if (opts.down && opts.down()) return { status: 429, json: null };
@@ -2197,7 +2201,7 @@ function longThreads(pid, opts = {}) {
     const all = thread(i);
     return { status: 200, json: { next_cursor: (p + 1) * 20 < all.length ? 'k' + i + L + (p + 1) : null, replies: all.slice(p * 20, p * 20 + 20) } };
   });
-  return { asked, tops, extra };
+  return { asked, tops, extra, newer };
 }
 const shownIds = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
 
@@ -2303,7 +2307,7 @@ test('#6204 review 3: across 10 busy posts every thread is reached in turn, so e
   let waitedMost = 0;
   for (let k = 0; k < 40; k += 1) {
     shown.push(...shownIds((await cr.readReplies('Many6204', { now: NOW + k * 1000 })).text));
-    for (const m of Object.values(JSON.parse(fs.readFileSync(seenPath('Many6204'), 'utf8')).posts)) for (const t of Object.values(m.threads || {})) waitedMost = Math.max(waitedMost, t.waited);
+    for (const m of Object.values(JSON.parse(fs.readFileSync(seenPath('Many6204'), 'utf8')).posts)) for (const t of Object.values(m.threads || {})) if (t.cursor) waitedMost = Math.max(waitedMost, t.waited);
   }
   // Threads take turns: none goes more than two reads in a row without a page.
   assert.ok(waitedMost >= 1 && waitedMost <= 2, 'threads did not take turns: one waited ' + waitedMost + ' reads');
@@ -2361,6 +2365,9 @@ test('#6204 review 3: a replies cursor that cycles back to one already read is n
   });
   const r = await cr.readReplies('Cyc6204', { now: NOW });
   assert.equal(asked.filter((u) => u.includes('/replies?')).length, 2, 'a cursor cycle was followed');
+  // Not read whole, so not remembered as read to its end (a done thread's tail would not cap the mark).
+  const kept = (JSON.parse(fs.readFileSync(seenPath('Cyc6204'), 'utf8')).posts[RP(8)].threads || {})[D6204(810)];
+  assert.ok(!(kept && kept.done), 'a thread whose cursor cycled was remembered as read to its end');
   assert.match(r.text, /past what a read reaches, so new ones among them may be missed/);
 });
 
@@ -2454,6 +2461,36 @@ test('#6204 review 7: a place carried for an older comment no read reaches stops
   for (let k = 1; k <= cr.MARK_HOLD_MAX + 1; k += 1) await cr.readReplies('Age6204', { now: NOW + k * 1000, round2Ms: 0 });
   assert.ok(!(C in (mark().threads || {})), 'a place carried unseen was kept past MARK_HOLD_MAX reads');
   assert.equal(mark().at, Date.parse(T(11)), 'the mark did not move on once the carried place was dropped');
+});
+
+test('#6204 review 8: once every thread was read to its end, threads paged again and cut do not hold the mark back', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Std6204', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(3));
+  for (let k = 0; k < 4; k += 1) await cr.readReplies('Std6204', { now: NOW + k * 1000 });
+  // Every thread is now read to its end; the post still needs 48 pages, so every read cuts some of them again.
+  const at = '2026-10-01T11:30:00Z';
+  f.newer.push({ top: comment({ id: D6204(98), created_at: at, agent: { name: 'Zed' }, body: 'a newer top comment' }), replies: [] });
+  const r = await cr.readReplies('Std6204', { now: NOW + 9000 });
+  assert.ok(shownIds(r.text).includes(D6204(98)), 'the newer comment was not shown');
+  assert.match(r.text, /not reached in this read/, 'CONTROL: no thread was cut on this read');
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('Std6204'), 'utf8')).posts[RP(3)].at, Date.parse(at), 'the mark was held back by finished threads paged again');
+});
+
+test('#6204 review 8: a new comment\'s thread is paged ahead of the saved threads, so its deep reply is not held behind the backlog', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'New6204', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(1), { delay: 5 });
+  await cr.readReplies('New6204', { now: NOW });   // all 8 threads are cut and saved
+  const N = D6204(97);
+  f.newer.push({ top: comment({ id: N, created_at: '2026-10-01T11:30:00Z', reply_count: 5, replies_cursor: 'n0',
+    replies: [0, 1].map((k) => comment({ id: D6204(8000 + k), parent_id: N, created_at: '2026-10-01T11:31:00Z' })) }),
+  replies: [comment({ id: D6204(8100), parent_id: N, created_at: '2026-10-01T11:40:00Z', agent: { name: 'Zed' }, body: 'deep in the new thread' })] });
+  // A read with time for one wave of pages only.
+  f.asked.length = 0;
+  const r = await cr.readReplies('New6204', { now: NOW + 1000, round2Ms: 1 });
+  assert.ok(f.asked.filter((u) => u.includes('/replies?')).length <= cr.REPLY_PAGES_AT_ONCE, 'CONTROL: the read was not limited to one wave');
+  assert.ok(shownIds(r.text).includes(D6204(8100)), 'the new thread\'s deep reply was held behind the saved threads');
 });
 
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {

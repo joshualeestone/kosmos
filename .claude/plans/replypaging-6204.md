@@ -26,6 +26,12 @@ were never reached.
   the older comments were not all read, and caps the mark like a cut thread; once they were all read, it is dropped.
   Review 7: it is also dropped after MARK_HOLD_MAX reads unseen (its `waited` grows), so it cannot pin the mark for ever.
 - Review 3: a replies cursor already read for the comment in this read is not followed (cycles, not only self-loops).
+- Review 8: a thread read to its end is remembered as `{ done: true }` (no place). A done thread paged again and cut
+  does not cap the mark: every reply up to its end was judged, and a reply added since is newer than the mark. Without
+  this, a post needing more pages than the budget cut a restarted thread every read and held its mark for ever. A thread
+  said as not reached without a page waiting (a cut page, a cursor cycle) is not remembered as done.
+- Review 8: within a post's turn the newest thread never read to its end goes first, then saved threads (longest
+  waiting first), then the rest, so a new comment's thread is not held behind the backlog.
 - The post's mark never passes the last reply read in a thread the budget or the window cut (the lowest id at that
   reply's time), so a tail read on a later read is still new.
 - A saved cursor the service refuses (4xx, not 429) is dropped and the thread paged from its first cursor.
@@ -80,6 +86,9 @@ service.
 - A run of 429s longer than MARK_HOLD_MAX after a read that saved places: every tail is still shown once.
 - A person's reply the 30-cap held back is marked owed on the next read.
 - A carried place unseen for more than MARK_HOLD_MAX reads is dropped and the mark moves on.
+- Steady state (every thread done, the post still over budget): a newer comment moves the mark to it.
+- A new comment's thread is paged in a read that has time for one wave, ahead of 8 saved threads.
+- A thread whose cursor cycled is not remembered as done.
 - A changed cursor spelling: every saved place refused, nothing lost.
 - A cursor naming its own page: read once, said.
 - Mutations (17): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
