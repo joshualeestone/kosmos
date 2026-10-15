@@ -9,7 +9,8 @@
  *  - its newest summaries/YYYY-MM-DD-HH.md (projectview.summaryFreshness, in its own folder, create.workerDir) is older
  *    than the rhythm (SUMMARY_RHYTHM_HOURS), AND it has REPORTED more than the rhythm of work since that summary
  *    (workedSinceMs: positive evidence only; a missing or cut history, or no known state at the summary, is not work).
- *    An idle agent is not expected to write, so a stale file alone is not owed.
+ *    An idle agent is not expected to write, so a stale file alone is not owed. Project status also re-labels a stale
+ *    summary quiet or idle (projectview's quietExcused, idleExcused); this does not, by decision (see the plan).
  *    An agent with no summary file at all is not told (a role without the rhythm never writes one);
  *  - its card is ours, a Claude agent, idle (between turns), not a switched-off swarm, not reached through a channel.
  * Its screen is read first (stalereport-nudge's screenOpen), and nothing is typed while a menu or a prompt is open there
@@ -82,7 +83,9 @@ function workedSinceMs(rows, wroteAt, now) {
     if (busy(state)) worked += r.at - from;
     state = r.state; from = r.at;
   }
-  if (busy(state)) worked += now - from;
+  /* Review 2: nothing after the last report counts. A turn that was interrupted or crashed sends no Stop, so its last
+     busy report would otherwise run to now (the card reads idle; it may be days); a working Claude agent reports busy on
+     every tool call, so this costs at most the time since its last call. */
   return worked;
 }
 
@@ -101,7 +104,7 @@ function nudgeText(summary, now, workedMs) {
     + 'summaries/YYYY-MM-DD-HH.md in your own folder, a few lines on what moved, what is blocked and what you decided.';
 }
 
-/* Pure: whether to prompt this card now. `summary` is summaryFreshness's reading, `worked` is workExcused's over it. */
+/* Pure: whether to prompt this card now. `summary` is summaryFreshness's reading, `workedMs` is workedSinceMs's. */
 function plan(card, summary, workedMs, entry, now, promptedAt) {
   if (!card || !summary) return { act: 'none', because: 'no summary reading' };
   if (summary.state !== 'stale' || !summary.at || !summary.file) return { act: 'none', because: 'its summary is ' + (summary.state || 'unknown') };

@@ -37,3 +37,10 @@ told, and one whose reports overstate work is told early.
   not, so it can tell an agent whose task parts all closed but whose room or DM turns added up to the rhythm (that is
   still unwritten work). An agent that never wrote any summary is not told (follow-up if wanted: use roles.js
   NO_SUMMARY to tell agents with the rhythm and no summary at all).
+
+## Review 2 (sonnet), and what changed
+- Fixed: nothing after the last report counts as work. An interrupted or crashed turn sends no Stop, so its last busy
+  report would have run to now (days, on an idle card). A working Claude agent reports busy on every tool call, so this
+  costs at most the time since its last call. Tested (counting the trailing stretch fails it, measured).
+- Tests added: a cut history is unknown; an operator clear is not the agent's report (as workExcused); a held delivery
+  spends no try; the tick reads nothing when live execution is off. Module header names the quiet/idle gap.
