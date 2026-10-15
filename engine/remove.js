@@ -321,13 +321,17 @@ function driveSync(gen) {
 }
 async function driveAsync(gen, ctl) {
   let r = gen.next();
+  /* Abandoned at its cap (restartAsync): an answer that came in late, or a throw, is not acted on, and no further
+     command is sent, so a restart given up on can never bootstrap after its hold was released. Checked at the top of
+     every turn, so the throw path is covered too (review 3). */
+  const stop = () => { try { gen.return(); } catch { /* nothing to finish */ } return null; };
   while (!r.done) {
+    if (ctl && ctl.abandoned) return stop();
     let answer;
-    try { answer = await answerAsync(r.value); } catch (err) { r = gen.throw(err); continue; }
-    /* Abandoned at its cap (restartAsync): the answer that came in late is not acted on, and no further command is
-       sent, so a restart given up on can never bootstrap after its hold was released. */
-    if (ctl && ctl.abandoned) { try { gen.return(); } catch { /* nothing to finish */ } return null; }
-    r = gen.next(answer);
+    let failed = null;
+    try { answer = await answerAsync(r.value); } catch (err) { failed = { err }; }
+    if (ctl && ctl.abandoned) return stop();
+    r = failed ? gen.throw(failed.err) : gen.next(answer);
   }
   return r.value;
 }

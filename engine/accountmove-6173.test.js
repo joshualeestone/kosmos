@@ -158,7 +158,13 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
   assert.match(call, /release: \(n\) => removal\.releaseFromMove\(n\)/, 'the move does not release its agents');
   assert.match(call, /restartAsync: \(n, cause\) => removal\.restartAsync\(n, cause\)/);
   assert.match(server, /heldByMove: removal\.heldByMove,/, 'the class-1 sweep does not ask whether a move holds the agent');
-  assert.match(call, /boardRestarting: \(\) => updates\.alreadyInstalling\(\) \|\| engineRestartAsked,/, 'a move can start under an update or a board restart');
+  assert.match(call, /boardRestarting: \(\) => boardRestartingSoon\(\),/, 'a move can start under an update or a board restart');
+  assert.match(server, /function boardRestartingSoon\(\) \{ return updates\.alreadyInstalling\(\) \|\| engineRestartAsked \|\| worldSwitchRestarting; \}/,
+    'the board-restart test leaves out one of the three restarters');
+  assert.match(server, /worldSwitchRestarting = true;\n\s+setTimeout\(\(\) => \{\n\s+let r = null;\n\s+try \{ r = require\('\.\/engine\/boardrestart'\)\.selfRestart/,
+    'a Kosmos switch does not mark the board as about to restart before its restart is scheduled (review 3)');
+  assert.match(server, /if \(boardRestartingSoon\(\)\) \{ sendJson\(res, 409, \{ outcome: 'refused', because: accountmove\.boardGoingBecause\(\) \}\); return; \}/,
+    'the one-agent Move can start under a board restart');
   /* The three things that restart the board refuse while a move runs, and the automatic install waits. */
   const refusals = server.match(/if \(accountmove\.busy\(\)\) \{ sendJson\(res, 409, \{ (?:ok: false, because|error): accountmove\.boardBusyBecause\(\) \}\); return; \}/g) || [];
   assert.equal(refusals.length, 2, 'the restart button and the update route each refuse during a move');
@@ -216,4 +222,24 @@ test('#6173 Liu Kang m5496: one agent whose restart never settles is given up at
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'changed']);
   assert.match(end.agents[0].because, /its restart did not answer within 0 seconds\./);
   assert.equal(accountmove.busy(), false);
+});
+
+test('#6173 review 3: a hold that throws, with a sentence that throws too, still ends the move and leaves nothing pending', () => {
+  const d = deps({ account: { get name() { throw new Error('odd account'); } } });
+  d.hold = () => { throw new Error('hold went away'); };
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  assert.equal(out.status, 202);
+  assert.equal(out.body.done, true, 'the move was left pending, where prune never removes it');
+  assert.equal(out.body.agents[0].outcome, 'partial');
+  assert.equal(accountmove.busy(), false);
+});
+
+test('#6173 review 3: a release that throws still ends the move, so later moves, updates and restarts are not refused for good', async () => {
+  const d = deps();
+  d.release = () => { throw new Error('release went away'); };
+  const out = accountmove.start({ dir: '/acct/spare', names: ['al'] }, d);
+  d.pending.get('al').resolve({ outcome: RESTARTED });
+  await out.done;
+  assert.equal(accountmove.busy(), false, 'the move stayed running after a release threw');
+  assert.equal(accountmove.read(out.body.id).agents[0].outcome, 'changed');
 });

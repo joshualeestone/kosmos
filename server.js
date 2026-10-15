@@ -319,6 +319,9 @@ const ENGINE_RESTART_FLUSH_MS = 500;          // lets the 202 reach the page bef
    Windows the answer costs two blocking schtasks calls, which must not repeat every sweep. */
 let engineCanRestart = null;
 let engineRestartAsked = false;   // #4408: a restart from the button is already on its way
+let worldSwitchRestarting = false;   // #6173: a Kosmos switch is about to restart the board
+/* #6173: the board is about to restart (an update, the restart button, a Kosmos switch): no account move may start. */
+function boardRestartingSoon() { return updates.alreadyInstalling() || engineRestartAsked || worldSwitchRestarting; }
 /* #4408 (an external tester on prod, 2026-09-28): a file's TIME moving is not its CODE changing. One agent edited an
    installed file and another restored it byte-for-byte; the mtime moved, the code the board runs did not,
    and the board told a real person it was running old code. So each loaded file's content is hashed when
@@ -7032,9 +7035,13 @@ const server = http.createServer(async (req, res) => {
            so a state that changed in the interim still cannot brick the board (it
            no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
+          /* #6173 review 3: from here until the process ends, a move must not start (it would be cut mid-restart). */
+          worldSwitchRestarting = true;
           setTimeout(() => {
-            try { require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
+            let r = null;
+            try { r = require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
+            if (!r || !r.ok) worldSwitchRestarting = false;   // it did not go: moves may run again
           }, 500);
         }
       })
@@ -13638,6 +13645,7 @@ const server = http.createServer(async (req, res) => {
         let body = null;
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
+        if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }   // #6173 review 3
         const fromDir = moveFromDir(name);   // #6174
         const wrote = create.setAccount(name, body && body.dir);
         if (wrote.outcome === create.OUTCOME.REFUSED) {
@@ -13674,7 +13682,7 @@ const server = http.createServer(async (req, res) => {
           forget: (n) => observed.forgetAgent(n),
           restartAsync: (n, cause) => removal.restartAsync(n, cause),
           RESTARTED: removal.OUTCOME.RESTARTED,
-          boardRestarting: () => updates.alreadyInstalling() || engineRestartAsked,
+          boardRestarting: () => boardRestartingSoon(),
           hold: (names) => removal.holdForMove(names),
           release: (n) => removal.releaseFromMove(n),
         });
