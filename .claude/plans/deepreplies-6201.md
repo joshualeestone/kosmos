@@ -33,6 +33,7 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   REPLY_PAGES_PER_POST comments, not the deeper pages; where it cannot see a whole thread it names nobody.
 
 ## Review 1 (opus), and what changed
+(SUPERSEDED by review 5: the settled mark and MARK_SETTLE_MS described here were removed.)
 - BLOCKER, fixed: deep replies are often newer than a post's round-1 page, so its mark (round 1's newest) never passed
   them and only "seen" (SEEN_MAX 120) kept them from repeating; one read now fetches hundreds, so a reply-heavy post
   cycled repeats. A post read to its end now settles its mark at the newest item read that is MARK_SETTLE_MS (3 min)
@@ -58,6 +59,7 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   pages behind).
 
 ## Review 3 (opus), and what changed
+(SUPERSEDED by review 5: the settled mark and MARK_SETTLE_MS described here were removed.)
 - A post left partly read by the budget also settles: below its newest item by MARK_SETTLE_MS, and no later than the
   earliest last-read item of a comment still waiting (replies come oldest first, so what waits is newer). A post with
   older comments not reached does not settle (their replies can be of any time). Test: 10 comments x 200 replies over
@@ -108,3 +110,9 @@ missed on every read. The post's line says so. Resumable cursors stored with the
 - Fixed: a cursor not in the service's shape is said as older comments not reached, not dropped; dead cursor state
   removed; the freshReplies header says its round 2 is not the read's; a check that could never fail is removed.
 - Kept (rare): a person counted as owed when the agent's answer sits on a page the budget cut and the count lagged.
+
+## Review 8 (sonnet)
+- No new actionable finding beyond recorded decisions (thread-tail starvation, one failed page holds a post, the nudge
+  names nobody on busy posts). Test titles no longer cite review numbers for behaviour later reviews changed; the
+  SEEN_MAX comment's bound is stated loosely and truly. Follow-up card to file: resumable per-comment cursors stored
+  with the marks, so thread tails are reached over successive reads.

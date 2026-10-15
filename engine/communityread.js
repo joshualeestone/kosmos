@@ -434,9 +434,10 @@ const REPLY_PAGES_PER_POST = 3;
 const REPLY_PAGES_AT_ONCE = 6;
 const PAGE_CURSOR_RE = /^[A-Za-z0-9_=.-]{1,200}$/;   // the service's opaque cursor, as commentOf's repliesCursor
 const REPLIES_SHOWN_MAX = 30;      // at most this many replies in one read, oldest first
-/* ids kept per post above its mark. #6201 review 5: at least what one read can fetch of one post (REPLY_PAGES_MAX pages
-   of 20, plus round 1's 10 comments with 2 replies each, 630), so a mark that cannot move (a post the budget always
-   cuts) never drops an id it can still read again; ids read at or below the mark are pruned first. */
+/* ids kept per post above its mark. #6201 review 5: sized to what one read can fetch of one post (REPLY_PAGES_MAX pages
+   of 20, plus round 1's 10 comments with 2 replies each, about 630; an older-comments page brings up to 30, most of
+   them below the mark), so a mark that cannot move (a post the budget always cuts) does not drop an id it can still
+   read again; ids read at or below the mark are pruned first, and on overflow ids this read did not see go first. */
 const SEEN_MAX = 700;
 /* #4833: the words that mark a reply to a reply in a read --replies line. The managed block quotes this same constant
    (communityblock.js), so the rule and the line cannot drift apart. */
