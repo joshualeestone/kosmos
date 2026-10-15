@@ -36,18 +36,23 @@ That an hour is acceptable. The card asked for minutes "while online"; this give
 (sooner when its roster changes). Minutes for every board need a cheaper coordinator status route (no policy bundle)
 or a push channel, both kosmos-relay changes: a follow-up if a company asks for it.
 
-## Tests
+## Tests (current design; the review sections below record how it got here)
 server.orgenroll-5531.test.js, each measured to fail on the change it guards:
-- #6232: the interval is at most an hour and at least 30 minutes; the check is a five-minute clock check, not a
-  one-hour timer; a board in no company sends nothing.
+- #6232: the interval is at most an hour and at least 30 minutes; a five-minute clock check, not a one-hour timer; a
+  board in no company sends nothing.
 - review 3: an answered ask waits the hour; a long sleep asks at the next check; a clock set back asks.
-- review 4/5: a miss is retried after 15 minutes, a second miss after 30; an answered ask starts the misses over.
-- review 5: an older ask ending late without an answer does not move the clock a newer, answered ask set.
-- review 6: right after a miss, a clock set back by less than the retry wait still asks; each test starts the
-  schedule over (_orgRefreshResetForTests).
-- review 10 (replacing the review 7 to 9 tests): an enrollment ending tells onEnrollmentEnded once with that Kosmos's
-  root, and not for a refresh or a Leave with nothing enrolled; the board's listener hands its own agents the change
-  and ignores another Kosmos's ending; start() registers it.
+- review 4/5: a miss is retried after 15 minutes, a second after 30; an answered ask starts the misses over.
+- review 5: an older ask ending late without an answer does not move the schedule a newer, answered ask set.
+- review 6: right after a miss, a clock set back by less than the retry wait still asks.
+- review 10/14: the board's listener hands its own agents the change (another spelling of its root included) and
+  ignores another Kosmos's ending; start() registers it.
+- review 12: an ending hands the agents the change once, whether or not the listener was told.
+engine/orgenroll-5531.test.js:
+- review 10: a refresh ending tells onEnrollmentEnded once with the root; a refresh or Leave with nothing enrolled
+  does not.
+- review 11: a Leave refused as the last admin tells no listener; a throwing listener (registered first) does not
+  stop an ending.
+- review 13: an ending for want of an id of its own tells the listener.
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -125,8 +130,8 @@ is for the first run after merge.
   (a no-company board, stuck agents retried every check, the boot's retry mark, retries doubled, a no-company board
   in the retry mark syncing hourly). A rule that draws a finding every round is the wrong rule, so it is gone: no sync
   from the check, no COMPANY_CHECK_* state, no boot-retry test hook.
-- Instead the event that matters is told: engine/orgenroll.js clearEnrollment (which every end of an enrollment passes
-  through, #5534) calls onEnrollmentEnded listeners with the root when a record was there; the board registers one at
+- Instead the event that matters is told (review 11 moved the call from clearEnrollment to refreshNow's final endings):
+  engine/orgenroll.js calls onEnrollmentEnded listeners with the root when a record was there; the board registers one at
   start that runs companyPolicySync for its own root. So a removal caught by a refused rollup or agent event reaches
   the agents at that moment, and nothing runs while no enrollment ends. companyPolicySync itself is unchanged (its
   retry for an agent that could not be told stays as it was: the next ask that reaches it, or a restart).
@@ -163,3 +168,10 @@ is for the first run after merge.
   (tested; a plain string compare fails it, measured). Comments: the rollup child serving another Kosmos has no
   listener, by design; the test reset also forgets the handed text. Its first warning confirmed the pending-Leave path
   is covered by the ask's own hand-over (the review 12 test), no change.
+
+## Review 15 (opus), and what changed
+- Its warning is the gap recorded in review 11 (an agent that cannot be told when the enrollment ends keeps the old
+  text until a restart; enforcement is lifted at once, since the applied policy is cleared). Not reopened here: the
+  broader check-path fix churned through reviews 7 to 10. Filed as #6240.
+- The miss count resets when an enrollment ends, so a later join retries from 15 minutes. The plan's Tests section
+  lists the current tests in both files and points at the current design.
