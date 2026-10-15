@@ -219,6 +219,19 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
   return { ...summary, state: 'quiet', quietKind, quietSince: new Date(endedAt).toISOString(), quietMinutes: Math.max(0, Math.round((now - endedAt) / 60000)) };
 }
 
+/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work. Infinity for any other runner (see
+   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min): the same value,
+   anchored differently (here at the report's own time, there at the previous row; the nudge counts nothing after the
+   last report, this counts up to the cap); the board's 5-minute decay (status.js) undercounted a long tool call or a long stretch of
+   thinking, neither of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
+   minutes if it cannot be read. */
+function workingCapMs(member) {
+  if (!member || member.runner !== 'claude') return Infinity;
+  let cap = 30 * 60 * 1000;
+  try { const c = require('./summarydue-nudge').WORK_GAP_CAP_MS; if (Number.isFinite(c) && c > 0) cap = c; } catch { /* 30 minutes */ }
+  return cap;
+}
+
 /* kosmos#5635 F2 (five-family reports on 0.7.45 and 0.7.46): every seat wrote a summary in the morning, went idle, and was
    woken by a request five hours later; at the first minute of that new work the board read all five "older than the
    4-hour rhythm". idleExcused only helps a member idle NOW, and its latest idle report moves on with every short
@@ -240,18 +253,6 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      ends-only runners are capped by TURN_ENDS_CAP_MS) that holds however long the
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
-/* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work. Infinity for any other runner (see
-   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min): the same value,
-   anchored differently (here at the report's own time, there at the previous row; the nudge counts nothing after the
-   last report, this counts up to the cap); the board's 5-minute decay (status.js) undercounted a long tool call or a long stretch of
-   thinking, neither of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
-   minutes if it cannot be read. */
-function workingCapMs(member) {
-  if (!member || member.runner !== 'claude') return Infinity;
-  let cap = 30 * 60 * 1000;
-  try { const c = require('./summarydue-nudge').WORK_GAP_CAP_MS; if (Number.isFinite(c) && c > 0) cap = c; } catch { /* 30 minutes */ }
-  return cap;
-}
 
 function workExcused(summary, member, readHistory, nowMs) {
   if (!summary || summary.state !== 'stale' || !summary.at) return summary;
@@ -313,7 +314,8 @@ function workExcused(summary, member, readHistory, nowMs) {
      an interrupted Antigravity turn can still count a night as work (a known gap, review 5). Waits
      (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
      takes (only reported work counts): one tool call or a stretch of thinking longer than 30 min with no heartbeat
-     between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. Known cost
+     between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. A Claude member whose report hook is
+     missing or failing files working only by hand, and each such report also counts only to the cap. Known cost
      the other way (review 8): the hook sends reports in the background and the board stamps arrival, so a turn's last
      heartbeat can land just after its idle (the F2 night may be that); each such turn adds up to the cap, 30 min, of
      work that did not happen, where it used to add all the time to the next report. */
