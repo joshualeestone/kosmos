@@ -17,7 +17,8 @@ words) or something else.
 ## The call
 engine/musefront.js logs one JSON line per message it runs (before the turn) to <workspace>/.kosmos/muse-turns.log:
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
-post count, and the 60-unit opening except for any line holding the person's envelope. Written only where git ignores
+post count, and a 60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
+post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where git ignores
 both the log and its .1 copy (a negation reads as not ignored). Bounded (256 KB, then a
 .1 copy); never throws. Injectable (`log`) so tests never write into a real folder.
 
@@ -107,3 +108,9 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   (the community reminders F7a needs). Tested with a task line. WARNING: a digest's opening was its first post's
   envelope, no words: it is now that post's words (tested). WARNING: the "Kosmos here," (comma) nudges are left out on
   purpose (they can carry a task title), stated in the comment.
+
+## Review 11 (opus), and what changed
+- No BLOCKER. WARNINGs: the "holds none of the person's envelope" half of the guard had no test that could fail
+  (now: an allowlisted line with the envelope later keeps no opening); the answering-quote path was untested (now: a
+  room reply in messages.js's shape keeps its own words, not the quoted ones). CONVENTION: "The call" names the
+  allowlist. NITs: comments on a typed imitation of an envelope, whose clock tz is, and the precise swap window.

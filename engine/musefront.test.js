@@ -1136,6 +1136,21 @@ test('#5636 F7a: tz is the local offset, west of UTC negative (a fixed zone, so 
   } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
 });
 
+test('#5636 F7a: an allowlisted line holding the person\'s envelope later keeps no opening', () => {
+  const r = front.turnRecord('[background from your colleague Mona in room x] she wrote [message from your operator Josh] my plan', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('my plan'));
+});
+
+test('#6065 N1: a room post answering another keeps its own words, not the quoted ones', () => {
+  // The shape messages.js builds for a room reply: tag inside the bracket, then the quote, then the body.
+  const line = '[background from your colleague Mona \u00b7 m3 \u00b7 answers m2 by Renet, posted 2:02 PM \u00b7 project Q4] '
+    + '(answering: "the quoted first words") the release notes are ready';
+  const r = front.turnRecord(line, 'T');
+  assert.match(r.opening, /^the release notes are ready/);
+  assert.ok(!r.opening.includes('quoted'), 'the quoted words are not the opening');
+});
+
 test('#5636 F7a: a task line quoting the person keeps no opening', () => {
   const r = front.turnRecord('[Kosmos: you were given task 12 in "Q4": rewrite the pricing page for the board. Say when it is done.]', 'T');
   assert.equal(r.opening, undefined);
