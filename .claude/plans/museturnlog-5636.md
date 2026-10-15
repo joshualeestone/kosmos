@@ -30,8 +30,9 @@ lists both the log and its .1 copy (read as text; a negation reads as not ignore
 
 ## Not known yet
 Whether N1's posts were over 10000 characters (then the spill is by design on every family, and the other four simply
-received shorter posts), or under it (then something Meta-specific spills): spillBytes (the saved copy's size, never
-fewer than its characters) answers it; chars is the shortened line's length.
+received shorter posts), or under it (then something Meta-specific spills): spillBytes (the body's saved size) plus
+envChars (the envelope) against the board's limit answers it: the board measures the whole typed line, so the body
+alone is not enough; chars is the shortened line's length.
 
 ## Review 1 (opus), and what changed
 - BLOCKER: the write skipped keepModel's guards, so a fifo at the file could hang the front for good and a link could
@@ -151,3 +152,10 @@ fewer than its characters) answers it; chars is the shortened line's length.
   WARNING: words and sizes came from two regexes and could misalign: one match now yields both, a non-Inbox path
   giving null in its place (tested with a mixed line). The path is bounded to 1024 characters. If a Meta agent's
   Inbox is not <workspace>/Inbox, spillBytes is null: the safe miss, to read on the next report.
+
+## Review 17 (opus), and what changed
+- No BLOCKER. WARNING: the board's limit applies to the whole typed line (envelope + body + notes), so spillBytes alone
+  could point at Meta for a by-design spill: envChars (the envelope through its first "]") is recorded beside it, and
+  the comment and "Not known yet" say how to read them (UTF-8 bytes equal characters only for ASCII). WARNING: a
+  linked Inbox let the size lookup leave it: the Inbox must be a real directory, not a link (tested, and a link at a
+  file inside it). NIT: only .kosmos is ever created, never a missing workspace (tested).

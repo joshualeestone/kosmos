@@ -192,12 +192,17 @@ function shortOf(text) {
 const TURN_LOG_MAX = 256 * 1024;
 const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
 /* The full text of a spilled message is a file in the agent's own Inbox; its size in bytes (never fewer than its
-   characters) is what tells whether the original was over the board's spill limit, which the shortened line cannot.
+   characters, for ASCII equal) is the body's length. The board spills when the WHOLE typed line (envelope, body and
+   notes) is over chat.MAX_TEXT less the room for a kept note, so the line also records envChars (the envelope through
+   its first "]"): envChars + spillBytes near or over 10000 is the shared rule, by design; well under it would be
+   something Meta-specific.
    The path comes from the line, which a colleague can write, so it is looked at only when it is exactly a file
    directly in <workspace>/Inbox (no "..", no deeper folder); anything else is null, and nothing outside is touched. */
 const SPILL_ALL_RE = /\(long message, (\d+) words?; the full text is in your own folder at ([^)\n]{1,1024})\)/g;
 function spills(t, workspace) {
-  const inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
+  let inbox = typeof workspace === 'string' && path.isAbsolute(workspace) ? path.join(workspace, 'Inbox') : null;
+  // A linked Inbox is never Kosmos's (messages.js refuses one), and a link would take the lookup elsewhere.
+  if (inbox) { try { const st = fs.lstatSync(inbox); if (!st.isDirectory() || st.isSymbolicLink()) inbox = null; } catch { inbox = null; } }
   const words = [], bytes = [];
   for (const m of String(t).matchAll(SPILL_ALL_RE)) {
     words.push(Number(m[1]));
@@ -232,6 +237,7 @@ function turnRecord(text, at, arrived = null, workspace = null) {
   // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
   const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: sp.words.length ? sp.words : null,
     spillBytes: sp.words.length ? sp.bytes : null,
+    envChars: sp.words.length ? t.indexOf(']') + 1 : null,
     digestPosts: digest ? Number(digest[1]) : null };
   /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
      (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
@@ -272,7 +278,8 @@ function logTurn(workspace, text, at, arrived = null) {
     if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
     const file = turnLogFile(workspace);
     const dir = path.dirname(file);
-    try { if (fs.lstatSync(dir).isSymbolicLink()) return; } catch { fs.mkdirSync(dir, { recursive: true }); }
+    // Only .kosmos is ever made: a workspace that is gone is not recreated to hold a log.
+    try { if (fs.lstatSync(dir).isSymbolicLink()) return; } catch { fs.mkdirSync(dir); }
     let st = null;
     try { st = fs.lstatSync(file); } catch { st = null; }
     if (st && (!st.isFile() || st.nlink !== 1)) return;   // a hard link is refused before rotation could touch it
