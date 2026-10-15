@@ -34,3 +34,9 @@ null-answering check; new test; mutant back to fail-open turns it red). Left: th
   guard first, then #6174's moveFromDir read; the bulk route keeps #6174's setAccount wrapper and adds moveRefusal).
 - NIT fixed: a throwing hold check showed the raw error; now the same person's sentence as the missing-check case.
 Re-run: accountmove-6173 19/0, update 26/0, remove 104/0 (each with --test-force-exit).
+### Round 4 (Opus, blind): CONVERGED, no blocker or warning
+Confirmed the commit removes no #6173/#6174 line, every caller of start supplies moveRefusal, the guard precedes #6174's
+read-only moveFromDir, and no test passes with the fix reverted. Left: CONVENTION, the route test pins the guard's exact
+text (the same pin the base branch uses for the provider and model guards in this file; kept for consistency); NITs on two
+assertion messages worded as the failure (the file's style) and the untested `|| 'that did not work'` fallback.
+web.codex-account-mover-2338.test.js run by me after the round.
