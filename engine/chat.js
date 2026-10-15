@@ -870,7 +870,7 @@ const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the 10 minutes are UNSENT_REMEMBER_MS). */
-const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos tries to send it first with the next line it types to this agent in the next 10 minutes, if the box still shows only that line';
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos tries to send it first with the next thing it types to this agent within 10 minutes, if the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';

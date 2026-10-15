@@ -17,8 +17,8 @@ routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fix
    and messages appends `{ kind: 'unsent-submitted', of: <id>, from, to, at }`. The reader accepts the new kind, as it
    does held-delivered. A line some other sender left (a nudge, a room post) has no message row and writes nothing.
    `earlierSubmitted` stays on the verdict (tests read it).
-3. **The sentence** now says Kosmos tries to send it first with the next line it types to this agent in the next 10 minutes,
-   if the box still shows only that line. It is a try, not a promise: a line too long to show whole (item 5), or a
+3. **The sentence** now says Kosmos tries to send it first with the next thing it types to this agent within 10 minutes,
+   if the box shows only that line. It is a try, not a promise: a line too long to show whole (item 5), or a
    next line held by a menu or a limit, is not pressed.
 4. **The remembered line.** If the box still holds exactly the earlier line after the 300 ms watch (or tmux refused
    the Enter), it is remembered again with its original time and number.
@@ -74,3 +74,10 @@ before this card. Nothing reads the new unsent-submitted rows yet (item 2); they
   logs a "could not yet be told" line each minute while it lasts, bounded by that condition. CONVENTIONs: test counts
   and item 6 updated. NITs taken: the sentence says the next line it types (any sender presses it); unsentPending is
   also pruned in the hook.
+
+## Review 4 (sonnet), and what changed
+- No BLOCKER. Two WARNINGs were already in this ledger (unsentPending pruned only on the next note or send, bounded;
+  the late-emptied earlier line gets no follow-up row). DEFERRED, new: a told project's line includes plain posts held
+  beside the input-held one. That is any wake's shape: the member is woken for that room, and a room's held posts go
+  in one line. Splitting a room's line by why each post was held would tell the same room twice. NIT taken: a shorter
+  sentence.
