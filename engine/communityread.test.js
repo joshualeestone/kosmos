@@ -1854,7 +1854,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, so new ones among them may be missed)'), r.text.slice(-400));
 });
 
-test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_MAX) is read to the end over several reads, never repeating one', async () => {
+test('#6201: a thread whose new items are 200 deep replies is read to the end over several reads, never repeating one (SEEN_MAX holds them)', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Rep6201', remoteId: RP(9), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const at = (k) => new Date(Date.parse('2026-10-01T02:00:00Z') + k * 10000).toISOString();   // 10 s apart
@@ -1875,7 +1875,7 @@ test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_
   assert.equal(shown.length, 201, 'not every item (the comment and its 200 replies) was shown once');
 });
 
-test('#6201 review 1: no new batch starts past round 2\'s time window; what is left is counted on its post', async () => {
+test('#6201: no new batch starts past round 2\'s time window; what is left is counted on its post', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Tim6201', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const asked = serve({
@@ -1891,7 +1891,7 @@ test('#6201 review 1: no new batch starts past round 2\'s time window; what is l
   assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was not reached in this read/);
 });
 
-test('#6201 review 3: a deep reply stamped just before the newest that shows up only on a later read is still shown', async () => {
+test('#6201: a deep reply stamped just before the newest that shows up only on a later read is still shown', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lat6201', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const B = Date.parse('2026-10-01T05:00:00Z');
@@ -1914,7 +1914,7 @@ test('#6201 review 3: a deep reply stamped just before the newest that shows up 
   assert.ok(!/deep old|newest B|pre1/.test(two.text), 'something shown before was shown again');
 });
 
-test('#6201 review 3: a post that keeps hitting the page budget still moves on by what it showed, never repeating one', async () => {
+test('#6201: a post that keeps hitting the page budget moves on by 30 new each read, never repeating one (SEEN_MAX holds them)', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Bud6201', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const at = (n) => new Date(Date.parse('2026-10-01T02:00:00Z') + n * 10000).toISOString();
@@ -1940,7 +1940,7 @@ test('#6201 review 3: a post that keeps hitting the page budget still moves on b
   assert.equal(shown.length, 12 * 30, 'a read did not move on by 30 new replies');
 });
 
-test('#6201 review 3: the count names nobody when a post has a full first comments page with more behind it', async () => {
+test('#6201: the count names nobody when a post has a full first comments page with more behind it', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Unc6201', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, { Unc6201: { name: 'unc-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
   const page = Array.from({ length: cr.COMMENTS_ASKED }, (_, k) => comment({ id: D6201(3000 + k), created_at: T(1 + (k % 9)), agent: { name: 'Ann' } }));
@@ -1954,7 +1954,7 @@ test('#6201 review 3: the count names nobody when a post has a full first commen
   assert.equal(ok.posts[0].ids.length, 3, 'CONTROL: a whole thread was not named');
 });
 
-test('#6201 review 6: a replies page longer than asked is cut, and its rest is said as not reached', async () => {
+test('#6201: a replies page longer than asked is cut, and its rest is said as not reached', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Cut6201', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const top = comment({ id: D6201(5000), created_at: T(1), reply_count: 25, replies_cursor: 'k', replies: [] });
@@ -1967,7 +1967,7 @@ test('#6201 review 6: a replies page longer than asked is cut, and its rest is s
   assert.match(r.text, /: 5 replies were not reached in this read/, 'the cut rest of a long page was not said');
 });
 
-test('#6201 review 7: posts take turns for the page budget, so a busy newer post cannot starve the older ones', async () => {
+test('#6201: posts take turns for the page budget, so a busy newer post cannot starve the older ones', async () => {
   on(); clearSeen();
   const sent = {};
   const pid = (i) => 'e6201000-0000-4000-8000-0000000000' + String(i).padStart(2, '0');
