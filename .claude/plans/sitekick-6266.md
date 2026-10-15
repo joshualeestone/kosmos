@@ -16,9 +16,9 @@ why), without a person dispatching it.
   workflow scope, checked read-only), dispatches the site deploy workflow on main only when site main is ahead of the
   job's own last-deployed. It does nothing when the job is paused, main is the parked sha, a deploy run is queued or
   running, or a deploy run was created or last updated (a finished run: when it ended) under 14 minutes ago (a
-  backstop, never an extra tick: the job's one retry and its parking keep their 15-minute pace). A STUCK run (running
-  45 minutes from its start, the job's timeout; or waiting to start 3 hours, since the shared runner's CI queue can
-  hold a real run a while) is said, is not waited on and does not hold the gap, and the tick exits 1 so launchctl's
+  backstop, never an extra tick: the job's one retry and its parking keep their 15-minute pace). A STUCK run (not
+  finished 3 hours after creation: GitHub stamps startedAt at creation, so queue and running time cannot be told
+  apart) is said, is not waited on and does not hold the gap, and the tick exits 1 so launchctl's
   last exit code shows it; each tick writes a heartbeat;
   --check says what a tick would decide without dispatching. Everything else (the cut check, the lock, retries, parking, reports) stays the job's, unchanged.
   It prints only when it dispatches or cannot read something.
@@ -76,3 +76,13 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   error's line goes to stderr (it was being captured as the value, found while fixing); mktemp failure stops the tick;
   the log's growth stated truly; --uninstall keeps kick.log and says where. Left: plist values are not XML-escaped
   (the paths are fixed and plain on Mortals).
+
+## Review 4 (sonnet), and what changed
+- WARNING: startedAt might be stamped at creation. MEASURED on chaoskosmos-site (8 site-deploy and 8 test runs,
+  2026-10-15): startedAt equals createdAt on every run. So "running 45 minutes from its start" could not be measured:
+  one limit, 3 hours from creation, for any unfinished run (tests both ways); the fixture no longer invents a startedAt.
+  WARNING: "never an extra tick" was more than the code can promise (GitHub's schedule and push still fire on their
+  own): reworded. WARNING, accepted and stated: during a long cut each tick's run is skipped by the job in seconds, one
+  per 15 minutes on the shared runner, which is the pace the schedule was meant to have. NITs taken: a parked sha
+  other than main still dispatches (test); a paused tick writes its heartbeat (test); the installer names launchctl
+  enable; the header says heartbeat = started, log = what it did.
