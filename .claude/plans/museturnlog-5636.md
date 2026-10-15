@@ -92,3 +92,11 @@ received shorter posts), or under it (then something Meta-specific spills): the 
 - No BLOCKER. WARNING: a later "!muse-turns.log" in the .gitignore read as ignored: any negation naming the log now
   reads as not ignored (tested). NITs: the guards comment sits on logTurn; the header says the hard link is refused at
   the lstat and after the open; tz notes daylight saving and its sign is asserted; "The call" lists every field.
+
+## Review 9 (opus), and what changed
+- No BLOCKER. WARNING: the negation guard only caught "!...muse-turns"; "!*.log" or "!*" un-ignored the log while both
+  names were listed: any "!" line now reads as not ignored (tested with three spellings). WARNING: words the person
+  types straight into the pane have no envelope and kept an opening: openings are now kept only for an allowlist of
+  envelopes (a colleague's message or room post, a Kosmos line), still never for a line holding the person's
+  envelope (tested, with a colleague control). NITs: tz is checked in a fixed zone (Chicago, -360) so a UTC CI checks
+  the sign; new tests use mkTemp; the header says a .gitignore is created.
