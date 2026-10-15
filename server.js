@@ -18305,7 +18305,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const c = policyEngine.companyEntry();
         // kosmos#6263: whose policy it is, so the page says a family's as the family's.
-        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindHere() === 'family' ? 'family' : 'company' };
+        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindOf(require('./engine/orgenroll').kindHere()) };
       } catch { company = null; }
       sendJson(res, 200, r.state === 'saved'
         ? { state: 'saved', policies: policySummaries(r), because: null, company }
@@ -22983,7 +22983,7 @@ function companyPolicySync() {
        reviews 1 and 2): joining or leaving a family, or a record gaining its kind, re-tells the agents even when only the
        person's own policies are in the block. A company's and no org's blocks are unchanged, so their re-tell writes
        nothing (tellAgent writes only a changed block). */
-    const kind = require('./engine/orgenroll').kindHere() === 'family' ? 'family' : 'company';
+    const kind = require('./engine/orgenroll').kindOf(require('./engine/orgenroll').kindHere());
     const now = JSON.stringify([c ? [c.name, c.text] : null, kind]);
     // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
     if (!c) {

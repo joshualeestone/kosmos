@@ -1034,6 +1034,6 @@ function applyPolicy(token, opts, orgId) {
 
 module.exports = {
   onEnrollmentEnded,   // #6232 review 10
-  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, codeOf,
+  ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindOf, codeOf,
   worldId, siblingId, SIBLING_ID_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };
