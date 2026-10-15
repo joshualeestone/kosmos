@@ -932,6 +932,42 @@ test('#6149 CONTROL: the same untouched staging pair with a current installer ge
   fs.rmSync(site, { recursive: true, force: true });
 });
 
+/* #6149: the MAIN path of step 1a-floor reads the site's origin/main after a fetch (the arms above use a plain-directory
+   site, so they reach only the fallback). Here the site is a real clone of a bare origin: its working copy is clean and
+   carries no staging pair, while origin/main holds one; the floor must read origin/main's. */
+function siteWithOrigin(site, installer) {
+  const g = (cwd, ...a) => spawnSync('git', a, { cwd, encoding: 'utf8' });
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-origin-'));
+  g(bare, 'init', '-q', '--bare', '--initial-branch=main');
+  g(site, 'init', '-q', '--initial-branch=main'); g(site, 'add', '-A');
+  g(site, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'site');
+  g(site, 'remote', 'add', 'origin', bare); g(site, 'push', '-q', 'origin', 'main');
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-other-'));
+  g(other, 'clone', '-q', bare, '.');
+  stagingPair(other, installer);
+  g(other, 'add', '-A'); g(other, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '-m', 'a staging pair, pushed elsewhere');
+  g(other, 'push', '-q', 'origin', 'main');
+  fs.rmSync(other, { recursive: true, force: true });
+  return bare;
+}
+test('#6149: step 1a-floor reads the site origin/main after a fetch: a bad staging pair there refuses the cut', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const bare = siteWithOrigin(site, '#!/bin/sh\necho an installer cut before #4449\n');
+  assert.ok(!fs.existsSync(path.join(site, 'setup-staging')), 'the checkout itself must not hold the pair');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.match(r.said, /setup floor \(kosmos#6149\): .*setup-staging.* does not know KOSMOS_READONLY_APP/, r.said.slice(-800));
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it went on past the floor to the bump');
+  for (const d of [dir, site, bare]) fs.rmSync(d, { recursive: true, force: true });
+});
+test('#6149 CONTROL: a current staging pair on the site origin/main gets past step 1a-floor', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const bare = siteWithOrigin(site, '#!/bin/sh\n[ -n "$KOSMOS_READONLY_APP" ] && echo current\n');
+  const r = run_git(dir, '0.6.03', home, site);
+  assert.ok(!/setup floor \(kosmos#6149\)/.test(r.said), r.said.slice(-800));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the floor');
+  for (const d of [dir, site, bare]) fs.rmSync(d, { recursive: true, force: true });
+});
+
 /* #5934: step 1c refuses a cut with a leftover KOSMOS_TEST_PART (anything but all) or KOSMOS_TEST_PART_LOCAL,
    because step 3's `yarn test` inherits them and would run part of the suite. Driven through the REAL release.sh,
    which tools/test-cut-testpart-guard-5934.sh (the extracted guard) cannot see. */

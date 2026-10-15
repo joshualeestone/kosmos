@@ -79,7 +79,12 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 35), stated rather than closed
+## Known limits (reviews 9 to 44), stated rather than closed
+- release.sh's step 1a-floor runs through the real script for PROD cuts only (the release-gate arms check the staging
+  pair, on both the fallback and the origin/main path); a STAGING cut's choice of the prod pair is tested at the
+  library level (site_untouched_ok arms), not through release.sh.
+- The marker check skips whole-line comments only: a trailing comment or a quoted string naming the marker passes
+  (the installer check is a string check, not a proof; real installers carry it on code lines).
 - If BOTH channels' pointers or both installers are below the floor, every cut refuses (each checks the other
   channel's pair). The repairs need no cut; docs/staging-channel.md, "Repairing a site the floor refuses", is the one
   place they are written (each step traced against deploy-site's modes, #5032 and #4819), and release.sh's refusal
@@ -114,9 +119,10 @@ deploy, promote or cut that is valid today is refused by this change.
   site deploy then stays refused until a fix lands. Checking inside site_commit_on_fresh_main before the push would
   close it; not done here, to keep tools/lib/site-deploy.sh out of this change.
 - release.sh's export check is tested by source (its order above vercel and its failure tail), not run: a cut
-  cannot reach step 8 in the suite. Step 1a-floor IS run through the real release.sh by four arms of
-  tools.release-gate.test.js: the version-jump refusal and its control, and an untouched staging pair without the
-  marker refused (real files on the sandbox site) and its current-installer control.
+  cannot reach step 8 in the suite. Step 1a-floor IS run through the real release.sh by six arms of
+  tools.release-gate.test.js: the version-jump refusal and its control; an untouched staging pair without the marker
+  refused and its control on a plain-directory site (the fallback); and the same on a real clone whose origin/main,
+  not its checkout, holds the pair (the main path, after the fetch).
 - docs/staging-channel.md's manual fallback commits and pushes the pointer BEFORE its floor check (which runs on the
   export, before vercel): the same class as release.sh's step 7b. Never served (the site does not deploy main by
   itself, and site-autodeploy runs deploy-site.sh, which refuses it), but site deploys stay refused until fixed.
