@@ -7,8 +7,9 @@
  *
  * This is the in-browser regression guard for the #4499 fix (orgPlaceGated's measured first-ring floor). The node
  * guard web.org-first-ring-clear-4499.test.js pins the geometry; the sibling render-org-lanes-4472 drives a board
- * whose first ring has only three nodes, so three never cluster and the MIN_SPAN water-fill is never exercised in
- * browser. This drives a board whose first ring is ONE heavy root (100 reports) and nineteen light ones
+ * whose first ring is ONE root (its three managers sit on the SECOND ring), so it never clusters and the MIN_SPAN
+ * water-fill is never exercised in browser. This drives a board whose first ring is ONE heavy root (100 reports) and
+ * nineteen light ones
  * (tools/browser-checks.sh ORG_WIDE_TREE): the heavy root's leaf count hogs the angular slice, so the light roots
  * cram into near-equal slices, bump to outer lanes, and graze. It lets the chart settle and reads the faces and hub
  * lines AS DRAWN, at a desktop width and a phone's width (where orgFit brings the rings in), screenshotting each.
