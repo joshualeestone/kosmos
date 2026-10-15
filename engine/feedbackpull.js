@@ -186,6 +186,11 @@ function toMarkdown(rec) {
   return header + String(rec && rec.body == null ? '' : rec.body).replace(/\s*$/, '') + '\n';
 }
 
+/* kosmos#6265: the line a pull ends with. The default folder is what a plain `kosmos feedback triage` reads. */
+function nextLine(dir) {
+  return 'next: kosmos feedback triage' + (dir && path.resolve(dir) !== path.resolve(defaultDir()) ? ' --dir ' + dir : '');
+}
+
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by
  *  day) and the install disambiguates the many installs that share a day; the
  *  frontmatter still carries the real date, and triage's --dir now reads that as
@@ -198,11 +203,6 @@ function toMarkdown(rec) {
  *  same-day revision by list order, and the next pull resolves to the survivor.
  *  generated_at is deliberately NOT in the name: adding it would break the
  *  idempotent per-(install,date) rewrite (a re-pull would pile up files). */
-/* kosmos#6265: the line a pull ends with. The default folder is what a plain `kosmos feedback triage` reads. */
-function nextLine(dir) {
-  return 'next: kosmos feedback triage' + (dir && path.resolve(dir) !== path.resolve(defaultDir()) ? ' --dir ' + dir : '');
-}
-
 function fileName(rec) {
   const date = rec && /^\d{4}-\d{2}-\d{2}$/.test(rec.date) ? rec.date : 'undated';
   const inst = String((rec && rec.install) || 'unknown').replace(/[^\w.-]/g, '').slice(0, 64) || 'unknown';

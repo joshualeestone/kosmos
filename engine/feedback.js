@@ -290,7 +290,13 @@ function readOwn(since, reports) {
     reports.push({ date, body: readBody(date) });
   }
 }
-const samePath = (a, b) => { try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return path.resolve(a) === path.resolve(b); } };
+/* Review 4: the OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that
+   names the store with other capitals or slashes is still the store. */
+function samePath(a, b) {
+  const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
+  const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
+  return fold(a) === fold(b);
+}
 const newest = (reports) => reports.map((r) => r.date).filter(Boolean).sort().pop() || null;
 /* The reports in one folder of .md files, oldest first (a pulled folder, or a --dir). */
 function readFolder(folder, since, reports, notes) {
