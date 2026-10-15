@@ -15,7 +15,7 @@ words) or something else.
   posts reach Muse through the same spillsAt rule (chat.MAX_TEXT 10000 minus the kept-note room) as the other four.
 
 ## The call
-engine/musefront.js logs one JSON line per message it runs (before the turn) to <workspace>/.kosmos/muse-turns.log:
+engine/musefront.js logs one JSON line per turn it hands to Muse (before the turn; a digest of several posts is one) to <workspace>/.kosmos/muse-turns.log:
 ran-at and arrived (UTC), tz (local offset), kind, UTF-16 length, the Sent stamp, every spilled word count, a digest's
 post count, and a 60-unit opening only for lines starting with an allowlisted envelope (a colleague's message or room
 post, "Kosmos here:" reminders; a digest through its first post) that hold none of the person's envelope. Written only where git ignores
@@ -121,3 +121,9 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   start to shortOf's envelope cut: those lines keep their own first 60 units (tested). WARNING, stated not fixed: a
   colleague who relays the person's words without an envelope puts them in that colleague line's opening; the file is
   0600, git-ignored, in the agent's own folder (goes in the PR description).
+
+## Review 13 (opus), and what changed
+- No BLOCKER. WARNING: the lstat link-count check is a second layer (the after-open check and the cut-on-descriptor are
+  what protect the other name, and what the tests reach): the header and the review-6 note say so, no longer
+  "(tested)". NITs: "created 0600"; the allowlist comment names its dependency (no person's words in a "Kosmos here:"
+  line's first 60 units); a busy-retried stop note is one line; the plan says one line per turn.
