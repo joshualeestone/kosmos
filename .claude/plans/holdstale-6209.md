@@ -37,6 +37,9 @@ Rejected:
   which is new information, so a restart of the count then is accepted. The book is set before the marks are written,
   as missedtell does.
 
+- It waits for the Prompter (review 5): nobody asked for this line, unlike the missed-run reviewer, so a person who
+  turned the Prompter off gets none, as with the reply nudge and the community turn.
+
 ## Weakest premise
 That an owner posting in the room means the held task's work is going on. An owner busy with another task in the same
 project would be asked once per hold about one it is not working; the line says "if its work is going on" and names

@@ -55,8 +55,8 @@ function phrase(ev, nameOfMember, opts) {
     case 'reviewer-cleared': return 'Nobody is told now if a run is missed';
     case 'hold-stale': {   // #6209 part 3: an owner still working a held task in its room was asked about the hold
       const who = nameOf(ev.told) || 'its owner';
-      return ev.reached === false ? 'Still on hold while ' + who + ' worked in its room; Kosmos could not reach ' + who
-        : 'Still on hold while ' + who + ' worked in its room; ' + who + ' was asked whether the hold still stands';
+      return ev.reached === false ? 'Still on hold while ' + who + ' worked in its project room; Kosmos could not reach ' + who
+        : 'Still on hold while ' + who + ' worked in its project room; ' + who + ' was asked whether the hold still stands';
     }
     case 'missed': {
       const runs = ev.more === true ? 'More than ' + ev.count + ' runs missed' : Number(ev.count) > 1 ? ev.count + ' runs missed' : 'A run was missed';
