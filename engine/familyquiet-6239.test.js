@@ -109,6 +109,14 @@ test('#6239: the commands that look after an agent still go in quiet hours', asy
       assert.equal(calls.typed().length, 0, cmd + ' was typed');
     });
   }
+  // Round 1: a bare command with an envelope or a trailer is typed with their words around it, so it is held too.
+  for (const [what, env, trail] of [['an envelope', '[from your person] ', undefined], ['a trailer', undefined, ' [attached file: /x (text/plain, 1 KB)]']]) {
+    await idleCasey(async (board, calls) => {
+      const v = await chat.deliverAsync('casey', '/compact', board.agents, env, trail);
+      assert.equal(v.quiet, true, 'a bare /compact with ' + what + ' got through: ' + JSON.stringify(v));
+      assert.equal(calls.typed().length, 0, 'typed with ' + what);
+    });
+  }
   await idleCasey(async (board, calls) => {
     const v = await chat.deliverAsync('casey', '/COMPACT', board.agents);
     assert.notEqual(v.quiet, true, 'CONTROL: a bare command in any case still goes');
