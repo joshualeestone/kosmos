@@ -940,6 +940,7 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const r = front.turnRecord(line, 'T', null, dir);
   assert.deepEqual(r.spillBytes, [Buffer.byteLength(long + '\n')]);
   assert.ok(r.spillBytes[0] > 10000, 'over the limit: the spill was by design');
+  assert.equal(r.envChars, line.indexOf(']') + 1, 'the envelope length, which the board\'s limit also counts');
   // A path a colleague wrote that leaves the Inbox, or a deeper folder: never looked at.
   const outside = pathx.join(dir, 'outside.txt');
   fsx.writeFileSync(outside, 'secret');
@@ -950,6 +951,14 @@ test('#6065 N1: a spill records the size of its saved copy, from the agent\'s ow
   const mixed = front.turnRecord(steer(outside) + ' ' + line, 'T', null, dir);
   assert.deepEqual(mixed.spillWords, [5, 2400]);
   assert.deepEqual(mixed.spillBytes, [null, Buffer.byteLength(long + '\n')]);
+  // A link at a file in the Inbox is not followed.
+  const linked = pathx.join(inbox, '8.txt');
+  fsx.symlinkSync(outside, linked);
+  assert.deepEqual(front.turnRecord(steer(linked), 'T', null, dir).spillBytes, [null]);
+  // A linked Inbox is not looked into at all.
+  const ws2 = mkTemp('museturns-linkedinbox-');
+  fsx.symlinkSync(inbox, pathx.join(ws2, 'Inbox'));
+  assert.deepEqual(front.turnRecord(steer(pathx.join(ws2, 'Inbox', '7.txt')), 'T', null, ws2).spillBytes, [null]);
   // A copy that is gone records null, not a guess.
   fsx.rmSync(file);
   assert.deepEqual(front.turnRecord(line, 'T', null, dir).spillBytes, [null]);
@@ -1130,6 +1139,8 @@ test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or
   const ws = mkTemp('museturns-');
   const elsewhere = mkTemp('museturns-other-');
   try {
+    front.logTurn(pathx.join(ws, 'gone', 'ws'), 'x', 'A');
+    assert.ok(!fsx.existsSync(pathx.join(ws, 'gone')), 'a workspace that is not there is not created');
     front.logTurn('relative/ws', 'x', 'A');
     assert.ok(!fsx.existsSync(pathx.join('relative', 'ws')), 'a relative workspace is never written');
     fsx.symlinkSync(elsewhere, pathx.join(ws, '.kosmos'));
