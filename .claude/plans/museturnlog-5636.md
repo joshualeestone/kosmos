@@ -47,7 +47,7 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   is now asserted (each line logged before its own turn), and the busy claim is gone from the title. WARNING: a folder
   at .1 stopped logging for good: the file is cut instead, and logging goes on (tested). WARNING/NITs: the comment
   states the 60-character colleague opening, one line per turn, and the unguarded hard-link and swap windows (as in
-  keepModel). 61/61; mutations fail.
+  keepModel). (the suite then: 61 tests).
 
 ## Review 3 (opus), and what changed
 - BLOCKERS: Escape cleared the DM receipt times but not the arrival map, and the second-stop path dropped lines
@@ -55,3 +55,8 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   "old line acted on again" signal F7a looks for. Escape now clears the map; the second-stop path takes them.
   WARNING: the second stop's note now records its arrival. Tests drive both (Escape then the same words; a double
   stop). NIT: the digest-date comment says it is the first post even when the cut leaves it out.
+
+## Review 4 (sonnet), and what changed
+- No BLOCKER. WARNINGs: the digest's folded-post cleanup and the first stop's drop had no test that failed without
+  them, and the digest's date (its oldest post) was unasserted: three tests now drive them (each mutation measured to
+  fail). The comment says a colleague's words, even a pasted secret, can reach the 0600 file.

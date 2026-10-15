@@ -996,6 +996,44 @@ test('#5636 F7a: a second stop while the first note runs: its note records an ar
   assert.ok(Date.parse(later[0].arrived) >= before - 5, 'it carries its own arrival: ' + later[0].arrived);
 });
 
+test('#5636 F7a: a digest is dated by its oldest post, and its folded posts leave no arrival behind', async () => {
+  const bg = (n) => '[background from your colleague A in room x] post ' + n;
+  const h = harness(['hold', OK('digest'), OK('again')]);
+  h.f.feed('long job\r');
+  h.f.feed(bg(1) + '\r');
+  const firstAt = Date.now();
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.feed(bg(2) + '\r');   // folded into the digest behind post 1
+  h.pending[0]({ ok: true, text: 'done', because: null });
+  await within(h.f.drained(), 'never drained');
+  const digest = h.logged.find((l) => l.t.startsWith('[Kosmos: 2 room posts'));
+  assert.ok(digest, 'the two posts ran as one digest');
+  assert.ok(Date.parse(digest.arrived) <= firstAt + 5, 'dated by the oldest post: ' + digest.arrived);
+  // The same words as the folded post, sent again later, carry their own arrival (a gap makes a stale one visible).
+  await new Promise((r) => setTimeout(r, 40));
+  const before = Date.now();
+  h.f.feed(bg(2) + '\r');
+  await within(h.f.drained(), 'never drained');
+  const again = h.logged.filter((l) => l.t === bg(2));
+  assert.equal(again.length, 1);
+  assert.ok(Date.parse(again[0].arrived) >= before - 5, 'not the folded copy\'s arrival: ' + again[0].arrived);
+});
+
+test('#5636 F7a: a line the first stop drops leaves no arrival for the same words later', async () => {
+  const h = harness((input, i) => (i === 0 ? 'hold' : OK('ok')));
+  h.f.feed('long job\r');
+  h.f.feed('waiting words\r');
+  await new Promise((r) => setTimeout(r, 40));
+  h.f.feed('[message from your operator Josh] stop\r');   // the first stop: drops "waiting words"
+  await within(h.f.drained(), 'never drained');
+  const before = Date.now();
+  h.f.feed('waiting words\r');
+  await within(h.f.drained(), 'never drained');
+  const w = h.logged.filter((l) => l.t === 'waiting words');
+  assert.equal(w.length, 1, 'only the resent copy ran');
+  assert.ok(Date.parse(w[0].arrived) >= before - 5, 'it carries its own arrival: ' + w[0].arrived);
+});
+
 test('#5636 F7a: a throwing log stops nothing, and is called once per message', async () => {
   const order = [];
   const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });

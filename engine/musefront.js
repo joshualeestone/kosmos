@@ -174,9 +174,9 @@ function shortOf(text) {
    line dropped by a stop never reaches Muse and is not logged). Each records when it ran (at) and when it reached this
    front (arrived), the kind (operator, background, other), the UTF-16 length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
-   spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 characters) are kept for
-   colleagues' and Kosmos's lines; any line holding the person's envelope (their messages, a stop note quoting them)
-   keeps none. Not guarded, as in keepModel: a hard link at the file, and a swap between the checks and the open. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   spilled to a file (engine/messages.js spillLine), every word count. The opening words (60 UTF-16 units) are kept for
+   colleagues' and Kosmos's lines, so a colleague's words (quoted or pasted, even a secret) can reach this 0600 file in
+   the agent's own folder; any line holding the person's envelope (their messages, a stop note quoting them) keeps none. Not guarded, as in keepModel: a hard link at the file, and a swap between the checks and the open. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
