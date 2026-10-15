@@ -785,7 +785,7 @@ test('#5534: a company policy that does not allow a folder\'s provider refuses c
     const dir = agentFolder('policycodex', 'AGENTS.md', '# You are Policy Codex\n');
     const r = discover.connect(dir);
     assert.equal(r.ok, false, 'a Codex folder was connected under a policy that allows only anthropic');
-    assert.match(String(r.because), /policy does not allow openai/);
+    assert.match(String(r.because), /policy does not allow OpenAI for new agents/);
     assert.equal(create.hasJob('policycodex'), false, 'a refused connect installed a job');
     assert.equal((store.readProfile('policycodex') || {}).dir, undefined, 'a refused connect wrote a profile');
     const ok = discover.connect(agentFolder('policyclaude', 'CLAUDE.md', '# You are Policy Claude\n'));
