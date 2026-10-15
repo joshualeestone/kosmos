@@ -1583,8 +1583,10 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      fields are the screens' contract; kind and state ride along so a
      conversation view can mark the unconfirmed case honestly. */
     const isQueued = sent.queued === true;
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}) });
-    return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
+    /* #6249: a line the board saw left in the recipient's input box, unsent, says so in the log and the answer. */
+    const unsent = sent.unsubmitted === true ? { unsubmitted: true } : {};
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent });
+    return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent, ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
   };
   const sent = deliverToPane(toName, envelope, roster);
   return sent && typeof sent.then === 'function' ? trackInFlight(msgKey, sent.then(finish)) : finish(sent);

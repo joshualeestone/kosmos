@@ -806,38 +806,7 @@ function pasteWire(target, wire) {
  * Answers { ok: true, text } (text '' when empty), or { ok: false } when no live box is on screen (a menu, a dialog,
  * another program): then the caller does what it did before this card.
  */
-const COMPOSER_RULE = /^─{10,}/;
-function visibleWithoutDim(line) {
-  let out = '';
-  let dim = false;
-  const re = /\x1b\[([0-9;]*)m/g;
-  let at = 0;
-  let m;
-  while ((m = re.exec(line)) !== null) {
-    if (!dim) out += line.slice(at, m.index);
-    const codes = m[1] === '' ? ['0'] : m[1].split(';');
-    for (let i = 0; i < codes.length; i += 1) {
-      const c = codes[i];
-      if (c === '38' || c === '48' || c === '58') { i += codes[i + 1] === '5' ? 2 : 4; continue; }   // a colour's own numbers
-      if (c === '2') dim = true;
-      else if (c === '0' || c === '22') dim = false;
-    }
-    at = re.lastIndex;
-  }
-  if (!dim) out += line.slice(at);
-  return out.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');   // any other escape
-}
-function composerText(ansi) {
-  if (typeof ansi !== 'string' || !ansi) return { ok: false };
-  const rows = ansi.split('\n').map(visibleWithoutDim);
-  let at = -1;
-  for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
-  if (at < 0) return { ok: false };
-  const parts = [];
-  for (let i = at; i < rows.length && !COMPOSER_RULE.test(rows[i]); i += 1) parts.push(rows[i]);
-  const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
-  return { ok: true, text };
-}
+const composerText = (ansi) => status.composerText(ansi);   // the reader lives in status.js (the card reads it too)
 /* Whitespace is not compared: wrapping puts a row break where the message had a space, or in the middle of a long word. */
 const squash = (s) => String(s == null ? '' : s).replace(/[\s ]+/g, '');
 /* 'empty', 'ours' (what is there is the end of what we pasted, and nothing else), or 'other'. */
