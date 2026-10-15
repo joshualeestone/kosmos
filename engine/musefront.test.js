@@ -1035,17 +1035,17 @@ test('#5636 F7a: a line the first stop drops leaves no arrival for the same word
 });
 
 test('#5636 F7a: with no log passed (as main() runs it), the front writes the real log file', async () => {
-  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-wired-'));
+  const ws = mkTemp('museturns-wired-');
   try {
     const f = front.createFront({ workspace: ws, sessionId: '11111111-2222-4333-8444-555555555555',
       runTurn: () => Promise.resolve(OK('done')), report: () => {}, write: () => {} });
-    f.feed('hello there\r');
+    f.feed('[message from your colleague Mona] hello there\r');
     await within(f.drained(), 'never drained');
     const lines = fsx.readFileSync(front.turnLogFile(ws), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     assert.equal(lines.length, 1);
-    assert.equal(lines[0].opening, 'hello there');
+    assert.match(lines[0].opening, /hello there/);
     assert.equal(typeof lines[0].arrived, 'string');
-    assert.equal(lines[0].tz, -new Date(lines[0].at).getTimezoneOffset(), 'east of UTC is positive, as an offset is written');
+    assert.equal(typeof lines[0].tz, 'number');
   } finally { fsx.rmSync(ws, { recursive: true, force: true }); }
 });
 
@@ -1061,7 +1061,7 @@ test('#5636 F7a: a throwing log stops nothing, and is called once per message', 
 });
 
 test('#5636 F7a: the log writes only where git ignores it, and never into a hard link', () => {
-  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
+  const ws = mkTemp('museturns-');
   try {
     front.logTurn(ws, 'first', 'A');
     const ig = pathx.join(ws, '.kosmos', '.gitignore');
@@ -1073,16 +1073,18 @@ test('#5636 F7a: the log writes only where git ignores it, and never into a hard
     front.logTurn(ws, 'second', 'B');
     assert.equal(fsx.readFileSync(ig, 'utf8'), 'notes/\n', 'their file is untouched');
     assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written where git might carry it');
-    // Both names, then a negation of one: not ignored, nothing written.
-    fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n!muse-turns.log\n');
-    front.logTurn(ws, 'negated', 'B3');
-    assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'a negation un-ignores it, so nothing is written');
-    // A hard link at the file: the other name never receives a line.
+    // Both names, then any negation (one naming the log, or a wildcard): not ignored, nothing written.
+    for (const neg of ['!muse-turns.log', '!*.log', '!*']) {
+      fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n' + neg + '\n');
+      front.logTurn(ws, 'negated', 'B3');
+      assert.ok(!fsx.existsSync(front.turnLogFile(ws)), neg + ' un-ignores it, so nothing is written');
+    }
     // One that names only the main file: the .1 copy would not be ignored, so nothing is written.
     fsx.writeFileSync(ig, 'muse-turns.log\n');
     front.logTurn(ws, 'only one name', 'B2');
     assert.ok(!fsx.existsSync(front.turnLogFile(ws)), 'nothing written when the .1 copy is not ignored');
     fsx.writeFileSync(ig, 'muse-turns.log\nmuse-turns.log.1\n');
+    // A hard link at the file: the other name never receives a line.
     const other = pathx.join(ws, 'other.txt');
     fsx.writeFileSync(other, '');
     fsx.linkSync(other, front.turnLogFile(ws));
@@ -1097,8 +1099,8 @@ test('#5636 F7a: the log writes only where git ignores it, and never into a hard
 });
 
 test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or link, or for a relative workspace', () => {
-  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
-  const elsewhere = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-other-'));
+  const ws = mkTemp('museturns-');
+  const elsewhere = mkTemp('museturns-other-');
   try {
     front.logTurn('relative/ws', 'x', 'A');
     assert.ok(!fsx.existsSync(pathx.join('relative', 'ws')), 'a relative workspace is never written');
@@ -1125,6 +1127,22 @@ test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or
 });
 
 
+test('#5636 F7a: tz is the local offset, west of UTC negative (a fixed zone, so a UTC machine still checks the sign)', () => {
+  const was = process.env.TZ;
+  try {
+    process.env.TZ = 'America/Chicago';
+    assert.equal(front.turnRecord('x', '2026-01-15T12:00:00Z').tz, -360, 'Chicago in winter is UTC-6');
+  } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+});
+
+test('#5636 F7a: words typed straight into the pane (no envelope) keep no opening', () => {
+  const r = front.turnRecord('my private plan for the launch', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('private'));
+  // CONTROL: a colleague's addressed message keeps its opening.
+  assert.match(front.turnRecord('[message from your colleague Mona] the build is green', 'T').opening, /build is green/);
+});
+
 test('#5636 F7a: the person\'s own words stay out of the log', () => {
   const r = front.turnRecord('[message from your operator Josh] my private plan for the launch', 'T');
   assert.equal(r.kind, 'operator');
@@ -1133,13 +1151,13 @@ test('#5636 F7a: the person\'s own words stay out of the log', () => {
 });
 
 test('#5636 F7a: logTurn appends JSON lines in .kosmos, moves a full file aside, and never throws', () => {
-  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
+  const ws = mkTemp('museturns-');
   try {
-    front.logTurn(ws, 'hello', 'A');
-    front.logTurn(ws, 'again', 'B');
+    front.logTurn(ws, 'Kosmos here: hello', 'A');
+    front.logTurn(ws, 'Kosmos here: again', 'B');
     const file = front.turnLogFile(ws);
     const lines = fsx.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-    assert.deepEqual(lines.map((l) => [l.at, l.opening]), [['A', 'hello'], ['B', 'again']]);
+    assert.deepEqual(lines.map((l) => [l.at, l.opening]), [['A', 'Kosmos here: hello'], ['B', 'Kosmos here: again']]);
     fsx.writeFileSync(file, 'x'.repeat(front.TURN_LOG_MAX + 1));
     front.logTurn(ws, 'after', 'C');
     assert.ok(fsx.existsSync(file + '.1'), 'the full file moved aside');
