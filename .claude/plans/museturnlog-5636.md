@@ -170,3 +170,8 @@ alone is not enough; chars is the shortened line's length.
 - No BLOCKER. WARNING: the first stop note's own arrival was untested: asserted. NITs: a spill path ending in a
   separator is refused (it could stat through a link outside the Inbox); the envChars comment allows slack for a
   reply's quote and catch-up notes, which the board counts too.
+
+## Review 20 (sonnet), and what changed
+- No BLOCKER. WARNINGs: bytes bound characters only from above, so a high spillBytes on non-Latin or emoji text
+  proves nothing (stated beside the reading rule); a ")" in the workspace path makes spillBytes null like a missing
+  copy (stated); a linked .gitignore is refused (tested).
