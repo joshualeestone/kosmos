@@ -7,8 +7,9 @@ won the budget each time. The tails of long threads, where new replies sit (the 
 were never reached.
 
 ## Change (engine/communityread.js)
-- Each post's mark keeps `threads`: per comment id the read did not finish, `{ cursor, pos, at, id }`: the cursor to
-  go on from, how many replies come before it, and the last reply read. Checked as read back (`threadsOf`); at most
+- Each post's mark keeps `threads`: per comment id the read did not finish, `{ cursor, pos, at, id, waited }`: the
+  cursor to go on from, how many replies come before it, the last reply read, and how many reads in a row the thread
+  got no page. Checked as read back (`threadsOf`); at most
   THREADS_MAX (100) per post, this read's threads first.
 - Round 2 starts a comment's paging at its saved cursor (`pagingOf`). Replies before it are counted (`readOf`) so the
   "N replies were not reached" numbers stay right.
@@ -16,6 +17,11 @@ were never reached.
   the page still waiting (budget, window or failed page). A thread read to its end keeps NO place and is paged from its
   start next time, as on main (review 1: #5623's owed-person check needs the whole thread in hand, and a finished
   thread kept at its last page never is; a re-check of finished threads also pinned the mark).
+- Review 3: threads with a saved place go first in their post's turn, longest-waiting first, and a thread the budget
+  never reached is saved at its first cursor, so threads take turns across reads (10 busy posts: none starves).
+- Review 3: a saved place whose comment this read did not see (an older-comments page not reached) is kept only while
+  the older comments were not all read, and caps the mark like a cut thread; once they were all read, it is dropped.
+- Review 3: a replies cursor already read for the comment in this read is not followed (cycles, not only self-loops).
 - The post's mark never passes the last reply read in a thread the budget or the window cut (the lowest id at that
   reply's time), so a tail read on a later read is still new.
 - A saved cursor the service refuses (4xx, not 429) is dropped and the thread paged from its first cursor.
@@ -29,6 +35,12 @@ were never reached.
   turn, so they are rarely cut). Said as before ("may be missed").
 - freshReplies (the nudge count) is unchanged: it reads only first hidden pages and names only top-level comments.
 
+## Deferred in review
+- Iteration 2: a thread a read cannot finish is unknown to #5623's owed check that read (its replies are not all in
+  hand). Same as main, where a budget-cut thread was never wholly in hand either; it is checked once a read finishes it.
+- Iteration 2: a failed page whose hold is spent (MARK_HOLD_MAX) lets the mark pass its thread, so replies on it may be
+  missed when it recovers. Same as main, bounded on purpose by #6201 review 10, and said as "may be missed".
+
 ## Weakest premise
 That the service's replies cursor is a durable keyset position (valid across reads, and still reaching replies added
 after it). The feed cursor is (encode_token); the replies cursor is assumed the same. If not, a refused cursor falls
@@ -41,8 +53,12 @@ service.
 - A long thread read to its end: a person's later reply in it is named as owed.
 - A read that pages nothing counts the replies before saved places as read.
 - A cut page with a waiting page is not told "goes on".
+- 10 posts with 6 long threads each: every tail shown once over 40 reads, and no thread waits more than two reads.
+- A saved place on an older comment not reached caps the mark (its tail is still shown), and is dropped once the
+  comment is gone.
+- A cursor cycle A, B, A is read twice and said.
 - A changed cursor spelling: every saved place refused, nothing lost.
 - A cursor naming its own page: read once, said.
-- Mutations (11): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
-  place, cap on failed pages, "goes on" on failed pages, "goes on" on cut pages, stuck cursor followed, skipped not
-  counted: each reds a test.
+- Mutations (17): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
+  place, cap on failed pages, "goes on" on failed pages, "goes on" on cut pages, cycle followed, no wait order,
+  saved-first only, carry always, no carried cap, waited not reset, skipped not counted: each reds a test.

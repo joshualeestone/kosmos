@@ -509,7 +509,8 @@ function threadsOf(t) {
     if (Object.keys(out).length >= THREADS_MAX) break;
     if (!UUID_RE.test(cid) || !v || typeof v.cursor !== 'string' || !PAGE_CURSOR_RE.test(v.cursor)) continue;
     if (!Number.isInteger(v.pos) || v.pos < 0 || v.pos > 1e6 || !validAt(v.at) || !UUID_RE.test(String(v.id || ''))) continue;
-    out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase() };
+    const waited = Number.isInteger(v.waited) && v.waited > 0 && v.waited <= 1e6 ? v.waited : 0;
+    out[cid.toLowerCase()] = { cursor: v.cursor, pos: v.pos, at: v.at, id: String(v.id).toLowerCase(), waited };
   }
   return out;
 }
@@ -827,12 +828,18 @@ function lastRead(c) {
   return r.length ? r[r.length - 1] : c;
 }
 /* #6204: where each thread this read did not finish goes on next time: a page holding a new reply the 30-cap left
-   unshown is read again; else the page still waiting (budget, window or a failed page). A thread read to its end keeps
-   no place. A thread this read did not reach (an older comment not paged this time) keeps its saved place. This read's
-   threads come first, then the older places, at most THREADS_MAX. */
+   unshown is read again; else the page still waiting (budget, window or a failed page; a thread the budget never reached
+   waits at its first cursor, so it goes ahead of finished threads next time). A thread read to its end keeps no place.
+   A saved place whose comment this read did not see is kept only while the post's older comments were not all read (it
+   may be on a page not reached); once they were, its comment is gone and the place is dropped. This read's threads come
+   first, then the older places, at most THREADS_MAX. */
 function placesOf(th, old, unshownIds) {
   const out = {};
-  const put = (c, cursor, pos, last) => { out[c.id] = { cursor, pos, at: last.ts, id: last.id }; };
+  // waited: reads in a row this thread got no page, so the one that waited longest goes first next time.
+  const put = (c, cursor, pos, last) => {
+    const waited = c.pages && c.pages.length ? 0 : Math.min(((c.resume && c.resume.waited) || 0) + 1, 1e6);
+    out[c.id] = { cursor, pos, at: last.ts, id: last.id, waited };
+  };
   for (const c of th.comments) {
     const pg = (c.pages || []).find((x) => x.ids.some((id) => unshownIds.has(id)));
     if (pg) put(c, pg.cursor, pg.before, pg.prev);
@@ -840,7 +847,7 @@ function placesOf(th, old, unshownIds) {
   }
   for (const [cid, v] of Object.entries(old)) {
     if (Object.keys(out).length >= THREADS_MAX) break;
-    if (!out[cid] && !th.comments.some((c) => c.id === cid)) out[cid] = v;
+    if (th.olderUnread && !out[cid] && !th.comments.some((c) => c.id === cid)) out[cid] = v;
   }
   return Object.fromEntries(Object.entries(out).slice(0, THREADS_MAX));
 }
@@ -905,7 +912,12 @@ async function repliesFor(sessionName, opts) {
      cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
      #6201. A post's older comments come first in its turn (review 17). */
   const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
+    /* #6204 review 3: threads with a saved place go first in their post's turn, the one that has waited the most reads
+       without a page first, so a thread the budget cut or never reached is not starved by threads that come first in
+       the post's order every read. */
+    const waitOf = (t) => (t.resumed && t.c.resume ? t.c.resume.waited + 1 : 0);
     const tasks = th.comments.map((c) => pagingOf(th, c)).filter(Boolean);
+    tasks.sort((a, b) => waitOf(b) - waitOf(a));
     // Review 17: the older-comments page goes FIRST: it is the only page that can carry new top-level comments, which are
     // the ones owed an answer, so it is never left behind deep reply threads.
     if (th.commentsCursor) tasks.unshift({ th, comments: true, cursor: th.commentsCursor });
@@ -948,6 +960,7 @@ async function repliesFor(sessionName, opts) {
       return;
     }
     const { c } = task;
+    (c.cursorsRead || (c.cursorsRead = new Set())).add(task.cursor);
     const r = await getJson(base + '/' + encodeURIComponent(c.id) + '/replies?limit=20&cursor=' + encodeURIComponent(task.cursor), THREAD_READ_CAP);
     if (r.status === 429 || !r.status) limited = true;
     /* #6204: a saved place the service turns down (not a 429 or no answer) is dropped and the thread paged from its start. */
@@ -972,8 +985,8 @@ async function repliesFor(sessionName, opts) {
     /* Followed while the service's page had rows at all (counted before rows are dropped as malformed, so a page of bad rows
        cannot end the paging with real replies behind it, #6201 review 3). A cursor that does not advance is bounded by
        the budget, and is then said as not reached. */
-    // #6204: a cursor that names the page just read would read it again for ever: said, not followed.
-    if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor) && r.json.next_cursor !== task.cursor) queue.push(repliesTask(th, c, r.json.next_cursor));
+    // #6204: a cursor already read for this comment in this read would loop for ever: said, not followed.
+    if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor) && !c.cursorsRead.has(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
     else if (r.json.next_cursor) c.pending = true;   // reviews 9 and 11: a malformed cursor, or an empty page that says there is more, is said
   };
   while (queue.length && !limited && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
@@ -1118,6 +1131,12 @@ async function repliesFor(sessionName, opts) {
       const last = lastRead(c);
       if (!Number.isFinite(last.ts)) continue;   // an item with no readable time cannot place a cap
       const cap = { ts: last.ts, id: LOW_ID };
+      if (byPos(cap, top) < 0) top = cap;
+    }
+    // Review 3: a kept place whose comment this read did not reach (an older page not read) caps the mark the same way.
+    for (const [cid, v] of Object.entries(threadsNext)) {
+      if (!top || th.comments.some((c) => c.id === cid)) continue;
+      const cap = { ts: v.at, id: LOW_ID };
       if (byPos(cap, top) < 0) top = cap;
     }
     if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: heldNext, threads: threadsNext }; continue; }
