@@ -1191,7 +1191,7 @@ const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'ref
    were in all. A reader with the room open then judges whether the member answered it (a later post that cites it, or
    one that plainly answers it without citing). After = later in the log's own order (the order posts were written), so
    two posts in one millisecond are still ordered. An id not in the record is left out. One pass. Never throws. */
-const AFTER_MAX = 6;
+const AFTER_MAX = 10;
 function memberAfter(projectId, ids, member, log) {
   const out = {};
   try {
@@ -2636,8 +2636,16 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
        line: taken now (so an idle flush cannot tell them too) and put back if this arrival is not typed. */
     const heldIds = roomhold.withoutStale(projectId, roomhold.take(name, projectId), (p, ids) => staleHeld(p, ids, log, undefined, name), name);   // #4926
     takenHeld[name] = heldIds;   // review 6: put back by typingBroke if this member throws before its typing path
-    // #4926 N7 diagnostic: this telling of held posts is in the log too (the flush logs its own).
-    if (heldIds.length) { try { process.stdout.write(roomhold.carriedLine(name, projectId, heldIds.map(roomhold.plainId), memberAfter(projectId, heldIds.map(roomhold.plainId), name, log))); } catch { /* never breaks a send */ } }
+    /* #4926 N7 diagnostic: the member's own posts since each held post, read now (before typing); the line is written
+       with the outcome in finish (round 2: never as told before it is). */
+    let carriedAfter = null;
+    if (heldIds.length) {
+      try { carriedAfter = memberAfter(projectId, heldIds.map(roomhold.plainId), name, log); } catch { carriedAfter = null; }
+    }
+    const logCarried = (state) => {
+      if (!heldIds.length) return;
+      try { process.stdout.write(roomhold.carriedLine(name, projectId, heldIds.map(roomhold.plainId), carriedAfter, state)); } catch { /* never breaks a send */ }
+    };
     const heldLine = heldIds.length ? ' ' + roomhold.clauseFor(projectId, shownProject, heldIds) : '';
     /* #6065: the post is typed whole unless this member's whole line (envelope, catch-up, held posts) would be longer
        than chat types (spillsAt); only then does its full text go into this member's own Inbox (#4447) and the line
@@ -2682,9 +2690,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
           if (sent.heldBy === 'limit') roomhold.noteLimit(name, projectId, [...(asksIt ? [id] : []), ...heldIds.filter(roomhold.isAddressed)], sent.limitReset);
           reached += 1;
         } else outcomes[name] = chat.DELIVERY.COULD_NOT;
+        logCarried('held');   // #4926 N7: put back, so not told
         return sent;
       }
       outcomes[name] = sent.state;
+      logCarried(sent.state);   // #4926 N7: told unless COULD_NOT (then put back below)
       if (sent.state !== chat.DELIVERY.COULD_NOT) reached += 1;
       else {
         roomhold.restore(name, projectId, heldIds);
