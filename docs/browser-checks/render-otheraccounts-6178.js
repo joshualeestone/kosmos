@@ -183,7 +183,9 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       // N: arriving by the Settings menu, as a person does. Nothing is forced open; settingsGo('accounts') must read.
       {
         const { ctx, page } = await fresh();
-        await page.goto(HOME + '/?tab=settings&sec=you', { waitUntil: 'networkidle' });
+        // 'load', not 'networkidle': a Settings section can hold a request open (mobile-shots.js waits for 'load' for the same
+        // reason); the menu button is waited for below.
+        await page.goto(HOME + '/?tab=settings&sec=you', { waitUntil: 'load' });
         await settle(page);
         await page.waitForSelector('#s-nav button[data-go="accounts"]', { state: 'visible', timeout: 10000 });
         await page.click('#s-nav button[data-go="accounts"]');
