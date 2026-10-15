@@ -213,23 +213,20 @@ app folder (`~/.local/share/kosmos/app`) and the install line again, which nothi
 
 ### Repairing a site the floor refuses
 
-Each repair ends the same way: **commit and push the site**, because release.sh's step 1a-floor reads the site's
-`origin/main`, and a deploy serves only what is committed. Then deploy with the flag named, since a run without one is
-a dry run.
+Restore that channel's WHOLE set from a site commit that already published a build at or above the floor on it
+(0.7.49's, or any later one; find it with `git -C <site> log -- dist/latest.json` or `-- dist/latest-staging.json`).
+A set that once served together is consistent by construction, so it passes every check at once: the floor, the
+pointer and its installer (#5032), and its tarball, which `dist` keeps.
 
-1. **A staging pointer below the floor:** `tools/publish-staging-pointer.sh <V>` for a build at or above it whose
-   tarball is still in `dist` (0.7.49's are). Commit, push, then `tools/deploy-site.sh --publish`, adding
-   `KOSMOS_STAGING_ROLLBACK=<V>` on that one command when `<V>` is older than the live staging pointer (#4819).
-2. **A prod pointer below the floor:** promote a staging build at or above it (`tools/promote-channel.sh`), commit,
-   push, then `tools/deploy-site.sh --promote` (the pointer moved, so `--promote` is the mode).
-3. **An old `/setup`:** if `/setup-staging` is current, a promote of a staging pointer that names it (its
-   `setup_sha256`) copies it to `/setup`. Otherwise restore `setup` and `setup.sha256` from the site commit that wrote
-   the current `dist/latest.json` (deploy-site compares that pair with the pointer's `setup_sha256`, so a fresh
-   `install/setup.sh` is refused), commit, push, then `tools/deploy-site.sh --publish` (the pointer did not move, so
-   `--promote` would refuse).
-4. **An old `/setup-staging`:** a staging cut writes a new one. If every cut is refused (an old `/setup` too), restore
-   `setup-staging` and `setup-staging.sha256` from the commit that wrote the current `dist/latest-staging.json`
-   (promote-channel compares that pair with the staging pointer), commit, push, then `tools/deploy-site.sh --publish`.
+- **prod:** `git -C <site> checkout <commit> -- dist/latest.json setup setup.sha256`
+- **staging:** `git -C <site> checkout <commit> -- dist/latest-staging.json setup-staging setup-staging.sha256`
+
+Then **commit and push the site** (release.sh's step 1a-floor reads its `origin/main`, and a deploy serves only what is
+committed), and deploy with the mode that fits, since a run without one is a dry run:
+`tools/deploy-site.sh --promote` when the prod pointer changed; `tools/deploy-site.sh --publish` when only an installer
+or the staging set did, adding `KOSMOS_STAGING_ROLLBACK=<V>` on that one command when the restored staging pointer is
+older than the live one (#4819). Restore both channels in the same commit when both are broken: each cut refuses on the
+other channel's set, and the deploy's export check reads both.
 
 
 ## Windows (the same model, two more pointers)
