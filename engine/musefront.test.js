@@ -904,14 +904,84 @@ test('#5636 F7a: a community reminder records its Sent stamp; an unstamped one r
   assert.equal(front.turnRecord(ct.TURN_TEXT, 'T').sent, null);
 });
 
-test('#6065 N1: a spilled room post records its word count; a whole one records none', () => {
-  const spilled = '[background from your colleague Mona in room x] The plan is ready \u2026 (long message, 2400 words; the full text is in your own folder at /a/Inbox/1.txt)';
+test('#6065 N1: a spilled room post records its word count, from the real spill line; a whole one records none', () => {
+  const long = Array.from({ length: 2400 }, (_, i) => 'word' + i).join(' ') + '.';
+  const pointer = require('./messages').spillLine(long, '/a/Inbox/1.txt');   // the producer, not a copy of its words
+  const spilled = '[background from your colleague Mona in room x] ' + pointer;
   const r = front.turnRecord(spilled, 'T');
-  assert.equal(r.spillWords, 2400);
+  assert.deepEqual(r.spillWords, [2400]);
   assert.equal(r.kind, 'background');
-  assert.equal(r.chars, Array.from(spilled).length);
+  assert.equal(r.chars, spilled.length, 'UTF-16 length, the measure chat.MAX_TEXT uses');
   assert.equal(front.turnRecord('[background from your colleague Mona in room x] short', 'T').spillWords, null, 'control');
 });
+
+test('#6065 N1: a busy digest records how many posts it held and every spill in it', () => {
+  const ms = require('./messages');
+  const p1 = '[background from your colleague A in room x] ' + ms.spillLine(Array(300).fill('a').join(' ') + '.', '/a/Inbox/1.txt');
+  const p2 = '[background from your colleague B in room x] ' + ms.spillLine(Array(500).fill('b').join(' ') + '.', '/a/Inbox/2.txt');
+  const h = harness(['hold', OK('digest done')]);
+  h.f.feed('first job\r');
+  h.f.feed(p1 + '\r');
+  h.f.feed(p2 + '\r');
+  h.pending[0]({ ok: true, text: 'first done', because: null });
+  return within(h.f.drained(), 'never drained').then(() => {
+    assert.equal(h.logged.length, 2, 'one line for the first turn and one for the digest');
+    const r = front.turnRecord(h.logged[1].t, 'T');
+    assert.equal(r.digestPosts, 2);
+    assert.deepEqual(r.spillWords, [300, 500]);
+  });
+});
+
+test('#5636 F7a: a stop note is logged once, and the person\'s words in it stay out', async () => {
+  const h = harness(['hold', OK('stopped')]);
+  h.f.feed('long job\r');
+  h.f.feed('[message from your operator Josh] fix [x] privately now\r');
+  h.f.feed('[message from your operator Josh] stop\r');
+  await within(h.f.drained(), 'never drained');
+  const notes = h.logged.filter((l) => l.t.startsWith('[Kosmos: your operator asked you to stop'));
+  assert.equal(notes.length, 1, 'the stop note is one line');
+  const r = front.turnRecord(notes[0].t, 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('privately'), 'the person\'s dropped words are not in the record');
+});
+
+test('#5636 F7a: the log is called before the turn runs, once per message even when Muse is busy, and a throwing log stops nothing', async () => {
+  const order = [];
+  const h = harness([OK('a'), OK('b')], { log: () => { order.push('log'); throw new Error('disk full'); } });
+  const run = h.f;
+  run.feed('one\r');
+  run.feed('two\r');
+  await within(run.drained(), 'a throwing log stopped the queue');
+  assert.equal(h.calls.length, 2, 'both turns ran');
+  assert.equal(order.length, 2, 'one log call per message');
+});
+
+test('#5636 F7a: logTurn writes nothing through a linked .kosmos, into a fifo or link, or for a relative workspace', () => {
+  const ws = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-'));
+  const elsewhere = fsx.mkdtempSync(pathx.join(os.tmpdir(), 'museturns-other-'));
+  try {
+    front.logTurn('relative/ws', 'x', 'A');
+    assert.ok(!fsx.existsSync(pathx.join('relative', 'ws')), 'a relative workspace is never written');
+    fsx.symlinkSync(elsewhere, pathx.join(ws, '.kosmos'));
+    front.logTurn(ws, 'x', 'A');
+    assert.deepEqual(fsx.readdirSync(elsewhere), [], 'nothing written through a linked .kosmos');
+    fsx.unlinkSync(pathx.join(ws, '.kosmos'));
+    fsx.mkdirSync(pathx.join(ws, '.kosmos'));
+    const target = pathx.join(elsewhere, 'target');
+    fsx.writeFileSync(target, '');
+    fsx.symlinkSync(target, front.turnLogFile(ws));
+    front.logTurn(ws, 'x', 'A');
+    assert.equal(fsx.readFileSync(target, 'utf8'), '', 'nothing written through a link at the file');
+    if (process.platform !== 'win32') {
+      fsx.unlinkSync(front.turnLogFile(ws));
+      require('node:child_process').execFileSync('mkfifo', [front.turnLogFile(ws)]);
+      const t0 = Date.now();
+      front.logTurn(ws, 'x', 'A');   // a blocking open would hang the test here
+      assert.ok(Date.now() - t0 < 2000, 'a fifo did not hang the log');
+    }
+  } finally { fsx.rmSync(ws, { recursive: true, force: true }); fsx.rmSync(elsewhere, { recursive: true, force: true }); }
+});
+
 
 test('#5636 F7a: the person\'s own words stay out of the log', () => {
   const r = front.turnRecord('[message from your operator Josh] my private plan for the launch', 'T');

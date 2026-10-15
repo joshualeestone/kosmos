@@ -28,3 +28,14 @@ when the line is a spill pointer, and the opening words except for the person's 
 ## Not known yet
 Whether N1's posts were over 10000 characters (then the spill is by design on every family, and the other four simply
 received shorter posts), or under it (then something Meta-specific spills): the log's spillWords and chars answer it.
+
+## Review 1 (opus), and what changed
+- BLOCKER: the write skipped keepModel's guards, so a fifo at the file could hang the front for good and a link could
+  redirect the write. Now: absolute workspace only, never through a linked .kosmos, never into a link or fifo (lstat),
+  and an O_NOFOLLOW|O_NONBLOCK append open (tested: linked .kosmos, link at the file, fifo, relative workspace).
+- WARNING: a stop note (kind "other") quotes the person's words: no opening for any line holding an operator envelope
+  (tested with a real stop note through createFront; mutation fails it).
+- WARNING: the spill test used a hand copy: it now builds the line with messages.spillLine. WARNING: a busy digest kept
+  only its first spill: spillWords is now every spill, plus digestPosts (tested through createFront). WARNING: added
+  tests for one line per message before the turn, and a throwing log (now caught in pump) stopping nothing.
+- NIT: chars is UTF-16 length (the measure chat.MAX_TEXT uses); the bound comment says about twice TURN_LOG_MAX. 60/60.
