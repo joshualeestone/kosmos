@@ -8,7 +8,7 @@
 # scheduled workflows as best effort, delayed or dropped under load, so the backstop cannot rest on it.
 #
 # What: run every 15 minutes by launchd on Mortals (tools/install-site-deploy-kick.sh), this asks the workflow to run
-# (workflow_dispatch, ref main) only when site main is ahead of what the deploy job last published, using the job's
+# (workflow_dispatch, ref main) only when site main differs from what the deploy job last published, using the job's
 # own state folder. Everything else stays the job's: the cut check, the lock, retries and parking, the reports. So:
 #   - paused (a person made ~/.kosmos-site-autodeploy/paused): nothing is asked;
 #   - main equals last-deployed, or main is the parked sha: nothing is asked (the job reports a parked sha itself);
@@ -43,6 +43,7 @@ set -u
 REPO="${KOSMOS_SITE_REPO:-joshualeestone/chaoskosmos-site}"
 STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
+[ -x "$GH" ] || GH="$(command -v gh 2>/dev/null || echo "$GH")"   # review 7: another install path (the plist PATH has it)
 BEAT="${KOSMOS_KICK_HEARTBEAT:-$HOME/.local/libexec/kosmos-site-deploy-kick/last-tick}"
 KICK_GAP_S=840
 STUCK_S=10800   # not finished 3 hours after creation
@@ -75,16 +76,19 @@ note "site main ${main:0:9}, last deployed ${deployed:0:9}"
 [ "$main" = "$deployed" ] && { note "main is deployed: would ask nothing"; exit 0; }
 parked="$(tr -d '[:space:]' 2>/dev/null < "$STATE/parked" || true)"
 [ "$main" = "$parked" ] && { note "main is parked: would ask nothing"; exit 0; }
-# One line per run: "<status> <conclusion or -> <createdAt> <updatedAt>".
-runs="$("$GH" run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | "\(.status) \(.conclusion // "-") \(.createdAt) \(.updatedAt)"' 2>"$ERR")" \
+# One TAB-separated line per run: status, conclusion, createdAt, updatedAt. gh gives an unfinished run's conclusion as
+# "" (not null; measured 2026-10-15), so it is mapped to "-": an empty field would let `read` shift the rest (review 7).
+# The newest 20 runs hold every active one: the job runs one at a time and a superseded pending run is cancelled.
+runs="$("$GH" run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq '.[] | [.status, (if (.conclusion // "") == "" then "-" else .conclusion end), .createdAt, .updatedAt] | @tsv' 2>"$ERR")" \
   || { say "could not list site deploy runs$(why); nothing asked"; exit 1; }
 active=0; newest=""; stuck=""
 # Its own line goes to stderr: stamp runs inside $( ), whose stdout is the value (launchd logs both).
 stamp() { local v; v="$(epoch "$1")"; case "$v" in ''|*[!0-9]*) say "site deploy run time read as '${1:0:40}'; nothing asked" >&2; exit 1 ;; esac; printf '%s' "$v"; }
-while read -r status concl created updated; do
+while IFS=$'\t' read -r status concl created updated; do
   [ -n "${status:-}" ] || continue
-  c="$(stamp "$created")" || exit 1
-  u="$(stamp "$updated")" || exit 1
+  # The parent sets LAST_LINE itself: stamp's own say runs in the $( ) subshell (review 7).
+  c="$(stamp "$created")" || { LAST_LINE="site deploy run time read as '${created:0:40}'; nothing asked"; exit 1; }
+  u="$(stamp "$updated")" || { LAST_LINE="site deploy run time read as '${updated:0:40}'; nothing asked"; exit 1; }
   this_stuck=""
   if [ "$status" != completed ]; then
     [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created"
@@ -99,12 +103,14 @@ while read -r status concl created updated; do
   fi
 done <<< "$runs"
 rc=0
-if [ -n "$stuck" ]; then say "a site deploy run has been $stuck, past its limit; not waiting on it"; rc=1; fi
+STUCK_LINE=""
+if [ -n "$stuck" ]; then STUCK_LINE="a site deploy run has been $stuck, past its limit; not waiting on it"; say "$STUCK_LINE"; rc=1; fi
 [ "$active" -gt 0 ] && { note "$active run(s) queued or running: would ask nothing"; exit "$rc"; }
 if [ -n "$newest" ] && [ $((NOW - newest)) -lt "$KICK_GAP_S" ]; then note "a run started $((NOW - newest)) s ago: would ask nothing"; exit "$rc"; fi
 if [ "$CHECK" = 1 ]; then note "would ask for a site deploy"; exit "$rc"; fi
 if "$GH" workflow run site-deploy.yml --repo "$REPO" --ref main >/dev/null 2>"$ERR"; then
   say "asked for a site deploy: main ${main:0:9}, last deployed ${deployed:0:9}"
+  [ -n "$STUCK_LINE" ] && LAST_LINE="$LAST_LINE; and $STUCK_LINE"   # last-result keeps why rc is 1 (review 7)
 else
   say "could not dispatch the site deploy for main ${main:0:9}$(why)"; exit 1
 fi

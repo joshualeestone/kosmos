@@ -58,8 +58,9 @@ function state(files = {}) {
 }
 /* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
    (measured 2026-10-15), so the script does not ask for it. */
+/* An unfinished run's conclusion is "" exactly as gh gives it (measured 2026-10-15; null hid a parsing bug, review 7). */
 const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion]) => ({
-  status, conclusion: conclusion || (status === 'completed' ? 'success' : null), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
+  status, conclusion: conclusion || (status === 'completed' ? 'success' : ''), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
 /* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip (review 2). */
 const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
@@ -83,6 +84,8 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     ['pending', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['pending', 60]]) }],
     ['a failed run 5 min ago (its retry is the next tick, not now)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 300], ['completed', 4000]]) }],
     ['a run queued long that FAILED a minute ago (review 3: from when it ended)', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'failure']]) }],
+    ['a run that timed out a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'timed_out']]) }],
+    ['a run that failed to start a minute ago', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['completed', 1000, 60, 'startup_failure']]) }],
   ]) {
     const r = kick(state(files), env);
     assert.equal(r.status, 0, why + ': ' + r.out);
@@ -92,6 +95,8 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
   // CONTROLs: no runs at all, or the newest finished 15 minutes ago, are asked for.
   // Review 6: a GREEN run created 1000 s ago that ended a minute ago does not hold the next ask (only a failure's end does).
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 1000, 60, 'success']]) }).dispatched, 1);
+  // A superseded (cancelled) pending run counts from its creation too.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 1000, 60, 'cancelled']]) }).dispatched, 1);
   // A parked sha other than main does not hold main back (the job parks one sha, until main moves).
   assert.equal(kick(state({ 'last-deployed': OLD, parked: 'c'.repeat(40) }), { FAKE_RUNS: runs([['completed', 3600]]) }).dispatched, 1);
   // A paused tick still writes its heartbeat: launchd started it.
@@ -140,7 +145,7 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
     ['main not a sha', { FAKE_MAIN: 'not found' }, /not a sha/],
     ['main a short sha', { FAKE_MAIN: 'abc123' }, /not a full sha/],
     ['run list fails', { FAKE_LIST_FAIL: '1' }, /could not list site deploy runs/],
-    ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z' }]) }, /site deploy run time read as/],
+    ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z' }]) }, /site deploy run time read as/],
   ]) {
     const r = kick(state({ 'last-deployed': OLD }), env);
     assert.equal(r.status, 1, why + ': ' + r.out);
@@ -179,6 +184,12 @@ test('#6266: each tick leaves its exit code and last line in last-result, and --
   assert.match(result, / rc=1 could not dispatch the site deploy for main aaaaaaaaa \(gh: HTTP 401\)\n$/);
   const c = kick(st, { ...env, FAKE_DISPATCH_FAIL: '' }, ['--check']);
   assert.match(c.out, /check: last tick: .* rc=1 could not dispatch/);
+  // A garbled run time records its reason, not "(quiet)" (review 7: the line was said in a subshell).
+  kick(st, { FAKE_RUNS: JSON.stringify([{ status: 'completed', conclusion: 'success', createdAt: 'x', updatedAt: 'x' }]), KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
+  assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=1 site deploy run time read as 'x'; nothing asked\n$/);
+  // A stuck run that is then asked past keeps the stuck reason in last-result.
+  kick(st, { FAKE_RUNS: runs([['queued', 12000]]), KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
+  assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=1 asked for a site deploy: .*; and a site deploy run has been queued since .* past its limit/);
   // A quiet tick (main deployed) records rc=0 (quiet).
   kick(state({ 'last-deployed': MAIN }), { KOSMOS_KICK_HEARTBEAT: path.join(beatDir, 'last-tick') });
   assert.match(fs.readFileSync(path.join(beatDir, 'last-result'), 'utf8'), / rc=0 \(quiet\)\n$/);

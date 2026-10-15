@@ -14,6 +14,7 @@
 #   cat ~/.local/libexec/kosmos-site-deploy-kick/last-tick            the time of the last tick launchd STARTED
 #   cat ~/.local/libexec/kosmos-site-deploy-kick/last-result          the last tick's exit code and its last line
 #   tail ~/.local/libexec/kosmos-site-deploy-kick/kick.log            what the ticks DID (asked, or could not read)
+# The job runs at load (RunAtLoad), so installing or re-running this starts a tick at once, which may ask for a deploy.
 # To stop dispatching without uninstalling, create ~/.kosmos-site-autodeploy/paused (it stops the deploy job too).
 # Env (tests only): KOSMOS_KICK_HOME (the home it installs into), KOSMOS_LAUNCHCTL (the launchctl to call).
 set -eu
