@@ -11173,7 +11173,9 @@ const server = http.createServer(async (req, res) => {
             const jobFile = (n) => (process.platform === 'linux' ? require('./engine/linuxjob').unitPath(n) : create.plistPath(n));
             for (const { sessionName, home } of agentsByAccountWalk('codex').entries) {
               /* Only reports written since the agent's job last changed: a move between accounts rewrites the job, and the
-                 private home still holds the old account's sessions. A job whose time cannot be read is not filtered. */
+                 private home still holds the old account's sessions. Any other rewrite of the job (a rename, a model
+                 change) also hides them until Codex reports again: a missing meter, never a wrong one. A job whose time
+                 cannot be read is not filtered. */
               let since = null; try { since = fs.statSync(jobFile(sessionName)).mtimeMs; } catch { since = null; }
               const priv = { home: runtime.forAgent(sessionName), since };
               if (!home) { onDefault.push(priv); continue; }

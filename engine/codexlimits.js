@@ -177,7 +177,7 @@ function signedInSince(dir, recordFile) {
     const key = path.resolve(dir), had = rec[key];
     if (had && had.login === id && Number.isFinite(had.since)) return had.since;
     rec[key] = { login: id, since: mtime };
-    const tmp = recordFile + '.' + process.pid + '.tmp';
+    const tmp = recordFile + '.' + process.pid + '.' + require('node:crypto').randomBytes(6).toString('hex') + '.tmp';   // two reads at once never share one
     fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
     fs.renameSync(tmp, recordFile);
     return mtime;
