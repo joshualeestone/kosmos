@@ -144,7 +144,7 @@ test('the #479 single record migrates: first entry, default name, stable id, and
   const got = policy.read();
   assert.equal(got.state, 'saved');
   assert.equal(got.policies.length, 1);
-  assert.equal(got.policies[0].name, policy.DEFAULT_NAME);
+  assert.equal(got.policies[0].name, policy.MIGRATED_NAME, '#6273: the person\'s own migrated policy is named as a company\'s');
   assert.equal(got.policies[0].id, policy.read().policies[0].id,
     'the migrated id is not stable across reads, so a GET and the POST acting on it race');
 
@@ -165,9 +165,42 @@ test('the #479 single record migrates: first entry, default name, stable id, and
   policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
   const rec = JSON.parse(fs.readFileSync(policy.FILE, 'utf8'));
   assert.equal(rec.version, 2);
-  assert.equal(rec.policies[0].name, policy.DEFAULT_NAME);
+  assert.equal(rec.policies[0].name, policy.MIGRATED_NAME);
   assert.equal(rec.policies[1].name, 'Branding');
   policy.clear();
+});
+
+/* #6273: a record migrated BEFORE the name changed already holds "Company AI policy" on disk (the v2 shape), so a new
+   constant alone never reaches it. It is renamed on read, only for the migration's fixed id and that exact name. */
+test('#6273 a stored migrated entry named "Company AI policy" reads as "AI policy"; a name the person chose is kept', () => {
+  const plant = (policies) => {
+    fs.mkdirSync(path.dirname(policy.FILE), { recursive: true });
+    fs.writeFileSync(policy.FILE, JSON.stringify({ version: 2, policies }, null, 2) + '\n');
+  };
+  const p1 = { id: 'p1', name: 'Company AI policy', text: 'Cite your sources.', source: 'pasted', savedAt: '2026-08-23T00:00:00Z' };
+  const legal = { id: 'abc123', name: 'Legal', text: 'The legal words.', source: 'https://example.com/legal', savedAt: '2026-09-01T00:00:00Z' };
+  try {
+    plant([p1, legal]);
+    const got = policy.read();
+    assert.equal(got.state, 'saved');
+    assert.deepEqual(got.policies.map((p) => p.name), ['AI policy', 'Legal'], 'the migrated entry still wears the company\'s name');
+    assert.equal(got.policies[0].id, 'p1', 'the rename moved the id, so a GET and the POST acting on it race');
+    const body = policy.bodyFor(got.policies);
+    assert.ok(body.includes('### AI policy'), 'the stacked block does not head it "AI policy"');
+    assert.ok(!body.includes('### Company AI policy'), 'the stacked block still tells agents a company owns it');
+    // Read is side-effect free; the next mutation persists the new name, as the v1 migration does.
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'Company AI policy', 'read rewrote the record');
+    policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
+    assert.equal(JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).policies[0].name, 'AI policy', 'the next mutation did not persist it');
+
+    // CONTROL: an entry the person named "Company AI policy" has a random id, and keeps its name.
+    plant([{ ...legal, id: 'def456', name: 'Company AI policy' }, legal]);
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a name the person chose was rewritten');
+
+    // When another entry already wears "AI policy", the migrated one keeps its name rather than collide.
+    plant([p1, { ...legal, name: 'ai POLICY' }]);
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['Company AI policy', 'ai POLICY'], 'two entries now share one name');
+  } finally { policy.clear(); }
 });
 
 test('the stacked block: one heading, the conflict sentence once, each policy a named section in order (#685)', () => {
