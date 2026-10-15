@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgchart-deeptrees-4499
-diff_hash: 023708c87d4130732acbfba2224551826fdc69cfac886dc460f66029f0ed39cd
+diff_hash: 471b3b578061e6bedfbd164aed3caf64d418fb481ccb2475cdc83b7941ebe1bc
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-15T02:04:01Z
@@ -15,7 +15,7 @@ converged: true
 **Iterations:** 5 (6.0 initial validation skipped on a recorded clean verdict; 5 fresh blind reviewer passes)
 **Converged:** Yes
 **Total findings:** 4 BLOCKERs (0), WARNINGs, CONVENTIONs, NITs across 5 passes; every actionable finding fixed or deliberately deferred.
-**Fixed:** (see ledger) | **Deferred:** 4 | **Asked (awaiting user):** 0
+**Fixed:** (see ledger) | **Deferred:** 3 | **Asked (awaiting user):** 0
 
 Model rotation (kosmos#2032): opus, sonnet, opus, sonnet, opus. Convergence witnessed by both models.
 
@@ -30,7 +30,7 @@ The core layout logic (orgPlace / orgFirstRingClear / orgPlaceGated) was confirm
 - [WARNING] web/index.html -- dual derivation of the first-ring floor (convention #5) --> FIXED (65e04b154: extract ORG_LINE_MARGIN + pinning test + 4 sibling lifts)
 - [WARNING] web/index.html -- orgFirstRingClear comment asserted a structural guarantee the code lacks --> FIXED (65e04b154: comment made empirical)
 - [CONVENTION] web/index.html -- raw margin literal 6 --> FIXED (65e04b154: ORG_LINE_MARGIN)
-- [CONVENTION] .claude/plans/ -- no plan file --> DEFERRED (context in card #4499 + PR body + durable diagnosis note; long-running card not started via /pplan)
+- [CONVENTION] .claude/plans/ -- no plan file --> FIXED (9068618ac: the pre-challenge gate requires a plan file alongside the proof, so the deferral was invalid; added the decision-record plan at PR time; no code change)
 - [NIT] vacuous funded clause floClear >= preClear - 0.05 --> FIXED (65e04b154: removed)
 - [NIT] equal-shares branch unreachable from prod --> DEFERRED (defensive for direct callers)
 - [NIT] flat-fleet wasted second pass vs comment --> FIXED (65e04b154: comment softened)
@@ -74,13 +74,13 @@ The core layout logic (orgPlace / orgFirstRingClear / orgPlaceGated) was confirm
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING (dup of a DEFERRED entry), 1 CONVENTION (dup)
 **Self-generated:** 0
-**Converged** -- the only non-STRENGTH findings deduplicate against DEFERRED ledger entries (runtime full-check; no plan file). The reviewer itself framed the WARNING as "a conscious, documented performance tradeoff ... a residual risk to surface rather than a defect." 5 STRENGTHs confirmed the whole change.
+**Converged** -- the only non-STRENGTH findings deduplicate against ledger entries (runtime full-check, DEFERRED; no plan file, which was deferred at iteration 5 and later FIXED at PR time when the gate required it). The reviewer itself framed the WARNING as "a conscious, documented performance tradeoff ... a residual risk to surface rather than a defect." 5 STRENGTHs confirmed the whole change.
 
 ### Final Ledger
 
 | # | Iter | Category | File | Origin | Description | Status | Resolution |
 |---|------|----------|------|--------|-------------|--------|------------|
-| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | no plan file | DEFERRED | context in card/PR/diagnosis |
+| 1 | 1 | CONVENTION | .claude/plans/ | BRANCH | no plan file | FIXED | 9068618ac plan file added at PR time (gate requires it) |
 | 2 | 1 | WARNING | web/index.html | BRANCH | dual derivation of floor formula | FIXED | 65e04b154 |
 | 3 | 1 | WARNING | web/index.html | BRANCH | comment overclaims structural guarantee | FIXED | 65e04b154 |
 | 4 | 1 | CONVENTION | web/index.html | BRANCH | raw margin literal | FIXED | 65e04b154 |
