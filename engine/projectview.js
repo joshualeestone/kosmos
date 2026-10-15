@@ -241,9 +241,10 @@ function quietExcused(summary, member, tasks, nowMs, allProjects) {
      outage. Unlike idleExcused this also applies to a member working now.
    - Since 0.7.48 (Josh): the board's read of the screen adds nothing (the limit stated first, above). */
 /* kosmos#5635 F2 (0.7.50): how long one Claude `working` report counts as work. Infinity for any other runner (see
-   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min), so the two
-   readers of these rows agree; the board's 5-minute decay (status.js) undercounted a long tool call, a long stretch of
-   thinking or a subagent's run, none of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
+   workExcused). Review 2: the same cap summarydue-nudge.js puts on a working gap (WORK_GAP_CAP_MS, 30 min): the same value,
+   anchored differently (here at the report's own time, there at the previous row; the nudge counts nothing after the
+   last report, this counts up to the cap); the board's 5-minute decay (status.js) undercounted a long tool call or a long stretch of
+   thinking, neither of which heartbeats. Read lazily (summarydue-nudge requires this module); 30
    minutes if it cannot be read. */
 function workingCapMs(member) {
   if (!member || member.runner !== 'claude') return Infinity;
@@ -312,7 +313,10 @@ function workExcused(summary, member, readHistory, nowMs) {
      an interrupted Antigravity turn can still count a night as work (a known gap, review 5). Waits
      (needs_you, blocked) are not capped: they are long by nature. Known cost, in the direction Josh's 0.7.48 rule already
      takes (only reported work counts): one tool call or a stretch of thinking longer than 30 min with no heartbeat
-     between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. */
+     between (a subagent's tool calls most likely heartbeat too, so its run is usually counted) is counted only to the cap. Known cost
+     the other way (review 8): the hook sends reports in the background and the board stamps arrival, so a turn's last
+     heartbeat can land just after its idle (the F2 night may be that); each such turn adds up to the cap, 30 min, of
+     work that did not happen, where it used to add all the time to the next report. */
   const cap = workingCapMs(member);
   const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
   let from = wroteAt;

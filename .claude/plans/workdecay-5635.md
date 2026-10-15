@@ -59,3 +59,11 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
 - No BLOCKER. WARNING: "CONTROL: the agent's own idle" passed either way on Claude (the capped working adds nothing):
   it now runs on grok, asserts 6 minutes, with a no-idle control reading stale. WARNING: the needs_you comment says the
   wait alone makes it stale. NIT: "same value, different anchor" instead of "the two readers agree".
+
+## Review 8 (opus), and what changed
+- No BLOCKER. CONVENTION: the "two readers agree" wording was still in workingCapMs (review 7's replace missed it):
+  now "same value, anchored differently". WARNING, stated not fixed: reports are sent in the background and stamped
+  on arrival, so a turn's last heartbeat can land after its idle; each such turn adds up to 30 min that did not happen
+  (was: until the next report). Fixing it needs the hook to send its own event time, a separate change. NIT taken:
+  the F2 bound is now 59 to 60 (a 29-min cap reads 58). Noted: a long heartbeat run can push the 64 KB history tail
+  past the summary, which reads stale (the safe direction).
