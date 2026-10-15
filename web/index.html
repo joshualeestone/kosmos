@@ -19924,8 +19924,9 @@ window.kosmosMeasureScrollbarWidth();
 <script>
 'use strict';
 
-/* #6192: a refused reply's body is always read. Left unread, the request never finishes (measured: 19 still open 20 s
-   after a load whose every read was refused), so anything waiting for the page's network to go quiet waits forever.
+/* #6192: a refused reply's body is always read. Left unread, the request did not finish (measured in Chromium against
+   the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
+   page's network to go quiet waited for good.
    A CLONE is drained, not awaited, so the caller can still read the original (a refusal's own words) and a slow body
    holds up nothing. One place, for every fetch on the page, rather than an edit at each of its call sites. */
 (() => {
