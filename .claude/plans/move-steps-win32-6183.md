@@ -19,7 +19,16 @@ the board for the length of one restart at a time.
    are timers, proven like the Mac/Linux tests: a timer keeps firing during an async restart,
    and a sync-runner seam is never asked.
 2. The `windows` CI job runs that test.
-3. The synchronous restart callers keep today's behaviour.
+3. The NON-restart synchronous callers (removeInner, world-switch, register) keep today's behaviour. The
+   synchronous RESTART now drives the same step generators via `driveSync` (restartSteps prefers `steps`), so its
+   schtasks route through remove.js's run() rather than win32job's/win32stop's own runners -- the restart executor
+   unifies across the sync and async drivers (as the Linux half already did, via its `via` runWith seam). Behaviour
+   is preserved: same commands, same parse/outcomes, and the step generators clear PRESENCE_MEMO as win32job.run()
+   does, so presence() is not left stale after a step-driven stop/start. Two deliberate consequences of the executor
+   move, shared with the merged Linux half: the step path's test-process guard is remove.js's liveExec rather than
+   win32job's stricter schtasksMayRunInThisProcess (both fail-closed; the execArgv/inTestProcess case holds, the
+   NODE_TEST_CONTEXT-only spawned-server case is the residual), and a test driving the sync restart injects commands
+   via remove.setRunner, not win32job's seam.
 
 ## Current win32 architecture (verified on this base, 3c6a76606)
 
