@@ -11,7 +11,8 @@
 # After installing, check it runs under launchd (its gh login, PATH and keychain are launchd's, not this shell's):
 #   bash ~/.local/libexec/kosmos-site-deploy-kick/kick.sh --check     what a tick would decide, dispatching nothing
 #   launchctl print gui/$(id -u)/com.stonesyndicate.kosmos-site-deploy-kick | grep -E 'state|last exit code'
-#   cat ~/.local/libexec/kosmos-site-deploy-kick/last-tick            the time of the last tick launchd ran
+#   cat ~/.local/libexec/kosmos-site-deploy-kick/last-tick            the time of the last tick launchd STARTED
+#   tail ~/.local/libexec/kosmos-site-deploy-kick/kick.log            what the ticks DID (asked, or could not read)
 # To stop dispatching without uninstalling, create ~/.kosmos-site-autodeploy/paused (it stops the deploy job too).
 # Env (tests only): KOSMOS_KICK_HOME (the home it installs into), KOSMOS_LAUNCHCTL (the launchctl to call).
 set -eu
@@ -67,6 +68,6 @@ mv "$PLIST.new" "$PLIST"
 # A bootstrap right after a bootout can fail while launchd is still tearing the old job down; try once more.
 if ! "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" 2>/dev/null; then
   sleep 2
-  "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" || { echo "the files are in place but launchd did not load $LABEL; run: launchctl bootstrap $DOMAIN $PLIST" >&2; exit 1; }
+  "$LAUNCHCTL" bootstrap "$DOMAIN" "$PLIST" || { echo "the files are in place but launchd did not load $LABEL; if it was disabled, run: launchctl enable $DOMAIN/$LABEL; then: launchctl bootstrap $DOMAIN $PLIST" >&2; exit 1; }
 fi
 echo "installed $LABEL: $DIR/kick.sh every 15 minutes, log $DIR/kick.log, heartbeat $DIR/last-tick"

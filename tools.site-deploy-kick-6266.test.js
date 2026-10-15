@@ -29,7 +29,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
-if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,createdAt,updatedAt,startedAt --jq" ]; then
+if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,createdAt,updatedAt --jq" ]; then
   [ -n "\${FAKE_LIST_FAIL:-}" ] && exit 1
   printf '%s' "\${FAKE_RUNS:-[]}" | "$FAKE_JQ" -r "\${14}"; exit $?
 fi
@@ -56,9 +56,9 @@ function state(files = {}) {
   for (const [k, v] of Object.entries(files)) fs.writeFileSync(path.join(d, k), v);
   return d;
 }
-/* [status, created s ago, updated s ago (default: created), started s ago (default: not started)] */
-const runs = (list) => JSON.stringify(list.map(([status, ago, upd, started]) => ({
-  status, createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd), startedAt: started == null ? null : iso(started) })));
+/* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
+   (measured 2026-10-15), so the script does not ask for it. */
+const runs = (list) => JSON.stringify(list.map(([status, ago, upd]) => ({ status, createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
 /* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip (review 2). */
 const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
@@ -76,7 +76,7 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     ['parked', { 'last-deployed': OLD, parked: MAIN + '\n' }, {}],
     ['paused', { 'last-deployed': OLD, paused: '' }, {}],
     ['queued', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['queued', 60]]) }],
-    ['in_progress', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['in_progress', 60, 30, 60]]) }],
+    ['in_progress', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['in_progress', 60, 30]]) }],
     ['waiting', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['waiting', 60]]) }],
     ['requested', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['requested', 60]]) }],
     ['pending', { 'last-deployed': OLD }, { FAKE_RUNS: runs([['pending', 60]]) }],
@@ -89,22 +89,25 @@ test('#6266: nothing is asked when deployed, parked, paused, a run is active in 
     assert.equal(r.out, '', why + ': a quiet tick prints nothing');
   }
   // CONTROLs: no runs at all, or the newest finished 15 minutes ago, are asked for.
+  // A parked sha other than main does not hold main back (the job parks one sha, until main moves).
+  assert.equal(kick(state({ 'last-deployed': OLD, parked: 'c'.repeat(40) }), { FAKE_RUNS: runs([['completed', 3600]]) }).dispatched, 1);
+  // A paused tick still writes its heartbeat: launchd started it.
+  assert.ok(fs.existsSync(kick(state({ paused: '' })).beat));
   const first = kick(state());
   assert.equal(first.dispatched, 1, 'with no last-deployed and no runs, it asks');
   assert.doesNotMatch(first.out, /No such file/, 'a missing state file is not an error');
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 900]]) }).dispatched, 1);
 });
 
-test('#6266: a stuck run (running 45 min from its start, or waiting 3 h) is said, not waited on, and the tick exits 1', needJq, () => {
-  for (const [why, list] of [['running since 50 min', [['in_progress', 3100, 600, 3000]]], ['queued 3 h 20 min', [['queued', 12000]]]]) {
+test('#6266: a run not finished 3 hours after creation is stuck: said, not waited on, and the tick exits 1', needJq, () => {
+  for (const [why, list] of [['running 3 h 20 min', [['in_progress', 12000, 600]]], ['queued 3 h 20 min', [['queued', 12000]]]]) {
     const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs(list) });
     assert.equal(r.dispatched, 1, why + ': one stuck run silenced the backstop');
     assert.equal(r.status, 1, why + ': launchctl\'s last exit code should show it');
     assert.match(r.out, /a site deploy run has been .* past its limit; not waiting on it/, why);
   }
-  // CONTROLs: queued 50 minutes behind CI on the shared runner is waited on; running 33 minutes is waited on.
-  for (const [why, list] of [['queued 50 min', [['queued', 3000]]], ['running 33 min', [['in_progress', 2100, 60, 2000]]],
-    ['queued 50 min, then running 10 min (the limit counts from the start)', [['in_progress', 3000, 60, 600]]]]) {
+  // CONTROLs: an hour queued behind CI on the shared runner, or running after a long wait, is waited on.
+  for (const [why, list] of [['queued 1 h', [['queued', 3600]]], ['running, created 2 h 40 min ago', [['in_progress', 9600, 60]]]]) {
     const q = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs(list) });
     assert.equal(q.dispatched, 0, why);
     assert.equal(q.out, '', why);
@@ -118,7 +121,7 @@ test('#6266: the 14-minute gap is measured from the newest run by time, whatever
   // Oldest first: the newest (300 s) still holds the tick back.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 5000], ['completed', 300]]) }).dispatched, 0);
   // An active run behind older finished ones still holds it.
-  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 5000], ['in_progress', 1200, 60, 1100]]) }).dispatched, 0);
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 5000], ['in_progress', 1200, 60]]) }).dispatched, 0);
 });
 
 test('#6266: a gh failure carries its own first line into the log, so a lost login reads as one', needJq, () => {
@@ -134,7 +137,7 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
     ['main not a sha', { FAKE_MAIN: 'not found' }, /not a sha/],
     ['main a short sha', { FAKE_MAIN: 'abc123' }, /not a full sha/],
     ['run list fails', { FAKE_LIST_FAIL: '1' }, /could not list site deploy runs/],
-    ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z', startedAt: null }]) }, /site deploy run time read as/],
+    ['run time garbled', { FAKE_RUNS: JSON.stringify([{ status: 'completed', createdAt: '2026-13-45T99:99:99Z', updatedAt: '2026-13-45T99:99:99Z' }]) }, /site deploy run time read as/],
   ]) {
     const r = kick(state({ 'last-deployed': OLD }), env);
     assert.equal(r.status, 1, why + ': ' + r.out);

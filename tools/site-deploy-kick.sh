@@ -15,14 +15,17 @@
 #   - a site deploy run on main is queued or running: nothing is asked. A queued one deploys main as it is when it
 #     starts; a merge made while one is already running waits for the next tick;
 #   - a site deploy run on main was created or last updated (a finished run: when it ended) less than KICK_GAP_S (14
-#     minutes) ago: nothing is asked, so this is a backstop and never an extra tick (the job retries a failure once on
-#     the next tick and then parks it; asking sooner would spend that retry within minutes, reviews 1 and 3);
+#     minutes) ago: nothing is asked, so this backstop never adds a tick of its own beside a recent run (the job
+#     retries a failure once on the next tick and then parks it; asking sooner would spend that retry within minutes,
+#     reviews 1 and 3). GitHub's push and schedule triggers still fire on their own, as before;
 #   - otherwise one dispatch. A tick the job skips (a cut still running) is asked again 15 minutes later.
-# A STUCK run is not counted as active (review 2: one would otherwise silence this backstop for good): one running over
-# 45 minutes since it STARTED (the job's own timeout, which counts from the start), or one waiting to start over 3 hours
-# (the shared runner's CI queue can hold a real run a long while, review 3). It gets a line, the tick still asks (a
-# new dispatch replaces a stuck pending run; behind a stuck queued one it waits its turn), and the tick exits 1 so
-# launchctl's last exit code shows it. Each tick writes the time to its heartbeat file, so a quiet log can be
+# A STUCK run is not counted as active (review 2: one would otherwise silence this backstop for good): one not finished
+# 3 hours after it was created. One limit from creation, because GitHub stamps a run's startedAt at creation too
+# (measured on chaoskosmos-site 2026-10-15: equal on every run), so queue time and running time cannot be told apart;
+# 3 hours is the job's 45-minute timeout plus a long wait behind CI on the shared runner (reviews 3 and 4). It gets a
+# line, the tick still asks (a new dispatch replaces a stuck pending run; behind a stuck queued one it waits its turn),
+# and the tick exits 1 so launchctl's last exit code shows it. While a release cut runs, each tick's run is skipped by
+# the job in seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have. Each tick writes the time to its heartbeat file, so a quiet log can be
 # told apart from a job that never runs. A tick prints only when it asks, cannot read something, or sees a stuck run
 # (at most two lines); the log is not rotated (a few KB a day at worst, kept by --uninstall too).
 #
@@ -35,8 +38,7 @@ STATE="${KOSMOS_AUTODEPLOY_STATE:-$HOME/.kosmos-site-autodeploy}"
 GH="${KOSMOS_GH:-/opt/homebrew/bin/gh}"
 BEAT="${KOSMOS_KICK_HEARTBEAT:-$HOME/.local/libexec/kosmos-site-deploy-kick/last-tick}"
 KICK_GAP_S=840
-STUCK_S=2700         # running, from its start
-STUCK_QUEUED_S=10800 # waiting to start, from its creation
+STUCK_S=10800   # not finished 3 hours after creation
 CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 say() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*"; }
 note() { [ "$CHECK" = 1 ] && say "check: $*"; return 0; }
@@ -59,22 +61,19 @@ note "site main ${main:0:9}, last deployed ${deployed:0:9}"
 [ "$main" = "$deployed" ] && { note "main is deployed: would ask nothing"; exit 0; }
 parked="$(tr -d '[:space:]' 2>/dev/null < "$STATE/parked" || true)"
 [ "$main" = "$parked" ] && { note "main is parked: would ask nothing"; exit 0; }
-# One line per run: "<status> <createdAt> <updatedAt> <startedAt>" (startedAt is "-" for a run not started yet).
-runs="$("$GH" run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,createdAt,updatedAt,startedAt --jq '.[] | "\(.status) \(.createdAt) \(.updatedAt) \(.startedAt // "-")"' 2>"$ERR")" \
+# One line per run: "<status> <createdAt> <updatedAt>".
+runs="$("$GH" run list --repo "$REPO" --workflow site-deploy.yml --branch main --limit 20 --json status,createdAt,updatedAt --jq '.[] | "\(.status) \(.createdAt) \(.updatedAt)"' 2>"$ERR")" \
   || { say "could not list site deploy runs$(why); nothing asked"; exit 1; }
 active=0; newest=""; stuck=""
 # Its own line goes to stderr: stamp runs inside $( ), whose stdout is the value (launchd logs both).
 stamp() { local v; v="$(epoch "$1")"; case "$v" in ''|*[!0-9]*) say "site deploy run time read as '${1:0:40}'; nothing asked" >&2; exit 1 ;; esac; printf '%s' "$v"; }
-while read -r status created updated started; do
+while read -r status created updated; do
   [ -n "${status:-}" ] || continue
   c="$(stamp "$created")" || exit 1
   u="$(stamp "$updated")" || exit 1
   this_stuck=""
   if [ "$status" != completed ]; then
-    if [ "$status" = in_progress ] && [ "${started:--}" != - ]; then
-      s0="$(stamp "$started")" || exit 1
-      [ $((NOW - s0)) -gt "$STUCK_S" ] && this_stuck="running since $started"
-    elif [ $((NOW - c)) -gt "$STUCK_QUEUED_S" ]; then this_stuck="$status since $created"; fi
+    [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created"
     if [ -n "$this_stuck" ]; then stuck="$this_stuck"; else active=$((active + 1)); fi
   fi
   # Review 3: the latest of when it was made and when it last changed (a finished run: when it ended), newest by
