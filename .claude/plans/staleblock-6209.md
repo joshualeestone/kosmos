@@ -138,3 +138,7 @@ activity log, but no longer red.
 - The allowlist comment names Claude Code's documented kinds (server_error is the one that matches; the rest are
   defensive). Residual, stated: an `unknown` kind or the hook's fallback text ("an api error") keeps its block, so a
   brief failure reported that way still reads blocked until the agent's own next report.
+
+## Review 12 (sonnet): CONVERGED
+- No new actionable finding; its warnings repeat recorded decisions (the unmeasured StopFailure premise, the hidden
+  question under a block, the non-atomic read-check-append).
