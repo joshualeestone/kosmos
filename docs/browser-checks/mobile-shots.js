@@ -1585,7 +1585,7 @@ const SCREENS = [
   /* #6178: Settings > AI Models with "On your other computers". That section reads each other computer only from this
      computer's own Kosmos+ address over https, so this screen serves the board at https://laptop.kosmosplus.com (a
      route onto the throwaway board) and answers three made-up other computers: studio with two example.com accounts
-     (82%, and one with no reading) and an agent on each, mortals behind its gate (this browser not let in), oldmac
+     (82%, and one with no reading) and an agent on each, workshop behind its gate (this browser not let in), oldmac
      with a Kosmos from before #6178. Nothing here is real, and nothing reaches the network. */
   { name: 'settings-accounts-other', owner: 'Ice Cream Kitty', noServiceWorker: true, go: async (page) => {
     const board = new URL(page.url()).origin;
@@ -1594,7 +1594,7 @@ const SCREENS = [
     const computers = { ok: true, domain: 'kosmosplus.com', computers: [
       { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
       { name: 'studio', address: 'studio.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
-      { name: 'mortals', address: 'mortals.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
+      { name: 'workshop', address: 'workshop.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
       { name: 'oldmac', address: 'oldmac.kosmosplus.com', this: false, online: true, updating: false, lastSeen: Math.floor(now / 1000) },
     ] };
     const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-credentials': 'true', vary: 'Origin', 'content-type': 'application/json' };
@@ -1618,7 +1618,7 @@ const SCREENS = [
       } catch { await r.abort().catch(() => {}); }
     });
     await page.route('https://studio.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify(studio) }));
-    await page.route('https://mortals.kosmosplus.com/**', (r) => r.fulfill({ status: 401, headers: cors, body: '{}' }));
+    await page.route('https://workshop.kosmosplus.com/**', (r) => r.fulfill({ status: 401, headers: cors, body: '{}' }));
     await page.route('https://oldmac.kosmosplus.com/**', (r) => r.fulfill({ status: 200, headers: cors, body: JSON.stringify({ agents: [] }) }));
     await page.goto(HOME + '/?tab=settings&sec=accounts', { waitUntil: 'load' });
     if (await page.$('#firstrun:not([hidden])')) await page.keyboard.press('Escape');
@@ -1629,7 +1629,7 @@ const SCREENS = [
     await page.waitForTimeout(400);
   }, verify: async (page) => {
     const t = await page.evaluate(() => (document.getElementById('set-other') || {}).textContent || '');
-    for (const want of ['82% of its weekly limit used', 'Its agents on studio: Ada', 'not let in on mortals', 'oldmac has an older Kosmos']) {
+    for (const want of ['82% of its weekly limit used', 'Its agents on studio: Ada', 'not let in on workshop', 'oldmac has an older Kosmos']) {
       if (!t.includes(want)) throw new Error('the other computers section does not say "' + want + '"');
     }
   } },

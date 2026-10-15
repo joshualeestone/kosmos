@@ -30535,6 +30535,7 @@ function aoGroup(c, seen, ao, now) {
   const g = aoEl('div', 'ao-computer');
   g.dataset.address = c.address;
   const head = aoEl('p', 'ao-name', c.name);
+  head.setAttribute('tabindex', '-1');   // where focus goes when a repaint replaces a group that has no Open link
   g.appendChild(head);
   const st = seen ? seen.state : 'reading';
   if (st !== 'out') {   // as the Agents view's group (#4812): where to sign in, or to see it there
@@ -30567,7 +30568,9 @@ function aoGroup(c, seen, ao, now) {
   if (ao && Array.isArray(ao.accounts)) {
     for (const e of ao.accounts) {
       const row = aoEl('div', 'ao-acct');
-      row.appendChild(aoEl('p', 'ao-acct-name', e.email || e.label || (e.isDefault ? 'The first Claude account' : 'A Claude account')));
+      const who = e.email || e.label || (e.isDefault ? 'The first Claude account' : 'A Claude account');
+      const also = e.organization || (e.label && e.label !== who ? e.label : '');   // two logins on one email differ here
+      row.appendChild(aoEl('p', 'ao-acct-name', who + (also ? ' · ' + also : '')));
       const u = aoUsageWords(e, now, ao.skew);
       if (u.pct !== null) {
         const meter = aoEl('div', 'acct-usage-meter');
@@ -30611,7 +30614,9 @@ function aoPaint() {
   }
   noteEl.textContent = 'As each computer reads its own accounts. Usage on one computer is not added to another\'s.';
   const now = Date.now();
-  /* One group at a time, only when its words changed, so focus in an unchanged group stays (web.otheraccounts-6178). */
+  /* One group at a time, only when its words changed, so focus in an unchanged group stays (web.otheraccounts-6178).
+     Age words alone ("2 minutes ago") are written into the kept group in place. */
+  const ageless = (t) => t.replace(/\b(?:just now|\d+ (?:seconds?|minutes?|hours?|days?) ago)\b/g, '~');
   const groups = others.map((c) => aoGroup(c, OA_SEEN.get(c.address), AO_SEEN.get(c.address) || null, now));
   const shown = [...list.children];
   const same = shown.length === groups.length && shown.every((el, i) => el.dataset && el.dataset.address === groups[i].dataset.address);
@@ -30622,10 +30627,14 @@ function aoPaint() {
     groups.forEach((g, i) => {
       const old = shown[i];
       if (old.textContent === g.textContent) return;   // nothing it says changed: keep it, and any focus in it
+      if (ageless(old.textContent) === ageless(g.textContent)) {
+        const was = old.querySelectorAll('p'), now2 = g.querySelectorAll('p');
+        if (was.length === now2.length) { was.forEach((p, k) => { if (p.textContent !== now2[k].textContent) p.textContent = now2[k].textContent; }); return; }
+      }
       const active = typeof document !== 'undefined' ? document.activeElement : null;
       const had = !!(active && active.closest && active.closest('.ao-computer') === old);
       old.replaceWith(g);
-      if (had) { const link = g.querySelector('.oa-open'); if (link) link.focus(); }
+      if (had) { const to = g.querySelector('.oa-open') || g.querySelector('.ao-name'); if (to) to.focus(); }
     });
   }
   wrap.hidden = false;

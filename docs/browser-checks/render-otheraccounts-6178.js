@@ -8,18 +8,18 @@
  * Harness: #4812's. The real board, with the PAGE served at https://laptop.kosmosplus.com (Playwright answers that
  * origin from the board on loopback), because other computers can be read only from this computer's own Kosmos+
  * address. The other computers are Playwright routes:
- *   agent1s  answers /api/status with two Claude accounts (one at 82%, one with no reading) and an agent on each
- *   mortals  answers 401 (its gate: this browser is not let in there)
+ *   studio  answers /api/status with two Claude accounts (one at 82%, one with no reading) and an agent on each
+ *   workshop  answers 401 (its gate: this browser is not let in there)
  *   oldmac   answers 200 with agents but no accountsWeekly (a Kosmos from before #6178)
  * The routes add the CORS pair themselves, so this proves the page's side only; the relay's own tests cover its answer.
  *
  * Claims, each able to fail:
  *   S1 one group per other computer, in the account list's order, this computer left out;
- *   S1 agent1s: each account by its email, the 82% meter drawn at 82% with the row's own sentence, the no-reading
+ *   S1 studio: each account by its email, the 82% meter drawn at 82% with the row's own sentence, the no-reading
  *      account with the row's own reason, each account's agents there by display name, the guide left out, no Move;
- *   S1 mortals says this browser is not let in; oldmac says it has an older Kosmos;
+ *   S1 workshop says this browser is not let in; oldmac says it has an older Kosmos;
  *   S1 another computer's text is shown as text (a hostile email and agent name), never markup;
- *   S2 CONTROL agent1s answers its gate on the next read: its accounts are DROPPED, not kept;
+ *   S2 CONTROL studio answers its gate on the next read: its accounts are DROPPED, not kept;
  *   A  CONTROL the Mac's own window (http://127.0.0.1): no computers listed and not one request to another computer;
  *   P  at 390 px nothing scrolls sideways.
  *
@@ -58,8 +58,8 @@ const COMPUTERS = {
   domain: 'kosmosplus.com',
   computers: [
     { name: 'laptop', address: 'laptop.kosmosplus.com', this: true, online: true, updating: false, lastSeen: NOW },
-    { name: 'agent1s', address: 'agent1s.kosmosplus.com', this: false, online: true, updating: false, lastSeen: NOW },
-    { name: 'mortals', address: 'mortals.kosmosplus.com', this: false, online: true, updating: false, lastSeen: NOW },
+    { name: 'studio', address: 'studio.kosmosplus.com', this: false, online: true, updating: false, lastSeen: NOW },
+    { name: 'workshop', address: 'workshop.kosmosplus.com', this: false, online: true, updating: false, lastSeen: NOW },
     { name: 'oldmac', address: 'oldmac.kosmosplus.com', this: false, online: true, updating: false, lastSeen: NOW },
   ],
 };
@@ -86,7 +86,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
   for (const [ENGINE, engine] of [['chromium', chromium], ['webkit', webkit]]) {
     const browser = await engine.launch({ headless: process.env.HEADED === '0' });
     const elsewhere = [];
-    let agent1sMode = 'ok';
+    let studioMode = 'ok';
     const chk = (ok, label, extra) => chkAll(ok, ENGINE + ' ' + label, extra);
     const fresh = async (opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
@@ -99,12 +99,12 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
         } catch { await route.abort().catch(() => {}); }
       });
       await ctx.route('**/api/first-run', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ done: true }) }));
-      await ctx.route('https://agent1s.kosmosplus.com/**', (route) => {
+      await ctx.route('https://studio.kosmosplus.com/**', (route) => {
         elsewhere.push(route.request().url());
-        if (agent1sMode === 'gate') return route.fulfill({ status: 401, headers: cors, body: JSON.stringify({ error: 'not signed in' }) });
+        if (studioMode === 'gate') return route.fulfill({ status: 401, headers: cors, body: JSON.stringify({ error: 'not signed in' }) });
         return route.fulfill({ status: 200, headers: cors, body: JSON.stringify(SIBLING) });
       });
-      await ctx.route('https://mortals.kosmosplus.com/**', (route) => { elsewhere.push(route.request().url()); return route.fulfill({ status: 401, headers: cors, body: '{}' }); });
+      await ctx.route('https://workshop.kosmosplus.com/**', (route) => { elsewhere.push(route.request().url()); return route.fulfill({ status: 401, headers: cors, body: '{}' }); });
       await ctx.route('https://oldmac.kosmosplus.com/**', (route) => { elsewhere.push(route.request().url()); return route.fulfill({ status: 200, headers: cors, body: JSON.stringify(OLD) }); });
       const page = await ctx.newPage();
       return { ctx, page };
@@ -151,27 +151,27 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
           && /not let in/.test(document.getElementById('set-other').textContent));
         const r = await read(page);
         chk(landed && r.shown, 'S1 the section shows under this computer\'s accounts' + tag, JSON.stringify(r).slice(0, 220));
-        chk(JSON.stringify(r.groups.map((g) => g.name)) === JSON.stringify(['agent1s', 'mortals', 'oldmac']), 'S1 one group per OTHER computer' + tag, r.groups.map((g) => g.name).join(','));
+        chk(JSON.stringify(r.groups.map((g) => g.name)) === JSON.stringify(['studio', 'workshop', 'oldmac']), 'S1 one group per OTHER computer' + tag, r.groups.map((g) => g.name).join(','));
         const a = r.groups[0] || { accts: [] };
         const main = a.accts[0] || {}, work = a.accts[1] || {};
         chk(main.who === 'person@example.com' && main.width === '82%' && /^82% of its weekly limit used · resets .+ · Kosmos last saw it change /.test(main.usage),
           'S1 an 82% account: its email, the meter at 82%, the row\'s own sentence' + tag, JSON.stringify(main));
-        chk(main.agents === 'Its agents on agent1s: Angel', 'S1 its agents there by display name, the guide left out' + tag, main.agents);
+        chk(main.agents === 'Its agents on studio: Angel', 'S1 its agents there by display name, the guide left out' + tag, main.agents);
         chk(work.usage === 'Kosmos is not set up to read usage for this account.' && work.width === null, 'S1 an account with no reading: the row\'s own reason, no meter' + tag, JSON.stringify(work));
-        chk(work.who === HOSTILE && work.agents === 'Its agents on agent1s: ' + HOSTILE && !r.pwned && r.imgs === 0, 'S1 another computer\'s text is text, never markup' + tag, JSON.stringify({ who: work.who, pwned: r.pwned, imgs: r.imgs }));
+        chk(work.who === HOSTILE && work.agents === 'Its agents on studio: ' + HOSTILE && !r.pwned && r.imgs === 0, 'S1 another computer\'s text is text, never markup' + tag, JSON.stringify({ who: work.who, pwned: r.pwned, imgs: r.imgs }));
         chk(r.groups.every((g) => g.buttons === 0), 'S1 no Move or any control for another computer\'s accounts' + tag);
-        chk(/not let in on mortals/.test((r.groups[1] || {}).note || ''), 'S1 mortals: this browser is not let in' + tag, (r.groups[1] || {}).note);
+        chk(/not let in on workshop/.test((r.groups[1] || {}).note || ''), 'S1 workshop: this browser is not let in' + tag, (r.groups[1] || {}).note);
         chk(/oldmac has an older Kosmos/.test((r.groups[2] || {}).note || '') && !(r.groups[2] || { accts: [1] }).accts.length, 'S1 oldmac: an older Kosmos, no accounts guessed' + tag, JSON.stringify(r.groups[2]));
         chk(!r.sideways, 'P nothing scrolls sideways' + tag);
         if (w === 1280) {
-          agent1sMode = 'gate';
+          studioMode = 'gate';
           await page.evaluate(() => oaRound(true));   // true: a round already running reads once more
           const dropped = await until(page, () => {
             const g = document.querySelector('#set-other .ao-computer');
-            return g && g.querySelectorAll('.ao-acct').length === 0 && /not let in on agent1s/.test(g.textContent);
+            return g && g.querySelectorAll('.ao-acct').length === 0 && /not let in on studio/.test(g.textContent);
           });
-          chk(dropped, 'S2 CONTROL agent1s answers its gate: its accounts are dropped, not kept', JSON.stringify((await read(page)).groups[0]).slice(0, 200));
-          agent1sMode = 'ok';
+          chk(dropped, 'S2 CONTROL studio answers its gate: its accounts are dropped, not kept', JSON.stringify((await read(page)).groups[0]).slice(0, 200));
+          studioMode = 'ok';
         }
         await ctx.close();
       }

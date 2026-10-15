@@ -383,3 +383,52 @@ test('#6178 a repaint keeps an unchanged group, and focus in a changed one moves
   assert.notEqual(next, first, 'CONTROL: a group whose words changed was not replaced');
   assert.equal(d.activeElement, next.querySelector('.oa-open'), 'focus was lost when its group was replaced');
 });
+
+test('#6178 two accounts on one email are told apart by organization or label', () => {
+  const { api } = load();
+  const now = Date.now();
+  const c = { name: 'studio', address: 'studio.kosmosplus.com' };
+  const accts = [
+    { dir: '/a', email: 'p@example.com', organization: 'Acme', weekly: null, blocked: null },
+    { dir: '/b', email: 'p@example.com', organization: null, label: 'Personal', weekly: null, blocked: null },
+    { dir: '/c', email: 'q@example.com', organization: null, weekly: null, blocked: null },
+  ];
+  const names = api.aoGroup(c, { state: 'ok', at: now }, { accounts: accts, agents: [], unknown: 0, at: now }, now)
+    .querySelectorAll('.ao-acct-name').map((n) => n.textContent);
+  assert.deepEqual(names, ['p@example.com · Acme', 'p@example.com · Personal', 'q@example.com']);
+});
+
+test('#6178 a repaint where only the age words moved keeps the group (and focus), with the new words', () => {
+  const { api, d } = load();
+  const t0 = Date.now() - 300e3;
+  api.OA_SEEN.set('studio.kosmosplus.com', { state: 'out', agents: [], at: t0 });
+  api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, t0);
+  api.OA_SEEN.set('studio.kosmosplus.com', { state: 'out', agents: [], at: t0 });
+  api.aoPaint();
+  const list = d.getElementById('set-other');
+  const first = list.children[0];
+  const before = first.textContent;
+  assert.match(before, /Showing what this page last read, \d+ minutes ago/, 'CONTROL: the kept list carries an age');
+  first.querySelector('.ao-name').focus();
+  api.AO_SEEN.get('studio.kosmosplus.com').at = t0 - 600e3;   // ten minutes older: only the age words move
+  api.aoPaint();
+  assert.equal(list.children[0], first, 'a group whose only change was its age words was rebuilt');
+  assert.notEqual(first.textContent, before, 'the kept group still shows the old age');
+  assert.equal(d.activeElement, first.querySelector('.ao-name'), 'focus left the kept group');
+});
+
+test('#6178 focus in a replaced group with no Open link goes to its name, not the page', () => {
+  const { api, d } = load();
+  const now = Date.now();
+  api.OA_SEEN.set('studio.kosmosplus.com', { state: 'ok', agents: [], at: now });
+  api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, now);
+  api.aoPaint();
+  const list = d.getElementById('set-other');
+  list.children[0].querySelector('.oa-open').focus();
+  api.OA_SEEN.set('studio.kosmosplus.com', { state: 'out', agents: [], at: now });
+  api.AO_SEEN.delete('studio.kosmosplus.com');
+  api.aoPaint();
+  const g = list.children[0];
+  assert.equal(g.querySelector('.oa-open'), null, 'CONTROL: a computer not connected has no Open link');
+  assert.equal(d.activeElement, g.querySelector('.ao-name'), 'focus fell to the page');
+});
