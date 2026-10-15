@@ -18303,7 +18303,7 @@ const server = http.createServer(async (req, res) => {
       try {
         const c = policyEngine.companyEntry();
         // kosmos#6263: whose policy it is, so the page says a family's as the family's.
-        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindOf(require('./engine/orgenroll').kindHere()) };
+        if (c) company = { name: c.name, chars: c.text.length, opening: c.text.slice(0, 240), kind: require('./engine/orgenroll').kindNow() };
       } catch { company = null; }
       sendJson(res, 200, r.state === 'saved'
         ? { state: 'saved', policies: policySummaries(r), because: null, company }
@@ -22981,14 +22981,14 @@ function companyPolicySync() {
        reviews 1 and 2): joining or leaving a family, or a record gaining its kind, re-tells the agents even when only the
        person's own policies are in the block. A company's and no org's blocks are unchanged, so their re-tell writes
        nothing (tellAgent writes only a changed block). */
-    const kind = require('./engine/orgenroll').kindOf(require('./engine/orgenroll').kindHere());
+    const kind = require('./engine/orgenroll').kindNow();
     const now = JSON.stringify([c ? [c.name, c.text] : null, kind]);
     // Text the applied policy carries that no agent can be handed: said, never dropped silently (review 1).
     if (!c) {
       try {
         const a = require('./engine/orgpolicy').appliedNow();
         const ai = a && a.policy && a.policy.ai_policy;
-        if (ai && typeof ai === 'object' && typeof ai.text === 'string' && ai.text.trim()) process.stderr.write(`Kosmos did not hand your company's AI policy (version ${a.version}) to its agents: its text is longer than ${policyEngine.TEXT_MAX} characters\n`);
+        if (ai && typeof ai === 'object' && typeof ai.text === 'string' && ai.text.trim()) process.stderr.write(require('./engine/orgenroll').inKind(require('./engine/orgenroll').kindHere(), `Kosmos did not hand your company's AI policy (version ${a.version}) to its agents: its text is longer than ${policyEngine.TEXT_MAX} characters\n`));
       } catch { /* the line is only a courtesy */ }
     }
     if (COMPANY_POLICY_SEEN === undefined) { COMPANY_POLICY_SEEN = now; return; }
@@ -22997,9 +22997,9 @@ function companyPolicySync() {
     instructionRereadOweEach(told, 'policy');
     const stuck = told.filter((t) => t && t.state !== projects.TOLD.TOLD);
     if (!stuck.length) COMPANY_POLICY_SEEN = now;
-    if (stuck.length) process.stderr.write(`Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`);
+    if (stuck.length) process.stderr.write(require('./engine/orgenroll').inKind(require('./engine/orgenroll').kindHere(), `Kosmos could not hand your company's AI policy to ${stuck.length} of ${told.length} agent(s); they keep the text they have. First: ${stuck[0] && stuck[0].agent} - ${(stuck[0] && stuck[0].because) || 'no reason given'}\n`));
   } catch (err) {
-    process.stderr.write(`Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`);
+    process.stderr.write(require('./engine/orgenroll').inKind(require('./engine/orgenroll').kindHere(), `Kosmos could not hand your company's AI policy to its agents: ${String(err && err.message)}\n`));
   }
 }
 /* #6240: the no-company hand-over retry. After an enrollment ENDS, companyPolicySync clears the company's

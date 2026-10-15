@@ -17,6 +17,6 @@ test('#6263: the policy card and the policies line run through plusOrgIn with th
   assert.equal(plusOrgIn({ kind: 'family' }, 'Set by your company in its Kosmos policy. Only your company can change or remove it.'),
     'Set by your family in its Kosmos policy. Only your family can change or remove it.');
   assert.equal(plusOrgIn({ kind: 'company' }, 'Only your company can change or remove it.'), 'Only your company can change or remove it.');
-  assert.match(SERVER, /company = \{ name: c\.name, chars: c\.text\.length, opening: c\.text\.slice\(0, 240\), kind: require\('\.\/engine\/orgenroll'\)\.kindOf\(require\('\.\/engine\/orgenroll'\)\.kindHere\(\)\) \}/,
+  assert.match(SERVER, /company = \{ name: c\.name, chars: c\.text\.length, opening: c\.text\.slice\(0, 240\), kind: require\('\.\/engine\/orgenroll'\)\.kindNow\(\) \}/,
     'the board does not send the kind with the policy entry');
 });

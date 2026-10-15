@@ -53,3 +53,8 @@ A family's policy is said as the family's, everywhere the board words an org's p
 - server.js uses orgenroll.kindOf for the kind it sends and keys on (one mapping).
 - Narrowed, as the code does: in a stack that holds the family's policy the heading is the family's, over the person's
   own entries too; each entry's own line still says who added it ("Added by the person you work for").
+
+## Round 4 (sonnet) fixes
+- companyPolicySync's three log lines go through inKind too (they are the operator's terminal, but the same sentence).
+- orgenroll.kindNow() is the one 'family'/'company' mapping server.js uses for the page and the sync key.
+- Kept (NIT): the create step label untested (reached only when the splice fails); policySection's fallback.
