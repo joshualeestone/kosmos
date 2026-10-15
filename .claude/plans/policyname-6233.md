@@ -39,3 +39,5 @@ subscription row beside it (review 1). The test finds each name on some menu row
 ## Review 2 (sonnet), and what changed
 - Comment, plan and test title no longer say every name is the Add a provider menu's: google follows the create menu.
 - The accept-list read takes ids with digits or hyphens too.
+
+## Review 3 (opus): converged (nits only: two test comments, fixed).
