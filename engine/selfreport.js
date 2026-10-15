@@ -139,7 +139,11 @@ function isAutoPermissionWait(standing) {
     && standing.by === 'auto';
 }
 
-/* #6209 review 10: the StopFailure kinds that pass on their own (the hook's text, case as written by any version). */
+/* #6209 reviews 10 and 11: the StopFailure kinds that pass on their own (the hook's text, any case). Claude Code's
+   documented kinds are rate_limit, authentication_failed, billing_error, invalid_request, server_error,
+   max_output_tokens and unknown, so server_error is the one that matches today; the others here are defensive, for a
+   version that names an overload or a timeout. `unknown` and the hook's fallback ("an api error") are not on the list:
+   they may need someone to act, so they keep their block (a stated residual). */
 const TRANSIENT_PROVIDER_BLOCK = /^provider api \((server_error|overloaded_error|overloaded|timeout|api_error|network_error|connection_error)\)$/i;
 
 /* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn

@@ -1,5 +1,12 @@
 # #6209: stale states nobody is prompted about (part 1: a blocked status that outlives a brief provider error)
 
+**What shipped (summary; the review notes below are history, superseded sections marked):** an automatic provider block
+(Claude Code's StopFailure hook, by auto, on "provider api (<kind>)") of a passing kind (TRANSIENT_PROVIDER_BLOCK:
+server_error, plus defensive overload/timeout names) is cleared by the next automatic idle (the Stop of a turn that
+ended normally), unless what it covered was a wait on a person or is unknown. An automatic working never clears it;
+deliberate and legacy blocks are untouched; every other kind keeps its block. read() is split into readTail and
+latestOf (behaviour-identical).
+
 ## Finished looks like
 An agent whose provider failed one turn (Claude Code's StopFailure hook writes an automatic `blocked` on "provider api
 (...)") and whose NEXT turn ends normally (the Stop hook's automatic `idle`) reads idle on the board again, instead of
@@ -125,3 +132,9 @@ activity log, but no longer red.
   ways (a prefix-only check fails it, measured).
 - Known, accepted: read(), the check and the append are not one locked step; a deliberate report landing in that window
   can sit under the idle (the same accepted race as before).
+
+## Review 11 (opus)
+- Tests fixed: the deliberate and legacy-unmarked block tests use server_error, so only the writer check refuses them.
+- The allowlist comment names Claude Code's documented kinds (server_error is the one that matches; the rest are
+  defensive). Residual, stated: an `unknown` kind or the hook's fallback text ("an api error") keeps its block, so a
+  brief failure reported that way still reads blocked until the agent's own next report.
