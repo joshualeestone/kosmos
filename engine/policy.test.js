@@ -307,3 +307,27 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
     fleet.uninstall && fleet.uninstall();
   }
 });
+
+test('#6270: an agent holding the old company heading over its own policy is rewritten once, then left alone', () => {
+  policy.add({ name: 'Legal', text: 'Cite your sources.', source: 'pasted' });
+  const saved = policy.read().policies[0];
+  // The block as it stood before #6270: the same body under the company's heading.
+  const oldBody = policy.blockBody(saved).replace(/^## Your AI policy\n/, '## Your company\'s AI policy\n');
+  assert.notEqual(oldBody, policy.blockBody(saved), 'the old block was not built, so this test proves nothing');
+  plantAgent('casey', projects.spliceBlock(BOOT, oldBody, policy.START, policy.END));
+  const roster = fleet.install([fleet.agent('casey', { state: 'idle' })]).agents;
+  try {
+    const first = policy.tellAgent('casey', roster);
+    assert.equal(first.changed, true, 'the old heading was not rewritten, so no re-read is owed');
+    const after = fs.readFileSync(bootFile('casey'), 'utf8');
+    assert.ok(after.includes('## Your AI policy\n') && !after.includes("company's"), after);
+    // A second board start: nothing to write, so no second re-read is owed.
+    const second = policy.tellAgent('casey', roster);
+    assert.equal(second.state, projects.TOLD.TOLD);
+    assert.notEqual(second.changed, true, 'a settled block was written again');
+    assert.equal(fs.readFileSync(bootFile('casey'), 'utf8'), after);
+  } finally {
+    policy.clear();
+    fleet.uninstall && fleet.uninstall();
+  }
+});
