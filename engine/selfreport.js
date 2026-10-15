@@ -139,6 +139,9 @@ function isAutoPermissionWait(standing) {
     && standing.by === 'auto';
 }
 
+/* #6209 review 10: the StopFailure kinds that pass on their own (the hook's text, case as written by any version). */
+const TRANSIENT_PROVIDER_BLOCK = /^provider api \((server_error|overloaded_error|overloaded|timeout|api_error|network_error|connection_error)\)$/i;
+
 /* #6209: an AUTOMATIC provider block (Claude Code's StopFailure hook: blocked on "provider api (...)", by auto). A turn
    that then ends normally (the Stop hook's automatic idle) proves the provider answered again, so that idle clears it;
    the mid-turn working heartbeat does not (the turn could still fail). A deliberate blocked is never this. */
@@ -147,10 +150,10 @@ function isAutoProviderBlock(standing) {
     && standing.found === true
     && standing.state === 'blocked'
     && standing.by === 'auto'
-    && /^provider api \(/.test(String(standing.on || ''))
-    // Review 7: not the usage-limit or sign-in kinds: their own holds (#5805, #5948) decide, and whether a turn that ends
-    // on a limit or a sign-in reply fires Stop is not measured.
-    && !/^provider api \((rate_limit|authentication_failed)\)$/i.test(String(standing.on || ''));   // the kind is the hook's own text
+    /* Reviews 7 and 10: only the kinds a later successful turn really ends (a server error, an overload, a timeout, a
+       network failure). Everything else (a usage limit or a sign-in, held by #5805 and #5948; billing; a bad request)
+       needs someone to act, and whether a turn ending on it fires Stop is not measured, so it keeps its block. */
+    && TRANSIENT_PROVIDER_BLOCK.test(String(standing.on || ''));
 }
 
 /* #6209 review 1: true when a line under a standing automatic provider block is a wait on a person that an automatic
@@ -298,7 +301,7 @@ function record(sessionName, entry) {
          needs_you, never blocked). #6209: an auto IDLE does clear it (the Stop of a
          turn that ended normally proves the provider answered), unless the block
          had replaced a wait on a person, which keeps the block (review 7);
-         never the rate_limit or authentication_failed kinds.
+         only for the transient kinds (TRANSIENT_PROVIDER_BLOCK).
      An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
      falsey), so it still lands and can always update its own question; a
      permission prompt fired when nothing is waiting still shows, because there is
