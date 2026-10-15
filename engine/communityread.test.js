@@ -2176,12 +2176,15 @@ const D6204 = (n) => 'd6204000-0000-4000-8000-' + String(n).padStart(12, '0');
 function longThreads(pid, opts = {}) {
   const L = opts.letter || 'p';   // the service's cursor spelling: one it no longer uses is refused
   const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();   // before the 7-day window
-  const tops = Array.from({ length: 8 }, (_, i) => comment({ id: D6204(i + 1), created_at: old(i), reply_count: 103, replies_cursor: 'k' + i + L + '0',
+  // Old replies behind each thread's cursor, before its new tail (opts.len: per-thread lengths that differ).
+  const lenOf = (i) => (opts.len ? opts.len + i * 37 : 100);
+  const rid = (i, k) => (opts.len ? D6204(100000 + i * 1000 + k) : D6204(1000 + i * 200 + 2 + k));
+  const tops = Array.from({ length: 8 }, (_, i) => comment({ id: D6204(i + 1), created_at: old(i), reply_count: lenOf(i) + 3, replies_cursor: 'k' + i + L + '0',
     replies: [0, 1].map((k) => comment({ id: D6204(1000 + i * 200 + k), parent_id: D6204(i + 1), created_at: old(100 + k) })) }));
   // The newest item on the post is a top-level comment newer than every tail, so a mark set from it would hide them.
   const newest = comment({ id: D6204(99), created_at: T(11), body: 'the newest top comment', agent: { name: 'Zed' } });
   const extra = new Map();   // replies added to a thread's tail after a read
-  const thread = (i) => Array.from({ length: 100 }, (_, k) => comment({ id: D6204(1000 + i * 200 + 2 + k), parent_id: D6204(i + 1), created_at: old(200 + k) }))
+  const thread = (i) => Array.from({ length: lenOf(i) }, (_, k) => comment({ id: rid(i, k), parent_id: D6204(i + 1), created_at: old(200 + k) }))
     .concat([comment({ id: D6204(5000 + i), parent_id: D6204(i + 1), created_at: T(5), agent: { name: 'Zed' }, body: 'tail ' + i })], extra.get(i) || []);
   const asked = [];
   const newer = [];   // top-level comments added after a read, newest first, each { top, replies } (one replies page)
@@ -2463,18 +2466,44 @@ test('#6204 review 7: a place carried for an older comment no read reaches stops
   assert.equal(mark().at, Date.parse(T(11)), 'the mark did not move on once the carried place was dropped');
 });
 
-test('#6204 review 8: once every thread was read to its end, threads paged again and cut do not hold the mark back', async () => {
+test('#6204 review 8/9: once every thread was read to its end, threads paged again and cut hold the mark back only until each is read whole again', async () => {
   on(); clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Std6204', remoteId: RP(3), sentAt: '2026-09-30T10:00:00Z' } }, {});
-  const f = longThreads(RP(3));
-  for (let k = 0; k < 4; k += 1) await cr.readReplies('Std6204', { now: NOW + k * 1000 });
-  // Every thread is now read to its end; the post still needs 48 pages, so every read cuts some of them again.
+  // 8 threads of 11 to 24 pages, out of step: once they are all finished, reads keep cutting some of them.
+  const f = longThreads(RP(3), { len: 200 });
+  for (let k = 0; k < 12; k += 1) await cr.readReplies('Std6204', { now: NOW + k * 1000 });
   const at = '2026-10-01T11:30:00Z';
   f.newer.push({ top: comment({ id: D6204(98), created_at: at, agent: { name: 'Zed' }, body: 'a newer top comment' }), replies: [] });
-  const r = await cr.readReplies('Std6204', { now: NOW + 9000 });
-  assert.ok(shownIds(r.text).includes(D6204(98)), 'the newer comment was not shown');
-  assert.match(r.text, /not reached in this read/, 'CONTROL: no thread was cut on this read');
-  assert.equal(JSON.parse(fs.readFileSync(seenPath('Std6204'), 'utf8')).posts[RP(3)].at, Date.parse(at), 'the mark was held back by finished threads paged again');
+  const shown = [];
+  let cut = false;
+  for (let k = 0; k < 8; k += 1) {
+    const r = await cr.readReplies('Std6204', { now: NOW + 20000 + k * 1000 });
+    shown.push(...shownIds(r.text));
+    cut = cut || /not reached in this read/.test(r.text);
+  }
+  assert.ok(cut, 'CONTROL: no thread was cut once they were all read to their end');
+  const done = Object.values(JSON.parse(fs.readFileSync(seenPath('Std6204'), 'utf8')).posts[RP(3)].threads).filter((t) => t.done).length;
+  assert.ok(done > 0, 'CONTROL: no thread was remembered as read to its end');
+  assert.deepEqual(shown, [D6204(98)], 'the newer comment was not shown exactly once');
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('Std6204'), 'utf8')).posts[RP(3)].at, Date.parse(at), 'the mark was held back for good by finished threads paged again');
+});
+
+test('#6204 review 9: replies added to finished threads survive a newer comment moving the mark, on a post always over budget', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Late6204', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(5));
+  for (let k = 0; k < 4; k += 1) await cr.readReplies('Late6204', { now: NOW + k * 1000 });
+  // A reply on every finished thread's tail, then a newer top-level comment than all of them.
+  for (let i = 0; i < 8; i += 1) {
+    f.extra.set(i, [comment({ id: D6204(6100 + i), parent_id: D6204(i + 1), created_at: '2026-10-01T11:20:00Z', agent: { name: 'Zed' }, body: 'late ' + i })]);
+    f.tops[i].reply_count = 104;
+  }
+  f.newer.push({ top: comment({ id: D6204(96), created_at: '2026-10-01T11:50:00Z', agent: { name: 'Zed' }, body: 'newer still' }), replies: [] });
+  const shown = [];
+  for (let k = 0; k < 8; k += 1) shown.push(...shownIds((await cr.readReplies('Late6204', { now: NOW + 9000 + k * 1000 })).text));
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  assert.ok(shown.includes(D6204(96)), 'CONTROL: the newer comment was not shown');
+  for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(6100 + i)), 'a reply added to finished thread ' + i + ' was lost when the mark moved');
 });
 
 test('#6204 review 8: a new comment\'s thread is paged ahead of the saved threads, so its deep reply is not held behind the backlog', async () => {
