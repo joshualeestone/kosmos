@@ -306,14 +306,12 @@ function clear() {
 function orgKindNow() { return require('./orgenroll').kindHere(); }
 // Board review 2: a block reads the kind once (orgKindNow) and passes it down, so its heading and lines agree.
 function inOrgKind(text, kind = orgKindNow()) { return require('./orgenroll').inKind(kind, text); }
-/* The block's heading. Board review 1: on a family's Kosmos it names the family only when the family's policy is in the
-   block; the person's own policies alone are "Your AI policy", never said to be the family's. Any other Kosmos keeps
-   the heading it has always had, byte for byte. */
+/* The block's heading. It names the org only when the org's policy is in the block: the person's own policies alone
+   are "Your AI policy", on every Kosmos (kosmos#6270; #6263 board review 1 did this for a family's first). */
 function heading(plural, hasOrgEntry, kind) {
-  const was = plural ? '## Your company\'s AI policies' : '## Your company\'s AI policy';
-  if (kind !== 'family') return was;
-  if (hasOrgEntry) return inOrgKind(was, kind);
-  return plural ? '## Your AI policies' : '## Your AI policy';
+  if (!hasOrgEntry) return plural ? '## Your AI policies' : '## Your AI policy';
+  const org = plural ? '## Your company\'s AI policies' : '## Your company\'s AI policy';
+  return kind === 'family' ? inOrgKind(org, kind) : org;
 }
 
 /* kosmos#6263 board review 3: every heading a block can carry on this Kosmos, without "## ", from heading() itself, so
@@ -324,12 +322,11 @@ function headingsHere(kind = orgKindNow()) {
 }
 
 /* Board review 5: a sentence about "your company's AI policies" said elsewhere (create's step label), by heading()'s
-   rule: on a family's Kosmos it is the family's only when the family's policy is in force; otherwise "your AI
-   policies". Any other Kosmos keeps the sentence as written. */
+   rule: the org's only when the org's policy is in force (the family's on a family's Kosmos); otherwise "your AI
+   policies" (kosmos#6270). */
 function aboutPolicies(text, kind = orgKindNow(), hasOrgPolicy = !!companyEntry()) {
-  if (kind !== 'family') return text;
-  if (hasOrgPolicy) return inOrgKind(text, kind);
-  return String(text).replace(/\byour company's AI polic/g, 'your AI polic');
+  if (!hasOrgPolicy) return String(text).replace(/\byour company's AI polic/g, 'your AI polic');
+  return kind === 'family' ? inOrgKind(text, kind) : text;
 }
 
 /** One policy's provenance line, shared by both block shapes. */
@@ -346,12 +343,12 @@ function fromLine(policy, kind = orgKindNow()) {
 /**
  * The block, provenance first, in the voice the agent reads.
  *
- * ⚠️ THE SINGLE-POLICY BODY IS BYTE-IDENTICAL TO WHAT #479 SHIPPED, and that
- * is a migration property, not nostalgia: every agent on every machine
- * already carries this exact block, and `tellAgent` only writes when the
- * splice changes the file -- so going plural must not rewrite the whole
- * fleet's instruction files on the day nothing about their one policy
- * changed. The stacked shape appears only once a second policy exists.
+ * ⚠️ `tellAgent` only writes when the splice changes the file, so any change
+ * to these bytes rewrites the instruction file of every agent that carries
+ * the block, at the next board start, and owes each running agent a re-read.
+ * #685 kept #479's single-policy body for that reason; #6270 changed its
+ * heading once, on purpose, for a person's own policy ("Your AI policy").
+ * The stacked shape appears only once a second policy exists.
  */
 function blockBody(policy, kind = orgKindNow()) {
   return [

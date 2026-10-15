@@ -64,14 +64,14 @@ test('#6263: a family agent\'s policy block names the family; a company agent\'s
   enrolledAs(null);
 });
 
-test('#6263 board review 1: on a family\'s Kosmos the person\'s own policies are "Your AI policy", never said to be the family\'s; elsewhere as before', () => {
+test('#6263 board review 1, #6270: the person\'s own policies are "Your AI policy" on every Kosmos, never said to be the org\'s', () => {
   const MINE = { source: 'pasted', name: 'Mine', text: 'Be brief.', savedAt: '2026-10-15T00:00:00Z' };
   enrolledAs('company');
   const coMine = policy.blockBody(MINE);
   const coStack = policy.stackedBody([MINE, { ...MINE, name: 'Also mine' }]);
   enrolledAs(null);
   assert.equal(policy.blockBody(MINE), coMine, 'a Kosmos in no org changed a pasted block');
-  assert.ok(coMine.startsWith("## Your company's AI policy\n\nAdded by the person you work for"), coMine);
+  assert.ok(coMine.startsWith('## Your AI policy\n\nAdded by the person you work for'), coMine);
   enrolledAs('family');
   const famMine = policy.blockBody(MINE);
   assert.ok(famMine.startsWith('## Your AI policy\n\nAdded by the person you work for'), famMine);
@@ -79,36 +79,40 @@ test('#6263 board review 1: on a family\'s Kosmos the person\'s own policies are
   assert.ok(!/family|company/i.test(policy.stackedBody([MINE, { ...MINE, name: 'Also mine' }]).split('\n')[0]));
   // With the family's own policy in the stack, the heading is the family's.
   assert.ok(policy.stackedBody([ENTRY, MINE]).startsWith("## Your family's AI policies\n"));
-  assert.ok(coStack.startsWith("## Your company's AI policies\n"), coStack);
+  assert.ok(coStack.startsWith('## Your AI policies\n'), coStack);
+  // With the company's own policy in the stack, the heading is the company's (#6270).
+  enrolledAs('company');
+  assert.ok(policy.stackedBody([ENTRY, MINE]).startsWith("## Your company's AI policies\n"));
   enrolledAs(null);
 });
 
-test('#6263 board review 3: the re-read line names exactly the headings a block can carry here; a company\'s line is unchanged', () => {
+test('#6263 board review 3, #6270: on every Kosmos the re-read line names exactly the headings a block can carry there', () => {
   const reread = require('./instructionreread');
   const MINE = { source: 'pasted', name: 'Mine', text: 'Be brief.', savedAt: '2026-10-15T00:00:00Z' };
-  enrolledAs('company');
-  const coLine = reread.lineFor(['policy']);
-  assert.ok(coLine.includes(reread.SECTIONS.policy), coLine);
-  enrolledAs(null);
-  assert.equal(reread.lineFor(['policy']), coLine, 'a Kosmos in no org changed its line');
-  enrolledAs('family');
-  const famLine = reread.lineFor(['policy']);
-  assert.ok(!/company/i.test(famLine), famLine);
-  // Every block this Kosmos can build has a heading the line names, and the line names nothing else.
-  const blocks = [policy.blockBody(ENTRY), policy.stackedBody([ENTRY, MINE]), policy.blockBody(MINE), policy.stackedBody([MINE, { ...MINE, name: 'Also' }])];
-  const named = [...famLine.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  for (const b of blocks) {
-    const h = b.split('\n')[0].replace(/^## /, '');
-    assert.ok(named.includes(h), `the line does not name "${h}": ${famLine}`);
+  const lines = {};
+  for (const kind of ['company', null, 'family']) {
+    enrolledAs(kind);
+    const line = reread.lineFor(['policy']);
+    lines[String(kind)] = line;
+    // Every block this Kosmos can build has a heading the line names, and the line names nothing else.
+    const blocks = [policy.blockBody(ENTRY), policy.stackedBody([ENTRY, MINE]), policy.blockBody(MINE), policy.stackedBody([MINE, { ...MINE, name: 'Also' }])];
+    const named = [...line.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    for (const b of blocks) {
+      const h = b.split('\n')[0].replace(/^## /, '');
+      assert.ok(named.includes(h), `${kind}: the line does not name "${h}": ${line}`);
+    }
+    assert.equal(named.length, new Set(blocks.map((b) => b.split('\n')[0])).size, `${kind}: ${line}`);
   }
-  assert.equal(named.length, new Set(blocks.map((b) => b.split('\n')[0])).size, famLine);
+  assert.ok(!/company/i.test(lines.family), lines.family);
+  assert.ok(lines.company.includes('"Your AI policy"'), lines.company);
   enrolledAs(null);
 });
 
 test('#6263 board review 5: create\'s step label is the family\'s only when the family\'s policy is in force', () => {
   const LABEL = "could not add your company's AI policies to its instructions; Kosmos adds them again the next time it starts";
   assert.equal(policy.aboutPolicies(LABEL, 'company', true), LABEL);
-  assert.equal(policy.aboutPolicies(LABEL, null, false), LABEL);
+  assert.equal(policy.aboutPolicies(LABEL, null, false), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
+  assert.equal(policy.aboutPolicies(LABEL, 'company', false), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
   assert.equal(policy.aboutPolicies(LABEL, 'family', true), "could not add your family's AI policies to its instructions; Kosmos adds them again the next time it starts");
   assert.equal(policy.aboutPolicies(LABEL, 'family', false), 'could not add your AI policies to its instructions; Kosmos adds them again the next time it starts');
   // The defaults read this Kosmos: a family with no family policy applied here.

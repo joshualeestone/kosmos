@@ -131,7 +131,7 @@ test('removeOne takes one and keeps the rest in order; the last removal leaves a
   policy.clear();
 });
 
-test('the #479 single record migrates: first entry, the neutral migrated name (#6273), stable id, and NO rewrite of the block (#685)', () => {
+test('the #479 single record migrates: first entry, the neutral migrated name (#6273), stable id, and a body that is #479\'s but for its heading (#685, #6270)', () => {
   // A v1 record written by the shipped build, planted byte-for-byte.
   // #1856: policy.FILE now lives under the Kosmos leaf; this test writes it
   // DIRECTLY (no policy.add() first), so make its dir -- otherwise it only passed
@@ -148,17 +148,17 @@ test('the #479 single record migrates: first entry, the neutral migrated name (#
   assert.equal(got.policies[0].id, policy.read().policies[0].id,
     'the migrated id is not stable across reads, so a GET and the POST acting on it race');
 
-  /* 🔑 The migration property: with exactly one policy the block body is
-     byte-identical to what #479 wrote, so the fleet's instruction files are
-     not rewritten on the day nothing about their one policy changed. */
-  const v1Body = [
-    '## Your company\'s AI policy',
+  /* 🔑 The migration property (#685): with exactly one policy the block body
+     is what #479 wrote, so a migration does not rewrite the fleet's files.
+     #6270 changed its heading once, on purpose (a person's own policy is
+     "Your AI policy"); everything under the heading is still #479's bytes. */
+  const v1Rest = [
     '',
     'Added by the person you work for on 2026-08-23. Follow it in everything you do; where it conflicts with any other instruction here, the policy wins.',
     '',
     'Cite your sources.',
-  ].join('\n');
-  assert.equal(policy.blockBody(got.policies[0]), v1Body,
+  ];
+  assert.equal(policy.blockBody(got.policies[0]), ['## Your AI policy', ...v1Rest].join('\n'),
     'the single-policy block changed shape, so migration rewrites every agent\'s file');
 
   // The first mutation persists the v2 shape and keeps the migrated entry.
@@ -249,7 +249,7 @@ test('the stacked block: one heading, the conflict sentence once, each policy a 
   policy.add({ name: 'Legal', text: 'The legal words.', source: 'https://example.com/legal' });
   policy.add({ name: 'Branding', text: 'The branding words.', source: 'pasted' });
   const body = policy.stackedBody(policy.read().policies);
-  assert.match(body, /^## Your company's AI policies\n/);
+  assert.match(body, /^## Your AI policies\n/);
   assert.match(body, /the policies win/);
   assert.equal((body.match(/win/g) || []).length, 1, 'the conflict sentence is said more than once');
   const legalAt = body.indexOf('### Legal');
@@ -279,7 +279,7 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
   try {
     assert.equal(policy.tellAgent('casey', roster).state, projects.TOLD.TOLD);
     const one = fs.readFileSync(bootFile('casey'), 'utf8');
-    assert.ok(one.includes(policy.START) && one.includes("company's AI policy") && one.includes('Cite your sources.'));
+    assert.ok(one.includes(policy.START) && one.includes('## Your AI policy\n') && one.includes('Cite your sources.'));
     assert.ok(!one.includes('### Legal'), 'a single policy was written in the stacked shape, rewriting the fleet');
     assert.ok(one.includes('Do the work well'), 'the agent\'s own words survived');
 
@@ -287,7 +287,7 @@ test('tellAgent writes the block for a tied agent, stacks when plural, clear rem
     policy.add({ name: 'Branding', text: 'Use the brand voice.', source: 'pasted' });
     assert.equal(policy.tellAgent('casey', roster).state, projects.TOLD.TOLD);
     const two = fs.readFileSync(bootFile('casey'), 'utf8');
-    assert.ok(two.includes("company's AI policies") && two.includes('### Legal') && two.includes('### Branding'));
+    assert.ok(two.includes('## Your AI policies\n') && two.includes('### Legal') && two.includes('### Branding'));
     assert.ok(two.includes('Cite your sources.') && two.includes('Use the brand voice.'));
     assert.equal(two.split(policy.START).length, 2, 'the stack arrived as more than one managed block');
 
