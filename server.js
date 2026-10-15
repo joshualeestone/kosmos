@@ -22841,8 +22841,10 @@ function orgEnrollRefresh() {
           ORG_REFRESH_MISSES = Math.min(ORG_REFRESH_MISSES + 1, 8);
         }
       }
-      // An ending already handed the agents the change (orgEnrollmentEnded, from inside the refresh); once is enough.
-      if (!(r && r.stopped === true)) companyPolicySync();
+      // After an ending the listener has usually handed the change over already (orgEnrollmentEnded); this call then
+      // changes nothing, since companyPolicySync compares with what the agents were last handed. Not skipped: some
+      // endings do not tell the listener (a pending Leave sent again), and this is their hand-over (review 12).
+      companyPolicySync();
       return r;
     });
   } catch { /* best effort */ }

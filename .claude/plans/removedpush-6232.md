@@ -137,8 +137,15 @@ is for the first run after merge.
 - The ending was told from clearEnrollment, which a Leave also calls BEFORE the company answers; a Leave refused as
   the last admin then rewrote every agent's policy twice (cleared, then back). Now only a refresh's final endings tell
   listeners (the company's clear answer, or no id of its own); the Leave route already hands its outcome over.
-- An ask that ended the enrollment no longer hands the policy over a second time after the listener did.
+- (Reversed in review 12.) An ask that ended the enrollment no longer hands the policy over a second time.
 - Stated, older than this: an agent that cannot be told when the enrollment ends keeps the old text until a restart
   (a board in no company asks nothing more that would retry it); the companyPolicySync comment says so.
 - Tests: a refused Leave tells no listener; a throwing listener does not stop an ending; no double hand-over. Each
   fails its mutation (measured). CLAUDE.md names the new pieces.
+
+## Review 12 (sonnet), and what changed
+- The review 11 skip ("an ask that ended it does not hand the policy over again") was wrong for a pending Leave sent
+  again: it ends the enrollment without telling the listener, so the skip left the agents on the company's text.
+  REMOVED: the ask always runs companyPolicySync, which changes nothing when the listener already handed it over.
+  Tested by outcome: an ending told to the listener hands it over once; one not told still hands it over (restoring
+  the skip fails it, measured).
