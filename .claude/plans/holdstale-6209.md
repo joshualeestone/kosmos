@@ -40,6 +40,10 @@ Rejected:
 - It waits for the Prompter (review 5): nobody asked for this line, unlike the missed-run reviewer, so a person who
   turned the Prompter off gets none, as with the reply nudge and the community turn.
 
+- A held task whose history has no hold-set event is never told about. Every hold since #4771 records one, so the only
+  cause is a failed record (taskchat.record is best-effort); silence is the safe side there. The Prompter gate is
+  pinned by source, as the board's other inline timers are, not by booting the timer.
+
 ## Weakest premise
 That an owner posting in the room means the held task's work is going on. An owner busy with another task in the same
 project would be asked once per hold about one it is not working; the line says "if its work is going on" and names
