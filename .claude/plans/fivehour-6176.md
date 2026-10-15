@@ -70,7 +70,9 @@ shows its age, and a reading from a window that has reset is not drawn at all.
 - Opening Settings onto AI Models reads the list once even when Settings' own reads are slow: paintSettings marks an
   open under way until it paints the list, and the on-show look stands down while it is (30 s fail-safe).
 - Coming back to the window (visible again, or focus) looks again, because a Mac's sleep does not count on a page
-  timer and the reset timer can wake late. Not testable with the page clock; reasoned.
+  timer and the reset timer can wake late. Tested by moving the page's system time past the reset without firing
+  timers, then focus or visibilitychange. The look never doubles a read already out (acctReadOpen) and never spends
+  the ten tries: on a busy list it leaves the armed timers alone.
 - Accepted: a list held busy indefinitely (a Disconnect left half-pressed) keeps a line past its reset once the ten
   tries are spent, until the next repaint, another line's reset, or the window being focused again.
 - The six-hour sanity bound is one value, FIVE_HOUR_MAX_AHEAD_SECONDS (kosmos-statusline.js), used by record() and by

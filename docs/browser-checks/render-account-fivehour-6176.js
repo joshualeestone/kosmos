@@ -354,6 +354,77 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const later10 = await p10.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(spent10 === 1 && later10.reads >= 2 && later10.fives === 0, '[chromium open] with one line\'s tries spent while busy, the other line\'s reset still brings a read', JSON.stringify({ spent10, later10 }));
     await p10.close();
+    // Back from sleep: the clock passed the reset but the page timer did not fire. Focus, or the page becoming visible,
+    // looks again and reads once; a look while a read is already out does not start a second.
+    const p11 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p11.clock.install({ time: new Date(now) });
+    await p11.goto('file://' + PAGE);
+    await p11.evaluate(async (accounts) => {
+      window.__reads = 0;
+      window.__slow = false;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        const answer = { ok: true, json: async () => ({ accounts }) };
+        return window.__slow ? new Promise((res) => setTimeout(() => res(answer), 3000)) : Promise.resolve(answer);
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p11.clock.setSystemTime(new Date(now + 12 * 60e3));   // the Mac slept past the reset: the clock moved, no timer fired
+    await p11.evaluate(() => window.dispatchEvent(new Event('focus')));
+    for (let k = 0; k < 3; k++) { await p11.clock.runFor(1000); await p11.waitForTimeout(100); }
+    const f11 = await p11.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(f11.reads === 2 && f11.fives === 1, '[chromium open] back from sleep, focusing the window reads once and the line goes', JSON.stringify(f11));
+    await p11.close();
+    const p12 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p12.clock.install({ time: new Date(now) });
+    await p12.goto('file://' + PAGE);
+    await p12.evaluate(async (accounts) => {
+      window.__reads = 0;
+      window.__slow = false;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        const answer = { ok: true, json: async () => ({ accounts }) };
+        return window.__slow ? new Promise((res) => setTimeout(() => res(answer), 3000)) : Promise.resolve(answer);
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p12.clock.setSystemTime(new Date(now + 12 * 60e3));   // the Mac slept past the reset: the clock moved, no timer fired
+    await p12.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    for (let k = 0; k < 3; k++) { await p12.clock.runFor(1000); await p12.waitForTimeout(100); }
+    const v12 = await p12.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads, hidden: document.hidden }));
+    say(!v12.hidden && v12.reads === 2 && v12.fives === 1, '[chromium open] back from sleep, the page becoming visible reads once and the line goes', JSON.stringify(v12));
+    await p12.close();
+    const p13 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p13.clock.install({ time: new Date(now) });
+    await p13.goto('file://' + PAGE);
+    await p13.evaluate(async (accounts) => {
+      window.__reads = 0;
+      window.__slow = false;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => {
+        if (String(u).indexOf('/api/accounts') === -1) return realFetch(u, o);
+        window.__reads++;
+        const answer = { ok: true, json: async () => ({ accounts }) };
+        return window.__slow ? new Promise((res) => setTimeout(() => res(answer), 3000)) : Promise.resolve(answer);
+      };
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, rows);
+    await p13.clock.setSystemTime(new Date(now + 12 * 60e3));   // the Mac slept past the reset: the clock moved, no timer fired
+    await p13.evaluate(() => { window.__slow = true; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); window.dispatchEvent(new Event('focus')); });
+    for (let k = 0; k < 6; k++) { await p13.clock.runFor(1000); await p13.waitForTimeout(100); }
+    const r13 = await p13.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
+    say(r13.reads === 2 && r13.fives === 1, '[chromium open] focus while a read is already out does not start a second read', JSON.stringify(r13));
+    await p13.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p3.clock.install({ time: new Date(now) });
