@@ -2191,6 +2191,7 @@ function longThreads(pid, opts = {}) {
     if (!m) return { status: 200, json: { comments: [newest, ...tops] } };
     const i = tops.findIndex((t) => t.id === m[1]);
     const cur = u.searchParams.get('cursor');
+    if (opts.down && opts.down()) return { status: 429, json: null };
     if (!new RegExp('^k\\d+' + L + '\\d+$').test(cur)) return { status: 400, json: { detail: 'bad cursor' } };
     const p = Number(cur.split(L)[1]);
     const all = thread(i);
@@ -2388,6 +2389,20 @@ test('#6204 review 4: every place one read can need fits, and a saved place that
   }
   for (const c of ids.slice(0, 7)) assert.match(firsts.get(c) || 'p0', /p0$/, 'a spoiled place was used for ' + c);
   assert.equal(firsts.get(good), t[good].cursor, 'the well-formed place was not used');
+});
+
+test('#6204 review 5: a run of reads the service rate-limits does not move the mark past saved threads\' unread tails', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Lim6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  let down = false;
+  longThreads(RP(6), { down: () => down });
+  const shown = shownIds((await cr.readReplies('Lim6204', { now: NOW })).text);
+  down = true;   // more reads in a row than MARK_HOLD_MAX answer every replies page with 429
+  for (let k = 1; k <= cr.MARK_HOLD_MAX + 1; k += 1) shown.push(...shownIds((await cr.readReplies('Lim6204', { now: NOW + k * 1000 })).text));
+  down = false;
+  for (let k = 0; k < 4; k += 1) shown.push(...shownIds((await cr.readReplies('Lim6204', { now: NOW + 10000 + k * 1000 })).text));
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(5000 + i)), 'the tail of thread ' + i + ' was lost behind the mark after the 429s');
 });
 
 test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {

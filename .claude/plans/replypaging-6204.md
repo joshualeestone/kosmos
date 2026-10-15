@@ -28,8 +28,10 @@ were never reached.
 - A saved cursor the service refuses (4xx, not 429) is dropped and the thread paged from its first cursor.
 - A replies cursor naming the page just read is not followed (it would spend the budget and, saved, pin the mark).
 - A budget or window cut is said as "not reached in this read; the next read goes on from where this one stopped".
-  Failed pages keep #6201's bounded hold (MARK_HOLD_MAX) and wording, and get no cap, so a page that always fails cannot
-  pin the mark. A page cut longer than asked keeps the "may be missed" wording.
+  A thread whose OWN page failed (an error answer or unreadable rows) keeps #6201's bounded hold (MARK_HOLD_MAX) and
+  wording, and gets no cap, so a page that always fails cannot pin the mark. A thread left waiting by a 429 or no
+  answer (the service's, not its page's) still caps the mark (review 5: a run of 429s past the hold otherwise lost
+  every saved thread's tail). A page cut longer than asked keeps the "may be missed" wording.
 
 ## Decided
 - Older-comments paging still restarts each read (the card names reply paging; older comments go first in each post's
@@ -47,6 +49,8 @@ were never reached.
   so 23 or more reads) while a thread holds its mark, after which an item can be shown twice. Rejected fix: a per-thread
   floor instead of a mark cap (a larger redesign of how "new" is judged). Would change my mind: a busy post measured
   holding its mark that long.
+- Iteration 5 NIT: `lastRead` falls back to round 1's replies (not the saved place) when this read's pages carried no
+  timed reply. It errs low (more ids wait in "seen"), so it is left; a change to it had no test that could see it.
 - `threadsOf` refuses a non-id key; a mutation shows that is redundant (such a place matches no comment and is dropped
   at the next write), kept as cheap defence.
 
@@ -67,6 +71,7 @@ service.
   comment is gone.
 - A cursor cycle A, B, A is read twice and said.
 - THREADS_MAX covers one read's comments; spoiled places (bad cursor, pos, at, id, null) are not used, a good one is.
+- A run of 429s longer than MARK_HOLD_MAX after a read that saved places: every tail is still shown once.
 - A changed cursor spelling: every saved place refused, nothing lost.
 - A cursor naming its own page: read once, said.
 - Mutations (17): no resume, no cap, no refusal restart, no unshown-page place, no waiting place, finished keeps a
