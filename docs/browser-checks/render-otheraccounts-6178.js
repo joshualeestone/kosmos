@@ -68,9 +68,9 @@ const COMPUTERS = {
 const HOSTILE = '<img src=x onerror="window.__aoPwned=1">';
 const SIBLING = {
   agents: [
-    { sessionName: 'angel', name: 'Angel', state: 'working', runner: 'claude', acct: 'a0' },
-    { sessionName: 'evil', name: HOSTILE, state: 'idle', runner: 'claude', acct: 'a1' },
-    { sessionName: 'guide', name: 'Guide', isGuide: true, acct: 'a0' },
+    { sessionName: 'angel', name: 'Angel', state: 'working', runner: 'claude', acct: 'a0', tied: true },
+    { sessionName: 'evil', name: HOSTILE, state: 'idle', runner: 'claude', acct: 'a1', tied: true },
+    { sessionName: 'guide', name: 'Guide', isGuide: true, acct: 'a0', tied: true },
   ],
   accountsWeekly: [
     { key: 'a0', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: Date.now() + 3 * 864e5, at: Date.now() - 3600e3 }, blocked: null },

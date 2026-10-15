@@ -1601,8 +1601,8 @@ const SCREENS = [
     const studio = {
       checkedAt: new Date(now).toISOString(),
       agents: [
-        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', acct: 'a0' },
-        { sessionName: 'ben', name: 'Ben', state: 'idle', runner: 'claude', acct: 'a1' },
+        { sessionName: 'ada', name: 'Ada', state: 'working', runner: 'claude', acct: 'a0', tied: true },
+        { sessionName: 'ben', name: 'Ben', state: 'idle', runner: 'claude', acct: 'a1', tied: true },
       ],
       accountsWeekly: [
         { key: 'a0', email: 'person@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: now + 3 * 864e5, at: now - 3600e3 }, blocked: null },

@@ -77,12 +77,13 @@ function load({ protocol = 'https:', hostname = 'laptop.kosmosplus.com', list = 
 }
 const STATUS = {
   agents: [
-    card('ann', { name: 'Ann', runner: 'claude', acct: 'a0' }),
-    card('bo', { name: 'Bo', runner: 'claude', acct: 'a1' }),
-    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', acct: 'a0' }),
-    card('nobody', { name: 'Nobody', runner: 'claude', acct: null }),
-    card('cody', { name: 'Cody', runner: 'codex', acct: null }),
-    card('stray', { name: 'Stray', runner: null, acct: null }),
+    card('ann', { name: 'Ann', runner: 'claude', acct: 'a0', tied: true }),
+    card('bo', { name: 'Bo', runner: 'claude', acct: 'a1', tied: true }),
+    card('guide', { name: 'Guide', isGuide: true, runner: 'claude', acct: 'a0', tied: true }),
+    card('nobody', { name: 'Nobody', runner: 'claude', acct: null, tied: false }),
+    card('keyed', { name: 'Keyed', runner: 'claude', acct: null, tied: true }),
+    card('cody', { name: 'Cody', runner: 'codex', acct: null, tied: false }),
+    card('stray', { name: 'Stray', runner: null, acct: null, tied: false }),
   ],
   accountsWeekly: [
     { key: 'a0', email: 'p@example.com', isDefault: true, weekly: { usedPct: 82, resetsAt: FUTURE, at: Date.now() - 3600e3 }, blocked: null },
@@ -198,7 +199,7 @@ test('#6178 the real read keeps the accounts AND still keeps the agents (#4812 u
   const { api } = load({ fetchImpl: async () => ({ status: 200, json: async () => STATUS }) });
   const r = await api.oaReadOne({ name: 'studio', address: 'studio.kosmosplus.com', online: true });
   assert.ok(r && r.state === 'ok', 'the read did not come back ok: ' + JSON.stringify(r));
-  assert.deepEqual(r.agents.map((a) => a.sessionName), ['ann', 'bo', 'nobody', 'cody', 'stray'], 'the Agents view lost its agents');
+  assert.deepEqual(r.agents.map((a) => a.sessionName), ['ann', 'bo', 'nobody', 'keyed', 'cody', 'stray'], 'the Agents view lost its agents');
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
   assert.ok(kept && Array.isArray(kept.accounts) && kept.accounts.length === 2, 'the accounts were not kept: ' + JSON.stringify(kept));
   const gate = load({ fetchImpl: async () => ({ status: 401, json: async () => ({}) }) });
@@ -323,7 +324,7 @@ test('#6178 an agent whose account could not be read makes the list "some could 
   const now = Date.now();
   api.aoKeep('studio.kosmosplus.com', 'ok', STATUS, now);
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
-  assert.equal(kept.unknown, 1, 'only the Claude agent with no account counts (not the Codex one, a card with no record, or the guide): ' + kept.unknown);
+  assert.equal(kept.unknown, 1, 'only the Claude agent with no account counts (not one on an API key, the Codex one, a card with no record, or the guide): ' + kept.unknown);
   const c = { name: 'studio', address: 'studio.kosmosplus.com' };
   const t = text(api.aoGroup(c, { state: 'ok', at: now }, kept, now));
   assert.match(t, /Its agents on studio: Ann \(some could not be checked\)/);
@@ -349,11 +350,13 @@ test('#6178 ages and reset times are said in this page\'s clock, not the other c
   api.aoKeep('studio.kosmosplus.com', 'ok', { ...STATUS, checkedAt: new Date(theirs).toISOString() }, now);
   const kept = api.AO_SEEN.get('studio.kosmosplus.com');
   assert.ok(Math.abs(kept.skew - 3600e3) < 1000, 'the skew was not measured: ' + kept.skew);
-  const e = { weekly: { usedPct: 50, resetsAt: theirs + 30e3, at: theirs - 120e3 }, blocked: null };   // resets in 30 s, changed 2 minutes ago, by ITS clock
+  // at is that computer's clock (changed 2 minutes ago by it); resetsAt is Claude's own, so it is never shifted.
+  const e = { weekly: { usedPct: 50, resetsAt: now + 30 * 60e3, at: theirs - 120e3 }, blocked: null };
   const u = api.aoUsageWords(e, now, kept.skew);
-  assert.equal(u.pct, 50, 'a reading that has not reset by its own clock was dropped');
   assert.match(u.line, /Kosmos last saw it change 2 minutes ago/, 'the age was not said in this page\'s clock: ' + u.line);
-  assert.equal(api.aoUsageWords(e, now, 0).pct, null, 'CONTROL: read in this clock unshifted, the reading looks a week old');
+  assert.match(api.aoUsageWords(e, now, 0).line, /change 62 minutes ago/, 'CONTROL: unshifted, the age is that computer\'s clock');
+  const late = { weekly: { usedPct: 50, resetsAt: now - 60e3, at: theirs - 120e3 }, blocked: null };
+  assert.equal(api.aoUsageWords(late, now, kept.skew).pct, null, 'a reading past Claude\'s own reset was kept because the skew moved the reset');
   assert.equal(api.aoAccountsOf({ accountsWeekly: [{ key: 'a0', weekly: { usedPct: 1, resetsAt: 1e300, at: now } }] })[0].weekly, null,
     'a reset time no Date can show was kept');
 });

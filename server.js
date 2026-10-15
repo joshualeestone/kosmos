@@ -4543,6 +4543,7 @@ function statusForSibling(json) {
         sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
         runner: str(a.runner) || null,
         acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,
+        tied: !!(a.account && typeof a.account === 'object'),   // its account was found, even one not in accountsWeekly (an API key)
       })),
   });
 }

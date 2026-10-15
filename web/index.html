@@ -30376,7 +30376,7 @@ async function oaRound(again) {
      reads); a tick, a visibility change or a read-on-return landing mid-round is simply dropped. */
   if (OA_BUSY) { if (again === true) OA_AGAIN = true; return; }
   if (document.hidden) return;
-  const aoOn = typeof aoShown === 'function' && aoShown();   // kosmos#6178: Settings > AI Models reads them too
+  const aoOn = location.protocol === 'https:' && typeof aoShown === 'function' && aoShown();   // kosmos#6178: Settings > AI Models reads them too
   if (!oaHost() && !aoOn) { oaPaint(); return; }
   OA_BUSY = true;
   try {
@@ -30480,7 +30480,7 @@ function aoAgentsOf(body) {
 function aoUnknownOf(body) {
   if (!body || !Array.isArray(body.agents)) return 0;
   return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)
-    && a.runner === 'claude' && !aoStr(a.acct, 16)).length;
+    && a.runner === 'claude' && a.tied !== true).length;   // tied: found, even on an account with no weekly limit (an API key)
 }
 /* That computer's clock against this page's: its answer's checkedAt against this read's time. The difference also holds
    the read's own round trip (under OA_READ_LIMIT_MS), so one under AO_SKEW_MIN_MS is taken as none. 0 when it sent none. */
@@ -30519,7 +30519,8 @@ function aoUsageWords(e, now, skew) {
     'not-wired': 'This is the last reading Kosmos saw. It will not update, because Kosmos is not set up to read this account\'s usage.',
   }[e.blocked] || '';
   /* A reading kept from an earlier read can outlive its week; the row there would no longer show it (readWeekly). */
-  const w = e.weekly && e.weekly.resetsAt + k > now ? { usedPct: e.weekly.usedPct, resetsAt: e.weekly.resetsAt + k, at: e.weekly.at + k } : null;
+  /* resetsAt is Claude's own (rate_limits.seven_day.resets_at), not that computer's clock: only at is shifted. */
+  const w = e.weekly && e.weekly.resetsAt > now ? { usedPct: e.weekly.usedPct, resetsAt: e.weekly.resetsAt, at: e.weekly.at + k } : null;
   if (!w) return { pct: null, line: blockedSay || 'No usage reading for this account yet. Kosmos reads it while an agent on it is working.', frozen: '' };
   const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
   const resets = new Date(w.resetsAt).toLocaleString([], w.resetsAt - now > 6 * 864e5
@@ -30556,9 +30557,9 @@ function aoGroup(c, seen, ao, now) {
       : st === 'out' ? 'Not connected.'
       : 'Reading its accounts...';
   } else if (ao.accounts === null) {
-    note = c.name + ' has an older Kosmos. Its accounts show here once it updates.';
+    note = (st === 'out' ? 'Not connected. ' : '') + c.name + ' has an older Kosmos. Its accounts show here once it updates.';
   } else if (ao.accounts === false) {
-    note = c.name + ' could not read its accounts when this page last asked. Kosmos asks again shortly.';
+    note = (st === 'out' ? 'Not connected. ' : '') + c.name + ' could not read its accounts when this page last asked. Kosmos asks again shortly.';
   } else if (!ao.accounts.length) {
     note = 'No Claude account is set up on ' + c.name + '.';
   }
