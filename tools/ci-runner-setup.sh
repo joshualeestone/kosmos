@@ -97,9 +97,28 @@ hook_body() {
 #!/bin/bash
 # Ends what a job left running. kosmos-ci is a DEDICATED user and no step runs while a hook does, so every tmux
 # server and node process of this user is a leftover. The runner's own service host IS node (RunnerService.js), but
-# it is this hook's ancestor, and pkill leaves its own ancestors alone unless given -a (man pkill).
-pkill -u "$(id -u)" -x tmux 2>/dev/null || true
-pkill -u "$(id -u)" -x node 2>/dev/null || true
+# it is this hook's ancestor, and is spared as pkill spared its own ancestors.
+# kosmos#6245: ONE exception. The kosmos-relay repo's runner also lives under this user, in ~/actions-runner-relay,
+# and its service host is node too: a plain pkill ended it (and any relay job mid-run) every time a kosmos job did.
+# A process whose ancestry reaches a command in that folder is the relay runner's, running now, and is spared. A
+# leftover that detached (its parent is launchd) is ended, whoever started it, so kosmos jobs leave nothing behind.
+# --list prints what would be ended and ends nothing (the test reads it; it never kills on the machine it runs on).
+RELAY_DIR="$HOME/actions-runner-relay/"
+mine=" $$ "; p=$$
+while p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ') && [ -n "$p" ] && [ "$p" -gt 1 ]; do mine="$mine$p "; done
+spared() {
+  local p=$1 n=0 c
+  case "$mine" in *" $p "*) return 0 ;; esac
+  while [ -n "$p" ] && [ "$p" -gt 1 ] && [ "$n" -lt 64 ]; do
+    c=$(ps -o command= -p "$p" 2>/dev/null) || return 1
+    case "$c" in *"$RELAY_DIR"*) return 0 ;; esac
+    p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); n=$((n + 1))
+  done
+  return 1
+}
+victims() { local name p; for name in tmux node; do for p in $(pgrep -u "$(id -u)" -x "$name" 2>/dev/null); do spared "$p" || echo "$p"; done; done; }
+if [ "${1:-}" = --list ]; then victims; exit 0; fi
+for p in $(victims); do kill "$p" 2>/dev/null || true; done
 HOOK
       ;;
     completed) cat <<'HOOK'
