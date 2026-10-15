@@ -131,3 +131,12 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   (tested; an unbounded hold fails it, measured). Stale comments about failures fixed; the SEEN_MAX comment says when
   a repeat is still possible (more than SEEN_MAX ids above one mark).
 - Duplicate of recorded decisions: tails lost when a later round-1 comment moves the mark (#6204).
+
+## Review 11 (opus)
+- Fixed: the hold count stays at MARK_HOLD_MAX while the post keeps failing (it had cycled 3 reads of 4); six-read test.
+- Fixed: the first wave is every post's newest REPLY_PAGES_PER_POST waiting threads in one burst, as before #6201, so a
+  slow service that the window cuts after one wave still gives each post what main gave it (tested with a window of 1).
+- Fixed: a 429 or an unanswered page stops new waves (the rest is said as not reached); a comment from an older page
+  with more replies and no usable cursor, and an empty page that still has a next cursor, are said, not dropped;
+  "N or more replies" when a lagging count adds to a counted one; dead failed-post checks removed.
+- Each fix has a test that its removal fails (429 ignored, no first wave, cycling hold: measured).

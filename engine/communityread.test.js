@@ -496,9 +496,8 @@ test('#4833 slice 2 review 1 / #6201: a third or later reply is read through the
     ['/posts/' + RP(7) + '/comments/' + CID(1) + '/replies']: () => ({ status: 200, json: { next_cursor: 'MORE', replies: [] } }),
   });
   const cut = await cr.readReplies('Ivy4833', { now: NOW });
-  // #6201 review 2: an empty page adds nothing, so its cursor is not followed; the comment was read to its end, so the 25
-  // the service counts are NOT said as unreached (nothing was left waiting).
-  assert.ok(!/not reached in this read/.test(cut.text), 'a comment read to its end was said to be unreached: ' + cut.text);
+  // #6201 review 11: an empty page that still says there is more (a next cursor) is not the end: the 25 are said.
+  assert.match(cut.text, /: 25 replies were not reached in this read/, 'an empty page with a next cursor was taken as the end');
   // Review 2: holding the mark could not reach the rest either (the same pages come back), so it moves.
   assert.equal(fs.existsSync(seenPath('Ivy4833')), true, 'the mark was held, so this thread would jam every later read');
 });
@@ -2018,12 +2017,50 @@ test('#6201 review 10: a page that fails on every read holds the mark at most MA
     ['/posts/' + RP(8) + '/comments/' + D6201(7100) + '/replies']: () => ({ status: 500, json: null }),
   });
   const markOf = () => JSON.parse(fs.readFileSync(seenPath('Per6201'), 'utf8')).posts[RP(8)];
-  const held = [];
-  for (let k = 0; k <= cr.MARK_HOLD_MAX; k += 1) {
+  const held = []; const ids = [];
+  // Review 11: six reads, so a hold that starts over after MARK_HOLD_MAX (held back to 0, then held again) would show.
+  for (let k = 0; k < cr.MARK_HOLD_MAX + 3; k += 1) {
     const r = await cr.readReplies('Per6201', { now: NOW + k * 1000 });
     assert.match(r.text, /: 1 reply was not reached in this read/, 'read ' + (k + 1) + ' did not say the failing thread');
-    held.push(markOf().held);
+    held.push(markOf().held); ids.push(markOf().id);
   }
-  assert.deepEqual(held, [...Array.from({ length: cr.MARK_HOLD_MAX }, (_, k) => k + 1), 0], 'the hold was not bounded');
-  assert.equal(markOf().id, D6201(7101), 'after the hold the mark did not move to the newest comment');
+  const want = Array.from({ length: cr.MARK_HOLD_MAX + 3 }, (_, k) => Math.min(k + 1, cr.MARK_HOLD_MAX));
+  assert.deepEqual(held, want, 'the hold count did not stay at its most while the page kept failing');
+  // The mark held for MARK_HOLD_MAX reads, then moved to the newest comment and stayed there (no new hold).
+  for (let k = cr.MARK_HOLD_MAX; k < ids.length; k += 1) assert.equal(ids[k], D6201(7101), 'read ' + (k + 1) + ': the mark did not move or was held again');
+  assert.notEqual(ids[cr.MARK_HOLD_MAX - 1], D6201(7101), 'CONTROL: the mark was not held at first');
+});
+
+test('#6201 review 11: the first wave reads every post\'s newest 3 waiting threads at once, so a window that allows one wave still covers each post', async () => {
+  on(); clearSeen();
+  const sent = {};
+  const pid = (i) => 'e6201100-0000-4000-8000-0000000000' + String(i).padStart(2, '0');
+  for (let i = 0; i < 10; i += 1) sent['p' + i] = { state: 'sent', agent: 'Wave6201', remoteId: pid(i), sentAt: '2026-09-30T1' + i + ':00:00Z' };
+  writeSendState(sent, {});
+  const pages = {};
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const post = u.pathname.split('/')[2];
+    if (u.pathname.endsWith('/replies')) { pages[post] = (pages[post] || 0) + 1; await new Promise((res) => setTimeout(res, 30)); return { status: 200, json: { replies: [] } }; }
+    const n = Number(post.slice(-2));
+    return { status: 200, json: { comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(8000 + n * 100 + k), created_at: T(1), reply_count: 50, replies_cursor: 'h' + k, replies: [] })) } };
+  });
+  await cr.readReplies('Wave6201', { now: NOW, round2Ms: 1 });   // a window that allows only the first wave
+  for (let i = 0; i < 10; i += 1) assert.equal(pages[pid(i)] || 0, 3, 'post ' + i + ': ' + JSON.stringify(pages));
+});
+
+test('#6201 review 11: after the service says 429 no new wave starts, and what was left is said', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Lim6201', remoteId: RP(9), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const tops = Array.from({ length: 10 }, (_, i) => comment({ id: D6201(9000 + i), created_at: T(1), reply_count: 40, replies_cursor: 'z' + i, replies: [] }));
+  let asked = 0;
+  cr.setFetcher(async (url) => {
+    if (!url.includes('/replies')) return { status: 200, json: { comments: tops } };
+    asked += 1;
+    return { status: 429, json: null };
+  });
+  const r = await cr.readReplies('Lim6201', { now: NOW });
+  // The first wave goes out together (REPLY_PAGES_AT_ONCE here); after its 429s no further wave starts.
+  assert.equal(asked, cr.REPLY_PAGES_AT_ONCE, 'pages were still asked after the service said 429: ' + asked);
+  assert.match(r.text, /: 400 replies were not reached in this read/, r.text.slice(-300));
 });
