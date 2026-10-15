@@ -99,7 +99,13 @@ _ti_box_clear() {
 }
 # #4498: both checks wait together, so a cut that ends while a suite is still running is not a start.
 kosmos_wait_until_clear "a full install-harness run" _ti_box_clear || exit 1
-SB="$(mktemp -d "${TMPDIR:-/tmp}/test-install.XXXXXXXXXX")"
+# #6252: a cut shell's TMPDIR ends in "/", which doubled the slash in SB; the board-label hash below
+# (BOARD_LABEL_SUFFIX, from the literal "$SB/home") then differed from setup.sh's, so the expected plist
+# name mismatched and install gate 4b failed. The suite's kt-sandbox TMPDIR has no trailing slash, so it
+# was green there. Strip a trailing slash from the root, keeping the ${TMPDIR:-/tmp} default and the
+# static guard's positional-template shape (#4298).
+_sbroot="${TMPDIR:-/tmp}"
+SB="$(mktemp -d "${_sbroot%/}/test-install.XXXXXXXXXX")"
 # ---- ONE Claude Code for every sandbox home (#736) --------------------------
 # setup.sh's "Kosmos needs Claude Code and this Mac does not have it" step runs
 # Anthropic's real installer into any home without one: 345 MB downloaded per
