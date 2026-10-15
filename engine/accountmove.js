@@ -93,7 +93,8 @@ function view(m) {
  * Start a move. Answers { status, body } for the route.
  *
  * deps: setAccount(name, dir) -> create.setAccount's answer; REFUSED (create.OUTCOME.REFUSED);
- * forget(name) (observed.forgetAgent); restartAsync(name, cause) -> remove's answer; RESTARTED (remove.OUTCOME.RESTARTED).
+ * forget(name) (observed.forgetAgent); restartAsync(name, cause) -> remove's answer; RESTARTED (remove.OUTCOME.RESTARTED);
+ * hold(names) and release(name) (remove.holdForMove / releaseFromMove).
  * Returns the restarts' promise too (`done`), for tests; the route does not wait on it.
  */
 function start(body, deps) {
@@ -127,20 +128,31 @@ function start(body, deps) {
     return { status: 202, body: view(m), done: Promise.resolve() };
   }
   running = m.id;
+  /* Every agent this move will restart is held from a sync restart until its own turn is over (#6173 review 1): one
+     restarted in between by its own page was restarted again when the move reached it. */
+  deps.hold(pending.map((a) => a.name));
   const done = (async () => {
     try {
       for (const a of pending) {
-        let back;
-        try { back = await deps.restartAsync(a.name, 'account'); }
-        catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
-        const said = sentence(a.name, a.wrote, back, deps.RESTARTED);
-        a.outcome = said.outcome; a.because = said.because; a.steps = said.steps;
+        try {
+          let back;
+          try { back = await deps.restartAsync(a.name, 'account'); }
+          catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
+          let said;
+          /* A sentence that cannot be worded ends this agent as not confirmed and moves on to the next one. */
+          try { said = sentence(a.name, a.wrote, back, deps.RESTARTED); }
+          catch { said = { outcome: 'partial', because: 'We saved the account, but could not say how its restart went.', steps: [] }; }
+          a.outcome = said.outcome; a.because = said.because; a.steps = said.steps;
+        } finally { deps.release(a.name); }
       }
     } finally {
+      for (const a of pending) deps.release(a.name);
       /* Only an unexpected throw leaves one pending here: say so rather than leave it reading as still going. */
       for (const a of pending) {
         if (a.outcome !== 'pending') continue;
-        const said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move stopped before it reached this agent.' }, deps.RESTARTED);
+        let said;
+        try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move stopped before it reached this agent.' }, deps.RESTARTED); }
+        catch { said = { outcome: 'partial', because: 'The move stopped before it reached this agent.' }; }
         a.outcome = said.outcome; a.because = said.because;
       }
       m.done = true; m.finishedAt = Date.now();
@@ -148,6 +160,8 @@ function start(body, deps) {
       prune(Date.now());
     }
   })();
+  /* Nothing waits on `done` in the board, so a throw here must not become an unhandled rejection (#6173 review 1). */
+  done.catch(() => {});
   return { status: 202, body: view(m), done };
 }
 
