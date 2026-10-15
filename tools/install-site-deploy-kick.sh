@@ -1,7 +1,8 @@
 #!/bin/bash
 # kosmos#6266: install (or remove) the launchd job that runs tools/site-deploy-kick.sh every 15 minutes on Mortals,
 # the box with the site's self-hosted runner and the gh login that may dispatch its workflow. Run it ON Mortals, as
-# the runner's user, from a kosmos checkout:
+# the runner's user, from a kosmos checkout. It loads into gui/<uid>, so that user needs a logged-in desktop session
+# (Mortals logs in at boot); from a bare ssh session with none, bootstrap fails and this says so:
 #   bash tools/install-site-deploy-kick.sh              install or refresh (copies the script, loads the job)
 #   bash tools/install-site-deploy-kick.sh --uninstall  stop the job and remove both files
 # The script is COPIED into ~/.local/libexec/kosmos-site-deploy-kick/ (as Mortals' com.stonesyndicate.kosmos-review-pending
