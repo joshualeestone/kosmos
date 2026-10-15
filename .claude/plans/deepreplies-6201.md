@@ -140,3 +140,10 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   with more replies and no usable cursor, and an empty page that still has a next cursor, are said, not dropped;
   "N or more replies" when a lagging count adds to a counted one; dead failed-post checks removed.
 - Each fix has a test that its removal fails (429 ignored, no first wave, cycling hold: measured).
+
+## Review 12 (sonnet)
+- Fixed: a post that leaves by an early exit (nothing shown on a cut, no top) still updates its hold count, so a stale
+  count cannot shorten a later hold. Comments now say the first wave can be 30 wide (main's burst) and later waves are
+  not strictly fair across posts; the marks file can hold about 26 KB of ids per post. The turn test asserts the first
+  wave is one burst of at most 30.
+- Duplicate of recorded decisions: a repeat is possible only past SEEN_MAX ids above one mark.

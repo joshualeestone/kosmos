@@ -419,13 +419,15 @@ function feedFooter(spec, next) {
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 /* #6201 (F7d): every comment's unshown replies, and a post's older comments, are paged through the service's cursors,
-   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below),
-   REPLY_PAGES_AT_ONCE at a time, and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
+   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below), the first
+   wave every post's newest REPLY_PAGES_PER_POST waiting threads at once (up to 30, the burst main sent) and later waves
+   REPLY_PAGES_AT_ONCE at a time (a busy post's older-comments pages add its threads to the back, so later waves are not
+   strictly fair across posts), and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
    READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
    What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
    when the 30 cap cut it): deep replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
    can fetch of a post (about 630), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
-   reviews 1, 5 and 10). */
+   reviews 1, 5 and 10). The marks file can then hold up to about 26 KB of ids per post. */
 const REPLY_PAGES_MAX = 30;
 /* #6201 review 10: a failed round-2 page holds its post's mark for at most this many reads in a row, so a page that
    fails every time cannot pin the mark while "seen" fills; after that the mark moves as usual and the failing thread is
@@ -841,7 +843,7 @@ async function repliesFor(sessionName, opts) {
   let limited = false;   // review 11: the service said 429 (or stopped answering): no new wave
   let pagesRead = 0;
   const round2Start = Date.now();
-  // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer).
+  // Tests only, and it can only SHORTEN the window (a caller cannot make a read hold the lock longer); 0 skips round 2.
   const round2Ms = Number.isFinite(opts.round2Ms) ? Math.max(0, Math.min(opts.round2Ms, ROUND2_START_MS)) : ROUND2_START_MS;
   const runTask = async (task) => {
     const { th } = task;
@@ -998,10 +1000,10 @@ async function repliesFor(sessionName, opts) {
     if (hold) top = next[pid] ? asItem(next[pid]) : null;
     else if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
-      if (!x) continue;   // nothing of this post shown: its mark stays
+      if (!x) { next[pid] = { ...next[pid], held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 }; continue; }   // nothing shown: mark stays
       top = top && byPos(top, x) < 0 ? top : x;
     }
-    if (!top) continue;
+    if (!top) { if (next[pid]) next[pid] = { ...next[pid], held: th.partial ? Math.min(heldBefore + 1, MARK_HOLD_MAX) : 0 }; continue; }
     /* Never back. Review 7: a post with no mark yet takes the first-look window as its floor, so a reply older than the
        window that this read held back is never shown as new next time (else the window leaks on the second read). */
     const old = next[pid];
