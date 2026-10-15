@@ -420,10 +420,13 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       await paintAccounts();
     }, rows);
     await p13.clock.setSystemTime(new Date(now + 12 * 60e3));   // the Mac slept past the reset: the clock moved, no timer fired
-    await p13.evaluate(() => { window.__slow = true; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); window.dispatchEvent(new Event('focus')); });
+    await p13.evaluate(() => { window.__slow = true; paintAccounts({ followUp: ACCT_FOLLOWUP.max }); });
+    await p13.clock.runFor(200); await p13.waitForTimeout(100);   // the read is out (its epoch raised) before the focus comes
+    const out13 = await p13.evaluate(() => window.__reads);
+    await p13.evaluate(() => window.dispatchEvent(new Event('focus')));
     for (let k = 0; k < 6; k++) { await p13.clock.runFor(1000); await p13.waitForTimeout(100); }
     const r13 = await p13.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
-    say(r13.reads === 2 && r13.fives === 1, '[chromium open] focus while a read is already out does not start a second read', JSON.stringify(r13));
+    say(out13 === 2 && r13.reads === 2 && r13.fives === 1, '[chromium open] focus while a read is already out does not start a second read', JSON.stringify({ out13, r13 }));
     await p13.close();
     // Settings closed (the list's panel hidden): the reset brings no read; nobody is looking at the line.
     const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
