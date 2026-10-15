@@ -9291,14 +9291,9 @@ function countAgents(agents, unreadableLines, unreadableSamples) {
        `reconnect` is set (the /api/status route; snapshot()'s own counts never see one), and
        needs_trust rows are built by the route after this, so it adds those itself. */
     needsYou: agents.filter(needsPerson).length,
-    /* #1898: of those needs_you, how many named NO project (`stateProject`
-       null). A needs_you without `--project` lights no project tile, so it is
-       the easy-to-miss case a person scanning the Projects board never sees; the
-       Agents-page tile that reads this makes the omission legible. Fleet-level
-       and computed over the same (removed-agents-filtered) board as `needsYou`,
-       so it is a subset of that count -- the per-project `needsYouUnattributed`
-       in engine/projects.js is the same idea scoped to a project's members. */
-    needsYouUnattributed: agents.filter((a) => a.state === STATE.NEEDS_YOU && a.stateProject === null).length,
+    /* #6180 (Josh, 10-14): no fleet count of needs-you agents that named no project. Its only reader was the Agents
+       board's "No project" chip, removed because an agent need not be on a project; the per-project
+       `needsYouUnattributed` in engine/projects.js stays. */
     unknown: agents.filter((a) => a.state === STATE.UNKNOWN).length,
     /* ⚠️ "we tried to read a transcript and could not", which is why a
        paneless agent is not counted here. Its context is absent by

@@ -5253,30 +5253,15 @@ test('#734: readPanes hands back the lines it could not read, bounded, so a scre
   assert.deepEqual(countAgents([], 0).unreadableSamples, [], 'absent samples are an empty list, never undefined');
 });
 
-/* #1898: the fleet tally of needs_you agents that named NO project -- the
-   easy-to-miss case that lights no project tile. Computed for exactly this
-   purpose and, until now, rendered nowhere. */
-test('#1898: countAgents tallies needsYouUnattributed = needs_you agents that named no project', () => {
+/* #6180 (Josh, 10-14: "people dont have to assign an agent to a project"): the fleet tally of needs_you agents
+   that named no project is gone with the Agents board's No project chip, its only reader. Every needs_you agent
+   still counts as needing the person, whether or not it named a project. */
+test('#6180: countAgents counts every needs_you agent, and keeps no tally of the ones that named no project', () => {
   const { countAgents } = require('./status');
-  // countAgents reads a.context.tokens/percent and a.paneless, so a fixture
-  // agent must carry them or the tally throws before it reaches the new field.
   const A = (state, stateProject) => ({ state, stateProject, paneless: false, context: { tokens: 100, percent: 50 } });
-  const agents = [
-    A(STATE.NEEDS_YOU, null),           // unattributed -> counts
-    A(STATE.NEEDS_YOU, 'p-christmas'),  // named a project -> NOT unattributed
-    A(STATE.NEEDS_YOU, null),           // another unattributed
-    A(STATE.WORKING, null),             // not needs_you -> ignored entirely
-  ];
-  const c = countAgents(agents, 0);
-  assert.equal(c.needsYou, 3, 'all three needs_you agents count in needsYou');
-  assert.equal(c.needsYouUnattributed, 2, 'only the two that named no project are unattributed');
-  // CONTROL that returns the dangerous answer: a board whose every needs_you IS
-  // attributed has zero unattributed while needsYou is nonzero -- so a nonzero
-  // here is the omission the counter exists to catch, not merely "someone needs
-  // you". Without the new field this control cannot be written at all.
-  const attributed = countAgents([A(STATE.NEEDS_YOU, 'p-1'), A(STATE.NEEDS_YOU, 'p-2')], 0);
-  assert.equal(attributed.needsYou, 2, 'both are needs_you');
-  assert.equal(attributed.needsYouUnattributed, 0, 'all attributed -> zero unattributed');
+  const c = countAgents([A(STATE.NEEDS_YOU, null), A(STATE.NEEDS_YOU, 'p-christmas'), A(STATE.WORKING, null)], 0);
+  assert.equal(c.needsYou, 2, 'both needs_you agents count, with or without a project');
+  assert.equal(Object.prototype.hasOwnProperty.call(c, 'needsYouUnattributed'), false, 'a no-project tally is back');
 });
 
 /* #3410/#3718 (Mona Lisa, 2026-09-25): the Issue tile counts every card that needs the person:
@@ -5295,7 +5280,6 @@ test('#3410/#3718: countAgents.needsYou counts needs_trust and a given-up connec
     A(STATE.WORKING),
   ], 0);
   assert.equal(c.needsYou, 3, 'needs_you + needs_trust + given up');
-  assert.equal(c.needsYouUnattributed, 1, 'CONTROL: the no-project tile is still needs_you only');
 });
 
 /* #3718: needs_trust rows are built by the /api/status route AFTER countAgents runs (they are the

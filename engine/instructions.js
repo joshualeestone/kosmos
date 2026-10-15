@@ -948,7 +948,7 @@ function recordWrite(agent, by) {
     const file = fileFor(agent);
     const at = fs.statSync(file).mtime.toISOString();
     store.writeProfile(registryKey(agent), {
-      instructionsWrite: { who: by.who, at, because: by.because ? String(by.because).slice(0, 200) : null },
+      instructionsWrite: { who: by.who, at, because: by.because ? String(by.because).slice(0, 200) : null, ...(by.quiet === true ? { quiet: true } : {}) },   // #6180: quiet: no warning mark
     });
   } catch { /* the write stands; the attribution is a courtesy */ }
 }
@@ -969,7 +969,7 @@ function wroteBy(agent, editedAtMs) {
     if (!rec || !rec.at) return null;
     const at = Date.parse(rec.at);
     if (!Number.isFinite(at) || Math.floor(at / 1000) !== Math.floor(Math.round(editedAtMs) / 1000)) return null;
-    return { who: rec.who, because: rec.because || null };
+    return { who: rec.who, because: rec.because || null, ...(rec.quiet === true ? { quiet: true } : {}) };
   } catch { return null; }
 }
 

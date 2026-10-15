@@ -27,6 +27,16 @@ const WROTE_WHY = {
   off: 'Kosmos took it off its last project',
   colleagues: 'Kosmos updated the list of agents it can message',
 };
+/* #6180 (Josh, 10-14): an agent need not be on a project, so the write that takes it off its last one is marked quiet
+   and the board draws no stale triangle for it. Only when nothing else is waiting: if the agent already runs on older
+   instructions for ANY reason (a person's edit, or another Kosmos change such as who it reports to, which gets no told
+   record), the quiet write would replace that record and hide it, so it is not quiet then. `prior` is the verdict
+   before the write (staleness through toldOverride). Called at run time, after `instructions` (below) is loaded. */
+function offWriteIsQuiet(why, prior) {
+  if (why !== WROTE_WHY.off) return false;
+  if (prior && prior.state === instructions.STALENESS.STALE) return false;
+  return true;
+}
 
 /**
  * Projects — the work, and which agents are on it.
@@ -1258,8 +1268,8 @@ function describe(project, roster, all) {
          those rows offline, so such a member is not `present`); the rule covers it when it does. */
       needsYou: members.filter((m) => m.needsYouHere !== null).length,   // #5688: one rule, needsYouReason
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
-      /* ...and about no project at all (nothing named, nothing to inherit): read
-         on the Agents page. Kept apart from "elsewhere" so a screen sentence
+      /* ...and about no project at all (nothing named, nothing to inherit). #6180: the Agents page no longer reads
+         it (its No project chip is gone); kept as a field of this summary. Kept apart from "elsewhere" so a screen sentence
          about another project is never said of a question about none. */
       needsYouUnattributed: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === null).length,
       /* Of needsYou, how many rest on a carried-forward project rather than a
@@ -3515,7 +3525,13 @@ function tellAgent(sessionName, projects, roster) {
         ? WROTE_WHY.on(andList(projects.map((p) => oneLine(p.name))))
         : WROTE_WHY.off)
       : WROTE_WHY.colleagues;
-    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why });
+    /* #6180 (Josh, 10-14): an agent need not be on a project, so being taken off its last one is never a warning: the
+       write is marked quiet and the board draws no stale triangle for it (it still re-reads at its next restart). */
+    let quiet = false;
+    if (why === WROTE_WHY.off) {
+      try { quiet = offWriteIsQuiet(why, toldOverride(instructions.staleness(sessionName), sessionName)); } catch { quiet = false; }   // cannot tell: not quiet
+    }
+    instructions.write(sessionName, next, current.version, undefined, { who: 'kosmos', because: why, ...(quiet ? { quiet: true } : {}) });
     /* `changed` is about the PROJECTS half only: a colleagues heal rewrites the
        file without the agent's project world moving, and speaking to a running
        agent about that would be noise (#304). */
@@ -3731,6 +3747,7 @@ function toldOverride(verdict, sessionName, known) {
 
 module.exports = {
   changedFileTimes,
+  offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, andList, setRoleHere, ROLE_HERE_MAX,
