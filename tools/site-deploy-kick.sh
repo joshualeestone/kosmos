@@ -59,8 +59,10 @@ CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 LAST_LINE=""
 say() { LAST_LINE="$*"; printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$*"; }
 note() { [ "$CHECK" = 1 ] && say "check: $*"; return 0; }
-# BSD date on macOS (Mortals); GNU date's -d on Linux, where the tests also run.
-epoch() { date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null || date -u -d "$1" +%s 2>/dev/null; }
+# BSD date on macOS (Mortals); GNU date's -d only on Linux, where the tests also run (review 10: on macOS -d means
+# something else, so it is never tried there).
+if [ "$(uname -s)" = Darwin ]; then epoch() { date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s 2>/dev/null; }
+else epoch() { date -u -d "$1" +%s 2>/dev/null; }; fi
 # Review 6: every tick leaves its result (exit code and its last line) in last-result, beside the heartbeat, so a
 # failing backstop is one file to look at, and --check shows it. Heartbeat and trap come first (review 9), so even a
 # tick that cannot make its temporary file leaves both.
@@ -101,7 +103,7 @@ while IFS=$'\t' read -r status concl created updated; do
   u="$(stamp "$updated")" || { LAST_LINE="site deploy run time read as '${updated:0:40}'; nothing asked"; exit 1; }
   this_stuck=""
   if [ "$status" != completed ]; then
-    [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created"
+    [ $((NOW - c)) -gt "$STUCK_S" ] && this_stuck="$status since $created ($(( (NOW - c) / 60 )) minutes)"
     if [ -n "$this_stuck" ]; then stuck="$this_stuck"; else active=$((active + 1)); fi
   fi
   # When it was made; for a run that FAILED, when it ended (reviews 3 and 6: the job's one retry keeps its 15-minute
