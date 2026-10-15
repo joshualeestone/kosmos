@@ -108,6 +108,9 @@ test('#6249 holds: ours by its tail, wrapping ignored; anything else is other', 
   assert.equal(chat.composerHolds(wire, wire), 'ours');
   assert.equal(chat.composerHolds('carry on with the fix you de scribed this morning.', wire), 'ours', 'a row break inside a word');
   assert.equal(chat.composerHolds('hello ' + wire, wire), 'other', 'the person typed before ours');
+  // Round 3: a box Claude is still drawing shows our START; a box that scrolled shows our END; both are ours.
+  assert.equal(chat.composerHolds('[message from your colleague liukang · m1] Kosmos here: please read', wire), 'ours', 'a prefix (still drawing)');
+  assert.equal(chat.composerHolds('please read the ruling on the card and carry on', wire), 'ours', 'a middle run');
   assert.equal(chat.composerHolds(wire + ' and one more', wire), 'other', 'something after ours');
   assert.equal(chat.composerHolds('look at @READ', wire), 'other');
 });
@@ -309,5 +312,24 @@ test('#6249 round 2: the earlier-line Enter is withheld once the pane is no long
   const v = chat.deliver('al', 'a later line', roster);
   assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0);
   assert.equal(v.state, chat.DELIVERY.COULD_NOT);
+}));
+
+test('#6249 round 3: a box Claude is still drawing (our start only) gets the Enter, and a box that then empties is placed', () => withAgent({}, (roster) => {
+  const start = MSG.slice(0, 60);
+  const t = arm([EMPTY, box(start), EMPTY]);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(t.enters(), 1, 'our own start is not someone else\'s text');
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+}));
+
+test('#6249 round 3: a later delivery that finds the box empty forgets the line left there', () => withAgent({}, (roster) => {
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: left there, remembered');
+  arm([EMPTY, box('another line'), EMPTY]);
+  assert.equal(chat.deliver('al', 'another line', roster).state, chat.DELIVERY.PLACED, 'someone cleared it; this one went');
+  const t = arm([box(MSG)]);   // the old text appears again (recalled by hand)
+  const v = chat.deliver('al', 'a third line', roster);
+  assert.equal(v.inputHeld, true);
+  assert.equal(t.enters(), 0, 'not sent: the board no longer holds it as its own');
 }));
 
