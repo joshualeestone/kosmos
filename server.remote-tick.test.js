@@ -47,6 +47,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const remote = require('./engine/remote');
+const { eventually } = require('./test-support/eventually');
 let base;
 /* kosmos#4277: the report timer is what makes a board nobody is watching report at all;
    pin that the real boot starts it (once), not only that the function works. */
@@ -78,10 +79,14 @@ test('enrolment landing with no ensure() call rests at "has not started"; the bo
   } else {
     console.log('note: the tick fired before the first read; the resting half is covered by engine/remote.test.js');
   }
-  const deadline = Date.now() + 3000;
+  // #5727: wait for the board's own tick to start the tunnel (clear the resting sentence).
+  // Non-throwing like the old 3000ms deadline loop; the asserts below stay the check. The guard
+  // mirrors the old while's first test on the seed (resting); on timeout we re-read so the failure
+  // diagnostic shows the current stuck status, as the old loop's last in-loop read did.
   let s = resting;
-  while (Date.now() < deadline && s.because === 'the board has not started the tunnel') {
-    await new Promise((r) => setTimeout(r, 50)); s = await status();
+  if (s.because === 'the board has not started the tunnel') {
+    s = await eventually(status, (v) => v.because !== 'the board has not started the tunnel',
+      { timeoutMs: 3000, stepMs: 50 }).catch(() => status());
   }
   assert.notEqual(s.because, 'the board has not started the tunnel', JSON.stringify(s));
   assert.ok(['connecting', 'up'].includes(s.state), JSON.stringify(s));
