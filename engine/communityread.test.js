@@ -1976,15 +1976,21 @@ test('#6201: posts take turns for the page budget, so a busy newer post cannot s
   const pid = (i) => 'e6201000-0000-4000-8000-0000000000' + String(i).padStart(2, '0');
   for (let i = 0; i < 10; i += 1) sent['p' + i] = { state: 'sent', agent: 'Turn6201', remoteId: pid(i), sentAt: '2026-09-30T1' + i + ':00:00Z' };
   writeSendState(sent, {});
-  const pages = {};
+  const pages = {}; let inFlight = 0; let peak = 0;
   cr.setFetcher(async (url) => {
     const u = new URL(url);
     const post = u.pathname.split('/')[2];
-    if (u.pathname.endsWith('/replies')) { pages[post] = (pages[post] || 0) + 1; return { status: 200, json: { replies: [] } }; }
+    if (u.pathname.endsWith('/replies')) {
+      pages[post] = (pages[post] || 0) + 1; inFlight += 1; peak = Math.max(peak, inFlight);
+      await new Promise((res) => setTimeout(res, 2)); inFlight -= 1;
+      return { status: 200, json: { replies: [] } };
+    }
     const n = Number(post.slice(-2));
     return { status: 200, json: { comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(6000 + n * 100 + k), created_at: T(1), reply_count: 50, replies_cursor: 'h' + k, replies: [] })) } };
   });
   await cr.readReplies('Turn6201', { now: NOW });
+  // The first wave is every post's newest 3 waiting threads at once (30 here), as main sent them; never more.
+  assert.ok(peak > cr.REPLY_PAGES_AT_ONCE && peak <= 30, 'the first wave was not one burst of each post\'s 3: ' + peak);
   for (let i = 0; i < 10; i += 1) assert.ok((pages[pid(i)] || 0) >= 3, 'post ' + i + ' got ' + (pages[pid(i)] || 0) + ' pages: ' + JSON.stringify(pages));
 });
 
