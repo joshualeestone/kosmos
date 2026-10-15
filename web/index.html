@@ -82517,7 +82517,7 @@ async function firstRunBoot(force, step) {
     let state;
     try {
       const res = await fetch('/api/first-run', { cache: 'no-store' });
-      if (!res.ok) throw new Error('status ' + res.status);
+      if (!res.ok) { await res.text().catch(() => {}); throw new Error('status ' + res.status); }   // read, so the request ends (#6188)
       state = await res.json();
     } catch { return; }
     // ⚠️ Inside the guard, not after it. A 200 whose body is `null` -- or anything

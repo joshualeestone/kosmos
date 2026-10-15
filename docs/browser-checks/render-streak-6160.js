@@ -328,12 +328,18 @@ const read = (pg) => pg.evaluate(() => {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"no"}' }).catch(() => {}); });
+    // #6188: each refused request must FINISH (the page reads the refusal's body): left unread it stays open, and a
+    // page waiting for the network to go quiet waits forever.
+    const streakReqs = new Set(); let ended = 0;
+    pg.on('request', (q) => { if (q.url().endsWith('/api/streak')) streakReqs.add(q); });
+    for (const ev of ['requestfinished', 'requestfailed']) pg.on(ev, (q) => { if (streakReqs.has(q)) ended++; });
     await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     await pg.clock.runFor(30 * 60 * 1000);
     await pg.waitForTimeout(300);
     say(calls >= 2 && calls <= 6, 'refused: asked again a few times, then not every minute (30 minutes)', 'calls=' + calls);
+    say(streakReqs.size >= 1 && ended === streakReqs.size, 'refused: every refused request finished (its body was read, #6188)', 'sent=' + streakReqs.size + ' finished=' + ended);
     await pg.close();
   }
 
