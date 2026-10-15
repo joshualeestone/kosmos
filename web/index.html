@@ -60887,6 +60887,10 @@ function wakeHeldLine(manualText, delivery) {
   if (delivery && delivery.heldBy === 'menu') {
     return manualText + ' It is waiting for an answer on its screen, so Kosmos sent nothing; answer it in its window first.';
   }
+  // #6249: held because its input box holds text not yet sent (a line typed there would be sent with it).
+  if (delivery && delivery.heldBy === 'input') {
+    return manualText + ' Its input box holds text that has not been sent, so Kosmos sent nothing; send or clear that in its window first.';
+  }
   // #5948: held because its sign-in stopped working (heldBy stays 'limit'; heldFor says why). No reset to name.
   if (delivery && delivery.heldFor === 'signin') {
     return manualText + ' It is signed out, so Kosmos sent nothing. Sign it in again first.';
@@ -65530,6 +65534,8 @@ async function tkSayPost() {
               ? lead + ' is switched off in this project, so it was not told. Switch it on in the project\'s members to send it work here.'
               : /not on this project any more/.test(why) ? lead + ' is not on this project any more, so it was not told.'
               : /could not keep this one/.test(why) ? 'Kosmos could not keep your message for ' + who + ', so it was not told.'
+              /* #6249: reached, but its input box held text not yet sent, so nothing was typed behind it. */
+              : /input box already holds text|earlier message was still sitting unsent/.test(why) ? lead + '\'s input box held text that had not been sent, so it was not told yet.'
               : 'Kosmos could not reach ' + who + ', so it was not told.');
             // Said every time: the message IS on the task, and a person who thinks it was lost sends it again,
             // which records it twice and re-tells everyone already told.
