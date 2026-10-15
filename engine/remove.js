@@ -2459,7 +2459,7 @@ function restart(name, cause, opts) {
      an account move) are not: they finish a change already made. A policy read that throws does not refuse. */
   if (opts && opts.quiet === true) {
     let q = { ok: true };
-    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
+    try { const op = require('./orgpolicy'); q = op.quietAllows(op.inForce()); } catch { q = { ok: true }; }
     if (q.ok !== true) {
       try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
       return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${q.because}`, quiet: true };

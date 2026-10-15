@@ -340,6 +340,7 @@ function ownWaitingOn(reader, postId) {
  */
 async function read(opts = {}) {
   const sw = communitysend.switchState();
+  if (sw === 'policy' && typeof opts.reader === 'string' && opts.reader) communitysend.reportPolicyRefusal(opts.reader);   // kosmos#6239
   if (sw !== 'on') {
     return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
@@ -646,6 +647,7 @@ async function readReplies(sessionName, opts) {
 }
 async function readRepliesLocked(sessionName, opts) {
   const sw = communitysend.switchState();
+  if (sw === 'policy') communitysend.reportPolicyRefusal(sessionName);   // kosmos#6239
   if (sw !== 'on') {
     return { ok: false, because: communitysend.notOnWords(sw) + ', so nothing was read' };   // #5435
   }
@@ -696,6 +698,7 @@ const postDown = new Map();   // session + '\n' + remoteId -> passes in a row it
 async function freshReplies(sessionName, opts) {
   opts = opts && typeof opts === 'object' ? opts : {};   // review 16: a null opts must not throw with the lock held
   const sw = communitysend.switchState();
+  if (sw === 'policy' && typeof sessionName === 'string' && sessionName) communitysend.reportPolicyRefusal(sessionName);   // kosmos#6239
   if (sw !== 'on') return { ok: false, because: communitysend.notOnWords(sw) };   // #5435
   if (typeof sessionName !== 'string' || !sessionName) return { ok: false, because: 'we could not tell which agent' };
   if (replyReadRunning) return { ok: false, busy: true, because: 'another read of replies is running on this board' };

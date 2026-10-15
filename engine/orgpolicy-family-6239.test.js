@@ -102,7 +102,6 @@ test('a bundle with either key in another shape, or a zone this runtime cannot r
     { outside_contact: { enabled: 'no' } },
     { outside_contact: { enabled: false, extra: 1 } },
     { outside_contact: false },
-    { quiet_hours: { ...QH, tz: 'Mars/Olympus_Mons' } },
     { quiet_hours: { ...QH, tz: '/etc/localtime' } },
     { quiet_hours: { ...QH, from: '07:00' } },
     { quiet_hours: { ...QH, from: '9:00' } },
@@ -116,4 +115,7 @@ test('a bundle with either key in another shape, or a zone this runtime cannot r
     assert.deepEqual(orgpolicy.current(), { outside_contact: { enabled: false }, quiet_hours: QH }, 'the last good one stays');
   }
   assert.equal(apply({ quiet_hours: { ...QH, tz: 'America/Argentina/Buenos_Aires' } }).refused, null, 'CONTROL: a deep zone name');
+  // Challenge round 1: a well-formed zone this runtime cannot read is not refused (it would take outside_contact down
+  // with it); quietAt keeps quiet hours all day for it instead (familyquiet-6239).
+  assert.equal(apply({ outside_contact: { enabled: false }, quiet_hours: { ...QH, tz: 'Mars/Olympus_Mons' } }).refused, null, 'an unknown zone refused the bundle');
 });

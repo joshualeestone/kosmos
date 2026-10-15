@@ -119,7 +119,12 @@ test('#6239: the person\'s Start and Restart are refused in quiet hours; the boa
 test('#6239: no agent is made in quiet hours; a provider the policy refuses keeps its own sentence', () => {
   create.setRunner(null);   // dry-run: nothing reaches launchd
   apply({ ...QUIET(), providers_allowed: ['anthropic'] });
-  const r = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name: 'Homework Helper', role: 'helper' });
+  const ae = require('./agentevents');
+  const real = ae.recordRefusal; const seen = [];
+  ae.recordRefusal = (ev) => { seen.push(ev); return { queued: true }; };
+  let r;
+  try { r = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name: 'Homework Helper', role: 'helper' }); } finally { ae.recordRefusal = real; }
+  assert.deepEqual(seen, [{ agent: 'Homework Helper', rule: 'quiet-hours' }], 'the refused create was not reported');
   assert.equal(r.outcome, create.OUTCOME.REFUSED, JSON.stringify(r));
   assert.match(r.because, /^no agent is made now: it is quiet hours until/);
   assert.ok(!fs.existsSync(create.workerDir('homework-helper')), 'a folder was made');
@@ -127,4 +132,34 @@ test('#6239: no agent is made in quiet hours; a provider the policy refuses keep
   const p = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name: 'Homework Helper', role: 'helper' });
   assert.equal(p.outcome, create.OUTCOME.REFUSED);
   assert.doesNotMatch(p.because, /quiet hours/, 'CONTROL: outside the window the provider refusal is what is said');
+});
+
+test('#6239: answering an agent\'s question in quiet hours is refused with nothing pressed; outside them it is not refused for it', async () => {
+  apply(QUIET());
+  await idleCasey(async (board, calls) => {
+    const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Proceed?', label: 'Yes' });
+    assert.equal(r.ok, false);
+    assert.equal(r.quiet, true, JSON.stringify(r));
+    assert.match(r.because, /^nothing was answered: it is quiet hours until/);
+    assert.equal(calls.typed().length, 0, 'a key was pressed in quiet hours');
+  });
+  apply(LATER());
+  await idleCasey(async (board) => {
+    const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Proceed?', label: 'Yes' });
+    assert.notEqual(r.quiet, true, 'CONTROL: outside the window it is refused for another reason or none: ' + JSON.stringify(r));
+  });
+});
+
+test('#6239: a zone this computer cannot read keeps quiet hours all day, and does not take the rest of the policy down', async () => {
+  apply({ outside_contact: { enabled: false }, quiet_hours: { tz: 'Mars/Olympus_Mons', school_nights: true, from: '21:00', to: '07:00' } });
+  assert.equal(orgpolicy.contactAllows().ok, false, 'outside_contact went down with the zone');
+  const q = orgpolicy.quietAllows();
+  assert.equal(q.ok, false);
+  assert.equal(q.because, 'the policy set for this Kosmos sets quiet hours in a time zone this computer cannot read (Mars/Olympus_Mons), so they last all day');
+  await idleCasey(async (board, calls) => {
+    assert.equal((await chat.deliverAsync('casey', 'hello', board.agents)).quiet, true);
+    assert.equal(calls.typed().length, 0);
+  });
+  apply(LATER());
+  assert.equal(orgpolicy.quietAllows().ok, true, 'CONTROL: a readable zone outside its window');
 });

@@ -237,11 +237,17 @@ function switchState() {
   try {
     const r = switchRead ? switchRead() : require('./communityswitch').read();
     state = !r ? 'off' : r.ok !== true ? 'unreadable' : r.on === true ? 'on' : 'off';
-    /* kosmos#6239: the policy set for this Kosmos stops outside contact (outside_contact: { enabled: false }), whatever
-       the person's switch says: 'policy', which sends nothing, as off. Read only over an ON switch, so an unreadable
-       switch keeps its own words; a policy read that throws lands in the catch below, so it sends nothing either. */
-    if (state === 'on' && contactWords() !== null) state = 'policy';
   } catch { state = 'unreadable'; }
+  /* kosmos#6239: the policy set for this Kosmos stops outside contact (outside_contact: { enabled: false }), whatever
+     the person's switch says: 'policy', which sends nothing, as off. Read only over an ON switch, so an unreadable
+     switch keeps its own words. A policy read that throws is 'policy' too (nothing sent), with its own log line, never
+     the switch file's (challenge round 1). */
+  if (state === 'on') {
+    try { if (contactWords() !== null) state = 'policy'; } catch (e) {
+      state = 'policy';
+      logOnce('policy', 'communitysend: cannot read the policy set for this Kosmos (' + String((e && e.message) || e) + '), so nothing is sent to the community until it can');
+    }
+  }
   // #5435 review 2: the agent is told "the board's log says which record", so the log does, once until it reads again.
   if (state === 'unreadable') logOnce('switch', 'communitysend: cannot read the community switch file (' + switchFileName() + '), so nothing is sent until it can be read; your person turns Community on or off again in Settings to rewrite it');
   else loggedOnce.delete('switch');
@@ -250,7 +256,11 @@ function switchState() {
 /* #5435 review 3: why the community is not on, for the commands that refuse while it is not (read, vote, follow, and
    agentCall): a switch file that cannot be read is not the person switching it off. */
 function notOnWords(sw = switchState()) {   // review 9: pass the state the caller gated on, so the words cannot disagree
-  if (sw === 'policy') return (contactWords() || POLICY_STOPS) + ', so the Kosmos+ community is off on this board. Do not try to take part in it another way';
+  if (sw === 'policy') {
+    let w;
+    try { w = contactWords() || POLICY_STOPS; } catch { w = 'Kosmos cannot read the policy set for this Kosmos just now'; }
+    return w + ', so the Kosmos+ community is off on this board. Do not try to take part in it another way';
+  }
   return sw === 'unreadable'
     ? 'Kosmos cannot read this board\'s community switch just now, so the Kosmos+ community is not on (tell your person)'
     : 'the Kosmos+ community is switched off on this board';
@@ -2694,7 +2704,7 @@ module.exports = {
   switchOn, switchState, notOnWords, willSend, NOT_SENDING, notSendingWords, markNotSent, requestRetire, hasAccount, unsentCount, recordPeriodStart, endOnPeriodNow, industryUnreachable, pictureUnreachable, pictureUnsendable, pictureToFit, sweep, sendSoon, agentCall, requestDelete, withdrawFor, editFor,
   statuses, commentStatuses, commentRecords, payload, titleFor, registration, underTest,
   sendAddress: endpoint,   // #5415: communitystatus takes a sent item's public link host from it, and whether there is one
-  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
+  setSender, resetPauses, _chainWaitMs: chainWaitMs, setTimeoutMs, setSwitch, setContact, reportPolicyRefusal, setAgentWaitMs, AGENT_WAIT_MS, setAgentBudgetMs, AGENT_BUDGET_MS, readCapped,
   RESPONSE_CAP, SWEEP_RESPONSE_CAP, PAYLOAD_KEYS, DEFAULT_ENDPOINT, DEFAULT_CHANNEL, endpointAllowed, KOSMOS_BUGS_SLUG,
   CHANNELS, channelChoice, leadingChannelWord, // kosmos#5171
   _paths: { dir, retireDir, endpointDir, stateFile, keysFile, sentFile, deletesFile, commentsSentFile, commentDeletesFile, installGroupFile },

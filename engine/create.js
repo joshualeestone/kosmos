@@ -4750,8 +4750,12 @@ function createAgentInner(opts) {
     /* kosmos#6239: and no agent is made (made is started) in the policy's quiet hours. A policy read that throws does
        not refuse, as for a start (remove.restart). */
     let q = { ok: true };
-    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
-    if (q.ok !== true) return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${q.because}`, steps };
+    try { const op = require('./orgpolicy'); q = op.quietAllows(op.inForce()); } catch { q = { ok: true }; }
+    if (q.ok !== true) {
+      // Reported under the name asked for: the agent was never made, so it is the act, not an agent, that is named.
+      try { require('./agentevents').recordRefusal({ agent: shown || name, rule: 'quiet-hours' }); } catch { /* not reported */ }
+      return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${q.because}`, steps };
+    }
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */

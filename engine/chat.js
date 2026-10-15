@@ -1297,6 +1297,13 @@ async function withQmenuSlot(allowed, fn) {
 async function answerQuestionMenu(sessionName, n, roster, expect) {
   const allowed = questionMenuKeysAllowed(sessionName, roster);
   if (!allowed.ok) return { ok: false, because: allowed.because };
+  /* kosmos#6239 (challenge round 1): answering a question sets an agent back to work as surely as a message, so in the
+     policy's quiet hours it is refused too (deliverWithGap's rule, read the same way). Nothing is pressed. */
+  {
+    let q = { ok: true };
+    try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
+    if (q.ok !== true) return { ok: false, because: `nothing was answered: ${q.because}`, quiet: true };
+  }
   return withQmenuSlot(allowed, () => answerQuestionMenuHeld(sessionName, n, roster, expect, allowed));
 }
 async function answerQuestionMenuHeld(sessionName, n, roster, expect, allowed) {
