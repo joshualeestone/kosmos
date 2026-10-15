@@ -13,7 +13,8 @@
  *   no note    -> 12 days, no congrats: no note (the control for the arm above); hovering shows the label
  *   day 1      -> "1 day in the Kosmos", and no note even if the board said congrats (nothing to congratulate yet)
  *   refused    -> the board's own refusal (403 to the streak, 404 to the first-run read): every refused request
- *                 finishes, so the page's network goes quiet (#6188). First run is answered as done in every other arm.
+ *                 finishes, so the page's network goes quiet (#6188). Every arm but the first-run one loads through
+ *                 gotoReady, which answers first run as done.
  *   none       -> count 0: no label, and the K mark is not described by an empty one
  *   click      -> a click on the K mark still goes to Agents
  *   long press -> on a touch screen, a long press shows the label and does NOT navigate; a tap still does (control)

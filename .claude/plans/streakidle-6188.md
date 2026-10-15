@@ -18,7 +18,6 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
 - docs/browser-checks/render-streak-6160.js: answers /api/first-run as done before every page load, as
   render-allagents-4812 does. Its Escape only put the welcome overlay away when it was already open; when the
   overlay opened later it took focus from the dismiss arm.
-
 - firstRunBoot (also on the load path) reads a refusal's body the same way before giving up.
 - render-streak-6160's refused arm now gets its 403 from the board itself, through route.fetch with another site's
   Origin (the same proxy shape as the original failure), and asserts every refused request finished. A refusal made
@@ -35,6 +34,9 @@ body keeps the request open, so `waitUntil: 'networkidle'` never came.
 - After iteration 2 (helper, deterministic wait, non-awaited drain): 3 of 3 runs 80 PASS; the control with the page fix
   reverted fails the same line (sent=5 finished=0). The early 28-pass stop seen once before the check change was not
   seen again in 8 later runs; its log was not kept, so its cause is unknown.
+- After iteration 3 (the first-run arm): fix 82 PASS; with firstRunBoot's body read reverted, the first-run arm fails
+  (sent=1 finished=0); with streakCheck's reverted, the refused arm fails (sent=5 finished=0). Each guard was shown red
+  on its own site.
 - server.streak-6160 and engine streak-6160 tests: 16/16.
 
 ## The class (measured, filed separately)
