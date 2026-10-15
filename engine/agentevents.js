@@ -1882,7 +1882,7 @@ function recordRefusal({ agent, rule } = {}, opts) {
     if (!Object.prototype.hasOwnProperty.call(BOARD_RULES, rule)) return { queued: false, because: 'not a rule the board reports' };
     if ((o.platform || process.platform) === 'win32') return { queued: false, because: 'nothing is sent from Windows yet' };
     const name = label(agent);
-    if (!name) return { queued: false, because: 'no agent name the company can be shown' };
+    if (!name) return { queued: false, because: 'no agent name that can be shown' };
     const oe = o.enroll || require('./orgenroll');
     const eo = { root: o.root, remote: o.remote };
     if (!oe.mayReport(eo)) return { queued: false, because: 'not the enrolled Kosmos, or no accepted words recorded here' };
