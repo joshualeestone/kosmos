@@ -182,7 +182,7 @@ function shortOf(text) {
    one exists that does not name both, or holds any negation (someone else's file is not edited). The .gitignore it creates
    is itself a new, harmless file in the person's tree (two file names). A busy digest's opening comes from its first
    post (the text after its header), not from the header. A hard link at the file is refused at the lstat
-   (before any rotation could touch its other name) and again after the open (a link count above one); a swap between the checks and the open is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   (before any rotation could touch its other name) and again after the open (a link count above one); a swap between the lstat and the rename or cut is not guarded. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
    (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
@@ -203,13 +203,14 @@ function turnRecord(text, at, arrived = null) {
   const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
   const digest = DIGEST_RE.exec(t);
   // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
-  // tz: this machine's offset from UTC in minutes at `at`, so a Sent stamp (local wall-clock time) lines up with at /
+  // tz: this front's offset from UTC in minutes at `at` (the board's clock stamps Sent; they share a machine), so a Sent stamp (local wall-clock time) lines up with at /
   // arrived (a stamp from the other side of a daylight-saving change reads an hour off).
   const rec = { at, arrived, tz: -new Date(Number.isFinite(Date.parse(at)) ? Date.parse(at) : Date.now()).getTimezoneOffset(), kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
     digestPosts: digest ? Number(digest[1]) : null };
   /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
      (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
-     person types straight into this pane has no envelope, so it keeps none. */
+     person types straight into this pane has no envelope, so it keeps none (unless they type one of these envelopes
+     themselves). */
   // A digest's own header has no words: its opening is its first post's (after that post's envelope).
   const first = digest ? t.slice(t.indexOf('\n') + 1).split('\n')[0] : t;
   if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(first);
