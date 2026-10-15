@@ -125,10 +125,12 @@ kosmos_setup_floor_installer_ok() {
     echo "setup floor (kosmos#6149): $label ($file) is missing or unreadable, so the installer cannot be checked -- refusing" >&2
     return 1
   }
-  # A shell match, not grep: macOS grep honours GREP_OPTIONS (=-v made an old installer pass), so that variable
-  # cannot invert this check (a hostile PATH or BASH_ENV is out of scope: see the note at the top).
-  case "$(LC_ALL=C cat "$file")" in
-    *"$KOSMOS_SETUP_FLOOR_MARKER"*) ;;
+  # Not grep: macOS grep honours GREP_OPTIONS (=-v made an old installer pass), so that variable cannot invert this
+  # check (a hostile PATH or BASH_ENV is out of scope: see the note at the top).
+  # On a line that is not a comment (a mention only in a comment does not make an installer lift the lock), and the
+  # verdict must be PRINTED, so a broken or shadowed awk refuses rather than passes.
+  case "$(LC_ALL=C awk -v m="$KOSMOS_SETUP_FLOOR_MARKER" '!/^[[:space:]]*#/ && index($0, m) { print "found"; exit }' "$file" 2>/dev/null)" in
+    found) ;;
     *) echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before 0.7.42 (or one that dropped it) and would break every install a read-only build has touched -- refusing" >&2
        return 1 ;;
   esac

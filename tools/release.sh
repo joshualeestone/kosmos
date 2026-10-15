@@ -655,7 +655,7 @@ if git -C "$SITE" fetch -q origin 2>/dev/null && git -C "$SITE" rev-parse -q --v
   _floor_tmp="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-floor-site.XXXXXX")" || { echo "could not make a scratch dir for the setup floor check"; exit 1; }
   mkdir -p "$_floor_tmp/dist" || { echo "could not make a scratch dir for the setup floor check"; rm -rf "$_floor_tmp"; exit 1; }
   for _f in dist/latest.json dist/latest-staging.json setup setup-staging; do
-    git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || { rm -f "$_floor_tmp/$_f"; echo "(the site's origin/main has no $_f: nothing to check for it here; the export check before the deploy reads what ships)"; }
+    git -C "$SITE" show "origin/main:$_f" > "$_floor_tmp/$_f" 2>/dev/null || { rm -f "$_floor_tmp/$_f"; echo "(could not read $_f from the site's origin/main (absent, or a read failure): nothing to check for it here; the export check before the deploy reads what ships)"; }
   done
   _floor_site="$_floor_tmp"
 else

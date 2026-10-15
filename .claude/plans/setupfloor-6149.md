@@ -79,7 +79,15 @@ Before the 0.7.49 promote: dist/latest.json 0.7.47, dist/latest-staging.json 0.7
 /setup-staging 9. After it (16:2x, origin/main): both pointers 0.7.49, /setup 9, /setup-staging 9. Either way no
 deploy, promote or cut that is valid today is refused by this change.
 
-## Known limits (reviews 9 to 34), stated rather than closed
+## Known limits (reviews 9 to 35), stated rather than closed
+- If BOTH channels' pointers (or both installers) are below the floor, every cut refuses (each checks the other
+  channel's pair). The recovery needs no cut: publish-staging-pointer.sh of a build at or above the floor whose
+  tarball is still in dist (0.7.49's are) repairs staging, then a promote repairs prod. The floor only reaches that
+  state through a path around these tools (a hand deploy, a Vercel rollback).
+- A NUL byte in a pointer is dropped by command substitution before the ASCII check sees it. The installer's own
+  $(curl ...) capture drops it too (so it reads what the check read), and JSON.parse rejects the pointer, so the
+  app's update path fails closed rather than installing something old.
+- The installer check is a string check on a non-comment line, not a proof the installer lifts the lock.
 - The floor guards against mistakes, not a hostile environment: whoever controls PATH, BASH_ENV or an exported
   function controls every tool the checks run (and vercel itself). Tool-named functions are cleared on load,
   GREP_OPTIONS cannot invert a check (no grep decides one), and every check needs a POSITIVE answer (a printed
