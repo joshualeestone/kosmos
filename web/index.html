@@ -27260,8 +27260,6 @@ function acctFollowUp(n, busy) {
    shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
 let acctFiveTimer = null, acctFiveMisses = 0;
-/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
-   in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 /* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
@@ -27275,6 +27273,8 @@ function acctFiveHourOnShow() {
   if (shown.some((t) => t <= Date.now()) && !acctListBusy(document.getElementById('set-accounts'))) { paintAccounts({ followUp: ACCT_FOLLOWUP.max }); return; }
   acctFiveHourRetry();
 }
+/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
+   in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
   const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
@@ -27604,6 +27604,8 @@ async function paintAccounts(opts) {
      slower older fetch resolving after a faster newer one used to be
      able to paint stale data over fresh -- unlikely when this was an
      instant stat, a real risk now. */
+  /* #6176: raising the epoch cancels the five-hour timer; every way out of this function below must end in
+     acctFiveHourRepaint or acctFiveHourRetry (or draw no five-hour line), or a line can stay past its reset. */
   const mine = ++ACCT_EPOCH;
   /* #3997: the follow-up read (below) repaints in place, without the placeholder flash. */
   if (!followUp) box.innerHTML = '<p class="dhint" style="margin:10px 0 0;">Checking…</p>';

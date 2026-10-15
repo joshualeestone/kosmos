@@ -96,4 +96,8 @@ test('readFiveHour refuses what it cannot trust', () => {
   fs.writeFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 50, resetsAt: NOW_S + 600 }));
   assert.equal(allowance.readFiveHour(dir), null, 'no time it was seen');
   assert.equal(allowance.readFiveHour(null), null);
+  fs.writeFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 50, resetsAt: NOW_S + 7 * 3600, at: NOW_S * 1000 }));
+  assert.equal(allowance.readFiveHour(dir, NOW_S * 1000), null, 'a reset further out than a five-hour window allows is a bad file');
+  fs.writeFileSync(path.join(dir, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 50, resetsAt: NOW_S + 5 * 3600, at: NOW_S * 1000 }));
+  assert.equal(allowance.readFiveHour(dir, NOW_S * 1000).usedPct, 50, 'five hours out is a real window (control)');
 });
