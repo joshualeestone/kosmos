@@ -127,3 +127,10 @@ received shorter posts), or under it (then something Meta-specific spills): the 
   what protect the other name, and what the tests reach): the header and the review-6 note say so, no longer
   "(tested)". NITs: "created 0600"; the allowlist comment names its dependency (no person's words in a "Kosmos here:"
   line's first 60 units); a busy-retried stop note is one line; the plan says one line per turn.
+
+## Review 14 (sonnet), and what changed
+- No BLOCKER. WARNING: review 13's note said the tests reach the after-open check; review 14 said the lstat one.
+  Measured: removing either alone leaves the suite green, removing both fails it. The header and plan now say the
+  tests prove the pair, not each layer. NITs: the allowlist comment says the agent's own post title can appear; tz
+  differs from Sent's clock only under a different TZ setting. Not taken: a pane line when the log is off (the
+  .gitignore rule is fail-closed and stated; the seat notes look for the file).
