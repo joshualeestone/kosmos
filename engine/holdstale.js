@@ -29,8 +29,9 @@ const HOUR_MS = 60 * 60 * 1000;
 function plain(s, max) { return require('./agentnudge').plainWords(s, max); }
 
 /* When the task was last put on hold, and whether the person did it, from its own history (setOnHold records each
-   change there). Null when that cannot be told: no hold-set event, or a hold-cleared after the last one (the record of
-   a later hold failed, since taskchat.record is best-effort), so posts made while it was not held are never counted. */
+   change there). Null when there is no hold-set event, or a hold-cleared after the last one (the record of a later hold
+   failed: taskchat.record is best-effort). A clear AND a re-hold whose records both failed still read as the first
+   hold, so posts from the gap would be counted; that costs at most one line per owner. */
 function holdSet(projectId, n, read) {
   let events = [];
   try { events = read(projectId, n) || []; } catch { events = []; }
@@ -51,7 +52,16 @@ function holdSet(projectId, n, read) {
 function owed(projects, log, now = Date.now(), o = {}) {
   const tasks = require('./tasks');
   const read = typeof o.read === 'function' ? o.read : require('./taskchat').read;
-  const rows = Array.isArray(log) ? log : [];
+  /* The room's posts by project and sender, read once per pass rather than once per held task and owner. */
+  const posted = new Map();
+  for (const r of Array.isArray(log) ? log : []) {
+    if (!r || r.kind !== 'post' || typeof r.project !== 'string' || typeof r.from !== 'string') continue;
+    const at = Date.parse(r.at);
+    if (!Number.isFinite(at)) continue;
+    const k = r.project + '\u0000' + r.from;
+    if (!posted.has(k)) posted.set(k, []);
+    posted.get(k).push(at);
+  }
   const out = [];
   for (const p of Array.isArray(projects) ? projects : []) {
     if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
@@ -65,15 +75,9 @@ function owed(projects, log, now = Date.now(), o = {}) {
       for (const owner of owners) {
         if (typeof owner !== 'string' || !owner) continue;
         if (Date.parse(told[owner]) === hold.at) continue;
-        let posts = 0;
-        let lastAt = 0;
-        for (const r of rows) {
-          if (!r || r.kind !== 'post' || r.project !== p.id || r.from !== owner) continue;
-          const at = Date.parse(r.at);
-          if (!Number.isFinite(at) || at <= hold.at) continue;
-          posts += 1;
-          if (at > lastAt) lastAt = at;
-        }
+        const since = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at);
+        const posts = since.length;
+        const lastAt = posts ? Math.max(...since) : 0;
         if (posts < MIN_POSTS) continue;
         out.push({
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
@@ -101,18 +105,24 @@ function tellText(group, now = Date.now()) {
   const items = (Array.isArray(group) ? group : [group]).slice().sort((x, y) => x.n - y.n);
   const first = items[0];
   const posts = Math.max(...items.map((x) => x.posts));
+  /* As the nudge's review 3: a project id is typed into a command only when it is one the CLI takes as it is. */
+  const idOf = (x) => (typeof x.projectId === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(x.projectId) && /[^.]/.test(x.projectId) ? x.projectId : '<project-id>');
+  const unhold = (x) => 'kosmos task unhold ' + idOf(x) + ' ' + x.n;
+  const list = (xs) => (xs.length < 3 ? xs.join(' and ') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]);
   const one = (x) => 'task #' + x.n + ', "' + plain(x.sentence, 120) + '" (' + (x.byPerson ? 'the person put it on hold' : 'put on hold') + ' ' + agoWords(x.holdAt, now) + ' ago)';
   const theirs = items.filter((x) => x.byPerson);
   const mine = items.filter((x) => !x.byPerson);
-  const ASK = 'ask the person to take it off hold (only they can lift their own hold, on the screen)';
+  const ask = (n) => 'ask the person to take ' + (n === 1 ? 'it' : 'them') + ' off hold (only they can lift their own hold, on the screen)';
   let liftText;
-  if (items.length === 1) liftText = 'If its work is going on, ' + (first.byPerson ? ASK : 'take it off hold: kosmos task unhold ' + first.projectId + ' ' + first.n);
+  if (items.length === 1) liftText = 'If its work is going on, ' + (first.byPerson ? ask(1) : 'take it off hold: ' + unhold(first));
   else {
-    liftText = 'If their work is going on, ' + (mine.length ? 'take ' + (mine.length === 1 ? 'it' : 'them') + ' off hold: ' + mine.map((x) => 'kosmos task unhold ' + x.projectId + ' ' + x.n).join(', then ') : '');
-    if (theirs.length) liftText += (mine.length ? '; for ' : 'for ') + theirs.map((x) => '#' + x.n).join(' and ') + ', ' + ASK;
+    const parts = [];
+    if (mine.length) parts.push((mine.length === 1 ? 'take #' + mine[0].n + ' off hold: ' : 'take them off hold: ') + mine.map(unhold).join(', then '));
+    if (theirs.length) parts.push((mine.length ? 'for ' + list(theirs.map((x) => '#' + x.n)) + ', ' : '') + ask(theirs.length));
+    liftText = 'If their work is going on, ' + parts.join('; ');
   }
   return 'Kosmos: ' + (items.length === 1 ? one(first) + ' in ' + plain(first.project, 80) + ' is still on hold'
-    : items.map(one).join(' and ') + ' in ' + plain(first.project, 80) + ' are still on hold')
+    : list(items.map(one)) + ' in ' + plain(first.project, 80) + ' are still on hold')
     + ', but you have posted ' + posts + ' times in ' + (items.length === 1 ? 'its' : 'their') + ' project room since then. '
     + liftText + '. If ' + (items.length === 1 ? 'it' : 'one') + ' should stay on hold, say why on the task.';
 }
