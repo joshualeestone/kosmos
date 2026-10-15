@@ -30,6 +30,10 @@ const { chromium } = require('playwright');
 const path = require('node:path');
 
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17372';
+/* #6188: first run is over for this check. The welcome overlay opens on its own after load, and the Escape below
+   only puts it away when it is already open: when it opened later it took focus from the dismiss arm (a flake on
+   main too). Answering /api/first-run as done keeps it shut, as render-allagents-4812 does. */
+const firstRunDone = (pg) => pg.route('**/api/first-run', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ done: true }) }).catch(() => {}));
 const OUT = process.argv[2] || '/tmp/stshots';
 const fail = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fail.push(label); };
@@ -49,7 +53,7 @@ async function open(b, answer, opts = {}) {
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(answer(body)) }).catch(() => {});
   });
   const asked = pg.waitForResponse((r) => r.url().endsWith('/api/streak'), { timeout: 15000 }).then(() => true, () => false);
-  await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+  await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
   say(await asked, (opts.key || 'page') + ': the page asked the board for the streak');
   // Measure the app, not its loading screen: the K mark is visible once the board view is up.
@@ -104,7 +108,7 @@ const read = (pg) => pg.evaluate(() => {
     const at = new Date(NOON - 7 * 60000).toISOString();
     await pg.route('**/api/board/restart-note', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ note: { lastAliveAt: at, bootAt: at, upAt: new Date(NOON).toISOString() } }) }).catch(() => {}));
     await pg.route('**/api/streak', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}));
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     const up = await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).then(() => true, () => false);
     say(up, 'together (' + vp.width + 'px): the app is up (the K mark is visible)');
@@ -284,7 +288,7 @@ const read = (pg) => pg.evaluate(() => {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill(calls === 1 ? { status: 200, contentType: 'application/json', body: '{"count":0,"congrats":false}' } : { status: 200, contentType: 'application/json', body: JSON.stringify({ count: 5, congrats: false }) }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     const first = await read(pg);
@@ -306,7 +310,7 @@ const read = (pg) => pg.evaluate(() => {
       window.__show = () => { hidden = false; document.dispatchEvent(new Event('visibilitychange')); };
     });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 12, congrats: true }) }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     await pg.waitForSelector('#klink', { state: 'attached', timeout: 15000 }).catch(() => {});
     await pg.waitForTimeout(1500);
     const whileHidden = calls;
@@ -324,7 +328,7 @@ const read = (pg) => pg.evaluate(() => {
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     await pg.clock.install({ time: NOON });
     await pg.route('**/api/streak', (route) => { calls++; return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"no"}' }).catch(() => {}); });
-    await pg.goto(URL, { waitUntil: 'domcontentloaded' });
+    await firstRunDone(pg); await pg.goto(URL, { waitUntil: 'domcontentloaded' });
     if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(300); }
     await pg.waitForSelector('#klink', { state: 'visible', timeout: 15000 }).catch(() => {});
     await pg.clock.runFor(30 * 60 * 1000);
