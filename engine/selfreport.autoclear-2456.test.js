@@ -179,7 +179,8 @@ test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBER
 
 test('#6209 review 1: a provider error over a deliberate question, then a normal turn end, keeps the question red (not idle)', () => {
   const who = 'question-then-outage-6209';
-  assert.equal(selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?' }).recorded, true);
+  const asked = selfreport.record(who, { state: 'needs_you', because: 'which domain should I use?', instance: 'run-old' });
+  assert.equal(asked.recorded, true);
   assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
   const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
   assert.equal(end.recorded, false, 'a normal turn end erased the block AND the question under it');
@@ -190,6 +191,9 @@ test('#6209 review 1: a provider error over a deliberate question, then a normal
   assert.equal(shown.because, 'which domain should I use?');
   assert.equal(shown.by, 'agent', 'the restored question was not kept as the agent\'s own');
   assert.equal(end.restored, true);
+  // Review 4: not re-dated (its age, the reminder's clock and a person's notice stay), and no old run's fields.
+  assert.equal(shown.askedAt, asked.at, 'the restored question was re-dated');
+  assert.ok(!shown.instance, 'the restored line carried the old run\'s instance');
   // CONTROL: the same sequence with a permission prompt (an auto needs_you) under the block does clear.
   const perm = 'perm-then-outage-6209';
   assert.equal(selfreport.record(perm, { state: 'needs_you', because: 'asking permission to use Bash: ls', auto: true }).recorded, true);
@@ -236,4 +240,20 @@ test('#6209 review 2: when the run of blocks reaches the front of the tail read,
   fs.writeFileSync(file, text);
   assert.equal(selfreport.read(who).state, 'blocked', 'fixture: the standing line is the block');
   assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false, 'an unknown line under the block was taken as nothing');
+});
+
+test('#6209 review 4: a days-old question re-shown after a provider block keeps its original asking time', () => {
+  const who = 'old-question-6209';
+  const file = selfreport.fileFor(who);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const old = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString();
+  fs.appendFileSync(file, JSON.stringify({ v: 1, state: 'needs_you', because: 'which domain?', by: 'agent', instance: 'run-old', at: old }) + '\n');
+  assert.equal(selfreport.read(who).askedAt, old, 'fixture: the question reads two days old');
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (server_error)', owner: 'provider', auto: true }).recorded, true);
+  const end = selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true });
+  assert.equal(end.restored, true);
+  const shown = selfreport.read(who);
+  assert.equal(shown.state, 'needs_you');
+  assert.equal(shown.askedAt, old, 'the re-shown question was re-dated to now');
+  assert.ok(!shown.instance, 'the re-shown line carried the old run\'s instance');
 });

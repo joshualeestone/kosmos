@@ -183,7 +183,16 @@ function lineUnderProviderBlock(sessionName) {
   }
   let i = rows.length - 1;
   while (i >= 0 && isAutoProviderBlock({ found: true, ...rows[i] })) i -= 1;
-  if (i >= 0) return { row: rows[i] };
+  if (i >= 0) {
+    // Review 4: the covered wait's own run start (the same state and words before it), for the restored line's askedAt.
+    const same = (a, b) => a.state === b.state && (a.because || '') === (b.because || '') && (a.project || '') === (b.project || '');
+    let j = i;
+    while (j > 0 && same(rows[j - 1], rows[i])) j -= 1;
+    const first = rows[j];
+    const askedAt = typeof first.askedAt === 'string' && Number.isFinite(Date.parse(first.askedAt)) ? first.askedAt
+      : (typeof first.at === 'string' && Number.isFinite(Date.parse(first.at)) ? first.at : null);
+    return { row: rows[i], askedAt };
+  }
   return cut ? { unknown: true } : { row: null };
 }
 
@@ -329,7 +338,14 @@ function record(sessionName, entry) {
       }
       if (under.row && hidesWait(under.row)) {
         try {
-          const back = { ...under.row, at: new Date().toISOString(), restored: 'provider block over' };
+          /* Review 4: only the wait's own fields (no instance, until, left, waiting or final from the old line), and its
+             ORIGINAL asking time (askedAt, which read() honours), so the wait is not re-dated: its age, the stale-report
+             reminder's clock and a person's notice of it stay as they were. */
+          const r = under.row;
+          const back = { v: 1, state: r.state, because: r.because || null, on: r.on || null, owner: r.owner || null,
+            project: r.project || null, by: r.by === 'agent' || r.by === 'operator' ? r.by : null,
+            at: new Date().toISOString(), askedAt: under.askedAt || null, restored: 'provider block over' };
+          if (!back.by) delete back.by;   // an unmarked (legacy) wait stays unmarked
           fs.appendFileSync(fileFor(sessionName), JSON.stringify(back) + '\n');
           return { recorded: false, restored: true, skipped: 'waiting', because: 'the provider answered again, so the ' + under.row.state + ' it had covered is shown again' };
         } catch {
@@ -529,7 +545,12 @@ function read(sessionName) {
        generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
     {
       const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
-      if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; runFromFirst = parsed === 0; }
+      if (key !== runKey) {
+        runKey = key;
+        // #6209 review 4: a wait re-shown after a provider block carries its original asking time.
+        runAt = typeof row.askedAt === 'string' && Number.isFinite(Date.parse(row.askedAt)) ? row.askedAt : (typeof row.at === 'string' ? row.at : null);
+        runFromFirst = parsed === 0;
+      }
       parsed += 1;
     }
   }

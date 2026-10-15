@@ -61,3 +61,13 @@ activity log, but no longer red.
   too, which fits limitReleased (an idle card is released); a deliberate report carrying `until` is untouched.
 - Comments: the hook doc lists every refusal again; the new helpers sit after isAutoPermissionWait, so record()'s
   own doc comments are above record() again.
+
+## Review 4 (sonnet), and what changed
+- Fixed: the re-shown wait keeps its ORIGINAL asking time (askedAt on the restored line, from the covered wait's own run
+  start; read() honours it when it starts a run), so a days-old question is not re-dated: its age, the stale-report
+  reminder's clock and a person's notice stay. Tested (askedAt equals the first report's time; ignoring it fails).
+- Fixed: only the wait's own fields are restored (state, words, on, owner, project, writer), not the old line's
+  instance, until, left, waiting or final; an unmarked legacy wait stays unmarked.
+- Known: two concurrent Stop reports could both re-append the wait (a duplicate line, same words and askedAt: harmless).
+- The weakest premise (StopFailure INSTEAD of Stop) stands, unmeasured; if both fired for one failed turn, the block
+  (the #5805 rate-limit red included) would clear at once. Measuring it needs a live failed turn on a real agent.
