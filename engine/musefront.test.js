@@ -942,6 +942,7 @@ test('#6065 N1: a busy digest records how many posts it held and every spill in 
     const r = front.turnRecord(h.logged[1].t, 'T');
     assert.equal(r.digestPosts, 2);
     assert.deepEqual(r.spillWords, [300, 500]);
+    assert.ok(r.opening && !r.opening.startsWith('[background'), 'the opening is the first post\'s words, not an envelope: ' + r.opening);
   });
 });
 
@@ -1133,6 +1134,12 @@ test('#5636 F7a: tz is the local offset, west of UTC negative (a fixed zone, so 
     process.env.TZ = 'America/Chicago';
     assert.equal(front.turnRecord('x', '2026-01-15T12:00:00Z').tz, -360, 'Chicago in winter is UTC-6');
   } finally { if (was === undefined) delete process.env.TZ; else process.env.TZ = was; }
+});
+
+test('#5636 F7a: a task line quoting the person keeps no opening', () => {
+  const r = front.turnRecord('[Kosmos: you were given task 12 in "Q4": rewrite the pricing page for the board. Say when it is done.]', 'T');
+  assert.equal(r.opening, undefined);
+  assert.ok(!JSON.stringify(r).includes('pricing'));
 });
 
 test('#5636 F7a: words typed straight into the pane (no envelope) keep no opening', () => {

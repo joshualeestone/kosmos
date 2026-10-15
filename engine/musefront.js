@@ -189,7 +189,11 @@ const TURN_LOG_MAX = 256 * 1024;
 const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
-const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:', '[Kosmos:'];
+/* Envelopes whose opening holds no words of the person's: a colleague's message or room post, and the community
+   reminders ("Kosmos here:" with a colon). Left out on purpose: "[Kosmos: you were given task N ...]" quotes the
+   person's task, and the "Kosmos here," (comma) nudges can carry a task title. A busy digest is read through its first
+   post (below). */
+const OPENING_OK = ['[message from your colleague', BACKGROUND_PREFIX, 'Kosmos here:'];
 const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
 function turnRecord(text, at, arrived = null) {
   const t = String(text);
@@ -206,7 +210,9 @@ function turnRecord(text, at, arrived = null) {
   /* The person's words stay out. An opening is kept only for a line that starts with an envelope known not to be theirs
      (a colleague's message or room post, a Kosmos line) and holds none of theirs (a stop note quotes them): text the
      person types straight into this pane has no envelope, so it keeps none. */
-  if (OPENING_OK.some((x) => t.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
+  // A digest's own header has no words: its opening is its first post's (after that post's envelope).
+  const first = digest ? t.slice(t.indexOf('\n') + 1).split('\n')[0] : t;
+  if (OPENING_OK.some((x) => first.startsWith(x)) && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(first);
   return rec;
 }
 const TURN_LOG_IGNORE = 'muse-turns.log\nmuse-turns.log.1\n';
