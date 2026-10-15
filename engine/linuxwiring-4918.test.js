@@ -267,10 +267,11 @@ test('#4918 review 8: a Linux restart whose stop systemd refused is never report
 
 /* #6183: the Linux restart acts are now STEPS the async driver runs with execFile (engine/remove.js jobOps(linux)
    `steps`), so an account move's restarts do not block the board once per agent, as #6173 did for the Mac. These two
-   prove it the way #6173's Mac test does: an async restart sends every systemctl to the ASYNC runner and none to the
-   synchronous one, and the board's thread keeps turning while they run; the sync control holds it. systemd's acts do
-   not poll, so the per-command subprocess time is the contrast and is injected here (a timer for the async side, an
-   Atomics.wait park for the sync side). */
+   prove it by ROUTING, not by a wall-clock measurement: an async restart sends every systemctl through the ASYNC
+   (execFile) runner and none through the synchronous (execFileSync) one, which is the only runner that can hold the
+   board; the sync control then shows the same restart through the sync runner DOES hold the board (an Atomics.wait
+   park stands in for execFileSync's blocking time). The routing is a deterministic proof where a responsiveness
+   threshold would only approximate it and flake on a shared box. */
 function linuxRestartFixture(name) {
   const create = require('./create');
   fs.mkdirSync(create.workerDir(name), { recursive: true });
@@ -283,41 +284,30 @@ function linuxRestartAnswer(cmd, args) {
   if (cmd === 'systemctl' && args[1] === 'is-active') return { ok: true, stdout: 'active\n' };
   return { ok: true, stdout: '' };
 }
-/* The longest the board's thread went without turning, by an interval: a blocking call shows as a gap (remove.test.js). */
-function watchTurns6183() {
-  let last = Date.now(), maxGap = 0, turns = 0;
-  const iv = setInterval(() => { const t = Date.now(); maxGap = Math.max(maxGap, t - last); last = t; turns++; }, 5);
-  return { stop: () => { clearInterval(iv); maxGap = Math.max(maxGap, Date.now() - last); return { maxGap, turns }; } };
-}
 function blockMs6183(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.max(0, ms | 0)); }
 
-test('#6183: an async Linux restart sends every systemctl to the async runner and keeps the board turning', async (t) => {
+test('#6183: an async Linux restart sends every systemctl through the async runner, never the synchronous one', async (t) => {
   const name = 'asynclin';
   const status = require('./status');
   const { unit, workdir } = linuxRestartFixture(name);
   status.setPaneSource(() => '');   // empty board: a fromDead start, no session to close -- the job acts still run
   const sync = [], acalls = [];
-  remove.setRunner((cmd, args) => { sync.push([cmd, ...args]); return { ok: false, code: 99 }; });   // must never be asked
-  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); await new Promise((r) => setTimeout(r, 80)); return linuxRestartAnswer(cmd, args); });   // 80 ms each: longer than the maxGap ceiling, so an inline command would be caught
+  remove.setRunner((cmd, args) => { sync.push([cmd, ...args]); return { ok: false, code: 99 }; });   // the blocking (execFileSync) runner: must never be asked
+  remove.setAsyncRunner(async (cmd, args) => { acalls.push([cmd, ...args]); return linuxRestartAnswer(cmd, args); });
   t.after(() => {
     remove.setRunner(null); remove.setAsyncRunner(null); status.setPaneSource(null);
     require('./disruption').clear(name);
     fs.rmSync(unit, { force: true }); fs.rmSync(workdir, { recursive: true, force: true });
   });
-  const w = watchTurns6183();
   const out = await remove.restartAsync(name, 'account', { platform: 'linux', startIfDead: true });
-  const { maxGap, turns } = w.stop();
   assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
+  // The proof the board does not freeze is the ROUTING, not a timing measurement. A command holds the board only by
+  // going through the synchronous (execFileSync) runner; the async runner is execFile, which does not. So an empty
+  // `sync` is a deterministic proof nothing ran inline, and the sync control below proves the other half: the same
+  // restart through the sync runner DOES hold the board.
   assert.deepEqual(sync, [], 'a command went through the blocking runner');
   const systemctl = acalls.filter((c) => c[0] === 'systemctl').map((c) => c[2]);
   assert.deepEqual(systemctl, ['stop', 'daemon-reload', 'start', 'is-active'], 'the restart acts, all through the async runner');
-  // The load-bearing proof is `sync` being empty (above): a command only ever blocks the board by going through the
-  // SYNC runner, so an empty sync runner is a deterministic proof none ran inline. `turns` corroborates it: four
-  // commands at 80 ms each (320 ms) run off the board's thread, so a 5 ms interval fires dozens of times, where a
-  // fully inline restart holds the thread and fires ~0 (the sync control below asserts exactly that). maxGap is kept
-  // for the failure message but NOT asserted: a tight gap ceiling flakes on this shared box (up to ~18 agents), and
-  // sync-is-empty already carries the proof a gap threshold would only approximate.
-  assert.ok(turns > 10, 'the board barely turned during the restart (turns=' + turns + ', maxGap=' + maxGap + ' ms)');
 });
 
 test('#6183 control: a synchronous Linux restart holds the board for the whole of its systemctl calls', (t) => {
@@ -392,6 +382,28 @@ test('#6183: a sandboxed board yields no systemctl command from any restart step
     linuxjob.setSystemdDirForTests(() => unitDir);
     fs.rmSync(launch, { recursive: true, force: true });
   }
+});
+
+test('#6183: each restart step builds the exact same systemctl argv (and timeout) as its sync twin -- cannot drift', (t) => {
+  const name = 'parity';
+  // Record what argv the sync functions hand the module runner. A canned "active" answer drives the multi-command
+  // acts (startOnly: reload then start; status: is-active then is-enabled) all the way through.
+  const recorded = [];
+  linuxjob.setRunnerForTests((cmd, args) => { recorded.push([cmd, ...args]); return { ok: true, stdout: 'active\n' }; });
+  t.after(() => linuxjob.setRunnerForTests((cmd, args) => { calls.push([cmd, ...args]); return answer(cmd, args); }));   // restore the before() runner
+  const syncArgv = {};
+  for (const act of ['stop', 'startOnly', 'loaded', 'status']) { recorded.length = 0; linuxjob[act](name, undefined); syncArgv[act] = recorded.slice(); }
+  // The steps yield { exec: ['systemctl', args, { timeout }] }; flatten to the same [cmd, ...args] shape, and pin the
+  // timeout against the shared constant (the reviewer's "{timeout} could drift undetected" case).
+  const stepArgvOf = (gen) => {
+    const { sent } = driveLinSteps(gen, () => ({ ok: true, stdout: 'active\n' }));
+    for (const e of sent) assert.equal(e[2] && e[2].timeout, linuxjob.SYSTEMCTL_TIMEOUT_MS, 'a step used a timeout other than SYSTEMCTL_TIMEOUT_MS');
+    return sent.map((e) => [e[0], ...e[1]]);
+  };
+  assert.deepEqual(stepArgvOf(linuxjob.stopSteps(name, undefined)), syncArgv.stop, 'stopSteps argv drifted from stop');
+  assert.deepEqual(stepArgvOf(linuxjob.startOnlySteps(name, undefined)), syncArgv.startOnly, 'startOnlySteps argv drifted from startOnly');
+  assert.deepEqual(stepArgvOf(linuxjob.loadedSteps(name, undefined)), syncArgv.loaded, 'loadedSteps argv drifted from loaded');
+  assert.deepEqual(stepArgvOf(linuxjob.statusSteps(name, undefined)), syncArgv.status, 'statusSteps argv drifted from status');
 });
 
 test('#4918 review 8: a removal record that kept only the unit name acts on THAT world\'s unit', (t) => {
