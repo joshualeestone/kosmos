@@ -601,7 +601,8 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   // after: read to the end, so not said (only pages left waiting are "not reached").
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
   // Said when the window leaves pages waiting:
-  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were past what a read reaches, so new ones among them may be missed \(reading again right away will not reach them\)\)/);
+  // #6204: and the next read goes on from where this one stopped.
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read; the next read goes on from where this one stopped\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1854,7 +1855,8 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), r.text.slice(-400));
+  // #6204: the next read goes on from where this one stopped.
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read; the next read goes on from where this one stopped)'), r.text.slice(-400));
 });
 
 test('#6201: a thread whose new items are 200 deep replies is read to the end over several reads, never repeating one (SEEN_MAX holds them)', async () => {
@@ -2166,4 +2168,99 @@ test('#6201 review 17: a 429 in round 1 sends no round-2 pages', async () => {
   });
   await cr.readReplies('R1L6201', { now: NOW });
   assert.equal(pages, 0, 'round 2 still sent pages after round 1 met a 429');
+});
+
+/* #6204: a read's reply paging goes on next time from where it stopped, so the tails of long threads (where new replies
+   sit, the service listing them oldest first) are reached over successive budget-limited reads, each reply once. */
+const D6204 = (n) => 'd6204000-0000-4000-8000-' + String(n).padStart(12, '0');
+function longThreads(pid, opts = {}) {
+  const L = opts.letter || 'p';   // the service's cursor spelling: one it no longer uses is refused
+  const old = (k) => new Date(Date.parse('2026-09-20T00:00:00Z') + k * 1000).toISOString();   // before the 7-day window
+  const tops = Array.from({ length: 8 }, (_, i) => comment({ id: D6204(i + 1), created_at: old(i), reply_count: 103, replies_cursor: 'k' + i + L + '0',
+    replies: [0, 1].map((k) => comment({ id: D6204(1000 + i * 200 + k), parent_id: D6204(i + 1), created_at: old(100 + k) })) }));
+  // The newest item on the post is a top-level comment newer than every tail, so a mark set from it would hide them.
+  const newest = comment({ id: D6204(99), created_at: T(11), body: 'the newest top comment', agent: { name: 'Zed' } });
+  const extra = new Map();   // replies added to a thread's tail after a read
+  const thread = (i) => Array.from({ length: 100 }, (_, k) => comment({ id: D6204(1000 + i * 200 + 2 + k), parent_id: D6204(i + 1), created_at: old(200 + k) }))
+    .concat([comment({ id: D6204(5000 + i), parent_id: D6204(i + 1), created_at: T(5), agent: { name: 'Zed' }, body: 'tail ' + i })], extra.get(i) || []);
+  const asked = [];
+  cr.setFetcher(async (url) => {
+    asked.push(url);
+    const u = new URL(url);
+    const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
+    if (!m) return { status: 200, json: { comments: [newest, ...tops] } };
+    const i = tops.findIndex((t) => t.id === m[1]);
+    const cur = u.searchParams.get('cursor');
+    if (!new RegExp('^k\\d+' + L + '\\d+$').test(cur)) return { status: 400, json: { detail: 'bad cursor' } };
+    const p = Number(cur.split(L)[1]);
+    const all = thread(i);
+    return { status: 200, json: { next_cursor: (p + 1) * 20 < all.length ? 'k' + i + L + (p + 1) : null, replies: all.slice(p * 20, p * 20 + 20) } };
+  });
+  return { asked, tops, extra };
+}
+const shownIds = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
+
+test('#6204: successive budget-limited reads reach every long thread\'s tail, each reply once, and the mark never passes an unread tail', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Tail6204', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const f = longThreads(RP(4));
+  const first = await cr.readReplies('Tail6204', { now: NOW });
+  // 8 threads of 6 pages are 48 pages: one read's budget cannot reach the tails, and says the next read goes on.
+  assert.equal(f.asked.filter((u) => u.includes('/replies?')).length, cr.REPLY_PAGES_MAX);
+  assert.ok(!/tail \d/.test(first.text), 'CONTROL: a tail was reached in the first read, so the budget never bit');
+  assert.match(first.text, /were not reached in this read; the next read goes on from where this one stopped\)/, first.text.slice(-500));
+  const shown = shownIds(first.text);
+  for (let k = 1; k < 4; k += 1) shown.push(...shownIds((await cr.readReplies('Tail6204', { now: NOW + k * 1000 })).text));
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(5000 + i)), 'the tail of thread ' + i + ' was never shown');
+  assert.equal(shown.length, 9, 'not exactly the 8 tails and the newest comment were shown');
+  // Once read to its end, a thread is not paged from its start again: a new reply on its tail costs its last page only.
+  f.extra.set(3, [comment({ id: D6204(6000), parent_id: D6204(4), created_at: T(11), agent: { name: 'Zed' }, body: 'later' })]);
+  f.tops[3].reply_count = 104;
+  f.asked.length = 0;
+  const again = await cr.readReplies('Tail6204', { now: NOW + 9000 });
+  assert.deepEqual(shownIds(again.text), [D6204(6000)]);
+  const cursors = f.asked.filter((u) => u.includes('/replies?')).map((u) => new URL(u).searchParams.get('cursor'));
+  assert.ok(cursors.includes('k3p5'), 'the thread with a new reply was not read from its last page');
+  assert.ok(cursors.every((c) => c.endsWith('p5')), 'a finished thread was paged from before its last page: ' + cursors.join(' '));
+  // A thread with more new replies goes on past its last page AHEAD of the other threads' re-checks, which wait behind
+  // every other page of the read (they are not known to hold anything new).
+  f.extra.set(5, Array.from({ length: 25 }, (_, k) => comment({ id: D6204(7000 + k), parent_id: D6204(6), created_at: T(11), agent: { name: 'Zed' } })));
+  f.tops[5].reply_count = 128;
+  f.asked.length = 0;
+  await cr.readReplies('Tail6204', { now: NOW + 10000 });
+  const order = f.asked.filter((u) => u.includes('/replies?')).map((u) => new URL(u).searchParams.get('cursor'));
+  assert.ok(order.includes('k5p6'), 'the thread\'s next page was not read: ' + order.join(' '));
+  assert.ok(order.indexOf('k5p6') < Math.max(...['k0p5', 'k1p5', 'k2p5', 'k4p5', 'k6p5', 'k7p5'].map((c) => order.indexOf(c))),
+    'a re-check of a finished thread went ahead of a page known to hold new replies: ' + order.join(' '));
+  // A re-check the read had no time for keeps its place as it was, and is not said as not reached.
+  const before = JSON.parse(fs.readFileSync(seenPath('Tail6204'), 'utf8')).posts[RP(4)].threads;
+  const none = await cr.readReplies('Tail6204', { now: NOW + 11000, round2Ms: 0 });
+  assert.deepEqual(JSON.parse(fs.readFileSync(seenPath('Tail6204'), 'utf8')).posts[RP(4)].threads, before, 'a re-check left waiting moved its place');
+  assert.ok(!/not reached in this read|past what a read reaches/.test(none.text), 'a re-check left waiting was said as not reached');
+});
+
+test('#6204: a replies cursor that names the page just read is read once and said, not followed until the budget runs out', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Stk6204', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const asked = serve({
+    ['/posts/' + RP(6) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6204(800), created_at: T(1), reply_count: 40, replies_cursor: 'S', replies: [] })] } }),
+    ['/posts/' + RP(6) + '/comments/' + D6204(800) + '/replies']: () => ({ status: 200, json: { next_cursor: 'S', replies: [comment({ id: D6204(801), parent_id: D6204(800), created_at: T(2) })] } }),
+  });
+  const r = await cr.readReplies('Stk6204', { now: NOW });
+  assert.equal(asked.filter((u) => u.includes('/replies?')).length, 1, 'a cursor that does not move was followed');
+  assert.match(r.text, /: 39 replies were past what a read reaches, so new ones among them may be missed/, r.text.slice(-300));
+});
+
+test('#6204: a saved place the service refuses is dropped and the thread is paged from its start, so nothing is lost', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Ref6204', remoteId: RP(7), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  longThreads(RP(7));
+  const shown = shownIds((await cr.readReplies('Ref6204', { now: NOW })).text);
+  // The service then spells its cursors differently, so every place the first read saved is refused.
+  const f = longThreads(RP(7), { letter: 'q' });
+  for (let k = 1; k < 4; k += 1) shown.push(...shownIds((await cr.readReplies('Ref6204', { now: NOW + k * 1000 })).text));
+  assert.ok(f.asked.some((u) => /p\d+$/.test(new URL(u).searchParams.get('cursor') || '')), 'CONTROL: no saved place was tried, so none was refused');
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice');
+  for (let i = 0; i < 8; i += 1) assert.ok(shown.includes(D6204(5000 + i)), 'the tail of thread ' + i + ' was lost after its saved place was refused');
 });
