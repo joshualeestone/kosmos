@@ -112,6 +112,7 @@ test('#6214: a refusal offers one Stop the move button, and pressing it says the
   await b.click();
   assert.equal(box.kids.includes(b), false, 'a stop that worked takes its button away');
   assert.equal(say.hidden, false, 'the sentence was written into a hidden line');
+  assert.ok(say.hasAttribute('data-stop-move-said'), 'the answer is not marked, so the toast repaint can erase it at once');
   assert.equal(say.textContent, 'The move will stop once bo has finished restarting. Kosmos puts the agents it had not reached back on their old account where it can, and Settings, AI Models shows which account each agent is on. Try again once the move has ended.');
 });
 
@@ -160,6 +161,8 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   assert.match(restart, /offerStopMove\(btn \|\| shown, shown\);/);
   /* The 15 s repaint waits while an offer is on screen, so a press still out is not answered into a removed node. */
   assert.match(restart, /if \(sl\.querySelector\('\[data-stop-move-offer\]'\) && \+\+holds < 20\) \{ setTimeout\(release, ENGINE_SAID_HOLD_MS\); return; \}/);
+  assert.match(restart, /if \(answered\) \{ answered\.removeAttribute\('data-stop-move-said'\); setTimeout\(release, ENGINE_SAID_HOLD_MS\); return; \}/,
+    'the stop\'s answer can be repainted away the moment it is written');
   const sw = page.lift(SCRIPT, 'worldswSwitch');
   assert.match(sw, /else if \(res\.status === 409\) \{\n\s+say\([^\n]+\);\n\s+if \(body && body\.moveStoppable\) offerStopMove\(bmsg, bmsg\);/,
     'a Kosmos switch does not offer the stop');
@@ -174,6 +177,7 @@ test('#6214: the moving row draws Stop the move, and each board-restart refusal 
   assert.match(restart.slice(0, 600), /clearStopMoveOffers\(\);/, 'a fresh Restart Kosmos press leaves the old offer behind');
   assert.match(sw.slice(0, 300), /if \(WORLDSW_SWITCHING\) return;\n\s+clearStopMoveOffers\(\);/, 'a fresh switch leaves the old offer behind');
   assert.match(page.lift(SCRIPT, 'clearStopMoveOffers'), /for \(const b of document\.querySelectorAll\('\[data-stop-move-offer\]'\)\) b\.remove\(\);/);
+  assert.match(page.lift(SCRIPT, 'clearStopMoveOffers'), /for \(const e of document\.querySelectorAll\('\[data-stop-move-said\]'\)\) e\.removeAttribute\('data-stop-move-said'\);/);
 });
 
 test('#6214: after a stop, the row says who moved, who was put back and who could not be, in the board\'s own words', async () => {
