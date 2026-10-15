@@ -770,3 +770,42 @@ test('#6232 review 7: once a removal clears the company policy elsewhere, the ne
   await orgRefreshIfDue();
   assert.equal(syncs, 2, 'the agents kept the removed company\'s AI policy text after the check');
 });
+
+test('#6232 review 8: an agent that cannot be told is retried hourly from the check, not every five minutes', async (t) => {
+  const live = require('./engine/live-execution');
+  const policy = require('./engine/policy');
+  const { orgRefreshIfDue, companyPolicySync, _orgRefreshResetForTests } = require('./server');
+  _orgRefreshResetForTests();
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  const realWrite = process.stderr.write;
+  let entry = { name: 'Acme', text: 'Use only approved tools.' };
+  let syncs = 0;
+  let stuck = false;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => { syncs += 1; return stuck ? [{ state: 'could-not', agent: 'ari', because: 'its session is gone' }] : []; };
+  let warned = 0;
+  process.stderr.write = function (chunk, ...rest) { if (/could not hand your company/.test(String(chunk))) { warned += 1; return true; } return realWrite.call(this, chunk, ...rest); };
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; process.stderr.write = realWrite; live.resetForTests(); _orgRefreshResetForTests(); });
+  fs.rmSync(enrollmentFile(), { force: true });
+  companyPolicySync();   // records the company text the agents hold
+  entry = null;          // removed elsewhere; one agent cannot be told
+  stuck = true;
+  const M = 60 * 1000;
+  const at = Date.now();
+  await orgRefreshIfDue(at);
+  assert.equal(syncs, 1, 'CONTROL: the removal was not handed to the agents');
+  assert.equal(warned, 1, 'CONTROL: the stuck agent was not reported');
+  await orgRefreshIfDue(at + 5 * M);
+  await orgRefreshIfDue(at + 30 * M);
+  assert.equal(syncs, 1, 'a stuck agent was retried on every five-minute check (a roster pass each time)');
+  assert.equal(warned, 1, 'the same warning was written on every five-minute check');
+  await orgRefreshIfDue(at + 61 * M);
+  assert.equal(syncs, 2, 'a stuck agent was never retried from the check');
+  // Told at last: the text is recorded, and later checks do nothing.
+  stuck = false;
+  await orgRefreshIfDue(at + 122 * M);
+  assert.equal(syncs, 3, 'CONTROL: the hourly retry did not run');
+  await orgRefreshIfDue(at + 127 * M);
+  assert.equal(syncs, 3, 'a text every agent holds was handed again');
+});

@@ -22849,14 +22849,31 @@ function orgRefreshIfDue(now = Date.now()) {
   /* Review 7: a removal caught by a refused rollup or agent event ends the enrollment and the applied policy there
      (they call oe.refresh themselves), and every later ask returns before companyPolicySync because nothing is
      enrolled, so the agents kept the company's AI policy text until a restart. While agents hold a company text, each
-     check hands them the current one (one small read when nothing changed). Not while none is held, so a board in no
-     company does nothing here, and not while some agents could not be told (that retry stays with the next ask). */
-  if (typeof COMPANY_POLICY_SEEN === 'string') companyPolicySync();
+     check reads the current one and, when it differs, hands it over. Not while none is held, so a board in no company
+     does nothing here. Review 8: each change is handed once from here, and tried again only hourly while some agent
+     could not be told, so a stuck agent costs no more than the hourly ask (not a roster pass and a warning per check). */
+  if (typeof COMPANY_POLICY_SEEN === 'string') {
+    let held = COMPANY_POLICY_SEEN;
+    try { const c = policyEngine.companyEntry(); held = c ? JSON.stringify([c.name, c.text]) : null; } catch { /* unread: leave it */ }
+    if (held !== COMPANY_POLICY_SEEN
+      && (held !== COMPANY_CHECK_TRIED || now - COMPANY_CHECK_AT >= ORG_REFRESH_MS || now < COMPANY_CHECK_AT)) {
+      COMPANY_CHECK_TRIED = held;
+      COMPANY_CHECK_AT = now;
+      companyPolicySync();
+    }
+  }
   if (now >= ORG_NEXT_AT || now < ORG_ASKED_AT) return orgEnrollRefresh();
   return undefined;
 }
+/** Review 8: the company text the five-minute check last handed over, and when (so a change is tried once, then
+    hourly while an agent stays untold). */
+let COMPANY_CHECK_TRIED;
+let COMPANY_CHECK_AT = 0;
 /* TESTS ONLY: start the hourly schedule over (no ask yet, no misses), so a test does not depend on the one before it. */
-function _orgRefreshResetForTests() { ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0; COMPANY_POLICY_SEEN = undefined; }
+function _orgRefreshResetForTests() {
+  ORG_ASKED_AT = 0; ORG_NEXT_AT = 0; ORG_REFRESH_MISSES = 0;
+  COMPANY_POLICY_SEEN = undefined; COMPANY_CHECK_TRIED = undefined; COMPANY_CHECK_AT = 0;
+}
 /* #5534 slice 3: the company's AI policy text (engine/policy.js companyEntry, from the applied company policy) reaches
    every agent's policy block when it changes: a new company policy applied by a refresh, or cleared by leaving.
    Compared by what agents are handed (name and text), so a refresh, or a new version that changed only other

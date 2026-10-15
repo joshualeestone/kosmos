@@ -47,6 +47,7 @@ server.orgenroll-5531.test.js, each measured to fail on the change it guards:
   schedule over (_orgRefreshResetForTests).
 - review 7: after a removal clears the policy elsewhere, the next check hands the agents the change; a board whose
   agents hold no company text does nothing on a check (no read, no repeated warning).
+- review 8: an agent that cannot be told is retried hourly from the check, not every five minutes.
 Comments that called this refresh "daily" now say hourly (server.js, orgenroll.js, orgpolicy.js, orgrollup.js,
 agentevents.js, two test files, CLAUDE.md).
 
@@ -101,3 +102,9 @@ is for the first run after merge.
   nothing changed), so they are told within five minutes. Tested by behaviour: dropping the call, or running it
   without the guard (a warning on every check for a board with no company text), each fail it (measured).
 - Wording: the "sooner" sentence names agent events too; "in flight" wording; `now` is comparison-only.
+
+## Review 8 (sonnet), and what changed
+- The check re-ran the whole sync (a roster pass and a warning) every five minutes while an agent could not be told,
+  where the comment said that retry stayed with the ask. Now each change is handed once from the check, and tried
+  again only hourly while an agent stays untold; this also holds the "could not hand" courtesy lines to hourly.
+  Tested; removing the limit fails it (measured).
