@@ -30469,7 +30469,7 @@ function aoAccountsOf(body) {
     };
   });
 }
-/* That computer's agents with the account each runs on (its folder, which matches an accountsWeekly entry there). */
+/* That computer's agents with the account each runs on: its acct, the key of an accountsWeekly entry there. */
 function aoAgentsOf(body) {
   if (!body || !Array.isArray(body.agents)) return [];
   return body.agents.slice(0, AO_MAX_AGENTS).filter((a) => a && typeof a === 'object' && a.isGuide !== true && aoStr(a.sessionName)

@@ -4500,10 +4500,11 @@ function withPreviews(rows) {
    token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
    Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
    guards). Sec-Fetch-Site is the browser's own provenance (a page cannot set it), so the board reads it the way
-   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling): the
+   crossSiteRead does: anything but same-origin or none. Such a read gets the agents only (statusForSibling), and a
+   same-site one also gets each Claude account's email, label, organization and weekly usage (#6178, keyed, no folder
+   paths) with each agent's runner and account key: the
    Agents view on the other computer uses sessionName, name and state, and the rest of the answer (the update state,
-   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business (#6178
-   adds the accounts' weekly usage, keyed without their folders). A
+   updateLog's install path with the Mac's user name, the world, the engine) is this computer's own business. A
    request with no Sec-Fetch-Site (curl, the CLI) is not a sibling read and gets the full answer. An OLD browser's
    sibling read (no header) is closed by the relay, not here: it withholds the board token without the header
    (kosmos-relay proxy.rs board_token_allowed) and the board then refuses it. A change to either reopens that. */

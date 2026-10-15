@@ -12,7 +12,7 @@ Tested: a server test (red on main), a page test, and a browser check in Chromiu
   for /api/status, cached 15 s (the other computers' read interval) and keyed on the account list. A reading can be
   that old there while /api/accounts reads it live. On a read error it sends null, which the page words as "could not
   read its accounts", never as "no account".
-- `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, weekly, blocked }]` (the full answer; the sibling answer keys it instead, below). It reuses
+- `GET /api/status` gains `accountsWeekly: [{ dir, email, label, organization, isDefault, apiKey, weekly, blocked }]` (the full answer; the sibling answer keys it instead, below). It reuses
   the poll's one Claude list read (`claudeKnown`).
 
 - Who can read it. Another computer's browser reads /api/status as a sibling read, and #4973 cuts that answer down
