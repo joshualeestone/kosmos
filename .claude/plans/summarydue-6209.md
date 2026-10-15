@@ -2,7 +2,7 @@
 
 ## Finished looks like
 An idle Claude agent whose newest summaries/YYYY-MM-DD-HH.md is older than the four-hour rhythm AND that has reported
-more than the rhythm of work since it (projectview.workExcused) is told ONCE, typed into its session, instead of the
+more than the rhythm of work since it (workedSinceMs, positive evidence only) is told ONCE, typed into its session, instead of the
 staleness showing only inside project status. An idle agent, one with a current summary, one with none, one mid-turn
 and a non-Claude agent are not told.
 
@@ -21,5 +21,19 @@ and a non-Claude agent are not told.
 - Claude only, idle only: the screen readers that keep a typed line out of an open menu know Claude Code's screens.
 
 ## Weakest premise
-That workExcused's reading of reported work is right for this purpose: it counts only REPORTED work, so an agent whose
-working reports were lost is not told, and one whose reports overstate work is told early.
+That reported work is a fair measure: only REPORTED busy time after the summary counts (a missing or cut history, no
+known state at the summary, or no busy report after it reads as no work), so an agent whose reports were lost is not
+told, and one whose reports overstate work is told early.
+
+## Review 1 (opus), and what changed
+- Fixed: workExcused leaves a summary stale whenever it cannot tell (the right bias for a status line, the wrong one for
+  a typed line), so a missing history, an empty one, or a state carried across a crash read as days of work. Replaced by
+  workedSinceMs: positive evidence only (unknown start state is not busy, a missing or cut history is unknown, and at
+  least one busy report after the summary is required). The message states the reported work instead of claiming it.
+  Tested; both rules fail their test when removed (measured).
+- Tests added: the on-disk record stops a repeat after a restart; failed deliveries retry and stop at MAX_TRIES; paused
+  and channel-reached cards are skipped. The record keeps heldSaidFor and screenSaidFor as the model does.
+- Decided, stated gaps: project status also re-labels a stale summary "quiet" (quietExcused) or "idle"; the nudge does
+  not, so it can tell an agent whose task parts all closed but whose room or DM turns added up to the rhythm (that is
+  still unwritten work). An agent that never wrote any summary is not told (follow-up if wanted: use roles.js
+  NO_SUMMARY to tell agents with the rhythm and no summary at all).

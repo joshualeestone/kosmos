@@ -7,8 +7,9 @@
  *
  * Who is told, all of:
  *  - its newest summaries/YYYY-MM-DD-HH.md (projectview.summaryFreshness, in its own folder, create.workerDir) is older
- *    than the rhythm (SUMMARY_RHYTHM_HOURS), AND projectview.workExcused still reads it stale: it has REPORTED more than
- *    the rhythm of work since that summary (an idle agent is not expected to write, so a stale file alone is not owed).
+ *    than the rhythm (SUMMARY_RHYTHM_HOURS), AND it has REPORTED more than the rhythm of work since that summary
+ *    (workedSinceMs: positive evidence only; a missing or cut history, or no known state at the summary, is not work).
+ *    An idle agent is not expected to write, so a stale file alone is not owed.
  *    An agent with no summary file at all is not told (a role without the rhythm never writes one);
  *  - its card is ours, a Claude agent, idle (between turns), not a switched-off swarm, not reached through a channel.
  * Its screen is read first (stalereport-nudge's screenOpen), and nothing is typed while a menu or a prompt is open there
@@ -59,6 +60,32 @@ function filePrompted() {
   };
 }
 
+/* Review 1: REPORTED work since the summary, needing positive evidence (unlike projectview.workExcused, which leaves a
+   summary stale whenever it cannot tell, the right bias for a passive status line and the wrong one for a line typed
+   into the agent). The state at the summary is its last report at or before it; none known counts as NOT busy. A history
+   that is missing, or cut short after the summary, reads as unknown (null). Busy is any report but idle, started and
+   stopped, as workExcused counts it. */
+function workedSinceMs(rows, wroteAt, now) {
+  if (!Array.isArray(rows) || !Number.isFinite(wroteAt) || !Number.isFinite(now) || wroteAt > now) return null;
+  const read = rows.filter((r) => r && Number.isFinite(r.at) && r.at <= now && typeof r.state === 'string' && r.by !== 'operator');
+  if (rows.truncated === true && (!read.length || read[0].at > wroteAt)) return null;
+  const valid = read.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
+  const busy = (st) => st !== null && st !== 'idle' && st !== 'started' && st !== 'stopped';
+  // At least one busy report AFTER the summary: a state carried from before it (a crash, a board that was down) is not
+  // evidence of work since.
+  if (!valid.some((r) => r.at > wroteAt && busy(r.state))) return 0;
+  let state = null;
+  for (const r of valid) if (r.at <= wroteAt) state = r.state;
+  let from = wroteAt; let worked = 0;
+  for (const r of valid) {
+    if (r.at <= wroteAt) continue;
+    if (busy(state)) worked += r.at - from;
+    state = r.state; from = r.at;
+  }
+  if (busy(state)) worked += now - from;
+  return worked;
+}
+
 function hoursOf(ms) {
   const h = Math.floor(ms / 3600000);
   if (h < 48) return h + ' hours';
@@ -67,24 +94,25 @@ function hoursOf(ms) {
 
 /* The line typed into the agent: what is overdue, why it is owed (it has been working), and where the file goes, in the
    words its role gives (roles.js SUMMARY_RHYTHM). */
-function nudgeText(summary, now) {
+function nudgeText(summary, now, workedMs) {
   const age = hoursOf(Math.max(0, now - Date.parse(summary.at)));
   return 'Kosmos here, a reminder: your running summary is overdue. The last one (' + summary.file + ') was written '
-    + age + ' ago and you have been working since. Write the next one now: summaries/YYYY-MM-DD-HH.md in your own folder, '
-    + 'a few lines on what moved, what is blocked and what you decided.';
+    + age + ' ago, and you have reported about ' + hoursOf(workedMs) + ' of work since. Write the next one now: '
+    + 'summaries/YYYY-MM-DD-HH.md in your own folder, a few lines on what moved, what is blocked and what you decided.';
 }
 
 /* Pure: whether to prompt this card now. `summary` is summaryFreshness's reading, `worked` is workExcused's over it. */
-function plan(card, summary, worked, entry, now, promptedAt) {
+function plan(card, summary, workedMs, entry, now, promptedAt) {
   if (!card || !summary) return { act: 'none', because: 'no summary reading' };
   if (summary.state !== 'stale' || !summary.at || !summary.file) return { act: 'none', because: 'its summary is ' + (summary.state || 'unknown') };
-  if (!worked || worked.state !== 'stale') return { act: 'none', because: 'it has not worked the rhythm since its last summary' };
+  if (!Number.isFinite(workedMs)) return { act: 'none', because: 'its work since the summary is not known' };
+  if (!(workedMs > projectview.SUMMARY_RHYTHM_HOURS * 3600000)) return { act: 'none', because: 'it has not reported the rhythm of work since its last summary' };
   if (!Number.isFinite(now) || !Number.isFinite(Date.parse(summary.at))) return { act: 'none', because: 'no readable time for its summary' };
   if (promptedAt === summary.at || (entry && entry.forAt === summary.at && entry.nudgedAt != null)) return { act: 'none', because: 'already told about this summary' };
   if (entry && entry.forAt === summary.at && Number.isInteger(entry.tries) && entry.tries >= MAX_TRIES) {
     return { act: 'none', because: 'gave up after ' + MAX_TRIES + ' tries that reached nothing' };
   }
-  return { act: 'nudge', because: 'its last summary is ' + hoursOf(now - Date.parse(summary.at)) + ' old and it has been working' };
+  return { act: 'nudge', workedMs, because: 'its last summary is ' + hoursOf(now - Date.parse(summary.at)) + ' old and it reported about ' + hoursOf(workedMs) + ' of work since' };
 }
 
 function defaultScreen(session, roster) { return require('./stalereport-nudge').screenOpen(session, roster); }
@@ -112,14 +140,12 @@ function sweepOnce(o) {
       let summary = null;
       try { summary = projectview.summaryFreshness(folderOf(session), now); } catch { summary = null; }
       if (!summary || summary.state !== 'stale') continue;
-      let worked = null;
-      try {
-        worked = projectview.workExcused(summary, { present: true, tied: true, runner: 'claude', sessionName: session }, historyOf, now);
-      } catch { worked = null; }
+      let workedMs = null;
+      try { workedMs = workedSinceMs(historyOf(session), Date.parse(summary.at), now); } catch { workedMs = null; }
       const entry = book.get(session);
       let promptedAt = null;
       try { promptedAt = prompted.get(session); } catch { promptedAt = null; }
-      const p = plan(card, summary, worked, entry, now, promptedAt);
+      const p = plan(card, summary, workedMs, entry, now, promptedAt);
       if (p.act !== 'nudge') continue;
       let pz = null;
       try { pz = pauseFor(session); } catch { pz = null; }
@@ -139,7 +165,7 @@ function sweepOnce(o) {
       let state = null;
       let held = false;
       let heldBy = null;
-      try { const r = o.deliver(session, nudgeText(summary, now), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
+      try { const r = o.deliver(session, nudgeText(summary, now, p.workedMs), o.roster); state = r && r.state; held = Boolean(r && r.held === true); heldBy = (r && r.heldBy) || null; }
       catch (err) { state = 'threw: ' + String((err && err.message) || err); }
       if (held) {
         const why = p.because + '; held' + (heldBy ? ' (' + heldBy + ')' : '');
@@ -154,7 +180,7 @@ function sweepOnce(o) {
       const delivered = D.PLACED != null && state === D.PLACED;
       const mayHaveReached = delivered || (D.UNCONFIRMED != null && state === D.UNCONFIRMED);
       const tries = ((entry && entry.forAt === summary.at && Number.isInteger(entry.tries)) ? entry.tries : 0) + 1;
-      book.set(session, { forAt: summary.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state });
+      book.set(session, { forAt: summary.at, nudgedAt: mayHaveReached ? now : null, tries, delivery: state, heldSaidFor: entry && entry.heldSaidFor, screenSaidFor: entry && entry.screenSaidFor });
       if (mayHaveReached) {
         let kept = false;
         try { kept = prompted.set(session, summary.at, new Set(o.roster.map((c) => c && c.sessionName).filter(Boolean)), now) !== false; } catch { kept = false; }
@@ -191,4 +217,4 @@ function makeTick(deps) {
   };
 }
 
-module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, MAX_TRIES };
+module.exports = { plan, nudgeText, sweepOnce, makeTick, nudgeEnabled, promptedFile, workedSinceMs, MAX_TRIES };
