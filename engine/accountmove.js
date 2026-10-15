@@ -15,7 +15,9 @@
  * reads that as "not confirmed" for every agent it had not heard back about, never as moved.
  *
  * ⚠️ ON WINDOWS AND LINUX each restart still runs synchronously (their job acts are not written as steps yet), so the
- * board still freezes for one restart at a time there; it no longer holds the request open across all of them.
+ * board still freezes for one restart at a time there (#6183). And on every platform the request itself makes each
+ * agent's account write before it answers; on Windows and Linux that write rewrites the agent's job synchronously
+ * (schtasks, the user unit), so a large move holds the request for those writes there too.
  */
 
 const crypto = require('node:crypto');
@@ -42,6 +44,7 @@ let running = null;        // the id whose restarts are still running
 function busy() { return running !== null; }
 function busyBecause() { return BUSY; }
 function boardBusyBecause() { return BOARD_BUSY; }
+function boardGoingBecause() { return BOARD_GOING; }
 
 /* The outcome and sentence for one agent's move: the one place both routes (one agent, several) word it. */
 function sentence(name, wrote, back, RESTARTED) {
@@ -152,7 +155,9 @@ function start(body, deps) {
     /* Saved, but nothing will restart them: say so for each, and end the move (it never ran). */
     for (const a of pending) {
       try { deps.release(a.name); } catch { /* best effort */ }
-      const said = sentence(a.name, a.wrote, { outcome: 'partial', because: `the move could not start (${String((err && err.message) || err)}).` }, deps.RESTARTED);
+      let said;
+      try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: `the move could not start (${String((err && err.message) || err)}).` }, deps.RESTARTED); }
+      catch { said = { outcome: 'partial', because: 'We saved the account, but the move could not start its restart.' }; }
       a.outcome = said.outcome; a.because = said.because;
     }
     m.done = true; m.finishedAt = Date.now();
@@ -180,10 +185,10 @@ function start(body, deps) {
           try { said = sentence(a.name, a.wrote, back, deps.RESTARTED); }
           catch { said = { outcome: 'partial', because: 'We saved the account, but could not say how its restart went.', steps: [] }; }
           a.outcome = said.outcome; a.because = said.because; a.steps = said.steps;
-        } finally { deps.release(a.name); }
+        } finally { try { deps.release(a.name); } catch { /* the move must still end */ } }
       }
     } finally {
-      for (const a of pending) deps.release(a.name);
+      for (const a of pending) { try { deps.release(a.name); } catch { /* the move must still end (review 3) */ } }
       /* The move's time cap, or an unexpected throw, leaves one pending here: say so rather than leave it reading as
          still going. */
       for (const a of pending) {
@@ -211,4 +216,4 @@ function read(id) {
 
 function resetForTests() { moves.clear(); running = null; }
 
-module.exports = { start, read, busy, busyBecause, boardBusyBecause, sentence, resetForTests };
+module.exports = { start, read, busy, busyBecause, boardBusyBecause, boardGoingBecause, sentence, resetForTests };

@@ -3289,3 +3289,35 @@ test('#6173 Liu Kang m5496: an async restart whose command never answers is give
     disruption.clear(name);
   }
 });
+
+test('#6173 review 3: a command that FAILS after the cap (a rejection, not an answer) is not acted on either: nothing is sent after', async () => {
+  const name = madeAgent('failsaftercap');
+  boardShows(name, name);
+  const was = process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS;
+  process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '300';
+  const answer = scriptedLaunchd();
+  const calls = [];
+  let lateFailure;
+  remove.setRunner(scriptedLaunchd());
+  remove.setAsyncRunner((file, args) => {
+    calls.push(args[0]);
+    if (args[0] === 'bootout') return new Promise((_, reject) => { lateFailure = () => reject(new Error('launchctl went away')); });
+    return Promise.resolve(answer(file, args));
+  });
+  try {
+    await withWaits(async () => {
+      const out = await mac.restartAsync(name, 'account');
+      assert.equal(out.outcome, remove.OUTCOME.PARTIAL);
+      const before = calls.length;
+      lateFailure();
+      await new Promise((r) => setTimeout(r, 50));
+      assert.deepEqual(calls.slice(before), [], 'a restart given up on went on after a late failure (the throw path skipped the check)');
+    });
+  } finally {
+    if (was === undefined) delete process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS; else process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = was;
+    remove.setRunner(null);
+    remove.setAsyncRunner(null);
+    status.setPaneSource(null);
+    disruption.clear(name);
+  }
+});
