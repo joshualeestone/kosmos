@@ -1526,6 +1526,9 @@ async function answerCodexHooksOnce(sessionName, choice, roster, keys, no, card,
 
 /* #3564: what a paused swarm still accepts. */
 const PAUSED_SWARM_COMMANDS = /^\/(compact|clear|cost|context|status)([ \t][^\r\n]*)?$/i;
+/* kosmos#6244: in a policy's quiet hours only the bare commands go. /compact takes words as a summarising instruction,
+   so with words it is a message by another name. */
+const QUIET_LOOK_AFTER = /^\/(compact|clear|cost|context|status)$/i;
 
 /**
  * #4589: may anything be typed into this Codex agent's pane right now? Returns the sentence saying why not, or null.
@@ -1679,10 +1682,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   }
   /* kosmos#6239: in the policy's quiet hours (orgpolicy.quietAllows) nothing new is typed at any agent: not a person's
      message, another agent's, a room's or the board's own nudges, since every one comes through here. The commands that
-     look after an agent without setting it to work still go (PAUSED_SWARM_COMMANDS). `quiet: true` lets a caller that
+     look after an agent without setting it to work still go, bare (QUIET_LOOK_AFTER, kosmos#6244). `quiet: true` lets a caller that
      knows a person asked report it (server.js's thread route). A policy read that throws is not quiet: an agent that
      cannot be reached because of a fault is worse than one reached at night. */
-  if (!PAUSED_SWARM_COMMANDS.test(String(raw).trim())) {
+  if (!QUIET_LOOK_AFTER.test(String(raw).trim())) {
     let q = { ok: true };
     try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
     if (q.ok !== true) {
