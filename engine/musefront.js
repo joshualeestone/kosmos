@@ -173,27 +173,44 @@ function shortOf(text) {
    room posts arriving shortened. Each line records the time, the kind (operator, background, other), the length, the
    community reminder's Sent stamp when the line carries one (engine/communityturn.js stamped), and, for a message that
    spilled to a file (engine/messages.js spillLine), its word count. The opening words are kept for every kind except
-   the person's own messages, whose words stay out of the log. Bounded: past TURN_LOG_MAX the file moves to a .1 copy.
+   the person's own messages, whose words stay out of the log. Bounded: past TURN_LOG_MAX the file moves to a .1 copy
+   (so at most about twice TURN_LOG_MAX in all).
    It never throws: a log that cannot be written must not stop the turn. */
 const TURN_LOG_MAX = 256 * 1024;
 const SENT_RE = /\(Sent (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\. A reminder with a different Sent time/;
 const SPILL_RE = /\(long message, (\d+) words?; the full text is in your own folder at /;
 function turnLogFile(workspace) { return path.join(workspace, '.kosmos', 'muse-turns.log'); }
+const DIGEST_RE = /^\[Kosmos: (\d+) room posts arrived while you were busy/;
 function turnRecord(text, at) {
   const t = String(text);
   const kind = kindOf(t);
   const sent = SENT_RE.exec(t);
-  const spill = SPILL_RE.exec(t);
-  const rec = { at, kind, chars: Array.from(t).length, sent: sent ? sent[1] : null, spillWords: spill ? Number(spill[1]) : null };
-  if (kind !== 'operator') rec.opening = shortOf(t);
+  // Every spill in the line (a busy digest can hold several); null when none.
+  const spills = Array.from(t.matchAll(new RegExp(SPILL_RE.source, 'g')), (m) => Number(m[1]));
+  const digest = DIGEST_RE.exec(t);
+  // chars is UTF-16 length, the measure the board's spill rule uses (chat.MAX_TEXT), so the two compare directly.
+  const rec = { at, kind, chars: t.length, sent: sent ? sent[1] : null, spillWords: spills.length ? spills : null,
+    digestPosts: digest ? Number(digest[1]) : null };
+  // The person's words stay out: their own messages, and any line that quotes them (a stop note carries their envelope).
+  if (kind !== 'operator' && !OPERATOR_PREFIXES.some((x) => t.includes(x))) rec.opening = shortOf(t);
   return rec;
 }
+/* The same guards keepModel uses (review 1): never a relative workspace, never through a `.kosmos` that is a link,
+   never into a link or fifo at the file, and a non-blocking, no-follow open, so nothing planted there can hang this
+   front or redirect the write. */
 function logTurn(workspace, text, at) {
   try {
+    if (typeof workspace !== 'string' || !path.isAbsolute(workspace)) return;
     const file = turnLogFile(workspace);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    try { if (fs.statSync(file).size > TURN_LOG_MAX) fs.renameSync(file, file + '.1'); } catch { /* no file yet */ }
-    fs.appendFileSync(file, JSON.stringify(turnRecord(text, at)) + '\n', { mode: 0o600 });
+    const dir = path.dirname(file);
+    try { if (fs.lstatSync(dir).isSymbolicLink()) return; } catch { fs.mkdirSync(dir, { recursive: true }); }
+    let st = null;
+    try { st = fs.lstatSync(file); } catch { st = null; }
+    if (st && !st.isFile()) return;
+    if (st && st.size > TURN_LOG_MAX) { fs.renameSync(file, file + '.1'); }   // the bound: about twice TURN_LOG_MAX in all
+    const c = fs.constants;
+    const fd = fs.openSync(file, c.O_WRONLY | c.O_APPEND | c.O_CREAT | (c.O_NOFOLLOW || 0) | (c.O_NONBLOCK || 0), 0o600);
+    try { fs.writeSync(fd, JSON.stringify(turnRecord(text, at)) + '\n'); } finally { fs.closeSync(fd); }
   } catch { /* the turn runs whatever the log does */ }
 }
 
@@ -311,7 +328,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
     try {
       while (queue.length) {
         const prompt = next();
-        log(workspace, prompt, new Date().toISOString());   // #5636 F7a / #6065 N1: what reached the agent, and when
+        try { log(workspace, prompt, new Date().toISOString()); } catch { /* #5636 F7a / #6065 N1: never stops a turn */ }
         stopNoteRunning = STOP_NOTES.delete(prompt);
         noteSent = waiting();
         // #4612: an answer to the person's DM still pending rides on this turn's working reports.
