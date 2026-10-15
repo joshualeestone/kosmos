@@ -27295,7 +27295,7 @@ function acctFiveHourOnShow() {
    window looks again (the same check as a section switch). */
 document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
 window.addEventListener('focus', () => acctFiveHourOnShow());
-/* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
+/* A failed re-read keeps the list, so a five-hour or Codex window line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
@@ -27329,7 +27329,7 @@ function acctResetTimes(list) {
   return (list || []).flatMap((a) => {
     if (!a) return [];
     const f = a.fiveHour;
-    const claude = !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
+    const claude = a.provider === 'anthropic' && !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
     const codex = a.provider === 'openai' && a.limits && Array.isArray(a.limits.windows)
       ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
     return claude.concat(codex);
@@ -27674,7 +27674,7 @@ async function paintAccounts(opts) {
   } catch {
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour line past its reset)
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour or Codex window line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
