@@ -410,7 +410,8 @@ function feedFooter(spec, next) {
    (#6201, F7d): round 1 holds a post's newest 10 top-level comments by when they were WRITTEN with 2 replies each; round 2
    pages every comment's remaining replies and the post's older comments, at most REPLY_PAGES_MAX pages a read. Whatever
    that leaves is said on its post ("N replies were not reached in this read"), and the post's mark still moves (review 2:
-   holding it would re-read the same first pages and never reach the rest). Times are read to the millisecond (the
+   holding it would re-read the same first pages and never reach the rest), except after a failed page, which holds it
+   for up to MARK_HOLD_MAX reads. Times are read to the millisecond (the
    service's microseconds are a late-commit case below). Not said, and rare: a
    comment committed during a read but stamped before its mark, a comment hidden at read time and restored later, and a
    post gone (404/410) at a read and back later (it gets no floor, so it is judged against a later window),
@@ -423,8 +424,13 @@ const REPLIES_FIRST_DAYS = 7;
    READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
    What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
    when the 30 cap cut it): deep replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
-   can fetch of a post, so none is shown twice (#6201 reviews 1 and 5). */
+   can fetch of a post (about 630), so none is shown twice unless more than SEEN_MAX ids sit above one mark (#6201
+   reviews 1, 5 and 10). */
 const REPLY_PAGES_MAX = 30;
+/* #6201 review 10: a failed round-2 page holds its post's mark for at most this many reads in a row, so a page that
+   fails every time cannot pin the mark while "seen" fills; after that the mark moves as usual and the failing thread is
+   still said as not reached. */
+const MARK_HOLD_MAX = 3;
 const ROUND2_START_MS = 2000;
 /* The reply nudge's count (freshReplies) still reads only the newest REPLY_PAGES_PER_POST comments' first hidden page, one
    post at a time and paced: it names only comments owed an answer, which are top-level, and a deep reply under a
@@ -467,7 +473,9 @@ function readMarks(sessionName) {
       if (!UUID_RE.test(pid) || !m || !validAt(m.at)) continue;
       if (!UUID_RE.test(String(m.id || ''))) continue;
       const seen = Array.isArray(m.seen) ? m.seen.filter((x) => UUID_RE.test(String(x))).map((x) => String(x).toLowerCase()).slice(-SEEN_MAX) : [];
-      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen };
+      // #6201 review 10: how many reads in a row a failed page has held this mark (bounded, see MARK_HOLD_MAX).
+      const held = Number.isInteger(m.held) && m.held > 0 && m.held <= MARK_HOLD_MAX ? m.held : 0;
+      out[pid.toLowerCase()] = { at: m.at, id: String(m.id).toLowerCase(), seen, held };
     }
     return out;
   } catch { return {}; }
@@ -810,8 +818,9 @@ async function repliesFor(sessionName, opts) {
   /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
      first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
      the queue. Posts newest first and, within one, comments newest first; a continuation page queues behind what is
-     already waiting, so the budget is spread across threads before it goes deep into one. A page that fails holds the
-     post (failed), as before; a cursor not in the service's plain shape is not used. */
+     already waiting, so the budget is spread across threads before it goes deep into one. A page that fails costs only
+     its thread or the older comments (said as not reached; the post's mark is held, see MARK_HOLD_MAX); a cursor not in
+     the service's plain shape is said, not used. */
   const queue = [];
   const repliesTask = (th, c, cursor) => ({ th, c, cursor });
   /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
@@ -976,8 +985,11 @@ async function repliesFor(sessionName, opts) {
     const pid = th.post.remoteId;
     if (th.failed || th.gone) continue;
     let top = th.r1top;
-    // Review 9: a post with a failed round-2 page holds its mark (what failed comes next time); its shown items join "seen".
-    if (th.partial) top = next[pid] ? asItem(next[pid]) : null;
+    /* Review 9: a post with a failed round-2 page holds its mark (what failed comes next time); its shown items join
+       "seen". Review 10: at most MARK_HOLD_MAX reads in a row, then it moves as usual. */
+    const heldBefore = (next[pid] && next[pid].held) || 0;
+    const hold = th.partial && heldBefore < MARK_HOLD_MAX;
+    if (hold) top = next[pid] ? asItem(next[pid]) : null;
     else if (unshownPosts.has(pid)) {
       const x = lastShown.get(pid);
       if (!x) continue;   // nothing of this post shown: its mark stays
@@ -999,7 +1011,7 @@ async function repliesFor(sessionName, opts) {
       const drop = new Set(keep.filter((id) => !readNow.has(id)).slice(0, keep.length - SEEN_MAX));
       keep = keep.filter((id) => !drop.has(id));
     }
-    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX) };
+    next[pid] = { at: base.ts, id: base.id, seen: keep.slice(-SEEN_MAX), held: hold ? heldBefore + 1 : 0 };
   }
   if (!writeMarks(sessionName, next)) lines.push('(where you got to could not be saved, so the next read may show these again)', '');
   return { ok: true, count: shownItems.length, text: frame([], null, { lines }) };
@@ -1008,4 +1020,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };

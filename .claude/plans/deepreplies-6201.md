@@ -124,3 +124,10 @@ missed on every read. The post's line says so. Resumable cursors stored with the
   failed page that is older than the post's newest comment still arrives (without the hold it is lost, measured).
 - Fixed: a malformed next cursor on a replies page, or a round-1 comment with more replies and no usable cursor, is
   said as not reached rather than dropped. Plan wording brought up to date.
+
+## Review 10 (sonnet)
+- Fixed: a page that fails on every read no longer pins the mark: the hold lasts at most MARK_HOLD_MAX (3) reads in a
+  row (kept with the mark as `held`), then the mark moves as usual and the failing thread is still said each read
+  (tested; an unbounded hold fails it, measured). Stale comments about failures fixed; the SEEN_MAX comment says when
+  a repeat is still possible (more than SEEN_MAX ids above one mark).
+- Duplicate of recorded decisions: tails lost when a later round-1 comment moves the mark (#6204).
