@@ -19928,7 +19928,8 @@ window.kosmosMeasureScrollbarWidth();
    the board's own 404s: 19 still open 8 s after a load whose every read was refused), so anything waiting for the
    page's network to go quiet waited for good.
    A CLONE is drained, not awaited, so the caller can still read the original (a refusal's own words) and a slow body
-   holds up nothing. One place, for every fetch on the page, rather than an edit at each of its call sites. */
+   holds up nothing. One place for every fetch() call on the page (not XHR, EventSource or images, which the page does
+   not use for reads), rather than an edit at each of its call sites. */
 (() => {
   const nativeFetch = window.fetch;
   if (typeof nativeFetch !== 'function') return;
