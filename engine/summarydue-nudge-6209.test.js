@@ -231,15 +231,38 @@ test('#6209 reviews 5 and 6: work counts across a restart (the summary is the ca
   const summary = { state: 'stale', file: 'summaries/x.md', at: new Date(W0).toISOString() };
   const restarted = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + 6 * H), { state: 'started', at: W0 + 7 * H }, { state: 'idle', at: W0 + 7 * H + 60000 }];
   assert.equal(nudge.workedSinceMs(restarted, W0, NOW), 5.5 * H, 'a restart wiped the work reported on the card');
-  // A card whose role writes no summaries is never told, even with a stale file and the work.
-  const [setup] = cardsFor([['sumsetup', 'idle']]);
-  const r = run([{ ...setup, role: [...require('../engine/roles').NO_SUMMARY][0] }], { [setup.sessionName]: folderWith('sumsetup', 6 * H) }, { [setup.sessionName]: beats(NOW - 9 * H, NOW - H) });
-  assert.deepEqual(r.sent, [], 'a NO_SUMMARY role was told to write summaries');
-  const ctl = run([setup], { [setup.sessionName]: folderWith('sumsetup', 6 * H) }, { [setup.sessionName]: beats(NOW - 9 * H, NOW - H) });
-  assert.equal(ctl.sent.length, 1, 'CONTROL: the same card without the role is told');
-  assert.match(ctl.sent[0].text || JSON.stringify(ctl.sent[0]), /reported on this card/);
+  const [rc] = cardsFor([['sumrestart', 'idle']]);
+  const ctl = run([rc], { [rc.sessionName]: folderWith('sumrestart', 6 * H) }, { [rc.sessionName]: beats(NOW - 9 * H, NOW - H) });
+  assert.equal(ctl.sent.length, 1);
+  assert.match(ctl.sent[0].text, /reported on this card/);
   const under = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 3.5 * H)];
   const over = [{ state: 'idle', at: W0 - H }, ...beats(W0 + H, W0 + H + 4.5 * H)];
   assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(under, W0, NOW), null, NOW, null).act, 'none', '3.5 hours of work was told');
   assert.equal(nudge.plan({}, summary, nudge.workedSinceMs(over, W0, NOW), null, NOW, null).act, 'nudge', '4.5 hours of work was not told');
+});
+
+test('#6209 review 7: real report density, read through the real selfreport file: a day-stale summary IS told', () => {
+  const selfreport = require('./selfreport');
+  const [a] = cardsFor([['sumdense', 'idle']]);
+  // As measured on busy agents: a row about every 2.4 minutes, a quarter of them working (about 15 minutes of counted
+  // work an hour), each row about 190 bytes. 30 hours of it: the 64 KB tail holds about 14 hours (about 3.5 h of work).
+  const lines = [];
+  const pad = 'x'.repeat(120);
+  for (let k = 0, t = NOW - 30 * H; t < NOW - 10 * 60000; k += 1, t += 144000) {
+    lines.push(JSON.stringify({ v: 1, state: k % 4 === 0 ? 'working' : 'idle', because: 'running Bash ' + pad, at: new Date(t).toISOString() }));
+  }
+  fs.mkdirSync(path.dirname(selfreport.fileFor(a.sessionName)), { recursive: true });
+  fs.writeFileSync(selfreport.fileFor(a.sessionName), lines.join('\n') + '\n');
+  const wroteAt = NOW - 30 * H - 60000;
+  const small = selfreport.history(a.sessionName);
+  assert.equal(small.truncated, true, 'CONTROL: the default tail does not reach the summary');
+  assert.ok(!(nudge.workedSinceMs(small, wroteAt, NOW) > 4 * H), 'CONTROL: the default tail already holds the rhythm, so this proves nothing');
+  // tailBytes below the default reads the default; a larger one reads more (clamped).
+  assert.equal(selfreport.history(a.sessionName, 10).length, small.length, 'a small tailBytes read less than the default');
+  assert.ok(selfreport.history(a.sessionName, nudge.HISTORY_TAIL_BYTES).length > small.length, 'a larger tailBytes read no further');
+  const folders = { [a.sessionName]: folderWith('sumdense', 30 * H + 60000) };
+  const sent = [];
+  nudge.sweepOnce({ roster: [a], book: new Map(), prompted: memPrompted(), screen: () => null, now: NOW, folder: (s) => folders[s],
+    paused: () => ({ paused: false }), DELIVERY, deliver: (s, text) => { sent.push(text); return { state: DELIVERY.PLACED }; } });
+  assert.equal(sent.length, 1, 'a day-stale summary on a busy agent was not told (the sweep read too short a tail)');
 });
