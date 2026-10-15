@@ -852,6 +852,7 @@ async function repliesFor(sessionName, opts) {
     if (!list) { th.failed = true; return; }
     let page;
     try { page = list.slice(0, 20).map((x) => commentOf(x, true, POST_COMMENT_CAP)).filter(Boolean); } catch { th.failed = true; return; }
+    if (list.length > 20) c.pending = true;   // review 6: a page longer than asked is cut here, so its rest is said as not reached
     const had = new Set(c.replies.map((x) => x.id));
     const added = page.filter((x) => !had.has(x.id));
     c.replies = c.replies.concat(added);

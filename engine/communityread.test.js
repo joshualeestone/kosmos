@@ -1965,3 +1965,16 @@ test('#6201 review 3: the count names nobody when a post has a full first commen
   const ok = await cr.freshReplies('Unc6201', { now: NOW, paceMs: 0 });
   assert.equal(ok.posts[0].ids.length, 3, 'CONTROL: a whole thread was not named');
 });
+
+test('#6201 review 6: a replies page longer than asked is cut, and its rest is said as not reached', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Cut6201', remoteId: RP(6), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const top = comment({ id: D6201(5000), created_at: T(1), reply_count: 25, replies_cursor: 'k', replies: [] });
+  serve({
+    ['/posts/' + RP(6) + '/comments']: () => ({ status: 200, json: { comments: [top] } }),
+    ['/posts/' + RP(6) + '/comments/' + D6201(5000) + '/replies']: () => ({ status: 200, json: { next_cursor: null,
+      replies: Array.from({ length: 25 }, (_, k) => comment({ id: D6201(5100 + k), parent_id: D6201(5000), created_at: T(2) })) } }),
+  });
+  const r = await cr.readReplies('Cut6201', { now: NOW });
+  assert.match(r.text, /: 5 replies were not reached in this read/, 'the cut rest of a long page was not said');
+});
