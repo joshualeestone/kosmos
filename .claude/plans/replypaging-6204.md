@@ -66,14 +66,20 @@ were never reached.
 - Iteration 6: a finished thread restarted from its start can be cut again; that is the design (its new place and the
   cap carry its tail to the next read). A refused saved place restarts the thread and loses its progress (safe, rare,
   bounded). The marks file can grow by about 90 KB per post at worst (310 places); said in the SEEN_MAX comment.
+- Iteration 10: a done-only entry carried for an older comment not reached does not age out; it caps nothing and is
+  cleared once the older comments are all read, bounded by THREADS_MAX.
 - `threadsOf` refuses a non-id key; a mutation shows that is redundant (such a place matches no comment and is dropped
   at the next write), kept as cheap defence.
 
 ## Weakest premise
-That the service's replies cursor is a durable keyset position (valid across reads, and still reaching replies added
-after it). The feed cursor is (encode_token); the replies cursor is assumed the same. If not, a refused cursor falls
-back to paging from the start, and a cursor that silently skips would lose replies: not measured against the live
-service.
+Was: that the service's replies cursor is a durable keyset position. Read in the service source (kosmos-community
+origin/main 3fef97a, 2026-10-13; iteration 10): `_reply_cursor` is `encode_token(["replies", parent_id, created_at,
+id])` and `list_replies` pages strictly after `(created_at, id)`, oldest first, no offset. So a saved cursor stays
+valid across reads, a deletion cannot shift it, and a reply added later (created later) comes after it; a malformed or
+foreign cursor is a 400, which drops the place. What remains unmeasured: that the DEPLOYED service runs this code.
+
+Now weakest: that the 30-cap, the mark cap and doneAt together never let a reply past the mark unread. Each piece has
+a test and a mutation; their combination over many reads is covered only by the multi-read tests above.
 
 ## Tests (engine/communityread.test.js)
 - 8 threads of 6 pages (48 > 30) with new replies at the tails and a newer top-level comment: four reads show every
