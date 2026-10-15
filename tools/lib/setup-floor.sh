@@ -16,6 +16,10 @@
 #   kosmos_setup_floor_tree_ok <who> <dir>                a site tree's pointers and installers (the exports)
 #   kosmos_setup_floor_site_untouched_ok <who> <site> <channel>   the pair a cut re-publishes untouched (release.sh)
 # A version that is not plain numbers and dots is refused: the floor cannot be checked.
+# Functions named after the tools these checks use are cleared on load, so an exported one cannot answer for them.
+# This is not a defence against a hostile environment: whoever controls PATH or BASH_ENV controls every tool here
+# (vercel too). It guards against mistakes, and every check needs a POSITIVE answer, so a broken tool refuses.
+unset -f awk sed tr wc cat printf 2>/dev/null || true
 KOSMOS_SETUP_FLOOR_REAL="0.7.45"
 # Tests whose fixtures predate the floor (0.6.x builds) lower it, and only with BOTH KOSMOS_SETUP_FLOOR_TEST=1 and a
 # plain-number KOSMOS_SETUP_FLOOR_LOWER; anything else (one of them alone, a non-numeric value) leaves the real floor.
@@ -45,11 +49,12 @@ kosmos_setup_floor_ok() {
       return 1 ;;
   esac
   # Numeric, part by part (0.7.100 is newer than 0.7.45; a string compare would say older).
-  if awk -v a="$v" -v b="$KOSMOS_SETUP_FLOOR" 'BEGIN {
+  # The verdict must be PRINTED ("atleast"): a broken or shadowed awk that prints nothing fails closed, not open.
+  if [ "$(awk -v a="$v" -v b="$KOSMOS_SETUP_FLOOR" 'BEGIN {
       n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
       for (i = 1; i <= k; i++) { p = (i <= n) ? x[i] + 0 : 0; q = (i <= m) ? y[i] + 0 : 0
-        if (p > q) exit 0; if (p < q) exit 1 }
-      exit 0 }'; then
+        if (p > q) { print "atleast"; exit } if (p < q) { print "older"; exit } }
+      print "atleast" }' 2>/dev/null)" = atleast ]; then
     return 0
   fi
   echo "setup floor (kosmos#6149): $label names $v, older than $KOSMOS_SETUP_FLOOR. Once 0.7.49 (#4455, read-only app) is out, an installer older than $KOSMOS_SETUP_FLOOR breaks every install it updates: it cannot lift the app's lock. Serve a build at or above $KOSMOS_SETUP_FLOOR instead -- refusing" >&2
@@ -61,7 +66,7 @@ kosmos_setup_floor_ok() {
 # that says 0.7.49 but names an older tarball is refused, since the tarball is what installs. An artifact that is not
 # a versioned kosmos tarball name is refused too (fail closed): every real Mac pointer names one.
 kosmos_setup_floor_pointer_ok() {
-  local label="$1" json="$2" v art av
+  local label="$1" json="$2" v art av nv na
   # One of each key: readers of a doubled key disagree (JSON.parse keeps the last, a first-match reader the first, a
   # greedy sed the last on one line), so with one key each every reader agrees on which build installs. The extractors read `"key":` (the real
   # writer, write-latest-pointer.js, writes one line in that form); a pointer spelled `"key" :` reads as having no
@@ -82,11 +87,14 @@ kosmos_setup_floor_pointer_ok() {
     *\\*) echo "setup floor (kosmos#6149): $label has a backslash (a JSON escape could hide a key) -- refusing" >&2; return 1 ;;
   esac
   # Counted with awk, not grep: macOS grep honours GREP_OPTIONS (=-v inverts every match), so no grep decides here.
-  if [ "$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"version"[[:space:]]*:/, "") } END { print n + 0 }')" -gt 1 ] ||
-     [ "$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"artifact"[[:space:]]*:/, "") } END { print n + 0 }')" -gt 1 ]; then
-    echo "setup floor (kosmos#6149): $label names version or artifact more than once -- refusing" >&2
-    return 1
-  fi
+  # Each count must come back as a plain number, and exactly 1: an empty or garbled count (a broken tool) fails closed.
+  nv=$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"version"[[:space:]]*:/, "") } END { print n + 0 }')
+  na=$(printf '%s' "$json" | LC_ALL=C awk '{ n += gsub(/"artifact"[[:space:]]*:/, "") } END { print n + 0 }')
+  case "$nv:$na" in
+    [01]:[01]) ;;
+    *) echo "setup floor (kosmos#6149): $label names version or artifact more than once (or could not be counted) -- refusing" >&2
+       return 1 ;;
+  esac
   v=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p')
   art=$(printf '%s' "$json" | LC_ALL=C sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
   kosmos_setup_floor_ok "$label" "$v" || return 1
@@ -117,8 +125,8 @@ kosmos_setup_floor_installer_ok() {
     echo "setup floor (kosmos#6149): $label ($file) is missing or unreadable, so the installer cannot be checked -- refusing" >&2
     return 1
   }
-  # A shell match, not grep: macOS grep honours GREP_OPTIONS (=-v made an old installer pass), so no environment
-  # variable can invert this check.
+  # A shell match, not grep: macOS grep honours GREP_OPTIONS (=-v made an old installer pass), so that variable
+  # cannot invert this check (a hostile PATH or BASH_ENV is out of scope: see the note at the top).
   case "$(LC_ALL=C cat "$file")" in
     *"$KOSMOS_SETUP_FLOOR_MARKER"*) ;;
     *) echo "setup floor (kosmos#6149): $label does not know $KOSMOS_SETUP_FLOOR_MARKER, so it is an installer from before 0.7.42 (or one that dropped it) and would break every install a read-only build has touched -- refusing" >&2

@@ -203,6 +203,14 @@ i1="$(live 'kosmos_setup_floor_installer_ok "this cut.s install/setup.sh" "\$REP
 s2="$(grep -n '^step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 { [ -n "$i1" ] && [ -n "$s2" ] && [ "$i1" -lt "$s2" ]; } && pass "release.sh checks the cut's own installer (line $i1) before step 2" || bad "release.sh own-installer check line '${i1:-none}'"
 printf 'an installer from before 0.7.45\n' > "$T/old-installer"
+# An awk that answers nothing (a broken or shadowed tool) must refuse, not pass: PATH points awk at a stub that exits 0.
+mkdir -p "$T/stubawk"; printf '#!/bin/sh\nexit 0\n' > "$T/stubawk/awk"; chmod +x "$T/stubawk/awk"
+PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_pointer_ok t "{\"version\":\"0.6.1\",\"artifact\":\"kosmos-0.6.1-arm64.tar.gz\"}"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
+  && bad "an awk that prints nothing let an old pointer pass" || pass "an awk that prints nothing refuses an old pointer (every check needs a positive answer)"
+PATH="$T/stubawk:$PATH" bash -c '. "$1"; kosmos_setup_floor_ok t 0.6.1' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
+  && bad "an awk that prints nothing let 0.6.1 pass the version floor" || pass "an awk that prints nothing refuses 0.6.1 at the version floor"
+bash -c 'awk() { return 0; }; export -f awk; bash -c ". \"\$1\"; kosmos_setup_floor_ok t 0.6.1" _ "$1"' _ "$HERE/lib/setup-floor.sh" 2>/dev/null \
+  && bad "an exported awk function let 0.6.1 pass" || pass "an exported awk function does not answer for awk (cleared on load)"
 # GREP_OPTIONS=-v inverts macOS grep; none of the checks may be decided by it (review 33 measured an old /setup served).
 printf 'x KOSMOS_READONLY_APP\n' > "$T/new-installer"
 out="$(GREP_OPTIONS=-v bash -c '. "$1"; kosmos_setup_floor_installer_ok t "$2"' _ "$HERE/lib/setup-floor.sh" "$T/old-installer" 2>&1)" \
