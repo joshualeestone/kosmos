@@ -251,14 +251,16 @@ function printFor(salt, company) {
    calls it; a guard test fails if anything outside the tests does. */
 function _testRunner(fn, opts) {
   const o = opts || {};
+  // A wait that is not a positive whole number of ms, or one given without fallback 'real', throws before anything is
+  // swapped: dropped silently, the test would run on production's 10 s and a quiet runner's green would read as the
+  // fix working.
+  if (o.fallbackTimeoutMs !== undefined) {
+    if (!(Number.isInteger(o.fallbackTimeoutMs) && o.fallbackTimeoutMs > 0)) throw new TypeError('fallbackTimeoutMs must be a positive whole number of milliseconds');
+    if (o.fallback !== 'real') throw new TypeError("fallbackTimeoutMs applies only with fallback: 'real'");
+  }
   defaultRun = fn || realRun;
   if (typeof o.fallback === 'function') defaultFallback = o.fallback;
   else if (!fn || o.fallback === 'real') {
-    // A wait given but not a positive whole number of ms throws: dropped silently, the test would run on production's
-    // 10 s and a quiet runner's green would read as the fix working.
-    if (o.fallbackTimeoutMs !== undefined && !(Number.isInteger(o.fallbackTimeoutMs) && o.fallbackTimeoutMs > 0)) {
-      throw new TypeError('fallbackTimeoutMs must be a positive whole number of milliseconds');
-    }
     const wait = o.fallbackTimeoutMs || null;
     defaultFallback = wait ? () => readPowerShell(wait) : () => readPowerShell();
   } else defaultFallback = null;
