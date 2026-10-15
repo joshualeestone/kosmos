@@ -822,6 +822,10 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   }
   // CONTROL: a runner whose working marks a turn's START (grok here) is not capped: the same night stays stale.
   assert.equal(v.workExcused(summary, Object.assign({}, claude, { runner: 'grok' }), hist(rows), NOW).state, 'stale');
+  // Review 6: the cap runs from the report's own time, not from each stretch's start: a working filed 120 min before the
+  // summary, then nothing until an idle after it, adds nothing.
+  const early = v.workExcused(summary, claude, hist([['working', wrote + 120], ['idle', wrote - 60]]), NOW);
+  assert.ok((early.workMinutes || 0) < 1, 'a working long before the summary was counted after it: ' + JSON.stringify(early));
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
   assert.equal(v.workExcused(summary, claude, hist([['working', last + 0.3], ['needs_you', last]]), NOW).state, 'stale');
 });

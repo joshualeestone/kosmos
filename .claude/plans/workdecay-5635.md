@@ -1,4 +1,4 @@
-# workdecay-5635: a Claude `working` report counts as work only for the board's decay (#5635 F2, 0.7.50)
+# workdecay-5635: a Claude `working` report counts as work for at most 30 minutes (#5635 F2, 0.7.50)
 
 ## Why (Josh's five-family report on 0.7.50, 10-15 14:18 CDT; the card's comment)
 The Claude seat's summary read "behind" after a quiet night. Board record: summary 19:03Z; reports working 21:51:38, idle
@@ -11,7 +11,8 @@ In workExcused, for a Claude member only, a `working` stretch counts at most to 
 these rows agree). A Claude turn heartbeats working once a minute while it runs tools (install/kosmos-report-hook.sh), and
 selfreport.history returns every row. Review 2 moved the cap from the board's 5-min decay to 30 min: 5 undercounted a long
 tool call, thinking, or a subagent run, none of which heartbeats, toward current (the wrong direction for this function).
-Not capped: other runners (Antigravity and the Windows per-turn runners file one automatic working at a turn's START,
+Not capped: every other runner (Gemini, Grok, Muse and the Windows per-turn runners can file one working at a turn's
+START; Antigravity heartbeats only on a Mac with hooks, which this reader cannot tell apart, so it is a stated gap,
 status.js #5949); waits (needs_you, blocked); the stretch before any report is known (as before).
 Known cost: a stretch of over 30 min with no tool call counts 30. The 18 h case counts under an hour: current.
 Rejected: the idleExcused/idleNoted change (first attempt; never fired, the board reads such a member unknown).
@@ -48,3 +49,8 @@ Weakest premise: no real Claude work goes 30 min without a tool call or a turn e
   git project) and not on Windows, where it files one working per turn; the reader cannot tell these apart, so a cap
   would cut real hours. Back to Claude only. Known gap, stated in the code: an interrupted Antigravity turn can still
   count a night as work. Controls: antigravity, gemini, muse and grok each stay stale on the F2 night.
+
+## Review 6 (opus), and what changed
+- No BLOCKER. WARNINGs: the title still said the board's (5-min) decay, and "The call" gave the pre-review-5 reason for
+  Antigravity: both corrected. NIT taken: a Claude working filed 120 min before the summary with nothing after adds
+  nothing (pins the cap to the report's time, not each stretch's start). Controls: antigravity, gemini, muse, grok.
