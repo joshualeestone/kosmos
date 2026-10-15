@@ -150,7 +150,7 @@ make_publish_scenario() {  # <mode> ; echoes "SITE LIVE"
   ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
   printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
   ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   # #2511/#1666: the served (setup, setup.sha256) PAIR must be self-consistent -- deploy-site's
   # post-deploy edge-check re-fetches both and refuses a mismatch (the pair the .pkg postinstall
   # verifies). Publish a setup.sha256 whose hash matches the served /setup, or that check 404s/mismatches.
@@ -162,7 +162,7 @@ make_publish_scenario() {  # <mode> ; echoes "SITE LIVE"
   git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   if [ "$mode" = ok ]; then
     # committed == live: an honest site-copy of the current release.

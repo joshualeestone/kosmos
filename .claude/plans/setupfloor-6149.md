@@ -58,10 +58,12 @@ only. Splinter asked for it in the promote and rollback path before Josh's go fo
 - The floor is unconditional, not "only once 0.7.49 is served": a rollback of staging to 0.7.47 would disarm a
   conditional floor, and the next step down would break installs that had 0.7.49.
 - Tests whose fixtures are 0.6.x builds lower it with BOTH KOSMOS_SETUP_FLOOR_TEST=1 and a plain-number
-  KOSMOS_SETUP_FLOOR_LOWER (one alone, or a non-numeric value, keeps the real floor); every lowered check warns, and
-  the installer-marker check is skipped under it (the fixtures' installers are stand-ins). Weakest premise: the
-  knob is environment an operator could also set. It takes two variables, warns on every check, and a real promote
-  or deploy sets neither.
+  KOSMOS_SETUP_FLOOR_LOWER (one alone, or a non-numeric value, keeps the real floor); every lowered check warns. The
+  knob lowers ONLY the version floor: the installer-marker check always runs, and the fixtures' stand-in installers
+  carry the marker (review of #6200: a lowered floor used to skip it, and deploy-site and promote-channel honour the
+  knob, so `KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.7.44 deploy-site.sh --publish` could ship an installer
+  with no lift). Weakest premise: the knob is environment an operator could also set; at worst it now lets through
+  an OLD VERSION number whose installer still knows the read-only app. It takes two variables and warns.
 - Windows is out of scope: its pointers and zips have no /setup.
 - The marker is a content check, so an installer that drops KOSMOS_READONLY_APP some day would be refused: that
   fails closed and loud, and the fix is to update KOSMOS_SETUP_FLOOR_MARKER with it.

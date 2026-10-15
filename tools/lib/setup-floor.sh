@@ -24,7 +24,7 @@ KOSMOS_SETUP_FLOOR="$KOSMOS_SETUP_FLOOR_REAL"
 if [ "${KOSMOS_SETUP_FLOOR_TEST:-}" = 1 ]; then
   case "${KOSMOS_SETUP_FLOOR_LOWER:-}" in
     ''|*[!0-9.]*|.*|*.|*..*) ;;
-    *) # only ever LOWER: a value at or above the real floor is ignored (it would also skip the installer check)
+    *) # only ever LOWER: a value at or above the real floor is ignored
       if awk -v a="$KOSMOS_SETUP_FLOOR_LOWER" -v b="$KOSMOS_SETUP_FLOOR_REAL" 'BEGIN {
           n = split(a, x, "."); m = split(b, y, "."); k = (n > m) ? n : m
           for (i = 1; i <= k; i++) { p = (i <= n) ? x[i] + 0 : 0; q = (i <= m) ? y[i] + 0 : 0
@@ -107,14 +107,11 @@ kosmos_setup_floor_pointer_ok() {
 # served before 0.7.45 does not). The pointers' floor stays 0.7.45, the first PROD-served such installer.
 KOSMOS_SETUP_FLOOR_MARKER="KOSMOS_READONLY_APP"
 
-# `kosmos_setup_floor_installer_ok <label> <file>`: the installer must know the read-only app (the marker). Under a
-# lowered floor (test fixtures, whose installers are stand-ins) it is skipped, with the warning.
+# `kosmos_setup_floor_installer_ok <label> <file>`: the installer must know the read-only app (the marker). ALWAYS, even
+# under the lowered test floor: that knob lowers only the VERSION floor, so no environment switches this check off
+# (kosmos#6149 review, Ice Cream Kitty: a lowered floor once skipped it, and deploy-site honours the knob).
 kosmos_setup_floor_installer_ok() {
   local label="$1" file="$2"
-  if [ "$KOSMOS_SETUP_FLOOR" != "$KOSMOS_SETUP_FLOOR_REAL" ]; then
-    echo "setup floor (kosmos#6149): WARNING the floor is LOWERED to $KOSMOS_SETUP_FLOOR (the real floor is $KOSMOS_SETUP_FLOOR_REAL): the installer check on $label is skipped: tests only" >&2
-    return 0
-  fi
   [ -f "$file" ] && [ -r "$file" ] || {
     echo "setup floor (kosmos#6149): $label ($file) is missing or unreadable, so the installer cannot be checked -- refusing" >&2
     return 1
@@ -128,7 +125,7 @@ kosmos_setup_floor_installer_ok() {
 # `kosmos_setup_floor_tree_ok <who> <dir>`: the tree a deploy is about to publish (its export) must hold no Mac
 # pointer and no installer older than the floor: dir/dist/latest.json and dir/dist/latest-staging.json (when present)
 # through kosmos_setup_floor_pointer_ok, and dir/setup and dir/setup-staging (when present) must carry the marker.
-# Under a lowered floor (test fixtures) the installer check is skipped, with a warning. Out of its scope, on purpose:
+# The installer check runs under a lowered floor too. Out of its scope, on purpose:
 # the .pkg (its postinstall fetches and verifies /setup, so /setup covers it) and the unversioned alias tarball (the
 # app, not an installer).
 kosmos_setup_floor_tree_ok() {

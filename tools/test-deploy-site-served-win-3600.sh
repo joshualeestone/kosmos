@@ -251,7 +251,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   printf 'PKG-BYTES\n' > "$live/dist/Kosmos.pkg"
   ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
   printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
-  printf 'setup-script\n' > "$live/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$live/setup"
   ( cd "$live" && shasum -a 256 setup > setup.sha256 )
   write_ptr "$live/dist/latest.json" "$V" "$realsha" "$ART"
 
@@ -259,7 +259,7 @@ make_scenario() {  # <mode> [staged] ; echoes "SITE LIVE R2"
   git init -q --initial-branch=main "$s"
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
-  printf 'setup-script\n' > "$s/setup"
+  printf 'setup-script KOSMOS_READONLY_APP\n' > "$s/setup"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   write_ptr "$s/dist/latest.json" "$V" "$realsha" "$ART"
   printf 'WINZIP-%s\n' "$WV_OLD" > "$s/dist/$WZ_OLD"
