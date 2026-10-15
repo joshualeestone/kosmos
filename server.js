@@ -16165,6 +16165,7 @@ const server = http.createServer(async (req, res) => {
               deliver: chat.deliverAutomaticAsync, roster, DELIVERY: chat.DELIVERY, env: process.env,
               shownOf: (id) => { const p = projects.get(id, roster); return p ? p.name : null; },
               stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
+              afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7: whether each was answered uncited
             }).then((done) => {
               for (const d of done) process.stdout.write(roomhold.toldLine(who, d));   // #4797: no "told of" for a refused try
             }).catch(() => { /* best-effort: the posts are in the room, and the next typed arrival carries the line */ });
@@ -23208,6 +23209,7 @@ function start(port = PORT) {
             deliver: chat.deliverAutomaticAsync, DELIVERY: chat.DELIVERY, env: process.env,
             shownOf: (id) => { const p = projects.get(id, r); return p ? p.name : null; },
             stale: (p, ids, who2) => messages.staleHeld(p, ids, undefined, undefined, who2),   // #4926: what staleHeld drops wakes nobody
+            afterOf: (p, ids, who2) => messages.memberAfter(p, ids, who2),   // #4926 N7
             isLimitable: chat.limitReleased,   // #5805: the card reads idle, or idle on screen under its StopFailure limit report
           }).then((done) => {
             for (const d of done) process.stdout.write(roomhold.toldLine(d.name, d, 'after the quota hold, the Gemini limit or a usage limit'));   // #4797; #4588 ask 3

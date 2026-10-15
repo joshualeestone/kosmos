@@ -1186,6 +1186,28 @@ const HELD_ASKED_MAX_MS = 24 * 60 * 60 * 1000;
 const ROOM_READ_ROWS = 40;
 /* The row kinds that read shows: kept equal to server.js's room-read filter by roomhold-stale-4926.test.js. */
 const ROOM_READ_KINDS = Object.freeze(['post', 'valve', 'note', 'external', 'refused']);
+/* #4926 N7 diagnostic: for each id, what `member` posted in the room after it: 'cited' (a reply to it), 'uncited' (a
+   post after it that names no reply, or names another), or 'none'. An id not in the record is left out. Never throws. */
+function memberAfter(projectId, ids, member, log) {
+  const out = {};
+  try {
+    const rows = Array.isArray(log) ? log : readLog();
+    const want = new Set(ids || []);
+    const at = new Map();
+    for (const r of rows) if (r && r.kind === 'post' && r.project === projectId && want.has(r.id)) at.set(r.id, Date.parse(r.at));
+    for (const [id, t] of at) {
+      if (!Number.isFinite(t)) continue;
+      let v = 'none';
+      for (const r of rows) {
+        if (!r || r.kind !== 'post' || r.project !== projectId || r.from !== member) continue;
+        if (r.replyTo === id) { v = 'cited'; break; }
+        if (Date.parse(r.at) > t) v = 'uncited';
+      }
+      out[id] = v;
+    }
+  } catch { /* a diagnostic: nothing is said rather than something false */ }
+  return out;
+}
 function staleHeld(projectId, ids, log, now, member) {
   const out = new Set();
   out.evenIfAsked = new Set();
@@ -3678,7 +3700,7 @@ module.exports = {
   logRoomRefusal,       // kosmos#5752 slice 3
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
-  staleHeld, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
+  staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
   SEND_DEDUP_WINDOW_MS,
   // #4580: test seams, so a test can hold a delivery open and send the same thing again meanwhile.
   _sendWithDelivery: sendWithDelivery,

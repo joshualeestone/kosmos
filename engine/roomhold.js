@@ -352,7 +352,7 @@ function withoutStale(projectId, ids, stale, name) {
    typing path (chat.deliverAsync). An id is cleared only once its line was typed (anything but
    COULD_NOT), so a pane that could not take it keeps it for the next arrival; a stale one (#4926, withoutStale) is
    cleared without being told. Never throws. */
-async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly }) {
+async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly, afterOf }) {
   const out = [];
   if (off(env)) return out;
   for (const projectId of heldProjects(name)) {
@@ -380,7 +380,12 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
     // #5805: a usage limit held this flush: its ids keep their marks, and the reset is recorded for withoutStale.
     if (limitUntil) noteLimit(name, projectId, ids.filter(isAddressed), limitUntil);
     if (!state || state === DELIVERY.COULD_NOT) restore(name, projectId, capped ? ids.map((x) => (isAddressed(x) ? x : cappedId(plainId(x)))) : ids);
-    out.push({ projectId, n: ids.length, state });
+    /* #4926 N7 diagnostic (Meta only, 0.7.50): for each post told, whether the member had already posted in the room
+       after it, citing it or not (messages.memberAfter), so the board log can say whether a post told "again" was one
+       the member had answered without citing it. Best effort: a failed read logs nothing extra. */
+    let after = null;
+    if (typeof afterOf === 'function') { try { after = afterOf(projectId, ids.map(plainId), name) || null; } catch { after = null; } }
+    out.push({ projectId, n: ids.length, state, ...(after ? { after } : {}) });
   }
   return out;
 }
@@ -391,7 +396,7 @@ async function flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stal
    each of our antigravity agents that still holds posts and is not in a fresh `working` turn is flushed through the
    same gated path (a held verdict puts the ids back again). `isAgy` picks those cards; #5805 adds a Claude member
    holding an ask a usage limit kept (see the loop). Every other #4624 hold is exactly as before. Never throws. */
-async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale }) {
+async function flushReleased(roster, { isAgy, isLimitable, readReport, now, decayMs, deliver, shownOf, DELIVERY, env, stale, afterOf }) {
   const out = [];
   if (off(env)) return out;
   for (const card of Array.isArray(roster) ? roster : []) {
@@ -451,7 +456,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
          skipped. */
       const agyquota = require('./agyquota');
       if (agyquota.heldForAgy(name, roster, now, agyquota.POOL_MEMO, env || process.env) != null) continue;   // #4588 ask 3: the cap too
-      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy })) out.push({ name, ...d });
+      for (const d of await flushOnIdle(name, { deliver, roster, shownOf, DELIVERY, env, stale, askedOnly: !agy, afterOf })) out.push({ name, ...d });
     } catch { /* the posts stay held for the next minute */ }
   }
   return out;
@@ -465,7 +470,15 @@ function toldLine(name, d, after = '') {
   const DELIVERY = require('./chat').DELIVERY;
   return !d.state || d.state === DELIVERY.COULD_NOT
     ? `room-hold: ${name} could not yet be told of ${d.n} held post(s) in ${d.projectId} (delivery=${d.state || 'none'})\n`
-    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}\n`;
+    : `room-hold: ${name} told of ${d.n} held post(s) in ${d.projectId}${after ? ' ' + after : ''}, delivery=${d.state}${afterNote(d.after)}\n`;
+}
+/* #4926 N7 diagnostic: ", since each: m12 cited, m13 uncited, m14 none" ("cited": the member's reply names it;
+   "uncited": the member posted in the room after it without naming it; "none": no post by the member since). */
+const AFTER_WORDS = new Set(['cited', 'uncited', 'none']);
+function afterNote(after) {
+  if (!after || typeof after !== 'object') return '';
+  const parts = Object.entries(after).filter(([id, v]) => /^m\d+$/.test(id) && AFTER_WORDS.has(v)).map(([id, v]) => id + ' ' + v);
+  return parts.length ? ', since each: ' + parts.join(', ') : '';
 }
 
 module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept };
