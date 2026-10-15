@@ -48,3 +48,10 @@ moment its synchronous tmuxRepick returns, and words the line from that. TMUX_LA
 the seams reset it). Test: interleave a poll's not-allowed search between the two steps; the line must match this look's
 search ('none', it switched). Mutant (word from TMUX_LAST_SEARCH again) turns it red. status.test.js 242/0.
 Part 3 (two writers the hold does not cover) stays as the card left it: reasoned low risk, no code.
+### Part 2 review (Opus, blind): one BLOCKER, fixed
+- BLOCKER: the new test-only export `_tmuxPanesStepsForTests` was not excused in engine.reachable.test.js's EXCUSED list,
+  which fails any export only a test names. Added with a reason, next to #6173's `_execAsyncForTests`. Control: without
+  the entry that file is 7/1; with it 8/0. Lesson: run engine.reachable.test.js whenever an export is added.
+- NIT fixed: the TMUX_LAST_SEARCH comment said "for the detail line"; it now says a look copies it.
+- NIT left: the test does not assert the first step asked the old tmux (a seam typo would show indirectly).
+Logic confirmed equivalent: tmuxRepick called exactly when it was, sync driver byte-identical.

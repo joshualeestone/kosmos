@@ -585,7 +585,7 @@ let TMUX_LAUNCHER_SEAM;   // undefined: the real one
 let TMUX_SWITCHED_TO = null;   // the last value tmuxRepick itself wrote
 let TMUX_CANDIDATES_SEAM = null;
 let TMUX_REPICK_MISSED_AT = 0;
-let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': for the detail line
+let TMUX_LAST_SEARCH = 'none';   // 'none' | 'not-allowed' | 'waiting' | 'found-nothing': what tmuxRepick last did; a look copies it at once (#6190)
 const TMUX_REPICK_WAIT_MS = 60000;
 /** Kosmos's own tmux, where the install lays it: this file is <KOSMOS_HOME>/app/engine/status.js and the bundle is
     <KOSMOS_HOME>/tmux/bin/tmux. The launcher does not export KOSMOS_HOME and the board's launchd job does not carry it,
