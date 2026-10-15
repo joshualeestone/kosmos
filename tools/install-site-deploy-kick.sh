@@ -28,7 +28,7 @@ if [ "${1:-}" = "--uninstall" ]; then
   "$LAUNCHCTL" bootout "$DOMAIN/$LABEL" >/dev/null 2>&1 || true
   rm -f "$PLIST"
   rm -f "$PLIST.new"
-  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick"
+  rm -f "$DIR/kick.sh" "$DIR/kick.sh.new" "$DIR/last-tick" "$DIR/source"
   rmdir "$DIR" 2>/dev/null || true   # kick.log is kept (review 3): the record of what it did outlives it
   echo "removed $LABEL$([ -e "$DIR/kick.log" ] && printf '; its log is kept at %s' "$DIR/kick.log")"
   exit 0
@@ -41,6 +41,8 @@ mkdir -p "$DIR" "$(dirname "$PLIST")"
 cp "$SRC" "$DIR/kick.sh.new"
 chmod 755 "$DIR/kick.sh.new"
 mv "$DIR/kick.sh.new" "$DIR/kick.sh"
+# Review 5: which kosmos commit this copy came from, so a copy left behind main can be seen (kick.sh --check prints it).
+git -C "$(dirname "$SRC")" rev-parse HEAD > "$DIR/source" 2>/dev/null || echo unknown > "$DIR/source"
 cat > "$PLIST.new" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

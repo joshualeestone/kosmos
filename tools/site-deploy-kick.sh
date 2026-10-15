@@ -24,12 +24,18 @@
 # (measured on chaoskosmos-site 2026-10-15: equal on every run), so queue time and running time cannot be told apart;
 # 3 hours is the job's 45-minute timeout plus a long wait behind CI on the shared runner (reviews 3 and 4). It gets a
 # line, the tick still asks (a new dispatch replaces a stuck pending run; behind a stuck queued one it waits its turn),
-# and the tick exits 1 so launchctl's last exit code shows it. While a release cut runs, each tick's run is skipped by
-# the job in seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have. Each tick writes the time to its heartbeat file, so a quiet log can be
-# told apart from a job that never runs. A tick prints only when it asks, cannot read something, or sees a stuck run
+# and the tick exits 1 so launchctl's last exit code shows it. A run that really waited near 3 hours behind CI and is
+# now inside its own 45 minutes is called stuck too (one misleading line and one extra pending dispatch): the cost of
+# not being able to see when a run started. While a release cut runs, each tick's run is skipped by the job in
+# seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have.
+# Each tick writes the time to its heartbeat file (it proves launchd STARTED the tick, not that gh worked; the log
+# says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it asks, cannot read something, or sees a stuck run
 # (at most two lines); the log is not rotated (a few KB a day at worst, kept by --uninstall too).
 #
-# --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing.
+# Fails closed (review 5): with no state folder (the job has never run here, or this looks in the wrong place), the
+# pause, the parked sha and last-deployed cannot be read, so it asks nothing, says so, and exits 1.
+# --check prints what a tick would do (main, last deployed, runs, the decision) and dispatches nothing, and the kosmos
+# commit the installer copied it from.
 # Env (tests point these at fakes): KOSMOS_SITE_REPO, KOSMOS_AUTODEPLOY_STATE, KOSMOS_GH, KOSMOS_KICK_HEARTBEAT,
 # KOSMOS_KICK_NOW (epoch seconds, for tests).
 set -u
@@ -50,6 +56,8 @@ why() { local l; l="$(head -n 1 "$ERR" 2>/dev/null | cut -c1-160)"; [ -n "$l" ] 
 NOW="${KOSMOS_KICK_NOW:-$(date +%s)}"
 [ "$CHECK" = 1 ] || { mkdir -p "$(dirname "$BEAT")" 2>/dev/null; date '+%Y-%m-%d %H:%M:%S %Z' > "$BEAT" 2>/dev/null; }
 
+if [ "$CHECK" = 1 ] && [ -r "$(dirname "$BEAT")/source" ]; then note "installed from kosmos $(head -c 12 "$(dirname "$BEAT")/source")"; fi
+if [ ! -d "$STATE" ]; then say "no deploy state folder at $STATE (the deploy job has not run here, or it keeps its state elsewhere); nothing asked"; exit 1; fi
 if [ -e "$STATE/paused" ]; then note "paused ($STATE/paused): would ask nothing"; exit 0; fi
 main="$("$GH" api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
 case "$main" in

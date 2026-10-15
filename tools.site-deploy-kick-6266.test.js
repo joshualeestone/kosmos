@@ -149,6 +149,13 @@ test('#6266: anything it cannot read asks nothing and exits 1 with a line saying
   assert.match(r.out, /could not dispatch the site deploy for main aaaaaaaaa/);
 });
 
+test('#6266: with no deploy state folder it asks nothing and exits 1 (fails closed, review 5)', needJq, () => {
+  const r = kick(path.join(SANDBOX, 'no-such-state'), { FAKE_RUNS: runs([['completed', 3600]]) });
+  assert.equal(r.status, 1);
+  assert.equal(r.dispatched, 0);
+  assert.match(r.out, /no deploy state folder at .*no-such-state.*nothing asked/);
+});
+
 test('#6266: --check says what a tick would decide and dispatches nothing', needJq, () => {
   const r = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['completed', 3600]]) }, ['--check']);
   assert.equal(r.status, 0, r.out);
@@ -185,9 +192,26 @@ test('#6266: the installer copies the script, writes a 15-minute launchd job, re
   assert.match(xml, new RegExp('<key>KOSMOS_KICK_HEARTBEAT</key><string>' + esc(dir) + '/last-tick</string>'));
   assert.equal((fs.readFileSync(lc, 'utf8').match(/^bootstrap gui\/\d+ .*kosmos-site-deploy-kick\.plist$/mg) || []).length, 2);
   fs.writeFileSync(path.join(dir, 'kick.sh.new'), 'left by an interrupted install');
+  assert.match(fs.readFileSync(path.join(dir, 'source'), 'utf8'), /^([0-9a-f]{40}|unknown)\n$/, 'the installed copy records its kosmos commit');
   const u = spawnSync('/bin/bash', [INSTALL, '--uninstall'], { encoding: 'utf8', env });
   assert.equal(u.status, 0);
   assert.equal(fs.existsSync(plist), false);
   assert.equal(fs.existsSync(dir), false, 'the folder (and a leftover .new) was not removed');
   assert.match(fs.readFileSync(lc, 'utf8'), /bootout gui\/\d+\/com\.stonesyndicate\.kosmos-site-deploy-kick/);
+});
+
+test('#6266: the installer retries a refused load once, and says what to run when launchd still refuses', () => {
+  const home = fs.mkdtempSync(path.join(SANDBOX, 'home-retry-'));
+  const count = path.join(SANDBOX, 'bootstrap-count');
+  const flaky = path.join(SANDBOX, 'launchctl-flaky');
+  // Refuses the first bootstrap (launchd still tearing the old job down), accepts the second.
+  fs.writeFileSync(flaky, `#!/bin/bash\n[ "$1" = bootstrap ] || exit 0\nn=$(($(cat "${count}" 2>/dev/null || echo 0) + 1)); echo $n > "${count}"\n[ $n -ge 2 ]\n`, { mode: 0o755 });
+  const ok = spawnSync('/bin/bash', [INSTALL], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', KOSMOS_KICK_HOME: home, KOSMOS_LAUNCHCTL: flaky } });
+  assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+  assert.equal(fs.readFileSync(count, 'utf8').trim(), '2');
+  const never = path.join(SANDBOX, 'launchctl-never');
+  fs.writeFileSync(never, '#!/bin/bash\n[ "$1" = bootstrap ] && exit 5\nexit 0\n', { mode: 0o755 });
+  const bad = spawnSync('/bin/bash', [INSTALL], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', KOSMOS_KICK_HOME: home, KOSMOS_LAUNCHCTL: never } });
+  assert.equal(bad.status, 1);
+  assert.match(bad.stderr, /launchd did not load com\.stonesyndicate\.kosmos-site-deploy-kick; if it was disabled, run: launchctl enable/);
 });
