@@ -799,8 +799,9 @@ function pasteWire(target, wire) {
 /**
  * #6249: a line typed into an IDLE Claude Code agent was twice left in its input box, unsent, while the log said
  * placed: `placed` meant only that tmux took the Enter. So for a Claude Code pane the board now reads the input box
- * before it pastes (never behind text that is not ours) and after the Enter (still there: one more Enter if it is
- * only ours, else said as unsubmitted).
+ * before it pastes (never behind text that is not ours), right before the Enter (never with text that is not
+ * ours), and after it (still there and only ours: one more Enter on the async path; else said as unsubmitted, and a
+ * line left there that is only ours is sent by the next delivery).
  *
  * The input box is read from an ANSI capture (`capture-pane -e`), measured on Claude Code 2.1.296 to 2.1.300:
  *   - the LIVE box is the last line that starts with ❯ and a NO-BREAK SPACE (U+00A0). Prompts already sent, a line
@@ -815,14 +816,16 @@ function pasteWire(target, wire) {
 const composerText = (ansi) => status.composerText(ansi);   // the reader lives in status.js (the card reads it too)
 /* Whitespace is not compared: wrapping puts a row break where the message had a space, or in the middle of a long word. */
 const squash = (s) => String(s == null ? '' : s).replace(/[\s ]+/g, '');
-/* 'empty', 'ours' (what is there is the end of what we pasted, and nothing else), or 'other'. */
+/* 'empty', 'ours' (what is there is a piece of what we pasted, and nothing else), or 'other'. */
 function composerHolds(text, wire) {
   const t = squash(text);
   if (!t) return 'empty';
   const w = squash(wire);
-  /* A short tail ("ok", ".") could be anyone's: ours only when enough of it shows, or all of a short message. */
+  /* A short piece ("ok", ".") could be anyone's: ours only when enough of it shows, or all of a short message. */
   if (t.length < Math.min(20, w.length)) return 'other';
-  return w.endsWith(t) ? 'ours' : 'other';
+  /* Any unbroken run of ours (round 3): a box that scrolled shows our end, a box Claude is still drawing shows our
+     start. The box was empty before the paste, so text from anyone else is not a run of ours. */
+  return w.includes(t) ? 'ours' : 'other';
 }
 /* The live box of a Claude Code pane, read with its colours; { ok: false } when it cannot be read. */
 function readComposer(target) {
@@ -843,11 +846,12 @@ const EARLIER_SENT_BECAUSE = 'an earlier message was still sitting unsent in its
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
- * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery. Yields { wait: ms } for the driver (synchronous or not, as the gap is);
- * returns { outcome, retried }: 'sent' (it emptied), 'unread' (no live box to read: a menu or the turn's own screen,
- * so today's verdict stands), 'unsent' (only ours still there after one more Enter), 'other' (something besides ours:
+ * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery.
+ * Yields { wait: ms } for the driver (synchronous or not, as the gap is); returns { outcome, retried }: 'sent' (it
+ * emptied), 'unread' (no live box to read: a menu or the turn's own screen, so today's verdict stands), 'unsent'
+ * (only ours still there after the settle, and after the one retry where there is one), 'other' (something besides ours:
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
- * The one retry is pressed only on a box that holds nothing but the end of what we pasted, on a pane still an agent's.
+ * The one retry (async only) is pressed only on a box that holds nothing but ours, on a pane still an agent's.
  */
 function* submitConfirmSteps(card, target, wire, mayRetry) {
   let waited = 0;
