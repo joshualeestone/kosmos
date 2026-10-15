@@ -288,25 +288,31 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const free7 = await p7.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(hasCheck7 && busy7.reads === 1 && busy7.fives === 2 && free7.fives === 1 && free7.reads === 2, '[chromium open] busy before the reset: no read while busy, then one read and the line goes', JSON.stringify({ hasCheck7, busy7, free7 }));
     await p7.close();
-    // Opening Settings onto AI Models repaints the list itself: the on-show read must not run as well (each read runs a
-    // live check per account). One read for the open, not two.
+    // Opening Settings onto AI Models repaints the list itself, after its own reads: here /api/machine takes 3 s, longer
+    // than the on-show look waits, and the look must still stand down (each read runs a live check per account).
     const p8 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p8.clock.install({ time: new Date(now) });
     await p8.goto('file://' + PAGE);
     await p8.evaluate(async (accounts) => {
       window.__reads = 0;
       const realFetch = window.fetch;
-      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      window.fetch = (u, o) => {
+        const s = String(u);
+        if (s.indexOf('/api/accounts') !== -1) { window.__reads++; return Promise.resolve({ ok: true, json: async () => ({ accounts }) }); }
+        if (s.indexOf('/api/machine') !== -1) return new Promise((res) => setTimeout(() => res({ ok: true, json: async () => ({}) }), 3000));
+        if (s.indexOf('/api/status') !== -1) return Promise.resolve({ ok: true, json: async () => ({}) });
+        return realFetch(u, o);
+      };
       const l = document.getElementById('set-accounts');
       for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
       await paintAccounts();
       settingsGo('you');
     }, rows);
     await p8.clock.runFor(12 * 60e3); await p8.waitForTimeout(200);   // a line past its reset, list hidden
-    await p8.evaluate(async () => { settingsGo('accounts'); await paintAccounts(); });   // what opening Settings does
-    await p8.clock.runFor(3e3); await p8.waitForTimeout(300);
+    await p8.evaluate(() => { paintSettings(); settingsOpen('accounts'); });   // what opening Settings onto AI Models does
+    for (let k = 0; k < 6; k++) { await p8.clock.runFor(1000); await p8.waitForTimeout(100); }
     const open8 = await p8.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
-    say(open8.reads === 2 && open8.fives === 1, '[chromium open] opening Settings onto AI Models reads the list once, not twice', JSON.stringify(open8));
+    say(open8.reads === 2 && open8.fives === 1, '[chromium open] opening Settings onto AI Models reads the list once, even when its own reads are slow', JSON.stringify(open8));
     await p8.close();
     // Switching to AI Models twice in a row with a line past its reset: one read, not one per switch.
     const p9 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });

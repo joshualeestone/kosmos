@@ -71,3 +71,13 @@ test('#6178 an account that becomes an API key says so at once, not after the ca
   const after = aw.summary([{ dir: d, email: 'f@example.com', apiKey: true }], now + 1000);
   assert.deepEqual([after[0].apiKey, after[0].weekly], [true, null], 'the old reading was kept inside the cache window');
 });
+
+test('#6176 fiveHourOf: the reading in ms for an account, nothing for a key even with a file there', () => {
+  const d = acct('five-6176');
+  const soon = Math.floor(Date.now() / 1000) + 2 * 3600, at = Date.now() - 60e3;
+  fs.writeFileSync(path.join(d, statusline.FIVE_HOUR_FILE), JSON.stringify({ usedPct: 64, resetsAt: soon, at }));
+  assert.deepEqual(aw.fiveHourOf({ dir: d }, Date.now()), { usedPct: 64, resetsAt: soon * 1000, at });
+  assert.equal(aw.fiveHourOf({ dir: d, apiKey: true }, Date.now()), null, 'a key has no five-hour limit');
+  assert.equal(aw.fiveHourOf({ dir: path.join(SANDBOX, 'none-6176') }, Date.now()), null);
+  assert.equal(aw.fiveHourOf(null, Date.now()), null);
+});

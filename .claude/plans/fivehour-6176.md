@@ -67,3 +67,11 @@ shows its age, and a reading from a window that has reset is not drawn at all.
   is rate-limited to one round per five seconds by AO_KICK_GAP_MS, so it is left alone.
 - Not in this branch: a Codex (OpenAI) row's five-hour window (#6203) has no reset timer, so on a list left open it can
   stay past its reset until the next paint. Noted on #6176.
+- Opening Settings onto AI Models reads the list once even when Settings' own reads are slow: paintSettings marks an
+  open under way until it paints the list, and the on-show look stands down while it is (30 s fail-safe).
+- Coming back to the window (visible again, or focus) looks again, because a Mac's sleep does not count on a page
+  timer and the reset timer can wake late. Not testable with the page clock; reasoned.
+- Accepted: a list held busy indefinitely (a Disconnect left half-pressed) keeps a line past its reset once the ten
+  tries are spent, until the next repaint, another line's reset, or the window being focused again.
+- The six-hour sanity bound is one value, FIVE_HOUR_MAX_AHEAD_SECONDS (kosmos-statusline.js), used by record() and by
+  allowance.readFiveHour; the route builds the reading through accountsweekly.fiveHourOf beside #6178's weeklyOf.

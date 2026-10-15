@@ -55,6 +55,9 @@ const SAME_WEEK_TOLERANCE_SECONDS = 86400;
    windows reset five hours apart, so readings within an hour of each other's reset time are the same window. */
 const FIVE_HOUR_FILE = 'kosmos-fivehour.json';
 const SAME_WINDOW_TOLERANCE_SECONDS = 3600;
+/* #6176: no five-hour window resets further out than this; a reset beyond it is a bad reading or file. One value, used
+   by record() here and by allowance.readFiveHour, so the writer and the reader cannot disagree. */
+const FIVE_HOUR_MAX_AHEAD_SECONDS = 6 * 3600;
 
 /** The seven-day reading from a statusline payload, or null. Validated, not
  *  presence-checked: a present field of the wrong shape is worse than none. */
@@ -132,7 +135,7 @@ function main(argv, input, now) {
   try { payload = JSON.parse(input); } catch { return; }
   // Each reading on its own: a failure recording one must never cost the other.
   try { const reading = weeklyOf(payload); if (reading) record(dir, reading, now); } catch { /* the five-hour one still goes */ }
-  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: 6 * 3600 }); } catch { /* nothing to show */ }
+  try { const five = fiveHourOf(payload); if (five) record(dir, five, now, { file: FIVE_HOUR_FILE, tolerance: SAME_WINDOW_TOLERANCE_SECONDS, history: false, maxAheadSeconds: FIVE_HOUR_MAX_AHEAD_SECONDS }); } catch { /* nothing to show */ }
 }
 
 if (require.main === module) {
@@ -142,4 +145,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, weeklyOf, fiveHourOf, record, main };
+module.exports = { FILE, HISTORY_MAX, SAME_WEEK_TOLERANCE_SECONDS, FIVE_HOUR_FILE, SAME_WINDOW_TOLERANCE_SECONDS, FIVE_HOUR_MAX_AHEAD_SECONDS, weeklyOf, fiveHourOf, record, main };

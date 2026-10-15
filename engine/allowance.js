@@ -160,7 +160,7 @@ function readFiveHour(accountDir, now = Date.now()) {
   const reading = statusline.fiveHourOf({ rate_limits: { five_hour: { used_percentage: j.usedPct, resets_at: j.resetsAt } } });
   if (!reading || !(typeof j.at === 'number' && Number.isFinite(j.at))) return null;
   if (reading.resetsAt * 1000 <= now) return null;
-  if (reading.resetsAt * 1000 > now + 6 * 3600e3) return null;   // a five-hour window cannot reset further out: a bad file, not a reading
+  if (reading.resetsAt > now / 1000 + statusline.FIVE_HOUR_MAX_AHEAD_SECONDS) return null;   // a five-hour window cannot reset further out: a bad file, not a reading
   return { usedPct: reading.usedPct, resetsAt: reading.resetsAt, at: j.at };
 }
 

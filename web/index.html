@@ -26575,6 +26575,7 @@ function asgFailoverClick() {
 document.getElementById('asg-fo-toggle') && document.getElementById('asg-fo-toggle').addEventListener('click', asgFailoverClick);
 
 async function paintSettings() {
+  acctSettingsOpenAt = Date.now();   // #6176: a Settings open is under way: its own paintAccounts below reads the list
   paintYouName();
   paintYouTz();
   paintAutomation();
@@ -26626,6 +26627,7 @@ async function paintSettings() {
      none of them need. paintAccounts() paints its own loading state
      immediately and fills in the real answer whenever it lands; nothing
      later in this function reads its result. */
+  acctSettingsOpenAt = 0;
   paintAccounts();
   await refreshHistory();
   await refreshYou();
@@ -27266,6 +27268,7 @@ let acctFiveTimer = null, acctFiveMisses = 0;
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
+let acctSettingsOpenAt = 0;   // when a Settings open began, until it paints the list itself (0: none under way)
 let acctOnShowTimer = null;   // one pending look at a time: switching to AI Models twice queues one read, not two
 function acctFiveHourOnShow() {
   /* A moment later, and only if nothing has repainted the list meanwhile: opening Settings onto AI Models repaints it
@@ -27274,6 +27277,7 @@ function acctFiveHourOnShow() {
   clearTimeout(acctOnShowTimer);
   acctOnShowTimer = setTimeout(() => {
     acctOnShowTimer = null;
+    if (acctSettingsOpenAt && Date.now() - acctSettingsOpenAt < 30e3) return;   // a Settings open is about to paint (and read) the list itself
     if (mine !== ACCT_EPOCH || !acctListShown()) return;
     const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
     if (!shown.length) return;
@@ -27283,6 +27287,10 @@ function acctFiveHourOnShow() {
 }
 /* A failed re-read keeps the list, so a five-hour line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
+/* A Mac that sleeps does not count that time on a page timer, so the reset timer can wake late: coming back to the
+   window looks again (the same check as a section switch). */
+document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
+window.addEventListener('focus', () => acctFiveHourOnShow());
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
   const shown = [...document.querySelectorAll('#set-accounts .acct-usage-five[data-resets]')].map((el) => Number(el.dataset.resets)).filter(Number.isFinite);
