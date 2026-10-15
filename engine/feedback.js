@@ -296,7 +296,8 @@ function readFolder(folder, since, reports, notes) {
 /**
  * The reports `kosmos feedback triage` reads (#2246), optionally only those on or
  * after `since`: a directory (`--dir`); with none, the folder `kosmos feedback pull`
- * fills when it holds a report file, else this computer's own store (#6265). ONE reader for both CLIs (install/kosmos and the Windows
+ * fills when it holds a report file, else this computer's own store (#6265).
+ * ONE reader for both CLIs (install/kosmos and the Windows
  * tools/windows/kosmos-cli.js), so the two cannot disagree about which reports a
  * digest covers (win32-cli-verbs).
  *
@@ -326,15 +327,17 @@ function reportsForTriage(opts) {
      is read when it holds any; only when it does not are this computer's own daily reports read. Either way the run
      says which folder it read (stderr in both commands), so a triage after a pull can never silently read old data. */
   const pulled = pulledDir();
-  if (hasReports(pulled) && readFolder(pulled, since, reports, notes)) {
-    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it; --dir reads another folder)');
+  const pulledThere = hasReports(pulled);
+  if (pulledThere && readFolder(pulled, since, reports, notes)) {
+    notes.push('triage read the pulled reports in ' + pulled + ' (kosmos feedback pull fills it); --dir ' + dir() + ' reads this computer\'s own');
     return { ok: true, reports, notes, read: pulled };
   }
   for (const date of list()) {
     if (since && date < since) continue;
     reports.push({ date, body: readBody(date) });
   }
-  notes.push('triage read this computer\'s own reports in ' + dir() + ': there are no pulled reports in ' + pulled + ' (kosmos feedback pull fetches them)');
+  /* Review 2: a pulled folder that held reports but could not be read (gone between the two looks) says so. */
+  notes.push('triage read this computer\'s own reports in ' + dir() + ': ' + (pulledThere ? 'the pulled reports in ' + pulled + ' could not be read' : 'there are no pulled reports in ' + pulled + ' (kosmos feedback pull fetches them)'));
   return { ok: true, reports, notes, read: dir() };
 }
 

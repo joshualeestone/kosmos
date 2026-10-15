@@ -34,3 +34,9 @@ a pull needs --dir; the note on every run tells them which folder was read.
   taken: fixtures use pull's real file names, and an undated pulled report is pinned. Left: the note carries an
   absolute path (stderr only; the daily digest job does not call this); the own store is listed newest first and the
   folders oldest first (as before for --dir; the digest does not depend on order).
+
+## Review 2 (sonnet), and what changed
+- No BLOCKER. WARNING (the pulled folder always wins once it holds a report): the weakest premise, already stated; the
+  note now also names `--dir <own folder>` for reading this computer's own. WARNING: a pulled folder that vanished
+  between the two looks was described as having no reports: the note now says it could not be read. CONVENTION: a
+  doc line rewrapped.
