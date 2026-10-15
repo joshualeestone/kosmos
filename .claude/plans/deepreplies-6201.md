@@ -12,8 +12,8 @@ budget is said on its own post with the number of replies left unread, instead o
   replies has its replies paged through the service's own cursor to the end (replies come oldest first, so the newest
   are on the LAST page), and a post with older comments has them paged too (their unshown replies join the queue).
   Newest comments first, so the budget goes to the likeliest new replies.
-- Whatever the budget leaves, per post: "(on your post <id>: N replies [and older comments] could not be read in
-  one go, so any new ones among them are not listed)". N is exact for read comments (reply_count minus read).
+- Whatever the budget or window leaves waiting, per post: "(on your post <id>: N replies [and its older comments]
+  were not reached in this read, so new ones among them may not be listed)". N is exact (reply_count minus read).
 
 ## Decided
 - The mark still moves for a post read in part (review 2 of #4833 slice 2): holding it would re-read the same first
@@ -53,3 +53,17 @@ replies still misses some; the count says so.
 - ROUND2_START_MS 2 s (18 s a read at most: 8 + 2 + 8), stale timing comments fixed; the test-only window option can
   only shorten the window; the queue-order comment says what it does (posts, then comments, newest first; continuation
   pages behind).
+
+## Review 3 (opus), and what changed
+- A post left partly read by the budget also settles: below its newest item by MARK_SETTLE_MS, and no later than the
+  earliest last-read item of a comment still waiting (replies come oldest first, so what waits is newer). A post with
+  older comments not reached does not settle (their replies can be of any time). Test: 10 comments x 200 replies over
+  7 reads, past SEEN_MAX, none twice (switching it off repeats, measured).
+- Pages are followed while the service's page had rows at all, not only new valid ones, so a page of malformed rows
+  cannot end paging with real replies behind it; a cursor that does not advance is ended by the budget and said.
+- The settle window is tested: a deep reply stamped 1 minute before the newest that appears only on the next read is
+  shown (MARK_SETTLE_MS 0 fails it). The count's "older comments" uncertainty branch is tested with a control.
+- Wording: "may not be listed" (a later read that gets further can still list newer ones).
+- Known and kept: round 1's newest item still sets the mark as before this change, so an item that commits late
+  inside round 1's own page is as before (#4833's rare late-commit case). REPLY_COUNT_MAX (200, the service's limit)
+  means one comment never exceeds 10 pages.

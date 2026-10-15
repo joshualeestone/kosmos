@@ -591,9 +591,9 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Lng4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { next_cursor: 'N', comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
-  // #6201 review 2: the older page is asked for; the fixture answers the same comments again (nothing new), so its
-  // cursor is not followed and nothing is left waiting: not said.
-  assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'an older page that brought nothing new was said as unreached');
+  // #6201 review 3: the fixture answers every older page with the same rows and the same cursor; a page with rows is
+  // followed (bad rows cannot end paging early), so the budget ends it and the older comments are said as not reached.
+  assert.match((await cr.readReplies('Lng4833', { now: NOW })).text, /: its older comments were not reached in this read/, 'older comments left waiting were not said');
   clearSeen();
   const four = [1, 2, 3, 4].map((n) => comment({ id: CID(n), created_at: T(n), reply_count: 5, replies: [], replies_cursor: 'C' + n }));
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: four } }),
@@ -602,7 +602,7 @@ test('#4833 slice 2 review 2 / #6201: what a read could not reach is said on its
   // after: read to the end, so not said (only pages left waiting are "not reached").
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'a count mismatch was said as unreached');
   // Said when the window leaves pages waiting:
-  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, and new ones among them will not be listed\)/);
+  assert.match((await cr.readReplies('Lng4833', { now: NOW, round2Ms: 0 })).text, /: 20 replies were not reached in this read, so new ones among them may not be listed\)/);
   clearSeen();
   serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: CID(1), created_at: T(9) })] } }) });
   assert.ok(!say.test((await cr.readReplies('Lng4833', { now: NOW })).text), 'CONTROL: a short thread said it was long');
@@ -1851,7 +1851,7 @@ test('#6201: past the page budget, the read stops at REPLY_PAGES_MAX pages, at m
   assert.equal(pages, cr.REPLY_PAGES_MAX, 'not exactly the page budget was read');
   assert.ok(peak <= cr.REPLY_PAGES_AT_ONCE && peak > 1, 'pages were not read a few at a time: ' + peak);
   const left = 2000 - cr.REPLY_PAGES_MAX * 20;
-  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, and new ones among them will not be listed)'), r.text.slice(-400));
+  assert.ok(r.text.includes('(on your post ' + RP(8) + ': ' + left + ' replies were not reached in this read, so new ones among them may not be listed)'), r.text.slice(-400));
 });
 
 test('#6201 review 1: a thread whose new items are deep replies (200, past SEEN_MAX) is read to the end over several reads, never repeating one', async () => {
@@ -1890,4 +1890,64 @@ test('#6201 review 1: no new batch starts past round 2\'s time window; what is l
   clearSeen();
   serve({ ['/posts/' + RP(3) + '/comments']: () => ({ status: 200, json: { comments: [comment({ id: D6201(701), created_at: T(1), reply_count: 1, replies_cursor: 'w', replies: [] })] } }) });
   assert.match((await cr.readReplies('Tim6201', { now: NOW, round2Ms: 0 })).text, /: 1 reply was not reached in this read/);
+});
+
+test('#6201 review 3: a deep reply stamped inside MARK_SETTLE_MS of the newest that shows up only on a later read is still shown', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Lat6201', remoteId: RP(2), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const B = Date.parse('2026-10-01T05:00:00Z');
+  const R = (n, ms, body) => comment({ id: D6201(n), parent_id: D6201(800), created_at: new Date(ms).toISOString(), body });
+  const top = comment({ id: D6201(800), created_at: '2026-10-01T01:00:00Z', body: 'top', reply_count: 4, replies_cursor: 'L',
+    replies: [R(801, B - 4 * 3600e3, 'pre1'), R(802, B - 3 * 3600e3, 'pre2')] });
+  let late = false;
+  serve({
+    ['/posts/' + RP(2) + '/comments']: () => ({ status: 200, json: { comments: [top] } }),
+    // behind the cursor: an older deep reply and the newest one; on the second read a late one between them appears
+    ['/posts/' + RP(2) + '/comments/' + D6201(800) + '/replies']: () => ({ status: 200, json: { replies: late
+      ? [R(803, B - 2 * 3600e3, 'deep old'), R(805, B - 60000, 'late C'), R(804, B, 'newest B')]
+      : [R(803, B - 2 * 3600e3, 'deep old'), R(804, B, 'newest B')] } }),
+  });
+  const one = await cr.readReplies('Lat6201', { now: NOW });
+  assert.match(one.text, /newest B/);
+  late = true;
+  const two = await cr.readReplies('Lat6201', { now: NOW + 1000 });
+  assert.match(two.text, /late C/, 'a deep reply stamped within the settle window of the newest was passed by the mark');
+  assert.ok(!/deep old|newest B|pre1/.test(two.text), 'something shown before was shown again');
+});
+
+test('#6201 review 3: a post that keeps hitting the page budget still moves on by what it showed, never repeating one', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Bud6201', remoteId: RP(1), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const at = (n) => new Date(Date.parse('2026-10-01T02:00:00Z') + n * 10000).toISOString();
+  // 10 comments with 200 replies each (the service's most): 100 pages, past the 30-page budget on every read.
+  const tops = Array.from({ length: 10 }, (_, i) => comment({ id: D6201(4000 + i), created_at: '2026-10-01T01:00:00Z', reply_count: 200, replies_cursor: 'x' + i + '_0', replies: [] }));
+  const repl = (i, k) => comment({ id: D6201(10000 + i * 1000 + k), parent_id: tops[i].id, created_at: at(i * 200 + k) });
+  cr.setFetcher(async (url) => {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/comments\/([0-9a-f-]{36})\/replies$/);
+    if (!m) return { status: 200, json: { comments: tops } };
+    const i = tops.findIndex((x) => x.id === m[1]);
+    const n = Number(u.searchParams.get('cursor').split('_')[1]);
+    return { status: 200, json: { next_cursor: n < 9 ? 'x' + i + '_' + (n + 1) : null, replies: Array.from({ length: 20 }, (_, k) => repl(i, n * 20 + k)) } };
+  });
+  const ids = (t) => (t.match(/\(comment ([0-9a-f-]{36})\)/g) || []).map((x) => x.slice(9, 45));
+  const shown = []; let lastText = '';
+  for (let k = 0; k < 7; k += 1) { lastText = (await cr.readReplies('Bud6201', { now: NOW + k * 1000 })).text; shown.push(...ids(lastText)); }
+  assert.ok(shown.length > cr.SEEN_MAX, 'fixture: not past SEEN_MAX');
+  assert.equal(new Set(shown).size, shown.length, 'a reply was shown twice on a budget-limited post');
+  assert.match(lastText, /were not reached in this read/, 'CONTROL: the post was not budget-limited');
+});
+
+test('#6201 review 3: the count names nobody when a post has a full first comments page with more behind it', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Unc6201', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, { Unc6201: { name: 'unc-writes', remoteId: 'x', apiKey: 'K', token: 'T' } });
+  const page = Array.from({ length: cr.COMMENTS_ASKED }, (_, k) => comment({ id: D6201(3000 + k), created_at: T(1 + (k % 9)), agent: { name: 'Ann' } }));
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { next_cursor: 'more', comments: page } }) });
+  const f = await cr.freshReplies('Unc6201', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, f.because);
+  assert.deepEqual(f.posts[0].ids, [], 'a count that could not see the older comments named some');
+  assert.equal(f.posts[0].more.length, cr.COMMENTS_ASKED);
+  serve({ ['/posts/' + RP(4) + '/comments']: () => ({ status: 200, json: { comments: page.slice(0, 3) } }) });
+  const ok = await cr.freshReplies('Unc6201', { now: NOW, paceMs: 0 });
+  assert.equal(ok.posts[0].ids.length, 3, 'CONTROL: a whole thread was not named');
 });

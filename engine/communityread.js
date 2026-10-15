@@ -409,7 +409,7 @@ function feedFooter(spec, next) {
    board clock more than 7 days fast would set that mark in the service's future). Limits, said in the output when they bite
    (#6201, F7d): round 1 holds a post's newest 10 top-level comments by when they were WRITTEN with 2 replies each; round 2
    pages every comment's remaining replies and the post's older comments, at most REPLY_PAGES_MAX pages a read. Whatever
-   that leaves is counted on its post ("N replies could not be read in one go"), and the post's mark still moves (review 2:
+   that leaves is said on its post ("N replies were not reached in this read"), and the post's mark still moves (review 2:
    holding it would re-read the same first pages and never reach the rest).
    (times are read to the millisecond: the service's microseconds are a late-commit case below)
    Not said, and rare: a
@@ -421,7 +421,7 @@ const REPLIES_FIRST_DAYS = 7;
 /* #6201 (F7d): every comment's unshown replies, and a post's older comments, are paged through the service's cursors,
    at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below),
    REPLY_PAGES_AT_ONCE at a time, and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
-   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1, the start window and one last batch, 8 s each at most).
+   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
    What that leaves is said on its post. A post read to its end (nothing left, nothing failed) has its mark moved to
    the newest item read that is at least MARK_SETTLE_MS older than the newest one (#6201 review 1): replies deep in a
    thread are often newer than its top-level page, and only "seen" kept them from repeating, which SEEN_MAX could not
@@ -839,8 +839,8 @@ async function repliesFor(sessionName, opts) {
       }
       if (typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) {
         th.commentsCursor = r.json.next_cursor;   // still more: said below if it is not reached
-        // A page that brought nothing new is not followed again (a cursor that does not advance would spend the budget).
-        if (added) queue.push({ th, comments: true, cursor: r.json.next_cursor });
+        // Followed while the service's page had rows (as replies above; the budget bounds a cursor that does not advance).
+        if (list.length) queue.push({ th, comments: true, cursor: r.json.next_cursor });
       }
       return;
     }
@@ -855,8 +855,10 @@ async function repliesFor(sessionName, opts) {
     c.replies = c.replies.concat(added);
     // The service's own count can lag a reply written between pages: never fewer than what was read.
     if (c.replies.length > c.replyCount) c.replyCount = c.replies.length;
-    // Followed only while pages bring something new (a cursor that does not advance would spend the budget).
-    if (added.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
+    /* Followed while the service's page had rows at all (counted before rows are dropped as malformed, so a page of bad rows
+       cannot end the paging with real replies behind it, #6201 review 3). A cursor that does not advance is bounded by
+       the budget, and is then said as not reached. */
+    if (list.length && typeof r.json.next_cursor === 'string' && PAGE_CURSOR_RE.test(r.json.next_cursor)) queue.push(repliesTask(th, c, r.json.next_cursor));
   };
   while (queue.length && pagesRead < REPLY_PAGES_MAX && Date.now() - round2Start < round2Ms) {
     // A post that has failed is not read further: its tasks are dropped, not counted against the budget.
@@ -877,13 +879,23 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone) continue;
     th.unreadReplies = th.comments.reduce((n, c) => n + (c.pending ? Math.max(0, c.replyCount - c.replies.length) : 0), 0);
     th.olderUnread = !!th.olderPending;
-    // #6201 review 1: a post read to its end may settle its mark (see MARK_SETTLE_MS).
-    if (!th.unreadReplies && !th.olderUnread) {
+    /* #6201 reviews 1 and 3: the mark may settle (see MARK_SETTLE_MS). A post read to its end settles below its newest
+       item. A post whose only unreached part is replies under comments settles below the earliest of those comments'
+       last read item too: replies come oldest first, so what waits behind a cursor is newer than what was read before
+       it. Older comments not reached can carry replies of any time, so such a post does not settle. */
+    if (!th.olderUnread) {
       let newest = null;
-      for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && (!newest || byPos(x, newest) > 0)) newest = x;
+      let cap = null;   // the earliest last-read item of a comment still waiting
+      for (const c of th.comments) {
+        for (const x of [c, ...c.replies]) if (x.ts && (!newest || byPos(x, newest) > 0)) newest = x;
+        if (c.pending) {
+          const last = c.replies.length ? c.replies[c.replies.length - 1] : c;
+          if (last.ts && (!cap || byPos(last, cap) < 0)) cap = last;
+        }
+      }
       let settled = null;
       if (newest) for (const c of th.comments) for (const x of [c, ...c.replies]) {
-        if (x.ts && x.ts <= newest.ts - MARK_SETTLE_MS && (!settled || byPos(x, settled) > 0)) settled = x;
+        if (x.ts && x.ts <= newest.ts - MARK_SETTLE_MS && (!cap || byPos(x, cap) <= 0) && (!settled || byPos(x, settled) > 0)) settled = x;
       }
       th.settled = settled;
     }
@@ -945,7 +957,7 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone || !(th.unreadReplies || th.olderUnread)) continue;
     const what = (th.unreadReplies ? th.unreadReplies + (th.unreadReplies === 1 ? ' reply' : ' replies') : '')
       + (th.unreadReplies && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, and new ones among them will not be listed)', '');
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may not be listed)', '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
