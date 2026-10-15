@@ -60,8 +60,6 @@ function state(files = {}) {
   for (const [k, v] of Object.entries(files)) fs.writeFileSync(path.join(d, k), v);
   return d;
 }
-/* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
-   (measured 2026-10-15), so the script does not ask for it. */
 /* An unfinished run's conclusion is "" exactly as gh gives it (measured 2026-10-15; null hid a parsing bug). */
 /* [status, created s ago, updated s ago, conclusion, started s ago]: startedAt equals createdAt unless given (a
    re-run's start moves, its creation does not). */
@@ -120,6 +118,7 @@ test('#6266: a run not finished 3 hours after creation is stuck: said, not waite
     assert.equal(r.dispatched, 1, why + ': one stuck run silenced the backstop');
     assert.equal(r.status, 1, why + ': launchctl\'s last exit code should show it');
     assert.match(r.out, /a site deploy run has been .* \(200 minutes\), past its limit; not waiting on it/, why);
+    assert.ok(r.out.includes('since ' + iso(12000)), why + ': the line names the time its age counts from');
   }
   // The 3-hour limit is pinned on both sides: 10900 s is stuck, 10700 s is waited on.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10900]]) }).dispatched, 1, '10900 s');
@@ -181,7 +180,7 @@ test('#6266: with no deploy state folder it asks nothing and exits 1 (fails clos
   assert.match(r.out, /no deploy state folder at .*no-such-state.*nothing asked/);
 });
 
-test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said as timed out, and asks nothing', needJq, () => {
+test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said as timed out, and asks nothing', () => {
   const t0 = Date.now();
   const r = kick(state({ 'last-deployed': OLD }), { FAKE_SLEEP: '20', FAKE_IGNORE_ALRM: '1', KOSMOS_KICK_GH_TIMEOUT: '1' });
   const took = (Date.now() - t0) / 1000;

@@ -204,3 +204,11 @@ workflow scope lost, "could not dispatch") in kick.log, last-result and launchct
   holds): a finished re-run started 5 minutes ago now holds the gap (test; mutant red), and one that just failed.
   WARNING: a tick stopped by a signal mid-call recorded rc=143 with no cause: why() names it. NITs taken: the header's
   timeout wording; a comment on why every TSV column must be non-empty.
+
+## Review 19 (opus), and what changed
+- No BLOCKER. CONVENTION: a stale fixture comment said the script does not ask for startedAt: removed. NITs taken: a
+  stuck re-run's line names the time its age counts from (the attempt's start); the unconfirmed "cancelled at the
+  45-minute timeout" case is stated in the header; the hung-gh test no longer needs jq.
+- Seen once while validating (18:53, load about 7): the first test took 92 s and failed, the length of the 90 s gh
+  limit, so a fake gh call hung and the wall clock cut it off as designed. Not reproduced: alone 0.3 s, then three
+  full runs 17/17 in about 18 s each. Cause not found; recorded rather than called a flake.
