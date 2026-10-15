@@ -13,6 +13,10 @@
  *  - a window whose reset has passed is not drawn; a row with no report says so plainly;
  *  - an API-key row (no limits field) and an older board's row draw nothing;
  *  - at 390 px nothing scrolls sideways.
+ * Then the timer that takes a window's meter away at its reset on a list left open (Chromium, page clock installed,
+ * read counts asserted): the read at a reset; a reset passed in another section; a weekly window alone (no six-hourly
+ * read); a window more than six hours out (a wake timer, no read before its reset); a stray five-hour reading on an
+ * OpenAI row (no read).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-account-codex-6176.js
  *
