@@ -171,6 +171,20 @@ function current() {
   return a ? a.policy : null;
 }
 
+/* kosmos#6239 (challenge round 2): the same read for the two family checks, strict. Only a missing file is "no policy";
+   a file that cannot be read or parsed THROWS, so each caller's own fault rule applies (contact paths refuse, quiet
+   paths allow and say nothing) instead of a fault reading as no policy at all. */
+function currentStrict() {
+  let raw;
+  try { raw = fs.readFileSync(APPLIED(), 'utf8'); } catch (e) {
+    if (e && e.code === 'ENOENT') return null;
+    throw e;
+  }
+  const j = JSON.parse(raw);
+  if (!(j && Number.isInteger(j.version) && j.policy && typeof j.policy === 'object')) throw new Error('the applied policy record is not one this Kosmos understands');
+  return j.policy;
+}
+
 /** The policy in force after applying whatever bundle the tunnel has written since (two small reads and one
  *  signature check, so it is asked fresh at every create and switch rather than on a timer). Never throws. */
 function inForce() {
@@ -224,7 +238,7 @@ const POLICY_SETTER = 'the policy set for this Kosmos';
 
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
  *  with another computer). Stopped only by `outside_contact: { enabled: false }`; no policy, or the key unset, allows. */
-function contactAllows(policy = current()) {
+function contactAllows(policy = currentStrict()) {
   const oc = policy && policy.outside_contact;
   if (oc && typeof oc === 'object' && oc.enabled === false) {
     return { ok: false, because: `${POLICY_SETTER} does not allow agents to reach anyone outside this computer` };
@@ -246,7 +260,7 @@ function localClock(ms, tz) {
  *  Friday and Saturday nights are free. { quiet: false } | { quiet: true, until: 'HH:MM', tz } |
  *  { quiet: true, until: null, tz, unknownZone: true }. Never throws. A zone this computer cannot read keeps quiet
  *  hours all day (closed, and plain to whoever set it: nothing reaches an agent) rather than none (open, unnoticed). */
-function quietAt(policy = current(), ms = Date.now()) {
+function quietAt(policy = currentStrict(), ms = Date.now()) {
   const q = policy && policy.quiet_hours;
   if (!quietShapeOk(q)) return { quiet: false };
   let c;
@@ -262,7 +276,7 @@ function quietAt(policy = current(), ms = Date.now()) {
 }
 
 /** kosmos#6239: { ok: true } | { ok: false, because } for starting an agent or giving one a new message now. */
-function quietAllows(policy = current(), ms = Date.now()) {
+function quietAllows(policy = currentStrict(), ms = Date.now()) {
   const q = quietAt(policy, ms);
   if (!q.quiet) return { ok: true };
   if (q.unknownZone) return { ok: false, because: `${POLICY_SETTER} sets quiet hours in a time zone this computer cannot read (${q.tz}), so they last all day` };

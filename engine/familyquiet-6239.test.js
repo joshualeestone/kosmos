@@ -109,11 +109,15 @@ test('#6239: the person\'s Start and Restart are refused in quiet hours; the boa
   assert.equal(r.outcome, removal.OUTCOME.REFUSED);
   assert.equal(r.quiet, true);
   assert.match(r.because, /^it was not started: it is quiet hours until/);
+  const back = removal.restore('nobody-here', { quiet: true });
+  assert.equal(back.quiet, true, 'putting a removed agent back was not refused: ' + JSON.stringify(back));
+  assert.match(back.because, /^it was not put back: it is quiet hours until/);
   const own = removal.restart('nobody-here', 'provider', {});
   assert.notEqual(own.quiet, true, 'a restart the board makes to finish a change was refused for quiet hours');
   apply(LATER());
   const later = removal.restart('nobody-here', 'restart', { startIfDead: true, quiet: true });
   assert.notEqual(later.quiet, true, 'CONTROL: outside the window');
+  assert.notEqual(removal.restore('nobody-here', { quiet: true }).quiet, true, 'CONTROL: restore outside the window');
 });
 
 test('#6239: no agent is made in quiet hours; a provider the policy refuses keeps its own sentence', () => {

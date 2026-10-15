@@ -812,7 +812,7 @@ const COMMUNITY_STOPPED = 'The policy set for this Kosmos does not allow agents 
 function federationPolicyStop() {
   try {
     const op = require('./engine/orgpolicy');
-    const c = op.contactAllows(op.inForce());   // fresh: a route, not a hot path
+    op.inForce(); const c = op.contactAllows();   // fresh: a route, not a hot path (apply, then the strict read)
     return c.ok === true ? null : 'The policy set for this Kosmos does not allow agents to reach anyone outside this computer, so a project cannot be shared or joined here.';
   } catch { return 'Kosmos could not read the policy set for this Kosmos just now, so a project cannot be shared or joined here.'; }
 }
@@ -8811,7 +8811,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let back;
-    try { back = removal.restore(name); }
+    try { back = removal.restore(name, { quiet: true }); }   // kosmos#6239: quiet hours
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
     sendJson(res, back.outcome === removal.OUTCOME.REFUSED ? 400 : 200, back);
     return;
@@ -9457,7 +9457,7 @@ const server = http.createServer(async (req, res) => {
   /* kosmos#6239: `stopped` is the sentence for a policy that keeps agents out of the community whatever the switch says
      (orgpolicy.contactAllows), else null; the switch stays the person's to set. */
   const communityStopped = () => {
-    try { const op = require('./engine/orgpolicy'); return op.contactAllows(op.inForce()).ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
+    try { const op = require('./engine/orgpolicy'); op.inForce(); return op.contactAllows().ok === true ? null : COMMUNITY_STOPPED; } catch { return null; }
   };
   const communityBody = () => { const r = communityswitch.read(); return { on: r.on, ok: r.ok, share: null, stopped: communityStopped() }; };
   if (pathname === '/api/community-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -14231,7 +14231,7 @@ const server = http.createServer(async (req, res) => {
              a second time: its name is on the removed list, and a new one would be a second guide. */
           if (now && !now.ok && now.removed) {
             let back = null;
-            try { back = removal.restore(now.removed); } catch { back = null; }
+            try { back = removal.restore(now.removed, { quiet: true }); } catch { back = null; }   // kosmos#6239
             /* Only a FULL restore is success (a partial one, started but still on the removed list, is not); a refusal
                because another window restored it a moment ago is, so a refusal checks again. */
             const ok = (!!back && back.outcome === removal.OUTCOME.RESTORED)
