@@ -31,3 +31,12 @@ WARNINGs (low), taken as comment lines: the exemption can be spoofed by a kosmos
 relay job's detached process (tmux always detaches) is still ended. Taken NITs: `ps -ww` (no COLUMNS truncation); the
 test refuses a hook with no --list. Left NITs: the walk fails toward killing if an ancestor exits mid-walk; HOME unset
 falls back to the old behaviour; 64-hop cap; the trap's "Terminated" notice.
+### Round 2 (Sonnet, blind): CONVERGED, no blocker or warning
+Confirmed own-process safety and Bash 3.2. NIT checked and answered: the relay runner is launched by absolute path
+(measured on the mini: `/bin/bash /Users/kosmos-ci/actions-runner-relay/runsvc.sh`, Listener/Worker/job nodes under it).
+
+### Validation run 1 (16:13, head 53ca4499ee): two reds
+- tools.every-test-runs.test.js: the new tools/test-ci-cleanup-relay-6245.sh was run by nothing. Now in package.json
+  test:shell beside test-ci-runner-setup-4601.sh, and it skips (exit 0, said) off macOS, where an orphan's parent need
+  not be launchd. That guard file: 3/3.
+- tools.release-gate.test.js #5713: a load flake; 63/63 alone on this branch and on clean origin/main.
