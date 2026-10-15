@@ -55,8 +55,10 @@ function ensureRuntimeDir() {
   try { if (fs.statSync(rd).isDirectory()) process.env.XDG_RUNTIME_DIR = rd; } catch { /* none: as before */ }
 }
 
-/* 30 s: a stop waits on the supervisor's sleep (up to 10 s; review 6). ONE value for every systemctl --user call,
-   the sync runner below and the async step generators alike, so the two restart paths cannot drift on it. */
+/* 30 s: a stop waits on the supervisor's sleep (up to 10 s; review 6). The one timeout for every systemctl --user
+   call this module makes -- the sync runner below and the async step generators -- and remove.js's linux ops wrapper
+   imports it for its own run() too (`via`, #6183), so the sync runner, the restart steps and the sync removal path
+   share one value and cannot drift on it. */
 const SYSTEMCTL_TIMEOUT_MS = 30000;
 
 /* ONE arg builder for the `systemctl --user ...` calls that exist in BOTH a sync function and its async step twin
@@ -516,7 +518,9 @@ function stoppedOrNotLoaded(r) {
    unchanged, for their own callers. The sandbox gate (sandboxedWithoutSystemd) is applied here too: a sandboxed board
    yields no command and the step reads the SAME refusal the sync runner would return, so it never acts on a real unit
    by name. The command's exit code/output and the SYSTEMCTL_TIMEOUT_MS timeout are exactly the sync path's (via remove.js's run). */
-const SANDBOX_REFUSED = { ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' };
+// Object.freeze: this one is shared by reference across the step generators (the sync runner builds a fresh object per
+// call), so freezing makes "a consumer cannot mutate the shared refusal" structural rather than true only by inspection.
+const SANDBOX_REFUSED = Object.freeze({ ok: false, code: 1, stdout: '', stderr: '', because: 'a sandboxed board does not manage real systemd units' });
 function* stopSteps(name, worldId) {
   const u = unitName(name, worldId);
   const out = sandboxedWithoutSystemd() ? SANDBOX_REFUSED : yield { exec: ['systemctl', userctl('stop', u), { timeout: SYSTEMCTL_TIMEOUT_MS }] };
@@ -576,6 +580,7 @@ function remove(name, worldId) {
 }
 
 module.exports = {
+  SYSTEMCTL_TIMEOUT_MS,
   systemdDir,
   setSystemdDirForTests,
   unitName,

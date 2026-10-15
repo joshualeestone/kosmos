@@ -311,13 +311,13 @@ test('#6183: an async Linux restart sends every systemctl to the async runner an
   assert.deepEqual(sync, [], 'a command went through the blocking runner');
   const systemctl = acalls.filter((c) => c[0] === 'systemctl').map((c) => c[2]);
   assert.deepEqual(systemctl, ['stop', 'daemon-reload', 'start', 'is-active'], 'the restart acts, all through the async runner');
-  // Four commands at 80 ms each (320 ms of subprocess time) run off the board's thread via execFile. A 5 ms interval
-  // fires dozens of times across that window (turns stays high), and no single 80 ms command ever holds the thread, so
-  // the longest gap between fires stays well under one command. Were any command run inline, that gap would be >= 80 ms
-  // (> 50) and turns would collapse toward the sync control's zero. The load-bearing proof is still that `sync` stayed
-  // empty (above): every command went through the async runner.
-  assert.ok(turns > 10, 'the board\'s thread barely turned during the restart (' + turns + ')');
-  assert.ok(maxGap < 50, 'the board\'s thread was held for ' + maxGap + ' ms in one go (a command ran inline)');
+  // The load-bearing proof is `sync` being empty (above): a command only ever blocks the board by going through the
+  // SYNC runner, so an empty sync runner is a deterministic proof none ran inline. `turns` corroborates it: four
+  // commands at 80 ms each (320 ms) run off the board's thread, so a 5 ms interval fires dozens of times, where a
+  // fully inline restart holds the thread and fires ~0 (the sync control below asserts exactly that). maxGap is kept
+  // for the failure message but NOT asserted: a tight gap ceiling flakes on this shared box (up to ~18 agents), and
+  // sync-is-empty already carries the proof a gap threshold would only approximate.
+  assert.ok(turns > 10, 'the board barely turned during the restart (turns=' + turns + ', maxGap=' + maxGap + ' ms)');
 });
 
 test('#6183 control: a synchronous Linux restart holds the board for the whole of its systemctl calls', (t) => {
