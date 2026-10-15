@@ -4,27 +4,27 @@
     {
       "icon": "spark",
       "title": "Plan limits in Settings",
-      "line": "Settings, AI Models now shows a Claude account's five-hour limit, and a ChatGPT sign-in's plan limits as Codex last reported them."
+      "line": "Settings, AI Models now shows a Claude account's 5-hour limit, and a ChatGPT sign-in's limits as Codex last reported them."
     },
     {
       "icon": "list",
       "title": "Accounts on your other computers",
-      "line": "Settings, AI Models also lists your other computers: each one's Claude accounts, their weekly usage and the agents on them."
+      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts, weekly usage and agents."
     },
     {
       "icon": "swarm",
-      "title": "Move several agents, or stop a move",
-      "line": "Moving several agents to another account no longer freezes the board, and a running move can be stopped; agents it had not reached stay put."
+      "title": "Stop an account move",
+      "line": "A move of several agents to another account can now be stopped; agents it had not reached keep their old account."
     },
     {
       "icon": "shield",
       "title": "Every permission choice is a button",
-      "line": "An agent's permission question shows every choice it offers; one that changes what the agent may do from now on takes a second press."
+      "line": "A Claude agent's permission question shows every choice as a button; one that changes what it may do from now on needs a second press."
     },
     {
       "icon": "list",
       "title": "An agent needs no project",
-      "line": "An agent on no project is no longer flagged: the No project tile is gone, and a new team's Project is optional."
+      "line": "Agents do not need a project: the No project tile on the Agents board is gone, and a new team's Project is optional."
     }
   ]
 }
