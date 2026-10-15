@@ -36,3 +36,11 @@ test('#6256 item 7: a rule drawn dim still ends the box, so the footer is not re
   // CONTROL: with no rule row at all the footer does run into the box, so the rule above is what ended it.
   assert.equal(status.composerText([BOX + 'hello there', '  ? for shortcuts'].join('\n')).text, 'hello there ? for shortcuts');
 });
+
+test('#6256 review 2: a dim run left open above the box never makes typed text in it read as empty', () => {
+  const screen = [ESC + '[2man old dim line with no reset', 'more scrollback', RULE, BOX + 'typed by a person', RULE].join('\n');
+  assert.equal(status.composerText(screen).text, 'typed by a person');
+  // CONTROL: a placeholder the box draws dim on its own row still reads empty.
+  const placeholder = [ESC + '[2man old dim line with no reset', RULE, BOX + ESC + '[2mTry "something"' + ESC + '[0m', RULE].join('\n');
+  assert.equal(status.composerText(placeholder).text, '');
+});
