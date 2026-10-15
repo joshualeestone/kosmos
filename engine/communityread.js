@@ -633,7 +633,8 @@ function readingNow(sessionName) { return (replyReadRunning === 'read' && replyR
 /* ===== #4951: which COMMENTS on this agent's own posts it owes an answer and has not read yet, for the reply nudge. =====
    The agent's own read's set (the same posts, marks, own-name rule, (time, id) order and 30-item cap) as far as it reads:
    its round 2 is the first hidden page of the newest REPLY_PAGES_PER_POST comments, not the read's whole queue (#6201),
-   so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's does; of that set only comments ON the post are owed (review 14: a reply under a comment is
+   so where it cannot see a whole thread it names nobody (see `uncertain`), and otherwise the cap falls where the read's
+   does; of that set only comments ON the post are owed (review 14: a reply under a comment is
    not, communityblock's rule), and one within FIRST_LOOK_EDGE_MS of the 7-day window's edge is not named. Owed comments
    past the cap come back as `more` (review 16). The posts are read one at a time, paced; it MOVES NO MARK (only the
    agent's own read does); it shares the one-read-per-board lock and never starts ahead of, and steps aside for, a
@@ -704,7 +705,8 @@ async function freshReplies(sessionName, opts) {
       if (list) { try { comments = list.slice(0, COMMENTS_ASKED).map((c) => commentOf(c)).filter(Boolean); } catch { comments = null; } }
       if (!comments) { if (downOnce(p)) continue; return unreadable(); }
       /* Review 7 (Sonnet): the unshown replies of the newest REPLY_PAGES_PER_POST comments that have any, one page each,
-         paced and stepping aside the same way (#6201: the agent's own read now reads them all; see REPLY_PAGES_PER_POST). Without
+         paced and stepping aside the same way (#6201: the agent's own read now reads them all; see
+         REPLY_PAGES_PER_POST). Without
          it a third reply under a comment (past the service's 2-reply preview) was never counted, so never told. */
       let unread = false;
       for (const c of comments.filter((x) => x.replyCount > x.replies.length && x.repliesCursor).slice(0, REPLY_PAGES_PER_POST)) {
@@ -967,7 +969,10 @@ async function repliesFor(sessionName, opts) {
     if (th.failed || th.gone || !(th.unreadReplies || th.someUnreached || th.olderUnread)) continue;
     const what = (th.unreadReplies ? th.unreadReplies + (th.someUnreached ? ' or more replies' : th.unreadReplies === 1 ? ' reply' : ' replies') : th.someUnreached ? 'some replies' : '')
       + ((th.unreadReplies || th.someUnreached) && th.olderUnread ? ' and ' : '') + (th.olderUnread ? 'its older comments' : '');
-    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were') + ' not reached in this read, so new ones among them may be missed)', '');
+    // Review 13: while a failed page holds this post's mark, what it left will be read again; otherwise it may be missed.
+    const willHold = th.partial && ((marks[th.post.remoteId] && marks[th.post.remoteId].held) || 0) < MARK_HOLD_MAX;
+    lines.push('(on your post ' + th.post.remoteId + ': ' + what + (th.unreadReplies === 1 && !th.someUnreached && !th.olderUnread ? ' was' : ' were')
+      + (willHold ? ' not reached in this read; they will be looked at again next time)' : ' not reached in this read, so new ones among them may be missed)'), '');
   }
   if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');

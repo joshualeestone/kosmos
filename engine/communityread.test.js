@@ -2028,6 +2028,8 @@ test('#6201 review 10: a page that fails on every read holds the mark at most MA
   for (let k = 0; k < cr.MARK_HOLD_MAX + 3; k += 1) {
     const r = await cr.readReplies('Per6201', { now: NOW + k * 1000 });
     assert.match(r.text, /: 1 reply was not reached in this read/, 'read ' + (k + 1) + ' did not say the failing thread');
+    // Review 13: while the mark is held the line says it will be read again; once the hold has run out, that it may be missed.
+    assert.match(r.text, k < cr.MARK_HOLD_MAX ? /will be looked at again next time/ : /may be missed/, 'read ' + (k + 1) + ': the line did not match the hold');
     held.push(markOf().held); ids.push(markOf().id);
   }
   const want = Array.from({ length: cr.MARK_HOLD_MAX + 3 }, (_, k) => Math.min(k + 1, cr.MARK_HOLD_MAX));
@@ -2051,7 +2053,7 @@ test('#6201 review 11: the first wave reads every post\'s newest 3 waiting threa
     const n = Number(post.slice(-2));
     return { status: 200, json: { comments: Array.from({ length: 10 }, (_, k) => comment({ id: D6201(8000 + n * 100 + k), created_at: T(1), reply_count: 50, replies_cursor: 'h' + k, replies: [] })) } };
   });
-  await cr.readReplies('Wave6201', { now: NOW, round2Ms: 1 });   // a window that allows only the first wave
+  await cr.readReplies('Wave6201', { now: NOW, round2Ms: 10 });   // pages take 30 ms: the window allows only the first wave
   for (let i = 0; i < 10; i += 1) assert.equal(pages[pid(i)] || 0, 3, 'post ' + i + ': ' + JSON.stringify(pages));
 });
 
@@ -2069,4 +2071,23 @@ test('#6201 review 11: after the service says 429 no new wave starts, and what w
   // The first wave goes out together (REPLY_PAGES_AT_ONCE here); after its 429s no further wave starts.
   assert.equal(asked, cr.REPLY_PAGES_AT_ONCE, 'pages were still asked after the service said 429: ' + asked);
   assert.match(r.text, /: 400 replies were not reached in this read/, r.text.slice(-300));
+});
+
+test('#6201 review 13: an older-comments page that fails says the older comments and holds the mark; a bad cursor on a page with rows is said', async () => {
+  on(); clearSeen();
+  writeSendState({ a: { state: 'sent', agent: 'Old6201b', remoteId: RP(5), sentAt: '2026-09-30T10:00:00Z' } }, {});
+  const newer = Array.from({ length: cr.COMMENTS_ASKED }, (_, k) => comment({ id: D6201(9500 + k), created_at: T(8) }));
+  serve({ ['/posts/' + RP(5) + '/comments']: (u) => (u.searchParams.get('cursor') ? { status: 500, json: null } : { status: 200, json: { next_cursor: 'OLD', comments: newer } }) });
+  const one = await cr.readReplies('Old6201b', { now: NOW });
+  assert.match(one.text, /: its older comments were not reached in this read; they will be looked at again next time/, one.text.slice(-300));
+  assert.equal(JSON.parse(fs.readFileSync(seenPath('Old6201b'), 'utf8')).posts[RP(5)].held, 1, 'a failed older page did not hold the mark');
+  clearSeen();
+  const top = comment({ id: D6201(9600), created_at: T(1), reply_count: 30, replies_cursor: 'g', replies: [] });
+  serve({
+    ['/posts/' + RP(5) + '/comments']: () => ({ status: 200, json: { comments: [top] } }),
+    ['/posts/' + RP(5) + '/comments/' + D6201(9600) + '/replies']: () => ({ status: 200, json: { next_cursor: 'not a cursor!',
+      replies: Array.from({ length: 20 }, (_, k) => comment({ id: D6201(9700 + k), parent_id: D6201(9600), created_at: T(2) })) } }),
+  });
+  const two = await cr.readReplies('Old6201b', { now: NOW });
+  assert.match(two.text, /: 10 replies were not reached in this read/, 'a bad next cursor on a page with rows ended the thread silently');
 });
