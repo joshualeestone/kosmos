@@ -13,8 +13,11 @@
 ## Calls
 - One timer for both providers, not a second one: the reset paths (failed read, busy list, section switch, sleep, a
   read in flight) are already handled once; a second timer would need all of that again.
-- A weekly window resets days out; the timer's six-hour cap means a list left open that long is read again every six
-  hours until then, as for any reset more than six hours away.
+- Only resets within six hours arm the timer (iteration 1): a Codex weekly window resets days out, and arming for it
+  would read every account every six hours while the list sat open. A later reset is caught by the next paint, a
+  section switch or a window return, all of which look at every meter on screen (ACCT_RESET_SEL).
+- The timer's times come from acctResetTimes, which applies the same tests that draw each line, so a reset of a line
+  that is not drawn costs no read.
 
 ## Weakest premise
 That the Codex meter's windows reach the page with the same resetsAt (epoch ms) the server sends today (#6203).

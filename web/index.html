@@ -27259,17 +27259,18 @@ function acctFollowUp(n, busy) {
   }, ACCT_FOLLOWUP.ms);
 }
 /* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
-   shows, and that row's line goes. One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
+   shows, and that row's line goes. The same timer carries each Codex window's meter (any length; only resets within
+   six hours arm it). One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
 let acctFiveTimer = null, acctFiveMisses = 0;
 /* Only while the list is on screen: #set-accounts is static markup, so finding it says nothing; a list in a hidden
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
-/* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
-   reset, otherwise arm the timer for the soonest reset it shows. */
 /* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex window. */
 const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
+/* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
+   reset, otherwise arm the timer for the soonest reset it shows. */
 let acctReadOpen = 0, acctReadOpenAt = 0;   // the epoch of the list read still out (0: none) and when it began, so the on-show look never doubles one
 let acctSettingsOpenAt = 0;   // when a Settings open began, until it paints the list itself (0: none under way)
 let acctOnShowTimer = null;   // one pending look at a time: switching to AI Models twice queues one read, not two
@@ -27322,11 +27323,21 @@ function acctFiveHourRetry() {
   };
   wait();
 }
+/* The resets of the lines the list draws, by the same tests that draw them: Claude's five-hour line (acctUsageHtml) and
+   each Codex window (acctCodexUsageHtml). A reset of a line that is not drawn would only cost a read. */
+function acctResetTimes(list) {
+  return (list || []).flatMap((a) => {
+    if (!a) return [];
+    const f = a.fiveHour;
+    const claude = !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
+    const codex = a.provider === 'openai' && a.limits && Array.isArray(a.limits.windows)
+      ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
+    return claude.concat(codex);
+  });
+}
 function acctFiveHourRepaint(list) {
   acctFiveMisses = 0;
-  // Claude's five-hour reading and every window a Codex sign-in reported: each line goes when its window resets.
-  acctFiveHourArm((list || []).flatMap((a) => [a && a.fiveHour && a.fiveHour.resetsAt,
-    ...(a && a.limits && Array.isArray(a.limits.windows) ? a.limits.windows.map((w) => w && w.resetsAt) : [])]), false);
+  acctFiveHourArm(acctResetTimes(list), false);
 }
 /* The one timer: read the list again just after the soonest reset still ahead. `keep` keeps the miss count (a re-arm
    after a failed read, not a fresh paint). A list busy at that moment (a Check under way, a half-pressed Disconnect) is tried again
@@ -27334,7 +27345,9 @@ function acctFiveHourRepaint(list) {
 function acctFiveHourArm(times, keep) {
   clearTimeout(acctFiveTimer); acctFiveTimer = null;
   if (!keep) acctFiveMisses = 0;
-  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
+  /* Only resets within six hours: a Codex weekly window resets days out, and arming for it would read every account every
+     six hours while the list sat open. A later reset is caught by the next paint, a section switch or a window return. */
+  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now() && t <= Date.now() + 6 * 3600e3);
   if (!soon.length) return;
   const mine = ACCT_EPOCH;
   const fire = (delay) => {

@@ -123,6 +123,42 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const after = await page.evaluate(() => ({ lines: [...document.querySelectorAll('#set-accounts .acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim().slice(0, 30)), reads: window.__reads }));
     say(before.length === 2 && before.every(Boolean) && after.reads === 2 && after.lines.length === 1 && /weekly/.test(after.lines[0]),
       '[chromium open] a Codex window past its reset on a list left open is read again and goes; the weekly one stays', JSON.stringify({ before, after }));
+    // The reset passes while another Settings section is open (the list hidden): back on AI Models, the meter goes.
+    const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p2.clock.install({ time: new Date(now) });
+    await p2.goto('file://' + PAGE);
+    await p2.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      settingsGo('you');
+    }, rows);
+    await p2.clock.runFor(12 * 60e3); await p2.waitForTimeout(200);
+    const away = await p2.evaluate(() => window.__reads);
+    await p2.evaluate(() => settingsGo('accounts'));
+    await p2.clock.runFor(2e3); await p2.waitForTimeout(300);
+    const back = await p2.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(away === 1 && back.reads === 2 && back.lines === 1, '[chromium open] a Codex reset that passed in another section: back on AI Models it is read again and goes', JSON.stringify({ away, back }));
+    await p2.close();
+    // Only a weekly window (days out): a list left open is not read again every six hours for it.
+    const p3 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p3.clock.install({ time: new Date(now) });
+    await p3.goto('file://' + PAGE);
+    await p3.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('weekonly', { limits: { windows: [win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })]);
+    await p3.clock.runFor(7 * H); await p3.waitForTimeout(300);
+    const week = await p3.evaluate(() => window.__reads);
+    say(week === 1, '[chromium open] a weekly window alone arms no six-hourly read', 'reads=' + week);
+    await p3.close();
     await browser.close();
   }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');
