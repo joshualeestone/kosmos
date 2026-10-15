@@ -493,7 +493,7 @@ async function enrollNow(code, accepted, opts) {
   /* kosmos#6239: the screen's request says the words were shown and accepted there (a family joins only so; the
      coordinator refuses a family's join without it, org_family_words_unseen). As strong as the route's isViaScreen
      check, no stronger, and it cannot tell a parent from a child at the keyboard (both named in the plan). Never set
-     by an automatic accept (reacceptWords passes no wordsShown), and only with the hash of the words shown. */
+     by an automatic accept (reacceptWords passes wordsShown: false), and only with the hash of the words shown. */
   if (opts && opts.wordsShown === true && body.consentHash) body.wordsShown = true;
   // The code first (review 10): a malformed one costs no hardware read.
   if (code != null) {

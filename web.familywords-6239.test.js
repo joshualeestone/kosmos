@@ -35,7 +35,8 @@ function harness(answer) {
   return { api, el, posted, ctx };
 }
 const PREVIEW = { ok: true, ticket: 't1', org: { name: 'The Rivera family', kind: 'family' }, role: 'member',
-  consent: { reports: ['line one <b>not html</b>', 'line two'], readers: ['the family\'s admins'], never: ['keys and passwords'] } };
+  consent: { reports: ['line one <b>not html</b>', 'line two'], backsUp: ['the files the agents make'], backsUpNone: false,
+    readers: ['the family\'s admins'], never: ['keys and passwords'] } };
 
 test('#6239: the family\'s words are shown as text, line by line, with focus on the words', () => {
   const h = harness({ ok: true });
@@ -43,6 +44,16 @@ test('#6239: the family\'s words are shown as text, line by line, with focus on 
   assert.equal(h.el('plus-org-family').hidden, false, 'the words are not shown');
   assert.deepEqual(h.el('plus-org-family-reports').children.map((c) => c.textContent), PREVIEW.consent.reports, 'not every line, or not as text');
   assert.deepEqual(h.el('plus-org-family-readers').children.map((c) => c.textContent), PREVIEW.consent.readers);
+  // Round 3: the backup lines are words too, and are shown.
+  assert.deepEqual(h.el('plus-org-family-backsup').children.map((c) => c.textContent), PREVIEW.consent.backsUp, 'the backup lines are not shown');
+  assert.equal(h.el('plus-org-family-backsup-head').hidden, false);
+  const none = harness({ ok: true });
+  none.api.plusOrgFamilyShow('X', { ...PREVIEW, consent: { ...PREVIEW.consent, backsUp: [], backsUpNone: true } });
+  assert.deepEqual(none.el('plus-org-family-backsup').children.map((c) => c.textContent), ['Nothing is backed up.']);
+  const unsaid = harness({ ok: true });
+  unsaid.api.plusOrgFamilyShow('X', { ...PREVIEW, consent: { reports: [], backsUp: ['b'], readers: ['r'], never: [] } });
+  assert.equal(unsaid.el('plus-org-family-reports-head').hidden, true, 'a reports heading over nothing');
+  assert.equal(unsaid.el('plus-org-family-backsup-head').hidden, false, 'CONTROL');
   assert.equal(h.el('plus-org-family-never').textContent, 'Never sent: keys and passwords.');
   assert.match(h.el('plus-org-family-lead').textContent, /^The Rivera family is a family account\. As this child.s parent or guardian, read what joining shares, then accept to connect this computer\.$/);
   // Round 1: focus goes to the words, never to Accept first (a screen reader reads them before anything is pressed).
@@ -69,6 +80,17 @@ test('#6239: Accept and join sends the code, the ticket and wordsShown; a refusa
   assert.equal(no.el('plus-org-msg').textContent, 'That code has already been used.');
   assert.equal(no.ctx.PLUS_ORG.state, null, 'a refused join was painted as joined');
   assert.equal(no.el('plus-org-family').hidden, false, 'CONTROL: an ordinary refusal leaves the words up to try again');
+  // Round 3: any coded refusal spends the ticket, so the words close (CONTROL above: a refusal with no code keeps them).
+  for (const code of ['org_consent_changed', 'org_code_used']) {
+    const spent = harness({ ok: false, code, because: 'x' });
+    spent.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
+    await spent.api.plusOrgFamilyAccept();
+    assert.equal(spent.el('plus-org-family').hidden, true, code + ' left words up that can no longer be accepted');
+  }
+  const kept = harness({ ok: false, code: 'org_bad_world', because: 'Try again.' });
+  kept.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
+  await kept.api.plusOrgFamilyAccept();
+  assert.equal(kept.el('plus-org-family').hidden, false, 'CONTROL: org_bad_world keeps the ticket, and the words');
   const late = harness({ ok: false, code: 'org_ticket', because: 'Nothing was joined. Press Connect Account again.' });
   late.api.plusOrgFamilyShow('RIVE-JOIN-1234', PREVIEW);
   await late.api.plusOrgFamilyAccept();
@@ -108,5 +130,6 @@ test('#6239: Connect stops after a family preview to show the words; Cancel and 
   assert.match(nn, /plusOrgFamilyHide\(\);[\s\S]*getElementById\('plus-org-code'\)\.focus\(\)/, 'Not now leaves focus nowhere');
   assert.match(c, /if \(PLUS_ORG\.busy\) return;[^\n]*\n  plusOrgFamilyHide\(\);/, 'an earlier family\'s words stay up over a new code');
   assert.match(PAGE, /getElementById\('plus-org-open'\)\.addEventListener\('click', \(\) => \{ PLUS_ORG\.open = true; plusOrgFamilyHide\(\);/);
-  assert.match(PAGE, /<div id="plus-org-family" role="group" aria-labelledby="plus-org-family-lead" hidden>/);
+  assert.match(PAGE, /<div id="plus-org-family" role="group" aria-label="The family's words" hidden>/);
+  assert.match(PAGE, /getElementById\('plus-org-code'\)\.addEventListener\('input', \(\) => \{ if \(PLUS_ORG_FAMILY && !PLUS_ORG\.busy\) plusOrgFamilyHide\(\); \}\)/);
 });
