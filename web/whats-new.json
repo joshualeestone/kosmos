@@ -16,8 +16,8 @@
     },
     {
       "icon": "shield",
-      "title": "Every permission choice is a button",
-      "line": "A Claude agent's permission question shows its choices as buttons; one that changes what it may do from now on needs a second press.",
+      "title": "More permission choices as buttons",
+      "line": "A Claude agent's permission question now shows every choice as a button. One that lasts, like \"don't ask again\", needs a second press.",
       "platforms": [
         "mac"
       ]
@@ -25,12 +25,12 @@
     {
       "icon": "list",
       "title": "Accounts on your other computers",
-      "line": "Opened from your Kosmos+ address, Settings, AI Models also lists your other computers' Claude accounts and the Claude agents on them."
+      "line": "Settings, AI Models opened from a computer's Kosmos+ address now also lists your other computers' Claude accounts and their agents."
     },
     {
       "icon": "list",
-      "title": "An agent needs no project",
-      "line": "Agents need no project, and a new team's Project is optional. Taking one off its last project is flagged only if it was already out of date."
+      "title": "Projects are optional",
+      "line": "Taking an agent off its last project no longer puts a warning sign on it, and a new team's Project is optional."
     }
   ]
 }
