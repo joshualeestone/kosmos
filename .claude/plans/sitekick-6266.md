@@ -70,6 +70,7 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   macOS; the date fallback is commented. Noted: the heartbeat proves launchd starts it, the log proves what it did.
 
 ## Review 3 (opus), and what changed
+- (Superseded by reviews 4 and 6: stuck is now 3 hours from creation; only a FAILED run's end holds the gap.)
 - WARNING: the gap counted from a run's creation, so a run that queued long and failed just now was retried at once:
   it now counts from the later of created and updated (test: created 1000 s, updated 60 s ago; mutant red).
   WARNING: "stuck" counted queue time against the 45-minute job timeout: a running run counts from its start, a waiting
@@ -137,3 +138,11 @@ which nobody reads; the GitHub schedule and push runs still work as before.
   chosen by uname. WARNING: a merge can wait 15 to 30 minutes, not about 15: the finished criterion says so (the
   merge's own push run is usually sooner). WARNING: the stuck line now gives its age in minutes. NIT taken: the plan's
   45-minute rule marked superseded.
+
+## Review 11 (opus), and what changed
+- No BLOCKER. WARNING: no gh call had a time limit, and launchd never starts a second copy while one runs, so one
+  hung call (a stalled connection) could hold the backstop for ever with nothing logged: each call now has a perl
+  alarm wall clock (90 s, as the deploy job's own network calls), a timeout fails like any other read with "timed out
+  after N s" (test with a fake gh that sleeps). NITs taken: an unknown argument exits 2 instead of running a real
+  tick (test); mktemp uses a full template; a garbled updatedAt on a failed run is tested; "the newest 20 runs" wording;
+  review 3 marked superseded; the libexec pattern says it was seen on Mortals.

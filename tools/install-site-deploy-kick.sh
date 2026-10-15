@@ -6,7 +6,7 @@
 #   bash tools/install-site-deploy-kick.sh              install or refresh (copies the script, loads the job)
 #   bash tools/install-site-deploy-kick.sh --uninstall  stop the job and remove both files
 # The script is COPIED into ~/.local/libexec/kosmos-site-deploy-kick/ (as Mortals' com.stonesyndicate.kosmos-review-pending
-# job keeps its script in ~/.local/libexec/kosmos-review/), so the job never runs from a checkout that a branch switch
+# job keeps its script in ~/.local/libexec/kosmos-review/, seen on Mortals 2026-10-15), so the job never runs from a checkout that a branch switch
 # or a cut changes. Re-run after the script changes on main.
 # After installing, check it runs under launchd (its gh login, PATH and keychain are launchd's, not this shell's):
 #   bash ~/.local/libexec/kosmos-site-deploy-kick/kick.sh --check     what a tick would decide, dispatching nothing
