@@ -18,7 +18,7 @@ feedbackpull.defaultDir() (`<data>/collected-feedback`). Nothing said which fold
   plain command; reading the obvious folder and saying so is kinder).
 
 ## Evidence
-- engine/feedback.triagedir-6265.test.js 11/11 (was 5 at first) (pulled read and named; CONTROL own reports with the empty-pull note;
+- engine/feedback.triagedir-6265.test.js 13/13 (was 5 at first) (pulled read and named; CONTROL own reports with the empty-pull note;
   --dir unchanged and named; --since on the pulled folder with a both-dates CONTROL). Against the old engine: 4 fail.
 - feedback 25, feedback-triage 23, feedbackpull 37, the Windows CLI suites (verbs 15, 570 45, parity 12, body-file
   11), engine.reachable, fixture-discipline, comment-deferral, windows-tests-1777: pass.
@@ -63,3 +63,8 @@ a pull needs --dir; the note on every run tells them which folder was read.
   longer refused: refused again (test); its order is the store's, newest first (the digest does not depend on order).
   NITs taken: nextLine compares paths as triage does and quotes a path with a space; the pull comment in
   install/kosmos and the doc mention the own-store case. CONVENTION: the rejected-option reason now in the Call.
+
+## Review 6 (sonnet), and what changed
+- No BLOCKER. WARNING (a pulled folder however old wins) is the stated weakest premise; the note dates the pulled data
+  and names --dir for the own store. CONVENTIONs: this plan's test count; two long lines rewrapped. NITs taken:
+  nextLine uses feedback.samePath (one comparison); a path with any unusual character is single-quoted.

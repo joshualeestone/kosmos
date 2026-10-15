@@ -148,5 +148,6 @@ test('#6265 review 5: --since that leaves nothing in the pulled folder says so; 
 });
 
 test('#6265 review 5: a pull into another folder with a space quotes it on the next line', () => {
-  assert.equal(feedbackpull.nextLine('/some where'), 'next: kosmos feedback triage --dir "/some where"');
+  assert.equal(feedbackpull.nextLine('/some where'), "next: kosmos feedback triage --dir '/some where'");
+  assert.equal(feedbackpull.nextLine("/it's $HOME"), "next: kosmos feedback triage --dir '/it'\\''s $HOME'");
 });

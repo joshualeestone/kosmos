@@ -292,7 +292,7 @@ function readOwn(since, reports) {
 }
 /* Review 4: the OS's own spelling of each path (realpathSync.native), compared without case on Windows, so a --dir that
    names the store with other capitals or slashes is still the store. */
-function samePath(a, b) {
+function samePath(a, b) {   // also feedbackpull.nextLine's comparison, so the two cannot disagree
   const real = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   const fold = (p) => (process.platform === 'win32' ? real(p).toLowerCase() : real(p));
   return fold(a) === fold(b);
@@ -367,4 +367,4 @@ function reportsForTriage(opts) {
   return { ok: true, reports, notes, read: dir() };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath };
