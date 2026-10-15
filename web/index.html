@@ -27346,10 +27346,18 @@ function acctFiveHourArm(times, keep) {
   clearTimeout(acctFiveTimer); acctFiveTimer = null;
   if (!keep) acctFiveMisses = 0;
   /* Only resets within six hours: a Codex weekly window resets days out, and arming for it would read every account every
-     six hours while the list sat open. A later reset is caught by the next paint, a section switch or a window return. */
-  const soon = (times || []).filter((t) => Number.isFinite(t) && t > Date.now() && t <= Date.now() + 6 * 3600e3);
-  if (!soon.length) return;
+     six hours while the list sat open. A later reset gets a wake timer below, which reads nothing. */
+  const ahead = (times || []).filter((t) => Number.isFinite(t) && t > Date.now());
+  const soon = ahead.filter((t) => t <= Date.now() + 6 * 3600e3);
   const mine = ACCT_EPOCH;
+  if (!soon.length) {
+    /* Every reset is further out: wake six hours before the soonest one and arm then, without reading, so a line on a
+       list nobody touches still goes at its reset (and a weekly window is not read every six hours meanwhile). */
+    if (!ahead.length) return;
+    acctFiveTimer = setTimeout(() => { acctFiveTimer = null; if (mine === ACCT_EPOCH) acctFiveHourArm(ahead, true); },
+      Math.min(Math.min(...ahead) - Date.now() - 6 * 3600e3 + 1000, 2147483647));   // setTimeout's longest delay
+    return;
+  }
   const fire = (delay) => {
     acctFiveTimer = setTimeout(() => {
       acctFiveTimer = null;
@@ -27362,7 +27370,7 @@ function acctFiveHourArm(times, keep) {
       paintAccounts({ followUp: ACCT_FOLLOWUP.max });
     }, delay);
   };
-  fire(Math.min(Math.min(...soon) - Date.now() + 1000, 6 * 3600e3));
+  fire(Math.min(...soon) - Date.now() + 1000);   // soon is within six hours, so this is too
 }
 /* #6108 (feedback + Josh 10-13, "no one should ever be out"): a Claude account row says how much of its weekly limit
    it has used, which of this computer's agents run on it, and offers to move them to another account ahead of time.

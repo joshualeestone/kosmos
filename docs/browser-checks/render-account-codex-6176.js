@@ -159,6 +159,41 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const week = await p3.evaluate(() => window.__reads);
     say(week === 1, '[chromium open] a weekly window alone arms no six-hourly read', 'reads=' + week);
     await p3.close();
+    // A window resetting further out than six hours, on a list nobody touches, still goes at its reset (a wake timer arms
+    // six hours before it, without reading), and nothing is read before then.
+    const p4 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p4.clock.install({ time: new Date(now) });
+    await p4.goto('file://' + PAGE);
+    await p4.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('dayonly', { limits: { windows: [win(40, 1440, now + 8 * H)], plan: 'plus', at: now - 60e3 } })]);
+    await p4.clock.runFor(7 * H + 50 * 60e3); await p4.waitForTimeout(200);
+    const early4 = await p4.evaluate(() => window.__reads);
+    await p4.clock.runFor(15 * 60e3); await p4.waitForTimeout(300);
+    const late4 = await p4.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(early4 === 1 && late4.reads === 2 && late4.lines === 0, '[chromium open] a window more than six hours out still goes at its reset on an untouched list, with no read before', JSON.stringify({ early4, late4 }));
+    await p4.close();
+    // An OpenAI row that happened to carry a five-hour reading draws no five-hour line, so its reset must cost no read.
+    const p5 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await p5.clock.install({ time: new Date(now) });
+    await p5.goto('file://' + PAGE);
+    await p5.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+    }, [openai('stray', { limits: null, fiveHour: { usedPct: 50, resetsAt: now + 10 * 60e3, at: now - 60e3 } })]);
+    await p5.clock.runFor(12 * 60e3); await p5.waitForTimeout(300);
+    const r5 = await p5.evaluate(() => window.__reads);
+    say(r5 === 1, '[chromium open] a five-hour reading on a row that does not draw one arms no read', 'reads=' + r5);
+    await p5.close();
     await browser.close();
   }
   console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall good');

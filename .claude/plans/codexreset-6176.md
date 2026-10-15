@@ -7,15 +7,16 @@
 
 ## Built
 - web/index.html: each Codex meter carries data-resets; ACCT_RESET_SEL names both kinds of meter; acctFiveHourRepaint
-  arms the shared timer from every Claude five-hour reset and every Codex window reset in the list. The timer, retries,
-  section-switch and window-return looks are #6189's, unchanged.
+  arms the shared timer from acctResetTimes. The retries, section-switch and window-return looks are #6189's; the
+  arming changed (iterations 1 and 3): only resets within six hours arm a read, and when every reset is further out a
+  wake timer fires six hours before the soonest one and arms then, without reading.
 
 ## Calls
 - One timer for both providers, not a second one: the reset paths (failed read, busy list, section switch, sleep, a
   read in flight) are already handled once; a second timer would need all of that again.
 - Only resets within six hours arm the timer (iteration 1): a Codex weekly window resets days out, and arming for it
-  would read every account every six hours while the list sat open. A later reset is caught by the next paint, a
-  section switch or a window return, all of which look at every meter on screen (ACCT_RESET_SEL).
+  would read every account every six hours while the list sat open. A later reset arms a wake timer instead (no read), so a line on a
+  list nobody touches still goes at its reset.
 - The timer's times come from acctResetTimes, which applies the same tests that draw each line, so a reset of a line
   that is not drawn costs no read.
 
