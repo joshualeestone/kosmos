@@ -1674,7 +1674,10 @@ function composerText(ansi) {
   if (typeof ansi !== 'string' || !ansi) return { ok: false };
   const lines = ansi.split('\n');
   const carry = { dim: false };
-  const rows = lines.map((line) => visibleWithoutDim(line, carry.dim, carry));
+  /* Review 2: the carry restarts at a row that begins with the box's ❯ (tmux would have written the dim-off before a
+     ❯ drawn plain), so a dim run left open higher in the scrollback can never make typed text in the box read as empty
+     (the dangerous direction: an empty-looking box is pasted into). */
+  const rows = lines.map((line) => visibleWithoutDim(line, rawRow(line).startsWith('\u276f') ? false : carry.dim, carry));
   let at = -1;
   for (let i = 0; i < rows.length; i += 1) if (rows[i].startsWith('❯ ') || rows[i] === '❯') at = i;
   if (at < 0) return { ok: false };

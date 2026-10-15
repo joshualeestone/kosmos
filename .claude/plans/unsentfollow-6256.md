@@ -58,3 +58,10 @@ before this card. Nothing reads the new unsent-submitted rows yet (item 2); they
   notes. Left: unsentSeq rides on chat's verdict (a local board API; harmless).
 - Found while validating: engine.reachable flagged test-only exports (inputNoted, inputProjects, forgetInput); they
   are no longer exported, and the tests assert what the sweep tells instead.
+
+## Review 2 (sonnet), and what changed
+- WARNING: dim carried from row 0, so a dim run left open in the scrollback could make typed text read as empty (the
+  dangerous direction). The carry now restarts at the box's own row; test with an open dim line above (mutant red).
+- NIT taken: the comment says a minute that tells input-held posts skips the agy and #5805 paths for that member.
+- NITs left: unsentPending is pruned on the next note (bounded by unsent messages in 15 min); unsentSeq rides on
+  other senders' verdicts and is read only by messages.

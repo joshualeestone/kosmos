@@ -434,7 +434,8 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       /* #6256 item 1: the projects still holding a post that text in this member's input box held are told once the box
          reads empty, when the member is not in a fresh working turn, can be typed into, and no usage limit or sign-out
          holds it (accountHeldVerdict: a try then would only be refused and its ids put back, every minute, #4797). Until
-         then, or when the box cannot be read, those posts wait as before; nothing else here changes for this member. */
+         then, or when the box cannot be read, those posts wait as before. A minute that tells them skips the rest of this
+         loop for the member (the agy and #5805 paths); anything they hold is looked at again a minute later. */
       const inName = String(card.sessionName);
       const inProjects = typeof boxEmpty === 'function' ? inputProjects(inName) : [];
       if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
