@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: acctmoving-6174
 diff_hash: 0599753305ea06a6509ed88bd6fddd200e985356408f69b716d0b6c961357e8a
-validation: pending (Mortals full suite running for code hash 42eac17012fc at 0d966b740; the only later commit adds one assertion to server.allowance-3946.test.js and fixes plan prose, focused with guards 69/69)
+validation: passed (Mortals, full suite, clean entry for hash 42eac17012fc at 0d966b740; the only later commit adds one assertion to server.allowance-3946.test.js and fixes plan prose, focused with guards 69/69)
 subdir_audit: passed
 timestamp: 2026-10-15T00:04:58Z
 iterations: 16
