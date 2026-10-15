@@ -33,7 +33,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
-if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt --jq" ]; then
+if [ $# -eq 14 ] && [ "$1 $2 $3 $4 $5 $6 $7 $8 $9 \${10} \${11} \${12} \${13}" = "run list --repo owner/site --workflow site-deploy.yml --branch main --limit 20 --json status,conclusion,createdAt,updatedAt,startedAt --jq" ]; then
   [ -n "\${FAKE_LIST_FAIL:-}" ] && exit 1
   printf '%s' "\${FAKE_RUNS:-[]}" | "$FAKE_JQ" -r "\${14}"; exit $?
 fi
@@ -63,8 +63,11 @@ function state(files = {}) {
 /* [status, created s ago, updated s ago (default: created)]. gh also returns startedAt, which GitHub stamps at creation
    (measured 2026-10-15), so the script does not ask for it. */
 /* An unfinished run's conclusion is "" exactly as gh gives it (measured 2026-10-15; null hid a parsing bug). */
-const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion]) => ({
-  status, conclusion: conclusion || (status === 'completed' ? 'success' : ''), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd) })));
+/* [status, created s ago, updated s ago, conclusion, started s ago]: startedAt equals createdAt unless given (a
+   re-run's start moves, its creation does not). */
+const runs = (list) => JSON.stringify(list.map(([status, ago, upd, conclusion, started]) => ({
+  status, conclusion: conclusion || (status === 'completed' ? 'success' : ''), createdAt: iso(ago), updatedAt: iso(upd == null ? ago : upd),
+  startedAt: iso(started == null ? ago : started) })));
 /* jq ships with macOS (where this runs for real); only elsewhere may it be missing and the tests skip. */
 const needJq = { skip: JQ || process.platform === 'darwin' ? false : 'jq is not installed here' };
 
@@ -121,6 +124,8 @@ test('#6266: a run not finished 3 hours after creation is stuck: said, not waite
   // The 3-hour limit is pinned on both sides: 10900 s is stuck, 10700 s is waited on.
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10900]]) }).dispatched, 1, '10900 s');
   assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['queued', 10700]]) }).dispatched, 0, '10700 s');
+  // A re-run of a 6-hour-old run that started 10 minutes ago is not stuck: its attempt is new.
+  assert.equal(kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs([['in_progress', 21600, 60, null, 600]]) }).dispatched, 0, 'a fresh re-run was called stuck');
   // CONTROLs: an hour queued behind CI on the shared runner, or running after a long wait, is waited on.
   for (const [why, list] of [['queued 1 h', [['queued', 3600]]], ['running, created 2 h 40 min ago', [['in_progress', 9600, 60]]]]) {
     const q = kick(state({ 'last-deployed': OLD }), { FAKE_RUNS: runs(list) });
@@ -194,7 +199,7 @@ const systemGh = ['/usr/bin/gh', '/bin/gh'].some((p) => fs.existsSync(p));
 test('#6266: a gh that is not there says so', { skip: systemGh ? 'a gh on /usr/bin or /bin would be found by the fallback' : false }, () => {
   const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
   assert.equal(none.status, 1);
-  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: gh could not be run \(.*no-gh-here: not found or not executable\)\)/);
+  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: perl or gh could not be run \(.*no-gh-here: not found or not executable\?\)\)/);
 });
 
 test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a stopped job) takes gh with it', async () => {
