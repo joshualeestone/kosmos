@@ -24657,7 +24657,8 @@ function paintRailTeamMap(op) {
   setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : [], pjRedHere) : '');
   if (open && box.scrollTop !== top) box.scrollTop = top;   // only when it moved: a write cancels a smooth scroll
   if (had && !box.contains(document.activeElement)) {
-    const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
+    // The same member, on the same project only: an agent on two projects is not the node the person was on.
+    const back = same ? [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had) : null;
     const to = back || (btn.getClientRects().length > 0 ? btn : null);
     if (to) to.focus({ preventScroll: true });
   }
