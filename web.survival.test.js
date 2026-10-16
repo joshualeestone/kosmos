@@ -116,3 +116,21 @@ test('the sentence never claims the folders are at risk', async () => {
   const wrap = await paint({ ok: true, missing: ['brigitte'] });
   assert.match(wrap.innerHTML, /folders and everything\s+they remember are untouched/);
 });
+
+test('#6320: agents that could not be checked are named, with no button for them', async () => {
+  const only = await paint({ ok: true, missing: [], unknown: ['ava', 'bob'], agents: [{ name: 'ava', shownAs: 'Ava' }] });
+  assert.equal(only.hidden, false, 'unknown agents were dropped silently');
+  assert.match(only.innerHTML, /We could not check whether 2 of your agents come back/);
+  assert.match(only.innerHTML, /data-survival-unknown>Ava, bob</);
+  assert.doesNotMatch(only.innerHTML, /data-survival-fix/, 'a button offered to set up agents we could not check');
+  const one = await paint({ ok: true, missing: [], unknown: ['ava'] });
+  assert.match(one.innerHTML, /whether one of your agents comes back/);
+  // Both at once: the missing ones keep their button, the unknown ones are said beneath it.
+  const both = await paint({ ok: true, missing: ['rick'], unknown: ['ava'] });
+  assert.match(both.innerHTML, /One of your agents will not come back/);
+  assert.match(both.innerHTML, /data-survival-fix/);
+  assert.match(both.innerHTML, /data-survival-unknown>ava</);
+  // CONTROL: an older board that sends no unknown list behaves as before.
+  const old = await paint({ ok: true, missing: [] });
+  assert.equal(old.hidden, true);
+});
