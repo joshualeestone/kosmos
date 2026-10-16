@@ -67,6 +67,17 @@ joining again.
 - reviewAccepted is cleared when the read after Accept fails, and is in PLUS_ORG's initializer; no doubled "try again";
   the review lead says "accept them on this computer" (accepting does not always make it report).
 
+## Review 4 (sonnet) fixes and one deferral
+- The route's own catch line ("Nothing was sent to your company.") is said for the family in a review.
+- A refused review preview (already accepted here, or no longer this family's computer) reads /api/org again, so the
+  button goes when it no longer belongs (R12).
+- reviewAccepted is a time: only a /api/org read that STARTED after the Accept may say the words were not recorded, so
+  a read in flight from before the Accept cannot (reasoned from the code; not driven by the browser check).
+- Deferred, with the reason: "reports nothing" when wordsNeeded. Review 4 noted that a record with a consent hash and no
+  remembered words is wordsNeeded while mayReport() is true, so backups (gated on mayReport alone) can still run. The
+  sentence is about reports, and in that state the rollup really sends none; backups have their own Settings screen.
+  What would change this: if a family's backups should also wait for a parent, that is a backuptick change, not words.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -77,7 +88,7 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R11 and F10, chromium and webkit: all pass (00:4x CDT 10-16).
+- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit (R1 to R11 and F10 all pass 00:4x CDT 10-16).
   Page mutants, each red on its own arms: the review refusal back to a fixed sentence (R5, R7, R8, R11); no
   panel-follows-view rule (R7's Leave); a joining family's words not holding the block open (F10). A step that throws is
   a named FAIL (a click that timed out once ended a run with no verdict line). R4 also proves the page

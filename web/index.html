@@ -50898,7 +50898,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while a call is out. */
 // open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
-var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: false };
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0 };
 /* kosmos#6251: a sentence written for a company, said for a family when the org this board knows is one ("your
    company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
 function plusOrgIn(org, text) {
@@ -50911,6 +50911,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
   if (PLUS_ORG.busy) return;
   if (Date.now() - PLUS_ORG.at < 60000) { if (PLUS_ORG.state) plusOrgPaint(); return; }   // at most once a minute, failed reads included
   PLUS_ORG.at = Date.now();
+  const askedAt = Date.now();   // kosmos#6239: a read that started before a review's Accept says nothing about it
   fetch('/api/org').then((res) => res.json()).then((j) => {
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
@@ -50918,8 +50919,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
     // kosmos#6239: an Accept this page just sent for a review, and the family's words are still not accepted here.
-    if (PLUS_ORG.reviewAccepted) {
-      PLUS_ORG.reviewAccepted = false;
+    if (PLUS_ORG.reviewAccepted && askedAt >= PLUS_ORG.reviewAccepted) {
+      PLUS_ORG.reviewAccepted = 0;
       if (j && j.enrolled === true && j.wordsNeeded === true) msg.textContent = 'Kosmos+ took the family\u2019s words, but this computer could not record them, so it still reports nothing. Press Read the family\u2019s words to try again.';
     }
     // The server shows this note once, so it replaces whatever line is there rather than waiting for an empty one.
@@ -50934,7 +50935,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
       ? plusOrgIn(j.org, 'Your company could not undo joining ') + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
     plusOrgPaint();   // once more, now the message is set: the block shows or folds to match it at once
-  }).catch(() => { PLUS_ORG.reviewAccepted = false; /* the next minute tries again */ });
+  }).catch(() => { if (PLUS_ORG.reviewAccepted && askedAt >= PLUS_ORG.reviewAccepted) PLUS_ORG.reviewAccepted = 0; /* the next minute tries again */ });
 }
 function plusOrgPaint() {
   const st = PLUS_ORG.state || {};
@@ -51086,7 +51087,7 @@ async function plusOrgFamilyAccept() {
     document.getElementById('plus-org-code').value = '';
     msg.textContent = '';   // round 2: no earlier line stays over the joined view
     // A review's Accept can be taken while this computer records nothing (its print not pinned): the next read says so.
-    if (f.p.review === true) PLUS_ORG.reviewAccepted = true;
+    if (f.p.review === true) PLUS_ORG.reviewAccepted = Date.now();
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
     PLUS_ORG.at = 0;
@@ -51123,6 +51124,7 @@ function plusOrgReviewSay(r) {
     .replace(/[;,]?\s*Kosmos (?:then )?tries again on its own\./g, '.')
     .replace(/\s*Press Connect Account[^.]*\./g, '')
     .replace(/Nothing was joined\./g, 'Nothing was accepted.')
+    .replace(/\byour company\b/g, 'the family')
     .replace(/\.\.+/g, '.').trim();
   const code = r && r.code;
   if (code === 'org_not_member' || code === 'org_other_org' || code === 'org_not_here') return t;
@@ -51144,6 +51146,9 @@ async function plusOrgFamilyReview() {
     plusOrgFamilyShow(null, p);
     plusOrgPaint();   // the words row folds while the words are open
   } finally { PLUS_ORG.busy = false; btn.disabled = false; }
+  // A refused review (already accepted, or no longer this family's computer) reads the view again, so the button goes
+  // when it no longer belongs; the refusal line stays (keepMsg).
+  if (!PLUS_ORG_FAMILY && msg.textContent !== '') { PLUS_ORG.at = 0; plusOrgMaybe(true); }
 }
 document.getElementById('plus-org-words').addEventListener('click', plusOrgFamilyReview);
 document.getElementById('plus-org-family-no').addEventListener('click', plusOrgFamilyNotNow);
