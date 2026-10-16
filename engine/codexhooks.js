@@ -130,14 +130,27 @@ function writeIfChanged(file, data, mode) {
   require('./securewrite').writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true });
 }
 
-/* Remove the hooks.json install() wrote, so Codex has no untrusted hook to stop on. Only a regular file that is ours
-   (it names the report bridge); anything else is left and said. */
+/* Whether `text` is exactly a hooks.json install() writes, for some bridge path (the path may have moved since): one
+   PreToolUse group, our matcher, one handler that runs the report bridge with our timeout, nothing else. Review 7: a
+   file that merely MENTIONS the bridge (a person's own hooks.json with ours merged in) is not ours to delete. */
+function isOurs(text) {
+  let j;
+  try { j = JSON.parse(text); } catch { return false; }
+  const cmd = j && j.hooks && Array.isArray(j.hooks[EVENT]) && j.hooks[EVENT].length === 1
+    && j.hooks[EVENT][0].hooks && j.hooks[EVENT][0].hooks.length === 1 ? j.hooks[EVENT][0].hooks[0].command : null;
+  if (typeof cmd !== 'string' || !/^'.*codex-report-bridge\.js'$/.test(cmd)) return false;
+  const bridge = cmd.slice(1, -1).replace(/'\\''/g, "'");
+  return text === hooksJson(commandFor(bridge));
+}
+
+/* Remove the hooks.json install() wrote, so Codex has no untrusted hook to stop on. Only a regular file exactly in our
+   shape (isOurs); anything else is left. */
 function removeOurs(home) {
   try {
     const file = path.join(home, HOOKS_FILE);
     const st = fs.lstatSync(file);
     if (!st.isFile()) return false;
-    if (!fs.readFileSync(file, 'utf8').includes('codex-report-bridge.js')) return false;
+    if (!isOurs(fs.readFileSync(file, 'utf8'))) return false;
     fs.unlinkSync(file);
     return true;
   } catch { return false; }
@@ -202,4 +215,4 @@ if (require.main === module) {
   process.exitCode = r.ok ? 0 : 1;
 }
 
-module.exports = { install, removeOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, HOOKS_FILE, MATCHER };
+module.exports = { install, removeOurs, isOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, HOOKS_FILE, MATCHER };
