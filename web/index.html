@@ -11777,6 +11777,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #plus-state2 #plus-si-bought-recheck { border-color: #5c78a6; }
 #plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
 #plus-state2 .plus-si-addr { margin: .6rem 0 0; }
+#plus-state2 #plus-si-code-late:empty { margin: 0; }
 #plus-state2 .plus-si-addr b { color: #E6EBF7; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; margin-right: .5rem; }
 #plus-state2 .plus-si-foot { margin-top: 1.4rem; }
 #plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
@@ -19267,7 +19268,8 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
         </div>
         <p class="plus-si-small">Didn't get it? <a id="plus-si-code-resend" class="plus-signin-link" href="#">Send again</a></p>
-        <p class="plus-si-small" id="plus-si-code-late" hidden>Nothing yet? Check the address above for a typo, and look in spam. New to Kosmos+? <a id="plus-si-code-join" class="plus-signin-link" href="#" target="_blank" rel="noreferrer noopener">Create an account</a></p>
+        <!-- #6313: a live region that is always present and starts empty, so the line is announced when it is written. -->
+        <p class="plus-si-small" id="plus-si-code-late" role="status" aria-live="polite"></p>
       </div>
 
       <!-- The phone code (signin-second): reached when the account already has a
@@ -52292,19 +52294,23 @@ const PLUS_SI_CODE_LATE_MS = 60000;
 let PLUS_SI_CODE_LATE_TIMER = null;
 function plusSiCodeLateReset() {
   if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
-  const late = document.getElementById('plus-si-code-late'); if (late) late.hidden = true;
+  const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = '';
 }
 function plusSiCodeLateArm() {
   plusSiCodeLateReset();
-  const join = document.getElementById('plus-si-code-join');
-  const site = document.getElementById('plus-site-link');
-  if (join && site) join.href = site.href;
   PLUS_SI_CODE_LATE_TIMER = setTimeout(() => {
     PLUS_SI_CODE_LATE_TIMER = null;
     const step = document.getElementById('plus-si-code');
     const inp = document.getElementById('plus-si-code-in');
-    if (!step || step.hidden || (inp && inp.value.trim())) return;
-    const late = document.getElementById('plus-si-code-late'); if (late) late.hidden = false;
+    const late = document.getElementById('plus-si-code-late');
+    if (!late || !step || step.hidden || (inp && inp.value.trim())) return;
+    const site = document.getElementById('plus-site-link');
+    late.textContent = 'Nothing yet? Check the address above for a typo, and look in spam. New to Kosmos+? ';
+    const join = document.createElement('a');
+    join.id = 'plus-si-code-join'; join.className = 'plus-signin-link'; join.target = '_blank'; join.rel = 'noreferrer noopener';
+    join.href = site ? site.href : '#';
+    join.textContent = 'Create an account';
+    late.appendChild(join);
   }, PLUS_SI_CODE_LATE_MS);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));

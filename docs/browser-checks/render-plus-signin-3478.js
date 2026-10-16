@@ -350,14 +350,16 @@ const visible = (page, sel) => page.evaluate((s) => {
             const late = document.getElementById('plus-si-code-late');
             return { addr: b ? b.textContent.trim() : null, px: b ? parseFloat(getComputedStyle(b).fontSize) : 0,
               leadPx: parseFloat(getComputedStyle(lead).fontSize), change: (document.getElementById('plus-si-code-change') || {}).textContent,
-              lateHidden: !!(late && late.hidden) };
+              lateHidden: !!late && late.textContent.trim() === '' && late.getAttribute('aria-live') === 'polite' };
           });
           chk(a.addr === 'you@example.com' && a.px > a.leadPx, `[${key}] #6313 the address stands on its own line, larger than the line above it`, JSON.stringify(a));
           chk(a.change === 'Wrong address? Change it' && a.lateHidden, `[${key}] #6313 a way back to fix the address, and no "nothing yet" line before a minute has passed`, JSON.stringify(a));
           await page.clock.fastForward('01:01');
           const late = await page.evaluate(() => { const l = document.getElementById('plus-si-code-late'); const j = document.getElementById('plus-si-code-join');
-            return { shown: !!l && !l.hidden, text: l ? l.textContent.replace(/\s+/g, ' ').trim() : '', join: j ? j.getAttribute('href') : null }; });
-          chk(late.shown && /Check the address above/.test(late.text) && late.join && late.join !== '#',
+            const site = document.getElementById('plus-site-link');
+            return { shown: !!l && l.textContent.trim() !== '', text: l ? l.textContent.replace(/\s+/g, ' ').trim() : '', join: j ? j.href : null,
+              site: site ? site.href : null, page: location.href.split('#')[0] }; });
+          chk(late.shown && /Check the address above/.test(late.text) && !!late.join && late.join === late.site && late.join.split('#')[0] !== late.page,
             `[${key}] #6313 after a minute with nothing typed, the step says to check the address and offers to create an account`, JSON.stringify(late));
           await page.click('#plus-si-code-change');
           await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
@@ -365,7 +367,7 @@ const visible = (page, sel) => page.evaluate((s) => {
           chk(kept === 'you@example.com', `[${key}] #6313 Change it goes back to the email step with the address kept for editing`, kept);
           await page.click('#plus-signin-code');
           await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
-          chk(await page.evaluate(() => document.getElementById('plus-si-code-late').hidden), `[${key}] #6313 a new request starts the minute again`, 'late line still shown');
+          chk(await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim() === ''), `[${key}] #6313 a new request starts the minute again`, 'late line still shown');
         }
         chk((await page.textContent('#plus-si-cancel')).trim() === 'Start over', `[${key}] #3796 addendum 4: while a sign-in is in progress the way out reads "Start over"`, await page.textContent('#plus-si-cancel'));
         // #3942 (Josh, 2026-09-26) replaces #3796's compact field: one big box per digit.
