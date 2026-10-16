@@ -522,31 +522,42 @@ async function main() {
   chk(await boardSignin(K, kid, 'famk-' + RUN), 'step 4: K signs in as the child');
 
   // 4b. the parent's browser is allowed from P, as a person allows a new browser (the console needs an allowed sign-in).
-  let allowed = null;
+  /* A browser is listed on a computer once it knocks there; this harness has no browser to knock, so P's Allow is sent
+     with the code the sign-up answered (the four characters the person would match on screen), and the console's own
+     answer below (an allowed sign-in, or session_not_allowed) is what shows the Allow took. */
+  if (sess) {
+    // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in).
+    const c = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token));
+    chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser', c.status + ' ' + c.text.slice(0, 160));
+  }
+  /* The coordinator names a session's device itself (kosmos#5422: an id the browser offers is replaced), so the row on
+     P is found by the four characters the sign-up answered, as the person matches them on screen. */
   const listed = await waitFor(async () => {
     const p = await http(P.base, 'GET', '/api/remote/pending');
     const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
-    return devs.find((d) => d && d.device_id === webDevice) || null;
+    return devs.find((d) => d && sess && d.code === sess.match_code) || null;
   }, 60000, 1500);
-  chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting', listed ? 'code ' + listed.code : '-');
+  chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? listed.device_id.slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
-    const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: webDevice, code: listed.code }, SCREEN);
+    const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
     chk(r.status === 200, 'step 4b: P allows the parent\'s browser', r.status + ' ' + r.text.slice(0, 200));
-    allowed = r.status === 200;
   }
 
   // 5. the operator makes the family (orgs are operator-made: org-create --kind family).
   let orgId = '';
   try {
     orgId = execFileSync(BIN.coordinator, ['org-create', '--name', 'Rivera family', '--slug', 'rivera-' + RUN, '--admin', parent, '--kind', 'family'],
-      { env: coordEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+      { env: coordEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    orgId = ((orgId.match(/^([0-9a-f]{32})\s*$/m) || [])[1]) || orgId.trim().slice(-200);   // the id is its own line; logs go beside it
   } catch (e) { info('org-create: ' + String(e.stderr || e.message).slice(0, 300)); }
   chk(/^[0-9a-f]{32}$/.test(orgId), 'step 5: org-create --kind family makes the family, the parent its admin', orgId || '-');
 
   // 6. the parent makes a join code in the console, with the allowed browser session.
   let code = '';
-  if (allowed) {
-    const r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token));
+  if (sess) {
+    // The Allow reaches the coordinator through P's tunnel, so the console may refuse for a moment first.
+    let r = null;
+    await waitFor(async () => { r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token)); return r.status === 200; }, 45000, 1500);
     code = r.json && (r.json.code || r.json.invite_code) || '';
     chk(r.status === 200 && !!code, 'step 6: the parent makes a join code in the console', r.status + ' ' + r.text.slice(0, 160));
   }
@@ -573,7 +584,8 @@ async function main() {
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket, wordsShown: true }, SCREEN);
     chk(r.json && r.json.ok === true, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200));
-    const st = await waitFor(async () => { const g = await http(K.base, 'GET', '/api/org'); return g.json && g.json.enrolled === true ? g.json : null; }, 30000, 1000);
+    const st = await waitFor(async () => { const g = await http(K.base, 'GET', '/api/org', undefined, SCREEN); return g.json && g.json.enrolled === true ? g.json : null; }, 30000, 1000);
+    // Read as the screen: any other caller learns only whether K is enrolled, never which org (#5531 review 12).
     chk(st && st.org && st.org.kind === 'family', 'step 9: K\'s board says it is in a family (kind family)', st ? JSON.stringify(st.org) : '-');
     // The join record says the screen showing the words is the board's word, not proof.
     const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
