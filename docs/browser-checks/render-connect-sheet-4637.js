@@ -1,7 +1,8 @@
 // Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS
 'use strict';
-/* #6315: the coordinator names a joining computer's request computer:<its 32-hex id> (kosmos#4681). A fixture id
-   like 'd-pc' hid that the board dropped the colon, so this computer row uses the real shape. */
+/* #6315: the coordinator names a joining computer's request computer:<its 32-hex id> (kosmos#4681). This check
+   mocks the board's routes, so it proves the PAGE carries that id (data-id, the selector, the Allow body); the
+   board's own handling is in engine/remote.joincode-4794.test.js. */
 const PC_ID = 'computer:36b705ae542a7305ca8a368286c37161';
 /**
  * The "wants to connect" sheet (#4637, Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow
