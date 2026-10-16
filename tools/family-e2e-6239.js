@@ -337,6 +337,16 @@ const bearer = (tok) => ({ authorization: 'Bearer ' + tok });
 
 async function main() {
   console.log('#6239 family join proof, run ' + RUN + ', sandbox ' + SANDBOX);
+  // Review 4: binaries built before relay#398 have no family kind, and every family step would go red for that reason
+  // alone. Such a coordinator does not know --kind; one that does refuses an unknown kind by name.
+  {
+    let said = '';
+    try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') } }); }
+    catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
+    if (!/--kind is company or family/.test(said)) {
+      throw new Error('the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 200));
+    }
+  }
   for (const [k, p] of Object.entries(BIN)) {
     if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
   }
@@ -402,7 +412,8 @@ async function main() {
      with the code the sign-up answered (the four characters the person would match on screen), and the console's own
      answer below (an allowed sign-in, or session_not_allowed) is what shows the Allow took. */
   if (sess) {
-    // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in).
+    // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in). Matched by
+    // its words: the coordinator's answer carries no code field for this refusal, so the wording is the only handle.
     const c = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token));
     chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser', c.status + ' ' + c.text.slice(0, 160));
   }
@@ -425,7 +436,7 @@ async function main() {
   try {
     orgId = execFileSync(BIN.coordinator, ['org-create', '--name', 'Rivera family', '--slug', 'rivera-' + RUN, '--admin', parent, '--kind', 'family'],
       { env: coordEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    orgId = ((orgId.match(/^([0-9a-f]{32})\s*$/m) || [])[1]) || orgId.trim().slice(-200);   // the id is its own line; logs go beside it
+    orgId = ((orgId.match(/^([0-9a-f]{32})\s*$/m) || [])[1]) || '';   // the id is its own line; logs go beside it
   } catch (e) { info('org-create: ' + String(e.stderr || e.message).slice(0, 300)); }
   chk(/^[0-9a-f]{32}$/.test(orgId), 'step 5: org-create --kind family makes the family, the parent its admin', orgId || '-');
 
@@ -509,7 +520,12 @@ async function main() {
 }
 
 (async () => {
-  const dog = setTimeout(() => { console.log('FAIL  watchdog: the run took over ' + WATCHDOG_MS / 1000 + ' s'); results.push({ ok: false }); halted = true; fedproofFinish(1); }, WATCHDOG_MS);
+  const dog = setTimeout(() => {
+    // Review 4: say where it was, so a hang names its step.
+    const last = results.length ? results[results.length - 1].label : 'before step 1';
+    console.log('FAIL  watchdog: the run took over ' + WATCHDOG_MS / 1000 + ' s; the last check was: ' + last);
+    results.push({ ok: false }); halted = true; fedproofFinish(1);
+  }, WATCHDOG_MS);
   let crashed = null;
   try { await main(); } catch (err) { crashed = err; }
   clearTimeout(dog);
