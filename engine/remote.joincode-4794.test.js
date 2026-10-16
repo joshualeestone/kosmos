@@ -245,7 +245,7 @@ test('#6315: a computer: row with no usable computer name is shown as a former c
   remote.setOn(true);
   const [row] = remote.pendingDevices().devices;
   assert.deepEqual([row.device_id, row.code, row.code_wait], [MINTED, '', 'was_a_computer']);
-  // A more specific reason from the tunnel is kept, not overwritten.
+  // A more specific reason is kept, not overwritten (a defensive case: today's tunnel sends one only with a name).
   fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
     { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: '', joining_computer: null, code_wait: 'daily_limit' },
   ] }));

@@ -1676,8 +1676,7 @@ const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
 const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
 /* #6315: a request can also be another of the person's computers asking to join, and the coordinator names that
-   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681). A computer
-   id is util::new_id() there, hex of 16 random bytes, and kosmos-relay's e2e door.rs asserts the 32-hex shape. The colon kept every such request out of the list, so no second computer could ever be
+   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681). The colon kept every such request out of the list, so no second computer could ever be
    allowed. Requests and their answers take any of the three shapes; this computer's OWN device ids stay DEVICE_ID. */
 const REQUEST_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32}|computer:[0-9a-f]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
@@ -2093,13 +2092,13 @@ const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was ref
 async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
      show; without one the tunnel could take it as a phone (when it has no record of it as a computer) and put the id on
      this computer's gate. */
   if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
     return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
   }
-  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
   /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
