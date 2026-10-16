@@ -2083,7 +2083,8 @@ async function deviceAllow(id, name, code) {
   }
   const got = parseSaid(r);
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
-     nothing was allowed and the tunnel took back its local grant. Said as a refusal, never as allowed. */
+     nothing was allowed and the tunnel took back what this Allow wrote. Said as a refusal, never as allowed. Only a
+     phone's Allow answers this: a joining computer's 404 keeps its pairing trust and reads as allowed, not told yet. */
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
     return { ok: false, because: 'Kosmos+ has no sign-in waiting with that id, so nothing was allowed.' };
   }
