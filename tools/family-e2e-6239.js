@@ -56,7 +56,7 @@ const KEEP = process.env.FEDPROOF_KEEP === '1';
 // + the console's Allow 45 + K's join 30 = 425 s, before HTTP timeouts. 15 min covers it with margin.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
-const EXPECTED_CHECKS = 21;   // every chk in main before the last; a skipped step leaves fewer
+const EXPECTED_CHECKS = 22;   // every chk in main before the last; a skipped step leaves fewer. Adding a chk: bump this.
 const T0 = Date.now();
 
 const results = [];
@@ -134,8 +134,7 @@ function serviceEnv(home, extra) {
   fs.mkdirSync(home, { recursive: true });
   return Object.assign(env, { HOME: home, NO_COLOR: '1' }, extra);
 }
-/* The keys an env handed to the coordinator or relay may carry: anything else came from
-   somewhere this harness did not choose. Returns the keys outside that list. */
+/* Every process on this machine with its parent, read once (the teardown walks descendants from it). */
 function psTable() {
   const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   return out.split('\n').map((l) => l.match(/^\s*(\d+)\s+(\d+)\s(.*)$/)).filter(Boolean)
@@ -248,8 +247,6 @@ async function nextCode(email, before) {
   return waitFor(() => { const c = devCodes(email); return c.length > before ? c[c.length - 1] : null; }, 20000, 200);
 }
 
-/* The web sign-up, as coordinator/src/signin.html drives it: the terms version is read off
-   the served page (never hardcoded here), then signup start + verify with the dev code. */
 /* A board signs in to an existing account: the in-app wizard's routes (#3149). */
 async function boardSignin(b, email, name) {
   const before = devCodes(email).length;
@@ -321,6 +318,8 @@ async function startBoard(letter) {
   if (!up || up.exited) throw new Error('board ' + letter + (up ? ' exited at start' : ' did not answer on ' + b.base) + ' (log: ' + s.log + ')\n' + fedproofReadLog(s.log).slice(-2000));
   return b;
 }
+/* The web sign-up, as coordinator/src/signin.html drives it: the terms version is read off the served page (never
+   hardcoded here), then signup start + verify with the dev code; the answer's session is the browser's. */
 async function webSignupSession(email, deviceId) {
   const page = await fetch(REL.coordinator + '/signup', { signal: AbortSignal.timeout(10000) }).then((r) => r.text());
   const terms = (page.match(/var TERMS_VERSION = "([^"]+)"/) || [])[1];
@@ -458,6 +457,7 @@ async function main() {
     chk(st.status === 200 && st.json && st.json.enrolled === false, 'step 7 control: K is not joined after a preview', st.status + ' ' + st.text.slice(0, 120));
   }
 
+  let joined = false;
   // 8. a join that does not say the words were shown is refused, and the code is not spent (CONTROL for step 9).
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket }, SCREEN);
@@ -467,34 +467,41 @@ async function main() {
   // 9. the parent reads the words on K and accepts them there: K joins the family.
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket, wordsShown: true }, SCREEN);
-    chk(r.json && r.json.ok === true, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200));
+    joined = !!(r.json && r.json.ok === true);
+    chk(joined, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200));
     const st = await waitFor(async () => { const g = await http(K.base, 'GET', '/api/org', undefined, SCREEN); return g.json && g.json.enrolled === true ? g.json : null; }, 30000, 1000);
     // Read as the screen: any other caller learns only whether K is enrolled, never which org (#5531 review 12).
     chk(st && st.org && st.org.kind === 'family', 'step 9: K\'s board says it is in a family (kind family)', st ? JSON.stringify(st.org) : '-');
     // The join record says the screen showing the words is the board's word, not proof.
     const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
     const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
-    const joined = rows.find((e) => e && e.what === 'joined');
-    chk(joined && /words shown on the board's screen \(the board's word\)/.test(joined.detail || ''), 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joined ? joined.detail : a.status + ' ' + a.text.slice(0, 160));
+    const joinRow = rows.find((e) => e && e.what === 'joined');
+    chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || ''), 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
   }
 
-  // 10. the spent code, previewed again, is refused in words for anyone (no company).
+  // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
+  // (not "already a member"), in the board's own sentence for a used code, which names no company.
   if (code) {
+    const SAY = require(path.join(REPO, 'engine', 'orgenroll')).SAY;
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
-    chk(r.json && r.json.ok === false && b.length > 0 && !/company/i.test(b), 'step 10: the used code is refused in words that name no company', b || r.text.slice(0, 160));
+    chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === SAY.org_code_used && !/company/i.test(b),
+      'step 10: the used code is refused as used, in words that name no company', (r.json && r.json.code) + ': ' + (b || r.text.slice(0, 160)));
   }
 
-  // 11. the child's computer leaves the family.
-  {
+  // 11. the child's computer leaves the family: only after it joined, and the family's own log records it.
+  if (joined) {
     const r = await http(K.base, 'POST', '/api/org/leave', {}, SCREEN);
     chk(r.json && r.json.ok === true, 'step 11: K leaves the family', r.status + ' ' + r.text.slice(0, 200));
     const g = await http(K.base, 'GET', '/api/org');
     chk(g.status === 200 && g.json && g.json.enrolled === false, 'step 11: K is no longer joined', g.status + ' ' + g.text.slice(0, 120));
+    const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
+    const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
+    chk(rows.some((e) => e && e.what === 'left'), 'step 11: the family\'s audit log records the leave', rows.map((e) => e && e.what).join(','));
   }
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
   const ran = results.length;
-  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran');
+  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran');   // adding a chk above: bump EXPECTED_CHECKS
 }
 
 (async () => {

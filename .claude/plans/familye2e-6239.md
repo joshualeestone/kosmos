@@ -41,3 +41,12 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Rerun: VERDICT PASS 22/22.
 - Kept: the default binary dir (as fed-own-e2e.js, with its usage line); the plan's file name (most plans here have
   no timestamp).
+
+## Round 2 (sonnet) fixes
+- Step 10 is discriminating: the spent code must answer org_code_used with the board's own used-code sentence
+  (engine/orgenroll SAY), not just any words without "company" (K is enrolled then, so "already a member" was
+  possible).
+- Step 11 runs only after K joined, and the family's audit log must gain a "left" row (the coordinator's side).
+- Orphaned comments from the trim removed or moved; EXPECTED_CHECKS says to bump it with each new check (now 22).
+- Not done here: the shared helper module (#6287). fed-own-e2e.js runs on load, so sharing means re-proving #4693 too.
+- Rerun: VERDICT PASS 23/23.
