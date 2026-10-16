@@ -978,7 +978,7 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
     accept(root, lines);
     const orgId = oe.readEnrollment({ root }).org.id;
     const asked = [];
-    const usagecap = { capNow: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true }; } };
+    const usagecap = { capNow: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true }; } };
     const op = { refresh: () => ({ applied: { org: whose || orgId, version: 3, policy: CAP }, refused: null }) };
     await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: Date.UTC(2026, 9, 7, 12) });
     const sent = c.sent.find((x) => x.route === r.ROUTE);
@@ -996,8 +996,14 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
   assert.deepEqual(policyOnly.asked, [], 'the month was counted under words that do not name it');
   const foreign = await send(NAMED, { org: 'org_other' });
   assert.equal('policyUsage' in foreign.body, false, 'another company\'s cap was reported to this one');
-  const short = await send(NAMED, { count: { capped: true, used: 10, cap: 1000, pct: 1, warn: false, over: false, tz: 'UTC', complete: false } });
+  // A count not known yet (a new board still counting): nothing of the policy goes, since the coordinator reads the
+  // version without a count as "no cap" and would blank the parent's row.
+  const short = await send(NAMED, { count: { capped: true, used: 10, cap: 1000, pct: 1, warn: false, over: false, tz: 'UTC', complete: false, known: false } });
   assert.equal('policyUsage' in short.body, false, 'a count still catching up was sent as the month');
+  assert.equal('policyVersion' in short.body || 'policyRefused' in short.body, false, 'the version went without the count, which clears the parent\'s row');
+  // Still catching up but held up by the month's saved count (a restart): a true lower bound, so it goes.
+  const floored = await send(NAMED, { count: { capped: true, used: 900, cap: 1000, pct: 90, warn: true, over: false, tz: 'UTC', complete: false, known: true } });
+  assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false }, 'a restarted board blanked the count it already knew');
   const none = await send(NAMED, { count: { capped: false } });
   assert.equal('policyUsage' in none.body, false, 'no cap, and usage was sent');
 });

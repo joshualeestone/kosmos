@@ -185,6 +185,21 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   usagecap.resetForTests();
 });
 
+test('deleting a transcript after a full count does not lower the month (tokens used cannot be un-used)', () => {
+  usagecap.resetForTests();
+  const root = tmp('aw-usecap-del-');
+  const main = seed(root);
+  const policy = { usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'UTC' } };
+  assert.equal(usagecap.capNow(policy, NOW, [root]).used, 123, 'CONTROL: the full count');
+  fs.rmSync(main);
+  usagecap.resetForTests({ keepFloor: true });
+  const after = usagecap.capNow(policy, NOW, [root]);
+  assert.equal(after.complete, true, 'CONTROL: the recount finished');
+  assert.deepEqual([after.used, after.over], [123, true], 'a deleted transcript reopened the cap');
+  usagecap.resetForTests();
+  assert.ok(usagecap.capNow(policy, NOW, [root]).used < 123, 'CONTROL: with no saved count the deletion does lower the count');
+});
+
 test('capAllows throws on a damaged policy record, as quietAllows does, so the gate decides', () => {
   fs.mkdirSync(path.dirname(orgpolicy.APPLIED()), { recursive: true });
   fs.writeFileSync(orgpolicy.APPLIED(), '{ not json');

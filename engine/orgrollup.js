@@ -796,11 +796,13 @@ async function tick(opts) {
       const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
       g.policyVersion = mine ? mine.version : null;
       g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
-      /* kosmos#6309: the cap's count, only under words that name it (capConsented: the policy line does not), only for
-         this company's policy, and only once it has caught up (a short count is left out, so the company keeps what it
-         had, rather than reporting too little). */
+      /* kosmos#6309: the cap's count, only under words that name it (capConsented: the policy line does not), and only
+         for this company's policy. */
       const u = mine && accepted.capConsented === true ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
-      if (u.capped && u.complete !== false) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over };
+      if (u.capped && u.known === true) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over };
+      /* A cap whose count is not known yet (a new board still counting the month): the coordinator reads the policy
+         without a count as "no cap", so none of the policy is sent this tick, and the company keeps what it had. */
+      else if (u.capped) { delete g.policyVersion; delete g.policyRefused; }
     } catch {
       delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
       const lp = st.lastPolicy;
