@@ -1,5 +1,8 @@
 // Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS
 'use strict';
+/* #6315: the coordinator names a joining computer's request computer:<its 32-hex id> (kosmos#4681). A fixture id
+   like 'd-pc' hid that the board dropped the colon, so this computer row uses the real shape. */
+const PC_ID = 'computer:36b705ae542a7305ca8a368286c37161';
 /**
  * The "wants to connect" sheet (#4637, Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow
  * outline on #4754, Josh's go 09-30 17:34).
@@ -77,7 +80,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       let pending = [
-        { device_id: 'd-pc', name: 'windowsbox', code: '482 915', first_seen: now() - 30, joining_computer: 'windowsbox' },
+        { device_id: PC_ID, name: 'windowsbox', code: '482 915', first_seen: now() - 30, joining_computer: 'windowsbox' },
         { device_id: 'd-ph', name: 'iPhone', code: 'K7-4M', first_seen: now() - 90, joining_computer: null },
       ];
       let remoteNow = REMOTE;   // #4794: switched to waiting-allow for the joining arms
@@ -99,7 +102,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
 
       /* On another page, one request: the notice says the sheet's own words. */
       const both = pending;
-      pending = both.filter((d) => d.device_id === 'd-pc');
+      pending = both.filter((d) => d.device_id === PC_ID);
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
       await page.waitForTimeout(300);
       const one = await page.evaluate(() => (document.getElementById('askcard').innerText || '').replace(/\s+/g, ' ').trim());
@@ -160,13 +163,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
       /* Allow the computer: its sheet says it is connected. */
-      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-pc"]');
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
       await page.waitForFunction(() => /windowsbox is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const done = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(/windowsbox is connected\. You can remove it any time under Devices\./.test(done) && !/trust each other/.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
-      chk(allowBodies['d-pc'] && allowBodies['d-pc'].code === '482 915', `${tag} #4794: Allow on the computer sends the code it showed`, JSON.stringify(allowBodies['d-pc']));
+      chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #4794: Allow on the computer sends the code it showed`, JSON.stringify(allowBodies[PC_ID]));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
