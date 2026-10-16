@@ -53,13 +53,10 @@ function readPin(root) {
   return 'unreadable';
 }
 
+// The house secure writer (as backupmemberkey.js writeKeys): an exclusive temp, 0600, renamed, the folder synced.
 function writePin(root, pin) {
-  const dir = path.join(root, 'backupkeys');
-  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = pinPath(root) + '.tmp';
-  const fd = fs.openSync(tmp, 'w', 0o600);
-  try { fs.writeSync(fd, JSON.stringify(pin)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
-  fs.renameSync(tmp, pinPath(root));
+  fs.mkdirSync(path.join(root, 'backupkeys'), { recursive: true, mode: 0o700 });
+  require('./securewrite').writeSecret(pinPath(root), JSON.stringify(pin), 0o600, { atomicOnly: true });
 }
 
 /* The end of this computer's enrollment: the pin goes with it. */
@@ -79,9 +76,9 @@ function clearUnlessFor(root, org) {
  */
 function check(root, data, company, opts = {}) {
   try {
-    const vkHex = opts.verifyingKey !== undefined ? opts.verifyingKey : VERIFYING_KEY;
-    if (vkHex == null) return { ok: true };
-    const vk = Buffer.isBuffer(vkHex) ? vkHex : Buffer.from(String(vkHex), 'hex');
+    // Only a real 32-byte key overrides the shipped one (tests): null or anything else can never switch checking off.
+    const vk = Buffer.isBuffer(opts.verifyingKey) && opts.verifyingKey.length === 32 ? opts.verifyingKey : VERIFYING_KEY == null ? null : Buffer.from(VERIFYING_KEY, 'hex');
+    if (vk == null) return { ok: true };
     const epoch = data && data.epoch;
     const sig = unb64(data && data.signature);
     if (!sig) return { ok: false, because: 'Kosmos+ sent the company backup key without the escrow\'s signature, so it was not used' };
@@ -93,7 +90,7 @@ function check(root, data, company, opts = {}) {
     const here = { org: company.org, public: company.orgPublic.toString('hex') };
     if (pin === null) { writePin(root, here); return { ok: true, pinned: true }; }
     if (pin.org !== here.org || pin.public !== here.public) {
-      return { ok: false, because: 'Kosmos+ named a different company backup key from the one this computer recorded when it joined, so it was not used' };
+      return { ok: false, because: 'Kosmos+ named a different company backup key from the one this computer accepted first, so it was not used. Leaving and joining your company again resets it' };
     }
     return { ok: true };
   } catch {

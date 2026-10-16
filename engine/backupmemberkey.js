@@ -10,8 +10,9 @@
  *
  * ensureMemberKey():
  *   1. asks POST /v1/org/backup-key for the company (org), this computer's account as the coordinator names it
- *      (member), and the company's public key, all from one answer to a device-signed request. The answer itself is
- *      not signed: the tunnel's TLS to Kosmos+ is what keeps the private key from being wrapped to someone else's;
+ *      (member), and the company's public key, all from one answer to a device-signed request. The tunnel's TLS to
+ *      Kosmos+ protects it in transit; against a breached Kosmos+, escrowd's signature over the company key and this
+ *      computer's pin of the first one it accepted do, once a verification key ships (orgkeypin.js, kosmos#5686);
  *   2. with a key here that Kosmos+ already took, answers it;
  *   3. otherwise keeps a key on disk BEFORE sending it (an answer lost after Kosmos+ kept it must not lose the key),
  *      wraps it to the company's key for (org, member, epoch), and registers it: epoch 1 first; a different key
@@ -142,12 +143,13 @@ async function ensureNow(opts, seen) {
     if (!bk || !bk.ok) return { ok: false, because: (bk && bk.because) || 'Kosmos+ did not answer', ...(bk && bk.refusal ? { refusal: bk.refusal } : {}) };
     const company = companyOf(bk.data);
     if (!company) return { ok: false, because: 'the company backup key Kosmos+ sent could not be read' };
-    seen.company = company;
-    // kosmos#5686 (b1-mac): the company key must carry escrowd's signature and match the one pinned at the join, once
-    // a verification key ships (orgkeypin.js); until then this answers ok and changes nothing. Checked before any key
-    // is read, kept or wrapped, so nothing is ever wrapped to a key this computer did not accept.
+    // kosmos#5686 (b1-mac): the company key must carry escrowd's signature and match the one pinned first, once a
+    // verification key ships (orgkeypin.js); until then this answers ok and changes nothing. Checked before any key
+    // is read, kept or wrapped, so nothing is ever wrapped to a key this computer did not accept; and before the
+    // company is named in the answer, so the backup job keeps no state for a pair this computer refused.
     const vouched = orgkeypin.check(store.ROOT, bk.data, company, opts.orgKeyPin || {});
     if (!vouched.ok) return { ok: false, orgKeyRefused: true, because: vouched.because };
+    seen.company = company;
     const read = readKeys(company.org, company.member);
     if (!read.ok) return { ...UNREADABLE };
     const keys = read.keys;

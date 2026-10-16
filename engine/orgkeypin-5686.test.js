@@ -174,3 +174,74 @@ test('through orgenroll: a Join to another company clears a pin; a Join to the p
   await org.enroll('ACME-JOIN-1234', true, { root: same, remote: fakeRemote({}) });
   assert.equal(pin.readPin(same).org, 'org_1', 'the same company: kept');
 });
+
+/* Review 1 (probed): a breached coordinator renames the org at the hourly refresh, then makes the board re-accept the
+   words on its own (a codeless review enroll, no person). The pin must survive, and the other org's genuine key is
+   refused. */
+test('through orgenroll: the automatic re-accept after a coordinator-renamed org never clears the pin', async (t) => {
+  const root = world(t);
+  const HASH = 'a'.repeat(64);
+  const st = { org: ORG };
+  const remote = { macRequest: async (m, route, body) => {
+    if (route === org.ROUTES.redeem) return { ok: true, data: { org: st.org, role: 'member', consent: CONSENT, consentHash: HASH } };
+    if (route === org.ROUTES.enroll) { st.world = body.world; return { ok: true, data: { ok: true, org: st.org, role: 'member', enrolled: { computer: 'c1', world: body.world, thisComputer: true } } }; }
+    if (route === org.ROUTES.status) return { ok: true, data: { member: true, org: st.org, role: 'member', consent: CONSENT, consentHash: st.hash || HASH, enrolled: { computer: 'c1', world: st.world, thisComputer: true } } };
+    return { ok: false, because: 'unknown ' + route };
+  } };
+  const opts = { root, remote };
+  await org.enroll('ACME-JOIN-1234', true, Object.assign({}, opts, { orgId: ORG.id, consentHash: HASH, consent: CONSENT }));
+  pinFor(root, ORG.id);
+  st.org = { id: 'org_evil', name: 'Evil', slug: 'evil' };
+  await org.refresh(opts);
+  assert.equal(org.readEnrollment(opts).org.id, 'org_evil', 'precondition: the refresh took the coordinator\'s org');
+  st.hash = 'b'.repeat(64);
+  await org.consentWithdrawn(opts, HASH);
+  const a = await org.reacceptWords(opts);
+  assert.equal(a.ok, true, 'precondition: the review enroll ran');
+  assert.equal(pin.readPin(root).org, ORG.id, 'the pin survives');
+  const k = Buffer.alloc(32, 7);
+  assert.equal(pin.check(root, answer('org_evil', k, sign('org_evil', 1, k)), company('org_evil', k), ARMED).ok, false, 'and the renamed org\'s key is refused');
+});
+
+test('the refusal names no company, so the backup job keeps no state for a pair this computer refused', async () => {
+  const k = backupkeys.newMemberKey();
+  const macRequest = async (m, route) => (route === mk.BACKUP_KEY_ROUTE ? { ok: true, data: answer('org1', k.pk) } : { ok: false, because: 'not reached' });
+  const r = await mk.ensureMemberKey({ macRequest, orgKeyPin: ARMED });
+  assert.equal(r.orgKeyRefused, true);
+  assert.equal(r.org, undefined);
+  assert.equal(r.member, undefined);
+});
+
+test('only a 32-byte key overrides the shipped one: null cannot switch checking off', () => {
+  const k = Buffer.alloc(32, 3);
+  assert.deepEqual(pin.check(ROOT(), answer('o1', k), company('o1', k), { verifyingKey: null }), { ok: true }, 'dormant today either way');
+  assert.equal(pin.check(ROOT(), answer('o1', k), company('o1', k), { verifyingKey: VK }).ok, false, 'armed by a real key');
+});
+
+test('through orgenroll: a join whose answer was lost and settles later clears another company\'s pin', async (t) => {
+  const root = world(t);
+  pinFor(root, 'org_other');
+  let status = () => ({ ok: false, because: 'offline' });
+  const co = { macRequest: async (m, route) => {
+    if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === org.ROUTES.status) return status();
+    return { ok: false, because: 'unexpected ' + route }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root, remote: co, consentHash: 'c'.repeat(64) });
+  assert.equal(r.code, 'org_join_unknown', JSON.stringify(r));
+  assert.equal(pin.readPin(root).org, 'org_other', 'nothing settled yet: kept');
+  status = () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true } } });
+  const r2 = await org.refresh({ root, remote: co });
+  assert.equal(r2.enrolled, true, JSON.stringify(r2));
+  assert.equal(pin.readPin(root), null, 'the settled join to another company cleared it');
+});
+
+test('the backup tick says a refused company key to the person, once', async () => {
+  const tick = require('./backuptick');
+  const said = [];
+  let t = Date.parse('2026-10-08T12:00:00Z');
+  const refused = { ok: false, orgKeyRefused: true, because: 'the escrow\'s signature on the company backup key did not check, so the key was not used' };
+  const stop = tick.startTick({ runBackup: async () => refused, roots: () => [{ name: 'workers', path: '/w' }], enrolled: () => true,
+    say: (x) => said.push(x), now: () => t, setInterval: () => ({ unref() {} }), clearInterval: () => {} });
+  await stop.tick(); t += 3 * 24 * 3600 * 1000; await stop.tick();
+  assert.deepEqual(said, [`company backup: ${refused.because}`]);
+});
