@@ -2060,9 +2060,13 @@ function vouchedFor(vouched, d) {
   const allowed = Number(d.allowed_at) || 0;
   return !allowed || Math.abs(allowed - at) <= 600;   // a tunnel that sends no allowed_at cannot be checked
 }
+/** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
+const UNKNOWN_DEVICE = 'unknown_device';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
-    stands. `name` is the kind the phone gave, recorded for the list. */
+    stands, except the coordinator's 404 (kosmos#6286): it holds no such
+    sign-in, so the tunnel takes back what it wrote and this is a refusal.
+    `name` is the kind the phone gave, recorded for the list. */
 async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
@@ -2090,8 +2094,6 @@ async function deviceAllow(id, name, code) {
   }
   return got;
 }
-/** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
-const UNKNOWN_DEVICE = 'unknown_device';
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
 async function deviceDeny(id) {
