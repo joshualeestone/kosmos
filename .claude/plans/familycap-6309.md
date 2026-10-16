@@ -11,11 +11,14 @@ quiet-hours gate (engine/chat.js); the look-after commands still go.
 1. Board: orgpolicy shapeOk holds usage_cap to an exact shape (as the coordinator will); a capAt() reading.
 2. Board: the month's count, reusing engine/swarm.js's meter (tokensOf, transcript reading) over all agents.
 3. Board: the gate in deliverWithGap, and the sentence. (The AI policy block was dropped: see Decided.)
-4. Board: the rollup carries usage { used, cap } (under the consent words that name the policy).
+4. Board: the rollup carries usage { used, cap } (under consent words that name the monthly AI cap).
 5. Coordinator (kosmos-relay): org.rs policy_problem accepts usage_cap; the console row shows used / cap.
 
 ## Known limits (said on the card)
 - The meter reads Claude Code transcripts only, so a non-Claude agent's tokens are not counted yet.
+- A board new to the cap (no saved count for the month) counts the month a bounded amount per call, and until it has
+  caught up it enforces the partial count. A restarted board does not: the month's saved count holds it up.
+- Every Claude transcript on the computer counts, Claude Code used outside Kosmos too.
 - A board older than this ignores usage_cap (unknown keys stay unread): no cap is enforced there, and the console must
   not imply one is.
 
@@ -36,7 +39,8 @@ must use its own cache: readFile takes the cache as a parameter (default: the sw
 - 088b44e6bf: usagecap tested (7). Found: orgpolicy.currentStrict was not exported (capInForce threw on every call);
   a first, bounded count was memoised for 60 s (a new board would not refuse for a minute). Both fixed.
 - 361485df27: the gate in deliverWithGap and answerQuestionMenu (`capped: true`), familycap-6309.test.js (4).
-- 66791cfcb1: the rollup's policyUsage { used, cap, warn, over } under the policy words; heads-up and cap are changes.
+- 66791cfcb1: the rollup's policyUsage { used, cap, warn, over }; heads-up and cap are changes. (Challenge loop
+  iteration 1 moved it from the policy-version words to its own line naming the monthly AI cap, NAMES_CAP.)
 - kosmos-relay familycap-6309 411ab936: usage_cap in the policy shape, policyUsage stored and served, the console
   editor section, policy row, chip, and This month on the child's card and drawer.
 

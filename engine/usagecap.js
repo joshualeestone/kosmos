@@ -73,10 +73,9 @@ function monthTokens(tz, now = Date.now(), rootsList = roots()) {
   return out;
 }
 
-/* The last full count of the month, kept on disk: a board that restarts counts the month again from the start, a
-   bounded amount per call, and until it has caught up the short count is never less than this one. Without it a
-   child already over the cap could message freely after every restart. A month's count only grows, so the larger of
-   the two is right; a transcript deleted mid-month keeps the higher number until the 1st, which errs closed. */
+/* The month's highest count, kept on disk. Tokens used this month cannot be un-used, so the count in force is never
+   below it: not while a restarted board counts the month again from the start (a bounded amount per call), and not
+   after a transcript is deleted or moved (usagecap-6309.test.js pins both). */
 const FLOOR = () => path.join(store.ROOT, 'usage-cap-month.json');
 /* The same month in another zone starts at most 26 hours away (UTC-12 to UTC+14), so a saved count whose start is
    within FLOOR_SAME_MONTH_MS is this month's, counted from a zone the cap has since left. It stays the floor until the
@@ -99,14 +98,16 @@ function writeFloor(since, used) {
   } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } }
 }
 
-/** What `policy` says now: orgpolicy.capAt with this month's count, plus `complete`. { capped: false } with no cap. */
+/** What `policy` says now: orgpolicy.capAt with this month's count, plus `complete` (the count has caught up) and
+ *  `known` (caught up, or held up by a saved count of this month). { capped: false } with no cap. */
 function capNow(policy, now = Date.now(), rootsList) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) return { capped: false };
   const m = rootsList ? monthTokens(u.tz, now, rootsList) : monthTokens(u.tz, now);
-  if (m.complete) writeFloor(m.since, m.tokens);
-  const used = m.complete ? m.tokens : Math.max(m.tokens, readFloor(m.since));
-  return { ...orgpolicy.capAt(policy, used), complete: m.complete };
+  const floor = readFloor(m.since);
+  const used = Math.max(m.tokens, floor);
+  if (m.complete) writeFloor(m.since, used);
+  return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor > 0 };
 }
 
 /* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
