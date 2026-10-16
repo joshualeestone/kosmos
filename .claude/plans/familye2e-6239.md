@@ -181,3 +181,15 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
   company words is noticed. Relay's own pinned test changes then, and the constant's comment says to change it with
   it and how to see a stale one (the --kind company control).
 - Rerun: VERDICT PASS 23/23.
+
+## Round 18 (sonnet) fixes
+- The preflight tells a killed or timed-out binary from one that exited 0 (round 17's message called a timeout
+  "exited 0"): shown, a hang reads "(killed by SIGKILL, after 30 s)".
+- The end line names the first red when steps are missing or miscounted, so a cascade reads as one (negative control:
+  "never ran: step 10, step 11; first red: step 7 ..."); one stepOf helper parses labels.
+- Step 8's comment states the coupling with step 9 (shared ticket and code) and where to look first.
+- Recorded, not proven: a child that forks and keeps the stdio pipes open could hold execFileSync past its timeout
+  (the hang stand-in was a single process).
+- Deduplicated: STEP_CHECKS by hand (round 14), the copied helpers (#6287), the pinned company hash (round 17), round
+  numbers in comments, the quiet guard's discovery by text.
+- Rerun: VERDICT PASS 23/23.
