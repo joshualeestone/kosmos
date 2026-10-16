@@ -10,6 +10,8 @@ board's `POST /api/undo/keep {path, cwd, session}` from that hook, as the Claude
 1. engine/agyhooks.js: the Kosmos entry's PreToolUse matcher becomes `^(ask_question|write_to_file|replace_file_content)$`.
    PostToolUse stays ask_question only (the bridge reads any PostToolUse as working). Written before every agy launch,
    as today, so existing agents get it at their next launch.
+   ONLY for agy 1.2.17 or newer (MIN_FILE_TOOL_HOOKS, review 1): the answer-cannot-stop-an-edit premise was measured
+   there, and 1.2.11 denied on an empty answer. Older agy, an unknown version, and agyrefresh's repair keep ask_question only.
 2. bin/agy-report-bridge.js: keepRequestFor + postKeep. The answer to a file tool is ASK, unchanged (every tool but
    ask_question gets ASK today); the keep is posted after the answer, bounded at 3 s
    (the bridge exits through process.exit, so a stalled answer body cannot hold it).

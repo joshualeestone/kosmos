@@ -103,6 +103,19 @@ test('ask_question is unchanged: ALLOW, and no keep', async () => {
   } finally { board.close(); }
 });
 
+test('review 1: a board that never answers at all is given up on at the keep bound (the 3 s timer), the answer already out', async () => {
+  const sockets = new Set();
+  const server = http.createServer(() => { /* never answers */ });
+  server.on('connection', (s) => sockets.add(s));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const r = await runBridge(server.address().port, 'PreToolUse', pre({}));
+    assert.equal(r.killed, false, 'exited on its own');
+    assert.ok(r.ms < 4500, `took ${r.ms} ms (keep bound 3 s; agy's handler timeout 5 s)`);
+    assert.equal(r.stdout.trim(), bridge.ASK);
+  } finally { for (const s of sockets) s.destroy(); server.close(); }
+});
+
 test('a board that stalls its answer does not hold the hook past the keep bound, and the answer is already out', async () => {
   const slow = await stubBoard(true);
   try {
@@ -162,7 +175,7 @@ test(`the REAL agy (${installed}) runs the hook before the write, and the bridge
   const board = await stubBoard(false);
   const model = await fakeGemini({ name: 'write_to_file', args: { TargetFile: target, Overwrite: true, CodeContent: 'made\n', Description: 'test', toolSummary: 'test', toolAction: 'test' } });
   try {
-    assert.equal(hooks.ensureHooks(work, process.execPath, BRIDGE, true).ok, true);
+    assert.equal(hooks.ensureHooks(work, process.execPath, BRIDGE, true, true).ok, true);
     const r = await runAgy(home, work, model.port, { KOSMOS_PORT: String(board.port), TMUX_PANE: '' });
     assert.equal(r.killed, false, `agy did not finish: ${r.stderr}`);
     assert.equal(fs.readFileSync(target, 'utf8'), 'made\n', 'the edit ran (the ASK answer did not stop it)');

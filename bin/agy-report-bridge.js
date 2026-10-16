@@ -86,8 +86,10 @@ function answerFor(eventName, payload) {
 }
 
 /* #5812 item 4: just before agy writes (write_to_file) or edits (replace_file_content) a file, the board is asked to
-   keep a copy (#5153, only while the person's undo switch is on) and to note which agent is about to write it, as the
-   Claude, Gemini, Codex and Grok hooks do. MEASURED on agy 1.2.17 (card comment 6225769167): PreToolUse carries
+   keep a copy (#5153, only while the person's undo switch is on) and to note which agent is about to write it (the
+   board finds the agent by the folder, workspacePaths[0]; agy's conversationId never matches the Claude transcript ids
+   it also looks at, so the session is carried but not what decides).
+   Written only for agy 1.2.17 or newer (engine/agyhooks.js MIN_FILE_TOOL_HOOKS). MEASURED on agy 1.2.17 (card comment 6225769167): PreToolUse carries
    toolCall.name, toolCall.args.TargetFile (absolute), conversationId and workspacePaths (the agent's folder; there is
    no cwd field). The keep body is { path, cwd: workspacePaths[0], session: conversationId }. Null (nothing sent) for
    any other event or tool, a relative or missing path, a control character, and on win32 a UNC path or folder (the
@@ -361,8 +363,8 @@ async function main() {
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
   /* #5812 item 4: a file about to be written. The answer above (ASK) is already out; agy waits for this process to
-     exit before it runs the tool, so the keep still lands before the write. Bounded, the answer read under the timer,
-     and no report follows (reportFor maps no tool but ask_question). */
+     exit before it runs the tool, so the keep still lands before the write. Bounded (postKeep), and no report follows
+     (reportFor maps no tool but ask_question). */
   const keep = keepRequestFor(eventName, payload);
   if (keep) {
     await new Promise((resolve) => setImmediate(resolve));
