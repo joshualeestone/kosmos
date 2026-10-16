@@ -127,10 +127,17 @@ function entriesOf(rec) {
   return null;
 }
 
-function persist(policies) {
+/* #6273: true while p1 still wears DEFAULT_NAME only because read() could not rename it (another entry wears
+   MIGRATED_NAME). Such a save stays version 2, so the record is still "old" and the rename applies once the clash is
+   gone; writing version 3 here would make the false owner permanent. */
+function renameStillPending(current, policies) {
+  return current.renamePending === true && policies.some((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+}
+
+function persist(policies, stillOld = false) {
   fs.mkdirSync(path.dirname(FILE), { recursive: true });
   // #5434 slice 17: flushed before it replaces the file (store.saveFlushed), so a crash cannot leave it zero-filled.
-  store.saveFlushed(FILE, JSON.stringify({ version: RECORD_VERSION, policies }, null, 2) + '\n');
+  store.saveFlushed(FILE, JSON.stringify({ version: stillOld ? 2 : RECORD_VERSION, policies }, null, 2) + '\n');
 }
 
 /**
@@ -179,7 +186,10 @@ function read() {
      rename for it would let the next save keep "Company AI policy" for good in a version-3 record, the false owner
      beside a real one. Two near-equal headings are told apart by their provenance lines, which stay true. */
   const old = !(typeof rec.version === 'number' && rec.version >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
-  if (old && !policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) old.name = MIGRATED_NAME;
+  if (old && policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) {
+    return { state: 'saved', policies, because: null, renamePending: true };   // saves keep it old (renameStillPending)
+  }
+  if (old) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }
 
@@ -229,7 +239,7 @@ function add({ id, name, text, source } = {}) {
     if (bad) throw new Error(bad);
     policies[at] = entry;
     refuseOversizedStack(policies);
-    persist(policies);
+    persist(policies, renameStillPending(current, policies));
     return entry;
   }
 
@@ -243,7 +253,7 @@ function add({ id, name, text, source } = {}) {
   entry.id = newId();
   policies.push(entry);
   refuseOversizedStack(policies);
-  persist(policies);
+  persist(policies, renameStillPending(current, policies));
   return entry;
 }
 
@@ -261,7 +271,8 @@ function rename(id, name) {
   }
   const policies = current.policies.slice();
   policies[at] = { ...policies[at], name: next };
-  persist(policies);
+  // Renaming p1 itself is the person's choice, so it is saved as theirs (version 3); any other rename keeps it pending.
+  persist(policies, policies[at].id !== MIGRATED_ID && renameStillPending(current, policies));
   return policies[at];
 }
 
@@ -274,7 +285,7 @@ function removeOne(id) {
   const policies = current.policies.slice();
   policies.splice(at, 1);
   if (policies.length === 0) { clear(); return null; }
-  persist(policies);
+  persist(policies, renameStillPending(current, policies));
   return current.policies[at];
 }
 
