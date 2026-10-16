@@ -210,11 +210,13 @@ function jobReader(platform) {
         const verdict = (() => {
           // The folder itself or a folder inside it, as a start script's mention is.
           if (dir && [...foreign.dirs].some((d) => d === dir || d.startsWith(dir + '/'))) return true;
+          // While something could not be read, no answer here can be a proven absence: skip the text scan.
+          if (foreign.unknownAll) return null;
           const spellings = folderSpellings(dir, create.workerDir(name));
           if (dir && mentionsFolder(foreign.texts, spellings)) return true;
           /* A login job that could not be read and names this agent's folder might start it, so "no job" is not
              proven: null, which Repair never acts on (#570). One that could not be read at all might be anyone's. */
-          if (foreign.unknownAll || (dir && mentionsFolder(foreign.suspects, spellings))) return null;
+          if (dir && mentionsFolder(foreign.suspects, spellings)) return null;
           return false;
         })();
         VERDICTS.map.set(memoKey, verdict);
@@ -228,9 +230,9 @@ function jobReader(platform) {
   return { win32: true, known: true, fleet: all.names, of: (name) => all.names.has(name) };
 }
 
-/* #6310: the worker folders that a login job NOT written by Kosmos starts. A job starts something at login when it is
-   KeepAlive, or RunAtLoad without a schedule (StartInterval, StartCalendarInterval: a periodic job runs a task, not an
-   agent), and not Disabled. The XML form is read as text, so the five-second poll runs no process; a binary plist goes
+/* #6310: the worker folders that a login job NOT written by Kosmos starts. A job not Disabled that is KeepAlive or
+   RunAtLoad covers its WorkingDirectory; its start scripts are searched only when it is KeepAlive, or RunAtLoad with no
+   schedule or trigger (StartInterval, StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount). The XML form is read as text, so the five-second poll runs no process; a binary plist goes
    through plutil. Plists and the start scripts they name are cached by mtime and size. */
 const FOREIGN_CACHE = new Map();
 const SCRIPT_CACHE = new Map();
@@ -247,7 +249,12 @@ const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything 
 const PLUTIL_BUDGET = 4;
 let plutilLeft = PLUTIL_BUDGET;
 function plistKeys(file) {
-  if (fs.statSync(file).size > PLIST_MAX) throw new Error('too large to be a login job');
+  if (fs.statSync(file).size > PLIST_MAX) {
+    // Not a job launchd would load; its first PLIST_MAX bytes are kept as a suspect (only an agent it names is unknown).
+    const fd = fs.openSync(file, 'r');
+    let head; try { head = Buffer.alloc(PLIST_MAX); head = head.subarray(0, fs.readSync(fd, head, 0, PLIST_MAX, 0)); } finally { fs.closeSync(fd); }
+    const e = new Error('too large to be a login job'); e.raw = head.toString('utf8'); throw e;
+  }
   const buf = fs.readFileSync(file);
   let text;
   if (buf.slice(0, 8).toString('latin1') === 'bplist00') {
@@ -271,8 +278,13 @@ function plistKeys(file) {
   const args = (prog ? [unxml(prog[1])] : []).concat(pa ? [...pa[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => unxml(m[1])) : []);
   // Run on a schedule or on an event: a task, not an agent.
   const periodic = ['StartInterval', 'StartCalendarInterval', 'WatchPaths', 'QueueDirectories', 'StartOnMount'].some(has);
-  const starts = !flag('Disabled') && (flag('KeepAlive') || (flag('RunAtLoad') && !periodic));
-  return { dir: wd ? unxml(wd[1]) : null, starts, args };
+  const on = !flag('Disabled');
+  /* A job that starts at login IN the folder covers it, whatever else it is scheduled for. A mention in a start script
+     is weaker evidence (a digest or backup script names folders it does not start), so a scheduled job's script counts
+     only when the job is also KeepAlive. */
+  const startsHere = on && (flag('KeepAlive') || flag('RunAtLoad'));
+  const starts = on && (flag('KeepAlive') || (flag('RunAtLoad') && !periodic));
+  return { dir: wd ? unxml(wd[1]) : null, startsHere, starts, args };
 }
 /* The ways a start script may write the folder: as it is, as its real path, and under the home folder as ~ or $HOME. */
 function folderSpellings(...dirs) {
@@ -307,12 +319,25 @@ function launcherLike(file, st) { return !!(st.mode & 0o111) || SCRIPT_EXT.test(
    as unreadable would make every agent unknown. A failed read is not cached. */
 const SCRIPT_MAX = 2 * 1024 * 1024;
 const UNREADABLE = Symbol('unreadable');
+/* Folders macOS guards with a privacy prompt (TCC), and other volumes: a launcher there is not touched at all, so the
+   board never raises a prompt on its five-second poll. A script-like name there leaves "no job" unproven. */
+function protectedPath(file) {
+  const home = create.homeDir();
+  const under = (d) => file === d || file.startsWith(d + '/');
+  return under('/Volumes') || ['Documents', 'Desktop', 'Downloads', 'Library/Containers', 'Library/Group Containers',
+    'Library/Mobile Documents'].some((d) => under(path.join(home, d)));
+}
+const SCRIPT_RETRY_MS = 60000;
 function scriptText(file) {
+  if (protectedPath(file)) return SCRIPT_EXT.test(file) ? UNREADABLE : null;
+  const prev = SCRIPT_CACHE.get(file);
+  if (prev && prev.text === UNREADABLE && Date.now() < prev.retryAt) return UNREADABLE;   // asked again a minute later
+  const unreadable = () => { SCRIPT_CACHE.set(file, { sig: null, text: UNREADABLE, retryAt: Date.now() + SCRIPT_RETRY_MS }); return UNREADABLE; };
   let st;
   try { st = fs.statSync(file); } catch (e) {
     if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null;
     // Cannot even look (a folder it sits in is closed): only a name that reads as a script leaves "no job" unproven.
-    return SCRIPT_EXT.test(file) ? UNREADABLE : null;
+    return SCRIPT_EXT.test(file) ? unreadable() : null;
   }
   if (!st.isFile() || !launcherLike(file, st)) return null;
   const sig = st.mtimeMs + ':' + st.size;
@@ -322,11 +347,11 @@ function scriptText(file) {
   try {
     const fd = fs.openSync(file, 'r');
     try { head = Buffer.alloc(4096); head = head.subarray(0, fs.readSync(fd, head, 0, 4096, 0)); } finally { fs.closeSync(fd); }
-  } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
+  } catch { return unreadable(); }
   // A binary is never a launcher script, whatever its size (the interpreter itself: /bin/bash is about 1.9 MB).
   if (head.includes(0) || st.size > SCRIPT_MAX) { SCRIPT_CACHE.set(file, { sig, text: null }); return null; }
   let text;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
+  try { text = fs.readFileSync(file, 'utf8'); } catch { return unreadable(); }
   SCRIPT_CACHE.set(file, { sig, text });
   return text;
 }
@@ -362,10 +387,11 @@ function foreignLoginFolders() {
       FOREIGN_CACHE.set(file, got);
     }
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
-    if (!got.keys.starts) continue;
+    if (!got.keys.startsHere) continue;
     if (got.keys.dir) {
       try { const real = fs.realpathSync.native(got.keys.dir); dirs.add(real); sigParts.push('wd:' + real); } catch { /* a job whose folder is gone starts nobody we know */ }
     }
+    if (!got.keys.starts) continue;   // a scheduled job's own folder counted above; its scripts do not
     texts.add(got.keys.args.join('\n'));
     for (const a of got.keys.args) {
       if (!path.isAbsolute(a)) continue;
@@ -375,7 +401,7 @@ function foreignLoginFolders() {
       // Mode too: a file made executable (or renamed to a script) becomes a launcher without its contents changing.
       sigParts.push(a + ':' + (ast ? ast.mode + ':' + ast.size + ':' + ast.mtimeMs : 'none') + ':' + String(t === UNREADABLE));
       if (t === UNREADABLE) unknownAll = true;   // a launcher we cannot read may be any agent's
-      else if (t !== null) texts.add(t);
+      else if (t !== null) texts.add(t.replace(/"\$\{?HOME\}?"/g, '$HOME'));   // "$HOME"/work reads as $HOME/work
     }
   }
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);

@@ -590,7 +590,7 @@ test('#6310: a login job we cannot read makes unknown only the agent it names; t
   assert.equal(fs.existsSync(create.plistPath('unkx')), false, 'Repair wrote a job for an agent whose login job is unknown');
 });
 
-test('#6310: a periodic job in the folder does not cover it; a run-once launcher, a Program key and a $HOME spelling do', () => {
+test('#6310: a scheduled job that starts at login in the folder covers it, as do a run-once launcher, a Program key and a $HOME spelling', () => {
   reset();
   for (const n of ['tickx', 'oncex', 'progx', 'homex']) agent(n);
   const bin = path.join(SB, 'scripts');
@@ -605,7 +605,7 @@ test('#6310: a periodic job in the folder does not cover it; a run-once launcher
   process.env.HOME = SB;
   try {
     job('com.homex.discord.plist', '\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/bin/bash', script('launch-homex.sh', 'WORK_DIR="$HOME/workers/homex"\n')]));
-    assert.deepEqual(mac.survey().missing, ['tickx']);
+    assert.deepEqual(mac.survey().missing, []);
   } finally {
     if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome;
   }
@@ -789,4 +789,74 @@ test('#6310: a WorkingDirectory inside the agent folder covers it; a sibling fol
   foreignJob('com.subx.discord.plist', { dir: path.join(create.workerDir('subx'), 'run') });
   foreignJob('com.sibx.discord.plist', { dir: create.workerDir('sibx') + '-old' });
   assert.deepEqual(mac.survey().missing, ['sibx']);
+});
+
+test('#6310: a quoted "$HOME" spelling matches; a launcher in a privacy-guarded folder is never read and leaves agents unknown', () => {
+  reset();
+  agent('quotx');
+  agent('plaint');   // CONTROL
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  const args = (a) => '\t<key>ProgramArguments</key>\n\t<array>\n' + a.map((x) => '\t\t<string>' + x + '</string>\n').join('') + '\t</array>\n';
+  const oldHome = process.env.HOME;
+  process.env.HOME = SB;
+  try {
+    const q = path.join(bin, 'launch-quotx.sh');
+    fs.writeFileSync(q, 'cd "$HOME"/workers/quotx\n', 'utf8');
+    foreignJob('com.quotx.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/bin/bash', q])) });
+    assert.deepEqual(mac.survey().missing, ['plaint'], 'the quoted $HOME spelling was not matched');
+  } finally { if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome; }
+  // A launcher under the Kosmos home's Documents: not touched (it does not even exist here), and it doubts everyone.
+  const guarded = path.join(create.homeDir(), 'Documents', 'launch.sh');
+  foreignJob('com.docs.app.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/bin/bash', guarded])) });
+  const s = mac.survey();
+  assert.equal(fs.existsSync(guarded), false, 'the fixture was meant to prove the path is judged without being read');
+  assert.equal(s.agents.find((x) => x.name === 'plaint').job, null);
+});
+
+test('#6310: an oversized plist doubts only an agent it names; an unreadable launcher is tried again a minute later', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+  reset();
+  agent('bigx');
+  agent('plainu');   // CONTROL
+  fs.mkdirSync(path.join(SB, 'launch'), { recursive: true });
+  fs.writeFileSync(path.join(SB, 'launch', 'com.big.thing.plist'), 'runs ' + create.workerDir('bigx') + '\n' + 'x'.repeat(300 * 1024), 'utf8');
+  let s = mac.survey();
+  assert.deepEqual(s.missing, ['plainu']);
+  assert.equal(s.agents.find((x) => x.name === 'bigx').job, null);
+  // An unreadable launcher, then readable: still unknown until its minute is up.
+  reset();
+  agent('plainu');
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const script = path.join(bin, 'launch-u.sh'); fs.writeFileSync(script, 'echo\n', 'utf8'); fs.chmodSync(script, 0o000);
+  foreignJob('com.u.discord.plist', { raw: '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + script + '</string>\n\t</array>\n</dict>\n</plist>\n' });
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  try {
+    assert.equal(mac.survey().agents.find((x) => x.name === 'plainu').job, null);
+    fs.chmodSync(script, 0o644);
+    assert.equal(mac.survey().agents.find((x) => x.name === 'plainu').job, null, 'retried before its minute');
+    t.mock.timers.tick(61000);
+    assert.deepEqual(mac.survey().missing, ['plainu']);
+  } finally { t.mock.timers.reset(); fs.chmodSync(script, 0o644); }
+});
+
+test('#6310: one survey converts at most four binary plists; the fifth is read on a later survey', (t) => {
+  if (!fs.existsSync('/usr/bin/plutil')) return t.skip('no plutil off a Mac');
+  reset();
+  const names = ['bin1', 'bin2', 'bin3', 'bin4', 'bin5'];
+  for (const n of names) {
+    agent(n);
+    foreignJob('com.' + n + '.discord.plist', { dir: create.workerDir(n) });
+    require('node:child_process').execFileSync('/usr/bin/plutil', ['-convert', 'binary1', path.join(SB, 'launch', 'com.' + n + '.discord.plist')]);
+  }
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  try {
+    const first = mac.survey();
+    assert.equal(first.agents.filter((x) => x.job === true).length, 4, 'more or fewer than four were converted in one survey');
+    assert.equal(first.agents.filter((x) => x.job === null).length, 1);
+    t.mock.timers.tick(61000);
+    assert.deepEqual(mac.survey().missing, []);
+  } finally { t.mock.timers.reset(); }
 });
