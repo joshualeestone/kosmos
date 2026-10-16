@@ -392,6 +392,19 @@ const visible = (page, sel) => page.evaluate((s) => {
           await page.clock.fastForward('00:30');
           const full = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
           chk(oldEnd === '' && /Check the address above/.test(full), `[${key}] #6313 a new request cancels the minute still running from the last one, and shows the line only when its own minute ends`, JSON.stringify({ oldEnd, full }));
+          // Send again stays on the code step, so only the new ask itself can cancel the running minute: Send again, 30 s,
+          // Send again, 31 s (the earlier minute's end) shows nothing; 30 s more shows the line.
+          await page.click('#plus-si-code-resend');
+          await page.waitForFunction(() => /another code/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+          await page.clock.fastForward('00:30');
+          await page.evaluate(() => { document.getElementById('plus-signin-msg').textContent = ''; });
+          await page.click('#plus-si-code-resend');
+          await page.waitForFunction(() => /another code/.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 5000 }).catch(() => {});
+          await page.clock.fastForward('00:31');
+          const rsOld = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
+          await page.clock.fastForward('00:30');
+          const rsNew = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
+          chk(rsOld === '' && /Check the address above/.test(rsNew), `[${key}] #6313 Send again cancels the running minute and starts its own (it never leaves the code step)`, JSON.stringify({ rsOld, rsNew }));
           // The scenario goes on from here: the clock jumps above are safe because nothing else is in flight on this step.
           // The line is taken away again so the layout checks below measure the step as it first opens.
           await page.evaluate(() => plusSiCodeLateReset());

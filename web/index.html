@@ -19258,7 +19258,7 @@ window.kosmosMeasureScrollbarWidth();
         <!-- #6313: the coordinator answers the same for an address with no account and sends nothing (deliberate: the
              answer must not say whether an account exists), so the line claims only what the board knows. -->
         <p class="plus-si-lead">If this address has a Kosmos+ account, a code is on its way. It works for 10 minutes.</p>
-        <p class="plus-si-addr"><b id="plus-si-code-to"></b> <a id="plus-si-code-change" class="plus-signin-link" href="#" role="button">Wrong address? Change it</a></p>
+        <p class="plus-si-addr"><b id="plus-si-code-to"></b> <a id="plus-si-code-change" class="plus-signin-link" href="#">Wrong address? Change it</a></p>
         <div class="field">
           <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
           <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
@@ -52326,7 +52326,7 @@ document.getElementById('plus-signin-code').addEventListener('click', () => plus
 document.getElementById('plus-si-code-change').addEventListener('click', (e) => { e.preventDefault(); plusSiStartOver(); });
 // #6313: once the person is typing the code, the "nothing yet" line has done its job.
 document.getElementById('plus-si-code-in').addEventListener('input', (e) => {
-  if (String(e.target.value || '').trim()) { const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = ''; }
+  if (String(e.target.value || '').trim()) plusSiCodeLateReset();
 });
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
   e.preventDefault();
