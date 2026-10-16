@@ -234,7 +234,7 @@ test('#6315: Not me and Remove take the minted id too', async () => {
   await remote.deviceRemove(MINTED);
   const verbs = recorded().filter((a) => a[0] === 'devices' && a[a.indexOf('--device-id') + 1] === MINTED).map((a) => a[1]);
   assert.ok(verbs.includes('deny'), 'Not me on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
-  assert.ok(verbs.some((v) => v !== 'deny' && v !== 'allow'), 'Remove on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
+  assert.ok(verbs.includes('remove'), 'Remove on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
 });
 
 test('#6315: a computer: row with no usable computer name is shown as a former computer, never as a phone', () => {
@@ -245,6 +245,11 @@ test('#6315: a computer: row with no usable computer name is shown as a former c
   remote.setOn(true);
   const [row] = remote.pendingDevices().devices;
   assert.deepEqual([row.device_id, row.code, row.code_wait], [MINTED, '', 'was_a_computer']);
+  // A more specific reason from the tunnel is kept, not overwritten.
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: '', joining_computer: null, code_wait: 'daily_limit' },
+  ] }));
+  assert.equal(remote.pendingDevices().devices[0].code_wait, 'daily_limit');
 });
 
 test('#6315: the allowed list keeps a computer: id, so it can be removed', async () => {

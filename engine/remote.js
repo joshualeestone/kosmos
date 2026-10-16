@@ -1676,8 +1676,8 @@ const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
 const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
 /* #6315: a request can also be another of the person's computers asking to join, and the coordinator names that
-   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681; a computer id
-   is 32 lowercase hex). The colon kept every such request out of the list, so no second computer could ever be
+   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681). A computer
+   id is util::new_id() there, hex of 16 random bytes, and kosmos-relay's e2e door.rs asserts the 32-hex shape. The colon kept every such request out of the list, so no second computer could ever be
    allowed. Requests and their answers take any of the three shapes; this computer's OWN device ids stay DEVICE_ID. */
 const REQUEST_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32}|computer:[0-9a-f]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
@@ -2001,7 +2001,7 @@ function pendingDevices() {
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
        drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
-    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: 'was_a_computer' } : d));
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: d.code_wait || 'was_a_computer' } : d));
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
@@ -2055,8 +2055,7 @@ async function devicesList() {
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
   const vouched = read().vouched || {};
-  /* #6315: REQUEST_ID here too. A joining computer allowed with its code is never written to the allow-list, but one
-     the tunnel had no record of as a computer could have been allowed as a phone, and must still be removable. */
+  /* #6315: REQUEST_ID here too, so Remove accepts every id shape a request can have. */
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .map((d) => ({
