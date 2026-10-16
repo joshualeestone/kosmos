@@ -31,6 +31,7 @@ const orgpolicy = require('./orgpolicy');
 const store = require('./store');
 
 const cache = new Map();
+cache.sharedSeen = new Set();   // each message once across every file of the month (swarm.readFile reads it)
 let cacheSince = null;   // the month start `cache` was counted from
 let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
 
@@ -53,16 +54,17 @@ function monthTokens(tz, now = Date.now(), rootsList = roots(), bytes = perCallB
   /* A month start that moved (a new month, or the cap's zone changed) reads every file again from the start: swarm's
      readFile keeps its read position when `since` moves later, which is right for a new day and wrong here, where the
      lines before that position may fall inside the new month. */
-  if (cacheSince !== since) { cache.clear(); cacheSince = since; }
+  if (cacheSince !== since) { cache.clear(); cache.sharedSeen = new Set(); cacheSince = since; }
   const out = { tokens: 0, complete: true, since };
   const budget = { left: bytes };
   const add = (file) => {
     let st;
-    try { st = fs.statSync(file); } catch { return; }
-    if (st.mtimeMs < since) return;
+    try { st = fs.statSync(file); } catch { return false; }
+    if (st.mtimeMs < since) return false;
     const r = swarm.readFile(file, since, now, budget, cache);
     out.tokens += r.tokens;
     if (!r.caughtUp) out.complete = false;
+    return true;
   };
   for (const root of rootsList) {
     const projects = path.join(root, 'projects');
@@ -74,7 +76,10 @@ function monthTokens(tz, now = Date.now(), rootsList = roots(), bytes = perCallB
       try { names = fs.readdirSync(dir); } catch { continue; }
       for (const n of names) {
         if (!n.endsWith('.jsonl')) continue;
-        add(path.join(dir, n));
+        const touched = add(path.join(dir, n));
+        /* A session not written this month launched no helper this month (launching one writes the session's file),
+           so its helpers' folder is not listed: most sessions on a long-used computer are old. */
+        if (!touched) continue;
         let subs;
         const subDir = path.join(dir, n.slice(0, -'.jsonl'.length), 'subagents');
         try { subs = fs.readdirSync(subDir); } catch { subs = []; }
@@ -208,7 +213,7 @@ function capAllows(now = Date.now()) {
 /** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
  *  without it the gate counts inline (mode 'sync'). */
 function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false } = {}) {
-  cache.clear(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
+  cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
   stopWorker();
   mode = useWorker ? 'worker' : 'sync';
   if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
@@ -218,4 +223,4 @@ function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker =
 /** For tests: the worker's last count, or null. */
 function latestForTests() { return latest; }
 
-module.exports = { monthTokens, capNow, capReport, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };
+module.exports = { monthTokens, capNow, capReport, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS };

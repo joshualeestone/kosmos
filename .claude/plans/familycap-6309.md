@@ -11,7 +11,8 @@ quiet-hours gate (engine/chat.js); the look-after commands still go.
 1. Board: orgpolicy shapeOk holds usage_cap to an exact shape (as the coordinator will); a capAt() reading.
 2. Board: the month's count, reusing engine/swarm.js's meter (tokensOf, transcript reading) over all agents.
 3. Board: the gate in deliverWithGap, and the sentence. (The AI policy block was dropped: see Decided.)
-4. Board: the rollup carries usage { used, cap } (under consent words that name the monthly AI cap).
+4. Board: the rollup carries policyUsage { used, cap, warn, over, month } (under consent words that name the monthly AI
+   cap).
 5. Coordinator (kosmos-relay): org.rs policy_problem accepts usage_cap; the console row shows used / cap.
 
 ## Known limits (said on the card)
