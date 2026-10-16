@@ -19503,7 +19503,7 @@ window.kosmosMeasureScrollbarWidth();
         <button type="button" class="btn plus-org-open" id="plus-org-open"><svg class="plus-org-ico" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true" focusable="false"><path d="M2.5 14.5V3.2c0-.4.3-.7.7-.7h5.6c.4 0 .7.3.7.7v11.3M9.5 14.5V7.2h3.3c.4 0 .7.3.7.7v6.6M1.5 14.5h13M4.6 5h2.3M4.6 7.6h2.3M4.6 10.2h2.3" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>Join Corporate Account</button>
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
-          <p class="fhint" id="plus-org-say"></p>
+          <p class="fhint" id="plus-org-say" tabindex="-1"></p>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -50704,7 +50704,7 @@ async function paintPlus() {
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
     // kosmos#6239 reviews 14-15: so does a family's words on screen, and words held back (both belong to that sign-in).
-    if (r && typeof plusOrgFamilyHide === 'function') { plusOrgFamilyHide(); PLUS_ORG.wordsRefused = false; }
+    if (r && typeof plusOrgFamilyHide === 'function') { plusOrgFamilyHide(); Object.assign(PLUS_ORG, { wordsRefused: false, carried: null, reviewAccepted: 0 }); }
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
@@ -51019,6 +51019,7 @@ async function plusOrgFamilyAccept() {
           if (r.code === 'org_not_member' || r.code === 'org_other_org' || r.code === 'org_not_here') {
             // The record here clears only at the next refresh, so the words stay offered unless held back.
             PLUS_ORG.wordsRefused = true;
+            plusOrgPaint();   // the joined sentence stops asking for a parent before focus lands on it
             const say = document.getElementById('plus-org-say');
             if (say) { say.setAttribute('tabindex', '-1'); say.focus(); }
             PLUS_ORG.busy = false; PLUS_ORG.at = 0; plusOrgMaybe(true);
