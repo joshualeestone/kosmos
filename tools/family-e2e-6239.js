@@ -63,7 +63,7 @@ const KEEP = process.env.FEDPROOF_KEEP === '1';
 // + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report (at worst the next 5-minute tick
 // after the join, plus 90) 390 + a retried first sign-in 90 = 945 s, before HTTP timeouts (90 s each). 19 min leaves
 // room for two.
-const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 19 * 60 * 1000;   // the waits below plus a few HTTP timeouts
+const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 19 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
@@ -587,7 +587,8 @@ async function main() {
     // The first tick at or after the join: start + 60 s if the join came first, else the next multiple of 300 s.
     const sinceStart = joinedAt - K.startedAt;
     const tickAt = K.startedAt + (sinceStart <= ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : Math.ceil(sinceStart / ROLLUP_EVERY_MS) * ROLLUP_EVERY_MS);
-    const safe = async (path) => { try { return await http(REL.coordinator, 'GET', path, undefined, bearer(sess.token)); } catch (e) { return { status: 0, json: null, text: String(e && e.message || e) }; } };
+    const nearBefore = tickAt - Date.now() < 5000;   // measured before the reads and again after, so a tick during them shows
+    const safe = async (route) => { try { return await http(REL.coordinator, 'GET', route, undefined, bearer(sess.token)); } catch (e) { return { status: 0, json: null, text: String(e && e.message || e) }; } };
     const ov = await safe('/v1/org/console/overview');
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
     // The same measure the positive check reads: K's own row, present and not yet reported. The positive check's
@@ -597,7 +598,7 @@ async function main() {
     // The control passes only on its own condition: these reads, made after the join, show no report. That holds
     // whenever the tick falls, so a pass is sound. If a tick landed between the join and the reads, the row shows a
     // report and the control fails; nearTick then says why in the detail, so the red reads as timing (rerun).
-    const nearTick = tickAt - Date.now() < 5000;
+    const nearTick = nearBefore || tickAt - Date.now() < 5000;
     chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
       'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report',
       ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found') + (nearTick ? ' (a tick was due within 5 s or past: the control could not be read cleanly; rerun)' : ''));
@@ -610,9 +611,15 @@ async function main() {
       row = members.find((m) => m && m.email === kid) || null;
       return !!(row && row.reportedAt);
     }, Math.max(0, tickAt - Date.now()) + REPORT_SLACK_MS, 3000);
+    // On a miss, K's own reason for not reporting yet (its /api/org reportingWait, read as the screen), so a skipped or
+    // waiting tick reads differently from a refused report.
+    let kWait = '';
+    if (!(row && row.reportedAt)) {
+      try { const k = await http(K.base, 'GET', '/api/org', undefined, SCREEN); kWait = '; K says reporting=' + (k.json && k.json.reporting) + ' wait=' + (k.json && k.json.reportingWait); } catch { kWait = '; K /api/org did not answer'; }
+    }
     const offset = Math.round((joinedAt - K.startedAt) / 1000);   // from the enroll answer
     chk(!!(row && row.reportedAt), 'step 9b: K\'s first report lands under the family\'s words (its own row in the parent\'s console)',
-      'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; inventory ' + invStatus + '; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found'));
+      'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; inventory ' + invStatus + '; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found') + kWait);
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"

@@ -71,3 +71,9 @@ reason.
 - The control's two reads report a thrown call as their own red; the watchdog is 19 min (room for HTTP timeouts); the
   retry's settle uses sleep(). The plan's first result and decision lines are marked historical or updated.
 - Rerun (exclusive queued turn, 04:50): VERDICT PASS 25/25; joined 2 s after K's spawn stamp, tick due 60 s.
+
+## Round 6 (sonnet) fixes
+- nearTick is measured before the control's reads and again after, so a tick landing during them is named in its detail.
+- A missed report prints K's own reason (its /api/org reporting and reportingWait), so a skipped or waiting tick (the
+  rollup's run lock, print wait) reads differently from a refused report. The wait itself stays the next tick plus 90 s.
+- The closure parameter no longer shadows path; the watchdog's duplicate comment is gone.
