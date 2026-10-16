@@ -5,20 +5,30 @@ checked against Apple's length limit by `ios/store/check-listing.sh`, which read
 the text between the `<!-- field -->` markers below, so edit the text there and
 run it again.
 
-The facts this copy relies on, and where each came from (read 2026-09-25):
+**Refreshed 2026-10-15 for #6262** (Mona Lisa): the app now ships as `io.kosmos.app` under KOSMOS Agent Manager,
+Inc. (#6280), Kosmos runs on Windows as well as the Mac (its Windows tunnel, `engine/remote.js`
+`kosmos-tunnel.exe`). The copy describes the product as it will be at launch (Josh, 09-14), **but only what the
+reviewed build does**: App Review checks the listing against the binary (2.3.1). Face ID is the example. It is built
+(`ios/Kosmos/BiometricAuth.swift`) but switched off (`KosmosConfig.requireBiometricUnlock = false`, with no setting), so
+the copy does not mention it until it can be turned on. Every fact below was re-read on origin/main at 24e44896eb.
+
+The facts this copy relies on, and where each came from (first read 2026-09-25):
 
 - Kosmos+ is a paid web service, $20 a month, sold on kosmosplus.com.
 - The iOS app sells nothing and shows no purchase (Josh, 2026-09-25 07:03 CDT:
   "We won't have Apple in-app purchases for Kosmos"; kosmos-relay #117).
-- The app signs in at login.kosmosplus.com, then shows the person's own Mac
-  through the relay (`ios/README.md`).
+- The app signs in at login.kosmosplus.com, then shows the person's own
+  computer (a Mac or a Windows PC running Kosmos) through the relay (`ios/README.md`).
+- Face ID unlock is wired but OFF, with no setting to turn it on (`ContentView.swift`, `requireBiometricUnlock`). Not
+  in the copy. A Face ID setting would add to the native surface App Review looks for (4.2), so it is worth building
+  before submission.
 - The company name on kosmosplus.com is KOSMOS Agent Manager, Inc.
 - A push is sent for three things only: an agent needs you, replied, or posted
   (kosmos-relay `coordinator/src/notify.rs:46`, at `1ff95bde6`). There is no
   "work finished" push, so the copy does not promise one. Pushes to the iPhone
   app are not switched on yet (the coordinator only logs them until the go-live
   settings are made).
-- A new phone must be allowed on the Mac before it can see the board (the Allow
+- A new phone must be allowed on the computer before it can see the board (the Allow
   card, and `device_grants` on the coordinator).
 
 ## Why the copy never mentions price or where to buy
@@ -26,18 +36,20 @@ The facts this copy relies on, and where each came from (read 2026-09-25):
 With no in-app purchase, the app fits App Review Guideline 3.1.3(f), a free
 companion to a paid web tool, **only if the app has no purchasing inside it and
 no call to action to buy outside it.** That rule covers the listing too. So the
-description says what you need (a Mac running Kosmos, a Kosmos+ account) and
+description says what you need (a computer running Kosmos, a Kosmos+ account) and
 never says what it costs, "subscribe", or a link to a pricing page. The
 promotional text follows the same rule.
 
 ## Name (30 characters at most)
 
 <!-- name -->
-Kosmos: AI Workforce
+Kosmos: AI Agent Manager
 <!-- /name -->
 
-Alternatives if the name is taken (App Store Connect only says so when the app
-record is created): `Kosmos+ for iPhone`, `Kosmos Agent Manager`.
+**The name is Josh's call** (#6262 step 2, the app record). Recommended: `Kosmos: AI Agent Manager`, the line the
+logo carries in his trailer script (2026-10-15) and the company's own name. The earlier draft's `Kosmos: AI
+Workforce` stays the first alternative, then `Kosmos+ for iPhone`. App Store Connect only says a name is taken
+when the record is created.
 
 ## Subtitle (30 characters at most)
 
@@ -54,31 +66,35 @@ See what every agent is doing, answer the one that needs you, and hear the momen
 ## Description (4000 characters at most)
 
 <!-- description -->
-Kosmos runs a team of AI agents on your Mac. This app puts that team in your pocket.
+Kosmos runs a team of AI agents on your own computer. This app puts that team in your pocket.
 
 Open it and you see your whole workforce: who is working, who is idle, and who is waiting on you. Tap an agent to read what it has done, send it a message, or answer the question it asked. Open a project to follow the conversation between your agents and reply in the room.
 
 Know when it matters
 Kosmos sends a notification when an agent needs your decision, replies to you, or posts in one of your projects. Tap it and you land on that agent, ready to answer.
 
-Your work stays on your Mac
-Your agents, their conversations and their files live on your own computer. The app connects to your Mac over an encrypted connection, and each new phone has to be approved on the Mac before it can see anything.
+Your work stays on your computer
+Your agents, their conversations and their files live on your own computer. The app connects to it over an encrypted connection, and each new phone has to be approved on that computer before it can see anything.
 
 Made for a phone
 The board is laid out for one hand: large tap targets, a menu that stays out of the way, and a dark theme for late nights. If you lose signal, the app says so and reloads by itself when you are back online.
 
 What you need
-- A Mac running Kosmos, which is free at installkosmos.com.
-- A Kosmos+ account, to reach your Mac from anywhere.
+- A Mac or Windows PC running Kosmos, which is free at installkosmos.com.
+- A Kosmos+ account, to reach your computer from anywhere.
 
-Sign in with the same Kosmos+ account you use on your Mac, approve the phone once, and your workforce is with you.
+Sign in with the same Kosmos+ account you use on your computer, approve the phone once, and your agents are with you.
 <!-- /description -->
 
 ## Keywords (100 characters at most, commas, no spaces)
 
 <!-- keywords -->
-ai,agents,agent manager,assistant,automation,workforce,team,remote,mac,projects,tasks,notifications
+ai,agents,assistant,automation,workforce,team,remote,mac,windows,projects,tasks,productivity
 <!-- /keywords -->
+
+`agent manager` and `notifications` came out when the recommended name took "Agent Manager" (the name is indexed
+already); `windows` and `productivity` went in. If Josh keeps `Kosmos: AI Workforce`, put `agent manager` back in
+place of `workforce`.
 
 Left out on purpose: `claude`, `chatgpt`, `gemini`, `grok`. They are other
 companies' trademarks, and Guideline 2.3.7 rejects keywords that name other
@@ -129,12 +145,15 @@ Kosmos is a free companion to Kosmos+, a paid web service. Nothing is sold in
 the app and it links to no purchase (Guideline 3.1.3(f)).
 
 To review it you need two things we provide: a Kosmos+ demo account (below) and
-a Mac running Kosmos that stays online during the review, signed in to that
+a computer running Kosmos that stays online during the review, signed in to that
 account, with the review phone already approved or approvable by us.
 
 Native features beyond the web view: push notifications through APNs that open
 the agent that asked, an offline page that reloads by itself when the phone is
 back online, pull to refresh, and links to other sites that open in Safari rather than in the app.
+
+Face ID: the build carries a Face ID purpose string for a lock that is built but switched off in this version; the app
+never asks for Face ID.
 
 Demo account: (Josh to fill in)
 Contact during review: (Josh to fill in)
