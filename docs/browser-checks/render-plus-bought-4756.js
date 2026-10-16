@@ -69,6 +69,12 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
     { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
   ], auto: null, readDelays: [0, 1500] },
+  // kosmos#6314: the page's own re-read finds TWO paid addresses: the add panel gives way to the list, nothing is taken
+  // by itself, and the focus that was on Check again moves to the list's first button rather than falling to the page.
+  'quiet-to-list': { lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free'), row('other', 'free')] },
+  ], auto: null },
   off: { lists: [{ ok: true, live: false }], auto: 'first' },
   unreachable: { lists: [null], auto: 'first' },   // the engine route refuses: the step as before
   'first-computer': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: 'first' },
@@ -395,6 +401,13 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(asked === 2, `[${key}] coming back to the window re-read the list`, String(asked));
         chk(mid.id === 'plus-si-bought-recheck' && mid.off === false, `[${key}] during the page's own read the focus stays on Check again, which stays pressable`, JSON.stringify(mid));
         chk(after.id === 'plus-si-bought-recheck' && after.none, `[${key}] and after it, the panel and the focus are as they were`, JSON.stringify(after));
+      } else if (key === 'quiet-to-list') {
+        await page.focus('#plus-si-bought-recheck');
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
+        await page.waitForSelector('#plus-si-bought-list button[data-bought="spare"]', { state: 'visible', timeout: 8000 }).catch(() => {});
+        const f = await page.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-bought'));
+        chk(asked === 2 && regs.length === 0, `[${key}] coming back re-read the list and took nothing by itself (two to pick from)`, asked + ' ' + JSON.stringify(regs));
+        chk(f === 'spare', `[${key}] the focus moved to the list's first address, not to the page`, String(f));
       } else if (key === 'auto-offline') {
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
         await page.waitForTimeout(1500);   // room for a second automatic register, which must not come
