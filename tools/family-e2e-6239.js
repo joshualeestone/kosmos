@@ -19,7 +19,10 @@
  *   5    the operator makes the family: org-create --kind family, the parent its admin.
  *   6    the parent makes a join code in the console (/v1/org/invites).
  *   7    K previews it: a family, with the family's own words (no company), and nothing joined (control).
- *   8    a join that does not say the words were shown is refused, org_family_words_unseen (the control for 9).
+ *   8    a join that does not say the words were shown is refused by the BOARD's own gate, org_family_words_unseen
+ *        (the control for 9). The coordinator's gate behind it (an older board or another client) cannot be reached
+ *        through a board that sends the words; kosmos-relay's api test kosmos6239_a_family_joins_only_from_a_board_
+ *        that_showed_its_words covers it.
  *   9    with the words read and accepted on K, K joins; its board says family; the coordinator's audit row records
  *        the join with "words shown on the board's screen (the board's word)".
  *   10   the spent code, previewed again, is refused in words that name no company.
@@ -61,7 +64,10 @@ const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
-// The company's consent hash, as kosmos-relay pins it (consent_hash_for("company")): a family's words must not be these.
+// The company's consent hash, as kosmos-relay pins it (consent_hash_for("company") in coordinator/tests/api.rs): a
+// family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
+// admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
+// step 9's hash clause stops discriminating (the --kind company control in the plan is how to see it).
 const COMPANY_CONSENT_HASH = '68fb6404e47cd76af21b12578002d4a92d2f422efe7e68b450a0581995661151';
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
@@ -361,6 +367,7 @@ async function main() {
     fs.mkdirSync(path.join(SANDBOX, 'kindcheck'), { recursive: true });
     try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SYNC_MS, killSignal: 'SIGKILL', env: Object.assign(process.env.PATH ? { PATH: process.env.PATH } : {}, { HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') }) }); }
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
+    if (said === '') said = '(it exited 0: it accepted a nonsense kind)';   // ran, and did not refuse
     if (!/--kind is company or family/.test(said)) {
       // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
       // An older binary answers an unknown flag with its org-create usage line, which has no --kind (relay main before
@@ -504,7 +511,7 @@ async function main() {
   // is shown by step 9 joining with the same code.
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket }, SCREEN);
-    chk(r.json && r.json.ok === false && r.json.code === 'org_family_words_unseen', 'step 8: a family join without the words screen is refused', r.status + ' ' + r.text.slice(0, 200));
+    chk(r.json && r.json.ok === false && r.json.code === 'org_family_words_unseen', 'step 8: a family join without the words screen is refused (the board\'s gate)', r.status + ' ' + r.text.slice(0, 200));
   }
 
   // 9. the parent reads the words on K and accepts them there: K joins the family.
@@ -549,9 +556,8 @@ async function main() {
     if (typeof usedWords !== 'string' || !usedWords) info('step 10: engine/orgenroll SAY.org_code_used is not a sentence here');
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
-    // The company clause pins the board's constant itself (b === usedWords already holds when it is reached).
-    chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords && !/company/i.test(b),
-      'step 10: the used code is refused as used, in words that name no company', (r.json && r.json.code) + ': ' + (b || r.text.slice(0, 160)));
+    chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords,
+      'step 10: the used code is refused as used, in the board\'s own sentence', (r.json && r.json.code) + ': ' + (b || r.text.slice(0, 160)));
   }
 
   // 11. the child's computer leaves the family: only after it joined, and the family's own log records it.

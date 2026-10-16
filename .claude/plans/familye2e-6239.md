@@ -170,3 +170,14 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - The step 4b control's detail says when a 403 failed on wording; the join code is redacted from step 6's detail.
 - Deduplicated: round numbers in comments, the copied helpers (#6287).
 - Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 12/19.
+
+## Round 17 (opus) fixes
+- Step 8 says it is the BOARD's gate: a board that sends the words cannot reach the coordinator's gate behind it,
+  which kosmos-relay's api test kosmos6239_a_family_joins_only_from_a_board_that_showed_its_words covers.
+- Step 10's label claims only the board's own sentence (the "no company" clause tested a constant).
+- The preflight reports a binary that exits 0 for a nonsense kind as that, not as "could not run".
+- Decided, not changed: COMPANY_CONSENT_HASH stays a pinned copy of relay's value. Rejected: deriving it in the run
+  (a second admin account and a company join, about doubling the harness). Weakest premise: that a change to the
+  company words is noticed. Relay's own pinned test changes then, and the constant's comment says to change it with
+  it and how to see a stale one (the --kind company control).
+- Rerun: VERDICT PASS 23/23.
