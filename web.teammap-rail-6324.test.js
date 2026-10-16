@@ -145,7 +145,7 @@ test('#6324: the page wires the rail map: a closed button in the rail head, and 
   const head = PAGE.slice(PAGE.indexOf('<div class="railhead" id="rail-agents"'), PAGE.indexOf('<div class="alist" id="alist"'));
   assert.match(head, /<button class="btn-quiet pj-tmbtn alist-tmbtn" id="alist-teammap-btn" type="button" aria-expanded="false" aria-controls="alist-teammap" hidden>Team map<\/button>/,
     'the button is not in the Agents rail head');
-  assert.match(head, /<div id="alist-teammap" class="pjtm alist-tm" aria-label="Team map" hidden><\/div>/, 'the map box is not in the Agents rail head');
+  assert.match(head, /<div id="alist-teammap" class="pjtm alist-tm" hidden><\/div>/, 'the map box is not in the Agents rail head');
   assert.match(PAGE, /getElementById\('alist-teammap-btn'\)\.addEventListener\('click'[^]{0,250}PJ_TEAMMAP_OPEN[^]{0,150}paintRailPjNotice\(\)/);
   assert.match(PAGE, /getElementById\('alist-teammap'\)\.addEventListener\('click'[^]{0,200}openDetail\(n\.dataset\.agent, undefined, PJ_CURRENT\)/);
   assert.match(PAGE, /body\.consolidated\.fold-a #rail-agents > \.alist-tmbtn, [^{]*#rail-agents > \.alist-tm \{ display: none; \}/, 'folding the agents column does not hide the map');
