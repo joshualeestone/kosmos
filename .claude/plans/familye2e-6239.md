@@ -11,7 +11,7 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
   second device and no operator step on the live box. Splinter was told (21:1x).
 - A tool, not a test in the suite: it needs three relay debug binaries and runs minutes (as fed-own-e2e.js).
 
-## Result (2026-10-15 23:0x CDT, relay main 416f8a05 built on the external SSD)
+## Result (first run 2026-10-15 23:0x CDT, relay main 416f8a05 built on the external SSD; current figures under Round 5)
 - VERDICT PASS, 21/21: the console refuses the parent's browser until P allows it (control), P allows it by the code
   its sign-up showed, org-create --kind family, the parent's join code, K's preview (family, family words, not joined),
   the refused join without the words screen (control), the join with it, K's board says family, the audit row
@@ -67,3 +67,11 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Kept, said at the site: the step 4b control matches the coordinator's refusal by its words (that answer has no code
   field). Kept (NITs): the fedproof* names and the copied helpers (#6287).
 - Rerun: VERDICT PASS 23/23.
+
+## Round 5 (opus) fixes
+- The binaries' existence is checked before the family-kind preflight, so a missing bin dir says "missing or not
+  executable ... (set FEDPROOF_BIN_DIR)", not "stale" (shown). The preflight's data dir is created first.
+- Step 11 polls the audit log for the "left" row (a leave can be confirmed a moment later).
+- Current figures, re-measured on this version: VERDICT PASS 23/23. NEGATIVE CONTROL (--kind company): VERDICT FAIL
+  13/20, failing the six family checks; the company's join is taken at step 8 (no words screen needed), so step 9
+  cannot join, step 11 is skipped, and "every check ran" fails at 19 of 22 too.
