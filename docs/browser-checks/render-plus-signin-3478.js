@@ -361,6 +361,9 @@ const visible = (page, sel) => page.evaluate((s) => {
               site: site ? site.href : null, page: location.href.split('#')[0] }; });
           chk(late.shown && /Check the address above/.test(late.text) && !!late.join && late.join === late.site && late.join.split('#')[0] !== late.page,
             `[${key}] #6313 after a minute with nothing typed, the step says to check the address and offers to create an account`, JSON.stringify(late));
+          await page.fill('#plus-si-code-in', '4');
+          chk(await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim() === ''), `[${key}] #6313 typing the code takes the "nothing yet" line away`, 'still shown while typing');
+          await page.fill('#plus-si-code-in', '');
           await page.click('#plus-si-code-change');
           await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
           const kept = await page.inputValue('#plus-signin-email');

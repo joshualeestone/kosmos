@@ -51671,6 +51671,8 @@ function plusSiShow(step) {
     const el = document.getElementById(id);
     if (el) el.hidden = (id !== step);
   }
+  // #6313: leaving the code step takes its "nothing yet" line and its minute with it.
+  if (step !== 'plus-si-code' && typeof plusSiCodeLateReset === 'function') plusSiCodeLateReset();
   const title = document.getElementById('plus-si-title');
   if (title) title.textContent = 'Sign in to activate Kosmos+';
   { const sp = document.getElementById('plus-si-spin'); if (sp) sp.hidden = true; }   // #4608: a step change ends any wait
@@ -52306,16 +52308,24 @@ function plusSiCodeLateArm() {
     const late = document.getElementById('plus-si-code-late');
     if (!late || !step || step.hidden || (inp && inp.value.trim())) return;
     const site = document.getElementById('plus-site-link');
-    late.textContent = 'Nothing yet? Check the address above for a typo, and look in spam. New to Kosmos+? ';
-    const join = document.createElement('a');
-    join.id = 'plus-si-code-join'; join.className = 'plus-signin-link'; join.target = '_blank'; join.rel = 'noreferrer noopener';
-    join.href = site ? site.href : '#';
-    join.textContent = 'Create an account';
-    late.appendChild(join);
+    const href = site && site.getAttribute('href') && site.getAttribute('href') !== '#' ? site.href : '';
+    const parts = [document.createTextNode('Nothing yet? Check the address above for a typo, and look in spam.')];
+    if (href) {   // no sign-up address known: no link, rather than one that goes nowhere
+      const join = document.createElement('a');
+      join.id = 'plus-si-code-join'; join.className = 'plus-signin-link'; join.target = '_blank'; join.rel = 'noreferrer noopener';
+      join.href = href;
+      join.textContent = 'Create an account';
+      parts.push(document.createTextNode(' New to Kosmos+? '), join);
+    }
+    late.replaceChildren(...parts);
   }, PLUS_SI_CODE_LATE_MS);
 }
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
 document.getElementById('plus-si-code-change').addEventListener('click', (e) => { e.preventDefault(); plusSiStartOver(); });
+// #6313: once the person is typing the code, the "nothing yet" line has done its job.
+document.getElementById('plus-si-code-in').addEventListener('input', (e) => {
+  if (String(e.target.value || '').trim()) { const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = ''; }
+});
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
   e.preventDefault();
   if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;
