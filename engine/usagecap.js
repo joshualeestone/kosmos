@@ -111,8 +111,9 @@ function capNow(policy, now = Date.now(), rootsList) {
 }
 
 /* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
-   and recounted when the policy's cap changes. A count still catching up is kept for MEMO_SHORT_MS only, so the
-   catch-up moves on without every message paying for a bounded read. */
+   and recounted when the policy's cap changes. A count still catching up, or past the heads-up, is kept for
+   MEMO_SHORT_MS only: the catch-up moves on without every message paying for a bounded read, and near the cap a
+   message cannot slip past it for a whole minute. */
 const MEMO_MS = 60 * 1000;
 const MEMO_SHORT_MS = 5 * 1000;
 let memo = null;
@@ -124,7 +125,7 @@ function capInForce(now = Date.now()) {
   const key = JSON.stringify((policy && policy.usage_cap) || null);
   if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < memo.ms) return memo.value;
   const value = capNow(policy, now);
-  memo = { key, at: now, value, ms: value.complete === false ? MEMO_SHORT_MS : MEMO_MS };
+  memo = { key, at: now, value, ms: value.complete === false || value.warn === true ? MEMO_SHORT_MS : MEMO_MS };
   return value;
 }
 

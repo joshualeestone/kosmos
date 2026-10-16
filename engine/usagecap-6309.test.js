@@ -185,6 +185,27 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   usagecap.resetForTests();
 });
 
+test('past the heads-up the count is kept only a moment, so crossing the cap refuses within MEMO_SHORT_MS', () => {
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
+  const main = seed(CONFIG);                                         // 123 tokens
+  apply({ usage_cap: { monthly_tokens: 140, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests();
+  const near = usagecap.capInForce(NOW);
+  assert.deepEqual([near.warn, near.over], [true, false], 'CONTROL: past the heads-up, under the cap');
+  fs.appendFileSync(main, line('m9', NOW - 500, 50));
+  fs.utimesSync(main, NOW / 1000, NOW / 1000);
+  assert.equal(usagecap.capInForce(NOW + 1000).over, false, 'CONTROL: within the short memo the old count stands');
+  assert.equal(usagecap.capAllows(NOW + usagecap.MEMO_SHORT_MS + 1000).ok, false, 'crossing the cap near it was not refused within the short memo');
+  // Far below the heads-up the minute's memo stands, so the short one is what the heads-up changes.
+  apply({ usage_cap: { monthly_tokens: 100000, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests();
+  const low = usagecap.capInForce(NOW);
+  fs.appendFileSync(main, line('m10', NOW - 400, 50));
+  fs.utimesSync(main, NOW / 1000, NOW / 1000);
+  assert.equal(usagecap.capInForce(NOW + usagecap.MEMO_SHORT_MS + 1000).used, low.used, 'CONTROL: far from the cap the minute memo holds');
+  usagecap.resetForTests();
+});
+
 test('deleting a transcript after a full count does not lower the month (tokens used cannot be un-used)', () => {
   usagecap.resetForTests();
   const root = tmp('aw-usecap-del-');
