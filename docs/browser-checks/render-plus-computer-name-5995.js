@@ -95,9 +95,12 @@ async function openWizard(browser, BASE, errs, before, look = { viewport: { widt
   await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
   return page;
 }
-/** Wait for the box to come on screen with a name (the read is asynchronous), then answer what it shows. */
+/** Wait for the name to come on screen (the read is asynchronous), open the box with Change (kosmos#6314: before
+    sign-in the name is said, not asked), then answer what the box shows. */
 async function shownName(page) {
   await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden; }, null, { timeout: 5000 }).catch(() => {});
+  if (await box(page, '#plus-si-computer-change')) await page.click('#plus-si-computer-change');
+  await page.waitForSelector('#plus-si-computer', { state: 'visible', timeout: 3000 }).catch(() => {});
   return valueOf(page, 'plus-si-computer');
 }
 /* The contrast ratio between the explanation's text and the card it sits on: WCAG's relative-luminance formula.
@@ -150,7 +153,13 @@ async function codeStep(page) {
     // ---- 1. Left alone: the box shows the computer's name, and that is what is sent. ----
     {
       const page = await openWizard(browser, BASE, errs);
+      // kosmos#6314 (Josh, "i wasnt logged in so it shouldnt have asked for a name"): before Change, no box, only the line.
+      await page.waitForFunction(() => { const f = document.getElementById('plus-si-computer-field'); return f && !f.hidden; }, null, { timeout: 5000 }).catch(() => {});
+      chk(!(await box(page, '#plus-si-computer')), 'before sign-in no name box is on screen: the name is said, not asked');
+      chk((await page.textContent('#plus-si-computer-shown')) === own.name && /will list this computer as $/.test(await page.textContent('#plus-si-computer-said')), 'the line says the name this computer would be sent under', about(await page.textContent('#plus-si-computer-shown'), own.name));
+      chk(!!(await box(page, '#plus-si-computer-change')), 'with Change beside it');
       const shown = await shownName(page);
+      chk(!(await box(page, '#plus-si-computer-says')), 'Change opens the box in place of the line');
       chk(shown === own.name, 'the box comes on screen filled with the name this computer would be sent under', about(shown, own.name));
       const email = await box(page, '#plus-signin-email');
       const name = await box(page, '#plus-si-computer');
