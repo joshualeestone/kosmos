@@ -83,3 +83,13 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Step 9 polls the audit log for its "joined" row, as step 11 does for "left".
 - Deduplicated: the default bin dir (rounds 1 and 4, kept as fed-own-e2e.js), the copied helpers (#6287).
 - Rerun: VERDICT PASS 23/23.
+
+## Round 7 (opus) fixes
+- Step 10 expects the shared used-code sentence: a refused preview names no org to the board, and orgenroll's
+  preview calls sayFor with no kind. Round 3's "family sentence where it has one" modelled a choice the preview does
+  not make (corrected).
+- Step 9's audit read reports a throw as its cause (no TypeError); both audit polls say why they poll (the coordinator
+  writes the row before answering; a confirmed leave answers ok, a pending one answers pending).
+- Step 7 checks the previewed org is the one step 5 made (its slug); the binaries check reads runners once; a
+  redundant clause in the stale test dropped.
+- Rerun: VERDICT PASS 23/23.

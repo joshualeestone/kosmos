@@ -337,8 +337,9 @@ const bearer = (tok) => ({ authorization: 'Bearer ' + tok });
 
 async function main() {
   console.log('#6239 family join proof, run ' + RUN + ', sandbox ' + SANDBOX);
+  const { isRunnable } = require(path.join(REPO, 'engine', 'runners'));
   for (const [k, p] of Object.entries(BIN)) {
-    if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
+    if (!isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
   }
   // Review 4: binaries built before relay#398 have no family kind, and every family step would go red for that reason
   // alone. Such a coordinator does not know --kind; one that does refuses an unknown kind by name.
@@ -349,7 +350,7 @@ async function main() {
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
     if (!/--kind is company or family/.test(said)) {
       // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
-      const stale = /--kind|unknown|unexpected|usage: org-create/i.test(said) && !/kind is company or family/.test(said);
+      const stale = /--kind|unknown|unexpected|usage: org-create/i.test(said);
       throw new Error(stale
         ? 'the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 300)
         : 'the family-kind check could not run the coordinator binary at ' + BIN.coordinator + '. It said: ' + (said.slice(0, 600) || '(nothing)'));
@@ -466,7 +467,8 @@ async function main() {
   if (code) {
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     pv = r.json || {};
-    chk(r.status === 200 && pv.ok === true && pv.org && pv.org.kind === 'family', 'step 7: K previews the code as a family', r.status + ' ' + r.text.slice(0, 200));
+    // The org step 5 made, by its slug, not just any family.
+    chk(r.status === 200 && pv.ok === true && pv.org && pv.org.kind === 'family' && pv.org.slug === 'rivera-' + RUN, 'step 7: K previews the code as the family step 5 made', r.status + ' ' + r.text.slice(0, 200));
     // Review 1: the words' own text, never the keys (a key could carry "family").
     const flat = (v) => (Array.isArray(v) ? v.flatMap(flat) : v && typeof v === 'object' ? Object.values(v).flatMap(flat) : typeof v === 'string' ? [v] : []);
     const words = flat(pv.consent || {}).join(' ');
@@ -494,21 +496,25 @@ async function main() {
     // The join record says the screen showing the words is the board's word, not proof.
     let a = null;
     let joinRow = null;
-    await waitFor(async () => {   // as step 11 polls for its row
-      a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
+    let lastErr = '';
+    // The coordinator writes the row before it answers the join, so the first read should find it; polled only so a slow
+    // coordinator reads as slow, not as a missing row.
+    await waitFor(async () => {
+      try { a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch (e) { a = null; lastErr = String(e && e.message || e); return false; }
       const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
       joinRow = rows.find((e) => e && e.what === 'joined') || null;
       return !!joinRow;
     }, 20000, 1000);
+    if (!a) a = { status: 0, text: 'no answer: ' + lastErr };   // round 7: report the cause, not a TypeError
     chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || ''), 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
   // (not "already a member"), in the board's own sentence for a used code, which names no company.
   if (code) {
-    // The board's own choice for a family: a family's sentence where it has one, else the shared one (orgenroll sayCode).
-    const oe = require(path.join(REPO, 'engine', 'orgenroll'));
-    const usedWords = (oe.FAMILY_SAY && oe.FAMILY_SAY.org_code_used) || oe.SAY.org_code_used;
+    // A refused preview names no org to the board, so it says the shared sentence (orgenroll preview calls sayFor with
+    // no kind; round 7 corrected round 3, which modelled a family choice the preview does not make).
+    const usedWords = require(path.join(REPO, 'engine', 'orgenroll')).SAY.org_code_used;
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
     chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords && !/company/i.test(b),
@@ -522,9 +528,12 @@ async function main() {
     const g = await http(K.base, 'GET', '/api/org');
     chk(g.status === 200 && g.json && g.json.enrolled === false, 'step 11: K is no longer joined', g.status + ' ' + g.text.slice(0, 120));
     let rows = [];
-    await waitFor(async () => {   // a leave can be confirmed a moment later (orgenroll's pending leave)
-      const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
-      rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
+    // ok:true above means the coordinator confirmed the leave (a pending one answers pending, not ok), and it writes the
+    // row before answering; polled only so a slow coordinator reads as slow, not as a missing row.
+    await waitFor(async () => {
+      let a2 = null;
+      try { a2 = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch { return false; }
+      rows = a2.json && Array.isArray(a2.json.entries) ? a2.json.entries : [];
       return rows.some((e) => e && e.what === 'left');
     }, 20000, 1000);
     chk(rows.some((e) => e && e.what === 'left'), 'step 11: the family\'s audit log records the leave', rows.map((e) => e && e.what).join(','));
