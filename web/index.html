@@ -51634,7 +51634,7 @@ function plusSiKStop() {
    by the start: on a board that never answers, each press would otherwise wait the whole give-up time again. */
 const PLUS_SI_COMPUTER = { loaded: false, reading: null, failed: false };
 const PLUS_SI_COMPUTER_WAIT_MS = 3000;
-const PLUS_SI_NAME_NOT_KEPT = 'We sent the code. We could not save the name you gave this computer, so your account may list it under the name it had before.';
+const PLUS_SI_NAME_NOT_KEPT = 'We could not save the name you gave this computer, so your account may list it under the name it had before.';
 function plusSiComputerName(again) {
   const el = document.getElementById('plus-si-computer');
   if (!el || PLUS_SI_COMPUTER.loaded) return Promise.resolve();
@@ -52294,7 +52294,9 @@ async function plusSiRequestCode(btn) {
    screen, the step says what to check (looked at once, when the minute ends). The board cannot know whether the
    address has an account, so the line is the same for every address. */
 const PLUS_SI_CODE_LATE_MS = 60000;
-let PLUS_SI_CODE_LATE_TIMER = null;
+/* var, not let: plusSiShow and plusSiClear (defined far above) call plusSiCodeLateReset, and a let read before this
+   line runs would throw; a var is already there, as undefined. */
+var PLUS_SI_CODE_LATE_TIMER = null;
 function plusSiCodeLateReset() {
   if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
   const late = document.getElementById('plus-si-code-late'); if (late) late.textContent = '';

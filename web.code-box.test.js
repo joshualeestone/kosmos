@@ -34,7 +34,7 @@ function boxWorld(fetchImpl) {
     document: { getElementById: el },
     fetch: fetchImpl,
     AbortController: class { constructor() { this.signal = { aborted: false }; } abort() { this.signal.aborted = true; } },
-    setTimeout: () => 0, clearTimeout: () => {},
+    setTimeout: (fn, ms) => { ctx.__timeouts.push(ms); return 0; }, clearTimeout: () => {}, __timeouts: [],
     setInterval: (fn) => { ctx.__tick = fn; return 1; }, clearInterval: () => { ctx.__tick = null; },
     plusWords: (s) => s, console,
     plusSiStage: (stage, data) => staged.push([stage, data]),
@@ -71,7 +71,7 @@ test('#5995: a start whose name could not be kept still goes to the code step, a
   w.el('plus-si-computer').value = 'Studio Mac';
   await w.click();
   assert.deepEqual(w.staged.map((s) => s[0]), ['code_sent']);
-  assert.match(w.line(), /^We sent the code\. We could not save the name you gave this computer/);
+  assert.match(w.line(), /^We could not save the name you gave this computer/);   // #6313: no claim that a code went out
   assert.equal(w.el('plus-si-computer').value, 'Studio Mac', 'the box was changed though no name came back');
   // CONTROL: an ordinary good ask leaves that line empty.
   const ok = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent', computer_name: 'Studio Mac' }) }));
@@ -139,4 +139,15 @@ test('an empty email is said before anything is asked', async () => {
   await w.click();
   assert.equal(w.line(), 'Type the email first.');
   assert.equal(asked, 0);
+});
+
+test('#6313: a good ask starts the one-minute "nothing yet" line; a refused ask does not', async () => {
+  const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent' }) }));
+  w.el('plus-signin-email').value = 'her@example.com';
+  await w.click();
+  assert.ok(w.ctx.__timeouts.includes(60000), 'a good ask did not arm the minute: ' + JSON.stringify(w.ctx.__timeouts));
+  const r = boxWorld(async () => ({ ok: false, status: 400, json: async () => ({ ok: false, because: 'that is not an email address' }) }));
+  r.el('plus-signin-email').value = 'her@example.com';
+  await r.click();
+  assert.ok(!r.ctx.__timeouts.includes(60000), 'a refused ask armed the minute');
 });
