@@ -26,7 +26,10 @@ names it, instead of going quiet; it offers no button for it. An older board wit
   plist is no longer cached for a minute; the next survey converts the next four.
 - The unknown-only panel is not the alarm style (nothing to fix), and its copy says it goes away once it can be read.
 - Browser check: `render-survival.js` needs a live board and does not cover the unknown panel; the commit carries a
-  `Browser-check:` trailer with that reason. Still to do before merge: a rendered screenshot (/design-shots).
+  `Browser-check:` trailer with that reason. Screens `restart-unknown` and `restart-both` added to
+  docs/browser-checks/mobile-shots.js (they stub /api/register on their own page); 8 shots (iPhone 15 and desktop,
+  light and dark), 0 overflow, kept in ~/.cache/claude-handoffs/shots-6320/. The first shots showed the combined panel
+  crammed under its button; spacing added only when the line follows the fixable list.
 - Each null records why (`whyNull`, per survey): 'waiting' when a plist waiting its turn is the only open question and
   no broken plist names the folder; otherwise 'unread', listed. When a genuinely unreadable file exists at the same
   time, every unknown agent is listed, including ones the next survey would clear (over-inclusive, the safe side).

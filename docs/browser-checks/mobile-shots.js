@@ -413,6 +413,24 @@ const SCREENS = [
   { name: 'home', owner: 'Raiden', go: async () => {} },
   /* #5018: the login-expiry notice floating over the page under the header, with its account line, the agents'
      given names and its X. The advisory is stubbed onto this screen's own /api/status reads (gone with it). */
+  /* #6320: the restart panel naming agents whose login job could not be checked, alone and beside the fixable list.
+     /api/register is stubbed on this screen's own page with made-up names from the sample fleet. */
+  { name: 'restart-unknown', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: [], unknown: ['pixel-moss', 'cleo-park'],
+        agents: [{ name: 'pixel-moss', shownAs: 'Pixel' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.continue());
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+  } },
+  { name: 'restart-both', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: ['roo-lane'], unknown: ['cleo-park'],
+        agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.continue());
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+  } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];

@@ -8148,6 +8148,7 @@ html.has-speak .asp-speak { display: grid; }
    dashed border is the shape of a slot waiting to be filled; "we could not
    read this" is not an empty slot, it is an unanswered question. */
 .pj-empty.boardfail { border-style: solid; border-color: var(--border-strong); }
+.survival-unknown:not(:first-child) { margin-top: 1.25rem; }   /* #6320: apart from the fixable list and its button above */
 /* 🛑 THE FOUND PANEL IS LEFT-ALIGNED AND CAPPED, NOT BOARD-WIDE. An earlier
    ruling widened the rows to the board (measured at 1200px: rows ending at 620
    inside a 1150 panel read as unfinished). Josh reversed it on sight,
@@ -47290,12 +47291,12 @@ async function paintSurvival() {
   const names = body.missing.map((n) => esc(shownFor(n))).join(', ');
   const unknownNames = unknown.map((n) => esc(shownFor(n))).join(', ');
   const unknownBlock = unknown.length
-    ? '<p><b>' + esc(unknown.length === 1
+    ? '<div class="survival-unknown"><p><b>' + esc(unknown.length === 1
         ? 'We could not check whether one of your agents comes back if you restart this computer.'
         : 'We could not check whether ' + unknown.length + ' of your agents come back if you restart this computer.') + '</b><br>'
-      + 'We could not read something we need to check this, so we are not sure, and we will leave them as they are. '
-      + 'This message goes away once we can read it.</p>'
-      + '<p class="dhint" data-survival-unknown>' + unknownNames + '</p>'
+      + 'Something we need for this check could not be read. We will leave these agents as they are, and this '
+      + 'message goes away once we can read it.</p>'
+      + '<p class="dhint" data-survival-unknown>' + unknownNames + '</p></div>'
     : '';
   wrap.hidden = false;
   // Nothing to fix here, so not the alarm style the fixable state uses.
