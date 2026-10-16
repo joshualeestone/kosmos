@@ -60,6 +60,9 @@ const SCENARIOS = {
     { ok: true, live: true, this_name: '', buy_url: BUY, price: '$20/month', addresses: [row('first', 'in_use')] },
     { ok: true, live: true, this_name: '', buy_url: BUY, price: '$20/month', addresses: [row('first', 'in_use'), row('paid', 'free')] },
   ], auto: null },
+  // kosmos#6314: ONE free address is taken with no click; that register fails offline: Try again on it, and it is
+  // never taken by itself a second time.
+  'auto-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
   off: { lists: [{ ok: true, live: false }], auto: 'first' },
   unreachable: { lists: [null], auto: 'first' },   // the engine route refuses: the step as before
   'first-computer': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: 'first' },
@@ -199,6 +202,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       const regs = [];
       let asked = 0;
       await open(page);
+      // kosmos#6314: the add panel's own 10 s re-read would make the exact read counts below depend on timing; focus
+      // still re-reads (paid-by-focus drives it on purpose).
+      await page.evaluate(() => { PLUS_SI_AUTO_OFF = true; });
       await page.route('**/api/remote/signin-**', (route, req) => {
         const p = new URL(req.url()).pathname;
         // #6027: some answers are sent late (setTimeout below), so each one catches its own rejection after close.
@@ -373,6 +379,17 @@ const visible = (page, sel) => page.evaluate((s) => {
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused retry goes back to the list, without the taken address`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again forever`);
+      } else if (key === 'auto-offline') {
+        await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
+        await page.waitForTimeout(1500);   // room for a second automatic register, which must not come
+        chk(JSON.stringify(regs) === '["spare"]', `[${key}] the one free address was taken with no click, once`, JSON.stringify(regs));
+        chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] the offline failure offers Try again`);
+        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        await page.waitForTimeout(1200);
+        chk(JSON.stringify(regs) === '["spare"]', `[${key}] coming back to the window does not take it again by itself`, JSON.stringify(regs));
+        await page.click('#plus-si-register-go');
+        await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
+        chk(JSON.stringify(regs) === '["spare","spare"]', `[${key}] the person's Try again succeeds`, JSON.stringify(regs));
       } else if (key === 'pick-offline' || key === 'pick-cert-fail' || key === 'pick-retire-409' || key === 'pick-own-stale') {
         await page.click('#plus-si-bought-list button[data-bought="spare"]');
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});

@@ -326,7 +326,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: true, failed: true, on: null };
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
       jr = await readJoin();
-      chk(jr.text === 'Too many tries. On homemac, press Not me on this request, then sign this computer in again.' && !jr.button,
+      chk(jr.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !jr.button,
         `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
       /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
          held, but the code stays until it is confirmed here. The block must still show it, with the button. */

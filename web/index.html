@@ -19236,7 +19236,7 @@ window.kosmosMeasureScrollbarWidth();
              (Change), because it is #5995's privacy control: without it a person's own name ("Sam's MacBook") goes
              to the account unseen. -->
         <div class="field" id="plus-si-computer-field" hidden>
-          <p class="fhint" id="plus-si-computer-says"><span id="plus-si-computer-said">Your Kosmos+ account will list this computer as </span><b id="plus-si-computer-shown"></b>. <button class="linkish" type="button" id="plus-si-computer-change" aria-controls="plus-si-computer-edit">Change</button></p>
+          <p class="fhint" id="plus-si-computer-says"><span id="plus-si-computer-said">Your Kosmos+ account will list this computer as </span><b id="plus-si-computer-shown"></b>. <button class="linkish" type="button" id="plus-si-computer-change" aria-controls="plus-si-computer-edit" aria-expanded="false">Change</button></p>
           <div id="plus-si-computer-edit" hidden>
           <label class="flabel" for="plus-si-computer">Name for this computer</label>
           <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account will list this computer by this name.</p>
@@ -51358,7 +51358,7 @@ function paintPlusJoin() {
   el.hidden = !live && !note;
   /* kosmos#6314 (Josh 11:37: one screen doing "double and triple duty"): while this computer waits to be allowed, the
      pairing is the page's only job, so the devices list (empty until it is allowed) and the company block step aside. */
-  { const flow = document.getElementById('plus-flow'); if (flow && flow.classList) flow.classList.toggle('plus-joining', !!live); }
+  { const flow = document.getElementById('plus-flow'); if (flow && flow.classList) flow.classList.toggle('plus-joining', !!live && j.held === true); }
   let html;
   if (!live) {
     if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
@@ -51378,7 +51378,7 @@ function paintPlusJoin() {
   const stale = PLUS_JOIN_CODE_AT && Date.now() - PLUS_JOIN_CODE_AT >= PLUS_JOIN_CODE_MS && !j.confirmed;
   const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
   if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
-  if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + ', press Not me on this request, then sign this computer in again.</p>';
+  if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + other + ', press Not me on this request, then sign this computer in again.</p>';
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
      the code steps back, small and grey. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
@@ -51721,6 +51721,7 @@ function plusSiComputerEdit(open) {
   const edit = document.getElementById('plus-si-computer-edit');
   if (says) says.hidden = !!open;
   if (edit) edit.hidden = !open;
+  { const ch = document.getElementById('plus-si-computer-change'); if (ch && ch.setAttribute) ch.setAttribute('aria-expanded', open ? 'true' : 'false'); }
   if (open) { const el = document.getElementById('plus-si-computer'); if (el) el.focus(); }
   if (typeof plusSiMeasure === 'function') plusSiMeasure();
 }
@@ -52487,7 +52488,8 @@ let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-rea
    fails shows the list, and never loops); a list of two or more always waits for a pick. */
 let PLUS_SI_AUTO_TRIED = [];
 let PLUS_SI_NONE_SINCE = 0;     // when the none panel was first shown this sign-in (0: not shown)
-let PLUS_SI_AUTO_READ = false;  // the read under way is the page's own, not a press: no focus moved, no failure said
+let PLUS_SI_AUTO_READ = false;  // set by plusSiBoughtAutoCheck just before its click; the click handler takes and clears it
+var PLUS_SI_AUTO_OFF = false;   // a browser check sets this to time its own reads; only the 10 s tick obeys it, not focus
 const PLUS_SI_AUTO_EVERY_MS = 10000, PLUS_SI_AUTO_FOR_MS = 20 * 60 * 1000;
 async function plusSiBoughtRead() {
   const ctl = new AbortController();
@@ -52520,7 +52522,8 @@ function plusSiAsBefore(data) {
   plusNamePrefill('plus-si-name', 'plus-si-name-suggested');   // #3842
   document.getElementById('plus-si-name').focus();
 }
-async function plusSiSession(data, again, keep) {
+async function plusSiSession(data, again, keep, auto) {
+  const quiet = auto === true;   // #6314: the page's own re-read: no focus moved, no failure said, never a stale auto-take
   PLUS_SI_SESSION = data;
   PLUS_SI_PICKED = false;
   PLUS_SI_FIRST_FREE = false;
@@ -52555,17 +52558,16 @@ async function plusSiSession(data, again, keep) {
   const b = got.list || null;
   if (!again) PLUS_SI_UNREAD = !b && !got.off;
   if (again && !b && !got.off) {
-    const quiet = PLUS_SI_AUTO_READ;   // #6314: taken now; re-showing the list below clears it
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
-    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST);
+    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST, { reshow: true, quiet });
     else {
       /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
-      plusSiBoughtPick({ addresses: [], buy_url: '' });
+      plusSiBoughtPick({ addresses: [], buy_url: '' }, { reshow: true, quiet, unread: true });
       PLUS_SI_BOUGHT_LAST = null;   // a placeholder, not a list: another failed read must not read it as "none waiting"
       document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not check your account just now.';
       document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or add this computer on the Kosmos+ website.';
     }
-    if (quiet) { PLUS_SI_AUTO_READ = false; return; }   // #6314: the page's own read fails quietly; the next one tries again
+    if (quiet) return;   // #6314: the page's own read fails quietly; the next one tries again
     const why = got.because || 'That did not work. Check again in a moment.';
     plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
@@ -52591,7 +52593,7 @@ async function plusSiSession(data, again, keep) {
   // exists: the list offers it, rather than a name step that could make another.
   const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.first_free === true);
   if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
-  plusSiBoughtPick(b);
+  plusSiBoughtPick(b, { quiet });
 }
 /* kosmos#6314: Stripe's "$20/month" (engine PRICE_SHAPE already refused any other shape) as the page says it,
    "$20 a month"; '' when there is no figure, and the caller then names no amount. */
@@ -52609,7 +52611,11 @@ function plusSiBoughtTake(row) {
   PLUS_SI_PICKED = true;
   plusSiDoRegister(row.name, row.name);
 }
-function plusSiBoughtPick(b) {
+/* opts.quiet: the page's own read (no focus moved). opts.reshow: an OLD list shown again after a read failed, never
+   auto-taken (a refusal it skipped may have been cleared since). opts.unread: nothing was read, so it is not headed as
+   adding this computer. */
+function plusSiBoughtPick(b, opts) {
+  const quiet = !!(opts && opts.quiet), reshow = !!(opts && opts.reshow), unread = !!(opts && opts.unread);
   PLUS_SI_BOUGHT_LAST = b;
   plusSiRegisterMode('');
   const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
@@ -52626,9 +52632,8 @@ function plusSiBoughtPick(b) {
     btn.addEventListener('click', () => plusSiBoughtTake(row));
     list.appendChild(btn);
   }
-  const auto = PLUS_SI_AUTO_READ; PLUS_SI_AUTO_READ = false;
   // Not after a refusal this sign-in: the person then sees what happened and picks.
-  if (free.length === 1 && !PLUS_SI_REFUSED.length && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
+  if (!reshow && free.length === 1 && !PLUS_SI_REFUSED.length && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
     plusSiBoughtTake(free[0]);
     return;
   }
@@ -52638,7 +52643,7 @@ function plusSiBoughtPick(b) {
   const pending = b.addresses.filter((r) => r.state === 'pending').length;
   const cost = plusSiAddPrice(b.price);
   document.getElementById('plus-si-bought-none-lead').textContent = pending
-    ? 'A computer you added is waiting for its payment.'
+    ? 'An address on this account is waiting for its payment.'
     : 'Your plan covers one computer, and it is already in use. '
       + (cost ? 'Each computer you add is ' + cost + '.' : 'Each computer you add costs a monthly fee, shown before you pay.');
   /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
@@ -52655,34 +52660,37 @@ function plusSiBoughtPick(b) {
   document.getElementById('plus-si-bought').hidden = false;
   plusSiShow('plus-si-register');
   // #6314: with nothing to pick, this step is adding a computer, not signing in, so the heading says so.
-  if (!free.length) { const t = document.getElementById('plus-si-title'); if (t) t.textContent = 'Add this computer to your account'; }
+  if (!free.length && !pending && !unread) { const t = document.getElementById('plus-si-title'); if (t) t.textContent = 'Add this computer to your account'; }
   if (!free.length && !PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();
   const first = list.querySelector('button');
-  if (!auto) (free.length ? first : document.getElementById('plus-si-bought-recheck')).focus();   // the page's own read moves no focus
+  if (!quiet) (free.length ? first : document.getElementById('plus-si-bought-recheck')).focus();   // the page's own read moves no focus
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
   if (again) again.addEventListener('click', () => {
+    const auto = PLUS_SI_AUTO_READ; PLUS_SI_AUTO_READ = false;   // #6314: taken once, here, so no later read inherits it
     if (!PLUS_SI_SESSION) return;
     const ep = PLUS_SI_EPOCH;
     plusSiMsg('');
-    if (!PLUS_SI_AUTO_READ) PLUS_SI_REFUSED = [];   // the person asked to look again (the page's own read does not): an address refused earlier may be free now (its computer retired)
-    const run = plusSiSession(PLUS_SI_SESSION, true); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
-    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) { if (PLUS_SI_AUTO_READ) { PLUS_SI_AUTO_READ = false; return; } plusSiReReadFailed(); } });
+    if (!auto) PLUS_SI_REFUSED = [];   // the person asked to look again (the page's own read does not): an address refused earlier may be free now (its computer retired)
+    const run = plusSiSession(PLUS_SI_SESSION, true, undefined, auto); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
+    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ && !auto) plusSiReReadFailed(); });
   });
 }
 /* kosmos#6314: the page's own Check again, only while the none panel is on screen and this window is in front, for
    20 minutes after it first showed, and never over a read already out (the button is disabled while one runs). */
-function plusSiBoughtAutoCheck() {
+function plusSiBoughtAutoCheck(fromFocus) {
   const none = document.getElementById('plus-si-bought-none');
   const btn = document.getElementById('plus-si-bought-recheck');
   if (!PLUS_SI_SESSION || !none || none.hidden || none.offsetParent === null || !btn || btn.disabled) return;
+  if (fromFocus === true && PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();   // coming back re-arms the 20 minutes
+  else if (PLUS_SI_AUTO_OFF) return;
   if (document.visibilityState !== 'visible' || !PLUS_SI_NONE_SINCE || Date.now() - PLUS_SI_NONE_SINCE > PLUS_SI_AUTO_FOR_MS) return;
   PLUS_SI_AUTO_READ = true;
   btn.click();
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
-  window.addEventListener('focus', plusSiBoughtAutoCheck);
+  window.addEventListener('focus', () => plusSiBoughtAutoCheck(true));
   setInterval(plusSiBoughtAutoCheck, PLUS_SI_AUTO_EVERY_MS);
 }
 
