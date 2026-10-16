@@ -18,15 +18,26 @@
  *     our hooks.json;
  *   - the trust record must be in a config FILE: the same record given as a `-c` launch flag is ignored (measured,
  *     one variable apart), so it is written to <home>/config.toml;
- *   - the record is `[hooks.state."<hooks.json path>:pre_tool_use:0:0"] trusted_hash = "sha256:<hex>"`, the hex being
+ *   - the record is `[hooks.state."<hooks.json path>:pre_tool_use:0:0"] trusted_hash = "sha256:<hex>"`, where the path
+ *     is the CANONICAL on-disk one (review 2, measured: Codex resolves its home first, so a record keyed through a
+ *     linked parent folder or another letter case is never matched: install said ok and the hook did not run; in the
+ *     TUI that is the review screen). Keyed with trust.canonicalOnDisk, as create.js codexTrustKey keys folder trust. The
+ *     hex is
  *     Codex's version_for_toml (codex-rs/config/src/fingerprint.rs): SHA-256 of the sorted-key JSON of
  *     { event_name, matcher, hooks: [the handler normalized: timeout 600, async false] }. Reproduced exactly against
  *     two records the TUI wrote; one changed hex digit and the hook does not run.
  *
- * ⚠️ That hash is Codex's internal detail, verified for ONE version: the pinned one (engine/runners.js MANIFEST.openai).
- * A Codex that computes it differently would stop every agent on the review screen, so install() runs only when the
- * launching Codex reports exactly that version, and otherwise removes our hooks.json. The real-Codex test
- * (codexhooks-5812.test.js) re-checks the hash against Codex itself where the pinned Codex is installed.
+ * ⚠️ That hash is Codex's internal detail, verified for ONE version, HASH_VERIFIED_FOR. A Codex that computes it
+ * differently would stop every agent on the review screen, so install() runs only when the launching Codex reports
+ * exactly that version, and otherwise removes our hooks.json. It is a constant of its own, NOT runners.js's pin (review
+ * 2): gated on the pin, a bump to a new Codex would install an unverified record for it. A test holds the two equal,
+ * so a bump fails until somebody re-measures the hash against the new Codex (its TUI trust, then the real-Codex test)
+ * and moves this constant.
+ *
+ * ⚠️ A changed record is written as a whole-file replace (the line has to change in place). Codex writes this file too
+ * and takes no lock, so an edit by a Codex STILL RUNNING on this home at that moment could be lost. The install runs at
+ * launch, before this agent's Codex starts; the window is a previous Codex for the same home still exiting, and the
+ * change is rare (the bridge's path moved).
  *
  * install(home, bridge, version) -> { ok, because? }. Never throws. On every refusal our hooks.json is gone after it.
  */
@@ -36,6 +47,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const HOOKS_FILE = 'hooks.json';
+/* The one Codex version whose trust hash was measured (10-16: Codex's own TUI trust wrote exactly trustHash()'s value). */
+const HASH_VERIFIED_FOR = '0.149.1';
 const EVENT = 'PreToolUse';
 const EVENT_KEY = 'pre_tool_use';
 const MATCHER = 'apply_patch';
@@ -133,12 +146,12 @@ function install(home, bridge, version) {
     if (typeof home !== 'string' || !path.isAbsolute(home) || typeof bridge !== 'string' || !path.isAbsolute(bridge)) {
       return refuse('the Codex home or the bridge is not a full path');
     }
-    const pinned = require('./runners').MANIFEST.openai.version;
-    if (version !== pinned) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${pinned}`);
+    if (version !== HASH_VERIFIED_FOR) return refuse(`this Codex is ${version || 'of an unknown version'}, and the hook's trust record is known only for ${HASH_VERIFIED_FOR}`);
     const st = fs.lstatSync(home);
     if (!st.isDirectory()) return refuse('the private Codex home is not a folder');
     const hooksFile = path.join(home, HOOKS_FILE);
-    const heading = stateHeading(hooksFile);
+    /* The record's key: hooks.json under the home's canonical spelling, as Codex resolves it (review 2). */
+    const heading = stateHeading(path.join(require('./trust').canonicalOnDisk(home), HOOKS_FILE));
     if (!heading) return refuse('the private Codex home has a character in its path the hook record cannot carry');
     const command = commandFor(bridge);
     const line = `trusted_hash = "${trustHash(command)}"`;
@@ -177,4 +190,4 @@ if (require.main === module) {
   process.exitCode = r.ok ? 0 : 1;
 }
 
-module.exports = { install, removeOurs, trustHash, commandFor, hooksJson, stateHeading, nextConfig, HOOKS_FILE, MATCHER };
+module.exports = { install, removeOurs, HASH_VERIFIED_FOR, trustHash, commandFor, hooksJson, stateHeading, nextConfig, HOOKS_FILE, MATCHER };
