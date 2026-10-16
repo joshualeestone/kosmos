@@ -29,7 +29,8 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   any agent's, so every agent without its own plist is unknown. A binary (the interpreter itself) and text over 2 MB
   (a bundled CLI) are not searched and doubt nobody. The limit was 64 KB until a read-only survey of the fleet Mac
   showed real launchers of 109 KB, 110 KB and 375 KB (Kosmos's own board).
-- Deferred, not missed: when agents are unknown the banner shows only proven absences, so it can go quiet. Telling the
+- Deferred, not missed: when agents are unknown the banner shows only proven absences, so it can go quiet (one
+  unreadable launcher anywhere, a TCC-protected or root-only script, does that for every agent without its own plist). Telling the
   person "we could not check N agents" needs new copy and a field on /api/register; it is a follow-up, not this card.
 - The folder may be the WorkingDirectory, or named in the start command (ProgramArguments or Program) or in a start
   script of 2 MB or less that the command names, as written, as its real path, or under the home folder as ~ or $HOME.
@@ -53,7 +54,8 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   still looks only at Kosmos's own plist, so an agent covered here can still get that card's no-job wording. A
   follow-up should move it onto this survey.
 - Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
-  only), the legacy OnDemand key, plist XML comments, a UTF-16 script (read as binary), a relative `cd`, a folder built from variables other than HOME,
+  only), the legacy OnDemand key, plist XML comments, a UTF-16 script (read as binary) or plist (read as not a plist), a relative script argument
+  resolved against the job's WorkingDirectory, a relative `cd`, a folder built from variables other than HOME,
   a job switched off with `launchctl disable` (the override database, not the plist). A chained launcher, a relative
   `cd` and other variables read as missing (Repair would add a second job); OnDemand, comments and `launchctl disable`
   can read either way.

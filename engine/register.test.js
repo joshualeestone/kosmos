@@ -744,3 +744,20 @@ test('#6310: a folder written in another case still matches, and a remembered an
   const st = fs.statSync(script); fs.utimesSync(script, st.atime, new Date(st.mtimeMs + 5000));
   assert.deepEqual(mac.survey().missing, [], 'the remembered answer did not follow the changed script, or case was not ignored');
 });
+
+test('#6310: a file that becomes a launcher is seen at once; an impossible character reference does not doubt everyone', () => {
+  reset();
+  agent('modex');
+  agent('plainr');   // CONTROL for the second half
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const runner = path.join(bin, 'runner');   // no extension: a launcher only once it is executable
+  fs.writeFileSync(runner, 'cd ' + create.workerDir('modex') + '\n', { mode: 0o644 });
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  foreignJob('com.modex.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>' + runner + '</string>\n\t</array>\n') });
+  assert.ok(mac.survey().missing.includes('modex'), 'a non-executable data file was searched');
+  fs.chmodSync(runner, 0o755);
+  assert.ok(!mac.survey().missing.includes('modex'), 'a remembered answer missed the file becoming executable');
+  foreignJob('com.weird.thing.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>Label</key>\n\t<string>bad &#x110000; ref</string>\n') });
+  assert.ok(mac.survey().missing.includes('plainr'), 'an impossible character reference made every agent unknown');
+});
