@@ -272,8 +272,10 @@ async function run(engineName) {
     const WAITING = { enrolled: true, reporting: false, reportingWait: null, wordsNeeded: true, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' };
     const reread = async (st) => { await page.evaluate((v) => { window.__orgState = v; PLUS_ORG.at = 0; plusOrgMaybe(); }, st); await page.waitForTimeout(250); };
     await reread(WAITING);
-    const r1 = { joined: await shown('plus-org-in'), say: await text('plus-org-say'), row: await shown('plus-org-words'), label: (await text('plus-org-words')).trim() };
-    chk(r1.joined && r1.row && r1.label === "Read the family's words" && r1.say.includes('reports nothing until a parent or guardian reads and accepts them'),
+    const r1 = { joined: await shown('plus-org-in'), say: await text('plus-org-say'), row: await shown('plus-org-words'), label: (await text('plus-org-words')).trim(),
+      // Before any Accept could set it: focus sent to the joined sentence lands only if the markup makes it focusable.
+      tab: await page.evaluate(() => document.getElementById('plus-org-say').tabIndex) };
+    chk(r1.joined && r1.row && r1.label === "Read the family's words" && r1.tab === -1 && r1.say.includes('reports nothing until a parent or guardian reads and accepts them'),
       E + ' R1 a family whose words changed says reports wait for a parent, and offers them', JSON.stringify(r1));
     const REVIEW = { move: true, review: true, org: FAMILY.org, consent: FAMILY_WORDS };
     const openReview = async () => {
@@ -359,6 +361,7 @@ async function run(engineName) {
       E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again, nobody asked to accept', JSON.stringify(r8));
     // R14: held-back words do not outlive this membership. Leave (no read for a minute after it), join the family again,
     // and the next read still says the words are needed: the button is offered with the line that names it.
+    await setEnroll(null);   // R8 left the stand-in refusing every enroll as "no longer in the family"
     await page.evaluate((st) => { window.__leaveAnswer = { ok: true }; window.__orgState = st; }, WAITING);
     await page.click('#plus-org-leave');
     await page.click('#plus-org-leave-yes');
