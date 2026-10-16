@@ -21,3 +21,12 @@ sentence through the quiet-hours gate (engine/chat.js deliverWithGap); the look-
 ## Weakest premise
 That tokens counted from transcripts are close enough to what the provider counts for a cap to be fair. It is the
 same count the swarm limit already enforces.
+
+## Step 1 done (d9e9db430c)
+orgpolicy: capShapeOk (exact { monthly_tokens, warn_pct, tz }), monthStart (the 1st at local midnight, DST-safe),
+capAt, capAllows. Tests: orgpolicy-cap-6309.test.js, 3 tests; a mutation removing the shape line reds one.
+
+## Step 2 trap (found reading engine/swarm.js)
+swarm.readFile keeps ONE cache entry per file and resets it to zero whenever `since` changes ("a new day"). A month
+count sharing that cache with the swarm's daily meter would zero each other on every alternate call. The month count
+must use its own cache: readFile takes the cache as a parameter (default: the swarm's, so the swarm is unchanged).
