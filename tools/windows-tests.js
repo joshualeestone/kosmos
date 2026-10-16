@@ -90,7 +90,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 const HOST_BRANCH_EXCLUDED = {
   'engine/agykeep-5812.test.js': 'its win32 host branch only skips the real-agy arm (a Mac CLI against a fake Gemini API; Kosmos runs no agy agents on Windows); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
   'engine/codexhooks-5812.test.js': 'its win32 branch only skips the real-Codex arm; the hook it tests is installed by the Mac supervisor only (#5812 item 2), and the Windows codex launch is a separate slice',
-  'engine/grokkeep-5812.test.js': 'its win32 host branch only skips the real-grok arm (a Mac CLI against a fake model); the bridge\'s Windows paths are tested through its platform seam on every host',
+  'engine/grokkeep-5812.test.js': 'its win32 host branch only skips the real-grok arm (a Mac CLI against a fake model); the bridge\'s Windows paths are tested through its platform seam on every non-Windows host',
   'engine/signedoutaccounts-5948.test.js': 'its win32 branches (#5948) only skip the chmod-000 and symlink arms; its other arms use POSIX-spelled fixture paths, and its logic (paths plus file reads) is covered on the Mac and Linux',
   'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',

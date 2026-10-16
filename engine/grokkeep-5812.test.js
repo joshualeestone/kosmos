@@ -142,6 +142,35 @@ test('ensurePrepared brings an older file of ours up to date with the tool hook,
   assert.equal(fs.readFileSync(theirs, 'utf8'), '{"hooks":{"PreToolUse":[]}}');
 });
 
+test('review 2: upgradeIfUntouched rewrites only the exact older file, and never creates one', () => {
+  const d = dir();
+  const file = path.join(d, 'hooks', 'kosmos-report-bridge.json');
+  const B = '/s/bin/grok-report-bridge.js';
+  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).left, true);
+  assert.equal(fs.existsSync(file), false, 'absent stays absent');
+  fs.mkdirSync(path.dirname(file));
+  const before = { hooks: {} };
+  for (const e of settings.HOOK_EVENTS) before.hooks[e] = [settings.definitionFor(B, { platform: 'darwin' })];
+  fs.writeFileSync(file, JSON.stringify(before, null, 2) + '\n');
+  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
+  assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse);
+  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { current: true });
+  // The person removed the tool hook again: left alone.
+  const mine = JSON.parse(fs.readFileSync(file, 'utf8'));
+  delete mine.hooks.PreToolUse;
+  mine.hooks.Stop[0].hooks[0].timeout = 5;   // and changed something else
+  fs.writeFileSync(file, JSON.stringify(mine, null, 2) + '\n');
+  const r = settings.upgradeIfUntouched(file, B, { platform: 'darwin' });
+  assert.equal(r.left, true);
+  assert.match(r.because, /by hand/);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse, undefined);
+  // An older file for ANOTHER bridge path is not "what Kosmos wrote for this bridge": left.
+  const other = { hooks: {} };
+  for (const e of settings.HOOK_EVENTS) other.hooks[e] = [settings.definitionFor('/old/bin/grok-report-bridge.js', { platform: 'darwin' })];
+  fs.writeFileSync(file, JSON.stringify(other, null, 2) + '\n');
+  assert.equal(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).left, true);
+});
+
 /* ---- the real grok: only grok can say whether the hook fires with this payload ---- */
 const PINNED = (() => {
   try { return /grok-darwin-arm64-([0-9]+\.[0-9]+\.[0-9]+)\.tgz/.exec(fs.readFileSync(path.join(__dirname, 'runners.js'), 'utf8'))[1]; }

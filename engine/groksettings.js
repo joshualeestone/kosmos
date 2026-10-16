@@ -115,7 +115,7 @@ function definitionFor(bridgePath, opts, matcher) {
 
 /* The full desired content of our hook file: the top-level `hooks` object grok reads
    from a `$GROK_HOME/hooks/*.json` file, with every event in HOOK_EVENTS wired to the
-   bridge. This fully defines our file (no merge), so equality against it is the
+   bridge, and (#5812, not on win32) the PreToolUse tool hook. This fully defines our file (no merge), so equality against it is the
    idempotence test. Exported for the test. */
 function desiredContent(bridgePath, opts) {
   const hooks = {};
@@ -233,4 +233,25 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };
+/**
+ * #5812 item 3, the launch-time half: bring an UNTOUCHED older file of ours up to date, nothing else. Review 2: for a
+ * default-account agent the file sits in the person's own ~/.grok, and a person who edited it (removed the tool hook
+ * to keep it out of their own grok sessions, or added a hook of their own) must keep their edit; ensurePrepared alone
+ * would overwrite any file carrying our marker. So the file is rewritten only when it is byte-for-byte what this
+ * module wrote before the tool hook existed (the lifecycle events only) for this same bridge; an absent file is not
+ * created (review 1: a person who deleted it keeps it deleted). Returns { upgraded } / { current } / { left, because }.
+ */
+function upgradeIfUntouched(hookFilePath, bridgePath, opts) {
+  let cur;
+  try { cur = fs.readFileSync(hookFilePath, 'utf8'); } catch { return { left: true, because: 'there is no hook file of ours to bring up to date' }; }
+  const plat = (opts && opts.platform) || process.platform;
+  const cmdOpts = { platform: plat, node: plat === 'win32' ? ((opts && opts.node) || process.execPath) : null };
+  if (cur === JSON.stringify(desiredContent(bridgePath, cmdOpts), null, 2) + '\n') return { current: true };
+  const before = {};
+  for (const event of HOOK_EVENTS) before[event] = [definitionFor(bridgePath, cmdOpts)];
+  if (cur !== JSON.stringify({ hooks: before }, null, 2) + '\n') return { left: true, because: 'the hook file was changed by hand, so it was left alone' };
+  const r = ensurePrepared(hookFilePath, bridgePath, opts);
+  return r.prepared ? { upgraded: true } : { left: true, because: r.because };
+}
+
+module.exports = { upgradeIfUntouched, HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };

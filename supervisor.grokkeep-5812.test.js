@@ -66,5 +66,19 @@ test('CONTROL: a file at that name that is not ours is left alone, the launch go
   const r = run('agent-grok3', home);
   assert.match(r.argv, /new-session/, r.out);
   assert.equal(fs.readFileSync(file, 'utf8'), '{"hooks":{"Stop":[]}}');
-  assert.match(r.out, /grok: its report hooks were not refreshed \(a hook file at that path is not ours/);
+  assert.match(r.out, /grok: its report hooks were not refreshed \(the hook file was changed by hand/);
+});
+
+test('review 2: our file as the person edited it (a hook of their own added) is left as they left it', () => {
+  const home = grokHome();
+  const file = nodePath.join(home, 'hooks', 'kosmos-report-bridge.json');
+  const edited = { hooks: {} };
+  for (const e of settings.HOOK_EVENTS) edited.hooks[e] = [settings.definitionFor(BRIDGE, { platform: 'darwin' })];
+  edited.hooks.Stop.push({ hooks: [{ type: 'command', command: '/their/own.sh' }] });
+  const text = JSON.stringify(edited, null, 2) + '\n';
+  fs.writeFileSync(file, text);
+  const r = run('agent-grok4', home);
+  assert.match(r.argv, /new-session/, r.out);
+  assert.equal(fs.readFileSync(file, 'utf8'), text);
+  assert.match(r.out, /changed by hand/);
 });

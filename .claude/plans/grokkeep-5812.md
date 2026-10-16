@@ -14,13 +14,19 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
 2. bin/grok-report-bridge.js: keepRequestFor (the Gemini bridge's shape: refuse other events and tools, no path, a
    relative path with no folder, a control character, a win32 UNC path) and one bounded post for keep and report: the
    answer read under the timer, stdin let go once read (both lessons from the Codex hook's reviews).
-3. bin/agent-supervisor.sh: the grok launch brings our hook file up to date with ensurePrepared (content-idempotent;
-   rewrites only a file with our marker), so agents made before this get the hook. Only a file that is there: a person
-   who deleted it (for a default-account agent it sits in their own ~/.grok) does not get it back.
+3. bin/agent-supervisor.sh: the grok launch brings our hook file up to date (groksettings.upgradeIfUntouched), so agents
+   made before this get the hook. Only a file that is exactly what Kosmos wrote before: a person who deleted or edited it
+   (for a default-account agent it sits in their own ~/.grok) keeps it as they left it.
 
 ## Differences from the Codex slice, measured
 - No trust record: hooks in $GROK_HOME/hooks run as they are (only project hooks need trust).
 - Grok writes outside its workspace (a write to an outside folder went through), so project files can be attributed.
+
+## Stated
+- For a default-account agent the hook file is in the person's own ~/.grok, so their own grok sessions run the bridge
+  before each edit too: bounded (about 5 s at most, inside grok's own cutoff), harmless with no board listening, and the
+  board takes a copy or notes a writer only for a session run inside an agent's own folder (the same known case as
+  Claude's, engine/undo.js).
 
 ## Not in this change
 - Edits through run_terminal_command (no path to read reliably; never guessed).
