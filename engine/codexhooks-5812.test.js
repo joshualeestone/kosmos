@@ -231,6 +231,25 @@ test('run as Codex runs it (stdin, no argument), the bridge posts the keeps and 
   } finally { board.server.close(); }
 });
 
+test('review 1: a stdin that is never closed still ends the hook (after the 2 s read bound), with the keep sent', async () => {
+  const board = await stubBoard();
+  try {
+    const event = { hook_event_name: 'PreToolUse', tool_name: 'apply_patch', cwd: '/w', session_id: 's',
+      tool_input: { command: '*** Add File: open.txt\n' } };
+    const started = Date.now();
+    const r = await new Promise((resolve) => {
+      const child = execFile(process.execPath, [BRIDGE], {
+        env: { ...process.env, KOSMOS_PORT: String(board.port), TMUX_PANE: '' }, timeout: 9000,
+      }, (err) => resolve({ err, killed: child.killed || child.signalCode !== null }));
+      child.stdin.write(JSON.stringify(event));   // and never end()
+    });
+    assert.equal(r.killed, false, 'the hook exited on its own, not on the test timeout');
+    assert.equal(r.err, null);
+    assert.ok(Date.now() - started < 8000);
+    assert.deepEqual(board.seen, [{ path: '/w/open.txt', cwd: '/w', session: 's' }]);
+  } finally { board.server.close(); }
+});
+
 /* ---- the real Codex: only Codex can say whether the trust record counts ---- */
 const PINNED = (() => {
   try { return /codex-([0-9]+\.[0-9]+\.[0-9]+)-darwin-arm64\.tgz/.exec(fs.readFileSync(path.join(__dirname, 'runners.js'), 'utf8'))[1]; }
