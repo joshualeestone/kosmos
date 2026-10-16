@@ -24,6 +24,11 @@
  *   R6  a company, or a family whose words are accepted, is offered nothing to read.
  *   R7  a review refused with no code keeps the words and says to press Accept again; one with a code says to read them
  *       again (never "Connect Account", never "tries again on its own"); Leave with the words open closes them.
+ *   R8  a review refused because this account is no longer in the family keeps the engine's reason, reads /api/org again
+ *       and does not put focus on the words button.
+ *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
+ *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
+ *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
  *   F9  no page errors.
  */
@@ -277,12 +282,12 @@ async function run(engineName) {
     chk(!r3.box && r3.posts === 0 && r3.msg === 'Nothing was accepted. This computer still reports nothing to the family.' && r3.focus === 'plus-org-words',
       E + ' R3 Not now accepts nothing, says so, focus back on the button', JSON.stringify(r3));
     await openReview();
-    await setEnroll({ ok: false, code: 'org_family_words_unseen', because: 'A family joins only after a parent or guardian reads and accepts its words on this computer.' });
+    await setEnroll({ ok: false, code: 'org_consent_changed', because: 'Your family changed its terms again since Kosmos read them. Nothing changed here; Kosmos tries again on its own.' });
     await page.click('#plus-org-family-accept');
     await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
     const r5 = { box: await shown('plus-org-family'), focus: await focus(), msg: await text('plus-org-msg') };
-    chk(!r5.box && r5.focus === 'plus-org-words' && r5.msg === 'Nothing was accepted. Press Read the family\u2019s words to read them again.',
-      E + ' R5 a refusal with a code closes the words, says to read them again, focus back on the button', JSON.stringify(r5));
+    chk(!r5.box && r5.focus === 'plus-org-words' && r5.msg === 'Your family changed its terms again since Kosmos read them. Nothing changed here. Press Read the family\u2019s words to read them again.',
+      E + ' R5 a refusal with a code closes the words, keeps the reason without "tries again on its own", says to read them again', JSON.stringify(r5));
     await setEnroll({ ok: true, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member' });
     await openReview();
     m = await mark();
@@ -309,12 +314,12 @@ async function run(engineName) {
     // R7: a review refused with no code keeps the words; Leave with the words open closes them.
     await reread(WAITING);
     await openReview();
-    await setEnroll({ ok: false, because: 'Kosmos+ is busy. Kosmos tries again on its own.' });
+    await setEnroll({ ok: false, because: 'It is not known whether accepting reached your family. Nothing changed on this computer; Kosmos tries again on its own.' });
     await page.click('#plus-org-family-accept');
     await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
     const r7a = { box: await shown('plus-org-family'), msg: await text('plus-org-msg') };
-    chk(r7a.box && r7a.msg === 'Nothing was accepted yet: Kosmos+ could not be reached just now. Press Accept to try again.',
-      E + ' R7 a review refused with no code keeps the words and says to press Accept again', JSON.stringify(r7a));
+    chk(r7a.box && r7a.msg === 'It is not known whether accepting reached your family. Nothing changed on this computer. Press Accept to try again.',
+      E + ' R7 a review refused with no code keeps the words and the engine\'s reason, and says to press Accept again', JSON.stringify(r7a));
     await setEnroll(null);
     await page.evaluate(() => { window.__leaveAnswer = { ok: true }; window.__orgState = { enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null }; });
     await page.click('#plus-org-leave');
@@ -324,7 +329,51 @@ async function run(engineName) {
     chk(!r7b.box && !r7b.joined, E + ' R7 Leave with the words open closes them', JSON.stringify(r7b));
     await page.evaluate(() => { window.__orgState = null; });
 
+    // R8: no longer in the family: the engine's reason, nothing to read.
+    await reread(WAITING);
+    await openReview();
+    await setEnroll({ ok: false, code: 'org_not_member', because: 'Your family says this account is no longer in it. Nothing changed on this computer.' });
+    m = await mark();
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(250);
+    const r8 = { msg: await text('plus-org-msg'), focus: await focus(),
+      reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
+    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread,
+      E + ' R8 no longer in the family: the engine\'s reason, the view read again, focus not on the words button', JSON.stringify(r8));
+    // R11: org_bad_world keeps the ticket and the words; Accept works again.
+    await reread(WAITING);
+    await openReview();
+    await setEnroll({ ok: false, code: 'org_bad_world', because: 'Your family did not take the acceptance. Nothing changed on this computer; Kosmos tries again on its own.' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    const r11 = { box: await shown('plus-org-family'), msg: await text('plus-org-msg') };
+    chk(r11.box && r11.msg === 'Your family did not take the acceptance. Nothing changed on this computer. Press Accept to try again.',
+      E + ' R11 org_bad_world keeps the words and says to press Accept again', JSON.stringify(r11));
+    if (r11.box) await page.click('#plus-org-family-no');
+    await setEnroll(null);
+    // R9: a leave refused (the last admin) while the words are needed.
+    await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
+    await page.waitForTimeout(250);
+    const r9 = await text('plus-org-msg');
+    chk(r9.includes('reports nothing until a parent or guardian reads and accepts the family\u2019s words') && !r9.includes('once Kosmos has'),
+      E + ' R9 a refused leave while the words are needed says a parent is needed', r9);
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    // R10: Accept taken, and the next read still says the words are needed.
+    await reread(WAITING);
+    await openReview();
+    await setEnroll({ ok: true, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    const r10 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words') };
+    chk(r10.msg === 'Kosmos+ took the family\u2019s words, but this computer could not record them, so it still reports nothing. Press Read the family\u2019s words to try again.' && r10.row,
+      E + ' R10 an Accept the next read contradicts says so, and offers the words again', JSON.stringify(r10));
+    await setEnroll(null);
+    await page.evaluate(() => { window.__orgState = null; document.getElementById('plus-org-msg').textContent = ''; });
+
     // F10: the block held open only by a line under it; a family's words then hold it open, with the code above them.
+    // Not joined again first: R10's Accept left the stand-in board joined, and a join panel never shows over a joined view.
+    await page.evaluate(() => { window.__joined = false; window.__orgState = null; window.__enrollAnswer = null; PLUS_ORG.state = { enrolled: false, org: null, role: null }; });
     await page.evaluate(() => { PLUS_ORG.open = false; plusOrgFamilyHide(); document.getElementById('plus-org-code').value = ''; document.getElementById('plus-org-msg').textContent = 'Nothing was joined.'; plusOrgPaint(); });
     await setPreview(FAMILY);
     await page.fill('#plus-org-code', 'RIVERA-CODE');
@@ -333,9 +382,13 @@ async function run(engineName) {
     await page.evaluate(() => plusOrgPaint());   // the board's own repaint
     const f10 = { box: await shown('plus-org-family'), out: await shown('plus-org-out'), opener: await shown('plus-org-open') };
     chk(f10.box && f10.out && !f10.opener, E + ' F10 a family\'s words hold the block open across a repaint, with the code above them', JSON.stringify(f10));
-    await page.click('#plus-org-family-no');
+    // Only when it is there: a hidden button would wait out Playwright's timeout and end the run with no verdict line.
+    if (f10.box) await page.click('#plus-org-family-no');
 
     chk(errs.length === 0, E + ' F9 no page errors', errs.join(' | '));
+  } catch (e) {
+    // A step that throws (a click that times out, say) is a FAIL with its name, never a run that ends with no verdict.
+    chk(false, E + ' the run stopped: ' + ((e && e.message) || e).toString().split('\n')[0]);
   } finally {
     await browser.close();
   }
