@@ -1735,7 +1735,12 @@ function restoreAccount(name, dir, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner,
   }, platform);
   if (unwritten) {
-    if (qwenJob) { try { store.writeProfile(clean, { qwenAccount: qwenBefore }); } catch { /* the job did not move */ } }
+    /* #6231 item 13: two failures in a row (the job, then undoing the record) leave the record on the old account and
+       the job on the move's. Said in the answer, not only here: a Repair rebuilds from the record. */
+    if (qwenJob) {
+      try { store.writeProfile(clean, { qwenAccount: qwenBefore }); }
+      catch { return { ...unwritten, because: String(unwritten.because || 'we could not change how it is started').replace(/[.]\s*$/, '') + `; and its Qwen record could not be put back either, so it names ${spoken}'s old account` }; }
+    }
     return unwritten;
   }
   /* The account's name for the sentence, where a cheap read has it (Claude's list); otherwise the caller says "their

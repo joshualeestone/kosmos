@@ -149,6 +149,27 @@ test('#6214: a Qwen agent put back after a stopped move is back on its old accou
   assert.equal(store.readProfile(name).qwenAccount, a, 'Repair would rebuild it on the move\'s account');
 });
 
+/* #6231 item 13: the job cannot be rewritten AND the Qwen record cannot be put back. The answer must say the record now
+   names the old account (a Repair rebuilds from it), not only the job's failure. */
+test('#6231: a Qwen put-back whose job write fails and whose record cannot be undone says so', (t) => {
+  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) { t.skip('needs a folder this user cannot write'); return; }
+  const a = qwenAccount('udA'), b = qwenAccount('udB');
+  const name = born('qw-undo', 'codex', b, 'alibaba');
+  store.writeProfile(name, { qwenAccount: b });
+  const jobDir = nodePath.dirname(jobfix.jobPath(name));
+  const real = store.writeProfile;
+  let calls = 0;
+  store.writeProfile = (...args) => { calls++; if (calls === 2) throw new Error('disk'); return real(...args); };
+  fs.chmodSync(jobfix.jobPath(name), 0o444); fs.chmodSync(jobDir, 0o555);
+  let back;
+  try { back = create.restoreAccount(name, a); }
+  finally { store.writeProfile = real; fs.chmodSync(jobDir, 0o755); fs.chmodSync(jobfix.jobPath(name), 0o644); }
+  assert.equal(calls, 2, 'PRECONDITION: the record was written, then its undo was tried');
+  assert.notEqual(back.outcome, 'created', 'PRECONDITION: the job write failed');
+  assert.match(String(back.because), /Qwen record could not be put back either, so it names .*old account/);
+  assert.equal(store.readProfile(name).qwenAccount, a, 'the record is left on the old account, as the answer says');
+});
+
 test('#6214: an OpenAI agent on its default home is put back with no home written, still on codex', () => {
   const name = born('cx-putback', 'codex', null, 'openai');
   const restored = create.restoreAccount(name, null);
