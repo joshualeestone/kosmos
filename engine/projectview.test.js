@@ -874,12 +874,20 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   assert.doesNotMatch(line(waited), /reported work/);
   const gap = v.workExcused(stale(480), grok, hist([['idle', 200]]), NOW);
   assert.equal(gap.state, 'stale');
+  assert.equal(gap.workAllReported, false);
+  assert.match(line(gap), /counted as working or waiting since it was written\)$/, 'the reason was not printed at all');
   assert.doesNotMatch(line(gap), /reported work/, 'a stretch with no report was called reported work');
   // The turn-ends-only runner's two other exits say what decided them.
   const busyAfter = v.workExcused(stale(480), codex, hist([['idle', 470], ['needs_you', 300]]), NOW);
   assert.match(line(busyAfter), /; it reported working or a wait since it was written\)$/);
   const old = v.workExcused(stale(26 * 60), codex, hist([['idle', 1500]]), NOW);
-  assert.match(line(old), /; written more than 24 hours ago, and this agent reports only when a turn ends, so its work cannot be timed\)$/);
+  assert.match(line(old), /; written more than 24 hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns\)$/);
+  // Plural: three turn ends, two after the writing one.
+  const two = v.workExcused(stale(480), codex, hist([['idle', 470], ['idle', 300], ['idle', 100]]), NOW);
+  assert.match(line(two), /; 2 more turns have ended after the one that wrote it\)$/);
+  // Reported work alone past the rhythm reads as reported work, even with a short wait counted too.
+  const mixed = v.workExcused(stale(480), grok, hist([['working', 485], ['idle', 478], ['working', 300], ['needs_you', 10]]), NOW);
+  assert.match(line(mixed), /; 4h 52m of reported work since it was written\)$/);
   // Combined with the idle note idleNoted adds: both clauses, in order.
   assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
 });
