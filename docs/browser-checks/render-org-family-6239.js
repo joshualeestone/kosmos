@@ -17,7 +17,7 @@
  *   F7  a family member moving here joins with no code, still only after Accept, with wordsShown.
  *   F8  390 wide: the words fit, with no sideways scroll.
  *   R1  a joined family whose words changed (wordsNeeded) says reports wait for a parent, and offers the words.
- *   R2  Read the family's words asks for the review ({ review: true }) and shows them as changed words, with Accept.
+ *   R2  Read the family's words asks for the review ({ review: true }) and shows them as not accepted here, with Accept.
  *   R3  Not now accepts nothing, says so, and puts focus back on the button.
  *   R4  Accept sends exactly { accepted: true, ticket, wordsShown: true } (no code), and the joined view stops waiting.
  *   R5  a refusal with a code closes the words and puts focus back on the button.
@@ -339,10 +339,12 @@ async function run(engineName) {
     await page.click('#plus-org-family-accept');
     await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(250);
-    const r8 = { msg: await text('plus-org-msg'), focus: await focus(),
+    const r8 = { msg: await text('plus-org-msg'), focus: await focus(), row: await shown('plus-org-words'),
       reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
-    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread,
-      E + ' R8 no longer in the family: the engine\'s reason, the view read again, focus not on the words button', JSON.stringify(r8));
+    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread && !r8.row,
+      E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again', JSON.stringify(r8));
+    // The stand-in board's state never moves on, which is what clears the held-back words in real use: reset it here.
+    await page.evaluate(() => { PLUS_ORG.wordsRefused = false; });
     // R11: org_bad_world keeps the ticket and the words; Accept works again.
     await reread(WAITING);
     await openReview();

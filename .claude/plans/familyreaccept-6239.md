@@ -94,6 +94,12 @@ joining again.
   only a review. An open review panel also closes once the words read as accepted; a non-family review answer reads
   the view again.
 
+## Review 9 (opus) fix
+- After org_not_member / org_other_org / org_not_here on a review Accept the record here clears only at the next
+  refresh, so the re-read still said wordsNeeded and the words button came back in a loop. The page now holds the words
+  back (PLUS_ORG.wordsRefused) until a read says the computer is no longer joined or the words are no longer needed; R8
+  asserts the button stays hidden.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -104,7 +110,8 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit: all pass, R12 included, at 2f8cabaf8a (03:0x CDT 10-16).
+- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit: all pass at 8caa42c877, R13 included (04:0x CDT 10-16); the R13 mutant reds R13. Full validation
+  PASSED at 8caa42c877 (20,885 pass, 0 fail).
   Page mutants, each red on its own arms: the review refusal back to a fixed sentence (R5, R7, R8, R11); no
   panel-follows-view rule (R7's Leave); a joining family's words not holding the block open (F10). A step that throws is
   a named FAIL (a click that timed out once ended a run with no verdict line). R4 also proves the page
