@@ -50818,7 +50818,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while a call is out. */
 // open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
-var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0 };
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0, wordsRefused: false };
 /* kosmos#6251: a sentence written for a company, said for a family when the org this board knows is one ("your
    company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
 function plusOrgIn(org, text) {
@@ -50835,6 +50835,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
   fetch('/api/org').then((res) => res.json()).then((j) => {
     // kosmos#6239: a read that started before this page last set the state itself (a family's Accept) is older than it.
     if (askedAt < (PLUS_ORG.wroteAt || 0)) return;
+    // kosmos#6239: the words stay withheld after "no longer this family's" until a read says the state moved on.
+    if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
@@ -50889,7 +50891,7 @@ function plusOrgPaint() {
   /* kosmos#6239: a family's words not accepted here wait for a parent (wordsNeeded, from /api/org): the joined view says so
      and offers them, unless they are already open. */
   const wordsRow = document.getElementById('plus-org-words-row');
-  if (wordsRow) wordsRow.hidden = !(here && st.wordsNeeded === true && !PLUS_ORG_FAMILY);
+  if (wordsRow) wordsRow.hidden = !(here && st.wordsNeeded === true && !PLUS_ORG_FAMILY && !PLUS_ORG.wordsRefused);
   if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
 }
@@ -50997,6 +50999,8 @@ async function plusOrgFamilyAccept() {
           /* No longer this family's (account or computer): there is nothing for this parent to accept here, so the view is
              read again rather than offering the words, and focus goes to the joined view's sentence. */
           if (r.code === 'org_not_member' || r.code === 'org_other_org' || r.code === 'org_not_here') {
+            // The record here clears only at the next refresh, so the words stay offered unless held back.
+            PLUS_ORG.wordsRefused = true;
             const say = document.getElementById('plus-org-say');
             if (say) { say.setAttribute('tabindex', '-1'); say.focus(); }
             PLUS_ORG.busy = false; PLUS_ORG.at = 0; plusOrgMaybe(true);
