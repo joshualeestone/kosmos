@@ -11,7 +11,8 @@ board's `POST /api/undo/keep {path, cwd, session}` from that hook, as the Claude
    PostToolUse stays ask_question only (the bridge reads any PostToolUse as working). Written before every agy launch,
    as today, so existing agents get it at their next launch.
 2. bin/agy-report-bridge.js: keepRequestFor + postKeep. The answer to a file tool is ASK, unchanged (every tool but
-   ask_question gets ASK today); the keep is posted after the answer, bounded at 3 s with the body read under the timer.
+   ask_question gets ASK today); the keep is posted after the answer, bounded at 3 s
+   (the bridge exits through process.exit, so a stalled answer body cannot hold it).
 
 ## Measured, the reason this is safe
 - Under --dangerously-skip-permissions (the supervisor always passes it; a test now pins it) the edit goes ahead
@@ -19,6 +20,9 @@ board's `POST /api/undo/keep {path, cwd, session}` from that hook, as the Claude
   answers. So the hook's answer cannot change whether an edit happens.
 - agy waits for the hook to EXIT before it runs the tool (a hook that answered, then slept 2 s, saw the file not yet
   written), so a keep after the answer still lands before the write: a real undo copy.
+
+## Versions
+Measured on agy 1.2.17. agy auto-updated to 1.4.0 during the work, and the real-agy test passed on 1.4.0 as well.
 
 ## Not in this change
 - Edits through run_command (no path to read; never guessed).
