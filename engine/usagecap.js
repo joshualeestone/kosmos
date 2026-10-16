@@ -124,7 +124,6 @@ function capNow(policy, now = Date.now(), rootsList, bytes = perCallBytes) {
   if (!orgpolicy.capShapeOk(u)) return { capped: false };
   return withFloor(policy, monthTokens(u.tz, now, rootsList || roots(), bytes));
 }
-/* capAt for a count `m` ({ tokens, complete, since }) held up by the month's saved count, saving it when complete. */
 /* The count in force for `m` with the month's saved one, saving it when `save` (the board saves each count the worker
    posts, so a process reading the saved count is never behind the board for want of a gate call). */
 function settle(m, save) {
@@ -137,6 +136,7 @@ function settle(m, save) {
   else if (save && (!floor.used || floor.sameZone) && m.tokens > floor.used) writeFloor(m.since, m.tokens);
   return { used, floor };
 }
+/* capAt for a count `m` ({ tokens, complete, since }) held up by the month's saved count. */
 function withFloor(policy, m, save = true) {
   const { used, floor } = settle(m, save);
   /* `month` ('YYYY-MM') names the month counted, so a count carried forward after the board stops reporting is never
@@ -168,6 +168,7 @@ function rootsNow(now) {
   return rootsSeen.list;
 }
 let workerFailedAt = -Infinity;
+let failureLogged = false;
 let latest = null;   // the worker's last count: { tz, since, tokens, complete }
 function ensureWorker(tz, now) {
   if (!worker) {
@@ -179,13 +180,16 @@ function ensureWorker(tz, now) {
         if (worker !== w) return;   // a worker already replaced or stopped
         if (!(r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isSafeInteger(r.tokens) && r.tokens >= 0 && typeof r.complete === 'boolean')) return;
         latest = r;
+        failureLogged = false;
         try { settle(r, true); } catch { /* best effort, as writeFloor is */ }
       });
       const gone = (e) => {
         if (worker !== w) return;   // stopped on purpose (stopWorker): nothing to say
         worker = null; workerKey = null; workerFailedAt = Date.now();
         latest = null;   // a count from a counter that has stopped is not current: the saved count holds the cap
-        console.error('usagecap: the usage cap\'s counter stopped (' + ((e && e.message) || 'it exited') + '); the cap reads the month\'s saved count until it starts again');
+        // Once per run of failures: a counter that fails on every start would otherwise log every WORKER_RETRY_MS.
+        if (!failureLogged) console.error('usagecap: the usage cap\'s counter stopped (' + ((e && e.message) || 'it exited') + '); the cap reads the month\'s saved count until it starts again');
+        failureLogged = true;
       };
       w.on('error', gone);
       w.on('exit', gone);
@@ -242,12 +246,22 @@ function capAllows(now = Date.now()) {
 }
 
 /** The board's process: count the month here, in a worker thread. */
-function countOnThisBoard() { workerAllowed = true; }
+/* Checked at once and every BOARD_CHECK_MS: a cap in force starts the count without waiting for a first message or a
+   rollup (one under words that do not name the cap never asks). A damaged policy record is left to the gates. */
+const BOARD_CHECK_MS = 5 * 60 * 1000;
+let boardTimer = null;
+function countOnThisBoard() {
+  workerAllowed = true;
+  const check = () => { try { capInForce(); } catch { /* the gates decide what a fault means */ } };
+  check();
+  if (!boardTimer) { boardTimer = setInterval(check, BOARD_CHECK_MS); boardTimer.unref(); }
+}
 
 /** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
  *  without it the gate counts inline (mode 'sync'). `board: false` is a process that is not the board. */
 function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false, board = true } = {}) {
-  cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
+  cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity; failureLogged = false;
+  if (boardTimer) { clearInterval(boardTimer); boardTimer = null; }
   rootsSeen = { at: -Infinity, list: [] };
   stopWorker();
   mode = useWorker ? 'worker' : 'sync';
