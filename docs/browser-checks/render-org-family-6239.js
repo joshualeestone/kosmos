@@ -35,6 +35,7 @@
  *   R17 a read that started before the page's own write is dropped, and a one-time note it carried shows on the next read.
  *   R18 a /api/org read asked before an Accept or a Leave, held open and released after it, changes nothing.
  *   R19 signing out of Kosmos+ closes a family's words on screen and releases words held back.
+ *   R20 signing out also drops a carried one-time note, a pending could-not-record check and the once-a-minute gate.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -475,6 +476,22 @@ async function run(engineName) {
     await reread(WAITING);
     const r19 = { open19, box: await shown('plus-org-family'), plus: await shown('plus-org'), row: await shown('plus-org-words') };
     chk(r19.open19 && r19.plus && !r19.box && r19.row, E + ' R19 signing out closes the family\'s words and releases held-back words: signed in again, the button is back', JSON.stringify(r19));
+    // R20: what the sign-in left is not shown after signing in again. A one-time note carried from a dropped read, a
+    // pending "could not record" check from an Accept, and the once-a-minute gate are each planted, then signed out and in:
+    // the first signed-in paint reads at once (the gate reset), and neither old line shows on what it reads.
+    await reread(WAITING);
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = '';
+      PLUS_ORG.carried = { stoppedFor: null, leaveRefused: 'The Old family', leaveRefusedUndo: false };
+      PLUS_ORG.reviewAccepted = Date.now() - 1000; PLUS_ORG.at = Date.now(); });
+    await page.evaluate(async () => { window.__remote = { enrolled: false }; await paintPlus(); });
+    m = await mark();
+    await page.evaluate(async () => { window.__remote = null; await paintPlus(); });
+    await page.waitForTimeout(300);
+    const r20 = { read: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m),
+      msg: await text('plus-org-msg') };
+    chk(r20.read && !r20.msg.includes('The Old family') && !r20.msg.includes('could not record'),
+      E + ' R20 signing out drops a carried note, a pending could-not-record check and the read gate', JSON.stringify(r20));
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
     await page.waitForTimeout(250);
