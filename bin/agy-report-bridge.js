@@ -30,7 +30,8 @@
  *                    lets only ask_question reach this answer. The question is agy's own tool
  *                    schema: args.questions[].question.
  *   PostToolUse   -> working, ONLY for `ask_question`: the person answered, the turn goes on.
- *   Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
+ *   (#5812: on agy 1.2.17+, PreToolUse also runs before write_to_file and replace_file_content, for the keep; the
+ *   answer for them is ASK, as below.) Everything else in PreToolUse/PostToolUse is NOT hooked: PreToolUse is agy's permission gate,
  *                    and a hook per tool is a node start inside agy's blocking loop.
  *   needs_you     -> only from a real ask_question; never from an idle loop (#4006).
  *
@@ -379,21 +380,7 @@ async function main() {
   if (!shouldSend(mapped.state, Date.now(), process.env, waitKey)) return;
 
   const port = Number(process.env.KOSMOS_PORT) || 16180;
-  const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
-  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
-  const engine = engineDir();
-  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
-     token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
-  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
-    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
-    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
-  } catch { /* a missed board token must never become a failed turn */ }
-  try {
-    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
-    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
-  } catch { /* a missed world header must never become a failed turn */ }
-
+  const headers = boardHeaders(process.env);   // review 3: one header builder for the report and the keep
   /* #5576: hold a free fd 0 to 2 so the request's socket cannot take one. One turn of the loop first, so a close of
      fd 0 left pending by the stdin handling (a handle close lands a phase later) is done before the guard looks
      (review 2). PREMISE: whatever frees fd 0 has done so by then (the Linux trace showed it free already at fetch
