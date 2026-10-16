@@ -45,8 +45,11 @@ neutral name, and a rename back then sticks.
 - A downgrade to an older build that then saves writes version 2 again; back on this build, a p1 the person had renamed
   to "Company AI policy" is renamed to "AI policy" once more (review 2). Accepted: it needs a downgrade plus a save,
   happens once, and a rename back then sticks.
-- If another entry already wears "AI policy", the migrated entry keeps "Company AI policy" (the case the card is about,
-  only in that rare combination). Not renamed to "AI policy (2)": inventing names is worse than keeping one.
+- If another entry already wears "AI policy", the migrated entry keeps "Company AI policy" WHILE that clash holds. Not
+  renamed to "AI policy (2)": inventing names is worse than keeping one. Review 5 found a save during the clash wrote
+  version 3 and froze the old name for good; now read() reports renamePending and every save keeps the record at
+  version 2 while p1 still holds the old name, so the rename applies once the clash is gone. A rename of p1 itself is
+  the person's choice and is saved as version 3 (arms + 2 mutants red).
 
 ## Why this overrides the #685 model
 The DEFAULT_NAME comment records Josh's #685 model: the policy that predates names "is simply the company's". That held

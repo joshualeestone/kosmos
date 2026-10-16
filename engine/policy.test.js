@@ -210,6 +210,22 @@ test('#6273 a stored migrated entry named "Company AI policy" reads as "AI polic
     // When another entry already wears "AI policy", the migrated one keeps its name rather than collide.
     plant([p1, { ...legal, name: 'ai POLICY' }]);
     assert.deepEqual(policy.read().policies.map((p) => p.name), ['Company AI policy', 'ai POLICY'], 'two entries now share one name');
+
+    // Review 5: a save while that clash holds keeps the record old (version 2), so once the clash is gone the rename
+    // still applies. Writing version 3 there would have made "Company AI policy" permanent.
+    const versionOnDisk = () => JSON.parse(fs.readFileSync(policy.FILE, 'utf8')).version;
+    policy.add({ name: 'Branding', text: 'B.', source: 'pasted' });
+    assert.equal(versionOnDisk(), 2, 'an unrelated save during the clash marked the old name as the person\'s choice');
+    policy.removeOne(legal.id);
+    assert.equal(versionOnDisk(), 2, 'removing the clashing entry marked the old name as the person\'s choice');
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['AI policy', 'Branding'], 'with the clash gone, the migrated entry still wears the company\'s name');
+
+    // Renaming p1 itself during a clash is the person's choice: saved as theirs (version 3), and it sticks.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename('p1', 'Company AI policy');
+    assert.equal(versionOnDisk(), 3, 'a rename the person made to p1 was not saved as theirs');
+    policy.rename(legal.id, 'Legal');
+    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a name the person gave p1 was reverted once the clash went');
   } finally { policy.clear(); }
 });
 
