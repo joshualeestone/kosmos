@@ -5365,8 +5365,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { max-height: 40vh; overflow-y: auto; }
   /* kosmos#6324: the team map's button and box take a line each in the wrapping head, and fold away with the column. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { flex: 0 0 100%; min-width: 0; }
-  /* kosmos#6324: a big team must not push the agents list off a page that does not scroll (#980): the map scrolls itself. */
-  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 45vh; overflow-y: auto; }
+  /* kosmos#6324: a big team's map scrolls inside its own box rather than growing the rail head without limit. */
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
@@ -24644,11 +24644,11 @@ function paintRailTeamMap(op) {
   if (!btn || !box) return;
   const roster = op ? (op.agents || []).filter((m) => m && typeof m.sessionName === 'string' && m.sessionName) : [];
   const open = roster.length > 0 && PJ_TEAMMAP_OPEN.has(String(op.id));
+  const ae = document.activeElement;
+  const had = ae && box.contains(ae) && ae.dataset ? ae.dataset.agent : null;
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
-  const ae = document.activeElement;
-  const had = ae && box.contains(ae) && ae.dataset ? ae.dataset.agent : null;
   setIfChanged(box, open ? pjTeamMap(op, LAST) : '');
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);

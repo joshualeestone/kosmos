@@ -3,12 +3,12 @@
  * layout's "Team map" button. The Agents rail head gets its own button and box.
  *
  * Drives the SHIPPED page against a real server (sandboxed roots, fixture panes, never a live agent): a project with
- * ten fixture members, the consolidated layout at 1280 wide. Asserts the tab layout's button cannot be reached there
- * (the problem), the rail's button shows and starts closed, opens the map with aria-expanded true, every member is on
- * it, the map fits the rail sideways and scrolls itself rather than the page, folding the agents column hides it, a second click closes it, and a member on the map opens
- * that agent's page. What the map counts is the unit suites' (web.teammap-6103.test.js, web.teammap-rail-6324.test.js).
- *
- * Every arm after the controls reds on the #6103 page alone: there is no #alist-teammap-btn and no #alist-teammap.
+ * ten fixture members, the consolidated layout at 1280x900 and 1280x720. Asserts the tab layout's button cannot be
+ * reached there (the problem), the rail's button shows and starts closed, opens the map with aria-expanded true, every
+ * member is on it, the map scrolls inside its own box, the page does not scroll and the agents list stays in view,
+ * focus survives a repaint, folding the agents column hides it, the open state carries to the tab layout, a second
+ * click closes it, and a member on the map opens that agent's page. What the map counts is the unit suites'
+ * (web.teammap-6103.test.js, web.teammap-rail-6324.test.js).
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-teammap-rail-6324.js
  * Sandboxed roots; kills only what it starts.
@@ -84,7 +84,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         nodes: box ? [...box.querySelectorAll('.pjtm-node[data-agent]')].map((n) => n.dataset.agent) : [],
         over: box ? box.scrollWidth - box.clientWidth : null,
         tall: box ? box.scrollHeight - box.clientHeight : null,
-        pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight };
+        pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        listSeen: (() => { const l = document.getElementById('alist'); if (!l) return 0; const r = l.getBoundingClientRect();
+          return Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0)); })() };
     });
     const before = await state();
     say('CONTROL: the consolidated layout is on with the project open', before.cons && before.open === made.id, JSON.stringify(before));
@@ -106,6 +108,16 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('CONTROL: the page did not scroll down before the map opened', before.pageDown <= 0, 'page ' + before.pageDown + 'px');
     say('CONTROL: ten members make the map taller than its box (so the next arm tests the cap)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
     say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
+    say('CONTROL: the agents list is in view before the map opens', before.listSeen >= 150, 'list ' + before.listSeen + 'px in view');
+    say('with the map open the agents list is still in view', opened.listSeen >= 150, 'list ' + opened.listSeen + 'px in view');
+    // A shorter window: the cap is a share of the height, so the same must hold at 720 tall.
+    await p.setViewportSize({ width: 1280, height: 720 });
+    await p.waitForTimeout(300);
+    const short = await state();
+    say('at 1280x720 the open map scrolls itself, not the page', short.shown && short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
+    say('at 1280x720 the agents list is still in view', short.listSeen >= 150, 'list ' + short.listSeen + 'px in view');
+    await p.setViewportSize({ width: 1280, height: 900 });
+    await p.waitForTimeout(300);
 
     // Focus survives a repaint that replaces the map's buttons (a member's word changing between polls).
     const kept = await p.evaluate((pid) => {
@@ -131,6 +143,21 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.waitForTimeout(250);
     const unfolded = await state();
     say('unfolding brings the open map back', unfolded.btn && unfolded.shown, JSON.stringify(unfolded));
+
+    // The open state is one per project, shared with the tab layout: switch layouts with the map open.
+    const carried = await p.evaluate(async () => {
+      applyLayout('tabs', true);
+      await loadProjects();
+      const btn = document.getElementById('pj-teammap-btn');
+      const box = document.getElementById('pj-teammap');
+      const r = { cons: document.body.classList.contains('consolidated'), expanded: btn && btn.getAttribute('aria-expanded'),
+        shown: !!box && !box.hidden && box.getClientRects().length > 0 };
+      applyLayout('consolidated', true);
+      await loadProjects();
+      return r;
+    });
+    say('the map opened in the rail is open in the tab layout too', carried.cons === false && carried.shown && carried.expanded === 'true', JSON.stringify(carried));
+    await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
     await p.click('#alist-teammap-btn');
     await p.waitForTimeout(200);
