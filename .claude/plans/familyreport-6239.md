@@ -94,3 +94,10 @@ reason.
   report arrives after the join, so the control's pass stays sound and the positive check then passes.
 - Nits taken: one nextTickOffset helper feeds both the wait and the timing note; round 6's before-and-after line is marked
   superseded; a current-result line heads the plan.
+
+## After the PR: the #6287 sync guard
+- CI on #6302 went red on tools.fedproof-helpers-in-sync-6287.test.js, which landed on main after this branch's base:
+  boardSignin is a shared helper and my sign-in retry was in the family copy only. Rebased onto main and copied the
+  same boardSignin into tools/fed-own-e2e.js, so the fix reaches both proofs (what the guard is for). The guard: 2/2.
+- fed-own-e2e.js itself was not rerun: the change there only adds the retry on the board's exact refusal, which a
+  passing run never reaches. Checked by reading and by the guard.
