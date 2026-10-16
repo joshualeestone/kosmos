@@ -21,13 +21,15 @@ const bridge = require(BRIDGE);
 
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-')));
 
+const PINNED_VERSION = require('./runners').MANIFEST.openai.version;
+
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {
-  // Measured: Codex's own "Trust all and continue" wrote this record for exactly this hooks.json.
+  // Measured: Codex's own "Trust all and continue" wrote this record for exactly this hooks.json (timeout 10 included).
   const command = hooks.commandFor('/Applications/Some Place/bin/codex-report-bridge.js');
   assert.equal(command, "'/Applications/Some Place/bin/codex-report-bridge.js'");
-  assert.equal(hooks.trustHash(command), 'sha256:c8c65dbed8302e9006dfc5158cc54888cb0a5733d1f610f6f67c02184c96a33d');
+  assert.equal(hooks.trustHash(command), 'sha256:55b913ed3075b80d916e32ce3d1a321f7b03c6d2e2f092c56edf256eec14dd39');
   assert.deepEqual(JSON.parse(hooks.hooksJson(command)),
-    { hooks: { PreToolUse: [{ matcher: 'apply_patch', hooks: [{ type: 'command', command }] }] } });
+    { hooks: { PreToolUse: [{ matcher: 'apply_patch', hooks: [{ type: 'command', command, timeout: 10 }] }] } });
 });
 
 test('commandFor quotes a single quote in the path for the shell', () => {
@@ -64,6 +66,9 @@ test('nextConfig leaves a hand-edited record alone (enabled = false, a duplicate
   assert.deepEqual(hooks.nextConfig(`${heading}\n${a}\nenabled = false\n`, heading, b), { handEdited: true });
   assert.deepEqual(hooks.nextConfig(`${heading}\nenabled = false\n`, heading, b), { handEdited: true });
   assert.deepEqual(hooks.nextConfig(`${heading}\n${a}\n${heading}\n${a}\n`, heading, b), { handEdited: true });
+  // Review 1: the same key written any other way is not appended beside (a duplicate key and Codex would not start).
+  assert.deepEqual(hooks.nextConfig(`${heading} # mine\n${a}\n`, heading, b), { handEdited: true });
+  assert.deepEqual(hooks.nextConfig(`[hooks.state]\n"/h/hooks.json:pre_tool_use:0:0" = { trusted_hash = "x" }\n`, heading, b), { handEdited: true });
 });
 
 test('stateHeading refuses a path a TOML basic string would need escapes for', () => {
@@ -76,7 +81,7 @@ test('stateHeading refuses a path a TOML basic string would need escapes for', (
 test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', () => {
   const h = home();
   fs.writeFileSync(path.join(h, 'config.toml'), '[projects."/w"]\ntrust_level = "trusted"\n', { mode: 0o600 });
-  assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js'), { ok: true });
+  assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   const cmd = hooks.commandFor('/k/bin/codex-report-bridge.js');
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), hooks.hooksJson(cmd));
   const cfg = fs.readFileSync(path.join(h, 'config.toml'), 'utf8');
@@ -86,11 +91,11 @@ test('install writes hooks.json and the trust record (0600), is a no-op the seco
 
   const inode = fs.statSync(path.join(h, 'config.toml')).ino;
   const hinode = fs.statSync(path.join(h, 'hooks.json')).ino;
-  assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js'), { ok: true });
+  assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   assert.equal(fs.statSync(path.join(h, 'config.toml')).ino, inode, 'unchanged config is not rewritten');
   assert.equal(fs.statSync(path.join(h, 'hooks.json')).ino, hinode, 'unchanged hooks.json is not rewritten');
 
-  assert.deepEqual(hooks.install(h, '/k2/bin/codex-report-bridge.js'), { ok: true });
+  assert.deepEqual(hooks.install(h, '/k2/bin/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   const cmd2 = hooks.commandFor('/k2/bin/codex-report-bridge.js');
   const cfg2 = fs.readFileSync(path.join(h, 'config.toml'), 'utf8');
   assert.equal(cfg2, cfg.replace(hooks.trustHash(cmd), hooks.trustHash(cmd2)));
@@ -99,26 +104,61 @@ test('install writes hooks.json and the trust record (0600), is a no-op the seco
 
 test('install creates config.toml when Codex has not written one yet', () => {
   const h = home();
-  assert.deepEqual(hooks.install(h, '/k/b.js'), { ok: true });
+  assert.deepEqual(hooks.install(h, '/k/b-codex-report-bridge.js', PINNED_VERSION), { ok: true });
   assert.match(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), /^\[hooks\.state\."[^"]+:pre_tool_use:0:0"\]\ntrusted_hash = "sha256:[0-9a-f]{64}"\n$/);
 });
 
 test('install refuses a relative path, a missing home, a home that is a link, and a hand-edited record', () => {
   const h = home();
-  assert.equal(hooks.install('rel/home', '/k/b.js').ok, false);
-  assert.equal(hooks.install(h, 'rel/b.js').ok, false);
-  assert.equal(hooks.install(path.join(h, 'missing'), '/k/b.js').ok, false);
+  assert.equal(hooks.install('rel/home', '/k/b.js', PINNED_VERSION).ok, false);
+  assert.equal(hooks.install(h, 'rel/b.js', PINNED_VERSION).ok, false);
+  assert.equal(hooks.install(path.join(h, 'missing'), '/k/b.js', PINNED_VERSION).ok, false);
   const link = path.join(home(), 'link');
   fs.symlinkSync(h, link);
-  assert.equal(hooks.install(link, '/k/b.js').ok, false);
+  assert.equal(hooks.install(link, '/k/b.js', PINNED_VERSION).ok, false);
   assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false, 'nothing written through the link');
   const heading = hooks.stateHeading(path.join(h, 'hooks.json'));
   const mine = `${heading}\ntrusted_hash = "sha256:${'a'.repeat(64)}"\nenabled = false\n`;
   fs.writeFileSync(path.join(h, 'config.toml'), mine);
-  const r = hooks.install(h, '/k/b.js');
+  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor('/k/b-codex-report-bridge.js')));
+  const r = hooks.install(h, '/k/b-codex-report-bridge.js', PINNED_VERSION);
   assert.equal(r.ok, false);
   assert.match(r.because, /by hand/);
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), mine);
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false, 'review 1: no hooks.json left whose record we cannot vouch for');
+});
+
+test('review 1: any Codex but the pinned version gets no hook, and an earlier hooks.json of ours is removed', () => {
+  const h = home();
+  assert.deepEqual(hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION), { ok: true });
+  assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
+  for (const v of ['0.150.0', '', undefined, `${PINNED_VERSION} `]) {
+    const r = hooks.install(h, '/k/codex-report-bridge.js', v);
+    assert.equal(r.ok, false, String(v));
+    assert.match(r.because, new RegExp(`known only for ${PINNED_VERSION.replace(/\./g, '\\.')}`));
+    assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
+  }
+});
+
+test('review 1: the trust record lands before hooks.json; a failed record write leaves no hooks.json', () => {
+  const h = home();
+  fs.mkdirSync(path.join(h, 'config.toml'));   // a folder where the config should be: the record cannot be written
+  const r = hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION);
+  assert.equal(r.ok, false);
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
+});
+
+test('removeOurs leaves a hooks.json that is not ours, and a link', () => {
+  const h = home();
+  fs.writeFileSync(path.join(h, 'hooks.json'), '{"hooks":{}}');
+  assert.equal(hooks.removeOurs(h), false);
+  assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
+  const other = path.join(home(), 'x-codex-report-bridge.js.json');
+  fs.writeFileSync(other, 'codex-report-bridge.js');
+  fs.rmSync(path.join(h, 'hooks.json'));
+  fs.symlinkSync(other, path.join(h, 'hooks.json'));
+  assert.equal(hooks.removeOurs(h), false);
+  assert.ok(fs.existsSync(other));
 });
 
 test('the bridge reads the files a patch names, once each, in order', () => {
@@ -236,7 +276,6 @@ function fakeModel(patch) {
 function runCodex(codexHome, workdir, modelPort, env) {
   return new Promise((resolve) => {
     const child = execFile('codex', ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', '-C', workdir,
-      '-c', 'features.hooks=true',
       '-c', 'model_provider=fake', '-c', 'model_providers.fake.name="fake"',
       '-c', `model_providers.fake.base_url="http://127.0.0.1:${modelPort}/v1"`,
       '-c', 'model_providers.fake.wire_api="responses"', '-c', 'model_providers.fake.env_key="FAKE_KEY"',
@@ -254,7 +293,7 @@ test(`the REAL Codex (${PINNED || 'pin unreadable'}) runs the installed hook, an
   const board = await stubBoard();
   const model = await fakeModel('*** Begin Patch\n*** Add File: hello.txt\n+hi\n*** Update File: existing.txt\n@@\n-old line\n+new line\n*** End Patch\n');
   try {
-    assert.deepEqual(hooks.install(h, BRIDGE), { ok: true });
+    assert.deepEqual(hooks.install(h, BRIDGE, PINNED_VERSION), { ok: true });
     const r = await runCodex(h, work, model.port, { KOSMOS_PORT: String(board.port), TMUX_PANE: '' });
     assert.equal(r.err, null, `codex exec failed: ${r.stderr}`);
     assert.equal(r.killed, false, 'codex exec finished on its own, not on the timeout');
@@ -262,8 +301,9 @@ test(`the REAL Codex (${PINNED || 'pin unreadable'}) runs the installed hook, an
     const wd = fs.realpathSync.native(work);
     assert.deepEqual(board.seen.map((x) => x && x.path).sort(), [path.join(wd, 'existing.txt'), path.join(wd, 'hello.txt')].sort());
 
-    // Control: the same install with one hex digit of the trust record changed. Codex must then run NO hook, which is
-    // what proves the record (and not something else) is what made it run above.
+    // Control: the same install with one hex digit of the trust record changed. `codex exec` then runs NO hook (the TUI
+    // would stop on its review screen instead, measured by hand: card #5812), which proves the record is what made it
+    // run above. features.hooks is not passed: hooks are on by default in this Codex.
     board.seen.length = 0;
     fs.writeFileSync(path.join(work, 'existing.txt'), 'old line\n');
     fs.rmSync(path.join(work, 'hello.txt'), { force: true });
