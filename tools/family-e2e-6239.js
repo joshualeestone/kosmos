@@ -73,6 +73,8 @@ const SYNC_MS = 30000;
 const ROLLUP_FIRST_MS = 60000;
 const ROLLUP_EVERY_MS = 5 * 60000;
 const REPORT_SLACK_MS = 90000;
+// The offsets of a board's ticks after its timers are armed: 60 s, then 300, 600, 900 s ... (one source for step 9b).
+const nextTickOffset = (t) => (t < ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : t < ROLLUP_EVERY_MS ? ROLLUP_EVERY_MS : t + ROLLUP_EVERY_MS);
 // The company's consent hash, as kosmos-relay pins it (consent_hash_for("company") in coordinator/tests/api.rs): a
 // family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
 // admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
@@ -587,7 +589,9 @@ async function main() {
   if (joined) {
     // The first tick at or after the join: start + 60 s if the join came first, else the next multiple of 300 s.
     const sinceStart = joinedAt - K.startedAt;
-    const tickAt = K.startedAt + (sinceStart <= ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : Math.ceil(sinceStart / ROLLUP_EVERY_MS) * ROLLUP_EVERY_MS);
+    let firstTick = ROLLUP_FIRST_MS;
+    while (firstTick < sinceStart) firstTick = nextTickOffset(firstTick);
+    const tickAt = K.startedAt + firstTick;
     const safe = async (route) => { try { return await http(REL.coordinator, 'GET', route, undefined, bearer(sess.token)); } catch (e) { return { status: 0, json: null, text: String(e && e.message || e) }; } };
     const ov = await safe('/v1/org/console/overview');
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
@@ -602,7 +606,7 @@ async function main() {
     // startedAt + t and answeredAt + t (the board's boot is between them), for t = 60 s, then every 300 s.
     const readsDone = Date.now();
     let nearTick = false;
-    for (let t = ROLLUP_FIRST_MS; K.startedAt + t <= readsDone + 5000; t = t === ROLLUP_FIRST_MS ? ROLLUP_EVERY_MS : t + ROLLUP_EVERY_MS) {
+    for (let t = ROLLUP_FIRST_MS; K.startedAt + t <= readsDone + 5000; t = nextTickOffset(t)) {
       if (K.answeredAt + t >= joinedAt) { nearTick = true; break; }
     }
     chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,

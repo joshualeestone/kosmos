@@ -5,6 +5,7 @@ server.js orgRollupTick) is accepted by the coordinator only when the words K ac
 the console counting K as reporting is the family's words working for reporting, not only for joining.
 
 ## Result (2026-10-16 02:50 CDT, run as an exclusive queued turn)
+- CURRENT: VERDICT PASS 25/25 on every rerun since round 1 (latest 05:35, round 7); the challenge loop converged at round 8.
 - (Historical, the first design: members.reporting 0, then 1 at 100 s.) The current measure is K's own row in the
   parent's console inventory, with the overview count only in the control; see the rounds below.
 
@@ -73,7 +74,7 @@ reason.
 - Rerun (exclusive queued turn, 04:50): VERDICT PASS 25/25; joined 2 s after K's spawn stamp, tick due 60 s.
 
 ## Round 6 (sonnet) fixes
-- nearTick is measured before the control's reads and again after, so a tick landing during them is named in its detail.
+- (Superseded in round 7 by the tick window, computed once after the reads over the span from the join.) nearTick is measured before the control's reads and again after, so a tick landing during them is named in its detail.
 - A missed report prints K's own reason (its /api/org reporting and reportingWait), so a skipped or waiting tick (the
   rollup's run lock, print wait) reads differently from a refused report. The wait itself stays the next tick plus 90 s.
 - The closure parameter no longer shadows path; the watchdog's duplicate comment is gone.
@@ -87,3 +88,9 @@ reason.
 - Declined: matching the retried sign-in's code by count. The settle's bound and failure mode are stated at the site,
   and the retry has now fired and passed once.
 - Rerun (exclusive queued turn, 05:35): VERDICT PASS 25/25; joined 2 s after K's spawn, tick due 60 s.
+
+## Round 8 (sonnet): converged
+- No new blocker, warning or convention. Its one warning (a tick in flight during the control) is not a defect: that
+  report arrives after the join, so the control's pass stays sound and the positive check then passes.
+- Nits taken: one nextTickOffset helper feeds both the wait and the timing note; round 6's before-and-after line is marked
+  superseded; a current-result line heads the plan.
