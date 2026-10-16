@@ -41,8 +41,11 @@ function slice(start) {
 /* A stand-in for the few elements the two painters touch. setIfChanged is the page's own contract (write only on a
    change), reduced to the write. */
 function rig({ consolidated, current, projects, board, red = () => false }) {
-  const el = () => ({ hidden: false, innerHTML: '', textContent: '', dataset: {}, attrs: {},
-    setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; } });
+  // A real scroll box drops its offset when its content is replaced; the stand-in does the same, so a missing restore
+  // shows as a lost position.
+  const el = () => { let html = ''; return { hidden: false, textContent: '', dataset: {}, attrs: {}, scrollTop: 0,
+    get innerHTML() { return html; }, set innerHTML(v) { if (v !== html) { html = v; this.scrollTop = 0; } },
+    setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; } }; };
   const els = { 'alist-pj-notice': el(), 'alist-pj-notice-said': el(), 'alist-teammap-btn': el(), 'alist-teammap': el() };
   els['alist-teammap-btn'].hidden = true;
   els['alist-teammap'].hidden = true;
@@ -174,11 +177,18 @@ test('#6324: the map keeps its scroll position for the same project, and another
   r.open.add(String(b.p.id));
   r.paint();
   r.els['alist-teammap'].scrollTop = 120;
+  const before = r.els['alist-teammap'].innerHTML;
+  a.p.agents[0].name = 'Renamed between polls';   // the repaint must really replace the markup
   r.paint();
+  assert.notEqual(r.els['alist-teammap'].innerHTML, before, 'CONTROL: the repaint did not change the markup, so it tests nothing');
   assert.equal(r.els['alist-teammap'].scrollTop, 120, 'a repaint of the same project lost its scroll position');
   const r2 = rig({ consolidated: true, current: b.p.id, projects, board: a.board });
   // The same box carried over from project A, as the page's one box is.
-  Object.assign(r2.els['alist-teammap'], { scrollTop: 120, dataset: { ...r.els['alist-teammap'].dataset }, innerHTML: r.els['alist-teammap'].innerHTML });
+  const box2 = r2.els['alist-teammap'];
+  box2.innerHTML = r.els['alist-teammap'].innerHTML;   // first: setting markup drops the offset, as a real box does
+  box2.dataset = { ...r.els['alist-teammap'].dataset };
+  box2.scrollTop = 120;
+  assert.equal(box2.dataset.pj, String(a.p.id), 'CONTROL: the carried box does not remember project A');
   r2.open.add(String(b.p.id));
   r2.paint();
   assert.equal(r2.els['alist-teammap'].scrollTop, 0, 'another project\'s map opened at the last project\'s scroll position');
