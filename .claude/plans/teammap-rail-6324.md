@@ -21,7 +21,8 @@ Stacked on `teammap-6103` (PigeonPete, #6103, not yet merged). Rebase onto main 
 
 ## The trade this placement makes
 While a project with members is open, the button takes its own line in the Agents head, so the agents list starts
-about one button lower than the projects list beside it (as it already does whenever the notice has text). The two
+about one button lower than the projects list beside it (as it already does whenever the notice has text), and the
+button plus the map (up to 35vh) lower while the map is open. The two
 rail LABELS still share a line (#3948 item 2): the browser check measures that, with a control with no project open.
 If that arm ever reds, the control moves onto the label line instead. Design shots are to be taken for review.
 The capped map hides its scrollbar, as #867 has every list in the agents rail do. That costs a cue: on a big team the

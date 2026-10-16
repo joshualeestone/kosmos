@@ -24655,7 +24655,7 @@ function paintRailTeamMap(op) {
   const top = same ? box.scrollTop : 0;
   box.dataset.pj = op ? String(op.id) : '';
   setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : [], pjRedHere) : '');
-  if (open) box.scrollTop = top;
+  if (open && box.scrollTop !== top) box.scrollTop = top;   // only when it moved: a write cancels a smooth scroll
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
     const to = back || (btn.getClientRects().length > 0 ? btn : null);

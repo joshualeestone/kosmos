@@ -224,8 +224,8 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       box.style.padding = '';
       return { ok, bare };
     });
-    say('a member\'s focus ring fits inside the map box', ring.ok === true, JSON.stringify(ring));
-    say('CONTROL: without the box\'s padding the same instrument reads the ring clipped', ring.bare === false, JSON.stringify(ring));
+    say('a member\'s focus ring fits inside the map box sideways', ring.ok === true, JSON.stringify(ring));
+    say('CONTROL: without the box\'s padding the same instrument reads the ring clipped at the sides', ring.bare === false, JSON.stringify(ring));
     // A repaint keeps the map's own scroll position (a person scrolled down a big team stays where they were).
     const scrolled = await p.evaluate((pid) => {
       const box = document.getElementById('alist-teammap');
