@@ -19506,7 +19506,7 @@ window.kosmosMeasureScrollbarWidth();
         <p class="setname" id="plus-org-title" hidden>Your company</p>
         <div id="plus-org-in" hidden>
           <p class="fhint" id="plus-org-say"></p>
-          <!-- kosmos#6239: a family's changed words wait for a parent; this opens them (plusOrgFamilyReview). -->
+          <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
           <div id="plus-org-leave-ask" hidden>
@@ -50940,7 +50940,13 @@ function plusOrgPaint() {
      block (review 2). Write one only for something this person did here or a company note about this Kosmos. */
   const msgOn = (document.getElementById('plus-org-msg').textContent || '') !== '';
   // A company note the person closed with Cancel no longer holds the block open (#5791 review 1).
-  const full = !!here || PLUS_ORG.open === true || msgOn || (!!st.stoppedFor && st.stoppedFor !== PLUS_ORG.dismissed) || !!st.leaveRefused;
+  /* kosmos#6239: the family's words sit beside the code block and the joined view, so they follow the view they were
+     opened for: a joining family's words hold the block open, and they close when this computer joins; a review's close
+     when this computer is no longer joined (a Leave, or a read that says so). */
+  const fam = PLUS_ORG_FAMILY;
+  if (fam && fam.p && ((fam.p.review === true && !here) || (fam.p.review !== true && here))) plusOrgFamilyHide();
+  const joining = !!(PLUS_ORG_FAMILY && PLUS_ORG_FAMILY.p && PLUS_ORG_FAMILY.p.review !== true);
+  const full = !!here || PLUS_ORG.open === true || msgOn || joining || (!!st.stoppedFor && st.stoppedFor !== PLUS_ORG.dismissed) || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
   // #5791: the "Your company" title only over the joined view; the code entry has its X Cancel instead.
   document.getElementById('plus-org-title').hidden = !here;
@@ -50952,11 +50958,11 @@ function plusOrgPaint() {
   if (!here) plusOrgLeaveArm(false);   // a Leave confirmation never stays open under a view that is gone (review 31)
   // A record whose company's words are not on record here sends nothing until the board re-accepts them on its own
   // (#5791), and the joined view says so (review 34).
-  /* kosmos#6239: a family's words that changed wait for a parent (wordsNeeded, from /api/org): the joined view says so
+  /* kosmos#6239: a family's words not accepted here wait for a parent (wordsNeeded, from /api/org): the joined view says so
      and offers them, unless they are already open. */
   const wordsRow = document.getElementById('plus-org-words-row');
   if (wordsRow) wordsRow.hidden = !(here && st.wordsNeeded === true && !PLUS_ORG_FAMILY);
-  if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words changed, so it reports nothing until a parent or guardian reads and accepts them.';
+  if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
@@ -51015,9 +51021,9 @@ function plusOrgFamilyShow(code, p) {
     for (const line of Array.isArray(lines) ? lines : []) { const li = document.createElement('li'); li.textContent = String(line); ul.append(li); }
   };
   const lead = p.org && p.org.name ? p.org.name + ' is a family account.' : 'This is a family account.';
-  /* A review (the family's words changed after this computer joined) asks to accept them again, not to join. */
+  /* A review (no family words accepted on this computer: they changed, or were never recorded) asks to accept them, not to join. */
   document.getElementById('plus-org-family-lead').textContent = p.review === true
-    ? lead + ' Its words changed. As this child\u2019s parent or guardian, read them, then accept so this computer reports to the family again.'
+    ? lead + ' Its words are not accepted on this computer. As this child\u2019s parent or guardian, read them, then accept so this computer reports to the family.'
     : lead + ' As this child\u2019s parent or guardian, read what joining shares, then accept to connect this computer.';
   const acceptBtn = document.getElementById('plus-org-family-accept');
   if (acceptBtn) acceptBtn.textContent = p.review === true ? 'Accept' : 'Accept and join';
@@ -51052,6 +51058,14 @@ async function plusOrgFamilyAccept() {
     const r = await plusOrgPost('enroll', body);
     if (!r.ok) {
       msg.textContent = r.because || 'Connecting did not go through.';
+      /* A review (words not accepted here, from the joined view): nothing accepts them on its own for a family (the
+         board's automatic re-accept never says a parent saw them), and there is no Connect Account here, so the line
+         says what the parent can do. A refusal with no code keeps the ticket and the words. */
+      if (f.p.review === true && r.code !== 'org_bad_world') {
+        msg.textContent = !r.code ? 'Nothing was accepted yet: Kosmos+ could not be reached just now. Press Accept to try again.'
+          : (r.code === 'org_consent_changed' ? 'The family changed its words while they were open. ' : '')
+            + 'Nothing was accepted. Press Read the family\u2019s words to read them again.';
+      }
       if (r.code === 'org_join_unknown' || r.code === 'org_undo_pending') document.getElementById('plus-org-code').value = '';
       /* Round 1 and 3: a refusal with a code spends the ticket (the route keeps it only for none, or org_bad_world), so
          these words cannot be accepted again: Connect fetches them afresh. */
@@ -51091,7 +51105,7 @@ function plusOrgFamilyNotNow() {
   document.getElementById('plus-org-code').focus();
 }
 function plusOrgFocus(id) { const el = document.getElementById(id); if (el && el.getClientRects().length) el.focus(); }
-/* kosmos#6239: Read the family's words, in the joined view of a family whose words changed (wordsNeeded): the words the
+/* kosmos#6239: Read the family's words, in the joined view of a family with no words accepted here (wordsNeeded): the words the
    family serves now (preview { review: true }), shown as at joining; Accept sends a codeless enroll with wordsShown. */
 async function plusOrgFamilyReview() {
   const msg = document.getElementById('plus-org-msg');

@@ -37,16 +37,29 @@ joining again.
 - The same panel, not a second screen: the words a parent accepts at joining and after a change are shown the same way.
 - Server unchanged otherwise: the review preview, the family ticket and the wordsShown check all existed.
 
+## Review 1 (opus) fixes
+- A review's refusals are said by the page for the joined view: the engine's company lines ("Kosmos tries again on its
+  own", "Press Connect Account") do not hold for a family's review, where nothing retries and there is no Connect
+  Account. With a code: "Nothing was accepted. Press Read the family's words to read them again." (and, for
+  org_consent_changed, that the family changed its words while they were open); with none (Kosmos+ not reached), the
+  words stay and it says to press Accept again.
+- The family panel follows the view it was opened for (plusOrgPaint): a review's words close when this computer is no
+  longer joined (a Leave, a read that says so); a joining family's words hold the block open and close once joined.
+- "The family's words changed" was not always true: wordsNeeded also covers words never recorded here (a print not
+  pinned, a re-adopted record). Both lines now say the words are not accepted on this computer.
+
 ## Weakest premise
-That reviewHere's refusal reasons read well to a parent (they are company-worded: "Your company could not be asked
-..."). Family wording across these sentences is #6251.
+That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
+page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
+company (never wordsNeeded); families are newer than that change, so none should exist.
 
 ## Measured
 - server.familyreaccept-6239.test.js (3): a family whose words changed is wordsNeeded; the review preview serves the
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R6, chromium and webkit, all pass. Mutants: the words row
+- docs/browser-checks/render-org-family-6239.js arms R1 to R7 and F10, chromium and webkit. R4 also proves the page
+  reads /api/org again after Accept; fixtures carry `kind` as the real route does. Mutants: the words row
   never shown (R1 red); Not now ignoring a review (R3 red).
 - Updated pins: web.familywords-6239.test.js lifts plusOrgFamilyNotNow, which now reads PLUS_ORG_FAMILY and calls
   plusOrgPaint/plusOrgFocus (passed in); server.orgenroll-5531.test.js pins /api/org's shape, now with wordsNeeded.
