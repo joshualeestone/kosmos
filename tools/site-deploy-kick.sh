@@ -115,6 +115,15 @@ if [ "$CHECK" = 1 ] && [ -r "$RESULT" ]; then note "last tick: $(head -n 1 "$RES
 note "each gh call is limited to ${GH_MAX_S} s"
 if [ ! -d "$STATE" ]; then say "no deploy state folder at $STATE (the deploy job has not run here, or it keeps its state elsewhere); nothing asked"; exit 1; fi
 if [ -e "$STATE/paused" ]; then note "paused ($STATE/paused): would ask nothing"; exit 0; fi
+# kosmos#6305: a site-deploy HOLD (a release being promoted, say) is the repository variable SITE_DEPLOY_HOLD on the
+# site repo, set to the reason: `gh variable set SITE_DEPLOY_HOLD --repo <site> --body "promoting 0.7.51"`, cleared
+# with `gh variable delete SITE_DEPLOY_HOLD --repo <site>`. A variable, not a file here, because whoever calls a hold
+# may be on any computer. Set: nothing asked, and the reason is the tick's line. Absent (404): no hold. Unreadable
+# (any other failure): treated as HELD, because a missed deploy waits fifteen minutes and a deploy during a promotion
+# is the harm a hold exists to stop.
+hold_why=""; hold="$(ghb api "repos/$REPO/actions/variables/SITE_DEPLOY_HOLD" --jq .value 2>"$ERR")" || hold_why="$(why)"
+if [ -z "$hold_why" ]; then say "held: ${hold:0:120} (SITE_DEPLOY_HOLD on $REPO); nothing asked"; exit 0; fi
+if ! grep -q 'HTTP 404' "$ERR" 2>/dev/null; then say "could not read the site-deploy hold on $REPO$hold_why; treated as held, nothing asked"; exit 1; fi
 main="$(ghb api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
 case "$main" in
   *[!0-9a-f]*|'') say "site main read as '${main:0:60}', not a sha; nothing asked"; exit 1 ;;

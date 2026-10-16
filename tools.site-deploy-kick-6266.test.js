@@ -30,6 +30,12 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 [ -n "\${FAKE_PIDFILE:-}" ] && echo $$ > "$FAKE_PIDFILE"
 [ -n "\${FAKE_PPIDFILE:-}" ] && echo $PPID > "$FAKE_PPIDFILE"   # the perl wrapper's pid
 [ -n "\${FAKE_SLEEP:-}" ] && exec sleep "$FAKE_SLEEP"   # the fake becomes the sleep (an ignored ALRM survives exec), as one gh process
+# kosmos#6305: the site-deploy hold variable. Absent (404) unless FAKE_HOLD names a reason; FAKE_HOLD_FAIL fails it otherwise.
+if [ "$*" = "api repos/owner/site/actions/variables/SITE_DEPLOY_HOLD --jq .value" ]; then
+  [ -n "\${FAKE_HOLD_FAIL:-}" ] && { echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1; }
+  [ -n "\${FAKE_HOLD:-}" ] && { printf '%s\\n' "$FAKE_HOLD"; exit 0; }
+  echo 'gh: Not Found (HTTP 404)' >&2; exit 1
+fi
 if [ "$*" = "api repos/owner/site/commits/main --jq .sha" ]; then
   [ -n "\${FAKE_API_FAIL:-}" ] && exit 1; printf '%s\\n' "$FAKE_MAIN"; exit 0
 fi
@@ -188,7 +194,8 @@ test('#6266: a hung gh call that ignores SIGALRM (as Go does) is cut off, said a
   assert.ok(took < 10, 'the call was not cut off (took ' + took + ' s; the fake sleeps 20 s)');
   assert.equal(r.status, 1);
   assert.equal(r.dispatched, 0);
-  assert.match(r.out, /could not read site main \(owner\/site\) \(gh: timed out after 1 s\); nothing asked/);
+  // kosmos#6305: the hold read is the first gh call now, so a hung gh is cut off there (and the tick holds).
+  assert.match(r.out, /could not read the site-deploy hold on owner\/site \(gh: timed out after 1 s\); treated as held, nothing asked/);
 });
 
 test('#6266: a tick that cannot make its temporary file still leaves its heartbeat and its result', () => {
@@ -213,7 +220,7 @@ const systemGh = ['/usr/bin/gh', '/bin/gh'].some((p) => fs.existsSync(p));
 test('#6266: a gh that is not there says so', { skip: systemGh ? 'a gh on /usr/bin or /bin would be found by the fallback' : false }, () => {
   const none = kick(state({ 'last-deployed': OLD }), { KOSMOS_GH: path.join(SANDBOX, 'no-gh-here') });
   assert.equal(none.status, 1);
-  assert.match(none.out, /could not read site main \(owner\/site\) \(gh: perl or gh could not be run \(.*no-gh-here: not found or not executable\?\)\)/);
+  assert.match(none.out, /could not read the site-deploy hold on owner\/site \(gh: perl or gh could not be run \(.*no-gh-here: not found or not executable\?\)\); treated as held/);
 });
 
 test('#6266: a hard kill of the tick\'s process group (launchd\'s cleanup of a stopped job) takes gh with it', async () => {
@@ -356,3 +363,21 @@ test('#6266: the installer retries a refused load once, and says what to run whe
   assert.equal(bad.status, 1);
   assert.match(bad.stderr, /launchd did not load com\.stonesyndicate\.kosmos-site-deploy-kick; if it was disabled, run: launchctl enable/);
 });
+
+test('kosmos#6305: a site-deploy hold (the SITE_DEPLOY_HOLD variable set) asks nothing and says why', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]), FAKE_HOLD: 'promoting 0.7.51' });
+  assert.equal(r.status, 0, r.out);
+  assert.equal(r.dispatched, 0, 'a held site was deployed: ' + r.calls.join('\n'));
+  assert.match(r.out, /held: promoting 0\.7\.51 \(SITE_DEPLOY_HOLD on owner\/site\); nothing asked/, r.out);
+  // CONTROL: the same tick with no hold (the variable absent, a 404) dispatches, as before.
+  const c = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]) });
+  assert.equal(c.dispatched, 1, c.out);
+});
+
+test('kosmos#6305: a hold that cannot be read is treated as held (nothing asked, a failing tick)', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]), FAKE_HOLD_FAIL: '1' });
+  assert.equal(r.status, 1, r.out);
+  assert.equal(r.dispatched, 0, 'an unreadable hold let a deploy through: ' + r.calls.join('\n'));
+  assert.match(r.out, /could not read the site-deploy hold on owner\/site \(gh: gh: Bad credentials \(HTTP 401\)\); treated as held, nothing asked/, r.out);
+});
+
