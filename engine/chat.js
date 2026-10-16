@@ -1436,6 +1436,10 @@ async function answerQuestionMenu(sessionName, n, roster, expect) {
     let q = { ok: true };
     try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
     if (q.ok !== true) return { ok: false, because: `nothing was answered: ${q.because}`, quiet: true };
+    /* kosmos#6309: at the policy's monthly usage cap, likewise (deliverWithGap's rule). A fault reads as open. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { ok: false, because: `nothing was answered: ${c.because}`, capped: true };
   }
   return withQmenuSlot(allowed, () => answerQuestionMenuHeld(sessionName, n, roster, expect, allowed));
 }
@@ -1827,6 +1831,14 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     try { q = require('./orgpolicy').quietAllows(); } catch { q = { ok: true }; }
     if (q.ok !== true) {
       return { state: DELIVERY.COULD_NOT, because: `nothing new is sent to agents now: ${q.because}`, at, paneState: null, paneNote: null, quiet: true };
+    }
+    /* kosmos#6309: at the policy's monthly usage cap (usagecap.capAllows, this month's tokens on every agent), the same:
+       nothing new is typed, the bare look-after commands still go, and a fault reads as open. `capped: true`, not
+       `quiet`: it is not reported as a quiet-hours refusal, and the coordinator has no rule word for it yet. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) {
+      return { state: DELIVERY.COULD_NOT, because: `nothing new is sent to agents now: ${c.because}`, at, paneState: null, paneNote: null, capped: true };
     }
   }
   /* #4589 (after the paused-swarm check, round 3: that check is free and its sentence is the true one): NEVER TYPE INTO CODEX'S "HOOKS NEED REVIEW" DIALOG. Codex stops at startup on it when a hook
