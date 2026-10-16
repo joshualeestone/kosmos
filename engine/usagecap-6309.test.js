@@ -165,6 +165,23 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   assert.deepEqual([last.used, last.complete], [123, true], 'the count did not catch up over later calls');
   usagecap.resetForTests({ perCallBytes: 200 });
   assert.ok(usagecap.capInForce(NOW).used < 123, 'CONTROL: with no saved count the first count is short');
+  // A zone change mid-month after a restart: the saved count is still this month's, so it stays the floor.
+  usagecap.resetForTests();
+  assert.equal(usagecap.capInForce(NOW).used, 123, 'CONTROL: a full count saved under UTC');
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'Asia/Tokyo' } });
+  usagecap.resetForTests({ perCallBytes: 200, keepFloor: true });
+  const moved = usagecap.capInForce(NOW);
+  assert.equal(moved.complete, false, 'CONTROL: the new zone\'s first count is short');
+  assert.ok(moved.used >= 123, `a zone change reopened the cap while the count caught up: ${moved.used}`);
+  // A new month does not inherit last month's count: November's own first count is short, and stays below October's.
+  const NOV2 = Date.UTC(2026, 10, 2);
+  const nov = path.join(CONFIG, 'projects', 'p1', 'nov.jsonl');
+  fs.writeFileSync(nov, [1, 2, 3, 4, 5].map((i) => line('n' + i, NOV2 - i * 1000, 10)).join(''));
+  fs.utimesSync(nov, NOV2 / 1000, NOV2 / 1000);
+  usagecap.resetForTests({ perCallBytes: 200, keepFloor: true });
+  const november = usagecap.capInForce(NOV2);
+  assert.equal(november.complete, false, 'CONTROL: November\'s first count is short');
+  assert.ok(november.used < 123, `November inherited October's count: ${november.used}`);
   usagecap.resetForTests();
 });
 
