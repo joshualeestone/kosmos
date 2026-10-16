@@ -337,19 +337,21 @@ const bearer = (tok) => ({ authorization: 'Bearer ' + tok });
 
 async function main() {
   console.log('#6239 family join proof, run ' + RUN + ', sandbox ' + SANDBOX);
+  for (const [k, p] of Object.entries(BIN)) {
+    if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
+  }
   // Review 4: binaries built before relay#398 have no family kind, and every family step would go red for that reason
   // alone. Such a coordinator does not know --kind; one that does refuses an unknown kind by name.
   {
     let said = '';
+    fs.mkdirSync(path.join(SANDBOX, 'kindcheck'), { recursive: true });
     try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') } }); }
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
     if (!/--kind is company or family/.test(said)) {
       throw new Error('the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 200));
     }
   }
-  for (const [k, p] of Object.entries(BIN)) {
-    if (!require(path.join(REPO, 'engine', 'runners')).isRunnable(p)) throw new Error('missing or not executable: ' + k + ' binary at ' + p + ' (set FEDPROOF_BIN_DIR)');
-  }
+
   // 1. coordinator (as #4693: a loopback-only name, an allowlisted env, dev codes to its log)
   const coordAll = await require('node:dns').promises.lookup(FEDPROOF_COORD_HOST, { all: true }).catch((e) => ({ error: e }));
   if (coordAll.error || !coordAll.length || coordAll.some((a) => !['127.0.0.1', '::1'].includes(a.address))) {
@@ -510,8 +512,12 @@ async function main() {
     chk(r.json && r.json.ok === true, 'step 11: K leaves the family', r.status + ' ' + r.text.slice(0, 200));
     const g = await http(K.base, 'GET', '/api/org');
     chk(g.status === 200 && g.json && g.json.enrolled === false, 'step 11: K is no longer joined', g.status + ' ' + g.text.slice(0, 120));
-    const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
-    const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
+    let rows = [];
+    await waitFor(async () => {   // a leave can be confirmed a moment later (orgenroll's pending leave)
+      const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
+      rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
+      return rows.some((e) => e && e.what === 'left');
+    }, 20000, 1000);
     chk(rows.some((e) => e && e.what === 'left'), 'step 11: the family\'s audit log records the leave', rows.map((e) => e && e.what).join(','));
   }
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
