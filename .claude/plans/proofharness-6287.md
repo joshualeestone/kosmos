@@ -16,7 +16,7 @@ I compared the two files' top-level helpers on main.
   Identical code is therefore not identical behaviour: `ownedAlive`'s orphan sweep matches command lines against each harness's own BIN and SANDBOX.
 
 ## The call: a guard, not an extraction
-`tools.fedproof-helpers-in-sync-6287.test.js` cuts each shared helper and each shared state statement from both files and asserts their CODE is identical. Lines that are only a `//` comment are left out, so one copy may explain more. Each must be found exactly once in BOTH files, and no cut may run past 40 lines, so a rename, a removal or a wrong cut fails rather than shrinking what is compared. A control checks the extractor sees a one-character change, a changed exit handler, and an ignored comment. Each harness carries a one-line comment pointing at the guard.
+`tools.fedproof-helpers-in-sync-6287.test.js` cuts each shared helper and each shared state statement from both files and asserts their CODE is identical. Lines that are only a `//` comment are left out, so one copy may explain more. Each must be found exactly once in BOTH files, and no cut may run past 40 lines, so a rename, a removal or a wrong cut fails rather than shrinking what is compared. A control checks the extractor sees a one-character change, a changed exit handler, and an ignored comment. Each harness carries a two-line comment pointing at the guard.
 
 **Rejected: extracting `tools/lib/fedproof-harness.js`, the card's proposal.**
 - The helpers close over each harness's module state: `results`, `halted`, the process table, the sandbox, `RUN` and `KEEP`. Sharing them needs a factory that both proofs are rebuilt around.
@@ -31,7 +31,7 @@ I compared the two files' top-level helpers on main.
 - The guard passes on main's files.
 - One-character code mutants in one copy turn it red with the named message: `stopPids`, `ownedAlive`, and the exit handler.
 - Every cut has a sensible length (1 to 20 lines), ENFORCED by the 40-line cap.
-- The harnesses change only by a comment, so no proof re-run is owed.
+- The harnesses change only by a comment, so no proof re-run is owed (two comment lines each).
 
 ## Review notes
 - **Review 1 (sonnet).** Two warnings, both fixed:
@@ -44,3 +44,4 @@ I compared the two files' top-level helpers on main.
   - the decision is now on the card (the test pointed at it while the card said the opposite);
   - the cut-length range is corrected.
   - Nits taken: the harness comment says "whole-line `//` comments may differ"; notes on `code()` and the `statements()` terminator.
+- **Review 3 (sonnet).** No BLOCKER, WARNING or CONVENTION: converged. Nit taken: the harness comment is two lines, not one.
