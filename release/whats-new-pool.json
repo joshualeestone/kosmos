@@ -587,6 +587,14 @@
       "rank": 1.5,
       "since": "0.7.52",
       "status": "pending"
+    },
+    {
+      "title": "A second computer can be allowed",
+      "line": "When you add another computer to your Kosmos+ account, its request to be allowed now shows on your first computer, so you can allow it.",
+      "icon": "shield",
+      "rank": 1.2,
+      "since": "0.7.53",
+      "status": "pending"
     }
   ]
 }
