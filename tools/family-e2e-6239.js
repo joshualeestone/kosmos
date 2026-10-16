@@ -79,7 +79,7 @@ const T0 = Date.now();
 const results = [];
 let halted = false;   // a signal or the watchdog is tearing the run down: main's late checks are not reported
 // kosmos#6287: the helpers and module state named in tools.fedproof-helpers-in-sync-6287.test.js are kept identical in
-// tools/fed-own-e2e.js and tools/family-e2e-6239.js (comments may differ). A fix to one is made to both, or that test fails.
+// tools/fed-own-e2e.js and tools/family-e2e-6239.js (whole-line // comments may differ). A fix to one is made to both, or that test fails.
 function chk(ok, label, extra) {
   if (halted) return !!ok;
   results.push({ ok: !!ok, label });
