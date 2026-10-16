@@ -242,7 +242,6 @@ function startOfDay(now) {
   return d.getTime();
 }
 
-
 /* (lead's current transcript, session file) -> { mine, at }: whether that file is the lead's.
    A true/false answer is kept (a session's cwd never changes); "cannot tell" (null) is asked
    again after OWNER_RETRY_MS. Keyed per lead: two leads can share one folder. */

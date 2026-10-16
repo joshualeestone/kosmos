@@ -2,8 +2,10 @@
 
 /**
  * Reading Claude Code transcripts for their token counts: each file read incrementally, each message counted once.
- * Moved out of engine/swarm.js for kosmos#6309, unchanged, so that a module that only counts (the usage cap's worker
- * thread) need not load the engine: this file requires node's own modules only. engine/swarm.js re-exports it.
+ * Moved out of engine/swarm.js for kosmos#6309, so that a module that only counts (the usage cap's worker thread) need
+ * not load the engine: this file requires node's own modules only. engine/swarm.js re-exports it. #6309 also changed
+ * readFile: a caller may pass its own `cache` (with an optional `sharedSeen`, one set of message ids across its
+ * files), a `since` that moved earlier reads the file again, and only the swarm's own cache is swept.
  */
 
 const fs = require('node:fs');
