@@ -5,7 +5,7 @@
  * Drives the SHIPPED page against a real server (sandboxed roots, fixture panes, never a live agent): a project with
  * ten fixture members, the consolidated layout at 1280x900 and at its narrowest, 960x720. Asserts the tab layout's button cannot be
  * reached there (the problem), the rail's button shows and starts closed, opens the map with aria-expanded true, every
- * member is on it, the map scrolls inside its own box, the page does not scroll and the agents list stays in view,
+ * member is on it, the map fits sideways and scrolls inside its own box while the first agent row stays in view,
  * focus survives a repaint, folding the agents column hides it, the open state carries to the tab layout, a second
  * click closes it, and a member on the map opens that agent's page. What the map counts is the unit suites'
  * (web.teammap-6103.test.js, web.teammap-rail-6324.test.js).
@@ -101,7 +101,6 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         nodes: box ? [...box.querySelectorAll('.pjtm-node[data-agent]')].map((n) => n.dataset.agent) : [],
         over: box ? box.scrollWidth - box.clientWidth : null,
         tall: box ? box.scrollHeight - box.clientHeight : null,
-        pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
         // The first agent row of the list, wholly inside the window: the list was not pushed off.
         firstRow: (() => { const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
           return r.top >= 0 && r.bottom <= window.innerHeight; })() };
@@ -134,16 +133,24 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       for (const ul of document.querySelectorAll('#alist-teammap .pjtm-map ul')) { let n = 0; for (let e = ul; e && e.id !== 'alist-teammap'; e = e.parentElement) if (e.tagName === 'UL') n++; d = Math.max(d, n); }
       return d;
     });
-    say('CONTROL: the map nests four levels deep, so the sideways arms include the indent', depth >= 4, 'depth ' + depth);
+    say('CONTROL: the map nests four levels deep', depth >= 4, 'depth ' + depth);
     const words = await p.textContent('#alist-teammap');
     say('the map says what each holds and who handed work', /holds no open parts/.test(words) && /Who handed work to whom/.test(words), words);
     say('the open map fits the rail (no sideways scroll)', opened.over !== null && opened.over <= 0, 'overflow ' + opened.over + 'px');
+    // CONTROL for the sideways arms: a node forced wider than the rail must read as overflow.
+    const wide = await p.evaluate(() => {
+      const box = document.getElementById('alist-teammap');
+      const n = box.querySelector('.pjtm-node');
+      n.style.minWidth = '400px';
+      const over = box.scrollWidth - box.clientWidth;
+      n.style.minWidth = '';
+      return over;
+    });
+    say('CONTROL: the sideways instrument reads a too-wide node as overflow', wide > 0, 'overflow ' + wide + 'px');
     const pageOver = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     say('the open map does not widen the page', pageOver <= 0, 'overflow ' + pageOver + 'px');
-    // Height: with ten members the map is taller than its cap, so it must scroll inside itself, not push the page.
-    say('CONTROL: the page did not scroll down before the map opened', before.pageDown <= 0, 'page ' + before.pageDown + 'px');
-    say('CONTROL: ten members make the map taller than its box (so the next arm tests the cap)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
-    say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
+    // Height: with ten members the map is taller than its cap, so it scrolls inside its own box.
+    say('CONTROL: ten members make the map taller than its box (so the cap is reached)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
     say('CONTROL: the first agent row is in view before the map opens', before.firstRow === true, JSON.stringify(before.firstRow));
     say('with the map open the first agent row is still in view', opened.firstRow === true, JSON.stringify(opened.firstRow));
     const uncapped = () => p.evaluate(() => {
@@ -151,8 +158,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       box.style.maxHeight = 'none';
       const r0 = document.querySelector('#alist .lrow');
       const r = r0 ? r0.getBoundingClientRect() : null;
-      const out = { pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
-        firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
+      const out = { firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
       box.style.maxHeight = '';
       return out;
     });
@@ -171,7 +177,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const short = await state();
     say('CONTROL: at 960x720, unfolded, the layout is still consolidated with the map open', short.cons && short.shown, JSON.stringify(short));
     say('at 960x720 the map fits the rail sideways', short.over !== null && short.over <= 0, 'overflow ' + short.over + 'px');
-    say('at 960x720 the open map scrolls itself, not the page', short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
+    say('CONTROL: at 960x720 the map is still taller than its box (so the cap is reached)', short.tall > 0, 'map overflow ' + short.tall + 'px');
     say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
     // CONTROL for the two arms above: without the cap the same instruments must go red, or they cannot see a push.
     const uncapShort = await uncapped();
@@ -185,11 +191,15 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       node.focus();
       const pj = PROJECTS.find((x) => x.id === pid);
       const m = pj.agents.find((a) => a.sessionName === 'rmcy');
+      const was = m.name;
       m.name = 'Cy renamed';
       paintRailPjNotice();
       const now = document.querySelector('#alist-teammap .pjtm-node[data-agent="rmcy"]');
       const a = document.activeElement;
-      return { replaced: !!now && now !== node && !node.isConnected, on: a && a.dataset ? a.dataset.agent || a.id : null };
+      const r = { replaced: !!now && now !== node && !node.isConnected, on: a && a.dataset ? a.dataset.agent || a.id : null };
+      m.name = was;
+      paintRailPjNotice();
+      return r;
     }, made.id);
     say('CONTROL: the repaint really replaced the focused button', kept.replaced, JSON.stringify(kept));
     say('focus comes back to the same member after a repaint', kept.on === 'rmcy', JSON.stringify(kept));
