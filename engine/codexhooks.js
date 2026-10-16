@@ -23,11 +23,11 @@
  *   - the record is `[hooks.state."<hooks.json path>:pre_tool_use:0:0"] trusted_hash = "sha256:<hex>"`, where the path
  *     is the CANONICAL on-disk one (review 2, measured: Codex resolves its home first, so a record keyed through a
  *     linked parent folder or another letter case is never matched: install said ok and the hook did not run; in the
- *     TUI that is the review screen). Keyed with trust.canonicalOnDisk, as create.js codexTrustKey keys folder trust. The
- *     hex is
- *     Codex's version_for_toml (codex-rs/config/src/fingerprint.rs): SHA-256 of the sorted-key JSON of
- *     { event_name, matcher, hooks: [the handler normalized: timeout 600, async false] }. Reproduced exactly against
- *     two records the TUI wrote; one changed hex digit and the hook does not run.
+ *     TUI that is the review screen). Keyed with trust.canonicalOnDisk, as create.js codexTrustKey keys folder trust.
+ *     The hex is Codex's version_for_toml (codex-rs/config/src/fingerprint.rs): SHA-256 of the sorted-key JSON of
+ *     { event_name, matcher, hooks: [the handler normalized: its timeout (HOOK_TIMEOUT_SEC; Codex's default is 600),
+ *     async false] }. Equal to the records Codex's own TUI trust wrote for this hook; one changed hex digit and the hook
+ *     does not run.
  *
  * ⚠️ That hash is Codex's internal detail, verified for ONE version, HASH_VERIFIED_FOR. A Codex that computes it
  * differently would stop every agent on the review screen, so install() runs only when the launching Codex reports
