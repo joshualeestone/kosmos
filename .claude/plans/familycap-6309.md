@@ -24,6 +24,8 @@ change still go.
   then the partial count until it has caught up. A restarted board does not: the month's saved count holds it up.
 - Every Claude transcript in the config folders Kosmos finds (status.configRoots) counts, Claude Code used outside
   Kosmos too. One run with CLAUDE_CONFIG_DIR somewhere else is not counted.
+- The cap is tamper-evident, not tamper-proof: a person who can write this computer's data folder can delete the saved
+  count or damage the policy record (a fault reads as open, as quiet hours does). Decided on the card.
 - A board older than this ignores usage_cap (unknown keys stay unread): no cap is enforced there, and the console must
   not imply one is.
 
