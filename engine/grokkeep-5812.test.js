@@ -13,6 +13,9 @@ const path = require('node:path');
 const http = require('node:http');
 const { execFile, execFileSync } = require('node:child_process');
 
+/* #4796: this test's children (the bridge, grok and its hook) get a data root of their own, so the live board token
+   never travels to a stub board (cli.sandbox-data-4796 caught the first version inheriting the parent's). */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-grokkeep-5812-data-'));
 const settings = require('./groksettings');
 const BRIDGE = path.join(__dirname, '..', 'bin', 'grok-report-bridge.js');
 const bridge = require(BRIDGE);
