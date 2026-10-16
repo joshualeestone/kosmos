@@ -34,7 +34,10 @@ const FUTURE_SLACK_MINUTES = 5;
  *   expected to write, so stale is a fact to read, not a fault); none: no summaries yet; unreadable: we
  *   could not look (the reader must not take that as none).
  */
-/* #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
+/* #6329: a summary workExcused leaves stale carries what decided it: workedSince (minutes counted as work, with
+   workAllReported when working reports stand behind all of it), turnsSince (turns after the writing one), waitedSince or
+   untimed (turn-ends-only runners).
+   #5635 0.7.33: a stale summary of a member the board reads as rate limited now carries limitedNow (idleNoted).
    overviewOf may then mark a stale summary 'idle', with idleKind ('idle' or 'started'), idleSince and idleMinutes
    (#4581 N10, idleExcused), or 'quiet', with quietSince and quietMinutes (#4581 R9, quietExcused), or 'worked', with
    workMinutes (#5635 F2, workExcused; a turn-ends-only runner also carries turnsOnly, and its 0 minutes mean
@@ -285,11 +288,11 @@ function workExcused(summary, member, readHistory, nowMs) {
   const valid = kept.map((r, i) => ({ r, i })).sort((a, b) => (a.r.at - b.r.at) || (a.i - b.i)).map((x) => x.r);
   const busy = (st) => st !== 'idle' && st !== 'started' && st !== 'stopped';
   if (!reportsWorking) {
-    if (now - wroteAt > TURN_ENDS_CAP_MS) return summary;
+    if (now - wroteAt > TURN_ENDS_CAP_MS) return { ...summary, untimed: true };   // #6329: too old to time from turn ends
     const after = valid.filter((r) => r.at > wroteAt);
     // A busy report it filed itself (kosmos report working, needs_you, blocked) is reported work: left stale, even when
     // the wait has since been answered (errs toward stale).
-    if (after.some((r) => busy(r.state))) return summary;
+    if (after.some((r) => busy(r.state))) return { ...summary, waitedSince: true };   // #6329: its own busy or wait report
     // Idle rows within TURN_END_SAME_MS of the one before are one turn end (an automatic idle and a manual one together);
     // a real second turn that short is counted with the first, the window's known cost. The window chains (each idle is
     // measured from the one before), so a run of idles each under 2 min apart is one turn end.
@@ -300,7 +303,8 @@ function workExcused(summary, member, readHistory, nowMs) {
       lastIdle = r.at;
     }
     // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
-    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded };
+    // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer.
+    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded - 1 };
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
   let stateAt = NaN;  // when that report was filed (the cap below runs from it)
@@ -324,9 +328,11 @@ function workExcused(summary, member, readHistory, nowMs) {
   const span = (st, at, a, b) => (st === 'working' && Number.isFinite(cap) && Number.isFinite(at) ? Math.max(0, Math.min(b, at + cap) - a) : b - a);
   let from = wroteAt;
   let worked = 0;
+  let reportedWorking = 0;   // #6329: the part of `worked` that `working` reports stand behind (not waits, not unknown)
+  const add = (st, ms) => { worked += ms; if (st === 'working') reportedWorking += ms; };
   for (const r of valid) {
     if (r.at <= wroteAt) continue;
-    if (state === null || busy(state)) worked += span(state, stateAt, from, r.at);
+    if (state === null || busy(state)) add(state, span(state, stateAt, from, r.at));
     state = r.state;
     stateAt = r.at;
     from = r.at;
@@ -335,9 +341,14 @@ function workExcused(summary, member, readHistory, nowMs) {
      current whatever its state at the moment of the check"): only REPORTED work counts. The time since the last report
      is work only when that report says busy (or there is none); the board's read of the screen right now does not add
      to it. This replaces review 3's rule that the board's busy read wins (#1995). */
-  if (state === null || busy(state)) worked += span(state, stateAt, from, now);
+  if (state === null || busy(state)) add(state, span(state, stateAt, from, now));
   // #6329: stale because the member reported more than the rhythm of work since it was written; the line says so.
-  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return { ...summary, workedSince: Math.ceil(worked / 60000) };
+  /* #6329: stale because more than the rhythm was counted as work since it was written. Said as reported work only when
+     `working` reports stand behind all of it; waits and stretches with no report are counted too (errs toward stale),
+     and then the line says so instead. */
+  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) {
+    return { ...summary, workedSince: Math.ceil(worked / 60000), workAllReported: reportedWorking >= worked };
+  }
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
@@ -558,8 +569,12 @@ const SUMMARY_WORDS = {
     }
     /* #6329: which rule fired, when it is known: reported work past the rhythm since it was written, or (a runner that
        reports turn ends only) turns that have ended since. Otherwise the line says only what was measured, as before. */
-    const why = Number.isFinite(s.workedSince) ? '; ' + span(s.workedSince) + ' of reported work since it was written'
-      : Number.isFinite(s.turnsSince) ? '; ' + s.turnsSince + ' turns have ended since it was written' : '';
+    const why = Number.isFinite(s.workedSince)
+      ? (s.workAllReported ? '; ' + span(s.workedSince) + ' of reported work since it was written'
+        : '; ' + span(s.workedSince) + ' counted as working or waiting since it was written')
+      : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
+        : s.waitedSince ? '; it reported working or a wait since it was written'
+          : s.untimed ? '; written more than a day ago, and this agent reports only when a turn ends, so its work cannot be timed' : '';
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
