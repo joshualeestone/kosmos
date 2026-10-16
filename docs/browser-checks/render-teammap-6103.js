@@ -127,6 +127,6 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     srv.kill();
     for (const d of Object.values(roots)) fs.rmSync(d, { recursive: true, force: true });
   }
-  if (failures) { console.log('TEAMMAP FAIL: ' + failures + ' failing'); process.exit(1); }
+  if (failures) { console.log('FAIL  teammap (#6103): ' + failures + ' failing'); process.exit(1); }
   console.log('TEAMMAP OK (#6103): the Team map button opens and closes the map, every member is on it, a member opens its page, and it fits a phone.');
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
