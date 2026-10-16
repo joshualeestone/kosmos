@@ -44,6 +44,7 @@ test('on win32 the bridge resolves a Windows path and refuses a UNC path or fold
     { path: 'C:\\Users\\a\\w\\x.txt', cwd: 'C:\\Users\\a\\w', session: 's1' });
   assert.equal(bridge.keepRequestFor(pre({ cwd: 'C:\\w', tool_input: { file_path: '\\\\srv\\share\\x' } }), 'win32'), null);
   assert.equal(bridge.keepRequestFor(pre({ cwd: '\\\\srv\\share', tool_input: { file_path: 'x' } }), 'win32'), null);
+  assert.equal(bridge.keepRequestFor(pre({ cwd: 'C:\\w', tool_input: { file_path: '\\foo\\x' } }), 'win32'), null, 'review 1: rooted with no drive');
 });
 
 test('main posts the keep to the board (and nothing to /api/report), and never throws on a board that is down', async () => {
@@ -119,6 +120,10 @@ test('the hook file Kosmos owns wires PreToolUse to the bridge with the anchored
   const re = new RegExp(settings.TOOL_MATCHER);
   assert.ok(re.test('search_replace') && re.test('write'));
   assert.ok(!re.test('todo_write') && !re.test('read_file') && !re.test('write_file'));
+  // Review 1: the Windows form carries no tool hook (a Windows grok's payload was never measured).
+  const win = settings.desiredContent('C:/s/bin/grok-report-bridge.js', { platform: 'win32', node: 'C:/k/node.exe' });
+  assert.equal(win.hooks.PreToolUse, undefined);
+  for (const e of settings.HOOK_EVENTS) assert.ok(win.hooks[e], e);
 });
 
 test('ensurePrepared brings an older file of ours up to date with the tool hook, and leaves a file not ours alone', () => {
@@ -192,6 +197,17 @@ test(`the REAL grok (${PINNED || 'pin unreadable'}) runs the hook, and the bridg
     assert.equal(fs.readFileSync(path.join(work, 'existing.txt'), 'utf8'), 'new line\n', 'the edit ran');
     assert.deepEqual(board.seen, [{ path: path.join(work, 'existing.txt'), cwd: work, session: board.seen[0] && board.seen[0].session }]);
     assert.ok(board.seen[0].session, 'the session id came through');
+
+    // Review 1: write (an absolute path) fires the anchored matcher too.
+    board.seen.length = 0;
+    const writer = await fakeModel({ name: 'write', args: { file_path: path.join(work, 'made.txt'), content: 'made\n' } });
+    fs.writeFileSync(path.join(home, 'config.toml'), `[model.fake]\nmodel = "fake-model"\nbase_url = "http://127.0.0.1:${writer.port}/v1"\nname = "Fake"\napi_key = "x"\n`);
+    const rw = await runGrok(home, work, { KOSMOS_PORT: String(board.port), TMUX_PANE: '' });
+    writer.server.close();
+    assert.equal(rw.killed, false);
+    assert.equal(fs.readFileSync(path.join(work, 'made.txt'), 'utf8'), 'made\n');
+    assert.deepEqual(board.seen.map((x) => x.path), [path.join(work, 'made.txt')]);
+    fs.writeFileSync(path.join(home, 'config.toml'), `[model.fake]\nmodel = "fake-model"\nbase_url = "http://127.0.0.1:${model.port}/v1"\nname = "Fake"\napi_key = "x"\n`);
 
     // Control: the same run with our hook file gone sends nothing, so the hook (not something else) made the keep.
     board.seen.length = 0;

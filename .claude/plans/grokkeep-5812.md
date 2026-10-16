@@ -14,8 +14,9 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
 2. bin/grok-report-bridge.js: keepRequestFor (the Gemini bridge's shape: refuse other events and tools, no path, a
    relative path with no folder, a control character, a win32 UNC path) and one bounded post for keep and report: the
    answer read under the timer, stdin let go once read (both lessons from the Codex hook's reviews).
-3. bin/agent-supervisor.sh: the grok launch refreshes our hook file with ensurePrepared (content-idempotent; rewrites
-   only a file with our marker), so agents made before this get the hook and a wiped file comes back.
+3. bin/agent-supervisor.sh: the grok launch brings our hook file up to date with ensurePrepared (content-idempotent;
+   rewrites only a file with our marker), so agents made before this get the hook. Only a file that is there: a person
+   who deleted it (for a default-account agent it sits in their own ~/.grok) does not get it back.
 
 ## Differences from the Codex slice, measured
 - No trust record: hooks in $GROK_HOME/hooks run as they are (only project hooks need trust).
@@ -23,7 +24,8 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
 
 ## Not in this change
 - Edits through run_terminal_command (no path to read reliably; never guessed).
-- Windows: grok there runs per turn through win32keyed, which does not refresh this file; a separate slice if wanted.
+- Windows: the Windows form of the hook file carries no tool hook (a Windows grok's payload was never measured), and
+  win32keyed does not refresh the file; a separate slice if wanted.
 
 ## Weakest premise
 That the hook payload stays as measured on 1.0.41. Guard: the real-grok test (when grok 1.0.41 is installed) drives the

@@ -52,11 +52,11 @@ test('a grok launch brings an older hook file of ours up to date with the file-e
   assert.equal(/report hooks were not refreshed/.test(r.out), false, r.out);
 });
 
-test('a missing hook file comes back at launch (it used to wait for the agent to be remade)', () => {
+test('review 1: a hook file the person deleted is NOT brought back at launch (their own ~/.grok)', () => {
   const home = grokHome();
   const r = run('agent-grok2', home);
   assert.match(r.argv, /new-session/, r.out);
-  assert.ok(JSON.parse(fs.readFileSync(nodePath.join(home, 'hooks', 'kosmos-report-bridge.json'), 'utf8')).hooks.PreToolUse);
+  assert.equal(fs.existsSync(nodePath.join(home, 'hooks', 'kosmos-report-bridge.json')), false);
 });
 
 test('CONTROL: a file at that name that is not ours is left alone, the launch goes ahead, and the log says why', () => {
