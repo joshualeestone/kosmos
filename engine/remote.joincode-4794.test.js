@@ -177,3 +177,36 @@ test('#4794: a confirm code that is not six digits is refused without spawning',
   }
   assert.equal(recorded().length, 0, 'a bad code reached the binary');
 });
+
+/* #6315: the coordinator names a joining computer's request by a MINTED id, computer:<the computer's 32-hex id>
+   (kosmos-relay MINTED_PREFIX, kosmos#4681). Every test above used ids like 'dev-a', so nothing saw that the board's
+   id check refused the colon and dropped every such request: no second computer could ever be allowed. */
+const MINTED = 'computer:36b705ae542a7305ca8a368286c37161';
+
+test('#6315: a joining computer named by its real minted id is listed, with its name and code; malformed ones are not', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: '050 584', joining_computer: 'tmnt' },
+    { device_id: 'computer:36B705AE542A7305CA8A368286C37161', name: 'upper', first_seen: 1792168082, code: '', joining_computer: 'upper' },
+    { device_id: 'computer:36b705ae542a7305ca8a368286c3716', name: 'short', first_seen: 1792168082, code: '', joining_computer: 'short' },
+    { device_id: 'computer:../../etc', name: 'path', first_seen: 1792168082, code: '', joining_computer: 'path' },
+    { device_id: 'k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn', name: 'Android phone', first_seen: 1792009447, code: '' },   // CONTROL
+  ] }));
+  remote.setOn(true);
+  const got = remote.pendingDevices().devices;
+  assert.deepEqual(got.map((d) => d.device_id), [MINTED, 'k1.L8xHhgKw4ciSy7mTPfT3qNu8V7Z2oDAn']);
+  const row = got.find((d) => d.device_id === MINTED);
+  assert.equal(row.joining_computer, 'tmnt');
+  assert.equal(row.code, '050 584');
+});
+
+test('#6315: Allow takes the minted id and hands it to the tunnel unchanged; a malformed computer id is refused', async () => {
+  enrol();
+  const ok = await remote.deviceAllow(MINTED, 'tmnt', '050 584');
+  assert.equal(ok.ok, true, ok.because);
+  const call = recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').find((a) => a[a.indexOf('--device-id') + 1] === MINTED);
+  assert.ok(call, 'the minted id never reached the tunnel');
+  assert.equal(call[call.indexOf('--code') + 1], '050 584');
+  const bad = await remote.deviceAllow('computer:not-hex', 'tmnt', '050 584');
+  assert.equal(bad.ok, false, 'a malformed computer id was let through');
+});
