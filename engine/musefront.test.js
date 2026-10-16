@@ -616,8 +616,11 @@ test('#6319: an over-limit DM answer is cut with a marker that survives the boar
   assert.ok(chars.length <= front.FINAL_MAX, 'the copy is over the limit: ' + chars.length);
   assert.ok(final.text.endsWith(front.FINAL_CUT_MARK), 'the cut copy does not end with the marker: ...' + final.text.slice(-80));
   assert.ok(long.startsWith(final.text.slice(0, -front.FINAL_CUT_MARK.length)), 'the kept part is not the start of the answer');
-  // The board keeps at most 4000 characters (selfreport finalOf); the marker must be inside them.
-  const kept = selfreport.finalOf('idle', final);
+  // Two caps sit on the way to the DM: the report bridge's (bin/agy-report-bridge.js) and the board's (selfreport
+  // finalOf). The marker must survive both, in that order.
+  const bridged = require('../bin/agy-report-bridge').reportFor('Stop', { kosmosFinal: final }).final;
+  assert.ok(bridged && bridged.text.endsWith(front.FINAL_CUT_MARK), 'the report bridge cut the marker off');
+  const kept = selfreport.finalOf('idle', bridged);
   assert.ok(kept && kept.text.endsWith(front.FINAL_CUT_MARK), 'the board cut the marker off');
   // CONTROL: at the limit exactly, nothing is cut and no marker is added; astral characters count as one each.
   const exact = 'y'.repeat(front.FINAL_MAX);

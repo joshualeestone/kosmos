@@ -336,7 +336,7 @@ const BUSY_RETRIES = 4;
 const FINAL_MAX = 4000;
 /* #6319: an answer longer than FINAL_MAX is cut short enough to end with this marker inside the limit (the board keeps
    at most 4000 characters too: selfreport finalOf), so the DM never stops mid-sentence with nothing said. */
-const FINAL_CUT_MARK = '… (the answer is longer; the rest is in the agent’s own window)';
+const FINAL_CUT_MARK = '… (the answer is longer than Kosmos can show here)';
 function finalCopy(text) {
   const chars = Array.from(text);   // characters, not UTF-16 units, as the board counts them
   if (chars.length <= FINAL_MAX) return text;
