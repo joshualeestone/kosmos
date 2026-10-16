@@ -12418,8 +12418,16 @@ test('#5534 slice 4: the policy GET carries the company\'s AI policy, read-only,
     r = await req('/api/policy');
     assert.equal(r.status, 200);
     const got = JSON.parse(r.body);
-    assert.deepEqual(got.company, { name: 'Acme legal', chars: 39, opening: 'Never paste client names into a prompt.' });
+    // kosmos#6263: the entry carries the enrolled org's kind ('company' with no family record) for the page's words.
+    assert.deepEqual(got.company, { name: 'Acme legal', chars: 39, opening: 'Never paste client names into a prompt.', kind: 'company' });
     assert.equal(got.state, 'absent', 'the company entry was counted as one of the person\'s own');
+    // kosmos#6263: on a family's board the same entry says family (driven through the route, not the source).
+    const oe = require('./engine/orgenroll');
+    const rec = require('node:path').join(require('./engine/store').ROOT, oe.ENROLLMENT_FILE);
+    fsx.writeFileSync(rec, JSON.stringify({ org: { id: 'org_1', name: 'Rivera', slug: 'rivera', kind: 'family' }, role: 'member', world: 'a'.repeat(32) }));
+    try {
+      assert.equal(JSON.parse((await req('/api/policy')).body).company.kind, 'family');
+    } finally { fsx.rmSync(rec, { force: true }); }
   } finally { orgpolicy.clear(); }
 });
 

@@ -71,3 +71,9 @@ A family's policy is said as the family's, everywhere the board words an org's p
   "Your company's AI policy" (pre-existing; changing it rewrites every agent's file, the #479 cost).
 - Judged acceptable: kindHere fails soft (an unreadable record reads as no kind, so a company's words), as every
   refusal's kind does. NITs kept: aboutPolicies' lowercase match (its one caller), the log line's interpolated text.
+
+## After convergence (PigeonPete's stacked validation, 20:1x)
+- server.test.js "#5534 slice 4: the policy GET ..." pinned the entry's shape without `kind` and went red. Fixed: the
+  shape includes kind 'company', and a family arm drives /api/policy on a family record (red when the route sends a
+  fixed 'company'). Missed by my own sweep, which searched for "api/policies" (the route is /api/policy); re-swept
+  with the right name: only server.test.js and render-policy-company-5534.js (mocked without a kind, so unaffected).
