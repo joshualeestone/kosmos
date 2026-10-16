@@ -860,8 +860,9 @@ test('#6310: one survey converts at most four binary plists; the fifth is read o
     assert.equal(first.agents.filter((x) => x.job === true).length, 4, 'more or fewer than four were converted in one survey');
     assert.equal(first.agents.filter((x) => x.job === null).length, 1);
     assert.deepEqual(first.unknown, [], '#6320: a plist only waiting its turn was told to the person as unreadable');
-    t.mock.timers.tick(61000);
-    assert.deepEqual(mac.survey().missing, []);
+    const next = mac.survey();   // #6320: no minute wait: the next survey reads the one left over
+    assert.deepEqual(next.missing, []);
+    assert.equal(next.agents.filter((x) => x.job === true).length, 5, 'the waiting plist was not read on the next survey');
   } finally { t.mock.timers.reset(); }
 });
 
@@ -942,5 +943,31 @@ test('#6320: a real unreadable plist still lists the unknown while another only 
     const s = mac.survey();
     assert.ok(s.unknown.includes('lostz'), 'a real failure was hidden because another plist was only waiting: ' + JSON.stringify(s.unknown));
   } finally { fs.chmodSync(locked, 0o644); }
-  assert.deepEqual(register.survey({ platform: 'linux' }).unknown, [], 'the unknown list is Mac-only');
+});
+
+test('#6320: on Windows a failed task lookup makes every agent unknown but lists none (Mac-only)', () => {
+  reset();
+  agent('winx');
+  const w = require('./win32job');
+  const orig = w.list;
+  w.list = () => ({ known: false });
+  try {
+    const s = register.survey({ platform: 'win32' });
+    assert.equal(s.agents.find((x) => x.name === 'winx').job, null, 'the fixture did not make the agent unknown');
+    assert.deepEqual(s.unknown, []);
+  } finally { w.list = orig; }
+});
+
+test('#6320: an agent a broken plist names is listed even while other plists wait their turn', (t) => {
+  if (!fs.existsSync('/usr/bin/plutil')) return t.skip('no plutil off a Mac');
+  reset();
+  for (const n of ['wb1', 'wb2', 'wb3', 'wb4', 'wb5']) {
+    agent(n);
+    foreignJob('com.' + n + '.discord.plist', { dir: create.workerDir(n) });
+    require('node:child_process').execFileSync('/usr/bin/plutil', ['-convert', 'binary1', path.join(SB, 'launch', 'com.' + n + '.discord.plist')]);
+  }
+  agent('suspx');
+  foreignJob('com.broken.suspx.plist', { raw: 'not a plist, but it runs ' + create.workerDir('suspx') });
+  const s = mac.survey();
+  assert.ok(s.unknown.includes('suspx'), 'a real could-not-read was hidden while others waited: ' + JSON.stringify(s.unknown));
 });

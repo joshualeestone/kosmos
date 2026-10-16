@@ -26,3 +26,6 @@ names it, instead of going quiet; it offers no button for it. An older board wit
   plist is no longer cached for a minute; the next survey converts the next four.
 - The unknown-only panel is not the alarm style (nothing to fix), and its copy says it goes away once it can be read.
 - Still to do before merge: a rendered screenshot of the unknown-only and combined panels (/design-shots).
+- Each null records why (`whyNull`): 'waiting' only when the sole reason is a plist waiting its turn; a broken plist
+  naming the folder, an unreadable launcher, or an unresolvable folder is 'unread' and is listed, even while others wait.
+- A budget skip keeps what was known about that plist (its logged record, its retry), instead of dropping it.
