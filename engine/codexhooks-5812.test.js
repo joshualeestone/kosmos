@@ -47,8 +47,9 @@ test('nextConfig appends when absent, and leaves every other table byte-for-byte
   const line = `trusted_hash = "sha256:${'a'.repeat(64)}"`;
   const theirs = '[projects."/w"]\ntrust_level = "trusted"\n\n[tui]\nx = 1';
   const r = hooks.nextConfig(theirs, heading, line);
-  assert.equal(r.text, `${theirs}\n${heading}\n${line}\n`);
-  assert.equal(hooks.nextConfig('', heading, line).text, `${heading}\n${line}\n`);
+  assert.equal(r.append, `\n${heading}\n${line}\n`, 'review 3: an append, not a rewrite');
+  assert.equal(hooks.nextConfig('', heading, line).append, `${heading}\n${line}\n`);
+  assert.equal(hooks.nextConfig(`${theirs}\n`, heading, line).append, `${heading}\n${line}\n`);
 });
 
 test('nextConfig: the same record is a no-op; a different hash in our form has only that line replaced', () => {
@@ -87,6 +88,7 @@ test('stateHeading refuses a path a TOML basic string would need escapes for', (
 test('install writes hooks.json and the trust record (0600), is a no-op the second time, and follows a moved bridge', () => {
   const h = home();
   fs.writeFileSync(path.join(h, 'config.toml'), '[projects."/w"]\ntrust_level = "trusted"\n', { mode: 0o600 });
+  const firstInode = fs.statSync(path.join(h, 'config.toml')).ino;
   assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   const cmd = hooks.commandFor('/k/bin/codex-report-bridge.js');
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), hooks.hooksJson(cmd));
@@ -96,6 +98,7 @@ test('install writes hooks.json and the trust record (0600), is a no-op the seco
   assert.equal(fs.statSync(path.join(h, 'config.toml')).mode & 0o777, 0o600);
 
   const inode = fs.statSync(path.join(h, 'config.toml')).ino;
+  assert.equal(inode, firstInode, 'review 3: the first record is appended in place (a rename could lose a Codex edit)');
   const hinode = fs.statSync(path.join(h, 'hooks.json')).ino;
   assert.deepEqual(hooks.install(h, '/k/bin/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   assert.equal(fs.statSync(path.join(h, 'config.toml')).ino, inode, 'unchanged config is not rewritten');
@@ -157,7 +160,9 @@ test('review 1: any Codex but the pinned version gets no hook, and an earlier ho
   }
 });
 
-test('review 1: the trust record lands before hooks.json; a failed record write leaves no hooks.json', () => {
+/* The record-before-hooks.json ORDER is not what this proves (review 3: either order passes, because the refusal removes
+   hooks.json); it proves the outcome that matters, no hooks.json after a failed record write. */
+test('review 1: a failed record write leaves no hooks.json', () => {
   const h = home();
   fs.mkdirSync(path.join(h, 'config.toml'));   // a folder where the config should be: the record cannot be written
   const r = hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION);
@@ -186,6 +191,10 @@ test('the bridge reads the files a patch names, once each, in order', () => {
   assert.deepEqual(bridge.patchPaths('*** Add File: crlf.txt\r\n'), ['crlf.txt']);
   assert.deepEqual(bridge.patchPaths('+*** Add File: inside-content.txt\n'), [], 'a line of file content is not a heading');
   assert.deepEqual(bridge.patchPaths(undefined), []);
+  // Review 3, measured on Codex: it trims the path and accepts an indented heading.
+  assert.deepEqual(bridge.patchPaths('*** Update File: spaced.txt  \n'), ['spaced.txt']);
+  assert.deepEqual(bridge.patchPaths('  *** Update File: indented.txt\n'), ['indented.txt']);
+  assert.deepEqual(bridge.patchPaths('*** Update File:    \n'), [], 'no path, no keep');
 });
 
 test('the bridge makes one keep per file for a PreToolUse apply_patch, and none for anything else', () => {
@@ -265,6 +274,28 @@ test('review 1: a stdin that is never closed still ends the hook (after the 2 s 
     assert.ok(Date.now() - started < 8000);
     assert.deepEqual(board.seen, [{ path: '/w/open.txt', cwd: '/w', session: 's' }]);
   } finally { board.server.close(); }
+});
+
+test('review 3: a board that answers its headers and stalls the body still lets the hook go within the keep bound', async () => {
+  const sockets = new Set();
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"kept":'); /* never ends */ });
+  });
+  server.on('connection', (s) => sockets.add(s));
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const event = { hook_event_name: 'PreToolUse', tool_name: 'apply_patch', cwd: '/w', session_id: 's', tool_input: { command: '*** Add File: slow.txt\n' } };
+    const started = Date.now();
+    const r = await new Promise((resolve) => {
+      const child = execFile(process.execPath, [BRIDGE], {
+        env: { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '' }, timeout: 9000,
+      }, (err) => resolve({ err, killed: child.killed || child.signalCode !== null }));
+      child.stdin.end(JSON.stringify(event));
+    });
+    assert.equal(r.killed, false, 'the hook exited on its own');
+    assert.ok(Date.now() - started < 6000, `took ${Date.now() - started} ms`);
+  } finally { for (const s of sockets) s.destroy(); server.close(); }
 });
 
 /* ---- the real Codex: only Codex can say whether the trust record counts ---- */

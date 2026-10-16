@@ -31,11 +31,13 @@
  * differently would stop every agent on the review screen, so install() runs only when the launching Codex reports
  * exactly that version, and otherwise removes our hooks.json. It is a constant of its own, NOT runners.js's pin (review
  * 2): gated on the pin, a bump to a new Codex would install an unverified record for it. A test holds the two equal,
- * so a bump fails until somebody re-measures the hash against the new Codex (its TUI trust, then the real-Codex test)
- * and moves this constant.
+ * so a bump fails until somebody moves this constant; the test's comment says what to measure first (the new Codex's
+ * TUI trust, then the real-Codex test). Nothing can force the measurement: the real-Codex test runs only where that
+ * exact Codex is installed.
  *
- * ⚠️ A changed record is written as a whole-file replace (the line has to change in place). Codex writes this file too
- * and takes no lock, so an edit by a Codex STILL RUNNING on this home at that moment could be lost. The install runs at
+ * ⚠️ An absent record is APPENDED (as create.js appendCodexTrust does: Codex writes this file too and takes no lock, and
+ * an append cannot lose its edit). A CHANGED record is a whole-file replace (the line has to change in place), so an
+ * edit by a Codex STILL RUNNING on this home at that moment could be lost. The install runs at
  * launch, before this agent's Codex starts; the window is a previous Codex for the same home still exiting, and the
  * change is rare (the bridge's path moved).
  *
@@ -53,7 +55,8 @@ const EVENT = 'PreToolUse';
 const EVENT_KEY = 'pre_tool_use';
 const MATCHER = 'apply_patch';
 /* The handler's own timeout, in seconds (Codex's default is 600: an edit could wait ten minutes on a stuck hook). The
-   bridge bounds itself well inside this (2 s stdin, 3 s per keep, in parallel); this is the outer bound. The hash
+   bridge bounds itself well inside this (2 s stdin, 3 s per keep including its answer, in parallel); this is the outer
+   bound, and a hook that fails or times out does not stop the edit (measured: only a hook exiting 2 blocks it). The hash
    covers it. */
 const HOOK_TIMEOUT_SEC = 10;
 
@@ -91,8 +94,9 @@ function stateHeading(file) {
   return key ? `[hooks.state."${key}"]` : null;
 }
 
-/* The new config.toml text for `heading` + `line`, or { same } / { handEdited }. Pure; exported for the tests.
-   - absent: appended (Codex writes this file too, and an append cannot lose an edit it made);
+/* What to do to config.toml for `heading` + `line`: { append } (the bytes to add at the end), { text } (the whole new
+   file), { same } or { handEdited }. Pure; exported for the tests.
+   - absent: { append } (Codex writes this file too, and an append cannot lose an edit it made);
    - present in our exact form (the heading, then one trusted_hash line, then a blank line, another table or the end):
      equal is `same`; a different hash has that ONE line replaced. Appending a second table with the same key instead
      would be a TOML duplicate, and Codex would not load the config at all;
@@ -105,7 +109,7 @@ function nextConfig(text, heading, line) {
      ours to append beside: a second definition is invalid TOML and Codex would not start at all. */
   const key = heading.slice('[hooks.state."'.length, -'"]'.length);
   if (at === -1 && t.includes(key)) return { handEdited: true };
-  if (at === -1) return { text: `${t}${t && !t.endsWith('\n') ? '\n' : ''}${heading}\n${line}\n` };
+  if (at === -1) return { append: `${t && !t.endsWith('\n') ? '\n' : ''}${heading}\n${line}\n` };
   if (lines.indexOf(heading, at + 1) !== -1) return { handEdited: true };
   const body = lines[at + 1];
   const after = lines[at + 2];
@@ -163,10 +167,16 @@ function install(home, bridge, version) {
       try { text = fs.readFileSync(cfg, 'utf8'); } catch { text = ''; }
       const next = nextConfig(text, heading, line);
       if (next.handEdited) return { ok: false, because: 'the Codex hook\'s trust entry was changed by hand, so it was left alone' };
-      if (!next.same) {
+      const securewrite = require('./securewrite');
+      if (next.append) {
+        const created = !fs.existsSync(cfg);
+        const fd = fs.openSync(cfg, 'a', 0o600);
+        try { fs.writeSync(fd, next.append); securewrite.flushOrThrow(fd); } finally { fs.closeSync(fd); }
+        if (created) securewrite.syncDir(home);
+      } else if (next.text) {
         let mode = 0o600;
         try { mode = fs.statSync(cfg).mode & 0o777; } catch { mode = 0o600; }
-        require('./securewrite').writeSecret(cfg, next.text, mode, { atomicOnly: true, ownTempsOnly: true });
+        securewrite.writeSecret(cfg, next.text, mode, { atomicOnly: true, ownTempsOnly: true });
       }
       writeIfChanged(hooksFile, hooksJson(command), 0o600);
       return { ok: true };

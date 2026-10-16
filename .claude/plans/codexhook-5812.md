@@ -9,18 +9,19 @@ comment 6219788459). This change wires that hook to the same board call the Clau
 - a project file shows which Codex agent changed it last (#5812, through filewriters.noteWrite).
 
 ## How
-1. `engine/codexhooks.js` (new): `install(home, bridge)` writes, into the agent's PRIVATE runtime home
+1. `engine/codexhooks.js` (new): `install(home, bridge, version)` writes, into the agent's PRIVATE runtime home
    (codex-homes/<key>, Kosmos-owned since #4592):
    - `hooks.json`: one PreToolUse group, matcher `apply_patch`, command = the quoted bridge path;
-   - the hook's trust record in `config.toml`: `[hooks.state."<home>/hooks.json:pre_tool_use:0:0"] trusted_hash =
+   - the hook's trust record in `config.toml`: `[hooks.state."<canonical home>/hooks.json:pre_tool_use:0:0"] trusted_hash =
      "sha256:..."`. Hooks are ON by default in 0.149.1, and in the TUI (how Kosmos runs Codex) an untrusted or changed
      hook STOPS the agent on "Hooks need review" (review 1; measured both arms in the TUI). The hash is Codex's
      version_for_toml of the normalized identity (equal to the record Codex's own trust wrote for this exact hook).
-   - ONLY for the pinned Codex version (runners.js MANIFEST.openai), the one the hash was verified for; the record is
+   - ONLY for HASH_VERIFIED_FOR, the one Codex version the hash was verified for (a test holds it equal to runners.js's
+     pin, so a bump fails until it is moved); the key on the home's canonical path (Codex resolves it); the record is
      written BEFORE hooks.json; and on every refusal our hooks.json is removed, so there is never an untrusted hook for
      the TUI to stop on.
-   - Under the same file lock create.js's trustCodexFolder takes. Present and equal: no write. Absent: appended (codex
-     writes this file too; an append cannot lose its edit). Present with a different hash in our exact one-line form:
+   - Under the same file lock create.js's trustCodexFolder takes. Present and equal: no write. Absent: appended, really (open 'a',
+     flushed; codex writes this file too; an append cannot lose its edit). Present with a different hash in our exact one-line form:
      that line replaced (a second table with the same key would be a TOML duplicate and codex would not load the config).
      Present in any other form (a person set enabled = false, say): left alone, and said.
 2. `bin/codex-report-bridge.js`: a second mode. Notify passes its event as argv (unchanged); a hook passes JSON on stdin
@@ -29,6 +30,12 @@ comment 6219788459). This change wires that hook to the same board call the Clau
    parallel, each bounded at 3 s). Prints nothing; always exit 0 (a hook that fails must never stop the edit).
 3. `bin/agent-supervisor.sh`, the codex launch: read `codex --version` and run the install against the runtime home. A
    failed install launches the agent as today, with no hooks.json, and says so. No features flag: hooks are on by default.
+
+## Residual, stated
+- Rolling Kosmos back to a build before this one leaves the hook and its record in each Codex home. Harmless with the
+  same Codex: 0.149.1 has been the only Codex pin since the runner manifest began (cae0a88124, 08-26), so the record
+  still matches. It would show the review screen only for an older Kosmos launching a DIFFERENT, self-installed Codex
+  that hashes differently.
 
 ## Not in this change
 - Windows (win32keyed's codex launch): a separate slice, as #6033 was for Claude.

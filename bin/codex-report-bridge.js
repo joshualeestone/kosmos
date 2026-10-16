@@ -167,7 +167,10 @@ function main() {
 const KEEP_TIMEOUT_MS = 3000;   // never hold the edit longer (the Claude and Gemini hooks' bound)
 const STDIN_TIMEOUT_MS = 2000;  // a hook closes stdin at once; this only bounds a stdin left open
 const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board); the rest get no undo copy and no changed-by, a stated limit
-const FILE_LINE = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/;
+/* Review 3, measured: Codex accepts a heading with spaces before it and trims the path, so both are allowed here; a
+   path keeping its trailing spaces named a file that does not exist, and an indented heading got no keep at all. The
+   cost, stated: a hunk's context line holding that text would get a keep too (a copy of a file, nothing more). */
+const FILE_LINE = /^\s*\*\*\* (?:Add File|Update File|Delete File|Move to): (.*\S)\s*$/;
 
 /* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
    a different file). */
@@ -239,7 +242,10 @@ async function hookMain(io) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), o.keepTimeoutMs || KEEP_TIMEOUT_MS);
     return Promise.resolve()
+      /* The answer is read under the same timer (review 3: a board that sent its headers and stalled its body held the
+         hook 20 s once the timer was cleared on the headers). */
       .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
+      .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
       .catch(() => { /* a missed keep must never stop the edit */ })
       .finally(() => clearTimeout(timer));
   }));
