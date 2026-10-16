@@ -115,6 +115,19 @@ test('a message copied into a second file (a resumed or forked session) counts o
   usagecap.resetForTests();
 });
 
+test('a transcript rewritten shorter mid-month is counted again, its messages not lost to the shared set', () => {
+  usagecap.resetForTests();
+  const root = tmp('aw-usecap-rewrite-');
+  const dir = path.join(root, 'projects', 'p');
+  fs.mkdirSync(dir, { recursive: true });
+  const f = path.join(dir, 'a.jsonl');
+  fs.writeFileSync(f, line('m1', NOW - 5000, 100) + line('m2', NOW - 4000, 7));
+  assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 107, 'CONTROL');
+  fs.writeFileSync(f, line('m1', NOW - 5000, 100));   // rewritten shorter
+  assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 100, 'a rewritten file\'s messages were skipped as already seen');
+  usagecap.resetForTests();
+});
+
 test('a session untouched this month: its helpers\' folder is not read (old sessions are most of a computer)', () => {
   usagecap.resetForTests();
   const root = tmp('aw-usecap-oldsub-');
