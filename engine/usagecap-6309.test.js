@@ -96,6 +96,14 @@ test('a zone whose month starts earlier counts the lines already passed (the cac
   assert.equal(usagecap.monthTokens('Asia/Tokyo', NOW, [root]).tokens, 42, 'a cap moved to an earlier zone lost the lines already read');
 });
 
+test('swarm.readFile reads a file again when `since` moves earlier (a day start after a zone change)', () => {
+  const root = tmp('aw-usecap-earlier-');
+  const main = seed(root);
+  const c = new Map();
+  assert.equal(swarm.readFile(main, NOW - 3600e3, NOW, undefined, c).tokens, 20, 'CONTROL: the last hour has only m2');
+  assert.equal(swarm.readFile(main, OCT1, NOW, undefined, c).tokens, 120, 'an earlier start kept its read position and lost m1');
+});
+
 test('a caller\'s own cache is never swept per read (a month can hold every transcript; sweeping each read is quadratic)', () => {
   const root = tmp('aw-usecap-sweep-');
   const main = seed(root);

@@ -2132,6 +2132,11 @@ function restore(name, opts) {
       try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
       return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not put back: ${q.because}`, quiet: true };
     }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not put back: ${c.because}`, capped: true };
   }
   return markDryRun(restoreInner(name, opts && opts.platform));
 }
@@ -2498,6 +2503,11 @@ function restart(name, cause, opts) {
       try { require('./agentevents').recordRefusal({ agent: create.cleanName(name), rule: 'quiet-hours' }); } catch { /* not reported */ }
       return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${q.because}`, quiet: true };
     }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, steps: [], because: `it was not started: ${c.because}`, capped: true };
   }
   return markDryRun(driveSync(restartSteps(name, cause, opts && opts.platform, opts && opts.startIfDead)));
 }

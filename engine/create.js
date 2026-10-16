@@ -4763,6 +4763,11 @@ function createAgentInner(opts) {
       try { require('./agentevents').recordRefusal({ agent: shown || name, rule: 'quiet-hours' }); } catch { /* not reported */ }
       return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${q.because}`, steps };
     }
+    /* kosmos#6309: and not at the policy's monthly usage cap, as for quiet hours. A fault reads as open. Not reported as an
+       agent event: the coordinator has no rule word for the cap. */
+    let c = { ok: true };
+    try { c = require('./usagecap').capAllows(); } catch { c = { ok: true }; }
+    if (c.ok !== true) return { outcome: OUTCOME.REFUSED, because: `no agent is made now: ${c.because}`, steps, capped: true };
   }
   /* #3564: an Agent or a Swarm. A swarm is refused here, before anything is written,
      when its settings are wrong or it is not on Claude (v1). */

@@ -101,6 +101,7 @@ function readFloor(since) {
     return ok ? { used: j.used, sameZone: j.since === since } : { used: 0, sameZone: false };
   } catch { return { used: 0, sameZone: false }; }
 }
+/* Best effort, like the rest of this file: a folder that cannot be written loses the floor, not the gate. */
 function writeFloor(since, used) {
   try { const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8')); if (j && j.since === since && j.used === used) return; } catch { /* write it */ }
   const tmp = FLOOR() + '.' + process.pid + '.tmp';
@@ -138,7 +139,7 @@ let memo = null;
 /* The counter. 'worker' (the board): a worker thread counts and posts each count here. 'sync' (resetForTests): the
    gate counts inline, a bounded amount per call, so a test reads a count the moment it asks. */
 const WORKER_RETRY_MS = 60 * 1000;
-let mode = 'worker';
+let mode = 'worker';   // also in the worker thread, which calls only monthTokens: nothing there may start a worker
 let worker = null;
 let workerTz = null;
 let workerFailedAt = -Infinity;
