@@ -1393,29 +1393,13 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
        locale-independent and carries no names in that element. Uncached, because a
        switch flipped since the definition was remembered must be seen here. */
     const state = win32job.taskEnabled(clean);
-    if (!state.known) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
-      };
-    }
-    if (!state.registered) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
-      };
-    }
+    const gate = win32RewriteGate(spoken, state);
+    if (gate) return gate;
     const registered = win32RegisterJob(clean, {
       runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
       enabled: state.enabled !== false,
     });
-    if (!registered || !registered.ok) {
-      return {
-        outcome: OUTCOME.REFUSED,
-        because: `we could not update ${spoken}'s startup task in Task Scheduler (${(registered && registered.because) || 'no detail'}), so nothing changed.`,
-      };
-    }
-    return null;
+    return win32InstalledOutcome(spoken, registered);
   }
   try {
     writePlistFile(plistPath(clean), plistFor(clean, f.runnerBin, f.tmux, f.model, f.configDir, f.runner));
@@ -1423,6 +1407,65 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
   return null;
+}
+
+/* #6231 item 7: the win32 rewrite's two REFUSED gates, shared by the sync `rewriteAgentJob` win32 arm and the
+   async `rewriteAgentJobWin32Steps`, so the fail-closed "keep its switch" SAFETY (a state we could not read, or
+   a task no longer registered, refuses the change) reads identically in both and cannot drift. `state` is a
+   `win32job.taskEnabled`/`taskEnabledSteps` result. Returns a REFUSED outcome or null (proceed to install). */
+function win32RewriteGate(spoken, state) {
+  if (!state.known) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
+    };
+  }
+  if (!state.registered) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
+    };
+  }
+  return null;
+}
+
+/* #6231 item 7: the win32 install outcome, shared by the sync and async rewrite forms. `registered` is a
+   `win32job.install`/`installSteps` result. Returns a REFUSED outcome or null (success). */
+function win32InstalledOutcome(spoken, registered) {
+  if (!registered || !registered.ok) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not update ${spoken}'s startup task in Task Scheduler (${(registered && registered.because) || 'no detail'}), so nothing changed.`,
+    };
+  }
+  return null;
+}
+
+/* #6231 item 7: `rewriteAgentJob`'s win32 arm as an async step generator, for the put-back run off the board's
+   thread. Mirrors the sync arm command-for-command through the SAME shared helpers (win32RewriteGate,
+   win32InstalledOutcome) and the SAME spec builder (win32AgentSpec), yielding the `taskEnabled` `/Query /XML`
+   then the `install` `/Create /F` as steps. The known&registered gate runs BEFORE install, preserving the
+   round-1/round-2 "keep its switch" SAFETY. win32-only by construction (its caller routes only win32 agents
+   here); linux/mac put-backs write a local file and stay synchronous. Returns null on success, or a REFUSED
+   outcome. */
+function* rewriteAgentJobWin32Steps(clean, spoken, f) {
+  forgetAgentProvider(clean);   // the job is about to change (mirrors rewriteAgentJob's top)
+  const win32job = require('./win32job');
+  if (!win32job.commandsAreReal()) {
+    liveExec.refuseOrWarn('engine/create.js', 'schtasks.exe', ['/Create', '/F', '/TN', win32job.taskName(clean)]);
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `this Kosmos is not allowed to change startup tasks, so ${spoken}'s startup task was not changed.`,
+    };
+  }
+  const state = yield* win32job.taskEnabledSteps(clean);
+  const gate = win32RewriteGate(spoken, state);
+  if (gate) return gate;
+  const registered = yield* win32job.installSteps(win32AgentSpec(clean, {
+    runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
+    enabled: state.enabled !== false,
+  }));
+  return win32InstalledOutcome(spoken, registered);
 }
 
 /**
@@ -1714,13 +1757,18 @@ function setAccount(name, dir, opts) {
  * So this rewrites the launch job only, every other field as it is now, the account folder as it was (`dir` is the
  * folder the job carried before the move, null for none), for any runner the move covers.
  */
-function restoreAccount(name, dir, platform) {
+/* #6231 item 7: the sync pre-work of restoreAccount -- validate the name, read how the agent is started now
+   (the staleness read; SYNC, and warm from the board poll's cache), and for a Qwen agent write the account into
+   its profile BEFORE the job (restored on failure). Shared by the sync `restoreAccount` and the async
+   `restoreAccountSteps` so the two cannot drift on what the put-back reads or on the Qwen ordering. Returns
+   `{ refusal }` to stop, or `{ ok:true, clean, spoken, job, configDir, qwenJob, qwenBefore, fields }`. */
+function restoreAccountPrep(name, dir, platform) {
   const clean = cleanName(name);
   const spoken = spokenName(clean);
-  if (!NAME_RE.test(String(clean == null ? '' : clean))) return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
+  if (!NAME_RE.test(String(clean == null ? '' : clean))) return { refusal: { outcome: OUTCOME.REFUSED, because: REFUSE_NAME } };
   const verdict = readJobVerdict(clean, undefined, platform);
   const job = verdict.job;
-  if (!job) return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
+  if (!job) return { refusal: noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`) };
   const configDir = dir == null || dir === '' ? null : String(dir);
   /* A Qwen agent's account is also recorded in its profile, which Repair rebuilds from (setQwenAccount, review 6):
      put that back too, before the job, and restore the record if the job cannot be rewritten. */
@@ -1729,32 +1777,62 @@ function restoreAccount(name, dir, platform) {
   if (qwenJob) {
     try { qwenBefore = store.readProfile(clean).qwenAccount || null; } catch { qwenBefore = null; }
     try { store.writeProfile(clean, { qwenAccount: configDir }); }
-    catch { return { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` }; }
+    catch { return { refusal: { outcome: OUTCOME.REFUSED, because: `we could not record which Qwen account ${spoken} is on, so nothing was changed` } }; }
   }
-  const unwritten = rewriteAgentJob(clean, spoken, {
-    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner,
-  }, platform);
+  return {
+    ok: true, clean, spoken, job, configDir, qwenJob, qwenBefore,
+    fields: { runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: job.runner },
+  };
+}
+
+/* #6231 item 7: restoreAccount's sync post-work, shared by both forms. On a failed rewrite, roll the Qwen
+   profile back (the job did not move); on success, resolve the account's name for the sentence where a cheap
+   read has it (Claude's list). `prep` is restoreAccountPrep's ok result; `unwritten` is the rewrite's return
+   (a REFUSED outcome, or null/undefined on success). */
+function restoreAccountFinish(prep, unwritten) {
   if (unwritten) {
     /* #6231 item 13: two failures in a row (the job, then undoing the record) leave the record on the old account and
        the job on the move's. Said in the answer, not only here: a Repair rebuilds from the record. */
-    if (qwenJob) {
-      try { store.writeProfile(clean, { qwenAccount: qwenBefore }); }
+    if (prep.qwenJob) {
+      try { store.writeProfile(prep.clean, { qwenAccount: prep.qwenBefore }); }
       /* Its own sentence: the job's refusal says "nothing changed", which is no longer true (review 1). The job is on the
          move's account and the record on the old one, so say what each way of starting it would do. */
-      catch { return { ...unwritten, because: `we could not rewrite how ${spoken} is started, and Kosmos's note of its Qwen account now names its old account, so a restart moves it to the new account but a Repair would put it back on the old one` }; }
+      catch { return { ...unwritten, because: `we could not rewrite how ${prep.spoken} is started, and Kosmos's note of its Qwen account now names its old account, so a restart moves it to the new account but a Repair would put it back on the old one` }; }
     }
     return unwritten;
   }
-  /* The account's name for the sentence, where a cheap read has it (Claude's list); otherwise the caller says "their
-     old account". */
   let account = null;
-  if (!job.runner || job.runner === 'claude') {
+  if (!prep.job.runner || prep.job.runner === 'claude') {
     try {
       const all = require('./accounts').list();
-      account = (configDir === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === configDir)) || null;
+      account = (prep.configDir === null ? all.find((a) => a.isDefault) : all.find((a) => a.dir === prep.configDir)) || null;
     } catch { account = null; }
   }
   return { outcome: OUTCOME.CREATED, because: null, account };
+}
+
+/**
+ * #6214: put an agent back on the account it ran on before a bulk move that was stopped before its turn.
+ * (See restoreAccountPrep for the full why; this is the sync form that writes the launch job inline.)
+ */
+function restoreAccount(name, dir, platform) {
+  const prep = restoreAccountPrep(name, dir, platform);
+  if (prep.refusal) return prep.refusal;
+  const unwritten = rewriteAgentJob(prep.clean, prep.spoken, prep.fields, platform);
+  return restoreAccountFinish(prep, unwritten);
+}
+
+/* #6231 item 7: the win32 put-back as an async step generator -- the same prep and finish as the sync
+   `restoreAccount`, with ONLY the job rewrite yielded off the board's thread (via rewriteAgentJobWin32Steps).
+   The staleness read (in prep) stays SYNC and completes before the first yield, so no yield sits between the
+   re-read and the write-issue (contract 3); keeping the agent held until this generator settles is the caller's
+   job (contract 3b). win32-only: linux/mac put-backs write a local file and do not freeze the board, so they
+   stay on the sync `restoreAccount`. */
+function* restoreAccountSteps(name, dir) {
+  const prep = restoreAccountPrep(name, dir, 'win32');
+  if (prep.refusal) return prep.refusal;
+  const unwritten = yield* rewriteAgentJobWin32Steps(prep.clean, prep.spoken, prep.fields);
+  return restoreAccountFinish(prep, unwritten);
 }
 
 /**
@@ -6709,6 +6787,7 @@ module.exports = {
   jobPresence,
   setAccount,
   restoreAccount,
+  restoreAccountSteps,
   setProvider,
   readJob,
   /* #4353: agyrefresh's production wiring calls this. While it was not exported, the board-start
