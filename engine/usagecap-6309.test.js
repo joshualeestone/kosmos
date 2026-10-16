@@ -184,6 +184,14 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   let full;
   for (let i = 1; i <= 20; i++) { full = usagecap.capInForce(NOW + i * usagecap.MEMO_SHORT_MS); if (full.complete) break; }
   assert.deepEqual([full.complete, full.used], [true, 23], 'a later zone kept the earlier zone\'s hours for the rest of the month');
+  // The same move with the board running (no restart, the cache kept): the count is not zeroed and saved as the floor.
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests();
+  assert.equal(usagecap.capInForce(NOW).used, 123, 'CONTROL: the UTC month, cache warm');
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'America/Chicago' } });
+  const warm = usagecap.capInForce(NOW + 1);
+  assert.deepEqual([warm.complete, warm.used, warm.over], [true, 23, false], 'a running board zeroed the month on a move to a later zone');
+  assert.equal(usagecap.capInForce(NOW + usagecap.MEMO_MS + 2).used, 23, 'and saved that as the floor');
   // A new month does not inherit last month's count: November's own first count is short, and stays below October's.
   const NOV2 = Date.UTC(2026, 10, 2);
   const nov = path.join(CONFIG, 'projects', 'p1', 'nov.jsonl');

@@ -24,6 +24,7 @@ const orgpolicy = require('./orgpolicy');
 const store = require('./store');
 
 const cache = new Map();
+let cacheSince = null;   // the month start `cache` was counted from
 let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
 /* The gate counts on the message path, so each of its calls reads at most this much (the rollup's tick reads the full
    per-call budget, off that path). A board catching up takes longer; the month's saved count holds the cap up meanwhile. */
@@ -45,6 +46,10 @@ function roots() {
 /** { tokens, complete, since } for this month in `tz`. `rootsList` is for tests. */
 function monthTokens(tz, now = Date.now(), rootsList = roots(), bytes = perCallBytes) {
   const since = sinceFor(tz, now);
+  /* A month start that moved (a new month, or the cap's zone changed) reads every file again from the start: swarm's
+     readFile keeps its read position when `since` moves later, which is right for a new day and wrong here, where the
+     lines before that position may fall inside the new month. */
+  if (cacheSince !== since) { cache.clear(); cacheSince = since; }
   const out = { tokens: 0, complete: true, since };
   const budget = { left: bytes };
   const add = (file) => {
@@ -143,7 +148,7 @@ function capAllows(now = Date.now()) {
 
 /** `keepFloor` keeps the month's saved count, as a board restart does. */
 function resetForTests({ perCallBytes: n, keepFloor = false } = {}) {
-  cache.clear(); memo = null;
+  cache.clear(); cacheSince = null; memo = null;
   if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
   perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
 }

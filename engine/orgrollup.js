@@ -78,6 +78,11 @@ function providerOfModel(model) {
   return null;
 }
 
+/* kosmos#6309: a policyUsage build() may send: whole numbers and booleans only. */
+function usageOk(u) {
+  return !!u && typeof u === 'object' && Number.isSafeInteger(u.used) && u.used >= 0 && Number.isSafeInteger(u.cap) && u.cap >= 1
+    && typeof u.warn === 'boolean' && typeof u.over === 'boolean';
+}
 /**
  * The body. Inputs, all plain:
  *   world        this world's opaque id (orgenroll)
@@ -87,10 +92,6 @@ function providerOfModel(model) {
  *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
  *   lastActive, backupLastOk, policyVersion, policyRefused, policyUsage ({ used, cap, warn, over }, kosmos#6309)
  */
-function usageOk(u) {
-  return !!u && typeof u === 'object' && Number.isSafeInteger(u.used) && u.used >= 0 && Number.isSafeInteger(u.cap) && u.cap >= 1
-    && typeof u.warn === 'boolean' && typeof u.over === 'boolean';
-}
 function build(input) {
   const i = input || {};
   // The clock the body is checked against: the tick's own (review 20), so build() is a pure function of its input.
