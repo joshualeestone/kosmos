@@ -758,6 +758,24 @@ test('#6310: a file that becomes a launcher is seen at once; an impossible chara
   assert.ok(mac.survey().missing.includes('modex'), 'a non-executable data file was searched');
   fs.chmodSync(runner, 0o755);
   assert.ok(!mac.survey().missing.includes('modex'), 'a remembered answer missed the file becoming executable');
-  foreignJob('com.weird.thing.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>Label</key>\n\t<string>bad &#x110000; ref</string>\n') });
+  foreignJob('com.weird.thing.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/echo</string>\n\t\t<string>bad &#x110000; ref</string>\n\t</array>\n') });
   assert.ok(mac.survey().missing.includes('plainr'), 'an impossible character reference made every agent unknown');
+});
+
+test('#6310: a data file in a folder the survey cannot open does not doubt everyone; a script name there does', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root opens a mode-000 folder');
+  reset();
+  agent('plains');   // CONTROL
+  const closed = path.join(SB, 'closed');
+  fs.mkdirSync(closed, { recursive: true });
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  const args = (a) => '\t<key>ProgramArguments</key>\n\t<array>\n' + a.map((x) => '\t\t<string>' + x + '</string>\n').join('') + '\t</array>\n';
+  fs.chmodSync(closed, 0o000);
+  try {
+    foreignJob('com.tail.closed.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/usr/bin/tail', '-F', path.join(closed, 'app.log')])) });
+    assert.deepEqual(mac.survey().missing, ['plains'], 'a log in a closed folder made the control unknown');
+    foreignJob('com.run.closed.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/bin/bash', path.join(closed, 'launch.sh')])) });
+    const s = mac.survey();
+    assert.equal(s.agents.find((x) => x.name === 'plains').job, null, 'a launcher in a closed folder was read as proof of no job');
+  } finally { fs.chmodSync(closed, 0o755); }
 });

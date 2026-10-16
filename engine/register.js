@@ -248,6 +248,7 @@ function plistKeys(file) {
   if (!/<plist[\s>]/.test(text) || !/<\/dict>/.test(text)) { const e = new Error('not a property list'); e.raw = text; throw e; }
   /* Top-level keys only: a key of the same name inside a nested dict (EnvironmentVariables, a KeepAlive condition)
      does not count. Inner dicts are folded to <dict/> from the innermost out. */
+  if (text.indexOf('<dict') < 0) { const e = new Error('not a property list'); e.raw = text; throw e; }
   let top = text.slice(text.indexOf('<dict'), text.lastIndexOf('</dict>') + 7);
   const outer = /^<dict\s*>([\s\S]*)<\/dict>$/.exec(top);
   top = outer ? outer[1] : top;
@@ -298,7 +299,11 @@ const SCRIPT_MAX = 2 * 1024 * 1024;
 const UNREADABLE = Symbol('unreadable');
 function scriptText(file) {
   let st;
-  try { st = fs.statSync(file); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? null : UNREADABLE; }
+  try { st = fs.statSync(file); } catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null;
+    // Cannot even look (a folder it sits in is closed): only a name that reads as a script leaves "no job" unproven.
+    return SCRIPT_EXT.test(file) ? UNREADABLE : null;
+  }
   if (!st.isFile() || !launcherLike(file, st)) return null;
   const sig = st.mtimeMs + ':' + st.size;
   const got = SCRIPT_CACHE.get(file);
@@ -348,7 +353,7 @@ function foreignLoginFolders() {
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
     if (!got.keys.starts) continue;
     if (got.keys.dir) {
-      try { dirs.add(fs.realpathSync.native(got.keys.dir)); } catch { /* a job whose folder is gone starts nobody we know */ }
+      try { const real = fs.realpathSync.native(got.keys.dir); dirs.add(real); sigParts.push('wd:' + real); } catch { /* a job whose folder is gone starts nobody we know */ }
     }
     texts.add(got.keys.args.join('\n'));
     for (const a of got.keys.args) {
