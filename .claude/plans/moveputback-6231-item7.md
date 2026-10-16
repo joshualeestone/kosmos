@@ -175,6 +175,54 @@ Verified in the merged code:
 - Edge (out of scope): `POST /api/agent/<name>/restore` (`remove.js:2125`) is the lone writer with no
   `busyRefusal`, but it targets already-removed agents, not move participants.
 
+## accountmove.stop restructure design (lifecycle mapped) — the clean architecture
+
+The move's lifetime is owned by `start()`'s fire-and-forget async IIFE (`accountmove.js:194-239`): `running`
+is set sync at `:191`, the IIFE awaits the forward restarts serially, and the OUTER `finally` (`:224-236`) is
+the ONE place the move ends (`m.done=true; m.deps=null; running=null`). `stop()` (`:287`, sync) sets
+`m.stopped=true` (which breaks the forward loop via `:197`) and today does the put-backs synchronously, then
+returns `view(m)`. `busy()` = `running !== null`; `moveHoldsBoard()` = `busy() || restartingNow()`.
+
+**Design: move the put-backs INTO the forward IIFE's `finally`; `stop()` only sets `m.stopped` + answers.**
+This gives ONE async flow owning the lifetime, so every contract falls out of mirroring the forward mechanism:
+- `stop()` becomes: validate (NONE_RUNNING / already-stopped guards unchanged), `m.stopped=true`, return
+  `view(m)` — ANSWER FIRST, no put-backs inline. (Contract 2: the answer now shows the not-reached agents as
+  `pending`, not final; the page's existing static "try again once the move has ended" sentence covers it, and
+  a later GET shows finals after the batch — keep `view().done` false until then, which the finally gives.)
+- The forward IIFE's outer `finally`: for each still-`pending` agent, if `m.stopped` → do the put-back ASYNC
+  (hand-change re-read SYNC via `deps.readAccount` + compare to `a.to.dir` [contract 3], then
+  `await deps.putBackAsync(a.name, a.from.dir)`), each agent RELEASED in its own per-agent finally
+  [contract 3b]; else (cap, not a stop) → the existing not-reached sentence. Do NOT do the belt-and-braces
+  release sweep (`:225`) before the put-backs — it would drop the hold mid-write; release each after its own
+  put-back. THEN `m.done=true; running=null` (unchanged position) — so `running` stays non-null until the LAST
+  put-back settles [contract 1], and `moveHoldsBoard()` keeps board routes refusing for free.
+- Contract 4 (second stop during the batch = no-op): the `m.stopped` guard (`:290`) already returns the
+  idempotent `already:true` 200, and stays correct because `running` is non-null + `m.done` false throughout
+  the batch (do NOT clear `running` or set `m.done` until the batch's finally, exactly as the forward path does).
+- The in-flight agent (`m.current` when stop is pressed) is handled by the forward loop (its restart settles,
+  outcome set), so it is already non-`pending` by the finally — not put back. Unchanged.
+
+**Wiring (mirror restartAsync):**
+- `remove.js`: add an EXPORTED `putBackAsync(name, dir)` that builds `ctl={abandoned:false}` + a capped timeout
+  (mirror `ASYNC_RESTART_CAP_MS`/`asyncRestartCapMs()`), drives `create.restoreAccountSteps(name,dir)` via the
+  private `driveAsync(gen, ctl)`, holds via the RESTARTING-style set released when the drive truly settles
+  (not at cap), `Promise.race([driven, capped])`. `driveAsync` is NOT exported — add the wrapper in remove.js.
+- `server.js` (deps at `~:13775`): add `putBackAsync: (n, dir) => process.platform === 'win32' ?
+  removal.putBackAsync(n, dir) : Promise.resolve(create.restoreAccount(n, dir))` — win32 async, mac/linux the
+  sync restoreAccount wrapped (local write, no board freeze). Keep the existing sync `putBack` dep for any
+  remaining sync caller, or retire it once the finally uses only putBackAsync.
+- accountmove.js: the finally's put-back uses `deps.putBackAsync` (await) + `deps.readAccount` (sync re-read) +
+  `deps.release`. Refactor the current sync `putBack(m,a)` (`:251`) hand-change logic into a shared decision the
+  async path reuses (re-read + compare + outcome-wording), so sync and async put-back word outcomes identically.
+
+**Tests (all 5 contracts):** update `accountmove-stop-6214.test.js` to stub `putBackAsync` (async) + `readAccount`
+and assert: (1) a slow put-back keeps `busy()`/the move alive (Update refused) until it settles; (2) the stop
+answer shows not-reached agents as pending, finals appear on a later `read(id)` once settled; (3) a hand-change
+during the batch leaves the agent on the person's choice; (3b) each agent released only after its put-back
+settles (a mid-batch write for a held agent refused — exercised at the remove/server guard level); (4) a second
+stop mid-batch is the idempotent no-op. Plus the exit-128 async taskkill test (win32stop) and the win32
+step-form tests for installSteps/taskEnabledSteps/restoreAccountSteps.
+
 ## Traps
 
 - win32StepResult shape adapter: win32 parsers read `r.out`; remove's run() returns `{stdout,stderr,code}`;

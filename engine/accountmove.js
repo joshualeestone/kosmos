@@ -227,17 +227,33 @@ function start(body, deps) {
         } finally { m.current = null; try { deps.release(a.name); } catch { /* the move must still end */ } }
       }
     } finally {
-      for (const a of pending) { try { deps.release(a.name); } catch { /* the move must still end (review 3) */ } }
-      /* The move's time cap, or an unexpected throw, leaves one pending here: say so rather than leave it reading as
-         still going. */
+      /* #6231 item 7: put the not-reached agents back HERE, in the move's own async tail, so a STOP answers at once
+         and a large move's put-backs run OFF the board's thread. On a stop, each still-pending agent is put back on
+         its old account (async) and stays HELD until its own put-back settles (released in its own finally), so a
+         same-agent write cannot land over the put-back (contract 3b); the move stays running until the last one
+         settles, because `running` is cleared only below (contract 1). Without a stop (the move's time cap or a
+         throw), there is no put-back: the agent is said as not reached and released. Agents already reached were
+         released in the loop's per-iteration finally above. */
       for (const a of pending) {
         if (a.outcome !== 'pending') continue;
-        let said;
-        try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move ended (it ran out of time, or failed) before it reached this agent.' }, deps.RESTARTED); }
-        catch { said = { outcome: 'partial', because: 'The move stopped before it reached this agent.' }; }
-        a.outcome = said.outcome; a.because = said.because;
-        leftOnOld(deps, a.name);   // #6231: saved on the new account, still running on its old one
+        try {
+          if (m.stopped) {
+            /* #6231 item 7: the put-back runs HERE, in the async tail; putBackOne notes leftOnOld itself on any
+               failure. The outer catch is for an unexpected throw from putBackOne, which also leaves it on old. */
+            try { await putBackOne(m, a); }
+            catch { a.outcome = 'partial'; a.because = 'You stopped the move before its turn, and we could not put it back on its old account.'; leftOnOld(deps, a.name); }
+          } else {
+            /* The move's time cap, or an unexpected throw, leaves one pending here: say so rather than leave it
+               reading as still going. */
+            let said;
+            try { said = sentence(a.name, a.wrote, { outcome: 'partial', because: 'the move ended (it ran out of time, or failed) before it reached this agent.' }, deps.RESTARTED); }
+            catch { said = { outcome: 'partial', because: 'The move stopped before it reached this agent.' }; }
+            a.outcome = said.outcome; a.because = said.because;
+            leftOnOld(deps, a.name);   // #6231: saved on the new account, never restarted, still running on its old one
+          }
+        } finally { try { deps.release(a.name); } catch { /* the move must still end */ } }
       }
+      for (const a of pending) { try { deps.release(a.name); } catch { /* belt-and-braces (review 3); idempotent */ } }
       m.done = true; m.finishedAt = Date.now(); m.deps = null;
       running = null;
       prune(Date.now());
@@ -259,23 +275,29 @@ function leftOnOld(deps, name) {
    the one this move wrote; a person who changed it since keeps their change. The read and the write are one synchronous
    block, so nothing in this board process can change it in between (another process writing the job file
    in that moment, such as a hand edit, is not covered). */
-function putBack(m, a) {
+/* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
+   was tried. The new account is saved and the agent still runs on its old one, as a partial says. Shared by the
+   sync `putBack` and the async `putBackOne` so the wording cannot drift (#6231 item 7). */
+function putBackFailed(a, why, deps) {
+  const acct = (a.wrote && a.wrote.account) || {};
+  const who = acct.name || acct.email || acct.label || 'the new account';
+  a.outcome = 'partial';
+  a.because = `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
+  leftOnOld(deps, a.name);   // #6231: noted as still running on its old account, as a partial restart is
+}
+
+/* #6231 item 7: the part of the put-back BEFORE the write, shared by the sync and async forms: the guard, the
+   hand-change re-read (SYNC, so nothing in this process can change the account between it and the write-issue --
+   contract 3), and the "they changed it since" case. Returns `{ done: true }` when the agent is already settled
+   (guard failed or the person had changed it), or `{ proceed: true, dir }` to write `a.from.dir` next. */
+function putBackBefore(m, a) {
   const deps = m.deps;
-  /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
-     was tried. The new account is saved and the agent still runs on its old one, as a partial says. */
-  const failed = (why) => {
-    const acct = (a.wrote && a.wrote.account) || {};
-    const who = acct.name || acct.email || acct.label || 'the new account';
-    a.outcome = 'partial';
-    a.because = `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
-    leftOnOld(deps, a.name);   // #6231: noted as still running on its old account, as a partial restart is
-  };
-  /* #6231: a caller that cannot put an agent back says so in its own words (the board always can). */
-  if (typeof deps.putBack !== 'function') { failed('this Kosmos cannot put an agent back on its old account'); return; }
-  if (typeof deps.readAccount !== 'function') { failed('this Kosmos cannot read which account an agent was on'); return; }
-  if (!a.from || !a.from.ok || !a.to || !a.to.ok) { failed('we could not read which account it was on'); return; }
+  /* #6231: a caller that cannot put an agent back (no sync putBack and no async putBackAsync), or whose from/to
+     accounts could not be read, says so and notes it still on its old account (putBackFailed fires leftOnOld). */
+  const canWrite = typeof deps.putBack === 'function' || typeof deps.putBackAsync === 'function';
+  if (!a.from || !a.from.ok || !a.to || !a.to.ok || !canWrite) { putBackFailed(a, 'we could not read which account it was on', deps); return { done: true }; }
   let now;
-  try { now = deps.readAccount(a.name); } catch { failed('we could not read its account just now'); return; }
+  try { now = deps.readAccount(a.name); } catch { putBackFailed(a, 'we could not read its account just now', deps); return { done: true }; }
   if (now !== a.to.dir) {
     a.outcome = 'stopped';
     a.because = 'you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.';
@@ -284,16 +306,19 @@ function putBack(m, a) {
        the change put it back there. If that change restarted it, the board's note sees a session newer than the save
        and clears instead. */
     if (now !== a.from.dir) leftOnOld(deps, a.name);
-    return;
+    return { done: true };
   }
   /* Linux (#6231): the move's own restarts run `systemctl --user daemon-reload` (linuxjob.js), so a held agent's
      rewritten unit can be loaded during a move of two or more agents; one that then crashes and respawns before its
      put-back can come up on the new account although this says it stays on the old one. Read from the source, not
      measured; it needs a crash during the move. A Mac keeps the definition launchd loaded until the agent's own restart. */
-  let back;
-  try { back = deps.putBack(a.name, a.from.dir); }
-  catch (err) { failed(String((err && err.message) || err)); return; }
-  if (!back || back.outcome === deps.REFUSED) { failed((back && back.because) || 'that did not work'); return; }
+  return { proceed: true, dir: a.from.dir };
+}
+
+/* #6231 item 7: the part AFTER the write, shared by both forms: word the outcome from the write's result (a
+   create.OUTCOME-shaped `{ outcome, because, account }`, or the async cap's REFUSED-shaped one). */
+function putBackAfter(a, back, deps) {
+  if (!back || back.outcome === deps.REFUSED) { putBackFailed(a, (back && back.because) || 'that did not work', deps); return; }
   const acct = back.account || {};
   const who = acct.name || acct.email || acct.label || 'their old account';
   a.outcome = 'stopped';
@@ -301,22 +326,45 @@ function putBack(m, a) {
   delete a.account;
 }
 
+/* The read and the write are one synchronous block, so nothing in this board process can change it in between.
+   (Linux/mac put-backs, and any remaining sync caller.) */
+function putBack(m, a) {
+  const pre = putBackBefore(m, a);
+  if (pre.done) return;
+  let back;
+  try { back = m.deps.putBack(a.name, pre.dir); }
+  catch (err) { putBackFailed(a, String((err && err.message) || err), m.deps); return; }
+  putBackAfter(a, back, m.deps);
+}
+
+/* #6231 item 7: the async put-back -- the hand-change re-read stays SYNC (inside putBackBefore, before the await,
+   so no yield sits between the re-read and the write-issue, contract 3), only the write is awaited off the board's
+   thread. The caller keeps the agent HELD until this resolves (contract 3b). */
+async function putBackOne(m, a) {
+  const pre = putBackBefore(m, a);
+  if (pre.done) return;
+  let back;
+  try { back = await m.deps.putBackAsync(a.name, pre.dir); }
+  catch (err) { putBackFailed(a, String((err && err.message) || err)); return; }
+  putBackAfter(a, back, m.deps);
+}
+
 /**
  * #6214: stop the running move. No further agent is restarted. The one being restarted now is NOT cut (a restart cut
  * between its old job's unload and its new job's load leaves the agent unloaded, #3418): it finishes, within its own
- * cap. Every agent not reached yet is put back on its old account and released at once. The move then ends when that
- * one restart does, which releases the board. Answers { status, body } for the route; a second stop changes nothing.
+ * cap. #6231 item 7: every agent not reached yet is put back on its old account in the move's async tail (start's
+ * finally), OFF the board's thread, each held until its own put-back settles. So this ANSWERS AT ONCE (it does not
+ * wait on the put-backs); the move stays running -- `busy()` true, so Update and board restart stay refused -- until
+ * the last put-back settles; and the not-reached agents read as `pending` here, their final sentences appearing on a
+ * later read once the batch settles. A second stop changes nothing (the move is still running and already stopped).
  */
 function stop() {
   const m = running === null ? null : moves.get(running);
   if (!m || m.done) return { status: 409, body: { outcome: 'refused', because: NONE_RUNNING } };
   if (m.stopped) return { status: 200, body: { ...view(m), already: true } };
   m.stopped = true;
-  for (const a of m.agents) {
-    if (a.outcome !== 'pending' || a.name === m.current) continue;
-    try { putBack(m, a); } catch { a.outcome = 'partial'; a.because = 'You stopped the move before its turn, and we could not put it back on its old account.'; leftOnOld(m.deps, a.name); }
-    try { m.deps.release(a.name); } catch { /* the move's own end releases it again */ }
-  }
+  /* #6231 item 7: the put-backs are no longer done here on the board's thread -- the move's async tail (start's
+     finally) puts each not-reached agent back, held until its own put-back settles. stop() only flags the move. */
   return { status: 200, body: view(m) };
 }
 
