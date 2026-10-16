@@ -21,10 +21,12 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 ## Decided, not missed
 - Matching by folder, not by label (`com.<name>.discord`): the label is this fleet's habit; the folder is what makes a
   job start THIS agent.
-- A job "starts at login" when it is KeepAlive, or RunAtLoad with no schedule or trigger (StartInterval,
-  StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount), and its own top-level Disabled is not true. A
-  KeepAlive job counts even with a schedule (a KeepAlive dict of conditions only may not start it at login: accepted
-  over-match).
+- A job not Disabled that is KeepAlive or RunAtLoad covers its WorkingDirectory (and folders inside it), whatever it
+  is scheduled for. Its start scripts are searched only when it is KeepAlive, or RunAtLoad with no schedule or trigger
+  (StartInterval, StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount). Why the split: on 10-16 the
+  fleet Mac's survey showed Vivienne with no login job when her bot had not been restored after the move, while her
+  scheduled email jobs' scripts name her folder; counting those mentions would have hidden a real missing agent.
+  A KeepAlive dict of conditions only may not start a job at login: accepted over-match.
 - A job's arguments are searched only when they look like launchers: executable, or named like a script (.sh, .js,
   .py and so on). A log being followed or a data file is never read; when even its folder cannot be opened, only a
   script-like name leaves "no job" unproven. A launcher that exists but cannot be read may be
@@ -45,14 +47,18 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   agent, the harm this card is about.
 - A plist that could not be read is asked again a minute later; a launcher script that could not be read, on the
   next survey. A plist that read but is not a property list (or has no closing dict) is cached until it changes.
-  Plists over 256 KB are not read (they count as unreadable). One survey converts at most 4 binary plists with plutil
+  A plist over 256 KB is not a job launchd loads; its first 256 KB are kept as a suspect (only an agent it names is
+  unknown), cached until it changes. A launcher that could not be read is asked again a minute later. One survey converts at most 4 binary plists with plutil
   (it blocks the board for up to 2 s each when it hangs); the rest count as unreadable and are tried a minute later.
   An agent whose own folder cannot be resolved (anything but "it does not exist") is unknown, not missing.
 - Only ~/Library/LaunchAgents is read (Kosmos writes its own jobs there); /Library jobs are not. A start script on a
   hung network mount would block the survey's read; not handled.
 - Each agent's answer is remembered until a login job, a launcher script or the home folder changes. Measured on the
   fleet Mac (about 80 agents, 40 login jobs): a cold survey about 22 ms, a warm one about 9 ms.
-- Script text is matched ignoring case (the Mac's disks do), under the folder as written, its real path, and ~ or
+- A launcher under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads, app containers, iCloud
+  Drive) or on another volume is never touched, so the five-second poll raises no prompt; a script-like name there
+  leaves every agent without its own plist unknown (#6320 is how the person will be told).
+- Script text is matched ignoring case, with "$HOME" and "${HOME}" quoted forms read as $HOME, (the Mac's disks do), under the folder as written, its real path, and ~ or
   $HOME for both the OS home and Kosmos's own.
 - Known inconsistency, not changed here: `create.jobMissing` (the offline card's "Made before Kosmos recorded this")
   still looks only at Kosmos's own plist, so an agent covered here can still get that card's no-job wording. In #6320.
