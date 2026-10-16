@@ -26,6 +26,11 @@ board's `POST /api/undo/keep {path, cwd, session}` from that hook, as the Claude
 ## Versions
 Measured on agy 1.2.17. agy auto-updated to 1.4.0 during the work, and the real-agy test passed on 1.4.0 as well.
 
+## Stated (review 2)
+- Unmeasured: what agy does when it kills a hook at its 5 s handler timeout after the hook already answered. The bridge's
+  worst case (node start, the 3 s keep bound, a 500 ms flush) sits near that limit only when the board does not answer;
+  the answer is written first, so a kill lands after the decision.
+
 ## Not in this change
 - Edits through run_command (no path to read; never guessed).
 - Windows (Kosmos runs no agy agents there).

@@ -56,15 +56,20 @@ test('the supervisor launches agy with --dangerously-skip-permissions (the measu
   assert.match(src, /"\$CLAUDE" "\$\{_AGY_ARGS\[@\]\}"/);
 });
 
-/* A stub board recording keeps; `stall` sends headers and never finishes the body. */
-function stubBoard(stall) {
+/* A stub board recording keeps; `stall` sends headers and never finishes the body. `peek(body)` runs as each keep
+   arrives (review 2: the real-agy test reads the target's content then, to pin that the keep lands BEFORE the write). */
+function stubBoard(stall, peek) {
   const seen = [];
   const sockets = new Set();
   const server = http.createServer((req, res) => {
     let b = '';
     req.on('data', (c) => { b += c; });
     req.on('end', () => {
-      if (req.url === '/api/undo/keep') { try { seen.push(JSON.parse(b)); } catch { seen.push(null); } }
+      if (req.url === '/api/undo/keep') {
+        let body = null;
+        try { body = JSON.parse(b); } catch { body = null; }
+        seen.push(peek && body ? { ...body, ...peek(body) } : body);
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       if (stall) res.write('{"kept":'); else res.end('{"kept":false,"because":"off"}');
     });
@@ -111,7 +116,7 @@ test('review 1: a board that never answers at all is given up on at the keep bou
   try {
     const r = await runBridge(server.address().port, 'PreToolUse', pre({}));
     assert.equal(r.killed, false, 'exited on its own');
-    assert.ok(r.ms < 4500, `took ${r.ms} ms (keep bound 3 s; agy's handler timeout 5 s)`);
+    assert.ok(r.ms < 5000, `took ${r.ms} ms (keep bound 3 s, inside agy's 5 s handler timeout)`);
     assert.equal(r.stdout.trim(), bridge.ASK);
   } finally { for (const s of sockets) s.destroy(); server.close(); }
 });
@@ -172,7 +177,8 @@ test(`the REAL agy (${installed}) runs the hook before the write, and the bridge
   fs.mkdirSync(path.join(home, '.gemini', 'antigravity-cli'), { recursive: true });
   fs.writeFileSync(path.join(home, '.gemini', 'antigravity-cli', 'settings.json'), '{"modelProvider":"gemini"}');
   const target = path.join(work, 'made.txt');
-  const board = await stubBoard(false);
+  fs.writeFileSync(target, 'before\n');   // an existing file, so a keep that came after the write would see 'made'
+  const board = await stubBoard(false, (b) => ({ contentAtKeep: fs.existsSync(b.path) ? fs.readFileSync(b.path, 'utf8') : null }));
   const model = await fakeGemini({ name: 'write_to_file', args: { TargetFile: target, Overwrite: true, CodeContent: 'made\n', Description: 'test', toolSummary: 'test', toolAction: 'test' } });
   try {
     assert.equal(hooks.ensureHooks(work, process.execPath, BRIDGE, true, true).ok, true);
@@ -183,11 +189,14 @@ test(`the REAL agy (${installed}) runs the hook before the write, and the bridge
     assert.equal(board.seen[0].path, target);
     assert.equal(board.seen[0].cwd, work);
     assert.ok(board.seen[0].session, 'the conversation id came through');
+    assert.equal(board.seen[0].contentAtKeep, 'before\n', 'review 2: the keep landed BEFORE the write (agy waits for the hook to exit)');
 
-    // Control: the same run with the hook entry carrying no tool hooks sends no keep.
+    // Control: the entry an older agy gets (ask_question tool hooks, no file tools: what the version gate writes below
+    // 1.2.17) sends no keep.
     board.seen.length = 0;
-    fs.rmSync(target);
-    assert.equal(hooks.ensureHooks(work, process.execPath, BRIDGE, false).ok, true);
+    fs.writeFileSync(target, 'before\n');
+    assert.equal(hooks.ensureHooks(work, process.execPath, BRIDGE, true, false).ok, true);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(work, '.agents', 'hooks.json'), 'utf8'))[hooks.HOOK_NAME].PreToolUse[0].matcher, '^ask_question$');
     const r2 = await runAgy(home, work, model.port, { KOSMOS_PORT: String(board.port), TMUX_PANE: '' });
     assert.equal(r2.killed, false);
     assert.equal(fs.readFileSync(target, 'utf8'), 'made\n');
