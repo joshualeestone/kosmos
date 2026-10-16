@@ -59,3 +59,11 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Step 8's comment no longer claims an unasserted "not spent" (step 9's join with the same code shows it); the invite
   retry reports the last throw rather than a stale answer; the GET without screen headers says why.
 - Rerun: VERDICT PASS 23/23.
+
+## Round 4 (sonnet) fixes
+- A preflight refuses a coordinator binary that predates the family kind (it must name "--kind is company or family"
+  for a nonsense kind), with the rebuild line; shown against a stand-in old binary (refused, VERDICT FAIL 0/1).
+- The watchdog names the last check reached; an org-create miss no longer prints CLI log lines as its detail.
+- Kept, said at the site: the step 4b control matches the coordinator's refusal by its words (that answer has no code
+  field). Kept (NITs): the fedproof* names and the copied helpers (#6287).
+- Rerun: VERDICT PASS 23/23.
