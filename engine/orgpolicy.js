@@ -391,4 +391,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, capShapeOk, monthStart, capAt, capAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
