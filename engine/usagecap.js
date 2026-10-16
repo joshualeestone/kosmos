@@ -153,10 +153,17 @@ let worker = null;
 /* Only the board counts (server.js calls countOnThisBoard). Any other process that reaches a gate (a command, a test
    helper) reads the month's saved count and starts nothing: its own count would never be used. */
 let workerAllowed = false;
-let workerTz = null;
+let workerKey = null;   // the zone and config folders the worker was last told
+let rootsSeen = { at: -Infinity, list: [] };
+/* The board's config folders, read at most once a minute (status.configRoots lists the home folder): a Claude account
+   connected mid-month is counted within the minute, not at the next zone change or restart. */
+function rootsNow(now) {
+  if (!(now - rootsSeen.at >= 0 && now - rootsSeen.at < 60 * 1000)) rootsSeen = { at: now, list: roots() };
+  return rootsSeen.list;
+}
 let workerFailedAt = -Infinity;
 let latest = null;   // the worker's last count: { tz, since, tokens, complete }
-function ensureWorker(tz) {
+function ensureWorker(tz, now) {
   if (!worker) {
     if (Date.now() - workerFailedAt < WORKER_RETRY_MS) return;
     try {
@@ -167,7 +174,7 @@ function ensureWorker(tz) {
       });
       const gone = (e) => {
         if (worker !== w) return;   // stopped on purpose (stopWorker): nothing to say
-        worker = null; workerTz = null; workerFailedAt = Date.now();
+        worker = null; workerKey = null; workerFailedAt = Date.now();
         console.error('usagecap: the usage cap\'s counter stopped (' + ((e && e.message) || 'it exited') + '); the cap reads the month\'s saved count until it starts again');
       };
       w.on('error', gone);
@@ -176,14 +183,16 @@ function ensureWorker(tz) {
     } catch { workerFailedAt = Date.now(); return; }
   }
   // The board's config folders go with the zone, so the worker never loads status.js (and the engine with it).
-  if (workerTz !== tz) { workerTz = tz; try { worker.postMessage({ tz, roots: roots() }); } catch { /* the exit handler resets it */ } }
+  const list = rootsNow(now);
+  const key = JSON.stringify([tz, list]);
+  if (workerKey !== key) { workerKey = key; try { worker.postMessage({ tz, roots: list }); } catch { /* the exit handler resets it */ } }
 }
 
 function stopWorker() {
   latest = null;
   if (!worker) return;
   const w = worker;
-  worker = null; workerTz = null;
+  worker = null; workerKey = null;
   try { w.terminate(); } catch { /* already gone */ }
 }
 /* `policy`'s cap with the worker's latest count and the month's saved one. No cap stops the worker: a cap taken out,
@@ -191,7 +200,7 @@ function stopWorker() {
 function fromWorker(policy, now) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) { stopWorker(); return { capped: false }; }
-  if (workerAllowed) ensureWorker(u.tz);
+  if (workerAllowed) ensureWorker(u.tz, now);
   const since = sinceFor(u.tz, now);
   const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
   return withFloor(policy, m);
@@ -229,6 +238,7 @@ function countOnThisBoard() { workerAllowed = true; }
  *  without it the gate counts inline (mode 'sync'). `board: false` is a process that is not the board. */
 function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false, board = true } = {}) {
   cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
+  rootsSeen = { at: -Infinity, list: [] };
   stopWorker();
   mode = useWorker ? 'worker' : 'sync';
   workerAllowed = useWorker && board;

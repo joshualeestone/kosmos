@@ -327,7 +327,8 @@ function monthStart(ms, tz) {
 
 /** kosmos#6309: what the policy's usage cap says for `used` tokens this month. { capped: false } when there is no
  *  cap; else { capped: true, used, cap, pct, warn: used >= warn_pct of cap, over: used >= cap, tz }. `pct` is whole
- *  percent, rounded down so it reads 99 until the cap is really reached. Never throws. */
+ *  percent, rounded down so it reads 99 until the cap is really reached. Never throws when given a policy (with none,
+ *  it reads the one in force, which throws on a damaged record). */
 function capAt(policy = currentStrict(), used = 0) {
   const u = policy && policy.usage_cap;
   if (!capShapeOk(u)) return { capped: false };

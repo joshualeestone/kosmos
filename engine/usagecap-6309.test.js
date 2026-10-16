@@ -25,6 +25,7 @@ process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG;
 test.after(() => { for (const d of ROOTS) fs.rmSync(d, { recursive: true, force: true }); });
 
 const swarm = require('./swarm');
+const transcriptread = require('./transcriptread');
 const orgpolicy = require('./orgpolicy');
 const usagecap = require('./usagecap');
 
@@ -100,8 +101,8 @@ test('swarm.readFile reads a file again when `since` moves earlier (a day start 
   const root = tmp('aw-usecap-earlier-');
   const main = seed(root);
   const c = new Map();
-  assert.equal(swarm.readFile(main, NOW - 3600e3, NOW, undefined, c).tokens, 20, 'CONTROL: the last hour has only m2');
-  assert.equal(swarm.readFile(main, OCT1, NOW, undefined, c).tokens, 120, 'an earlier start kept its read position and lost m1');
+  assert.equal(transcriptread.readFile(main, NOW - 3600e3, NOW, undefined, c).tokens, 20, 'CONTROL: the last hour has only m2');
+  assert.equal(transcriptread.readFile(main, OCT1, NOW, undefined, c).tokens, 120, 'an earlier start kept its read position and lost m1');
 });
 
 test('a message copied into a second file (a resumed or forked session) counts once in the month', () => {
@@ -149,7 +150,7 @@ test('a caller\'s own cache is never swept per read (a month can hold every tran
   const main = seed(root);
   const mine = new Map();
   for (let i = 0; i < 300; i++) mine.set('/old/' + i, { touched: 0 });     // 300 entries untouched for a long time
-  swarm.readFile(main, OCT1, NOW, undefined, mine);
+  transcriptread.readFile(main, OCT1, NOW, undefined, mine);
   assert.equal(mine.size, 301, 'a caller\'s cache was swept');
 });
 
@@ -159,10 +160,10 @@ test('the swarm daily count on the same file is unchanged by a month count (the 
   const root = tmp('aw-usecap-swarm-');
   const main = seed(root);
   const day = Date.UTC(2026, 9, 16);
-  const before = swarm.readFile(main, day, NOW).tokens;
+  const before = transcriptread.readFile(main, day, NOW).tokens;
   assert.equal(before, 20, 'CONTROL: today has only m2');
   assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 123);
-  assert.equal(swarm.readFile(main, day, NOW).tokens, before, 'the day count after a month count');
+  assert.equal(transcriptread.readFile(main, day, NOW).tokens, before, 'the day count after a month count');
   assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 123, 'the month count after a day count');
 });
 
@@ -323,13 +324,25 @@ test('on the board the gate never counts: a worker thread does, and the gate rea
   assert.deepEqual([first.used, first.complete, first.known], [0, false, false],
     'the gate counted inline: the message path read the transcripts itself');
   assert.equal(usagecap.capAllows(Date.now()).ok, true, 'CONTROL: before the worker has counted, a new board is open (a known limit)');
-  const until = Date.now() + 10000;
+  const until = Date.now() + 30000;
   while (!(usagecap.latestForTests() && usagecap.latestForTests().complete) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
   assert.ok(usagecap.latestForTests(), 'the worker never posted a count');
+  assert.equal(usagecap.latestForTests().complete, true, 'the worker posted but had not caught up within 30 s (slow, not wrong)');
   const c = usagecap.capInForce(Date.now());
   assert.deepEqual([c.used, c.over], [150, true], JSON.stringify(c));
   assert.equal(usagecap.capAllows(Date.now()).ok, false, 'the worker\'s count did not reach the gate');
   assert.equal(usagecap.capReport(orgpolicy.currentStrict(), Date.now()).used, 150, 'the rollup reads the worker\'s count too');
+  // A config folder added mid-month (a second Claude account) is sent to the worker within a minute, and counted.
+  const second = tmp('aw-usecap-second-');
+  fs.mkdirSync(path.join(second, 'projects', 'q'), { recursive: true });
+  fs.writeFileSync(path.join(second, 'projects', 'q', 't.jsonl'), line('w2', at, 40));
+  process.env.AGENT_WORKFORCE_CONFIG_ROOT = second;   // configRoots answers the new folder from now on
+  try {
+    usagecap.capInForce(Date.now() + 61 * 1000);        // past the minute: the folders are read again and sent
+    const until2 = Date.now() + 30000;
+    while (!(usagecap.latestForTests() && usagecap.latestForTests().tokens === 40 && usagecap.latestForTests().complete) && Date.now() < until2) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(usagecap.latestForTests().tokens, 40, 'a config folder added mid-month never reached the worker');
+  } finally { process.env.AGENT_WORKFORCE_CONFIG_ROOT = CONFIG; }
   // A process that is not the board starts no counter: it reads the saved count (150, saved by the board above).
   usagecap.resetForTests({ worker: true, board: false, keepFloor: true });
   const elsewhere = usagecap.capInForce(Date.now());
