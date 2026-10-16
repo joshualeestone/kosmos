@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.50",
+  "lastProd": "0.7.51",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -524,7 +524,8 @@
       "icon": "spark",
       "rank": 2,
       "since": "0.7.51",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.51"
     },
     {
       "title": "Accounts on your other computers",
@@ -532,7 +533,8 @@
       "icon": "list",
       "rank": 5,
       "since": "0.7.51",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.51"
     },
     {
       "title": "Stop an account move",
@@ -548,10 +550,11 @@
       "icon": "shield",
       "rank": 4,
       "since": "0.7.51",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.7.51"
     },
     {
       "title": "Projects are optional",
@@ -559,7 +562,8 @@
       "icon": "list",
       "rank": 6,
       "since": "0.7.51",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.51"
     },
     {
       "title": "Claude's 5-hour limit in Settings",
@@ -570,6 +574,18 @@
       ],
       "rank": 3,
       "since": "0.7.51",
+      "status": "shown",
+      "shownIn": "0.7.51"
+    },
+    {
+      "title": "Messages left in the box go first",
+      "line": "A line left unsent in a Claude agent's input box is now sent before your next message, in order, instead of sitting there.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 1.5,
+      "since": "0.7.52",
       "status": "pending"
     }
   ]

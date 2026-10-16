@@ -1,36 +1,36 @@
 {
-  "version": "0.7.51",
+  "version": "0.7.52",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "ChatGPT plan limits in Settings",
-      "line": "Settings, AI Models now shows a ChatGPT sign-in's limits as Codex last reported them, one meter per limit."
-    },
-    {
-      "icon": "spark",
-      "title": "Claude's 5-hour limit in Settings",
-      "line": "Settings, AI Models now shows a Claude account's 5-hour limit under its weekly one: how much is used and when it resets.",
+      "icon": "chat",
+      "title": "Messages left in the box go first",
+      "line": "A line left unsent in a Claude agent's input box is now sent before your next message, in order, instead of sitting there.",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "icon": "swarm",
+      "title": "Stop an account move",
+      "line": "A move of several agents to another account can now be stopped; agents it had not reached keep their old account."
     },
     {
       "icon": "shield",
-      "title": "More permission choices as buttons",
-      "line": "A Claude agent's permission question now shows every choice as a button. One that lasts, like \"don't ask again\", needs a second press.",
+      "title": "Kosmos waits while Claude asks you",
+      "line": "While an agent shows a Claude prompt or question, Kosmos types nothing into it on its own; if you send, you are told to answer it there.",
       "platforms": [
         "mac"
       ]
     },
     {
-      "icon": "list",
-      "title": "Accounts on your other computers",
-      "line": "Settings, AI Models opened from a computer's Kosmos+ address now also lists your other computers' Claude accounts and their agents."
+      "icon": "tasks",
+      "title": "Long task and room messages arrive whole",
+      "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be."
     },
     {
-      "icon": "list",
-      "title": "Projects are optional",
-      "line": "Taking an agent off its last project no longer puts a warning sign on it, and a new team's Project is optional."
+      "icon": "tasks",
+      "title": "Idle agents hear which scheduled run is due",
+      "line": "When a repeating task's run is due, an idle agent's reminder names that run and tells it how to record it."
     }
   ]
 }
