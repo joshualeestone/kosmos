@@ -529,3 +529,78 @@ test('#5534: Repair does not start an import the company policy held, but restor
     fs.rmSync(orgpolicy.APPLIED(), { force: true });
   }
 });
+
+/* #6310: the fleet Mac's agents each start at login from their OWN LaunchAgent (com.<name>.discord, KeepAlive,
+   WorkingDirectory = the worker folder). The survey looked only for our plist, so all 18 read as "will not come back",
+   and Repair would have installed and started a second copy of each. */
+function foreignJob(file, { dir, keepAlive = true, runAtLoad = false, disabled = false, raw = null } = {}) {
+  fs.mkdirSync(path.join(SB, 'launch'), { recursive: true });
+  const body = raw !== null ? raw : '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n'
+    + '\t<key>Label</key>\n\t<string>' + file.replace(/\.plist$/, '') + '</string>\n'
+    + (keepAlive ? '\t<key>KeepAlive</key>\n\t<true/>\n' : '')
+    + (runAtLoad ? '\t<key>RunAtLoad</key>\n\t<true/>\n' : '')
+    + (disabled ? '\t<key>Disabled</key>\n\t<true/>\n' : '')
+    + '\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t</array>\n'
+    + (dir ? '\t<key>WorkingDirectory</key>\n\t<string>' + dir.replace(/&/g, '&amp;') + '</string>\n' : '')
+    + '</dict>\n</plist>\n';
+  fs.writeFileSync(path.join(SB, 'launch', file), body, 'utf8');
+}
+
+test('#6310: an agent started at login by a job that is not ours is not missing, and Repair writes nothing for it', () => {
+  reset();
+  agent('angelx');
+  agent('leox');
+  agent('plainx');   // CONTROL: no job anywhere, still counted and still repaired
+  foreignJob('com.angelx.discord.plist', { dir: create.workerDir('angelx') });
+  foreignJob('com.leox.discord.plist', { dir: create.workerDir('leox'), keepAlive: false, runAtLoad: true });
+  const s = mac.survey();
+  assert.equal(s.ok, true);
+  assert.deepEqual(s.missing, ['plainx']);
+  assert.equal(s.agents.find((x) => x.name === 'angelx').job, true);
+  const r = mac.repair();
+  assert.deepEqual(r.results.map((x) => x.name), ['plainx']);
+  assert.equal(fs.existsSync(create.plistPath('angelx')), false, 'Repair wrote a second login job for an agent that had one');
+  assert.equal(fs.existsSync(create.plistPath('plainx')), true, 'the control was not repaired, so this test could not see a repair');
+});
+
+test('#6310: a disabled job, a job that never starts, or one in another folder does not cover the agent', () => {
+  reset();
+  agent('offx');
+  agent('idlex');
+  agent('elsex');
+  foreignJob('com.offx.discord.plist', { dir: create.workerDir('offx'), disabled: true });
+  foreignJob('com.idlex.discord.plist', { dir: create.workerDir('idlex'), keepAlive: false });
+  fs.mkdirSync(path.join(SB, 'workers', 'not-elsex'), { recursive: true });
+  foreignJob('com.elsex.discord.plist', { dir: path.join(SB, 'workers', 'not-elsex') });
+  assert.deepEqual(mac.survey().missing, ['elsex', 'idlex', 'offx']);
+});
+
+test('#6310: a login job we cannot read leaves "no job" unproven: shown as unknown, never repaired', () => {
+  reset();
+  agent('ownx', { job: true });
+  agent('unkx');
+  foreignJob('com.broken.thing.plist', { raw: 'this is not a property list' });
+  const s = mac.survey();
+  assert.deepEqual(s.missing, []);
+  assert.equal(s.agents.find((x) => x.name === 'unkx').job, null);
+  assert.equal(s.agents.find((x) => x.name === 'ownx').job, true, 'our own plist still answers on its own');
+});
+
+test('#6310: a kept-alive job whose start script names the folder covers the agent; a periodic one and a longer name do not', () => {
+  reset();
+  agent('scriptx');
+  agent('periodx');
+  agent('leo');
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const script = (n, body) => { const f = path.join(bin, n); fs.writeFileSync(f, body, 'utf8'); return f; };
+  const job = (file, args, extra) => foreignJob(file, { keepAlive: false, raw: '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n'
+    + extra + '\t<key>ProgramArguments</key>\n\t<array>\n' + args.map((a) => '\t\t<string>' + a + '</string>\n').join('') + '\t</array>\n</dict>\n</plist>\n' });
+  job('com.scriptx.discord.plist', ['/bin/bash', script('launch-scriptx.sh', 'WORK_DIR="' + create.workerDir('scriptx') + '"\ntmux new-session -d -c "$WORK_DIR"\n')],
+    '\t<key>KeepAlive</key>\n\t<true/>\n\t<key>RunAtLoad</key>\n\t<true/>\n');
+  job('com.periodx.digest.plist', ['/bin/bash', script('digest.sh', 'cd ' + create.workerDir('periodx') + '\n')],
+    '\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>StartInterval</key>\n\t<integer>120</integer>\n');
+  job('com.leonardo.discord.plist', ['/bin/bash', script('launch-leonardo.sh', 'WORK_DIR="' + create.workerDir('leo') + 'nardo"\n')],
+    '\t<key>KeepAlive</key>\n\t<true/>\n');
+  assert.deepEqual(mac.survey().missing, ['leo', 'periodx']);
+});

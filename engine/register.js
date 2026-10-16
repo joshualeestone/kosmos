@@ -182,12 +182,96 @@ function jobReader(platform) {
     return { win32: false, linux: true, known: true, fleet: null, of: (name) => lj.presence(name) };
   }
   if (platform !== 'win32') {
-    return { win32: false, known: true, fleet: null, of: (name) => fs.existsSync(create.plistPath(name)) };
+    /* #6310: OUR plist is one way an agent starts at login, not the only one. The fleet Mac's 18 agents each start from
+       their own LaunchAgent (com.<name>.discord, KeepAlive, WorkingDirectory = the worker folder), so the banner said
+       all 18 "will not come back" and its button would have installed and started a second copy of each. An agent
+       whose folder is the WorkingDirectory of a login job that is not ours counts as having a job. Read lazily: the
+       foreign jobs are only looked at for a name with no plist of ours. */
+    let foreign = null;
+    return {
+      win32: false, known: true, fleet: null,
+      of: (name) => {
+        if (fs.existsSync(create.plistPath(name))) return true;
+        if (!foreign) foreign = foreignLoginFolders();
+        let dir = null;
+        try { dir = fs.realpathSync(create.workerDir(name)); } catch { dir = null; }
+        if (dir && foreign.dirs.has(dir)) return true;
+        if (dir && mentionsFolder(foreign.texts, [dir, create.workerDir(name)])) return true;
+        /* A login job we could not read might be this agent's, so "no job" is not proven: null is shown and never
+           repaired (#570). */
+        return foreign.unreadable ? null : false;
+      },
+    };
   }
   let all;
   try { all = require('./win32job').list(); } catch { all = { known: false }; }
   if (!all.known) return { win32: true, known: false, fleet: null, of: () => null };
   return { win32: true, known: true, fleet: all.names, of: (name) => all.names.has(name) };
+}
+
+/* #6310: the worker folders that a login job NOT written by Kosmos starts in. Only the keys that decide it are read:
+   WorkingDirectory, and RunAtLoad or KeepAlive (a job with neither does not start at login), unless Disabled. The XML
+   form is read as text, so the five-second poll runs no process; a binary plist goes through plutil, and one that
+   cannot be read marks the answer unreadable rather than absent. Cached per file by mtime and size. */
+const FOREIGN_CACHE = new Map();
+function plistKeys(file) {
+  const buf = fs.readFileSync(file);
+  let text;
+  if (buf.slice(0, 8).toString('latin1') === 'bplist00') {
+    text = require('child_process').execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', file], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
+  } else text = buf.toString('utf8');
+  if (!/<plist[\s>]/.test(text)) throw new Error('not a property list');
+  const flag = (k) => new RegExp('<key>' + k + '</key>\\s*(<true\\s*/>|<dict\\s*>|<dict\\s*/>)').test(text);
+  const wd = /<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
+  const unxml = (v) => v.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  const pa = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text);
+  const args = pa ? [...pa[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => unxml(m[1])) : [];
+  const off = flag('Disabled');
+  return { dir: wd ? unxml(wd[1]) : null, starts: (flag('RunAtLoad') || flag('KeepAlive')) && !off, keptAlive: flag('KeepAlive') && !off, args };
+}
+/* The whole folder path, not a prefix of a longer one: .../workers/leo must not match .../workers/leonardo. */
+function mentionsFolder(texts, spellings) {
+  for (const sp of new Set(spellings)) {
+    if (!sp) continue;
+    const re = new RegExp('(?<![A-Za-z0-9._/-])' + sp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9._-])');
+    if (texts.some((t) => re.test(t))) return true;
+  }
+  return false;
+}
+function foreignLoginFolders() {
+  const dirs = new Set();
+  /* The fleet's older jobs set no WorkingDirectory; the folder is only in the start script they run (WORK_DIR=...).
+     For a job launchd KEEPS running, its arguments and any small script file they name are kept as text to search.
+     A periodic job (StartInterval, a calendar) never counts, however it mentions a folder. */
+  const texts = [];
+  let unreadable = false;
+  let names;
+  try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts, unreadable: !(e && e.code === 'ENOENT') }; }
+  for (const f of names) {
+    if (!f.endsWith('.plist') || f.startsWith(create.SERVICE_LABEL_PREFIX)) continue;
+    const file = path.join(create.AGENTS_DIR, f);
+    let st;
+    try { st = fs.statSync(file); } catch { unreadable = true; continue; }
+    if (!st.isFile()) continue;
+    const sig = st.mtimeMs + ':' + st.size;
+    let got = FOREIGN_CACHE.get(file);
+    if (!got || got.sig !== sig) {
+      try { got = { sig, keys: plistKeys(file) }; } catch { got = { sig, keys: null }; }
+      FOREIGN_CACHE.set(file, got);
+    }
+    if (!got.keys) { unreadable = true; continue; }
+    if (!got.keys.starts) continue;
+    if (got.keys.dir) {
+      try { dirs.add(fs.realpathSync(got.keys.dir)); } catch { /* a job whose folder is gone starts nobody we know */ }
+    }
+    if (!got.keys.keptAlive) continue;
+    texts.push(got.keys.args.join('\n'));
+    for (const a of got.keys.args) {
+      if (!path.isAbsolute(a)) continue;
+      try { const sst = fs.statSync(a); if (sst.isFile() && sst.size <= 65536) texts.push(fs.readFileSync(a, 'utf8')); } catch { /* not a file */ }
+    }
+  }
+  return { dirs, texts, unreadable };
 }
 
 function strays(profileNames, jobs) {
