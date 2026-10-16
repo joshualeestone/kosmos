@@ -52288,8 +52288,9 @@ async function plusSiRequestCode(btn) {
      the two). Said on the code step, where the person now is; the code they were sent still works. */
   if (r.data && r.data.computer_name_kept === false) plusSiMsg(PLUS_SI_NAME_NOT_KEPT);
 }
-/* #6313: a minute after a code was asked for, with nothing typed, the step says what to check. The board cannot
-   know whether the address has an account, so the line is the same for every address. */
+/* #6313: when a code was asked for a minute ago, and at that moment nothing is typed and the code step is still on
+   screen, the step says what to check (looked at once, when the minute ends). The board cannot know whether the
+   address has an account, so the line is the same for every address. */
 const PLUS_SI_CODE_LATE_MS = 60000;
 let PLUS_SI_CODE_LATE_TIMER = null;
 function plusSiCodeLateReset() {
