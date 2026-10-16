@@ -24650,7 +24650,10 @@ function paintRailTeamMap(op) {
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
-  const top = box.scrollTop;
+  // The scroll position is kept for a repaint of the same project; another project's map starts at the top.
+  const same = !!op && box.dataset.pj === String(op.id);
+  const top = same ? box.scrollTop : 0;
+  box.dataset.pj = op ? String(op.id) : '';
   setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : [], pjRedHere) : '');
   if (open) box.scrollTop = top;
   if (had && !box.contains(document.activeElement)) {
