@@ -622,7 +622,19 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
-    await page.evaluate(() => { const r = document.querySelector('#pj-room'); if (r) r.scrollIntoView({ block: 'start' }); });
+    await page.evaluate(() => {
+      const r = document.querySelector('#pj-room');
+      if (!r) return;
+      r.scrollIntoView({ block: 'start' });
+      /* #6262: block 'start' puts the room's title under the sticky top bar on a phone (the App Store shot showed it cut
+         in half), which no person sees on opening a room. Step back by whatever is pinned over the top edge. */
+      let el = document.elementFromPoint(Math.round(innerWidth / 2), 2), pinned = 0;
+      for (; el && el !== document.body; el = el.parentElement) {
+        const pos = getComputedStyle(el).position;
+        if (pos === 'fixed' || pos === 'sticky') { pinned = el.getBoundingClientRect().bottom; break; }
+      }
+      if (pinned > 0) window.scrollBy(0, -(pinned + 8));
+    });
     /* #5782: the click on the project row leaves the pointer where the room's first message lands, so every shot showed
        that message's hover bar. Park it in the corner, as the other screens here do. */
     await page.mouse.move(1, 1);
