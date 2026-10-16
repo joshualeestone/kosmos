@@ -186,9 +186,9 @@ function jobReader(platform) {
   if (platform !== 'win32') {
     /* #6310: OUR plist is one way an agent starts at login, not the only one. The fleet Mac's 18 agents each start from
        their own LaunchAgent (com.<name>.discord, KeepAlive, WorkingDirectory = the worker folder), so the banner said
-       all 18 "will not come back" and its button would have installed and started a second copy of each. An agent a
-       login job that is not ours starts (see foreignLoginFolders for what counts) has a job. Read lazily: the foreign
-       jobs are only looked at for a name with no plist of ours. */
+       all 18 "will not come back" and its button would have installed and started a second copy of each. An agent
+       that a login job not written by Kosmos starts has a job (foreignLoginFolders says what counts). Read lazily: the
+       foreign jobs are only looked at for a name with no plist of ours. */
     let foreign = null;
     return {
       win32: false, known: true, fleet: null,
@@ -200,12 +200,16 @@ function jobReader(platform) {
         }
         let dir = null;
         // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
-        try { dir = fs.realpathSync.native(create.workerDir(name)); } catch { dir = null; }
+        try { dir = fs.realpathSync.native(create.workerDir(name)); } catch (e) {
+          if (!(e && e.code === 'ENOENT')) return null;   // could not look at the folder itself: not a proven absence
+          dir = null;
+        }
         // The answer for a folder only changes when a login job, a launcher script or the home folder does.
         const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + require('node:os').homedir();
         if (VERDICTS.map.has(memoKey)) return VERDICTS.map.get(memoKey);
         const verdict = (() => {
-          if (dir && foreign.dirs.has(dir)) return true;
+          // The folder itself or a folder inside it, as a start script's mention is.
+          if (dir && [...foreign.dirs].some((d) => d === dir || d.startsWith(dir + '/'))) return true;
           const spellings = folderSpellings(dir, create.workerDir(name));
           if (dir && mentionsFolder(foreign.texts, spellings)) return true;
           /* A login job that could not be read and names this agent's folder might start it, so "no job" is not
@@ -238,11 +242,17 @@ function unxml(v) {
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
 const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything this large is not read
+/* plutil runs synchronously on the board's request path, so one survey converts at most PLUTIL_BUDGET binary plists;
+   the rest count as could-not-read this time and are tried again a minute later. */
+const PLUTIL_BUDGET = 4;
+let plutilLeft = PLUTIL_BUDGET;
 function plistKeys(file) {
   if (fs.statSync(file).size > PLIST_MAX) throw new Error('too large to be a login job');
   const buf = fs.readFileSync(file);
   let text;
   if (buf.slice(0, 8).toString('latin1') === 'bplist00') {
+    if (plutilLeft <= 0) throw new Error('plutil budget spent for this survey');
+    plutilLeft -= 1;
     text = require('child_process').execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', file], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
   } else text = buf.toString('utf8');
   if (!/<plist[\s>]/.test(text) || !/<\/dict>/.test(text)) { const e = new Error('not a property list'); e.raw = text; throw e; }
@@ -330,6 +340,7 @@ function foreignLoginFolders() {
   let unknownAll = false;
   let names;
   try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts: [], suspects, unknownAll: !(e && e.code === 'ENOENT'), sig: 'none:' + (e && e.code) }; }
+  plutilLeft = PLUTIL_BUDGET;
   const seen = new Set();
   const scripts = new Set();
   const sigParts = [];   // everything the answers depend on, so a change anywhere drops the remembered ones
