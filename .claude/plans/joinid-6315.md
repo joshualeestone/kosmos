@@ -23,6 +23,7 @@ through; `engine/remote.js` dropped it because `DEVICE_ID` does not allow a colo
    join codes): each matches the coordinator's real format.
 
 ## Decided, not missed
-- Lowercase hex only, 32 characters: the coordinator's computer ids are `uuid simple` lowercase.
+- Lowercase hex only, 32 characters: the coordinator makes a computer id with `util::new_id()` (hex of 16 random
+  bytes), and the live row measured today has that shape.
 - Weakest premise: that the page needs no change. It carries the id in attributes only, so a colon is safe there; a
   browser check on a joining row would prove it on screen.

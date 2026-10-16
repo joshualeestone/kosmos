@@ -4,6 +4,7 @@
    mocks the board's routes, so it proves the PAGE carries that id (data-id, the selector, the Allow body); the
    board's own handling is in engine/remote.joincode-4794.test.js. */
 const PC_ID = 'computer:36b705ae542a7305ca8a368286c37161';
+const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
 /**
  * The "wants to connect" sheet (#4637, Josh 09-29: "radically redesign... doesn't fit the branding"; Mona Lisa's flow
  * outline on #4754, Josh's go 09-30 17:34).
@@ -368,10 +369,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(jr.shown && jr.text === 'Matched with homemac.' && !jr.button && !jr.code && confirmBody && confirmBody.code === '135 790',
         `${tag} #4794: matched after the Allow says "Matched with homemac." (review 6)`, JSON.stringify({ jr, confirmBody }));
       /* Not me on a computer joining names it the way its sheet did (review round 5). */
-      pending = [{ device_id: 'd-pc2', name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
+      pending = [{ device_id: PC2_ID, name: 'Laptop2', code: 'M5-N6', first_seen: now() - 20, joining_computer: 'laptop2' }];
       await page.evaluate(() => pollAsk());
-      await page.waitForSelector('#plus-ask-rows [data-ask="deny"][data-id="d-pc2"]', { timeout: 5000 }).catch(() => {});
-      await page.click('#plus-ask-rows [data-ask="deny"][data-id="d-pc2"]');
+      await page.waitForSelector('#plus-ask-rows [data-ask="deny"][data-id="' + PC2_ID + '"]', { timeout: 5000 }).catch(() => {});
+      await page.click('#plus-ask-rows [data-ask="deny"][data-id="' + PC2_ID + '"]');
       await page.waitForFunction(() => /Turned away\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const away = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(/Turned away\. That computer, laptop2, was not let in/.test(away) && !/Laptop2/.test(away), `${tag} Not me on a computer names it as its sheet did`, away);
