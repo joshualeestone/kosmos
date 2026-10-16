@@ -26,10 +26,10 @@ function paint(reply, { onAgents = true } = {}) {
     return { ok: true, json: async () => reply };
   };
   const fn = new Function(
-    'document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD',
+    'document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
     page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival')
     + '\nreturn paintSurvival();',
-  )(doc, fetchStub, (x) => String(x), () => onAgents, false, false);
+  )(doc, fetchStub, (x) => String(x), () => onAgents, false, false, '');
   return fn.then(() => wrap);
 }
 
@@ -90,7 +90,7 @@ test('a failed look leaves the screen alone rather than clearing it', async () =
   for (const bad of ['down', 'throws', { ok: false, because: 'we could not read it' }, null, { ok: true }]) {
     const wrap = { hidden: false, innerHTML: 'STANDING' };
     const doc = { getElementById: () => wrap };
-    await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD',
+    await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
       page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival') + '\nreturn paintSurvival();')(
       doc,
       async () => {
@@ -139,9 +139,9 @@ test('#6320: the name of an unknown agent is escaped, and the unknown-only panel
   const wrap = { hidden: false, innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'restart-wrap' ? wrap : null) };
   const realEsc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD',
+  await new Function('document', 'fetch', 'esc', 'onAgentsTab', 'SURVIVAL_BUSY', 'SURVIVAL_HELD', 'SURVIVAL_UNKNOWN_BLOCK',
     page.lift(SCRIPT, 'survivalSay') + '\n' + page.lift(SCRIPT, 'paintSurvival') + '\nreturn paintSurvival();',
-  )(doc, async () => ({ ok: true, json: async () => ({ ok: true, missing: [], unknown: ['x'], agents: [{ name: 'x', shownAs: '<b>x' }] }) }), realEsc, () => true, false, false);
+  )(doc, async () => ({ ok: true, json: async () => ({ ok: true, missing: [], unknown: ['x'], agents: [{ name: 'x', shownAs: '<b>x' }] }) }), realEsc, () => true, false, false, '');
   assert.match(wrap.innerHTML, /data-survival-unknown>&lt;b&gt;x</);
   assert.doesNotMatch(wrap.innerHTML, /<b>x/);
   assert.doesNotMatch(wrap.innerHTML, /boardfail/);
