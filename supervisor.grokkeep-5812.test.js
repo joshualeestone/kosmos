@@ -66,7 +66,7 @@ test('CONTROL: a file at that name that is not ours is left alone, the launch go
   const r = run('agent-grok3', home);
   assert.match(r.argv, /new-session/, r.out);
   assert.equal(fs.readFileSync(file, 'utf8'), '{"hooks":{"Stop":[]}}');
-  assert.match(r.out, /grok: its report hooks were not refreshed \(the hook file was changed by hand/);
+  assert.match(r.out, /grok: its report hooks were not refreshed \(a hook file at that path is not ours/);
 });
 
 test('review 2: our file as the person edited it (a hook of their own added) is left as they left it', () => {

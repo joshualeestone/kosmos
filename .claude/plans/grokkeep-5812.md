@@ -24,7 +24,7 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
 
 ## Stated
 - For a default-account agent the hook file is in the person's own ~/.grok, so their own grok sessions run the bridge
-  before each edit too: bounded (about 5 s at most, inside grok's own cutoff), harmless with no board listening, and the
+  before each edit too: bounded (about 5 s, near grok's own 5 s hook cutoff, which lets the edit through), harmless with no board listening, and the
   board takes a copy or notes a writer only for a session run inside an agent's own folder (the same known case as
   Claude's, engine/undo.js).
 

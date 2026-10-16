@@ -207,7 +207,7 @@ function engineDir(here) {
    on win32 a UNC or device path or folder: the board resolves the path synchronously, and a slow or vanished share
    would stall it (#6033 refuses the same). `platform` is a seam. */
 const KEEP_TOOLS = new Set(['search_replace', 'write']);
-const KEEP_TIMEOUT_MS = 3000;   // the keep's own bound, after the 2 s stdin bound: at most about 5 s in all, inside grok's own hook cutoff
+const KEEP_TIMEOUT_MS = 3000;   // the keep's own bound, after the 2 s stdin bound: about 5 s in all, near grok's own 5 s hook cutoff (grok lets the edit through on a timeout)
 function keepRequestFor(event, platform) {
   if (!event || typeof event !== 'object' || event.hook_event_name !== 'PreToolUse') return null;
   if (!KEEP_TOOLS.has(event.tool_name)) return null;

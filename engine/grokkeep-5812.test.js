@@ -164,10 +164,26 @@ test('review 2: upgradeIfUntouched rewrites only the exact older file, and never
   assert.equal(r.left, true);
   assert.match(r.because, /by hand/);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse, undefined);
-  // An older file for ANOTHER bridge path is not "what Kosmos wrote for this bridge": left.
+  // Review 3: an older file Kosmos wrote for ANOTHER bridge folder is still ours, and comes up to date on this bridge.
   const other = { hooks: {} };
-  for (const e of settings.HOOK_EVENTS) other.hooks[e] = [settings.definitionFor('/old/bin/grok-report-bridge.js', { platform: 'darwin' })];
+  for (const e of settings.HOOK_EVENTS) other.hooks[e] = [settings.definitionFor('/old place/bin/grok-report-bridge.js', { platform: 'darwin' })];
   fs.writeFileSync(file, JSON.stringify(other, null, 2) + '\n');
+  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse[0].hooks[0].command, `node "${B}"`);
+  // Review 3: the #3391 file (Notification too, before #4006) is ours.
+  const first = { hooks: {} };
+  for (const e of ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'StopCancelled', 'StopFailure', 'SessionEnd']) first.hooks[e] = [settings.definitionFor(B, { platform: 'darwin' })];
+  fs.writeFileSync(file, JSON.stringify(first, null, 2) + '\n');
+  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
+  // Ours, reformatted by a person: changed by hand. Not ours: says so.
+  fs.writeFileSync(file, JSON.stringify(other) + '\n');
+  assert.match(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).because, /changed by hand/);
+  fs.writeFileSync(file, '{"hooks":{"Stop":[]}}');
+  assert.match(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).because, /not ours/);
+  // Two different bridge paths in one file is not a file Kosmos wrote.
+  const mixed = JSON.parse(JSON.stringify(other));
+  mixed.hooks.Stop = [settings.definitionFor('/elsewhere/bin/grok-report-bridge.js', { platform: 'darwin' })];
+  fs.writeFileSync(file, JSON.stringify(mixed, null, 2) + '\n');
   assert.equal(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).left, true);
 });
 
