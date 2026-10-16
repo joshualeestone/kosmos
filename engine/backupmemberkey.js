@@ -147,7 +147,9 @@ async function ensureNow(opts, seen) {
     // verification key ships (orgkeypin.js); until then this answers ok and changes nothing. Checked before any key
     // is read, kept or wrapped, so nothing is ever wrapped to a key this computer did not accept; and before the
     // company is named in the answer, so the backup job keeps no state for a pair this computer refused.
-    const vouched = orgkeypin.check(store.ROOT, bk.data, company, opts.orgKeyPin || {});
+    // The enrollment record's org, read only when a first pin needs it (never while dormant).
+    const recordOrg = () => { const rec = require('./orgenroll').readEnrollment(); return rec && rec.org ? rec.org.id : undefined; };
+    const vouched = orgkeypin.check(store.ROOT, bk.data, company, Object.assign({ recordOrg }, opts.orgKeyPin));
     if (!vouched.ok) return { ok: false, orgKeyRefused: true, because: vouched.because };
     seen.company = company;
     const read = readKeys(company.org, company.member);
