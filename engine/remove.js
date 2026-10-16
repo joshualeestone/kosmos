@@ -2566,6 +2566,43 @@ async function restartAsync(name, cause, opts) {
   }
 }
 
+/* #6231 item 7: the win32 put-back run OFF the board's thread, mirroring restartAsync. A stopped move puts every
+   unreached agent back, and on Windows each put-back is a few schtasks calls; run synchronously inside the stop
+   route they hold the board thread for up to the whole batch. This drives create.restoreAccountSteps (the win32
+   put-back as step generators) through driveAsync so the board stays responsive, bounded by the same cap as a
+   restart. The hold ends when the drive has REALLY ended, not at the cap (the same #3418 interleave guard
+   restartAsync keeps): a schtasks it issued before the cap may still be running, so the agent stays in RESTARTING
+   until the last command settles. Resolves a create.OUTCOME-shaped result ({outcome, because, account}); the cap
+   resolves a REFUSED-shaped one so the move words it as a partial ("still on the old account until it restarts").
+   win32-only: linux/mac put-backs write a local file and are driven synchronously by create.restoreAccount. */
+async function putBackAsync(name, dir) {
+  const clean = create.cleanName(name);
+  const cap = asyncRestartCapMs();
+  const ctl = { abandoned: false };
+  let timer = null;
+  RESTARTING.add(clean);
+  try {
+    const capped = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        ctl.abandoned = true;
+        resolve({
+          outcome: create.OUTCOME.REFUSED,
+          because: `putting it back did not finish within ${Math.round(cap / 1000)} seconds, so we stopped waiting for it`,
+        });
+      }, cap);
+    });
+    const driven = driveAsync(create.restoreAccountSteps(name, dir), ctl)
+      .then((v) => (ctl.abandoned ? null : v));
+    const release = () => { clearTimeout(timer); RESTARTING.delete(clean); };
+    driven.then(release, release);   // attached before the race, so the hold ends when the drive really ends
+    const out = await Promise.race([driven, capped]);
+    return out || (await capped);
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
 /**
  * Drops an agent's removal record, and nothing else.
  *
@@ -2601,6 +2638,7 @@ module.exports = {
   plan,
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread
+  putBackAsync,   // #6231 item 7: a stopped move's win32 put-backs, without blocking the board's thread
   unsafeToActOn,
   isHidden,
   hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it
