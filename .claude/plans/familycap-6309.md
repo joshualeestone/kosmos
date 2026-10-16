@@ -30,3 +30,17 @@ capAt, capAllows. Tests: orgpolicy-cap-6309.test.js, 3 tests; a mutation removin
 swarm.readFile keeps ONE cache entry per file and resets it to zero whenever `since` changes ("a new day"). A month
 count sharing that cache with the swarm's daily meter would zero each other on every alternate call. The month count
 must use its own cache: readFile takes the cache as a parameter (default: the swarm's, so the swarm is unchanged).
+
+## Steps 2 to 5 done (2026-10-16, after the move to the new Mac)
+- 088b44e6bf: usagecap tested (7). Found: orgpolicy.currentStrict was not exported (capInForce threw on every call);
+  a first, bounded count was memoised for 60 s (a new board would not refuse for a minute). Both fixed.
+- 361485df27: the gate in deliverWithGap and answerQuestionMenu (`capped: true`), familycap-6309.test.js (4).
+- 66791cfcb1: the rollup's policyUsage { used, cap, warn, over } under the policy words; heads-up and cap are changes.
+- kosmos-relay familycap-6309 411ab936: usage_cap in the policy shape, policyUsage stored and served, the console
+  editor section, policy row, chip, and This month on the child's card and drawer.
+
+## Decided
+- No AI policy block line: quiet hours has none, and the refusal reaches the person, not the agent.
+- A cap refusal is not an agent event yet (no coordinator rule word); the parent sees used / cap in the console.
+- The heads-up is the parent's (console). A banner on the child's board is new board UI and waits on design.
+- A fault reading the policy or the count reads as open, as quiet hours do.
