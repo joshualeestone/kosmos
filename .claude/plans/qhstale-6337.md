@@ -30,6 +30,8 @@ not come on that CI run is not established; this change makes the arm unable to 
   one (measured: outer alarm 2 around an inner alarm 6 returned at 6 s). Hence `$REAL_QH`; the marker dir is still
   under `$S`, which is all the shim guards.
 - After a trip, a child the wrapper left behind is not reaped by this arm; it is orphaned rather than hanging the
-  shard, and may still write to `$S/stale5467.out` after it is read.
+  shard, may still write to `$S/stale5467.out` after it is read, and can outlive the EXIT trap's `rm -rf $S`
+  (harmless: writes through an open descriptor do not recreate the directory, and the arm has already failed).
+- A red from this arm prints the wrapper's exit status whenever it is non-zero, so a refusal reads differently from a timeout.
 - Only this arm moves to a file capture. Other arms still use `o=$(...)` with the shim's alarm; they have not hung,
   and changing them all is a wider change than the card asks for.

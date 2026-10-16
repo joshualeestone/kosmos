@@ -563,14 +563,16 @@ ok "#5467 CONTROL: without the re-exec the waiter IS matched (the arm above is n
 ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "${r5467##* }" = y ] && [ -z "$(ls "$TMPDIR" | grep queued-heavy-args)" ]'
 # Review 1: a stale TMPDIR (removed since) falls back to /tmp instead of stopping the run before it waits.
 # kosmos#6337: the output goes to a FILE, not $(...): a command substitution waits for every process holding its pipe,
-# so a child the wrapper left behind kept it open after the shim's alarm had fired (8 minutes to the 900 s cap). Its own
+# so a child the wrapper left behind evidently kept it open after the shim's alarm had fired (8 minutes to the 900 s
+# cap; inferred from the timing and a standalone reproduction, not seen on the CI run itself). Its own
 # 60 s bound (the turn in an empty private marker dir is immediate) says so by name when it trips. It runs $REAL_QH, not
 # the $QH shim: the shim execs its own alarm($QH_DEADLINE), and an alarm set after exec REPLACES the pending one, so
 # through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here,
 # and may still write to the file after it is read; the arm has already failed by then.
 mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ); stale5467_rc=$?   # its own marker dir: the fake holder above holds $S/m
 o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
-TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"
+TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"; [ "$stale5467_rc" -ne 0 ] && o="$o
+(the stale-TMPDIR run exited $stale5467_rc)"
 ok "#5467: a stale TMPDIR falls back to /tmp and the run still takes its turn" '[[ "$o" == *"TURN: running stale-tmpdir"* && "$o" == *"END rc=0"* ]]'
 o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.x/../escape" 2>&1); r=$?
 ok "#5467: --queued-args refuses a path that continues past its own file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]]'
