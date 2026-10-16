@@ -477,7 +477,7 @@ const SCREENS = [
     await at(page, '');
     await page.waitForSelector('#streak-slot .utoast.streak', { state: 'visible', timeout: 12000 });
     await page.evaluate((s) => window.growMock(s), st);
-    await page.waitForSelector(st === 'reward' ? '#streak-slot .utoast.streak small' : '#grow-modal:not([hidden])', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector(st === 'reward' ? '#streak-slot .utoast.streak .ux' : '#grow-modal:not([hidden])', { state: 'visible', timeout: 5000 });
   } })),
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
