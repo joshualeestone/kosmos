@@ -86,3 +86,15 @@ before this card. Nothing reads the new unsent-submitted rows yet (item 2); they
 - No BLOCKER, WARNING or CONVENTION. NITs taken: inputBoxEmpty reads paneTarget(card) (the exact pane the delivery
   types into); the re-remember comment says it is bounded (once per delivery, never past 10 minutes). Left: nothing
   reads the unsent-submitted rows yet (stated in Weakest premise).
+
+## Rebased onto main after #6249 merged (PR #6279), 2026-10-15 21:4x
+- Replayed this branch's 8 commits onto main (`git rebase --onto origin/main 0b5088a133`); #6249 had gained more
+  commits before merging. Conflicts in engine/roomhold.js only: main had added `afterOf` (Renet's #4926 N7 diagnostic,
+  #6271) to flushOnIdle and flushReleased and `carriedLine` to the exports. Kept both.
+- Found by the tests, not the merge: the union of export lists re-added `inputNoted` after its function was gone, so
+  the module threw ReferenceError on load. Fixed: the exports are exactly main's plus `noteInput` (checked by script).
+- The input-held retry now passes `afterOf` to flushOnIdle like the other callers, so the N7 diagnostic also logs
+  tellings this retry makes.
+- Re-run on the rebased tree, each alone from the repo root: the 6256 and 6249 tests, chat, messages, the roomhold and
+  4926 suites (n7diag included), limithold, server.agyhold and the scanning guards: all pass.
+
