@@ -251,14 +251,14 @@ async function connectPending(page) {
   await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
 }
 /* #4794: the computer WAITING to be allowed (Settings > Kosmos+), with the pairing code worked out. */
-async function joinWaiting(page) {
+async function joinWaiting(page, confirmed) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   /* The devices list reads its own answer; unfaked, the throwaway board says on:false and the shot showed "Plus is off"
      beside a switch that is on. A computer waiting to be allowed has its switch on and no devices yet. */
   await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false }) }));
+    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: !!confirmed, confirm_expired: false }) }));
 }
 /* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
    of #5530's contract; the consent words are the sample the contract carries. */
@@ -880,8 +880,25 @@ const SCREENS = [
   }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Check that homemac shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Check it shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
+  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads, the code steps back. */
+  { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /Now press Allow on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+  } },
+  /* kosmos#6314: signed in on an account whose one computer is in use: "Add this computer to your account", with the
+     price as Stripe gives it. Reached with the page's own functions; the list is a stand-in with the route's shape. */
+  { name: 'plus-add-computer', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await at(page, '?tab=settings&sec=plus');
+    await page.waitForSelector('#plus-state2', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => {
+      for (const id of ['plus-state1', 'plus-state3']) { const el = document.getElementById(id); if (el) el.hidden = true; }
+      PLUS_SIGNIN_ACTIVE = true;
+      document.getElementById('plus-state2').hidden = false;
+      plusSiBoughtPick({ addresses: [{ name: 'first', address: 'first.kosmosplus.com', state: 'in_use', first_free: true }], buy_url: 'https://login.kosmosplus.com/signin', price: '$20/month' });
+    });
+    await page.waitForFunction(() => /Each computer you add is \$20 a month/.test((document.getElementById('plus-si-bought-none') || {}).innerText || ''), null, { timeout: 8000 });
+  }, after: async (page) => { await plusSigningInEnd(page); } },
   /* #5785: the sign-in card while this computer connects (the register step): the big K loader above "Signing in...",
      the "Connecting this computer as <name>.kosmosplus.com..." line under it. Put in that state with the page's own
      functions (no coordinator here); the loader is the real one, caught mid-animation. The sign-in flags are set as a
