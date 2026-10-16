@@ -43,6 +43,7 @@ function boxWorld(fetchImpl) {
     slice('const PLUS_CODE_WORDS', 'function plusCountdown'),
     slice('function plusSiMsg', 'async function plusSiPostRaw'),
     slice('const PLUS_SI_COMPUTER', 'function plusSiComputerSent'),   // #5995: the start asks it what name to send
+    slice('const PLUS_SI_CODE_LATE_MS', 'function plusSiCodeLateArm'),   // #6313: a good ask arms the "nothing yet" line
     slice('async function plusSiRequestCode', 'async function plusSiRequestCode'),
     'this.plusSiRequestCode = plusSiRequestCode;',
   ].join('\n'), ctx);

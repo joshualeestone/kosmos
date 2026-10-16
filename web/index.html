@@ -11776,6 +11776,8 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    the field edge's #5c78a6 separates it on the navy and on white alike. */
 #plus-state2 #plus-si-bought-recheck { border-color: #5c78a6; }
 #plus-state2 .plus-si-small { color: var(--k-ink-2); font-size: .9rem; margin: .9rem 0 0; }
+#plus-state2 .plus-si-addr { margin: .6rem 0 0; }
+#plus-state2 .plus-si-addr b { color: #E6EBF7; font-size: 1.15rem; font-weight: 600; overflow-wrap: anywhere; margin-right: .5rem; }
 #plus-state2 .plus-si-foot { margin-top: 1.4rem; }
 #plus-state2 .plus-signin-link[aria-disabled="true"] { opacity: .55; pointer-events: none; }
 #plus-state2 #plus-signin-msg:empty { display: none; }
@@ -19252,7 +19254,10 @@ window.kosmosMeasureScrollbarWidth();
 
       <!-- The code from the email (signin-verify). -->
       <div id="plus-si-code" hidden>
-        <p class="plus-si-lead">We sent a code to <b id="plus-si-code-to"></b>. It works for 10 minutes.</p>
+        <!-- #6313: the coordinator answers the same for an address with no account and sends nothing (deliberate: the
+             answer must not say whether an account exists), so the line claims only what the board knows. -->
+        <p class="plus-si-lead" id="plus-si-code-lead">If this address has a Kosmos+ account, a code is on its way. It works for 10 minutes.</p>
+        <p class="plus-si-addr"><b id="plus-si-code-to"></b> <a id="plus-si-code-change" class="plus-signin-link" href="#">Wrong address? Change it</a></p>
         <div class="field">
           <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
           <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
@@ -19262,6 +19267,7 @@ window.kosmosMeasureScrollbarWidth();
           <button class="btn uprime" type="button" id="plus-si-code-go">Verify</button>
         </div>
         <p class="plus-si-small">Didn't get it? <a id="plus-si-code-resend" class="plus-signin-link" href="#">Send again</a></p>
+        <p class="plus-si-small" id="plus-si-code-late" hidden>Nothing yet? Check the address above for a typo, and look in spam. New to Kosmos+? <a id="plus-si-code-join" class="plus-signin-link" href="#" target="_blank" rel="noreferrer noopener">Create an account</a></p>
       </div>
 
       <!-- The phone code (signin-second): reached when the account already has a
@@ -51824,6 +51830,7 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  plusSiCodeLateReset();
   /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
      and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
      start carried is kept, so it comes back. */
@@ -52265,7 +52272,8 @@ async function plusSiRequestCode(btn) {
   /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
      paragraph; the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
-  plusSiMsg(btn.id === 'plus-si-code-resend' ? 'We sent another code.' : '');
+  plusSiMsg(btn.id === 'plus-si-code-resend' ? 'Asked for another code.' : '');
+  plusSiCodeLateArm();
   /* #3942: a new code is on its way, so the old one (likely a wrong one) leaves the boxes; the input
      event lets the boxes repaint and forget the last code sent. */
   if (btn.id === 'plus-si-code-resend') {
@@ -52278,7 +52286,29 @@ async function plusSiRequestCode(btn) {
      the two). Said on the code step, where the person now is; the code they were sent still works. */
   if (r.data && r.data.computer_name_kept === false) plusSiMsg(PLUS_SI_NAME_NOT_KEPT);
 }
+/* #6313: a minute after a code was asked for, with nothing typed, the step says what to check. The board cannot
+   know whether the address has an account, so the line is the same for every address. */
+const PLUS_SI_CODE_LATE_MS = 60000;
+let PLUS_SI_CODE_LATE_TIMER = null;
+function plusSiCodeLateReset() {
+  if (PLUS_SI_CODE_LATE_TIMER) { clearTimeout(PLUS_SI_CODE_LATE_TIMER); PLUS_SI_CODE_LATE_TIMER = null; }
+  const late = document.getElementById('plus-si-code-late'); if (late) late.hidden = true;
+}
+function plusSiCodeLateArm() {
+  plusSiCodeLateReset();
+  const join = document.getElementById('plus-si-code-join');
+  const site = document.getElementById('plus-site-link');
+  if (join && site) join.href = site.href;
+  PLUS_SI_CODE_LATE_TIMER = setTimeout(() => {
+    PLUS_SI_CODE_LATE_TIMER = null;
+    const step = document.getElementById('plus-si-code');
+    const inp = document.getElementById('plus-si-code-in');
+    if (!step || step.hidden || (inp && inp.value.trim())) return;
+    const late = document.getElementById('plus-si-code-late'); if (late) late.hidden = false;
+  }, PLUS_SI_CODE_LATE_MS);
+}
 document.getElementById('plus-signin-code').addEventListener('click', () => plusSiRequestCode(document.getElementById('plus-signin-code')));
+document.getElementById('plus-si-code-change').addEventListener('click', (e) => { e.preventDefault(); plusSiStartOver(); });
 document.getElementById('plus-si-code-resend').addEventListener('click', (e) => {
   e.preventDefault();
   if (e.currentTarget.getAttribute('aria-disabled') === 'true') return;
