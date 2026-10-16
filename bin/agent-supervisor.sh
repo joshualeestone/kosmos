@@ -1158,18 +1158,18 @@ if [ -z "$adopt" ]; then
     # A -c always wins, so a person's own higher value in ~/.codex/config.toml is lowered to this.
     DOCBYTES_CFG="project_doc_max_bytes=524288"
     # #5812 item 2: the PreToolUse hook that tells the board which files a Codex agent is about to edit (the undo copy,
-    # #5153, and "changed by" on a project file). engine/codexhooks.js writes it, and the trust record Codex needs before
-    # it will run it, into the agent's PRIVATE home (#4592); features.hooks is added only when that worked, so a failed
-    # install launches the agent exactly as before, without the hook. Expanded with ${a[@]+...}: bash 3.2 under set -u
-    # refuses a plain "${a[@]}" of an empty array.
-    HOOKS_ARGS=()
+    # #5153, and "changed by" on a project file). engine/codexhooks.js writes it, with the trust record Codex needs before
+    # it will run it, into the agent's PRIVATE home (#4592). Codex has hooks on by default and, in the TUI, STOPS on an
+    # untrusted hook ("Hooks need review"), so the install runs only for the pinned Codex version (the hash is verified
+    # for that one) and removes its hooks.json whenever it cannot vouch for the record: a failure launches the agent with
+    # no hook, as before, never on the review screen.
     if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -n "${EFFECTIVE_CODEX_HOME:-}" ]; then
-      if _hooks_why="$("$NODE_BIN" "$_eng/codexhooks.js" install "$EFFECTIVE_CODEX_HOME" "$BRIDGE" 2>&1 >/dev/null)"; then
-        HOOKS_ARGS=(-c "features.hooks=true")
-      else
+      _codex_ver="$("$CLAUDE" --version 2>/dev/null | head -n 1)"
+      _codex_ver="${_codex_ver#codex-cli }"
+      if ! _hooks_why="$("$NODE_BIN" "$_eng/codexhooks.js" install "$EFFECTIVE_CODEX_HOME" "$BRIDGE" "$_codex_ver" 2>&1 >/dev/null)"; then
         say "$SESSION: its file-edit hook was not set up (${_hooks_why:-no reason given}); undo copies and changed-by will miss its edits"
       fi
-      unset _hooks_why
+      unset _hooks_why _codex_ver
     fi
       # Answer codex's update notice before the pane starts (#1315). Creation
       # dismisses the version current when the agent was MADE; this dismisses
@@ -1192,11 +1192,11 @@ if [ -z "$adopt" ]; then
       if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${EFFECTIVE_CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ "${#ENDPOINT_ARGS[@]}" -gt 0 ]; then
       # #5977: the endpoint's arguments carry their own -m (the account's model), so the agent's $MODEL is not used.
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" ${HOOKS_ARGS[@]+"${HOOKS_ARGS[@]}"} "${ENDPOINT_ARGS[@]}" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" "${ENDPOINT_ARGS[@]}" || exit 1
     elif [ -n "$MODEL" ]; then
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" ${HOOKS_ARGS[@]+"${HOOKS_ARGS[@]}"} -m "$MODEL" || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" -m "$MODEL" || exit 1
     else
-      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" ${HOOKS_ARGS[@]+"${HOOKS_ARGS[@]}"} || exit 1
+      launch_pane "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -c "$DOCBYTES_CFG" || exit 1
     fi
   elif [ "$RUNNER" = gemini ]; then
     # #3296: the Gemini runner. Self-reporting is NOT a launch flag (as codex's

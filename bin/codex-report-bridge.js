@@ -166,7 +166,7 @@ function main() {
    call the Claude and Gemini hooks make. Nothing is printed: Codex runs the tool when the hook says nothing. */
 const KEEP_TIMEOUT_MS = 3000;   // never hold the edit longer (the Claude and Gemini hooks' bound)
 const STDIN_TIMEOUT_MS = 2000;  // a hook closes stdin at once; this only bounds a stdin left open
-const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board)
+const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board); the rest get no undo copy and no changed-by, a stated limit
 const FILE_LINE = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/;
 
 /* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
@@ -202,11 +202,18 @@ function keepRequestsFor(event) {
   return out;
 }
 
+/* Review 1: stdin is let go once read (or on the timeout), so a stdin left open cannot keep this process, and the edit
+   behind it, waiting after the keeps are sent. */
 function readStdin(timeoutMs) {
   return new Promise((resolve) => {
     let data = '';
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(data); } };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      try { process.stdin.destroy(); } catch { /* already gone */ }
+      resolve(data);
+    };
     try {
       process.stdin.setEncoding('utf8');
       process.stdin.on('data', (c) => { data += c; });
