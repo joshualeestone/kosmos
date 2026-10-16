@@ -146,3 +146,11 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
   missing-bin-dir line goes to stderr; step 10's company clause says it pins the constant.
 - Kept (NIT): round numbers in comments (the copied helpers use the same style; each carries its reason).
 - Rerun: VERDICT PASS 23/23.
+
+## Round 14 (sonnet) fixes
+- One table (STEP_CHECKS) gives each step's check count: EXPECTED_CHECKS is its sum, and the end line names a step that
+  never ran and a step whose own count is off (shown: step 8 set to 2 reads "counts off: step 8 1/2").
+- Step 4 requires the sign-up's match code, and 4b matches only a real one (undefined would match a codeless row).
+- Kept (NITs): the preflight's dependence on the refusal's words (it prints the binary's output when it does not
+  match); the fedproof names and copied helpers (#6287); round numbers in comments.
+- Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 12/19.
