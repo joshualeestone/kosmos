@@ -50833,7 +50833,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
   PLUS_ORG.at = Date.now();
   const askedAt = Date.now();   // kosmos#6239: a read that started before a review's Accept says nothing about it
   fetch('/api/org').then((res) => res.json()).then((j) => {
-    // kosmos#6239: a read that started before this page last set the state itself (a review's Accept) is older than it.
+    // kosmos#6239: a read that started before this page last set the state itself (a family's Accept) is older than it.
     if (askedAt < (PLUS_ORG.wroteAt || 0)) return;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
@@ -50872,7 +50872,7 @@ function plusOrgPaint() {
      opened for: a joining family's words hold the block open, and they close when this computer joins; a review's close
      when this computer is no longer joined (a Leave, or a read that says so). */
   const fam = PLUS_ORG_FAMILY;
-  if (fam && fam.p && ((fam.p.review === true && !here) || (fam.p.review !== true && here))) plusOrgFamilyHide();
+  if (fam && fam.p && ((fam.p.review === true && (!here || st.wordsNeeded !== true)) || (fam.p.review !== true && here))) plusOrgFamilyHide();
   const joining = !!(PLUS_ORG_FAMILY && PLUS_ORG_FAMILY.p && PLUS_ORG_FAMILY.p.review !== true);
   const full = !!here || PLUS_ORG.open === true || msgOn || joining || (!!st.stoppedFor && st.stoppedFor !== PLUS_ORG.dismissed) || !!st.leaveRefused;
   document.getElementById('plus-org-open').hidden = full;
@@ -51008,8 +51008,9 @@ async function plusOrgFamilyAccept() {
     plusOrgFamilyHide();
     document.getElementById('plus-org-code').value = '';
     msg.textContent = '';   // round 2: no earlier line stays over the joined view
-    // A review's Accept can be taken while this computer records nothing (its print not pinned): the next read says so.
-    if (f.p.review === true) PLUS_ORG.reviewAccepted = Date.now();
+    // A family's Accept (a join or a review) can be taken while this computer records nothing (its print not pinned, or
+    // the words not kept): the next read says so.
+    PLUS_ORG.reviewAccepted = Date.now();
     PLUS_ORG.wroteAt = Date.now();
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
@@ -51062,11 +51063,11 @@ async function plusOrgFamilyReview() {
   if (PLUS_ORG.busy) return;
   const btn = document.getElementById('plus-org-words');
   PLUS_ORG.busy = true; btn.disabled = true; msg.textContent = '';
-  let refused = false;   // read after finally: a return inside try would skip anything placed after it
+  let refused = false;   // read in finally: a return inside try skips anything placed after the finally
   try {
     const p = await plusOrgPost('preview', { review: true });
     if (!p.ok) { refused = true; msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
-    if (!(p.org && p.org.kind === 'family')) { msg.textContent = 'Kosmos takes your company\u2019s terms on itself; there is nothing to read here.'; return; }
+    if (!(p.org && p.org.kind === 'family')) { refused = true; msg.textContent = 'Kosmos takes your company\u2019s terms on itself; there is nothing to read here.'; return; }
     plusOrgFamilyShow(null, p);
     plusOrgPaint();   // the words row folds while the words are open
   } finally {

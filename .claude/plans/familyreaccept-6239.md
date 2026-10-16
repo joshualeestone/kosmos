@@ -84,6 +84,16 @@ joining again.
 - A /api/org read that STARTED before the page's own last state write (a review's Accept) is dropped, so a read in
   flight from before the Accept cannot put the stale wordsNeeded view back (PLUS_ORG.wroteAt). Reasoned from the code.
 
+## Reviews 6 and 7
+- Review 6 (sonnet), two WARNINGs deferred with reasons. "could not record them" shows only when this computer's own
+  record lacks the words (the read is local, must start after the Accept round trip, and wroteAt drops older ones).
+  "Press Accept" after an Accept refusal cannot follow reviewHere's "already accepted here": an Accept goes through
+  enroll, which never calls reviewHere.
+- Review 7 (opus): a family's FIRST join can also end with no words recorded (print not pinned, words not kept), so the
+  "Kosmos+ took the family's words, but this computer could not record them" line now follows any family Accept, not
+  only a review. An open review panel also closes once the words read as accepted; a non-family review answer reads
+  the view again.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
