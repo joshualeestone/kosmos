@@ -2051,6 +2051,7 @@ async function devicesList() {
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
   const vouched = read().vouched || {};
+  /* #6315: REQUEST_ID here too, so an allowed computer listed by its minted id can still be removed. */
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .map((d) => ({
@@ -2091,7 +2092,7 @@ async function deviceAllow(id, name, code) {
   /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
      show; without one the tunnel would take it as a phone and put the id on this computer's gate. */
   if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
-    return { ok: false, because: 'compare the code on both computers, then allow' };
+    return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
   }
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
