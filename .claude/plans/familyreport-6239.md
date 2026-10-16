@@ -86,3 +86,4 @@ reason.
 - The report poll reads through safe(), so a thrown last read shows status 0, not an earlier read's 200.
 - Declined: matching the retried sign-in's code by count. The settle's bound and failure mode are stated at the site,
   and the retry has now fired and passed once.
+- Rerun (exclusive queued turn, 05:35): VERDICT PASS 25/25; joined 2 s after K's spawn, tick due 60 s.
