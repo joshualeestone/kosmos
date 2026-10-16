@@ -463,9 +463,13 @@ async function reviewHere(opts) {
   const role = d ? cleanRole(d.role) : null;
   const consent = d ? cleanConsent(d.consent) : null;
   // The words must be this record's company's, for this world: never another company's consent shown as this one's.
-  if (!org || !rec.org || org.id !== rec.org.id || statusVerdict(d, readWorldId(opts)) !== 'here') {
-    // kosmos#6239 review 13: a code, so the screen can hold the words back until this record is refreshed.
-    return { ok: false, code: 'org_not_named', because: inKind(KIND, 'Your company does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.') };
+  const verdict = statusVerdict(d, readWorldId(opts));
+  if (!org || !rec.org || org.id !== rec.org.id || verdict !== 'here') {
+    /* kosmos#6239 reviews 13 and 15: a code, so the screen holds the words back until this record is refreshed, but only
+       on a clear answer (no longer a member, another org, named elsewhere). An unclear one keeps the record, so the
+       words stay offered. */
+    const clear = verdict === 'gone' || verdict === 'notHere' || !!(org && rec.org && org.id !== rec.org.id);
+    return { ok: false, ...(clear ? { code: 'org_not_named' } : {}), because: inKind(KIND, 'Your company does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.') };
   }
   if (!role || !consent) return { ok: false, because: inKind(KIND, 'Your company\'s answer was not complete. Try again in a minute.') };
   /* Accepting records the words on the company's side only when the enroll carries the hash it served (contract v1.4;
