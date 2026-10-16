@@ -429,7 +429,7 @@ test('#5532 rollup review 7: a refresh keeps the accepted words (found by the ha
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false, capConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
 });
 
 test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
@@ -453,7 +453,7 @@ test('#5532 wiring: the real enroll path remembers the words shown, and usage is
     const c = coordinator();
     const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
     assert.equal(r0.ok, true, JSON.stringify(r0));
-    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false }, JSON.stringify(lines));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false, capConsented: false }, JSON.stringify(lines));
   }
 });
 
@@ -968,7 +968,8 @@ test('#5534 slice 2 review 3: end to end with the real policy module, an expired
 });
 
 test('#6309: the month\'s usage against the cap leaves only under words naming the policy, for this company\'s cap, once counted in full', async (t) => {
-  const NAMED = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"];
+  const POLICY_ONLY = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"];
+  const NAMED = [...POLICY_ONLY, "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one"];
   const CAP = { usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } };
   const send = async (lines, { org: whose, count } = {}) => {
     const root = world(t);
@@ -989,6 +990,10 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
   assert.deepEqual(named.asked, [[CAP, Date.UTC(2026, 9, 7, 12)]], 'counted against the policy in force, at the tick\'s clock');
   const without = await send(['agent names, the AI provider and model each uses']);
   assert.equal('policyUsage' in without.body, false, 'the usage left under words that do not name the policy');
+  const policyOnly = await send(POLICY_ONLY);
+  assert.equal(policyOnly.body.policyVersion, 3, 'CONTROL: the policy version still goes under its own words');
+  assert.equal('policyUsage' in policyOnly.body, false, 'the usage left under words naming only the policy version');
+  assert.deepEqual(policyOnly.asked, [], 'the month was counted under words that do not name it');
   const foreign = await send(NAMED, { org: 'org_other' });
   assert.equal('policyUsage' in foreign.body, false, 'another company\'s cap was reported to this one');
   const short = await send(NAMED, { count: { capped: true, used: 10, cap: 1000, pct: 1, warn: false, over: false, tz: 'UTC', complete: false } });

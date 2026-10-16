@@ -281,6 +281,10 @@ const NAMES_POLICY = /\bversion of (?:your company's|the family's) policy\b/i;  
 // Safe because the coordinator serves the words and pins the same phrase (CONSENT_NAMES_EVERY_KOSMOS), as NAMES_POLICY.
 // It is the board's only check that the person agreed to the other Kosmoses being sent (board review 14).
 const NAMES_EVERY_KOSMOS = /\bevery kosmos on this computer\b/i;
+/* kosmos#6309: whether the accepted words name the month's count against the policy's usage cap, so the rollup may
+   carry it. The coordinator's consent_names_cap is pinned to the same phrase. The line must not say token, usage or
+   cost: NAMES_USAGE would read it as consent to per-day usage, which the coordinator refuses. */
+const NAMES_CAP = /\bmonthly AI cap\b/i;
 /* Keyed BY HASH, a few kept (rollup review 10): a join that fails, or one from a stale page, must not overwrite the
    words held for the hash an existing record carries. */
 const CONSENT_KEEP = 8;
@@ -311,7 +315,7 @@ function acceptedConsent(opts) {
   if (!j || !Array.isArray(j.reports)) return null;
   const reports = j.reports.filter((l) => typeof l === 'string' && l);
   return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
-    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)) };
+    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)) };
 }
 /* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
    re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),

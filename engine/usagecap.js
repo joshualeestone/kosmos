@@ -21,6 +21,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const swarm = require('./swarm');
 const orgpolicy = require('./orgpolicy');
+const store = require('./store');
 
 const cache = new Map();
 let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
@@ -72,18 +73,42 @@ function monthTokens(tz, now = Date.now(), rootsList = roots()) {
   return out;
 }
 
+/* The last full count of the month, kept on disk: a board that restarts counts the month again from the start, a
+   bounded amount per call, and until it has caught up the short count is never less than this one. Without it a
+   child already over the cap could message freely after every restart. A month's count only grows, so the larger of
+   the two is right; a transcript deleted mid-month keeps the higher number until the 1st, which errs closed. */
+const FLOOR = () => path.join(store.ROOT, 'usage-cap-month.json');
+function readFloor(since) {
+  try {
+    const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8'));
+    return j && j.since === since && Number.isSafeInteger(j.used) && j.used > 0 ? j.used : 0;
+  } catch { return 0; }
+}
+function writeFloor(since, used) {
+  if (readFloor(since) === used) return;
+  const tmp = FLOOR() + '.' + process.pid + '.tmp';
+  try {
+    fs.mkdirSync(path.dirname(FLOOR()), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ since, used }) + '\n');
+    fs.renameSync(tmp, FLOOR());
+  } catch { try { fs.rmSync(tmp, { force: true }); } catch { /* nothing to remove */ } }
+}
+
 /** What `policy` says now: orgpolicy.capAt with this month's count, plus `complete`. { capped: false } with no cap. */
 function capNow(policy, now = Date.now(), rootsList) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) return { capped: false };
   const m = rootsList ? monthTokens(u.tz, now, rootsList) : monthTokens(u.tz, now);
-  return { ...orgpolicy.capAt(policy, m.tokens), complete: m.complete };
+  if (m.complete) writeFloor(m.since, m.tokens);
+  const used = m.complete ? m.tokens : Math.max(m.tokens, readFloor(m.since));
+  return { ...orgpolicy.capAt(policy, used), complete: m.complete };
 }
 
 /* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
-   and recounted when the policy's cap changes. A count still catching up is not kept: a first count reads a bounded
-   amount, and keeping it would let a new board under-count, and so not refuse, for a whole minute. */
+   and recounted when the policy's cap changes. A count still catching up is kept for MEMO_SHORT_MS only, so the
+   catch-up moves on without every message paying for a bounded read. */
 const MEMO_MS = 60 * 1000;
+const MEMO_SHORT_MS = 5 * 1000;
 let memo = null;
 
 /** The policy in force (orgpolicy.currentStrict) with this month's count: { capped: false } or capNow's answer.
@@ -91,9 +116,9 @@ let memo = null;
 function capInForce(now = Date.now()) {
   const policy = orgpolicy.currentStrict();
   const key = JSON.stringify((policy && policy.usage_cap) || null);
-  if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < MEMO_MS) return memo.value;
+  if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < memo.ms) return memo.value;
   const value = capNow(policy, now);
-  memo = value.complete === false ? null : { key, at: now, value };
+  memo = { key, at: now, value, ms: value.complete === false ? MEMO_SHORT_MS : MEMO_MS };
   return value;
 }
 
@@ -102,12 +127,14 @@ function capInForce(now = Date.now()) {
 function capAllows(now = Date.now()) {
   const c = capInForce(now);
   if (!c.capped || !c.over) return { ok: true };
-  return orgpolicy.capAllows({ usage_cap: { monthly_tokens: c.cap, warn_pct: 1, tz: c.tz } }, c.used);
+  return { ok: false, because: orgpolicy.capSentence(c) };
 }
 
-function resetForTests({ perCallBytes: n } = {}) {
+/** `keepFloor` keeps the month's saved count, as a board restart does. */
+function resetForTests({ perCallBytes: n, keepFloor = false } = {}) {
   cache.clear(); memo = null;
+  if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
   perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
 }
 
-module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS };
+module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };

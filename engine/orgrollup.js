@@ -796,9 +796,10 @@ async function tick(opts) {
       const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
       g.policyVersion = mine ? mine.version : null;
       g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
-      /* kosmos#6309: the cap's count, only for this company's policy and only once it has caught up (a short count is
-         left out, so the company keeps what it had, rather than reporting too little). */
-      const u = mine ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
+      /* kosmos#6309: the cap's count, only under words that name it (capConsented: the policy line does not), only for
+         this company's policy, and only once it has caught up (a short count is left out, so the company keeps what it
+         had, rather than reporting too little). */
+      const u = mine && accepted.capConsented === true ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
       if (u.capped && u.complete !== false) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over };
     } catch {
       delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;

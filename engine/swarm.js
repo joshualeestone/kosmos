@@ -288,7 +288,9 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   /* kosmos#6309: a caller counting from another `since` (the usage cap's month) passes its own cache: sharing this one
      would reset the day's count to zero on every alternate call, and the month's on the others. */
   let e = cache.get(file);
-  if (!e || st.size < e.offset) e = freshEntry(since);
+  /* A `since` that moved EARLIER (kosmos#6309: a usage cap whose zone changed mid-month) needs lines already passed, so
+     the file is read again from the start. */
+  if (!e || st.size < e.offset || since < e.since) e = freshEntry(since);
   else if (e.since !== since) { e.since = since; e.tokens = 0; }   // a new day: earlier lines add nothing, so keep the position
   if (st.size > e.offset) {
     const take = (text) => {
