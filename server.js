@@ -23032,6 +23032,12 @@ let ORG_POLICY_RETRY_AT = 0;                   // clock time the next no-company
    noted above -- a boot-untold agent whose enrollment then ends is not retried by this. */
 function companyPolicyClearOwed() {
   if (typeof COMPANY_POLICY_SEEN !== 'string') return false;
+  /* kosmos#6263: the record is [entry or null, kind] (a family's block changes with the kind alone), so only a record
+     that HELD an entry can owe its clear; one that never held one (a board in no org, or a family with no policy of
+     its own) owes nothing. */
+  let held = true;
+  try { held = JSON.parse(COMPANY_POLICY_SEEN)[0] !== null; } catch { held = true; }
+  if (!held) return false;
   try { return !policyEngine.companyEntry(); } catch { return false; }
 }
 /* Retry the owed hand-over, at most hourly. Returns whether it ran companyPolicySync this call (for tests). */

@@ -77,3 +77,10 @@ A family's policy is said as the family's, everywhere the board words an org's p
   shape includes kind 'company', and a family arm drives /api/policy on a family record (red when the route sends a
   fixed 'company'). Missed by my own sweep, which searched for "api/policies" (the route is /api/policy); re-swept
   with the right name: only server.test.js and render-policy-company-5534.js (mocked without a kind, so unaffected).
+
+## After the rebase onto main (validation 20:49 failed on #6240)
+- #6240 (merged on main meanwhile) reads "a clear is owed" as "the seen record is a string"; this branch's key made it
+  a string with no entry, so three #6240 tests went red (fast, real, not load). Fixed in companyPolicyClearOwed: only
+  a record that HELD an entry owes its clear. A family board holding only the person's policies owes none (tested;
+  without it the tick would retry hourly forever); a cleared family policy still owes one (control). All four red
+  with the check removed. server.orgenroll-5531 + server.familypolicy-6263: 42/42.

@@ -81,3 +81,25 @@ test('#6263 board review 2: with no family policy at all, joining or leaving a f
   companyPolicySync();
   assert.equal(syncs, 2, 'leaving a family did not re-tell the agents');
 });
+
+test('#6263 with #6240: a family board whose block holds only the person\'s policies owes no clear (no hourly retry)', (t) => {
+  const { companyPolicyClearOwed } = require('./server');
+  const file = path.join(store.ROOT, oe.ENROLLMENT_FILE);
+  fs.mkdirSync(store.ROOT, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ org: { id: 'o', name: 'Rivera', slug: 'rivera', kind: 'family' }, role: 'member', world: 'a'.repeat(32) }));
+  const realEntry = policy.companyEntry;
+  const realSync = policy.syncEveryone;
+  let entry = null;
+  policy.companyEntry = () => entry;
+  policy.syncEveryone = () => [];
+  t.after(() => { policy.companyEntry = realEntry; policy.syncEveryone = realSync; _orgRefreshResetForTests(); fs.rmSync(file, { force: true }); });
+  _orgRefreshResetForTests();
+  companyPolicySync();
+  assert.equal(companyPolicyClearOwed(), false, 'a family board with no family policy owes a clear');
+  // CONTROL: the same board with the family's policy, then cleared, owes one until it is told.
+  entry = { name: 'Rivera', text: 'Be kind.' };
+  _orgRefreshResetForTests();
+  companyPolicySync();
+  entry = null;
+  assert.equal(companyPolicyClearOwed(), true, 'a cleared family policy owes nothing');
+});
