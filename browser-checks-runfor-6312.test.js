@@ -20,10 +20,18 @@ const path = require('node:path');
 const DIR = path.join(__dirname, 'docs', 'browser-checks');
 const MAX_FAKE_MINUTES = 30;
 
-/** Every runFor call's argument text, with its file and line. */
-function runForCalls(src) {
+/** Comments blanked, newlines kept so line numbers hold: a runFor in prose is not a call. A line comment counts only
+    at a line start or after whitespace, so the // of a URL in a string is not one. */
+function codeOnly(src) {
+  return src.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, ' ')).replace(/(^|\s)\/\/.*$/gm, '$1');
+}
+
+/** Every runFor call's argument text, with its file and line. Any receiver counts, so an alias (const c = page.clock)
+    is read too. */
+function runForCalls(raw) {
+  const src = codeOnly(raw);
   const out = [];
-  const re = /\.clock\.runFor\(/g;
+  const re = /\brunFor\(/g;
   let m;
   while ((m = re.exec(src))) {
     let depth = 1;
@@ -55,6 +63,10 @@ test('#6312: the argument reader handles every shape it claims to (controls)', (
   assert.equal(msOf('process.exit(1)'), null);
   const calls = runForCalls('await p.clock.runFor(7 * H); await q.clock.runFor(\n  2 * (60e3)\n);');
   assert.deepEqual(calls.map((c) => c.arg), ['7 * H', '2 * (60e3)'], 'a multi-line or nested argument is read whole');
+  const alias = runForCalls('const c = page.clock;\nawait c.runFor(7 * H);');
+  assert.deepEqual(alias.map((c) => [c.arg, c.line]), [['7 * H', 2]], 'a runFor through an alias was not read');
+  assert.deepEqual(runForCalls('// a runFor(7 * H) in prose\n/* and runFor(9 * H) here */\nawait p.goto(\'file://x\'); await p.clock.runFor(1000);')
+    .map((c) => [c.arg, c.line]), [['1000', 3]], 'a comment was read as a call, or a URL hid the call after it');
 });
 
 test('#6312: no browser check runs a page clock forward more than ' + MAX_FAKE_MINUTES + ' fake minutes with runFor', () => {
@@ -65,7 +77,7 @@ test('#6312: no browser check runs a page clock forward more than ' + MAX_FAKE_M
     for (const c of runForCalls(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
       seen++;
       const ms = msOf(c.arg);
-      if (ms === null) bad.push(`${f}:${c.line} runFor(${c.arg}): not a plain number, so its length cannot be checked; write it as one`);
+      if (ms === null) bad.push(`${f}:${c.line} runFor(${c.arg}): not a plain number, so its length cannot be checked; write it with digits and H (one hour) only`);
       else if (ms > MAX_FAKE_MINUTES * 60e3) bad.push(`${f}:${c.line} runFor(${c.arg}) is ${(ms / 60e3).toFixed(0)} fake minutes; use clock.fastForward for a jump`);
     }
   }

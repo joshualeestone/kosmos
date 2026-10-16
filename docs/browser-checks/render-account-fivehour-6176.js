@@ -34,6 +34,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 /* Every time is relative to a pinned noon, and the page's clock is pinned there too, so the "today, time only" form
    never turns into tomorrow's weekday form late in the evening (the check ran red from 22:00 to midnight otherwise). */
 const H = 3600e3, now = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
+/* #6312: a page clock moved hours ahead in hops of six fake minutes. One runFor across hours fires every page timer
+   in turn (19 real minutes for seven fake hours on CI); a hop fires each due timer once, so a timer that re-arms
+   every six minutes or more still fires on each hop. */
+const hops = async (pg, ms, step = 6 * 60e3) => { for (let t = 0; t < ms; t += step) await pg.clock.fastForward(Math.min(step, ms - t)); };
 const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'a real request succeeded', observedAt: now - 9000, observedAgeMs: 9000 };
 const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: id + '@example.com', label: id + '@example.com', dir: '/home/.claude-' + id,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, agentsHere: { names: [], complete: true }, ...extra });
@@ -367,8 +371,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await p10.clock.runFor(20 * 60e3); await p10.waitForTimeout(200);   // past the soonest reset, busy for more than ten tries
     await p10.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check:disabled'); if (c) c.disabled = false; });
     const spent10 = await p10.evaluate(() => window.__reads);
-    // #6312: fastForward, not runFor: two fake hours of every page timer one by one took about 7 real minutes on CI.
-    await p10.clock.fastForward(2 * 3600e3); await p10.clock.runFor(5e3); await p10.waitForTimeout(300);   // past the other line's reset
+    await hops(p10, 2 * 3600e3); await p10.clock.runFor(5e3); await p10.waitForTimeout(300);   // past the other line's reset (#6312: hops)
     const later10 = await p10.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(spent10 === 1 && later10.reads >= 2 && later10.fives === 0, '[chromium open] with one line\'s tries spent while busy, the other line\'s reset still brings a read', JSON.stringify({ spent10, later10 }));
     await p10.close();
