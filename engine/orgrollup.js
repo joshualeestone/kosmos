@@ -81,6 +81,11 @@ function providerOfModel(model) {
 /* #5534 review 3, kosmos#6309: what was last sent, sent again (a read that failed, or a cap's count not known yet),
    so the signature does not move and nothing reported is cleared: the policy fields, and the month's count with them
    (the coordinator reads the version without a count as "no cap"). Nothing when nothing was sent. */
+/* Whether `g` reports the policy last sent (same version, same refusal). */
+function samePolicy(st, g) {
+  const lp = st && st.lastPolicy;
+  return !!lp && typeof lp === 'object' && lp.version === g.policyVersion && (lp.refused === true) === (g.policyRefused === true);
+}
 function repeatLastPolicy(g, st) {
   const lp = st && st.lastPolicy;
   if (!lp || typeof lp !== 'object' || !('version' in lp)) return;
@@ -814,7 +819,9 @@ async function tick(opts) {
       if (u.capped && u.known === true) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over, month: u.month };
       /* A cap whose count is not known yet (a new board still counting the month): the coordinator reads the policy
          without a count as "no cap", so what was last sent goes again, as for a failed read below. */
-      else if (u.capped) { delete g.policyVersion; delete g.policyRefused; repeatLastPolicy(g, st); }
+      else if (u.capped && samePolicy(st, g)) { delete g.policyVersion; delete g.policyRefused; repeatLastPolicy(g, st); }
+      /* A policy (or refusal) not yet reported goes now, without a count: the company sees the new version at once, and
+         the count follows when it is known. */
     } catch {
       delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
       repeatLastPolicy(g, st);

@@ -996,11 +996,11 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
   assert.deepEqual(policyOnly.asked, [], 'the month was counted under words that do not name it');
   const foreign = await send(NAMED, { org: 'org_other' });
   assert.equal('policyUsage' in foreign.body, false, 'another company\'s cap was reported to this one');
-  // A count not known yet (a new board still counting): nothing of the policy goes, since the coordinator reads the
-  // version without a count as "no cap" and would blank the parent's row.
+  // A count not known yet on a first report: the policy goes now without a count (nothing was reported to clear), and
+  // the count follows when known. A repeat of a policy already reported is the next test's case.
   const short = await send(NAMED, { count: { capped: true, used: 10, cap: 1000, pct: 1, warn: false, over: false, tz: 'UTC', complete: false, known: false } });
   assert.equal('policyUsage' in short.body, false, 'a count still catching up was sent as the month');
-  assert.equal('policyVersion' in short.body || 'policyRefused' in short.body, false, 'the version went without the count, which clears the parent\'s row');
+  assert.equal(short.body.policyVersion, 3, 'a new policy waited on the count');
   // Still catching up but held up by the month's saved count (a restart): a true lower bound, so it goes.
   const floored = await send(NAMED, { count: { capped: true, used: 900, cap: 1000, pct: 90, warn: true, over: false, tz: 'UTC', complete: false, known: true, month: '2026-10' } });
   assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false, month: '2026-10' }, 'a restarted board blanked the count it already knew');
@@ -1032,6 +1032,11 @@ test('#6309: a tick whose count is not known yet sends what it last sent, so the
   assert.ok(next, 'premise: the next daily went');
   assert.deepEqual([next.policyVersion, next.policyUsage], [3, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }],
     'the daily with an unknown count did not repeat the last count, so the coordinator would clear the parent\'s row');
+  // A NEW policy while the count is unknown goes at once, without a count (the old version must not be repeated).
+  const op4 = { refresh: () => ({ applied: { org: orgId, version: 4, policy: { usage_cap: { monthly_tokens: 2000, warn_pct: 80, tz: 'UTC' } } }, refused: null }) };
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op4, usagecap, now: T0 + 24 * 60 * 60 * 1000 + r.CHANGE_MIN_MS + 1000 });
+  const v4 = sent()[sent().length - 1];
+  assert.deepEqual([v4.policyVersion, 'policyUsage' in v4], [4, false], 'a new policy waited on the count, or went with the old count');
 });
 
 test('#6309: reaching the heads-up or the cap is a change; the count moving is not; a bad shape is left out', () => {
