@@ -1192,7 +1192,7 @@ test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refus
   try {
     const r = await remote.deviceAllow('family-web-cb519c', 'iPhone');
     assert.equal(r.ok, false, 'an allow of an id the coordinator does not hold read as allowed');
-    assert.match(r.because, /^Kosmos\+ has no sign-in waiting with that id, so nobody was let in\. It is on this computer's list/);
+    assert.match(r.because, /^Kosmos\+ holds no sign-in waiting with that id \(it was refused, or never asked\)\. It is on this computer's list/);
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
   // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
   const ok = await remote.deviceAllow('dev-9', 'iPhone');
