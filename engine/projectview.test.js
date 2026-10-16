@@ -879,7 +879,7 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   const busyAfter = v.workExcused(stale(480), codex, hist([['idle', 470], ['needs_you', 300]]), NOW);
   assert.match(line(busyAfter), /; it reported working or a wait since it was written\)$/);
   const old = v.workExcused(stale(26 * 60), codex, hist([['idle', 1500]]), NOW);
-  assert.match(line(old), /; written more than a day ago, and this agent reports only when a turn ends, so its work cannot be timed\)$/);
+  assert.match(line(old), /; written more than 24 hours ago, and this agent reports only when a turn ends, so its work cannot be timed\)$/);
   // Combined with the idle note idleNoted adds: both clauses, in order.
   assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
 });

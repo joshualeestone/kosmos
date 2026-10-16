@@ -303,7 +303,8 @@ function workExcused(summary, member, readHistory, nowMs) {
       lastIdle = r.at;
     }
     // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
-    // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer.
+    // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer (it inherits the caveat above:
+    // if the writing turn's idle landed before the summary's time, this is one too many).
     return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded - 1 };
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
@@ -342,7 +343,6 @@ function workExcused(summary, member, readHistory, nowMs) {
      is work only when that report says busy (or there is none); the board's read of the screen right now does not add
      to it. This replaces review 3's rule that the board's busy read wins (#1995). */
   if (state === null || busy(state)) add(state, span(state, stateAt, from, now));
-  // #6329: stale because the member reported more than the rhythm of work since it was written; the line says so.
   /* #6329: stale because more than the rhythm was counted as work since it was written. Said as reported work only when
      `working` reports stand behind all of it; waits and stretches with no report are counted too (errs toward stale),
      and then the line says so instead. */
@@ -574,7 +574,7 @@ const SUMMARY_WORDS = {
         : '; ' + span(s.workedSince) + ' counted as working or waiting since it was written')
       : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
         : s.waitedSince ? '; it reported working or a wait since it was written'
-          : s.untimed ? '; written more than a day ago, and this agent reports only when a turn ends, so its work cannot be timed' : '';
+          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so its work cannot be timed' : '';
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
