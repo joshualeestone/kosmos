@@ -25,7 +25,7 @@
  *        that_showed_its_words covers it.
  *   9    with the words read and accepted on K, K joins; its board says family; the coordinator's audit row records
  *        the join with "words shown on the board's screen (the board's word)".
- *   9b   K's first report is accepted under the family's words (the console counts it reporting; 0 before, the control).
+ *   9b   K's first report lands under the family's words (K's own row in the parent's console; nobody before, the control).
  *   10   the spent code, previewed again, is refused in words that name no company.
  *   11   K leaves the family.
  * Nothing here is production: every service and board runs under one mktemp sandbox on free high ports.
@@ -60,14 +60,18 @@ const FEDPROOF_DOMAIN = 'fedproof.localhost';
 const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 // The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
-// + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report 150 = 615 s, before HTTP
-// timeouts. 15 min covers it.
+// + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report (at worst the next 5-minute tick
+// after the join, plus 90) 390 = 855 s, before HTTP timeouts. 15 min covers it.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
-// K's first rollup goes a minute after its board starts (server.js orgRollupTick); allow that plus a slow send.
-const REPORT_MS = 150000;
+// A board's rollup ticks run once a minute after it starts and then every five minutes (server.js orgRollupTick), and
+// a join does not start one: K's first report goes at the first tick after it joined. Step 9b waits for that tick plus
+// REPORT_SLACK_MS for the send.
+const ROLLUP_FIRST_MS = 60000;
+const ROLLUP_EVERY_MS = 5 * 60000;
+const REPORT_SLACK_MS = 90000;
 // The company's consent hash, as kosmos-relay pins it (consent_hash_for("company") in coordinator/tests/api.rs): a
 // family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
 // admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
@@ -276,6 +280,12 @@ async function nextCode(email, before) {
 async function boardSignin(b, email, name) {
   const before = devCodes(email).length;
   let r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
+  // The first tunnel call of a run can outlast the board's wait while the debug tunnel binary starts (seen twice, always
+  // the first board to sign in): asked again once, on that answer only.
+  if (r.status !== 200 && /did not answer in time/.test(r.text)) {
+    info(b.letter + ' signin-start: the tunnel did not answer in time; asking once more');
+    r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
+  }
   if (r.status !== 200) { info(b.letter + ' signin-start ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
   const code = await nextCode(email, before);
   if (!code) { info(b.letter + ': no sign-in code arrived for ' + email); return false; }
@@ -334,6 +344,7 @@ async function startBoard(letter) {
   // The fake tmux (no agent runs here; the boards only need one to read).
   b.tmuxWrap = path.join(REPO, 'test-support', 'fake-tmux.sh');
   const s = start('board-' + letter, process.execPath, [path.join(REPO, 'server.js')], { cwd: REPO, env: boardEnv(b) });
+  b.startedAt = Date.now();   // its rollup ticks count from here (server.js: once at +60 s, then every 5 min)
   b.proc = s;
   // A board that EXITED (a port taken between the check and its bind) is reported at once.
   const up = await waitFor(async () => {
@@ -556,21 +567,29 @@ async function main() {
     chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || '') && accepted && accepted !== COMPANY_CONSENT_HASH, 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
   }
 
-  // 9b. K reports under the family's words: its first rollup (a minute after the board starts) is accepted by the
-  // coordinator only when the words K accepted are the family's current ones, so a report landing is the family's words
-  // working for reporting, not only for joining (#6239). CONTROL: straight after the join, before that first tick, the
-  // console counts nobody reporting.
+  // 9b. K reports under the family's words. K's first rollup after the join is accepted by the coordinator only when
+  // the words K accepted match the family's current ones (the rollup's own consent check), so K's row reporting is the
+  // family's words working for reporting too. The words gate itself is not exercised here (no arm with mismatched
+  // words): this measures that a report lands. CONTROL: straight after the join, before that tick, the console counts
+  // nobody reporting.
   if (joined) {
+    const joinedAt = Date.now();
     const ov = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
     chk(ov.status === 200 && before === 0, 'step 9b control: before K\'s first report, the console counts nobody reporting', ov.status + ' reporting=' + before);
-    let now = null;
+    // The first tick at or after the join (ticks: start+60 s, then every 5 min).
+    let tickAt = K.startedAt + ROLLUP_FIRST_MS;
+    while (tickAt < joinedAt) tickAt += ROLLUP_EVERY_MS;
+    let row = null;
     await waitFor(async () => {
-      const o2 = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
-      now = o2.json && o2.json.members ? o2.json.members.reporting : null;
-      return now === 1;
-    }, REPORT_MS, 3000);
-    chk(now === 1, 'step 9b: K\'s first report is accepted under the family\'s words (the console counts it reporting)', 'reporting=' + now);
+      const inv = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
+      const members = inv.json && Array.isArray(inv.json.members) ? inv.json.members : [];
+      row = members.find((m) => m && m.email === kid) || null;
+      return !!(row && row.reportedAt);
+    }, Math.max(0, tickAt - Date.now()) + REPORT_SLACK_MS, 3000);
+    const offset = Math.round((joinedAt - K.startedAt) / 1000);
+    chk(!!(row && row.reportedAt), 'step 9b: K\'s first report lands under the family\'s words (its own row in the parent\'s console)',
+      'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found'));
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
