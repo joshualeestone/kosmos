@@ -27,5 +27,5 @@ page test against a stand-in document. Agreed with Renet 16:49 CDT 10-15; merges
   familykind-6239's own tests (kosmos-relay).
 
 ## Since (familyreaccept-6239)
-The same check now also carries arms R1 to R12 and F10 for the re-accept screen; see familyreaccept-6239.md for what
+The same check now also carries the re-accept screen's R arms; see familyreaccept-6239.md for what
 they prove and the mutants that turn them red.
