@@ -195,6 +195,9 @@ function jobReader(platform) {
     let foreign = null;
     return {
       win32: false, known: true, fleet: null,
+      // #6320: true while some login jobs are only waiting their turn to be read (not a failure to say to a person).
+      deferred: () => !!(foreign && foreign.deferred),
+      mac: true,
       of: (name) => {
         if (fs.existsSync(create.plistPath(name))) return true;
         if (!foreign) {
@@ -395,6 +398,7 @@ function foreignLoginFolders() {
   const seen = new Set();
   const scripts = new Set();
   const sigParts = [];   // everything the answers depend on, so a change anywhere drops the remembered ones
+  let deferred = false;  // #6320: a plist left for the next survey by the plutil budget: not read YET, not unreadable
   for (const f of names) {
     if (!f.endsWith('.plist') || f.startsWith(create.SERVICE_LABEL_PREFIX)) continue;
     const file = path.join(create.AGENTS_DIR, f);
@@ -414,12 +418,15 @@ function foreignLoginFolders() {
            banner quiet leaves a trace in the board's log. A spent plutil budget is not a failure and is not said. */
         const prevEntry = FOREIGN_CACHE.get(file) || {};
         const budget = e && /budget spent/.test(String(e.message));
+        got.budget = budget;
         if (got.raw === null && !budget && !(prevEntry.logged && prevEntry.sig === sig)) { console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
         if (got.raw === null && !budget) got.logged = true;
         else if (budget && prevEntry.logged && prevEntry.sig === sig) got.logged = true;   // a skip keeps the record
       }
       // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
       // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.
+      const budgetSkip = !got.keys && got.raw === null && got.budget;
+      if (budgetSkip) { deferred = true; FOREIGN_CACHE.delete(file); continue; }   // read on the next survey, not a failure
       if (!got.keys && got.raw === null) got.retryAt = Date.now() + 60000;
       FOREIGN_CACHE.set(file, got);
     }
@@ -449,8 +456,8 @@ function foreignLoginFolders() {
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);
   for (const k of SCRIPT_CACHE.keys()) if (!scripts.has(k)) SCRIPT_CACHE.delete(k);
   // A failed read is retried, so while one stands nothing is remembered (the sig is unique each time).
-  const sig = unknownAll || [...FOREIGN_CACHE.values()].some((g) => g.retryAt) ? 'retry:' + Date.now() + ':' + Math.random() : sigParts.join('|');
-  return { dirs, texts: [...texts], suspects, unknownAll, sig };
+  const sig = unknownAll || deferred || [...FOREIGN_CACHE.values()].some((g) => g.retryAt) ? 'retry:' + Date.now() + ':' + Math.random() : sigParts.join('|');
+  return { dirs, texts: [...texts], suspects, unknownAll: unknownAll || deferred, deferred: deferred && !unknownAll, sig };
 }
 
 function strays(profileNames, jobs) {
@@ -624,7 +631,10 @@ function survey(opts) {
     missing: agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile).map((x) => x.name),
     /* #6320: the ones we could not check (job === null): a login job that might start them could not be read. Shown,
        never acted on. Same filter as `missing` but for the unknown answer, so the two lists never overlap. */
-    unknown: agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile).map((x) => x.name),
+    /* Only on the Mac, where the null comes from a login job we could not read; and not while jobs are merely waiting
+       their turn (the plutil budget), which is "not read yet", not "could not be read". */
+    unknown: jobs.mac && !(jobs.deferred && jobs.deferred())
+      ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile).map((x) => x.name) : [],
   };
 }
 

@@ -20,3 +20,9 @@ names it, instead of going quiet; it offers no button for it. An older board wit
   own copy; it stays on #6320 as a second step after this ships.
 - `docs/browser-checks/render-survival.js` needs a separately started board (`KOSMOS_URL`), not run here; it covers the
   missing block, which is unchanged.
+- Only on the Mac: on Windows a failed Task Scheduler query makes every agent null, and that is not "a login job could
+  not be read"; the list is empty there, as before.
+- Not while login jobs are only waiting their turn under the plutil budget: those are not read YET. A budget-skipped
+  plist is no longer cached for a minute; the next survey converts the next four.
+- The unknown-only panel is not the alarm style (nothing to fix), and its copy says it goes away once it can be read.
+- Still to do before merge: a rendered screenshot of the unknown-only and combined panels (/design-shots).
