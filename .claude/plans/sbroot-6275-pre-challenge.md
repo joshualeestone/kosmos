@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: sbroot-6275
-diff_hash: 25166621bcb338852e6742383c93c95a10e4b5c0c2d6cd3af5449843a3d67ddd
+diff_hash: b9ea4fece3af41bbd2fe86f7f69f0d860410bd79868a53856e8c577c36432a74
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-16T02:42:58Z
-iterations: 4
+timestamp: 2026-10-16T04:30:58Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 6 (4 before a rebase onto main, 2 after)
 **Converged:** Yes
-**Total findings:** 21 (0 BLOCKERs, 6 WARNINGs, 0 CONVENTIONs, 15 NITs)
-**Fixed:** 6 WARNINGs and 5 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 28 (0 BLOCKERs, 7 WARNINGs, 0 CONVENTIONs, 21 NITs)
+**Fixed:** 7 WARNINGs and 5 NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Validation: the first full validation (fab1e22's hash) failed 1 of 21,076 on cli.busy-health-4466.test.js:218, a
 wall-clock arm in a file this branch does not touch (load average about 5.3). Solo runs: branch 2 pass, 1 fail; main
@@ -66,6 +66,27 @@ was edited after they joined.
 - [NIT] first-export and single-label positions (already in Known limits)
 - [NIT] the plan's every-test-runs and mktemp-template measured lines sit under "Known limits" (placement only)
 
+#### Iteration 5 (after rebasing onto main; package.json's test:shell conflict resolved as a pure insertion)
+**Reviewer model:** opus (default)
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 1 of the above (the pin comment written in fab1e22)
+- [WARNING] tools/test-install-sbroot-6275.sh:48-52: the KOSMOS_HOME pin counted only column-1 assignments, so a rewrite
+  inside a one-line if passed, contradicting the comment --> FIXED (1682d85): counts any assignment at a line start or
+  after a space or ';', comments left out (still 3); the reviewer's mutant now red
+- [NIT] a third label line spelled differently is not lifted --> Known limits; [NIT] follow-on arms noise --> left
+
+#### Iteration 6
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 of the above
+**Converged** - no new actionable findings.
+- [NIT] the pin also counts KOSMOS_HOME= inside heredocs or printed text (fails safe)
+- [NIT] the refusal is lifted only right after the mktemp line (safe; comment accurate)
+- [NIT] first-export position (Known limits; holds today)
+
+Validation after the rebase: 1682d85 passed in full (20,950 pass, 0 fail); PR #6283 CI green on it (test, windows,
+linux-setup). An earlier queued validation of e0cd334 was stopped before it ran (the worktree changed).
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -76,6 +97,7 @@ was edited after they joined.
 | 4 | 2 | WARNING | tools/test-install-sbroot-6275.sh:32 | BRANCH | second label line unseen | FIXED | 5e664ec |
 | 5 | 3 | WARNING | tools/test-install-sbroot-6275.sh:58 | SELF | harness side without export | FIXED | fab1e22 |
 | 6 | 3 | WARNING | tools/test-install-sbroot-6275.sh:29 | BRANCH | new setup.sh rewrite unseen | FIXED | fab1e22 |
+| 7 | 5 | WARNING | tools/test-install-sbroot-6275.sh:48 | SELF | pin counted column 1 only | FIXED | 1682d85 |
 
 ### NITs (non-blocking, across all iterations)
 - no TMPDIR unset or / arm (iteration 1, deliberate)
