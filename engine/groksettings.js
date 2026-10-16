@@ -47,6 +47,13 @@ const HOOK_EVENTS = Object.freeze([
   'StopCancelled', 'StopFailure', 'SessionEnd',
 ]);
 
+/* #5812 item 3: the tool hook, apart from HOOK_EVENTS (which the test pins to the bridge's report states): grok runs it
+   just before search_replace or write, and the bridge asks the board to keep a copy and note the writer. MEASURED on
+   grok 1.0.41 (card comment 6222103286): the matcher is a regex over the tool name, and anchored it fires for write
+   and not for read_file (a "" matcher fires for read_file, the control). Anchored, so a tool whose name merely contains
+   these does not start the bridge. */
+const TOOL_EVENT = 'PreToolUse';
+const TOOL_MATCHER = '^(search_replace|write)$';
 /* The dedup key: any command containing this stem is "ours". Same doctrine as
    geminisettings.MARKER, kept for symmetry and for a future reader inspecting the
    file, even though our own dedicated file rarely needs it. */
@@ -99,8 +106,9 @@ function unsafeForCommand(s, plat) {
 /* One event's definition: a single command hook running the bridge. The shape
    matches grok's hook schema (`{ hooks: [{ type, command }] }` under an event name),
    identical to Claude Code's and gemini's. */
-function definitionFor(bridgePath, opts) {
-  return { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+function definitionFor(bridgePath, opts, matcher) {
+  const def = { hooks: [{ type: 'command', command: commandFor(bridgePath, opts) }] };
+  return matcher === undefined ? def : { matcher, ...def };
 }
 
 /* The full desired content of our hook file: the top-level `hooks` object grok reads
@@ -110,6 +118,7 @@ function definitionFor(bridgePath, opts) {
 function desiredContent(bridgePath, opts) {
   const hooks = {};
   for (const event of HOOK_EVENTS) hooks[event] = [definitionFor(bridgePath, opts)];
+  hooks[TOOL_EVENT] = [definitionFor(bridgePath, opts, TOOL_MATCHER)];
   return { hooks };
 }
 
@@ -222,4 +231,4 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };
+module.exports = { HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };
