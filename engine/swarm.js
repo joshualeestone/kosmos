@@ -282,10 +282,12 @@ function isInterruptedLine(j) {
    🛑 EACH MESSAGE COUNTS ONCE. Claude Code writes one line per content block, and every line
    of one message carries the same `message.id` and the same `usage` (measured on this Mac: 2660
    assistant lines, 1191 ids; summing lines overcounted 2.23x). So usage is added once per id. */
-function readFile(file, since, now = Date.now(), budget = { left: readPerCallBytes }) {
+function readFile(file, since, now = Date.now(), budget = { left: readPerCallBytes }, cache = fileCache) {
   let st;
   try { st = fs.statSync(file); } catch { return { tokens: 0, finished: true, mtimeMs: 0, caughtUp: false }; }
-  let e = fileCache.get(file);
+  /* kosmos#6309: a caller counting from another `since` (the usage cap's month) passes its own cache: sharing this one
+     would reset the day's count to zero on every alternate call, and the month's on the others. */
+  let e = cache.get(file);
   if (!e || st.size < e.offset) e = freshEntry(since);
   else if (e.since !== since) { e.since = since; e.tokens = 0; }   // a new day: earlier lines add nothing, so keep the position
   if (st.size > e.offset) {
@@ -328,9 +330,9 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   }
   e.mtimeMs = st.mtimeMs;
   e.touched = now;
-  fileCache.set(file, e);
-  if (fileCache.size > 256) {
-    for (const [k, v] of fileCache) if (now - v.touched > CACHE_TTL_MS) fileCache.delete(k);
+  cache.set(file, e);
+  if (cache.size > 256) {
+    for (const [k, v] of cache) if (now - v.touched > CACHE_TTL_MS) cache.delete(k);
   }
   return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs, caughtUp: e.offset >= st.size };
 }
@@ -544,5 +546,5 @@ module.exports = {
   MIN_HELPERS, MAX_HELPERS, DEFAULT_HELPERS, ALLOWANCE_PCT_MIN, ALLOWANCE_PCT_MAX, ALLOWANCE_PCT_DEFAULT, REDERIVE_SLACK,
   limitFromAllowance, rederiveLimits, ACTIVE_WINDOW_MS, STOP_REPEAT_MS, READ_CHUNK_BYTES, READ_PER_CALL_BYTES, PAUSED_BECAUSE, START, END,
   createProblem, birthProfile, settingsOf, pauseOf, patchProblem, applyPatch, pausedSentence,
-  blockBody, tellLead, tokensOf, meter, cardField, offlineCardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
+  blockBody, tellLead, tokensOf, readFile, meter, cardField, offlineCardField, pausedFor, sweepRows, sweepOnce, startOfDay, resetForTests,
 };
