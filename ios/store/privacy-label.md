@@ -2,6 +2,11 @@
 
 Draft only. Nothing has been entered into App Store Connect.
 
+**Re-checked 2026-10-15 for #6262** (Mona Lisa), at origin/main 24e44896eb. The app's Swift sources still import
+Apple frameworks only (Foundation, LocalAuthentication, Network, Security, SwiftUI, UIKit, UserNotifications,
+WebKit). There is no package manager, no third-party SDK and no analytics, so the table below stands. What changed
+is in "Account deletion" (it now exists) and in the new section "What is not on this label".
+
 **What this is based on.** These answers come from reading the code, not from
 the policy page. The sources were `ios/Kosmos/*.swift` in this repo at `9dec76140`,
 the board's `web/index.html`, and kosmos-relay `origin/main` at `1ff95bde6`
@@ -91,12 +96,29 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
    appear to use any "required reason" API, but Xcode's privacy report on an
    archived build is the real check.
 
-## Account deletion
+## What is not on this label: the computer's own reports (Josh, 09-14)
 
-The label itself asks nothing about deletion, and nothing in these answers
-claims the app can delete an account. It cannot today (kosmos #3868). The live
-privacy page offers deletion by email to hello@installkosmos.com, which is a
-manual route, not an in-app one.
+Josh's 09-14 telemetry ruling covers three reports: the install ping, the agent-created ping and the daily report.
+**All three are sent by the Kosmos app on the person's computer (Mac or Windows PC), not by this iPhone app.** The
+phone only shows that computer's board through the relay. Nothing in `ios/Kosmos/*.swift` sends a report of its
+own (searched for beacon, telemetry and analytics; none). Apple's label covers what *this app* collects, so they do
+not belong here. They belong in the privacy policy, which names all three (read live on 2026-10-15: the install's
+random ID with its version and operating system, how many agents an install has made, and the daily report).
+**UNSURE 6, for Josh:** a reviewer may ask whether using the phone makes the computer send more. It does not: the
+pings count installs and agents created, and the daily report is the computer's.
+
+## Account deletion (Guideline 5.1.1(v))
+
+**It exists now, and it can be started inside the app.** kosmos #3868 shipped it end to end, and it has been on in
+production since late September (the card is ready-to-test).
+- **In the app:** the Kosmos+ sign-in page, which the app opens, shows a **Delete account** link when it runs inside
+  the iOS app (kosmos-relay `coordinator/src/signin.html`: `delete-line` is shown for `IN_IOS_APP`).
+- **Anywhere:** login.kosmosplus.com/delete-account answered 200 on 2026-10-15 ("Delete your Kosmos+ account?"). It
+  confirms with an emailed code.
+- **The privacy policy** names that address as the self-serve route (read live on 2026-10-15). The email route
+  (hello@installkosmos.com) is kept as the alternative.
+
+This is the answer for App Review's account-deletion question. The label itself asks nothing about deletion.
 
 ## The privacy policy
 

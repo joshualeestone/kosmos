@@ -99,6 +99,15 @@ chat shot your own messages carry a plain dark circle where a picture would be,
 because the test board has no profile picture for you. Both come from the app
 as it is, not from the staging above.
 
+**Retaken 2026-10-15 for #6262** on the current board, which changed a lot since the September set (the new
+look, the K mark and its streak, the agent cards). Same tool, the same four screens and the same invented team.
+
+**iPhone Duo.** App Store Connect is said to ask for iPhone Duo screenshots from April 2027 (relayed through #6262;
+not seen first-hand, since the app record does not exist yet). This Mac's simulators (Xcode 27.0) list no Duo
+device: the newest are the iPhone 17 family and iPhone Air. So there is no Duo set, and none is guessed at.
+Take one with the same tool once the device type and its screen size exist. Until then the 6.9-inch set is what
+App Store Connect requires today.
+
 **My pick: the light set.** It matches the App Store's own default look and the
 kosmosplus.com site. The dark set is there if you prefer it.
 
