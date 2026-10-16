@@ -253,8 +253,10 @@ cut's sha before it starts waiting:
   gh variable delete SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site
   ```
 
-  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. It holds ONLY the backstop: a
-  push to the site repo still runs the site's deploy workflow, so do not push to the site during a promote. If the
+  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. It holds ONLY the backstop. The
+  site's deploy workflow does not read the variable, so its own runs still deploy site main during a hold: a push to
+  the site repo, its 15-minute schedule, and a manual run. Do not push to the site or run its workflow during a
+  promote; its schedule is best effort and may still fire. If the
   variable cannot be read (the backstop's gh login lost access), the backstop holds too, every tick, until that read
   works again; its last tick says so. A forgotten hold stops automatic site deploys, so clear it in the same sitting;
   `gh variable list --repo joshualeestone/chaoskosmos-site` shows whether one is set.
