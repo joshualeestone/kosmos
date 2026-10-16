@@ -25,7 +25,9 @@ names it, instead of going quiet; it offers no button for it. An older board wit
 - Not while login jobs are only waiting their turn under the plutil budget: those are not read YET. A budget-skipped
   plist is no longer cached for a minute; the next survey converts the next four.
 - The unknown-only panel is not the alarm style (nothing to fix), and its copy says it goes away once it can be read.
-- Still to do before merge: a rendered screenshot of the unknown-only and combined panels (/design-shots).
-- Each null records why (`whyNull`): 'waiting' only when the sole reason is a plist waiting its turn; a broken plist
-  naming the folder, an unreadable launcher, or an unresolvable folder is 'unread' and is listed, even while others wait.
+- Browser check: `render-survival.js` needs a live board and does not cover the unknown panel; the commit carries a
+  `Browser-check:` trailer with that reason. Still to do before merge: a rendered screenshot (/design-shots).
+- Each null records why (`whyNull`, per survey): 'waiting' when a plist waiting its turn is the only open question and
+  no broken plist names the folder; otherwise 'unread', listed. When a genuinely unreadable file exists at the same
+  time, every unknown agent is listed, including ones the next survey would clear (over-inclusive, the safe side).
 - A budget skip keeps what was known about that plist (its logged record, its retry), instead of dropping it.
