@@ -20,7 +20,17 @@
  *     a Leave the company refused) or a person's Join to ANOTHER company clears the pin, so the next pin is taken after
  *     a person's act. The pin is for the current org epoch (1 today); an
  *     org-key rotation, when it exists, must move it deliberately.
- * Until a verification key ships (VERIFYING_KEY null), check() answers ok and pins nothing: today's behaviour exactly.
+ * WHAT THIS PROVES, AND WHAT IT DOES NOT (review 3). escrowd makes every org key and keeps its private half sealed under
+ * the escrow key, so a key that carries escrowd's signature is one the coordinator cannot open: wrapping a member key
+ * to it gives a breached coordinator nothing. escrowd makes a key for any org id the coordinator asks for, though, so
+ * WHICH company a computer belongs to is the coordinator's word at first contact: the company a person's code resolves
+ * to at their Join, and for a computer that joined before this code, its enrollment record (which the hourly refresh
+ * rewrites from Kosmos+) at its first pin. A coordinator breached before that moment could file this computer's key
+ * under an org it controls; that org's recovery role could reach it only through escrow's release, which escrowd
+ * refuses today. The pin's job is the rest: once taken, no later answer moves this computer to another org or key.
+ *
+ * Until a verification key ships (VERIFYING_KEY null), check() answers ok and pins nothing; a person's Join still
+ * writes "expect <org>" (joined()), so a Join made while dormant is anchored once a key ships. Nothing else changes.
  *
  * Never throws. The pin file is 0600 under <root>/backupkeys (the member key's own folder).
  */
@@ -73,6 +83,9 @@ function joined(root, org) {
   if (typeof org !== 'string' || !org) return;
   const pin = readPin(root);
   if (pin !== null && pin !== 'unreadable' && pin.org === org) return;
+  // An unreadable pin is left as it is (check() refuses it, as for the member key file): a Join never re-pins over
+  // something this computer cannot read, even for the same company (review 3).
+  if (pin === 'unreadable') return;
   writePin(root, { org, public: null });
 }
 
@@ -102,6 +115,9 @@ function check(root, data, company, opts = {}) {
       if (typeof expected !== 'string' || expected !== here.org) {
         return { ok: false, because: 'Kosmos+ named a company backup key for a different company from the one this computer joined, so it was not used' };
       }
+      // A Join may have written its expectation since the read above (no lock spans the two paths): pin only over the
+      // state that was read, else answer not-yet and let the next run decide (review 3).
+      if (JSON.stringify(readPin(root)) !== JSON.stringify(pin)) return { ok: false, because: 'the company backup key changed while it was being checked; it is checked again on the next run' };
       writePin(root, here);
       return { ok: true, pinned: true };
     }

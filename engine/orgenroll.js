@@ -658,9 +658,9 @@ async function enrollNow(code, accepted, opts) {
      ends now, whether or not the follow-up refresh reaches the new company. */
   if (org && org.id) endForeignPolicy(opts, org.id);
   /* kosmos#5686 (b1-mac): a person's Join to another company starts its own pin (the same company's keeps it). NEVER on
-     a review (the automatic re-accept, #5791, runs with no person, against a record the hourly refresh rewrites from
-     the coordinator): a breached coordinator could name another org and then refuse a report to make this run
-     (review 1 of macsig-5686, probed). */
+     a review: the automatic re-accept (#5791) runs with no person. A review stays within the record's company, but
+     that record is the one the hourly refresh rewrites from the coordinator, so a breached coordinator could rename the
+     org and then refuse a report to make this run (review 1 of macsig-5686, probed). */
   if (org && org.id && !review) { try { require('./orgkeypin').joined(storeRoot(opts), org.id); } catch { /* a left pin refuses, never trusts */ } }
   return { ok: true, ...rec };
 }
