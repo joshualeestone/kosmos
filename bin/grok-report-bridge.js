@@ -100,8 +100,8 @@ function readStdin() {
   return new Promise((resolve) => {
     let data = '';
     let done = false;
-    /* #5812: stdin is let go once read (or on the bound), so a stdin left open cannot keep this process, and the
-       edit a keep runs before, waiting after the call is sent (the Codex hook's review 1). */
+    /* #5812: stdin is let go once read (or on the bound). A stdin left open would otherwise keep this process alive
+       after its call is sent, and grok's edit waits for the hook to end (the Codex hook's review 1). */
     const finish = () => {
       if (done) return;
       done = true;
