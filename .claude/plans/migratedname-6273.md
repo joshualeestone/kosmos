@@ -49,7 +49,9 @@ neutral name, and a rename back then sticks.
   renamed to "AI policy (2)": inventing names is worse than keeping one. Review 5 found a save during the clash wrote
   version 3 and froze the old name for good; now read() reports renamePending and every save keeps the record at
   version 2 while p1 still holds the old name, so the rename applies once the clash is gone. A rename of p1 itself is
-  the person's choice and is saved as version 3 (arms + 2 mutants red).
+  the person's choice and is saved as version 3 (arms + 2 mutants red). Review 6: a re-ingest of p1 during a clash is
+  pinned too (stays version 2). Kept: assertion messages describe the failure, so "the record is not marked..." is
+  right as written.
 
 ## Why this overrides the #685 model
 The DEFAULT_NAME comment records Josh's #685 model: the policy that predates names "is simply the company's". That held
