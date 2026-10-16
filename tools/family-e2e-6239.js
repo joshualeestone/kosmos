@@ -109,11 +109,11 @@ async function fedproofPortFree(port) {
 const taken = new Set();
 async function freePort() {
   for (let i = 0; i < 400; i++) {
-    const p = 27000 + Math.floor(Math.random() * 1000);
+    const p = 28000 + Math.floor(Math.random() * 1000);   // round 12: not fed-own-e2e.js's 27000s, so the two can run at once
     if (taken.has(p)) continue;
     if (await fedproofPortFree(p)) { taken.add(p); return p; }
   }
-  throw new Error('no free port in 27000-27999');
+  throw new Error('no free port in 28000-28999');
 }
 
 function start(name, cmd, args, opts = {}) {
@@ -526,7 +526,9 @@ async function main() {
   if (code) {
     // A refused preview names no org to the board, so it says the shared sentence (orgenroll preview calls sayFor with
     // no kind; round 7 corrected round 3, which modelled a family choice the preview does not make).
-    const usedWords = require(path.join(REPO, 'engine', 'orgenroll')).SAY.org_code_used;
+    const usedWords = ((require(path.join(REPO, 'engine', 'orgenroll')).SAY) || {}).org_code_used;
+    // Round 12: a renamed sentence is named as itself, not a harness crash.
+    if (typeof usedWords !== 'string' || !usedWords) info('step 10: engine/orgenroll SAY.org_code_used is not a sentence here');
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
     chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords && !/company/i.test(b),
