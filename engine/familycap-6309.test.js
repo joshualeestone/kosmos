@@ -38,7 +38,8 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
   const dir = path.join(process.env.AGENT_WORKFORCE_CONFIG_ROOT, 'projects', 'p1');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 's1.jsonl'), JSON.stringify({
-    type: 'assistant', timestamp: new Date(Date.now() - 60e3).toISOString(),
+    // Never before this month (UTC) began, or in a month's first minute the line would count for the last one.
+    type: 'assistant', timestamp: new Date(Math.max(Date.now() - 60e3, Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1))).toISOString(),
     message: { id: 'm1', stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 50 } },
   }) + '\n');
 }
