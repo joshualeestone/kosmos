@@ -13,7 +13,8 @@ stdout, under alarm 2): the `$(...)` form returned after 30 s, the file form aft
 not come on that CI run is not established; this change makes the arm unable to hang whatever the cause.
 
 ## Change
-- `tools/test-queued-heavy-4977.sh`, the stale-TMPDIR arm: runs under its own `alarm 60` with output to a file
+- `tools/test-queued-heavy-4977.sh`, the stale-TMPDIR arm: runs `$REAL_QH` directly (as the arms after it do) under its
+  own `alarm 60` with output to a file
   (`$S/stale5467.out`), waits only for that process, reads the file, and on rc 142 appends
   "TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)" to what the failing `ok` prints.
   The assertion is unchanged.
@@ -25,5 +26,10 @@ not come on that CI run is not established; this change makes the arm unable to 
 - The file run alone, twice (before and after the reap() change): 142 OK, 0 BAD, exit 0.
 
 ## Known limits
+- Through the `$QH` shim the bound would silently be 240 s: the shim execs its own alarm, which replaces the pending
+  one (measured: outer alarm 2 around an inner alarm 6 returned at 6 s). Hence `$REAL_QH`; the marker dir is still
+  under `$S`, which is all the shim guards.
+- After a trip, a child the wrapper left behind is not reaped by this arm; it is orphaned rather than hanging the
+  shard, and may still write to `$S/stale5467.out` after it is read.
 - Only this arm moves to a file capture. Other arms still use `o=$(...)` with the shim's alarm; they have not hung,
   and changing them all is a wider change than the card asks for.

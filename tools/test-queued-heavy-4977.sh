@@ -564,8 +564,10 @@ ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "$
 # Review 1: a stale TMPDIR (removed since) falls back to /tmp instead of stopping the run before it waits.
 # kosmos#6337: the output goes to a FILE, not $(...): a command substitution waits for every process holding its pipe,
 # so a child the wrapper left behind kept it open after the shim's alarm had fired (8 minutes to the 900 s cap). Its own
-# 60 s bound (the turn in an empty private marker dir is immediate) says so by name when it trips.
-mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "stale-tmpdir" true > $S/stale5467.out 2>&1 ); stale5467_rc=$?   # its own marker dir: the fake holder above holds $S/m
+# 60 s bound (the turn in an empty private marker dir is immediate) says so by name when it trips. It runs $REAL_QH, not
+# the $QH shim: the shim execs its own alarm($QH_DEADLINE), and an alarm set after exec REPLACES the pending one, so
+# through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here.
+mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ); stale5467_rc=$?   # its own marker dir: the fake holder above holds $S/m
 o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
 TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"
 ok "#5467: a stale TMPDIR falls back to /tmp and the run still takes its turn" '[[ "$o" == *"TURN: running stale-tmpdir"* && "$o" == *"END rc=0"* ]]'
