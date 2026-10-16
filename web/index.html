@@ -50920,7 +50920,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
-    // kosmos#6239: an Accept this page just sent for a review, and the family's words are still not accepted here.
+    // kosmos#6239: a family Accept this page just sent (a join or a review), and the words are still not accepted here.
     if (PLUS_ORG.reviewAccepted && askedAt >= PLUS_ORG.reviewAccepted) {
       PLUS_ORG.reviewAccepted = 0;
       if (j && j.enrolled === true && j.wordsNeeded === true) msg.textContent = 'Kosmos+ took the family\u2019s words, but this computer could not record them, so it still reports nothing. Press Read the family\u2019s words to try again.';
