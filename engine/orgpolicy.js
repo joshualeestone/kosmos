@@ -100,6 +100,8 @@ function shapeOk(p) {
     && Object.keys(oc).length === 1 && typeof oc.enabled === 'boolean')) return false;
   const q = p.quiet_hours;
   if (q !== null && q !== undefined && !quietShapeOk(q)) return false;
+  const u = p.usage_cap;
+  if (u !== null && u !== undefined && !capShapeOk(u)) return false;
   return true;
 }
 
@@ -109,6 +111,15 @@ function zoneShapeOk(tz) { return typeof tz === 'string' && /^[A-Za-z0-9_+-][A-Z
 function quietShapeOk(q) {
   return !!q && typeof q === 'object' && !Array.isArray(q) && Object.keys(q).length === 4 && zoneShapeOk(q.tz)
     && typeof q.school_nights === 'boolean' && HHMM.test(q.from) && HHMM.test(q.to) && q.from !== q.to;
+}
+
+/* kosmos#6309: { monthly_tokens, warn_pct, tz }, exactly. A cap in tokens (a subscription has no per-message price, so
+   a dollar figure would be invented), a whole-percent heads-up below 100, and the zone whose calendar month it counts. */
+const CAP_MAX_TOKENS = 1e12;
+function capShapeOk(u) {
+  return !!u && typeof u === 'object' && !Array.isArray(u) && Object.keys(u).length === 3 && zoneShapeOk(u.tz)
+    && Number.isInteger(u.monthly_tokens) && u.monthly_tokens > 0 && u.monthly_tokens <= CAP_MAX_TOKENS
+    && Number.isInteger(u.warn_pct) && u.warn_pct >= 1 && u.warn_pct <= 99;
 }
 
 /**
@@ -290,6 +301,48 @@ function quietAllows(policy = currentStrict(), ms = Date.now()) {
   return { ok: false, because: `it is quiet hours until ${q.until} (${q.tz} time), under ${POLICY_SETTER}` };
 }
 
+/* kosmos#6309: the local wall-clock of `ms` in `tz`, as numbers. Throws on a zone this runtime cannot read. */
+function localParts(ms, tz) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(ms));
+  const get = (t) => Number((parts.find((x) => x.type === t) || {}).value);
+  return { y: get('year'), m: get('month'), d: get('day'), h: get('hour') % 24, mi: get('minute'), s: get('second') };
+}
+
+/** kosmos#6309: the instant this calendar month began (the 1st, 00:00) in `tz`. Throws on a zone this runtime cannot
+ *  read. The zone's offset is found by asking what local time an instant shows, twice, so a month that starts on a
+ *  daylight-saving change still lands on local midnight. */
+function monthStart(ms, tz) {
+  const { y, m } = localParts(ms, tz);
+  const wall = Date.UTC(y, m - 1, 1);
+  let guess = wall;
+  for (let i = 0; i < 3; i++) {
+    const p = localParts(guess, tz);
+    const shown = Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
+    if (shown === wall) break;
+    guess += wall - shown;
+  }
+  return guess;
+}
+
+/** kosmos#6309: what the policy's usage cap says for `used` tokens this month. { capped: false } when there is no
+ *  cap; else { capped: true, used, cap, pct, warn: used >= warn_pct of cap, over: used >= cap, tz }. `pct` is whole
+ *  percent, rounded down so it reads 99 until the cap is really reached. Never throws. */
+function capAt(policy = currentStrict(), used = 0) {
+  const u = policy && policy.usage_cap;
+  if (!capShapeOk(u)) return { capped: false };
+  const n = Number.isFinite(used) && used > 0 ? Math.floor(used) : 0;
+  const pct = Math.floor((n * 100) / u.monthly_tokens);
+  return { capped: true, used: n, cap: u.monthly_tokens, pct, warn: pct >= u.warn_pct, over: n >= u.monthly_tokens, tz: u.tz };
+}
+
+/** kosmos#6309: { ok: true } | { ok: false, because } for giving an agent a new message with `used` tokens this month. */
+function capAllows(policy = currentStrict(), used = 0) {
+  const c = capAt(policy, used);
+  if (!c.capped || !c.over) return { ok: true };
+  return { ok: false, because: `this month's usage cap is reached (${c.used} of ${c.cap} tokens), under ${POLICY_SETTER}; it opens again on the 1st (${c.tz} time)` };
+}
+
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
    naming it): its policy no longer applies here. The bundle and the policy go, so nothing re-applies it; a later join
    brings the company's current one. Review 3: the highest version seen for each company stays, so an older bundle
@@ -338,4 +391,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, capShapeOk, monthStart, capAt, capAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
