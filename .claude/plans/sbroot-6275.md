@@ -25,7 +25,15 @@ the fix passes everything until the next cut.
   three arms; review 1 found the first version blind to this); the trailing-strip and tr -s removed (the harness's
   refusal fires, shown with its text); those plus the refusal removed (the #4298 shape: "$SB has '//'"); the harness
   exporting KOSMOS_HOME="$SB/home2" while hashing "$SB/home" (labels differ; review 2); setup.sh's second label line
-  made different from the first (the lift refuses; review 2).
+  made different from the first (the lift refuses; review 2); a new top-level KOSMOS_HOME rewrite in setup.sh (a
+  `pwd -P` after the two lifted lines: the pinned count of 3 refuses; review 3); the derivation grown past 8 lines (its
+  own message). An equivalent rewrite of BOARD_LABEL_SUFFIX to hash "$KOSMOS_HOME" passes, since the harness side runs
+  the harness's export (review 3).
+
+## Known limits (reviews, accepted)
+- Only the harness's FIRST KOSMOS_HOME export is used; a second export just before the label line would not be seen.
+- A later reassignment of $SB after the lifted block is not seen.
+- setup.sh's label lines are compared as text, so a harmless respelling of one of them fails (on the safe side).
 - tools.every-test-runs.test.js passes; control: with the package.json entry removed it names this file.
 - tools/test-mktemp-template-4298.sh: 0 failures (the scratch dir is templated under TMPDIR).
 

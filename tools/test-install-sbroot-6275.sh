@@ -38,11 +38,18 @@ hlabel="$(grep -E '^BOARD_LABEL_SUFFIX=' tools/test-install.sh)"
 # Floors: a lift that found nothing would pass every arm below vacuously.
 if [ "$(printf '%s\n' "$derive" | wc -l | tr -d ' ')" -ge 2 ] && printf '%s\n' "$derive" | grep -q '^SB="$(mktemp -d' && [ "$(printf '%s\n' "$derive" | wc -l | tr -d ' ')" -le 8 ]; then
   ok "lifted the harness's sandbox-root derivation ($(printf '%s\n' "$derive" | wc -l | tr -d ' ') lines)"
+elif [ "$(printf '%s\n' "$derive" | wc -l | tr -d ' ')" -gt 8 ] && printf '%s\n' "$derive" | grep -q '^SB="$(mktemp -d'; then
+  bad "the harness's sandbox-root derivation grew past 8 lines: check that it still makes \$SB with no '//' (#6252), then raise this floor"
 elif grep -q '^SB="$(mktemp -d' tools/test-install.sh; then
   bad "the harness's sandbox-root derivation changed shape (its first line is no longer the squeezed TMPDIR): check that \$SB still has no '//' under a TMPDIR ending in '/' (#6252), then update this lift"
 else
   bad "could not find the harness's sandbox-root derivation in tools/test-install.sh"
 fi
+# setup.sh sets KOSMOS_HOME at its top level in exactly three places: the default and these two lines. A new rewrite
+# (a resolved path, say) would change the label without this lift seeing it, so the count is pinned.
+kh_sets="$(grep -c '^KOSMOS_HOME=' install/setup.sh)"
+[ "$kh_sets" -eq 3 ] && ok "setup.sh sets KOSMOS_HOME at its top level in 3 places (the default and the 2 lifted)" \
+  || bad "setup.sh now sets KOSMOS_HOME at its top level in $kh_sets places, not 3: lift the new one here so the label comparison sees it"
 [ "$(printf '%s\n' "$norm" | wc -l | tr -d ' ')" -eq 2 ] \
   && ok "lifted setup.sh's KOSMOS_HOME normalization (2 lines)" \
   || bad "could not lift setup.sh's KOSMOS_HOME normalization (expected 2 lines): $norm"
@@ -60,6 +67,7 @@ run() {   # $1 derivation  $2 TMPDIR
   local out sb hl sl
   out="$(TMPDIR="$2" bash -c "$1"'
 printf "%s\n" "$SB"
+'"$hhome"'
 '"$hlabel"'
 printf "com.kosmos.board.%s\n" "$BOARD_LABEL_SUFFIX"' 2>&1)" || { printf '%s\n' "$out"; return 1; }
   sb="$(printf '%s\n' "$out" | sed -n 1p)"; hl="$(printf '%s\n' "$out" | sed -n 2p)"
