@@ -21,7 +21,15 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 ## Decided, not missed
 - Matching by folder, not by label (`com.<name>.discord`): the label is this fleet's habit; the folder is what makes a
   job start THIS agent.
-- Periodic jobs never count even if their script names the folder: a digest that `cd`s into a worker folder does not
-  bring the agent back.
-- Weakest premise: a job switched off with `launchctl disable` (the override database, not the plist) is not read, so
-  it would count as covered. Reading the override database needs a `launchctl print-disabled` call per poll; left out.
+- A job "starts at login" when it is KeepAlive, or RunAtLoad with no schedule, and not Disabled. A periodic job
+  (StartInterval, StartCalendarInterval) runs a task, not an agent, so it never counts, whichever way it names a folder.
+- The folder may be the WorkingDirectory, or named in the start command (ProgramArguments or Program) or in a start
+  script of 64 KB or less that the command names, as written, as its real path, or under the home folder as ~ or $HOME.
+- A plist that reads as text but not as a property list makes UNKNOWN only an agent whose folder it names; one that
+  cannot be read at all makes every agent without its own plist unknown. Unknown is never repaired, and the banner
+  counts only proven absences, so an unknown agent is not listed there (the safe direction for a button that starts
+  processes).
+- Not covered, stated so nobody reads it as covered: a relative `cd`, a folder built from variables other than HOME,
+  a job switched off with `launchctl disable` (the override database, not the plist). The first two read as missing
+  (Repair would add a second job); the last reads as covered.
+- Measured on the fleet Mac after these changes (read-only survey): 1 missing (leftover-unrelated, genuinely no job).

@@ -575,15 +575,40 @@ test('#6310: a disabled job, a job that never starts, or one in another folder d
   assert.deepEqual(mac.survey().missing, ['elsex', 'idlex', 'offx']);
 });
 
-test('#6310: a login job we cannot read leaves "no job" unproven: shown as unknown, never repaired', () => {
+test('#6310: a login job we cannot read makes unknown only the agent it names; the rest are still counted', () => {
   reset();
   agent('ownx', { job: true });
   agent('unkx');
-  foreignJob('com.broken.thing.plist', { raw: 'this is not a property list' });
+  agent('plainy');   // CONTROL: not named by the unreadable file, so its missing job is still reported
+  foreignJob('com.broken.thing.plist', { raw: 'not a property list, but it runs ' + create.workerDir('unkx') + ' at login' });
   const s = mac.survey();
-  assert.deepEqual(s.missing, []);
+  assert.deepEqual(s.missing, ['plainy']);
   assert.equal(s.agents.find((x) => x.name === 'unkx').job, null);
   assert.equal(s.agents.find((x) => x.name === 'ownx').job, true, 'our own plist still answers on its own');
+  const r = mac.repair();
+  assert.deepEqual(r.results.map((x) => x.name), ['plainy']);
+  assert.equal(fs.existsSync(create.plistPath('unkx')), false, 'Repair wrote a job for an agent whose login job is unknown');
+});
+
+test('#6310: a periodic job in the folder does not cover it; a run-once launcher, a Program key and a $HOME spelling do', () => {
+  reset();
+  for (const n of ['tickx', 'oncex', 'progx', 'homex']) agent(n);
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const script = (n, body) => { const f = path.join(bin, n); fs.writeFileSync(f, body, 'utf8'); return f; };
+  const job = (file, extra) => foreignJob(file, { keepAlive: false, raw: '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n' });
+  const args = (a) => '\t<key>ProgramArguments</key>\n\t<array>\n' + a.map((x) => '\t\t<string>' + x + '</string>\n').join('') + '\t</array>\n';
+  job('com.tickx.tick.plist', '\t<key>RunAtLoad</key>\n\t<true/>\n\t<key>StartInterval</key>\n\t<integer>120</integer>\n\t<key>WorkingDirectory</key>\n\t<string>' + create.workerDir('tickx') + '</string>\n' + args(['/bin/true']));
+  job('com.oncex.discord.plist', '\t<key>RunAtLoad</key>\n\t<true/>\n' + args(['/bin/bash', script('launch-oncex.sh', 'tmux new-session -d -c "' + create.workerDir('oncex') + '"\n')]));
+  job('com.progx.discord.plist', '\t<key>KeepAlive</key>\n\t<true/>\n\t<key>Program</key>\n\t<string>' + script('launch-progx.sh', 'cd ' + create.workerDir('progx') + '\n') + '</string>\n');
+  const oldHome = process.env.HOME;
+  process.env.HOME = SB;
+  try {
+    job('com.homex.discord.plist', '\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/bin/bash', script('launch-homex.sh', 'WORK_DIR="$HOME/workers/homex"\n')]));
+    assert.deepEqual(mac.survey().missing, ['tickx']);
+  } finally {
+    if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome;
+  }
 });
 
 test('#6310: a kept-alive job whose start script names the folder covers the agent; a periodic one and a longer name do not', () => {
