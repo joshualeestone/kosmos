@@ -124,7 +124,7 @@ test('review 2: the record is keyed on the home\'s canonical path, as Codex reso
 
 test('install creates config.toml when Codex has not written one yet', () => {
   const h = home();
-  assert.deepEqual(hooks.install(h, '/k/b-codex-report-bridge.js', PINNED_VERSION), { ok: true });
+  assert.deepEqual(hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION), { ok: true });
   assert.match(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), /^\[hooks\.state\."[^"]+:pre_tool_use:0:0"\]\ntrusted_hash = "sha256:[0-9a-f]{64}"\n$/);
 });
 
@@ -140,8 +140,8 @@ test('install refuses a relative path, a missing home, a home that is a link, an
   const heading = hooks.stateHeading(path.join(h, 'hooks.json'));
   const mine = `${heading}\ntrusted_hash = "sha256:${'a'.repeat(64)}"\nenabled = false\n`;
   fs.writeFileSync(path.join(h, 'config.toml'), mine);
-  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor('/k/b-codex-report-bridge.js')));
-  const r = hooks.install(h, '/k/b-codex-report-bridge.js', PINNED_VERSION);
+  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor('/k/codex-report-bridge.js')));
+  const r = hooks.install(h, '/k/codex-report-bridge.js', PINNED_VERSION);
   assert.equal(r.ok, false);
   assert.match(r.because, /by hand/);
   assert.equal(fs.readFileSync(path.join(h, 'config.toml'), 'utf8'), mine);
@@ -178,6 +178,18 @@ test('removeOurs leaves a hooks.json that is not ours, and a link', () => {
   fs.writeFileSync(path.join(h, 'hooks.json'), JSON.stringify(ours));
   assert.equal(hooks.removeOurs(h), false);
   assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
+  // Review 8: ours from another build (other handler fields) is still ours, and removed.
+  fs.writeFileSync(path.join(h, 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'apply_patch', hooks: [{ type: 'command', command: "'/x/codex-report-bridge.js'", timeout: 600, statusMessage: 'x' }] }] } }));
+  assert.equal(hooks.removeOurs(h), true);
+  // A handler running something else, or a second handler, is not ours.
+  for (const other of [
+    { hooks: { PreToolUse: [{ matcher: 'apply_patch', hooks: [{ type: 'command', command: "'/x/their-hook.js'" }] }] } },
+    { hooks: { PreToolUse: [{ matcher: 'apply_patch', hooks: [{ type: 'command', command: "'/x/codex-report-bridge.js'" }, { type: 'command', command: '/x/two' }] }] } },
+    { hooks: { PreToolUse: [{ matcher: '', hooks: [{ type: 'command', command: "'/x/codex-report-bridge.js'" }] }] } },
+  ]) {
+    fs.writeFileSync(path.join(h, 'hooks.json'), JSON.stringify(other));
+    assert.equal(hooks.removeOurs(h), false, JSON.stringify(other));
+  }
   // Ours, from a bridge path that has since moved, is removed.
   fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor("/old/it's/codex-report-bridge.js")));
   assert.equal(hooks.removeOurs(h), true);

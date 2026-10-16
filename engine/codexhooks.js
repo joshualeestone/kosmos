@@ -130,17 +130,23 @@ function writeIfChanged(file, data, mode) {
   require('./securewrite').writeSecret(file, data, mode, { atomicOnly: true, ownTempsOnly: true });
 }
 
-/* Whether `text` is exactly a hooks.json install() writes, for some bridge path (the path may have moved since): one
-   PreToolUse group, our matcher, one handler that runs the report bridge with our timeout, nothing else. Review 7: a
-   file that merely MENTIONS the bridge (a person's own hooks.json with ours merged in) is not ours to delete. */
+/* Whether `text` is a hooks.json install() writes, from THIS build or any other (review 8: a later build that changes
+   the handler's fields must still be able to remove today's file, or a refusal would leave it for the TUI to stop
+   on). By structure, so it holds across builds and bridge paths: the whole file is { hooks: { PreToolUse: [ ONE group,
+   matcher apply_patch, ONE command handler running the quoted report bridge ] } }, with no other key anywhere but a
+   handler's own fields. Review 7: a file that merely MENTIONS the bridge (a person's own hooks.json with ours merged
+   in) is not ours to delete. */
+const HANDLER_KEYS = new Set(['type', 'command', 'timeout', 'timeoutSec', 'async', 'statusMessage']);
 function isOurs(text) {
   let j;
   try { j = JSON.parse(text); } catch { return false; }
-  const cmd = j && j.hooks && Array.isArray(j.hooks[EVENT]) && j.hooks[EVENT].length === 1
-    && j.hooks[EVENT][0].hooks && j.hooks[EVENT][0].hooks.length === 1 ? j.hooks[EVENT][0].hooks[0].command : null;
-  if (typeof cmd !== 'string' || !/^'.*codex-report-bridge\.js'$/.test(cmd)) return false;
-  const bridge = cmd.slice(1, -1).replace(/'\\''/g, "'");
-  return text === hooksJson(commandFor(bridge));
+  const only = (o, keys) => o && typeof o === 'object' && !Array.isArray(o) && Object.keys(o).length === keys.length && keys.every((k) => k in o);
+  if (!only(j, ['hooks']) || !only(j.hooks, [EVENT]) || !Array.isArray(j.hooks[EVENT]) || j.hooks[EVENT].length !== 1) return false;
+  const group = j.hooks[EVENT][0];
+  if (!only(group, ['matcher', 'hooks']) || group.matcher !== MATCHER || !Array.isArray(group.hooks) || group.hooks.length !== 1) return false;
+  const h = group.hooks[0];
+  if (!h || typeof h !== 'object' || Object.keys(h).some((k) => !HANDLER_KEYS.has(k)) || h.type !== 'command') return false;
+  return typeof h.command === 'string' && /^'[^\n]*\/codex-report-bridge\.js'$/.test(h.command);
 }
 
 /* Remove the hooks.json install() wrote, so Codex has no untrusted hook to stop on. Only a regular file exactly in our

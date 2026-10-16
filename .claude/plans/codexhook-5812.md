@@ -34,6 +34,8 @@ comment 6219788459). This change wires that hook to the same board call the Clau
    failed install launches the agent as today, with no hooks.json, and says so. No features flag: hooks are on by default.
 
 ## Residual, stated
+- A first `codex --version` slower than 5 s (macOS checking a freshly updated binary) launches that agent without the
+  hook, said in its log only.
 - Who wrote a file: the board names a Codex agent by its folder (undo.ownerOf matches session ids only for Claude), so
   a Codex agent's edit is attributed only when its working folder is its own agent folder, as Kosmos launches it; any
   other folder gets no undo copy and no writer, never a wrong one.
