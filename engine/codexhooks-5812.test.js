@@ -21,7 +21,13 @@ const bridge = require(BRIDGE);
 
 const home = () => fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-')));
 
-const PINNED_VERSION = require('./runners').MANIFEST.openai.version;
+const PINNED_VERSION = hooks.HASH_VERIFIED_FOR;
+
+test('review 2: the hash is verified for the Codex Kosmos pins; a bump fails here until the hash is re-measured', () => {
+  // On a bump of engine/runners.js: trust the hook in the new Codex's TUI, compare the hash it writes with trustHash()
+  // (the first test's pin), run the real-Codex test below on the new build, then move HASH_VERIFIED_FOR.
+  assert.equal(hooks.HASH_VERIFIED_FOR, require('./runners').MANIFEST.openai.version);
+});
 
 test('the trust hash is the one the real Codex TUI wrote for this hook (codex-cli 0.149.1, 10-16)', () => {
   // Measured: Codex's own "Trust all and continue" wrote this record for exactly this hooks.json (timeout 10 included).
@@ -100,6 +106,17 @@ test('install writes hooks.json and the trust record (0600), is a no-op the seco
   const cfg2 = fs.readFileSync(path.join(h, 'config.toml'), 'utf8');
   assert.equal(cfg2, cfg.replace(hooks.trustHash(cmd), hooks.trustHash(cmd2)));
   assert.equal(fs.readFileSync(path.join(h, 'hooks.json'), 'utf8'), hooks.hooksJson(cmd2));
+});
+
+test('review 2: the record is keyed on the home\'s canonical path, as Codex resolves it (a linked parent folder)', () => {
+  const real = home();
+  fs.mkdirSync(path.join(real, 'h'));
+  const link = path.join(home(), 'linked');
+  fs.symlinkSync(real, link);
+  assert.deepEqual(hooks.install(path.join(link, 'h'), '/k/codex-report-bridge.js', PINNED_VERSION), { ok: true });
+  const cfg = fs.readFileSync(path.join(real, 'h', 'config.toml'), 'utf8');
+  assert.ok(cfg.startsWith(`${hooks.stateHeading(path.join(real, 'h', 'hooks.json'))}\n`), cfg);
+  assert.equal(cfg.includes(link), false, 'never the linked spelling');
 });
 
 test('install creates config.toml when Codex has not written one yet', () => {
@@ -336,5 +353,21 @@ test(`the REAL Codex (${PINNED || 'pin unreadable'}) runs the installed hook, an
     assert.equal(r2.killed, false, 'codex exec finished on its own, not on the timeout');
     assert.equal(fs.readFileSync(path.join(work, 'existing.txt'), 'utf8'), 'new line\n', 'the patch still ran');
     assert.deepEqual(board.seen, [], 'an untrusted hook does not run');
+
+    // Review 2: a home reached through a LINKED parent folder (CODEX_HOME given in the linked spelling, as a data root
+    // behind a link would give it). Codex resolves the home, so the record must be keyed on the canonical path.
+    const realParent = home();
+    fs.mkdirSync(path.join(realParent, 'h'));
+    const linkParent = path.join(home(), 'link');
+    fs.symlinkSync(realParent, linkParent);
+    const viaLink = path.join(linkParent, 'h');
+    board.seen.length = 0;
+    fs.writeFileSync(path.join(work, 'existing.txt'), 'old line\n');
+    fs.rmSync(path.join(work, 'hello.txt'), { force: true });
+    assert.deepEqual(hooks.install(viaLink, BRIDGE, PINNED_VERSION), { ok: true });
+    const r3 = await runCodex(viaLink, work, model.port, { KOSMOS_PORT: String(board.port), TMUX_PANE: '' });
+    assert.equal(r3.err, null, `codex exec failed: ${r3.stderr}`);
+    assert.equal(r3.killed, false);
+    assert.equal(board.seen.length, 2, 'the hook ran for a home given through a linked parent');
   } finally { board.server.close(); model.server.close(); }
 });
