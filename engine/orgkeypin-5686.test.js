@@ -285,3 +285,19 @@ test('through ensureMemberKey: a Mac that joined before this code anchors its fi
   assert.equal(r2.ok, true, JSON.stringify(r2));
   assert.deepEqual(pin.readPin(store.ROOT), { org: ORG.id, public: good.pk.toString('hex') });
 });
+
+test('review 2: a lost join whose marker names no company settles without touching the pin (its org is only the coordinator\'s word)', async (t) => {
+  const root = world(t);
+  pinFor(root, 'org_other');
+  let status = () => ({ ok: false, because: 'offline' });
+  const co = { macRequest: async (m, route) => {
+    if (route === org.ROUTES.enroll) return { ok: false, because: 'the tunnel program did not answer in time' };
+    if (route === org.ROUTES.status) return status();
+    return { ok: false, because: 'unexpected ' + route }; } };
+  const r = await org.enroll('ACME-JOIN-1234', true, { root, remote: co, consentHash: 'c'.repeat(64) });   // no orgId
+  assert.equal(r.code, 'org_join_unknown', JSON.stringify(r));
+  status = () => ({ ok: true, data: { member: true, org: ORG, role: 'member', enrolled: { computer: 'c1', world: org.worldId({ root }), thisComputer: true } } });
+  const r2 = await org.refresh({ root, remote: co });
+  assert.equal(r2.enrolled, true, 'precondition: it settled');
+  assert.equal(pin.readPin(root).org, 'org_other', 'the pin is untouched');
+});
