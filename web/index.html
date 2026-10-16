@@ -52690,9 +52690,11 @@ function plusSiBoughtPick(b, opts) {
   plusSiShow('plus-si-register');
   // #6314: with nothing to pick, this step is adding a computer, not signing in, so the heading says so.
   if (!free.length && !pending && !unread) { const t = document.getElementById('plus-si-title'); if (t) t.textContent = 'Add this computer to your account'; }
-  if (!free.length && !PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();
+  if (free.length) PLUS_SI_NONE_SINCE = 0;   // a list to pick from: the add panel's own clock starts again next time it shows
+  else if (!PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();
   const first = list.querySelector('button');
-  if (!quiet) (free.length ? first : document.getElementById('plus-si-bought-buy')).focus();   // the panel's one job leads   // the page's own read moves no focus
+  // A person's read moves the focus to the panel's one job; the page's own read moves none.
+  if (!quiet) (free.length ? first : document.getElementById('plus-si-bought-buy')).focus();
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');

@@ -57,6 +57,8 @@ it $0). The coordinator already sends that price with the address list (`price.d
 - Rejected: a Stripe success redirect into the app (needs a URL scheme and a coordinator change).
 
 ## Known limits
+- The figure is Stripe's list price (`price.display`); a promotion code applies at checkout, so a person with a code
+  sees the list price here and the discount on the website.
 - The tick stops 20 minutes after the panel showed or the window last gained focus; focus and Check again still work.
 - Not in this change: the website pre-filling the address (kosmos-relay), and the website's post-payment lines
   (waiting for Josh's own notes).
