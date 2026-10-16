@@ -34,6 +34,10 @@ the fix passes everything until the next cut.
 - Only the harness's FIRST KOSMOS_HOME export is used; a second export just before the label line would not be seen.
 - A later reassignment of $SB after the lifted block is not seen.
 - setup.sh's label lines are compared as text, so a harmless respelling of one of them fails (on the safe side).
+- Only label lines spelled `_board_label="com.kosmos.board.$(printf` are lifted and compared; a third one spelled another
+  way would be neither (review after the rebase).
+- The KOSMOS_HOME pin counts `KOSMOS_HOME=` at a line start or after a space or ';' (export, readonly and local
+  included), comments left out; an assignment spelled another way (read, eval, printf -v) is not counted.
 - tools.every-test-runs.test.js passes; control: with the package.json entry removed it names this file.
 - tools/test-mktemp-template-4298.sh: 0 failures (the scratch dir is templated under TMPDIR).
 

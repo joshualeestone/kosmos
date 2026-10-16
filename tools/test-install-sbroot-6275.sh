@@ -45,11 +45,13 @@ elif grep -q '^SB="$(mktemp -d' tools/test-install.sh; then
 else
   bad "could not find the harness's sandbox-root derivation in tools/test-install.sh"
 fi
-# setup.sh sets KOSMOS_HOME at its top level in exactly three places: the default and these two lines. A new rewrite
-# (a resolved path, say) would change the label without this lift seeing it, so the count is pinned.
-kh_sets="$(grep -c '^KOSMOS_HOME=' install/setup.sh)"
-[ "$kh_sets" -eq 3 ] && ok "setup.sh sets KOSMOS_HOME at its top level in 3 places (the default and the 2 lifted)" \
-  || bad "setup.sh now sets KOSMOS_HOME at its top level in $kh_sets places, not 3: lift the new one here so the label comparison sees it"
+# setup.sh assigns KOSMOS_HOME in exactly three places: the default and these two lines. A new assignment (a resolved
+# path, say, or one inside an if on one line) would change the label without this lift seeing it, so the count is
+# pinned. Counted: any KOSMOS_HOME= at the start of a line or after a space or ';' (export, readonly and local
+# included), comment lines left out. Not counted: an assignment spelled another way (read, eval, printf -v).
+kh_sets="$(grep -vE '^[[:space:]]*#' install/setup.sh | grep -cE '(^|[;[:space:]])(export[[:space:]]+|readonly[[:space:]]+|local[[:space:]]+)?KOSMOS_HOME=')"
+[ "$kh_sets" -eq 3 ] && ok "setup.sh assigns KOSMOS_HOME in 3 places (the default and the 2 lifted)" \
+  || bad "setup.sh now assigns KOSMOS_HOME in $kh_sets places, not 3: lift the new one here so the label comparison sees it"
 [ "$(printf '%s\n' "$norm" | wc -l | tr -d ' ')" -eq 2 ] \
   && ok "lifted setup.sh's KOSMOS_HOME normalization (2 lines)" \
   || bad "could not lift setup.sh's KOSMOS_HOME normalization (expected 2 lines): $norm"
