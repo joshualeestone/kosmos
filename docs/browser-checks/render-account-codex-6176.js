@@ -30,6 +30,10 @@ catch { console.log('render-account-codex-6176: playwright is not on NODE_PATH -
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const H = 3600e3, now = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
+/* #6312: a page clock moved hours ahead in hops of six fake minutes. One runFor across hours fires every page timer
+   in turn (19 real minutes for seven fake hours on CI); a hop fires each due timer once, so a timer that re-arms
+   every six minutes or more still fires on each hop. */
+const hops = async (pg, ms, step = 6 * 60e3) => { for (let t = 0; t < ms; t += step) await pg.clock.fastForward(Math.min(step, ms - t)); };
 const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'it reached ChatGPT', observedAt: now - 9000, observedAgeMs: 9000 };
 const openai = (id, extra) => ({ provider: 'openai', providerName: 'OpenAI', email: id + '@example.com', label: id, dir: '/home/.codex-' + id,
   name: null, isDefault: false, authMode: 'chatgpt', keyTail: null, connection: conn, offerable: true, ...extra });
@@ -159,7 +163,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
       await paintAccounts();
     }, [openai('weekonly', { limits: { windows: [win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })]);
-    await p3.clock.runFor(7 * H); await p3.waitForTimeout(300);
+    await hops(p3, 7 * H); await p3.clock.runFor(5e3); await p3.waitForTimeout(300);   // #6312: hops, see hops()
     const week = await p3.evaluate(() => window.__reads);
     say(week === 1, '[chromium open] a weekly window alone arms no six-hourly read', 'reads=' + week);
     await p3.close();
@@ -176,7 +180,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
       await paintAccounts();
     }, [openai('dayonly', { limits: { windows: [win(40, 1440, now + 8 * H)], plan: 'plus', at: now - 60e3 } })]);
-    await p4.clock.runFor(7 * H + 50 * 60e3); await p4.waitForTimeout(200);
+    await hops(p4, 7 * H + 50 * 60e3); await p4.clock.runFor(5e3); await p4.waitForTimeout(200);   // #6312: hops, see hops()
     const early4 = await p4.evaluate(() => window.__reads);
     await p4.clock.runFor(15 * 60e3); await p4.waitForTimeout(300);
     const late4 = await p4.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
