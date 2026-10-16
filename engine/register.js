@@ -203,7 +203,7 @@ function jobReader(platform) {
         // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
         try { dir = fs.realpathSync.native(create.workerDir(name)); } catch (e) {
           if (!(e && e.code === 'ENOENT')) return null;   // could not look at the folder itself: not a proven absence
-          dir = null;
+          dir = null;   // no folder: nothing can start in it, and survey's `missing` needs a folder anyway
         }
         // The answer for a folder only changes when a login job, a launcher script or the home folder does.
         const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + require('node:os').homedir();

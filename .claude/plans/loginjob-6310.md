@@ -9,8 +9,8 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 
 ## Steps
 1. [x] `engine/register.js` `jobReader` (Mac): our plist, OR a non-Kosmos LaunchAgent (RunAtLoad or KeepAlive, not
-   Disabled, no schedule) whose WorkingDirectory is the worker folder, OR whose arguments or named start script (2 MB
-   or less) contain the whole worker folder path (see Decided for the exact rule). Plist XML read as text (no process on the 5 s poll); binary
+   Disabled) whose WorkingDirectory is the worker folder or inside it, OR a starting job whose launcher (2 MB or less)
+   names the whole worker folder path (see Decided for the exact rules). Plist XML read as text (no process on the 5 s poll); binary
    plists through plutil; cached by mtime and size.
 2. [x] Tests in `engine/register.test.js`: the fleet shape with a no-job control; disabled, never-starting and
    other-folder jobs do not cover; unreadable plist gives null; a start-script mention covers a KeepAlive job, not a
