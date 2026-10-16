@@ -50,3 +50,12 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Orphaned comments from the trim removed or moved; EXPECTED_CHECKS says to bump it with each new check (now 22).
 - Not done here: the shared helper module (#6287). fed-own-e2e.js runs on load, so sharing means re-proving #4693 too.
 - Rerun: VERDICT PASS 23/23.
+
+## Round 3 (opus) fixes
+- Step 4b's Allow check says only that the route answered (it answers allowed even for an id nobody holds, #6286);
+  step 6 carries the claim that the Allow took.
+- Step 10 expects the board's own choice for a family (a family's sentence where it has one, else the shared one),
+  so a family used-code sentence added later does not red a correct board.
+- Step 8's comment no longer claims an unasserted "not spent" (step 9's join with the same code shows it); the invite
+  retry reports the last throw rather than a stale answer; the GET without screen headers says why.
+- Rerun: VERDICT PASS 23/23.
