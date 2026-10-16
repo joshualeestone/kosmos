@@ -367,7 +367,8 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     await p10.clock.runFor(20 * 60e3); await p10.waitForTimeout(200);   // past the soonest reset, busy for more than ten tries
     await p10.evaluate(() => { const c = document.querySelector('#set-accounts .acct-check:disabled'); if (c) c.disabled = false; });
     const spent10 = await p10.evaluate(() => window.__reads);
-    await p10.clock.runFor(2 * 3600e3); await p10.waitForTimeout(300);   // past the other line's reset
+    // #6312: fastForward, not runFor: two fake hours of every page timer one by one took about 7 real minutes on CI.
+    await p10.clock.fastForward(2 * 3600e3); await p10.clock.runFor(5e3); await p10.waitForTimeout(300);   // past the other line's reset
     const later10 = await p10.evaluate(() => ({ fives: document.querySelectorAll('#set-accounts .acct-usage-five').length, reads: window.__reads }));
     say(spent10 === 1 && later10.reads >= 2 && later10.fives === 0, '[chromium open] with one line\'s tries spent while busy, the other line\'s reset still brings a read', JSON.stringify({ spent10, later10 }));
     await p10.close();

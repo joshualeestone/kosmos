@@ -159,7 +159,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
       await paintAccounts();
     }, [openai('weekonly', { limits: { windows: [win(30, 10080, now + 50 * H)], plan: 'plus', at: now - 60e3 } })]);
-    await p3.clock.runFor(7 * H); await p3.waitForTimeout(300);
+    // #6312: fastForward, not runFor: runFor fires every page timer across seven fake hours one by one (19 real
+    // minutes on CI). A jump fires each due timer at most once, so any extra read still lands and reads !== 1.
+    await p3.clock.fastForward(7 * H); await p3.clock.runFor(5e3); await p3.waitForTimeout(300);
     const week = await p3.evaluate(() => window.__reads);
     say(week === 1, '[chromium open] a weekly window alone arms no six-hourly read', 'reads=' + week);
     await p3.close();
@@ -176,7 +178,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
       await paintAccounts();
     }, [openai('dayonly', { limits: { windows: [win(40, 1440, now + 8 * H)], plan: 'plus', at: now - 60e3 } })]);
-    await p4.clock.runFor(7 * H + 50 * 60e3); await p4.waitForTimeout(200);
+    await p4.clock.fastForward(7 * H + 50 * 60e3); await p4.clock.runFor(5e3); await p4.waitForTimeout(200);   // #6312: a jump, as p3
     const early4 = await p4.evaluate(() => window.__reads);
     await p4.clock.runFor(15 * 60e3); await p4.waitForTimeout(300);
     const late4 = await p4.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
