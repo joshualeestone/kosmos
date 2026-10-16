@@ -11,8 +11,10 @@
  *
  * Rules, once a verification key ships:
  *   - a missing or bad signature is a refusal (a breached coordinator could simply leave it out);
- *   - the FIRST verified (org, public key) is pinned in this computer's store, and any later answer naming another org
- *     or another key is refused, signed or not (escrowd signs only the key it recorded for that org and epoch, but the
+ *   - the FIRST verified (org, public key) is pinned in this computer's store, and only for the company the person
+ *     joined (an expectation written at their Join; for a Mac that joined before this code, the enrollment record's
+ *     org, a weaker anchor the coordinator can rewrite); any later answer naming another org or key is refused, signed
+ *     or not (escrowd signs only the key it recorded for that org and epoch, but the
  *     pin also stops a coordinator naming a different org with a key of its own);
  *   - only a final end of this computer's enrollment (orgenroll.js retireWorldId: a confirmed Leave, or a removal; not
  *     a Leave the company refused) or a person's Join to ANOTHER company clears the pin, so the next pin is taken after
@@ -42,13 +44,14 @@ function unb64(s) {
   return b.toString('base64url') === s ? b : null;
 }
 
-/* The pin, { org, public (hex) }; null when there is none; 'unreadable' when a file is there but cannot be read. */
+/* The pin: { org, public (hex) }, or { org, public: null } (a person joined `org`; its first verified key is pinned
+   next); null when there is none; 'unreadable' when a file is there but cannot be read. */
 function readPin(root) {
   let text;
   try { text = fs.readFileSync(pinPath(root), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' ? null : 'unreadable'; }
   try {
     const p = JSON.parse(text);
-    if (p && typeof p.org === 'string' && typeof p.public === 'string' && /^[0-9a-f]{64}$/.test(p.public)) return { org: p.org, public: p.public };
+    if (p && typeof p.org === 'string' && p.org && (p.public === null || (typeof p.public === 'string' && /^[0-9a-f]{64}$/.test(p.public)))) return { org: p.org, public: p.public };
   } catch { /* falls through */ }
   return 'unreadable';
 }
@@ -64,10 +67,13 @@ function clear(root) {
   try { fs.rmSync(pinPath(root), { force: true }); } catch { /* best effort: a left pin refuses, never trusts */ }
 }
 
-/* A person's Join to `org`: a pin for ANOTHER company (or one that cannot be read) goes; the same company's stays. */
-function clearUnlessFor(root, org) {
+/* A person's Join to `org`: the same company's pin stays; anything else (no pin, another company's, an unreadable one)
+   becomes "expect `org`", so the first key pinned must be the joined company's, not one Kosmos+ names later (review 2). */
+function joined(root, org) {
+  if (typeof org !== 'string' || !org) return;
   const pin = readPin(root);
-  if (pin !== null && (pin === 'unreadable' || pin.org !== org)) clear(root);
+  if (pin !== null && pin !== 'unreadable' && pin.org === org) return;
+  writePin(root, { org, public: null });
 }
 
 /**
@@ -88,9 +94,19 @@ function check(root, data, company, opts = {}) {
     const pin = readPin(root);
     if (pin === 'unreadable') return { ok: false, because: 'the company key this computer recorded could not be read; it was left as it is' };
     const here = { org: company.org, public: company.orgPublic.toString('hex') };
-    if (pin === null) { writePin(root, here); return { ok: true, pinned: true }; }
+    /* The first key pinned must be the company the person joined: the expectation written at their Join, else (a Mac
+       that joined before this code) the enrollment record's org, opts.recordOrg. The record is the weaker anchor: the
+       hourly refresh rewrites it from Kosmos+, so a breach between that join and the first answer here is not caught. */
+    const expected = pin ? pin.org : typeof opts.recordOrg === 'function' ? opts.recordOrg() : opts.recordOrg;
+    if (!pin || pin.public === null) {
+      if (typeof expected !== 'string' || expected !== here.org) {
+        return { ok: false, because: 'Kosmos+ named a company backup key for a different company from the one this computer joined, so it was not used' };
+      }
+      writePin(root, here);
+      return { ok: true, pinned: true };
+    }
     if (pin.org !== here.org || pin.public !== here.public) {
-      return { ok: false, because: 'Kosmos+ named a different company backup key from the one this computer accepted first, so it was not used. Leaving and joining your company again resets it' };
+      return { ok: false, because: 'Kosmos+ named a different company backup key from the one this computer accepted first, so it was not used. Ask your company admin before leaving and joining again, which resets it' };
     }
     return { ok: true };
   } catch {
@@ -98,4 +114,4 @@ function check(root, data, company, opts = {}) {
   }
 }
 
-module.exports = { check, clear, clearUnlessFor, readPin, VERIFYING_KEY, PIN_FILE };
+module.exports = { check, clear, joined, readPin, VERIFYING_KEY, PIN_FILE };
