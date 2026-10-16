@@ -1339,6 +1339,19 @@ if [ -z "$adopt" ]; then
     _GROK_PREFIX=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
+    # #5812 item 3: refresh OUR hook file in this grok home at every launch (engine/groksettings.js ensurePrepared:
+    # content-idempotent, and it rewrites only a file carrying our marker), so an agent made before the file-edit hook
+    # gets it, and a wiped hook file comes back (it used to wait for the agent to be remade, #3391's residual). The
+    # bridge is the copy beside this script, the same supportDir path create.js bakes at birth. Best effort: a refresh
+    # that fails costs the newest hooks, never the launch, and says why.
+    if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_eng/groksettings.js" ]; then
+      "$NODE_BIN" -e '
+        try {
+          const r = require(process.argv[1]).ensurePrepared(require("path").join(process.argv[2], "hooks", "kosmos-report-bridge.json"), process.argv[3]);
+          if (!r.prepared) process.stderr.write("grok: its report hooks were not refreshed (" + r.because + ")\n");
+        } catch (e) { process.stderr.write("grok: its report hooks were not refreshed\n"); }
+      ' "$_eng/groksettings.js" "$_GROK_ACCT" "$(cd "$(dirname "$0")" && pwd)/grok-report-bridge.js" || true
+    fi
     _GROK_KIND=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
       # The account's authMode, or nothing. A function, so its early return is legal:
