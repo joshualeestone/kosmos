@@ -71,6 +71,15 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.click('[data-tab="projects"]');
     await p.evaluate(() => applyLayout('consolidated', true));
     await p.evaluate(() => loadProjects());
+    // The Agents and Projects rail labels share one line (#3948 item 2): their tops, in px apart.
+    const labelGap = () => p.evaluate(() => {
+      const a = document.querySelector('#rail-agents .railname');
+      const pr = document.querySelector('#rail-projects .railname');
+      if (!a || !pr) return null;
+      return Math.abs(a.getBoundingClientRect().top - pr.getBoundingClientRect().top);
+    });
+    const gapClosed = await labelGap();
+    say('CONTROL: with no project open the two rail labels share a line', gapClosed !== null && gapClosed <= 1, 'apart ' + gapClosed + 'px');
     await p.evaluate((id) => openProject(id), made.id);
     await p.waitForFunction((names) => names.every((n) => document.querySelector('#alist .lrow[data-agent="' + n + '"]')), NAMES, { timeout: 15000 });
 
@@ -94,6 +103,8 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('CONTROL: the tab layout\'s Team map button cannot be reached here (the card\'s problem)', before.tabBtn === false, JSON.stringify(before));
     say('the rail shows a Team map button', before.btn, JSON.stringify(before));
     say('the rail map starts closed', before.shown === false && before.expanded === 'false', JSON.stringify(before));
+    const gapBtn = await labelGap();
+    say('with the Team map button showing the two rail labels still share a line', gapBtn !== null && gapBtn <= 1, 'apart ' + gapBtn + 'px');
 
     await p.click('#alist-teammap-btn');
     await p.waitForFunction(() => !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
@@ -119,6 +130,18 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('at 960x720 the map fits the rail sideways', short.over !== null && short.over <= 0, 'overflow ' + short.over + 'px');
     say('at 960x720 the open map scrolls itself, not the page', short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
     say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
+    // CONTROL for the two arms above: without the cap the same instruments must go red, or they cannot see a push.
+    const uncapped = await p.evaluate(() => {
+      const box = document.getElementById('alist-teammap');
+      box.style.maxHeight = 'none';
+      const r0 = document.querySelector('#alist .lrow');
+      const r = r0 ? r0.getBoundingClientRect() : null;
+      const out = { pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
+      box.style.maxHeight = '';
+      return out;
+    });
+    say('CONTROL: with the cap removed the first agent row leaves the view', uncapped.firstRow === false, JSON.stringify(uncapped));
     await p.setViewportSize({ width: 1280, height: 900 });
     await p.waitForTimeout(300);
 
@@ -163,17 +186,17 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('unfolding brings the open map back', unfolded.btn && unfolded.shown, JSON.stringify(unfolded));
 
     // The open state is one per project, shared with the tab layout: switch layouts with the map open.
-    const carried = await p.evaluate(async () => {
-      applyLayout('tabs', true);
-      await loadProjects();
+    // No loadProjects() here: the switch's own repaint must show it.
+    await p.evaluate(() => applyLayout('tabs', true));
+    await p.waitForFunction(() => { const box = document.getElementById('pj-teammap'); return !document.body.classList.contains('consolidated')
+      && box && !box.hidden && box.getClientRects().length > 0; }, null, { timeout: 8000 }).catch(() => {});
+    const carried = await p.evaluate(() => {
       const btn = document.getElementById('pj-teammap-btn');
       const box = document.getElementById('pj-teammap');
-      const r = { cons: document.body.classList.contains('consolidated'), expanded: btn && btn.getAttribute('aria-expanded'),
+      return { cons: document.body.classList.contains('consolidated'), expanded: btn && btn.getAttribute('aria-expanded'),
         shown: !!box && !box.hidden && box.getClientRects().length > 0 };
-      applyLayout('consolidated', true);
-      await loadProjects();
-      return r;
     });
+    await p.evaluate(() => applyLayout('consolidated', true));
     say('the map opened in the rail is open in the tab layout too', carried.cons === false && carried.shown && carried.expanded === 'true', JSON.stringify(carried));
     await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
