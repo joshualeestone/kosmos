@@ -602,6 +602,31 @@ test('#4612: an idle report after a turn that finished with words carries its an
   }
 });
 
+/* #6319: a DM answer longer than the copy's limit ends with a marker, and the board's own cap keeps the marker. */
+test('#6319: an over-limit DM answer is cut with a marker that survives the board, never mid-sentence with nothing said', async () => {
+  const selfreport = require('./selfreport');
+  const long = 'word '.repeat(1200).trim();   // 5999 characters
+  const sent = [];
+  const h = harness([OK(long)], { report: (s, w, final) => sent.push([s, final || null]) });
+  h.f.feed(OP('tell me everything') + '\r');
+  await h.f.drained();
+  const final = sent[sent.length - 1][1];
+  assert.ok(final && typeof final.text === 'string', 'no answer was carried');
+  const chars = Array.from(final.text);
+  assert.ok(chars.length <= front.FINAL_MAX, 'the copy is over the limit: ' + chars.length);
+  assert.ok(final.text.endsWith(front.FINAL_CUT_MARK), 'the cut copy does not end with the marker: ...' + final.text.slice(-80));
+  assert.ok(long.startsWith(final.text.slice(0, -front.FINAL_CUT_MARK.length)), 'the kept part is not the start of the answer');
+  // The board keeps at most 4000 characters (selfreport finalOf); the marker must be inside them.
+  const kept = selfreport.finalOf('idle', final);
+  assert.ok(kept && kept.text.endsWith(front.FINAL_CUT_MARK), 'the board cut the marker off');
+  // CONTROL: at the limit exactly, nothing is cut and no marker is added; astral characters count as one each.
+  const exact = 'y'.repeat(front.FINAL_MAX);
+  assert.equal(front.finalCopy(exact), exact);
+  const emoji = '\u{1F600}'.repeat(front.FINAL_MAX);
+  assert.equal(front.finalCopy(emoji), emoji, 'a 4000-emoji answer is 4000 characters, not 8000 UTF-16 units');
+  assert.ok(front.finalCopy(emoji + 'z').endsWith(front.FINAL_CUT_MARK), 'one character over is cut and marked');
+});
+
 test('#4612: the reporter sends the answer as kosmosFinal; the bridge puts it on a Stop or a working report, never agy\'s own', () => {
   const spawned = [];
   const spawn = () => { const c = new EventEmitter(); c.stdin = Object.assign(new EventEmitter(), { end: (d) => spawned.push(d) }); c.unref = () => {}; return c; };
