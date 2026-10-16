@@ -3888,6 +3888,26 @@ test('#4756: live, the list is read through the tunnel binary with the session o
   } finally { remote.resetForTests(); }
 });
 
+test('#6314: the price of one more computer reaches the page as Stripe says it, and only in an amount-per-period shape', async () => {
+  process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
+  try {
+    await signedIn();
+    const read = async (price) => {
+      fs.writeFileSync(ADDR_ANSWER, JSON.stringify(Object.assign({}, BOUGHT, price === undefined ? {} : { price })));
+      const r = await remote.signinAddresses();
+      assert.equal(r.ok, true, r.because);
+      return r.data.price;
+    };
+    assert.equal(await read({ amount: 2000, currency: 'usd', interval: 'month', display: '$20/month' }), '$20/month');
+    assert.equal(await read({ display: '$19.99/3 months' }), '$19.99/3 months');
+    assert.equal(await read(null), '', 'Stripe unread (price null) must read as no figure');
+    assert.equal(await read(undefined), '', 'an older coordinator with no price must read as no figure');
+    assert.equal(await read({ display: '<b>$20</b>/month' }), '', 'markup in the price reached the page');
+    assert.equal(await read({ display: 'free for now' }), '', 'words that are not an amount per period reached the page');
+    assert.equal(await read({ display: 20 }), '', 'a number where the text belongs reached the page');
+  } finally { delete process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES; remote.resetForTests(); }
+});
+
 test('#4756 review: first_free reaches the page, from the server field when sent, else only from bought_at null and grandfathered false', async () => {
   process.env.AGENT_WORKFORCE_BOUGHT_ADDRESSES = '1';
   const r = (name, extra) => Object.assign({ name, address: name + '.kosmos.invalid', state: 'in_use' }, extra);

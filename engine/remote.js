@@ -3110,6 +3110,8 @@ const BOUGHT_STATES = new Set(['in_use', 'free', 'pending']);
 // The switch read, the list read and setupRun's close grace after the binary exits, together, leave at least a second
 // of the page's PLUS_ASK_TIMEOUT_MS (engine/remote.test.js asserts it against web/index.html).
 const ADDR_META_MS = 1500, ADDR_READ_MS = 10200;
+// kosmos#6314: a price.display the page may show: a short currency mark, an amount, and a period ("$20/month", "$19.99/3 months").
+const PRICE_SHAPE = /^[^\s\d<>"'&]{1,3}\d{1,7}(?:[.,]\d{1,3})?\/(?:(?:day|week|month|year)|[2-9] (?:day|week|month|year)s|1[0-2] (?:day|week|month|year)s)$/;
 let addressesInFlight = null;   // { token, run }: one read at a time per sign-in; a second caller of the SAME one shares it
 async function signinAddresses(opts) {
   const token = signinSession && typeof signinSession.token === 'string' ? signinSession.token : null;
@@ -3160,7 +3162,12 @@ async function signinAddressesOnce(opts) {
       first_free: typeof x.first_free === 'boolean' ? x.first_free : (x.bought_at === null && x.grandfathered === false) }));
   const buy = body && typeof body.buy_url === 'string' && /^https:\/\/[^\s"'<>]+$/.test(body.buy_url) ? body.buy_url : '';
   const here = enrolled() ? String(address() || '').split('.')[0] : '';
-  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, this_name: NAME_RULE.test(here) ? here : '' } };
+  /* kosmos#6314: what one more computer costs, as Stripe says it (the coordinator's price.display, "$20/month"), so
+     the page can say so before it sends anyone to pay, without keeping a number of its own. Only an amount over a
+     plain period passes; anything else (none sent, Stripe unread, an odd shape) is '' and the page says no figure. */
+  const said = body && body.price && typeof body.price.display === 'string' ? body.price.display : '';
+  const price = PRICE_SHAPE.test(said) ? said : '';
+  return { ok: true, because: null, data: { live: true, addresses: rows, buy_url: buy, price, this_name: NAME_RULE.test(here) ? here : '' } };
 }
 
 async function signinRegister(name) {
