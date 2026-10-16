@@ -14,9 +14,11 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
 2. bin/grok-report-bridge.js: keepRequestFor (the Gemini bridge's shape: refuse other events and tools, no path, a
    relative path with no folder, a control character, a win32 UNC path) and one bounded post for keep and report: the
    answer read under the timer, stdin let go once read (both lessons from the Codex hook's reviews).
-3. bin/agent-supervisor.sh: the grok launch brings our hook file up to date (groksettings.upgradeIfUntouched), so agents
-   made before this get the hook. Only a file that is exactly what Kosmos wrote before: a person who deleted or edited it
-   (for a default-account agent it sits in their own ~/.grok) keeps it as they left it.
+3. No launch-time refresh (decided after review 4): agents made before this get the hook when they are remade, as
+   Gemini's do on a Mac. A refresh was tried in reviews 1 to 4 and dropped: for a default-account agent the file sits in
+   the person's own ~/.grok, and no reading of its content can tell an untouched older file from a person who deleted
+   just the tool hook (the bytes are identical), so any refresh would put back a hook a person removed. The other way,
+   a per-home stamp, is Kosmos state in a person's folder for a one-time upgrade; not worth it for this.
 
 ## Differences from the Codex slice, measured
 - No trust record: hooks in $GROK_HOME/hooks run as they are (only project hooks need trust).
