@@ -36,6 +36,12 @@ needs the pre-#685 record, then a rename to that exact string, both before this 
 neutral name, and a rename back then sticks.
 
 ## Not done
+- A company policy NAMED "AI policy" (any case) beside the renamed entry gives two near-equal headings (review 3).
+  Rejected fix: skipping the rename when the company's policy wears that name, because the next save would then keep
+  "Company AI policy" for good in a version-3 record, the false owner next to a real one. Kept: both headings, each
+  with its provenance line ("Set by your company in its Kosmos policy." / "Added by the person you work for on ..."),
+  pinned by a test. read() stays independent of company state. Weakest premise: that an agent reads the provenance
+  line, not only the heading.
 - A downgrade to an older build that then saves writes version 2 again; back on this build, a p1 the person had renamed
   to "Company AI policy" is renamed to "AI policy" once more (review 2). Accepted: it needs a downgrade plus a save,
   happens once, and a rename back then sticks.
@@ -56,6 +62,7 @@ random id untouched, no rename when "AI policy" is taken), plus the company fall
 
 MEASURED: the #6273 and migration tests 3/3; both policy test files 15/15; the 13 test files that touch the policy name,
 read or re-read 364/364. Mutants: no rename on read (2 red), any id renamed (control red), no collision guard (red), no version guard (the
-rename-back arm red, review 1). Review 2: a version-4 record is not treated as old (arm added).
+rename-back arm red, review 1). Review 2: a version-4 record is not treated as old (arm added). Review 3: only a real number counts as a
+version (a hand-edited "3" or [3] reads as old, the safe direction).
 Mutant "new migrations named DEFAULT_NAME" survives and is EQUIVALENT: a v1 record migrates with id p1 as its only entry,
 so rename on read fixes it either way.

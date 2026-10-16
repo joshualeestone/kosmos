@@ -111,6 +111,16 @@ test('#6273 the company\'s nameless policy and a person\'s migrated one never sh
     assert.deepEqual(eff.policies.map((p) => p.name), [policy.DEFAULT_NAME, policy.MIGRATED_NAME], 'the two policies are not told apart');
     const body = policy.bodyFor(eff.policies);
     assert.equal(body.split('### Company AI policy').length - 1, 1, 'the stack heads two policies "Company AI policy"');
+
+    // Review 3: a company policy NAMED "AI Policy" beside the renamed one. Kept as two near-equal headings (plan), and
+    // each is still told apart by its provenance line, so neither claims the other's owner.
+    applyCompany({ name: 'AI Policy', text: 'Be careful.' });
+    const two = policy.bodyFor(policy.effective().policies);
+    const at = (h) => two.indexOf(h);
+    assert.ok(at('### AI Policy') >= 0 && at('### AI policy') > at('### AI Policy'), 'the two headings are not both there, company first');
+    assert.ok(two.slice(at('### AI Policy'), at('### AI policy')).includes('Set by your company in its Kosmos policy.'), 'the company\'s heading lost its provenance');
+    assert.ok(two.slice(at('### AI policy')).includes('Added by the person you work for on 2026-08-23.'), 'the person\'s heading lost its provenance');
+    assert.ok(!two.includes('### Company AI policy'), 'the person\'s policy was put back under the company\'s name');
   } finally { policy.clear(); orgpolicy.clear(); }
 });
 
