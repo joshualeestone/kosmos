@@ -3,16 +3,19 @@
 /**
  * kosmos#6309: the usage cap's counter, a worker thread started by engine/usagecap.js, so counting the month never
  * blocks the board's message path. Told the cap's zone ({ tz }), it counts the month (usagecap.monthTokens, its own
- * cache in this thread) until the count has caught up, then again every RECOUNT_MS, posting each count as
- * { tz, since, tokens, complete }. Never throws out of a count: a failed one is retried at the next turn.
+ * cache in this thread) a bounded amount every CATCH_UP_MS until the count has caught up, then again every RECOUNT_MS,
+ * posting each count as { tz, since, tokens, complete }. The pause between catch-up turns keeps a heavy month (measured:
+ * over 31 minutes of reads on one computer) from holding a core the whole time. Never throws out of a count: a failed
+ * one is retried at the next turn.
  */
 
 const { parentPort } = require('node:worker_threads');
 const usagecap = require('./usagecap');
 
 const RECOUNT_MS = 10 * 1000;
+const CATCH_UP_MS = 250;
 let tz = null;
-let timer = null;
+let timer = null;   // always a setTimeout handle
 
 function turn() {
   timer = null;
@@ -20,12 +23,12 @@ function turn() {
   let r = null;
   try { r = usagecap.monthTokens(tz, Date.now()); } catch { r = null; }
   if (r) parentPort.postMessage({ tz, since: r.since, tokens: r.tokens, complete: r.complete });
-  timer = r && !r.complete ? setImmediate(turn) : setTimeout(turn, RECOUNT_MS);
+  timer = setTimeout(turn, r && !r.complete ? CATCH_UP_MS : RECOUNT_MS);
 }
 
 parentPort.on('message', (m) => {
   if (!m || typeof m.tz !== 'string') return;
   tz = m.tz;
-  if (timer) { clearTimeout(timer); clearImmediate(timer); }
-  timer = setImmediate(turn);
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(turn, 0);
 });

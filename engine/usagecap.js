@@ -149,7 +149,9 @@ function ensureWorker(tz) {
     try {
       const w = new Worker(path.join(__dirname, 'usagecap-worker.js'));
       w.unref();   // never what keeps the board running
-      w.on('message', (r) => { if (r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isFinite(r.tokens)) latest = r; });
+      w.on('message', (r) => {
+        if (r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isSafeInteger(r.tokens) && r.tokens >= 0 && typeof r.complete === 'boolean') latest = r;
+      });
       const gone = () => { if (worker === w) { worker = null; workerTz = null; workerFailedAt = Date.now(); } };
       w.on('error', gone);
       w.on('exit', gone);

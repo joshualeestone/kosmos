@@ -22,6 +22,11 @@ quiet-hours gate (engine/chat.js); the look-after commands still go.
 - A board older than this ignores usage_cap (unknown keys stay unread): no cap is enforced there, and the console must
   not imply one is.
 
+## Merge order
+Either order is safe. A board with this change and a coordinator without it: no policy can carry usage_cap yet (the
+coordinator refuses the key), so nothing is counted or sent. A coordinator with it and a board without it: a cap can
+be saved, an older board ignores the key (enforces nothing, reports nothing), and the console shows no count.
+
 ## Weakest premise
 That tokens counted from transcripts are close enough to what the provider counts for a cap to be fair. It is the
 same count the swarm limit already enforces.
