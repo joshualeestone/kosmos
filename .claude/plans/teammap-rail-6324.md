@@ -36,7 +36,7 @@ the map goes with it; the 960x720 arms unfold it first, as a person would.
 NOT covered: a long project notice plus the open map on a short window. The rail head's row is auto-sized and the
 notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today.
 Focus: a repaint finds a focused member again by data-agent; a focused member who leaves hands focus to the Team map
-button; if the project closes, the map and its button go and focus falls to the page.
+button. A repaint keeps the map's own scroll position.
 
 ## Checks
 - Unit (`web.teammap-rail-6324.test.js`): the rail painter, lifted from the page and called, paints the map only
