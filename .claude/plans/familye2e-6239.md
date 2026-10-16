@@ -154,3 +154,10 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Kept (NITs): the preflight's dependence on the refusal's words (it prints the binary's output when it does not
   match); the fedproof names and copied helpers (#6287); round numbers in comments.
 - Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 12/19.
+
+## Round 15 (opus) fixes
+- The end check passes only when the total, every step's own count and the never-ran list all agree (two offsetting
+  miscounts can no longer read PASS); its comment points at STEP_CHECKS, not the derived total.
+- relay dev-cert's failure carries its stderr, as the preflight and org-create do.
+- The quiet guard says it scans tools/ only, and its slice failure names the startBoard anchor.
+- Rerun: VERDICT PASS 23/23; the quiet guard 7/7.
