@@ -703,3 +703,44 @@ test('#6310: a start script that cannot be read leaves "no job" unproven; a nest
     assert.equal(s.agents.find((x) => x.name === 'lostx').job, null);
   } finally { fs.chmodSync(locked, 0o644); }
 });
+
+test('#6310: what counts as a launcher: an unreadable script after Program counts; a huge bundle and an unreadable log do not doubt everyone', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+  reset();
+  agent('plainq');   // CONTROL: no job anywhere; stays counted unless something genuinely leaves it unproven
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  const args = (a) => '\t<key>ProgramArguments</key>\n\t<array>\n' + a.map((x) => '\t\t<string>' + x + '</string>\n').join('') + '\t</array>\n';
+  // A bundled CLI of 3 MB of text: not searched, and not a reason to doubt everyone.
+  const bundle = path.join(bin, 'cli.js'); fs.writeFileSync(bundle, '// bundle\n' + 'x'.repeat(3 * 1024 * 1024), 'utf8');
+  foreignJob('com.bundle.app.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/usr/bin/env', 'node', bundle])) });
+  // An unreadable log being followed: data, not a launcher.
+  const log = path.join(bin, 'app.log'); fs.writeFileSync(log, 'line\n', 'utf8'); fs.chmodSync(log, 0o000);
+  try {
+    foreignJob('com.tail.app.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n' + args(['/usr/bin/tail', '-F', log])) });
+    assert.deepEqual(mac.survey().missing, ['plainq'], 'a bundle or an unreadable log made the control unknown');
+    // An unreadable SCRIPT in the third slot of a Program-style job: may be any agent's launcher.
+    const script = path.join(bin, 'launch-q.sh'); fs.writeFileSync(script, 'echo\n', 'utf8'); fs.chmodSync(script, 0o000);
+    try {
+      foreignJob('com.progq.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>Program</key>\n\t<string>/bin/bash</string>\n' + args(['bash', '-l', script])) });
+      const s = mac.survey();
+      assert.deepEqual(s.missing, []);
+      assert.equal(s.agents.find((x) => x.name === 'plainq').job, null);
+    } finally { fs.chmodSync(script, 0o644); }
+  } finally { fs.chmodSync(log, 0o644); }
+});
+
+test('#6310: a folder written in another case still matches, and a remembered answer follows a changed script', () => {
+  reset();
+  agent('casex');
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const script = path.join(bin, 'launch-casex.sh');
+  fs.writeFileSync(script, 'echo nothing yet\n', 'utf8');
+  foreignJob('com.casex.discord.plist', { raw: '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + script + '</string>\n\t</array>\n</dict>\n</plist>\n' });
+  assert.deepEqual(mac.survey().missing, ['casex'], 'the script names no folder yet');
+  fs.writeFileSync(script, 'WORK_DIR="' + create.workerDir('casex').toUpperCase() + '"\n', 'utf8');
+  const st = fs.statSync(script); fs.utimesSync(script, st.atime, new Date(st.mtimeMs + 5000));
+  assert.deepEqual(mac.survey().missing, [], 'the remembered answer did not follow the changed script, or case was not ignored');
+});

@@ -24,9 +24,11 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - A job "starts at login" when it is KeepAlive, or RunAtLoad with no schedule or trigger (StartInterval,
   StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount), and its own top-level Disabled is not true. A
   KeepAlive job counts even with a schedule, because launchd starts it at login anyway.
-- A start script that exists but cannot be read, or text over 2 MB, may be any agent's launcher, so every agent
-  without its own plist is unknown. A binary over the limit (the interpreter itself) is skipped. The limit was 64 KB
-  until a read-only survey of the fleet Mac showed real launchers of 109 KB, 110 KB and 375 KB (Kosmos's own board).
+- A job's arguments are searched only when they look like launchers: executable, or named like a script (.sh, .js,
+  .py and so on). A log being followed or a data file is never read. A launcher that exists but cannot be read may be
+  any agent's, so every agent without its own plist is unknown. A binary (the interpreter itself) and text over 2 MB
+  (a bundled CLI) are not searched and doubt nobody. The limit was 64 KB until a read-only survey of the fleet Mac
+  showed real launchers of 109 KB, 110 KB and 375 KB (Kosmos's own board).
 - Deferred, not missed: when agents are unknown the banner shows only proven absences, so it can go quiet. Telling the
   person "we could not check N agents" needs new copy and a field on /api/register; it is a follow-up, not this card.
 - The folder may be the WorkingDirectory, or named in the start command (ProgramArguments or Program) or in a start
@@ -38,15 +40,20 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Over-match is accepted on purpose: a starting job whose script merely names a worker folder (a watcher, a comment)
   marks that agent covered. That hides a banner line; the opposite error installs and starts a second copy of a live
   agent, the harm this card is about.
-- A file that could not be read is asked again on the next survey (a failed read is not cached); one that read but is
-  not a property list is cached until it changes. Plists over 256 KB are not read (they count as unreadable).
+- A plist that could not be read is asked again a minute later; a launcher script that could not be read, on the
+  next survey. A plist that read but is not a property list (or has no closing dict) is cached until it changes.
+  Plists over 256 KB are not read (they count as unreadable).
 - Only ~/Library/LaunchAgents is read (Kosmos writes its own jobs there); /Library jobs are not. A start script on a
   hung network mount would block the survey's read; not handled.
-- Only the program or the script it runs (a job's first two arguments) can make every agent unknown when it cannot be
-  read; an unreadable file further along (a log being followed) is data. A binary is never searched.
-- Cost, measured on the fleet Mac (about 80 agents, 40 login jobs): one warm survey takes about 50 ms.
+- Each agent's answer is remembered until a login job, a launcher script or the home folder changes. Measured on the
+  fleet Mac (about 80 agents, 40 login jobs): a cold survey about 22 ms, a warm one about 9 ms.
+- Script text is matched ignoring case (the Mac's disks do), under the folder as written, its real path, and ~ or
+  $HOME for both the OS home and Kosmos's own.
+- Known inconsistency, not changed here: `create.jobMissing` (the offline card's "Made before Kosmos recorded this")
+  still looks only at Kosmos's own plist, so an agent covered here can still get that card's no-job wording. A
+  follow-up should move it onto this survey.
 - Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
-  only), the legacy OnDemand key, and plist XML comments, a relative `cd`, a folder built from variables other than HOME,
+  only), the legacy OnDemand key, plist XML comments, a UTF-16 script (read as binary), a relative `cd`, a folder built from variables other than HOME,
   a job switched off with `launchctl disable` (the override database, not the plist). A chained launcher, a relative
   `cd` and other variables read as missing (Repair would add a second job); OnDemand, comments and `launchctl disable`
   can read either way.
