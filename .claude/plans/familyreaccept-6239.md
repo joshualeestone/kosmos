@@ -19,11 +19,11 @@ joining again.
 2. `web/index.html`:
    - the family panel (`#plus-org-family`) moves out of the code block (`#plus-org-out`) to sit beside it, so it can
      show over the joined view too. Its behaviour at joining is unchanged.
-   - the joined view, when `wordsNeeded`: "This Kosmos is joined to <family>. The family's words changed, so it reports
-     nothing until a parent or guardian reads and accepts them." and a button, Read the family's words
+   - the joined view, when `wordsNeeded`: "This Kosmos is joined to <family>. The family's words are not accepted on
+     this computer, so it reports nothing until a parent or guardian reads and accepts them." and a button, Read the family's words
      (`#plus-org-words`).
    - the button asks for the review (`/api/org/preview { review: true }`, which existed: reviewHere, #5531 follow-up)
-     and shows the words in the same panel, with a lead saying they changed and an Accept button.
+     and shows the words in the same panel, with a lead saying they are not accepted on this computer and an Accept button.
    - Accept sends the codeless enroll `{ accepted: true, ticket, wordsShown: true }` (the review answer carries
      move: true, so the existing move path builds it). Not now accepts nothing, says so, and returns focus to the
      button; a refusal with a code closes the words and returns focus to the button.
@@ -48,6 +48,25 @@ joining again.
 - "The family's words changed" was not always true: wordsNeeded also covers words never recorded here (a print not
   pinned, a re-adopted record). Both lines now say the words are not accepted on this computer.
 
+## Review 2 (sonnet) fixes
+- Review 1's refusal line was a claim of the loop's own and was wrong for several codes (it told a parent no longer in the
+  family to read the words again, and said Kosmos+ was unreachable when the engine said it did not know). Replaced by
+  plusOrgReviewSay: the engine's own reason, without the two sentences that do not hold for a family review ("Kosmos
+  tries again on its own", "Press Connect Account"), plus "Press Accept to try again" (no code: the ticket is kept and the
+  engine says accepting again is harmless) or "Read the family's words again" (a code), and nothing for
+  org_not_member / org_other_org / org_not_here / org_bad_world.
+- A refused leave while the words are needed says a parent is needed (not "once Kosmos has the current terms").
+- An Accept the next /api/org read contradicts (still wordsNeeded: the print not pinned) says the computer could not
+  record the words and offers them again.
+
+## Review 3 (opus) fixes
+- "Kosmos then tries again on its own." (the folder-write refusal) is stripped too.
+- org_bad_world keeps the ticket and the words, so it says to press Accept again (it said nothing to do).
+- No longer this family's (org_not_member, org_other_org, org_not_here): the view is read again and focus goes to the
+  joined sentence, not to the words button.
+- reviewAccepted is cleared when the read after Accept fails, and is in PLUS_ORG's initializer; no doubled "try again";
+  the review lead says "accept them on this computer" (accepting does not always make it report).
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -58,7 +77,10 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R7 and F10, chromium and webkit. R4 also proves the page
+- docs/browser-checks/render-org-family-6239.js arms R1 to R11 and F10, chromium and webkit: all pass (00:4x CDT 10-16).
+  Page mutants, each red on its own arms: the review refusal back to a fixed sentence (R5, R7, R8, R11); no
+  panel-follows-view rule (R7's Leave); a joining family's words not holding the block open (F10). A step that throws is
+  a named FAIL (a click that timed out once ended a run with no verdict line). R4 also proves the page
   reads /api/org again after Accept; fixtures carry `kind` as the real route does. Mutants: the words row
   never shown (R1 red); Not now ignoring a review (R3 red).
 - Updated pins: web.familywords-6239.test.js lifts plusOrgFamilyNotNow, which now reads PLUS_ORG_FAMILY and calls
