@@ -82,7 +82,7 @@ test('#4253: the lib names the same dead addresses the runners export (one fact,
 });
 
 // kosmos#6239: the family join proof builds its boards' env the same way, so it is held to the same three addresses.
-// Every proof harness that builds its boards' env (round 9 of #6239: found by its boardEnv, not listed by hand).
+// Every proof harness directly under tools/ that builds its boards' env (found by its boardEnv, not listed by hand).
 const HARNESSES = fs.readdirSync(path.join(__dirname, 'tools'))
   .filter((f) => f.endsWith('.js') && /function boardEnv\(/.test(fs.readFileSync(path.join(__dirname, 'tools', f), 'utf8')));
 test('#4253: the harness list is found, and holds both known proofs', () => {
@@ -94,7 +94,7 @@ for (const tool of HARNESSES) {
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     const start = src.indexOf('function boardEnv(');
     const end = src.indexOf('async function startBoard(');
-    assert.ok(start >= 0 && end > start, 'boardEnv not found where expected');
+    assert.ok(start >= 0 && end > start, tool + ': boardEnv( must come before async function startBoard( (the slice this guard reads)');
     const body = src.slice(start, end);
     for (const k of KEYS) assert.match(body, new RegExp(k + ": 'http://127\\.0\\.0\\.1:9/"), k + ' is not pointed at the dead port');
   });

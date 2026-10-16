@@ -393,7 +393,9 @@ async function main() {
   // 2. relay (the boards' tunnels reach the coordinator through it)
   const relayEnv = serviceEnv(path.join(SANDBOX, 'relay-home'), { RUST_LOG: 'info' });
   const tls = path.join(SANDBOX, 'relay-tls');
-  execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tls], { stdio: 'ignore', env: relayEnv, timeout: SYNC_MS, killSignal: 'SIGKILL' });
+  try {
+    execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tls], { stdio: ['ignore', 'pipe', 'pipe'], env: relayEnv, timeout: SYNC_MS, killSignal: 'SIGKILL' });
+  } catch (e) { throw new Error('relay dev-cert failed: ' + String(e.stderr || e.message || e).slice(0, 600)); }
   const pinned = path.join(SANDBOX, 'relay-coordinator-key');
   fs.writeFileSync(pinned, meta.coordinator_pubkey + '\n');
   const pub = await freePort();
@@ -572,7 +574,7 @@ async function main() {
   const counts = {};
   for (const x of results) { const k = ((x.label || '').match(/^step \d+b?/) || [''])[0]; if (k) counts[k] = (counts[k] || 0) + 1; }
   const off = Object.keys(STEP_CHECKS).filter((k) => (counts[k] || 0) !== STEP_CHECKS[k] && stepsSeen.has(k)).map((k) => k + ' ' + (counts[k] || 0) + '/' + STEP_CHECKS[k]);
-  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : '') + (off.length ? '; counts off: ' + off.join(', ') : ''));   // adding a chk above: bump EXPECTED_CHECKS
+  chk(ran === EXPECTED_CHECKS && !never.length && !off.length, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : '') + (off.length ? '; counts off: ' + off.join(', ') : ''));   // a new chk above: update STEP_CHECKS
 }
 
 (async () => {
