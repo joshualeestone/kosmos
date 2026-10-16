@@ -1339,19 +1339,6 @@ if [ -z "$adopt" ]; then
     _GROK_PREFIX=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
-    # #5812 item 3: bring OUR hook file in this grok home up to date at launch, so an agent made before the file-edit
-    # hook gets it: engine/groksettings.js upgradeIfUntouched rewrites the file only when it is exactly what Kosmos wrote
-    # before (reviews 1 and 2: for a default-account agent this home is the person's own ~/.grok, and a file they
-    # deleted or edited stays as they left it). The bridge is the copy beside this script, the same supportDir path
-    # create.js bakes at birth. Best effort: a refresh that does not happen costs the newest hooks, never the launch.
-    if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -f "$_eng/groksettings.js" ] && [ -f "$_GROK_ACCT/hooks/kosmos-report-bridge.json" ]; then
-      "$NODE_BIN" -e '
-        try {
-          const r = require(process.argv[1]).upgradeIfUntouched(require("path").join(process.argv[2], "hooks", "kosmos-report-bridge.json"), process.argv[3]);
-          if (r.left) process.stderr.write("grok: its report hooks were not refreshed (" + r.because + ")\n");
-        } catch (e) { process.stderr.write("grok: its report hooks were not refreshed\n"); }
-      ' "$_eng/groksettings.js" "$_GROK_ACCT" "$(cd "$(dirname "$0")" && pwd)/grok-report-bridge.js" || true
-    fi
     _GROK_KIND=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
       # The account's authMode, or nothing. A function, so its early return is legal:

@@ -142,51 +142,6 @@ test('ensurePrepared brings an older file of ours up to date with the tool hook,
   assert.equal(fs.readFileSync(theirs, 'utf8'), '{"hooks":{"PreToolUse":[]}}');
 });
 
-test('review 2: upgradeIfUntouched rewrites only the exact older file, and never creates one', () => {
-  const d = dir();
-  const file = path.join(d, 'hooks', 'kosmos-report-bridge.json');
-  const B = '/s/bin/grok-report-bridge.js';
-  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).left, true);
-  assert.equal(fs.existsSync(file), false, 'absent stays absent');
-  fs.mkdirSync(path.dirname(file));
-  const before = { hooks: {} };
-  for (const e of settings.HOOK_EVENTS) before.hooks[e] = [settings.definitionFor(B, { platform: 'darwin' })];
-  fs.writeFileSync(file, JSON.stringify(before, null, 2) + '\n');
-  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
-  assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse);
-  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { current: true });
-  // The person removed the tool hook again: left alone.
-  const mine = JSON.parse(fs.readFileSync(file, 'utf8'));
-  delete mine.hooks.PreToolUse;
-  mine.hooks.Stop[0].hooks[0].timeout = 5;   // and changed something else
-  fs.writeFileSync(file, JSON.stringify(mine, null, 2) + '\n');
-  const r = settings.upgradeIfUntouched(file, B, { platform: 'darwin' });
-  assert.equal(r.left, true);
-  assert.match(r.because, /by hand/);
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse, undefined);
-  // Review 3: an older file Kosmos wrote for ANOTHER bridge folder is still ours, and comes up to date on this bridge.
-  const other = { hooks: {} };
-  for (const e of settings.HOOK_EVENTS) other.hooks[e] = [settings.definitionFor('/old place/bin/grok-report-bridge.js', { platform: 'darwin' })];
-  fs.writeFileSync(file, JSON.stringify(other, null, 2) + '\n');
-  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).hooks.PreToolUse[0].hooks[0].command, `node "${B}"`);
-  // Review 3: the #3391 file (Notification too, before #4006) is ours.
-  const first = { hooks: {} };
-  for (const e of ['SessionStart', 'UserPromptSubmit', 'Notification', 'Stop', 'StopCancelled', 'StopFailure', 'SessionEnd']) first.hooks[e] = [settings.definitionFor(B, { platform: 'darwin' })];
-  fs.writeFileSync(file, JSON.stringify(first, null, 2) + '\n');
-  assert.deepEqual(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }), { upgraded: true });
-  // Ours, reformatted by a person: changed by hand. Not ours: says so.
-  fs.writeFileSync(file, JSON.stringify(other) + '\n');
-  assert.match(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).because, /changed by hand/);
-  fs.writeFileSync(file, '{"hooks":{"Stop":[]}}');
-  assert.match(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).because, /not ours/);
-  // Two different bridge paths in one file is not a file Kosmos wrote.
-  const mixed = JSON.parse(JSON.stringify(other));
-  mixed.hooks.Stop = [settings.definitionFor('/elsewhere/bin/grok-report-bridge.js', { platform: 'darwin' })];
-  fs.writeFileSync(file, JSON.stringify(mixed, null, 2) + '\n');
-  assert.equal(settings.upgradeIfUntouched(file, B, { platform: 'darwin' }).left, true);
-});
-
 /* ---- the real grok: only grok can say whether the hook fires with this payload ---- */
 const PINNED = (() => {
   try { return /grok-darwin-arm64-([0-9]+\.[0-9]+\.[0-9]+)\.tgz/.exec(fs.readFileSync(path.join(__dirname, 'runners.js'), 'utf8'))[1]; }
