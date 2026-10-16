@@ -50898,7 +50898,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while a call is out. */
 // open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
-var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0, wordsRefused: false };
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0, wordsRefused: false, carried: null };
 /* kosmos#6251: a sentence written for a company, said for a family when the org this board knows is one ("your
    company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
 function plusOrgIn(org, text) {
@@ -50913,8 +50913,21 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
   PLUS_ORG.at = Date.now();
   const askedAt = Date.now();   // kosmos#6239: a read that started before a review's Accept says nothing about it
   fetch('/api/org').then((res) => res.json()).then((j) => {
-    // kosmos#6239: a read that started before this page last set the state itself (a family's Accept) is older than it.
-    if (askedAt < (PLUS_ORG.wroteAt || 0)) return;
+    // kosmos#6239: a read that started before this page last set the state itself (a family's Accept, a Leave) is older
+    // than it. Review 13: the server spends its one-time notes (stoppedFor, leaveRefused) on that read, so they are
+    // carried to the next read, which runs at once and says whether they still fit.
+    if (askedAt < (PLUS_ORG.wroteAt || 0)) {
+      if (j && (j.stoppedFor || j.leaveRefused)) {
+        PLUS_ORG.carried = { stoppedFor: j.stoppedFor || null, leaveRefused: j.leaveRefused || null, leaveRefusedUndo: j.leaveRefusedUndo === true };
+        PLUS_ORG.at = 0; setTimeout(() => plusOrgMaybe(keepMsg), 0);
+      }
+      return;
+    }
+    if (j && PLUS_ORG.carried) {
+      const c = PLUS_ORG.carried; PLUS_ORG.carried = null;
+      if (!j.stoppedFor && c.stoppedFor) j.stoppedFor = c.stoppedFor;
+      if (!j.leaveRefused && c.leaveRefused) { j.leaveRefused = c.leaveRefused; j.leaveRefusedUndo = c.leaveRefusedUndo; }
+    }
     // kosmos#6239: the words stay withheld after "no longer this family's" until a read says the state moved on.
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
@@ -50934,7 +50947,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && j.enrolled !== true && j.stoppedFor && j.stoppedFor !== PLUS_ORG.dismissed) msg.textContent = 'This Kosmos is no longer the work Kosmos for ' + j.stoppedFor + ', so it has stopped reporting.';
     // #5531 review 21: a leave the person was told would be sent again was refused, so this Kosmos reports again.
     // "reports to it" only when it may (review 33): a record with no consent recorded here sends nothing.
-    const reports = j && j.wordsNeeded === true ? '. It reports nothing until a parent or guardian reads and accepts the family\u2019s words.' : plusOrgIn(j && j.org, j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.');
+    const reports = j && j.wordsNeeded === true && PLUS_ORG.wordsRefused ? '. It reports nothing to the family.' : j && j.wordsNeeded === true ? '. It reports nothing until a parent or guardian reads and accepts the family\u2019s words.' : plusOrgIn(j && j.org, j && j.reporting === true ? ' and reports to it.' : j && j.reportingWait === 'print' ? '. It reports to your company once it has read this computer\'s identity.' : j && j.reportingWait === 'printError' ? '. It cannot report to your company yet: Kosmos could not check this computer.' : j && j.reportingWait === 'noReports' ? '. Your company asks it to report nothing.' : '. It reports to your company once Kosmos has your company\'s current terms.');
     if (j && j.enrolled === true && j.leaveRefused) msg.textContent = j.leaveRefusedUndo === true
       ? plusOrgIn(j.org, 'Your company could not undo joining ') + j.leaveRefused + ': you are its last admin. This Kosmos is your work Kosmos' + reports
       : 'Your leave from ' + j.leaveRefused + ' was refused: you are its last admin. This Kosmos is your work Kosmos again' + reports;
@@ -51153,7 +51166,14 @@ async function plusOrgFamilyReview() {
   let refused = false;   // read in finally: a return inside try skips anything placed after the finally
   try {
     const p = await plusOrgPost('preview', { review: true });
-    if (!p.ok) { refused = true; msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
+    if (!p.ok) {
+      refused = true;
+      // Review 13: the family no longer names this computer; this record clears only at the next refresh, so the words
+      // are held back as after an Accept refused for the same reason (R8), not offered again by the re-read below.
+      if (p.code === 'org_not_named') PLUS_ORG.wordsRefused = true;
+      msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.';
+      return;
+    }
     // Kosmos+ did not answer as a family's (review 12): nothing for a parent to read, and the words stay held back until a
     // read says they are no longer needed, so the button does not come back with each read of this computer's record.
     if (!(p.org && p.org.kind === 'family')) { refused = true; PLUS_ORG.wordsRefused = true; msg.textContent = 'Kosmos+ did not answer as a family account, so there are no family words to read here.'; return; }

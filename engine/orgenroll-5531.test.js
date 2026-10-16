@@ -1045,9 +1045,11 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   // Another company's words are never shown as this record's (the account moved companies since).
   const other = await org.reviewHere({ root: a, remote: withConsent({ org: { id: 'org_2', name: 'Other', slug: 'other' } }) });
   assert.equal(other.ok, false, 'another company\'s consent was offered for this record: ' + JSON.stringify(other));
+  assert.equal(other.code, 'org_not_named', 'kosmos#6239: the screen holds the words back only on this code');
   // Named elsewhere: not this world's words to accept.
   const elsewhere = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } }) });
   assert.equal(elsewhere.ok, false, 'a world the company does not name here was offered a review');
+  assert.equal(elsewhere.code, 'org_not_named');
   assert.equal(r.served, SERVED, 'the review does not carry the company\'s hash, so accepting could not record the words there');
   // No hash the board can echo: accepting could not make it report, so it is not offered (review 1).
   const noHash = await org.reviewHere({ root: a, remote: withConsent({ consentHash: undefined }) });

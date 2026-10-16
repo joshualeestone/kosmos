@@ -31,6 +31,8 @@
  *   R13 an open review's words close when a read says they are accepted here (another window accepted them).
  *   R14 words held back after R8 do not outlive the membership: a Leave clears them, so after a new join they are offered again.
  *   R15 a review answered as not a family's says so, and the words stay held back across a read of the same record.
+ *   R16 a review preview refused as not named here (org_not_named) holds the words back, as R8 does for an Accept.
+ *   R17 a read that started before the page's own write is dropped, and a one-time note it carried shows on the next read.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -403,6 +405,26 @@ async function run(engineName) {
         && !r15.say.includes('accepts'), E + ' R15 a review answered as not a family\'s says so and the words stay held back', JSON.stringify(r15));
     // A read that says the words are no longer needed releases them.
     await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    // R16: a review preview refused because the family no longer names this computer holds the words back (R8's twin).
+    await reread(WAITING);
+    await setPreview({ ok: false, code: 'org_not_named', because: 'Your family does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.' });
+    await page.click('#plus-org-words');
+    await page.waitForTimeout(300);
+    const r16 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words'), say: await text('plus-org-say') };
+    chk(r16.msg.startsWith('Your family does not name this Kosmos') && !r16.row && !r16.say.includes('accepts'),
+      E + ' R16 a review preview refused as not named here holds the words back', JSON.stringify(r16));
+    await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    // R17: a read older than the page's own write is dropped, and its one-time note is carried to the next read.
+    await page.evaluate(() => { PLUS_ORG.wroteAt = Date.now() + 2000; });
+    await reread(Object.assign({}, WAITING, { org: { name: 'Stale family', slug: 'stale', kind: 'family' }, leaveRefused: 'The Rivera family' }));
+    const r17a = { say: await text('plus-org-say') };
+    await page.evaluate(() => { PLUS_ORG.wroteAt = 0; });
+    await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    const r17 = Object.assign(r17a, { msg: await text('plus-org-msg') });
+    chk(!r17.say.includes('Stale family') && r17.msg.includes('Your leave from The Rivera family was refused'),
+      E + ' R17 an older read is dropped and its one-time note shows on the next read', JSON.stringify(r17));
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);

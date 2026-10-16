@@ -115,6 +115,14 @@ joining again.
   now says Kosmos+ did not answer as a family account and holds the words back like a refusal (R15).
 - A Leave sets wroteAt, so a read that started before it cannot put the joined view back.
 
+## Review 13 (opus) fixes
+- A review PREVIEW refused because the family no longer names this computer (reviewHere) let the button come back on the
+  re-read, the loop review 9 closed for the Accept. reviewHere now gives that refusal a code (`org_not_named`) and the
+  page holds the words back on it (R16). The engine test pins the code on both not-named cases.
+- Dropping a read older than the page's own write also lost the one-time notes the server spends on that read
+  (stoppedFor, leaveRefused). They are now carried to the next read, which runs at once (R17, which also drives the drop).
+- The leave-refused line says "reports nothing to the family" while the words are held back.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -125,7 +133,7 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms F0 to F10 and R1 to R14, chromium and webkit. The runs and full
+- docs/browser-checks/render-org-family-6239.js arms F0 to F10 and R1 to R17, chromium and webkit. The runs and full
   validation at the head this ships are recorded in the proof file (`familyreaccept-6239-pre-challenge.md`), not here,
   because any edit to this file changes the head they describe. The last recorded before R14: all pass and full
   validation PASSED (20,885 pass, 0 fail) at 8caa42c877; the R13 mutant reds R13; the R8 mutant (refused words not held
