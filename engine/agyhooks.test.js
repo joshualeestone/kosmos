@@ -33,14 +33,38 @@ test('#4043: a fresh workdir gets the kosmos-report hook: working before each mo
   assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
   assert.match(h.PreInvocation[0].command, / PreInvocation$/);
   assert.match(h.Stop[0].command, / Stop$/);
-  // #5812 item 4: PreToolUse also before the two file tools (the keep); PostToolUse stays ask_question ONLY (the bridge
-  // reads any PostToolUse as working). Anchored, so no other tool starts a node in agy's loop.
+  // By default (no file tools: an unknown or older agy, or agyrefresh's repair) both are ask_question ONLY.
+  for (const ev of ['PreToolUse', 'PostToolUse']) {
+    assert.equal(h[ev][0].matcher, '^ask_question$', ev + ' must be hooked for ask_question ONLY (a hook per tool slows agy\'s loop)');
+    assert.match(h[ev][0].hooks[0].command, new RegExp(' ' + ev + '$'));
+  }
+});
+
+test('#5812 item 4: with the file tools on, PreToolUse also covers write_to_file and replace_file_content; PostToolUse does not', () => {
+  const d = workdir();
+  hooks.ensureHooks(d, '/opt/node', '/support/bin/agy-report-bridge.js', true, true);
+  const h = readHooks(d)[hooks.HOOK_NAME];
   assert.equal(h.PreToolUse[0].matcher, '^(ask_question|write_to_file|replace_file_content)$');
-  assert.equal(h.PostToolUse[0].matcher, '^ask_question$', 'PostToolUse must be hooked for ask_question ONLY (a hook per tool slows agy\'s loop)');
+  assert.equal(h.PostToolUse[0].matcher, '^ask_question$', 'the bridge reads any PostToolUse as working');
   const pre = new RegExp(h.PreToolUse[0].matcher);
   assert.ok(['ask_question', 'write_to_file', 'replace_file_content'].every((t) => pre.test(t)));
   assert.ok(!['run_command', 'view_file', 'write_to_file_x'].some((t) => pre.test(t)));
-  for (const ev of ['PreToolUse', 'PostToolUse']) assert.match(h[ev][0].hooks[0].command, new RegExp(' ' + ev + '$'));
+  // File tools never without the ask_question tool hooks (an agy too old for tool hooks at all).
+  const d2 = workdir();
+  hooks.ensureHooks(d2, '/opt/node', '/support/bin/agy-report-bridge.js', false, true);
+  assert.equal(readHooks(d2)[hooks.HOOK_NAME].PreToolUse, undefined);
+});
+
+test('#5812 review 1: the supervisor\'s call widens the matcher only for agy 1.2.17 or newer', () => {
+  const run = (version) => {
+    const d = workdir();
+    require('node:child_process').execFileSync(process.execPath, [require('node:path').join(__dirname, 'agyhooks.js'), d, '/opt/node', '/support/bin/agy-report-bridge.js', version], { stdio: 'ignore' });
+    return readHooks(d)[hooks.HOOK_NAME].PreToolUse[0].matcher;
+  };
+  assert.equal(run('1.2.16'), '^ask_question$');
+  assert.equal(run('agy 1.2.17'), '^(ask_question|write_to_file|replace_file_content)$');
+  assert.equal(run('1.4.0'), '^(ask_question|write_to_file|replace_file_content)$');
+  assert.deepEqual(hooks.MIN_FILE_TOOL_HOOKS, [1, 2, 17]);
 });
 
 test('#4043: the person\'s own hooks are kept, and a second run changes nothing', () => {
