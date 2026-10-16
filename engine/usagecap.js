@@ -16,7 +16,7 @@
  * from the month's start, and one cache entry per file resets whenever `since` changes. Reads are bounded per call
  * (READ_PER_CALL_BYTES), so a first count catches up over a few calls; `complete` says whether it has. Never throws.
  *
- * The gate (capAllows) never counts. It runs on the message path, and counting a heavy month is slow: measured on a
+ * On the board the gate (capAllows) never counts (only the tests' 'sync' mode does). It runs on the message path, and counting a heavy month is slow: measured on a
  * Mac holding 8,313 transcripts touched this month (2.5 GB), a bounded count took over 3.7 s a call and had not
  * caught up after 31 minutes. So a worker thread (usagecap-worker.js) counts, and the gate reads its latest count with
  * the month's saved one. The rollup reads the same way (capReport): on the enrolled board its tick runs in the board's
@@ -129,6 +129,10 @@ function withFloor(policy, m) {
   const floor = readFloor(m.since);
   const used = m.complete && !floor.sameZone ? m.tokens : Math.max(m.tokens, floor.used);
   if (m.complete) writeFloor(m.since, used);
+  /* A partial count is a true lower bound too, so a higher one is saved as it catches up: a restart mid catch-up then
+     starts from it, not from the last full count. Not over a count saved under another zone, which still holds the
+     cap up until this zone's count is full. */
+  else if ((!floor.used || floor.sameZone) && m.tokens > floor.used) writeFloor(m.since, m.tokens);
   /* `month` ('YYYY-MM') names the month counted, so a count carried forward after the board stops reporting is never
      read as this month's. The 1st's local midnight falls within 14 hours of the UTC 1st, so two days on is that month. */
   const month = new Date(m.since + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7);
@@ -218,11 +222,11 @@ function capAllows(now = Date.now()) {
   return { ok: false, because: orgpolicy.capSentence(c) };
 }
 
-/** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
- *  without it the gate counts inline (mode 'sync'). */
 /** The board's process: count the month here, in a worker thread. */
 function countOnThisBoard() { workerAllowed = true; }
 
+/** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
+ *  without it the gate counts inline (mode 'sync'). `board: false` is a process that is not the board. */
 function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false, board = true } = {}) {
   cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
   stopWorker();

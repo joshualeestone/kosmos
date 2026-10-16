@@ -220,8 +220,12 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   let last;
   for (let i = 1; i <= 20; i++) { last = usagecap.capInForce(NOW + i * usagecap.MEMO_SHORT_MS); if (last.complete) break; }
   assert.deepEqual([last.used, last.complete], [123, true], 'the count did not catch up over later calls');
-  usagecap.resetForTests({ perCallBytes: 200 });
-  assert.ok(usagecap.capInForce(NOW).used < 123, 'CONTROL: with no saved count the first count is short');
+  usagecap.resetForTests({ perCallBytes: 600 });   // a few whole lines, not the month
+  const partial = usagecap.capInForce(NOW).used;
+  assert.ok(partial > 0 && partial < 123, `CONTROL: with no saved count the first count is short, and not empty: ${partial}`);
+  // That partial count was saved as it went: a restart now starts from it, not from nothing.
+  usagecap.resetForTests({ perCallBytes: 1, keepFloor: true });
+  assert.ok(usagecap.capInForce(NOW).used >= partial, 'a restart mid catch-up lost the partial count');
   // A zone change mid-month after a restart: the saved count is still this month's, so it stays the floor.
   usagecap.resetForTests();
   assert.equal(usagecap.capInForce(NOW).used, 123, 'CONTROL: a full count saved under UTC');
