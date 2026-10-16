@@ -364,10 +364,14 @@ async function main() {
   // alone. Such a coordinator does not know --kind; one that does refuses an unknown kind by name.
   {
     let said = '';
+    let returned = false;   // round 18: exited 0, as opposed to killed, timed out or failing
     fs.mkdirSync(path.join(SANDBOX, 'kindcheck'), { recursive: true });
-    try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SYNC_MS, killSignal: 'SIGKILL', env: Object.assign(process.env.PATH ? { PATH: process.env.PATH } : {}, { HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') }) }); }
-    catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
-    if (said === '') said = '(it exited 0: it accepted a nonsense kind)';   // ran, and did not refuse
+    try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SYNC_MS, killSignal: 'SIGKILL', env: Object.assign(process.env.PATH ? { PATH: process.env.PATH } : {}, { HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') }) }); returned = true; }
+    catch (e) {
+      said = String(e.stderr || '') + String(e.stdout || '');
+      if (!said) said = e.signal ? '(killed by ' + e.signal + (e.signal === 'SIGKILL' ? ', after ' + SYNC_MS / 1000 + ' s' : '') + ')' : '(' + (e.code || 'failed') + ', no output)';
+    }
+    if (returned && said === '') said = '(it exited 0: it accepted a nonsense kind)';
     if (!/--kind is company or family/.test(said)) {
       // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
       // An older binary answers an unknown flag with its org-create usage line, which has no --kind (relay main before
@@ -507,8 +511,9 @@ async function main() {
   }
 
   let joined = false;
-  // 8. a join that does not say the words were shown is refused (CONTROL for step 9). That the code is not spent by it
-  // is shown by step 9 joining with the same code.
+  // 8. a join that does not say the words were shown is refused (CONTROL for step 9). It shares step 9's ticket and code
+  // on purpose: a refusal here must spend neither, and step 9 joining with them is what shows it. If step 9 then fails,
+  // step 8's answer above is the first place to look.
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket }, SCREEN);
     chk(r.json && r.json.ok === false && r.json.code === 'org_family_words_unseen', 'step 8: a family join without the words screen is refused (the board\'s gate)', r.status + ' ' + r.text.slice(0, 200));
@@ -583,13 +588,16 @@ async function main() {
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
   const ran = results.length;
   // Round 10: name the steps that never ran, so a gap explains itself.
-  const stepsSeen = new Set(results.map((x) => ((x.label || '').match(/^step \d+b?/) || [''])[0]));
+  const stepOf = (label) => ((label || '').match(/^step \d+b?/) || [''])[0];
+  const stepsSeen = new Set(results.map((x) => stepOf(x.label)));
   const never = Object.keys(STEP_CHECKS).filter((x) => !stepsSeen.has(x));
   // A step whose own count is off names itself too (a check added without updating STEP_CHECKS).
   const counts = {};
-  for (const x of results) { const k = ((x.label || '').match(/^step \d+b?/) || [''])[0]; if (k) counts[k] = (counts[k] || 0) + 1; }
+  for (const x of results) { const k = stepOf(x.label); if (k) counts[k] = (counts[k] || 0) + 1; }
+  // A gap after an earlier red is usually that red's cascade: name the first one.
+  const firstRed = results.find((x) => !x.ok);
   const off = Object.keys(STEP_CHECKS).filter((k) => (counts[k] || 0) !== STEP_CHECKS[k] && stepsSeen.has(k)).map((k) => k + ' ' + (counts[k] || 0) + '/' + STEP_CHECKS[k]);
-  chk(ran === EXPECTED_CHECKS && !never.length && !off.length, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : '') + (off.length ? '; counts off: ' + off.join(', ') : ''));   // a new chk above: update STEP_CHECKS
+  chk(ran === EXPECTED_CHECKS && !never.length && !off.length, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : '') + (off.length ? '; counts off: ' + off.join(', ') : '') + ((never.length || off.length) && firstRed ? '; first red: ' + firstRed.label : ''));   // a new chk above: update STEP_CHECKS
 }
 
 (async () => {
