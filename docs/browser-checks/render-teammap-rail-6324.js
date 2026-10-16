@@ -82,6 +82,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('CONTROL: with no project open the two rail labels share a line', gapClosed !== null && gapClosed <= 1, 'apart ' + gapClosed + 'px');
     await p.evaluate((id) => openProject(id), made.id);
     await p.waitForFunction((names) => names.every((n) => document.querySelector('#alist .lrow[data-agent="' + n + '"]')), NAMES, { timeout: 15000 });
+    await p.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => {});
 
     const state = () => p.evaluate(() => {
       const vis = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
@@ -122,11 +123,17 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
     say('CONTROL: the first agent row is in view before the map opens', before.firstRow === true, JSON.stringify(before.firstRow));
     say('with the map open the first agent row is still in view', opened.firstRow === true, JSON.stringify(opened.firstRow));
-    // The narrowest, shortest window the consolidated layout keeps (960 wide, the rail at its 200px floor), 720 tall.
+    // The narrowest, shortest window the consolidated layout keeps: 960x720. Below 1280 the agents column folds by
+    // default (CONSOLIDATED_FOLD_WIDTH), and the map goes with it; a person who unfolds it gets the rail at its floor.
     await p.setViewportSize({ width: 960, height: 720 });
-    await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => window.innerWidth === 960 && window.innerHeight === 720 && document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
+    const auto = await state();
+    say('at 960 wide the agents column folds by default and the map goes with it', auto.cons && auto.btn === false && auto.shown === false, JSON.stringify(auto));
+    if (await p.evaluate(() => document.body.classList.contains('fold-a'))) await p.click('#rail-agents-fold');
+    await p.waitForFunction(() => !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden
+      && document.getElementById('alist-teammap').getClientRects().length > 0, null, { timeout: 5000 }).catch(() => {});
     const short = await state();
-    say('CONTROL: at 960x720 the layout is still consolidated with the map open', short.cons && short.shown, JSON.stringify(short));
+    say('CONTROL: at 960x720, unfolded, the layout is still consolidated with the map open', short.cons && short.shown, JSON.stringify(short));
     say('at 960x720 the map fits the rail sideways', short.over !== null && short.over <= 0, 'overflow ' + short.over + 'px');
     say('at 960x720 the open map scrolls itself, not the page', short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
     say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
@@ -143,7 +150,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     });
     say('CONTROL: with the cap removed the first agent row leaves the view', uncapped.firstRow === false, JSON.stringify(uncapped));
     await p.setViewportSize({ width: 1280, height: 900 });
-    await p.waitForTimeout(300);
+    await p.waitForFunction(() => window.innerWidth === 1280 && !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
     // Focus survives a repaint that replaces the map's buttons (a member's word changing between polls).
     const kept = await p.evaluate((pid) => {
