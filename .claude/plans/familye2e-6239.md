@@ -131,3 +131,9 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Kept (NITs): the hand-written step list beside EXPECTED_CHECKS (both say to update with a new step); the quiet
   guard's discovery by text.
 - Rerun: VERDICT PASS 23/23.
+
+## Round 12 (sonnet) fixes
+- Ports from 28000-28999, not fed-own-e2e.js's 27000s, so the two harnesses can run at once.
+- Step 10 names a missing or renamed SAY.org_code_used and fails as a check, not a harness crash.
+- Deduplicated: the step 4b wording control (round 4), the copied helpers (#6287); NITs kept as in rounds 10 and 11.
+- Rerun: VERDICT PASS 23/23.
