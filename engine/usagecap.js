@@ -23,6 +23,7 @@ const swarm = require('./swarm');
 const orgpolicy = require('./orgpolicy');
 
 const cache = new Map();
+let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
 
 /* The month's start in the cap's zone. A zone this runtime cannot read counts from 14 hours before the UTC month
    began (the earliest any zone's month starts), so it never counts less than the month: closed, not open. */
@@ -41,7 +42,7 @@ function roots() {
 function monthTokens(tz, now = Date.now(), rootsList = roots()) {
   const since = sinceFor(tz, now);
   const out = { tokens: 0, complete: true, since };
-  const budget = { left: swarm.READ_PER_CALL_BYTES };
+  const budget = { left: perCallBytes };
   const add = (file) => {
     let st;
     try { st = fs.statSync(file); } catch { return; }
@@ -80,7 +81,8 @@ function capNow(policy, now = Date.now(), rootsList) {
 }
 
 /* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
-   and recounted when the policy's cap changes. */
+   and recounted when the policy's cap changes. A count still catching up is not kept: a first count reads a bounded
+   amount, and keeping it would let a new board under-count, and so not refuse, for a whole minute. */
 const MEMO_MS = 60 * 1000;
 let memo = null;
 
@@ -91,7 +93,7 @@ function capInForce(now = Date.now()) {
   const key = JSON.stringify((policy && policy.usage_cap) || null);
   if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < MEMO_MS) return memo.value;
   const value = capNow(policy, now);
-  memo = { key, at: now, value };
+  memo = value.complete === false ? null : { key, at: now, value };
   return value;
 }
 
@@ -103,6 +105,9 @@ function capAllows(now = Date.now()) {
   return orgpolicy.capAllows({ usage_cap: { monthly_tokens: c.cap, warn_pct: 1, tz: c.tz } }, c.used);
 }
 
-function resetForTests() { cache.clear(); memo = null; }
+function resetForTests({ perCallBytes: n } = {}) {
+  cache.clear(); memo = null;
+  perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
+}
 
 module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS };
