@@ -274,8 +274,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
             size: c ? parseFloat(getComputedStyle(c).fontSize) : 0, button: b ? b.getAttribute('aria-label') : null, status: document.getElementById('plus-status').textContent,
             pill: document.getElementById('plus-pill').textContent }; }); };
       let jr = await readJoin();
-      chk(jr.shown && jr.text === 'Working out the code with homemac...' && !jr.button && jr.status === '' && jr.pill === 'Waiting to be allowed',
-        `${tag} #4794 waiting: "Working out the code with homemac...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
+      chk(jr.shown && jr.text === 'Working out the code with homemac, your other computer...' && !jr.button && jr.status === '' && jr.pill === 'Waiting to be allowed',
+        `${tag} #4794 waiting: "Working out the code with homemac, your other computer...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
       chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',

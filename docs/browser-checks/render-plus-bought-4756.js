@@ -63,6 +63,12 @@ const SCENARIOS = {
   // kosmos#6314: ONE free address is taken with no click; that register fails offline: Try again on it, and it is
   // never taken by itself a second time.
   'auto-offline': { offline: 'spare', lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use'), row('spare', 'free')] }], auto: null },
+  // kosmos#6314: the page's own re-read leaves the focus where the person put it (disabling the focused Check again
+  // would drop it to the page), and finding still nothing, leaves the panel as it was.
+  'quiet-keeps-focus': { lists: [
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+    { ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'in_use')] },
+  ], auto: null, readDelays: [0, 1500] },
   off: { lists: [{ ok: true, live: false }], auto: 'first' },
   unreachable: { lists: [null], auto: 'first' },   // the engine route refuses: the step as before
   'first-computer': { lists: [{ ok: true, live: true, this_name: '', buy_url: BUY, addresses: [row('first', 'free')] }], auto: 'first' },
@@ -379,14 +385,21 @@ const visible = (page, sel) => page.evaluate((s) => {
         const btns = await page.$$eval('#plus-si-bought-list button', (b) => b.map((x) => x.getAttribute('data-bought')));
         chk(JSON.stringify(btns) === JSON.stringify(['other']), `[${key}] the refused retry goes back to the list, without the taken address`, JSON.stringify(btns));
         chk(!(await visible(page, '#plus-si-register-go')), `[${key}] not Try again forever`);
+      } else if (key === 'quiet-keeps-focus') {
+        await page.focus('#plus-si-bought-recheck');
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
+        await page.waitForTimeout(600);   // mid-read (the answer is held 1.5 s)
+        const mid = await page.evaluate(() => ({ id: document.activeElement && document.activeElement.id, off: document.getElementById('plus-si-bought-recheck').disabled }));
+        await page.waitForTimeout(1500);
+        const after = await page.evaluate(() => ({ id: document.activeElement && document.activeElement.id, none: !document.getElementById('plus-si-bought-none').hidden }));
+        chk(asked === 2, `[${key}] coming back to the window re-read the list`, String(asked));
+        chk(mid.id === 'plus-si-bought-recheck' && mid.off === false, `[${key}] during the page's own read the focus stays on Check again, which stays pressable`, JSON.stringify(mid));
+        chk(after.id === 'plus-si-bought-recheck' && after.none, `[${key}] and after it, the panel and the focus are as they were`, JSON.stringify(after));
       } else if (key === 'auto-offline') {
         await page.waitForSelector('#plus-si-register-go', { state: 'visible', timeout: 8000 }).catch(() => {});
         await page.waitForTimeout(1500);   // room for a second automatic register, which must not come
         chk(JSON.stringify(regs) === '["spare"]', `[${key}] the one free address was taken with no click, once`, JSON.stringify(regs));
         chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] the offline failure offers Try again`);
-        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
-        await page.waitForTimeout(1200);
-        chk(JSON.stringify(regs) === '["spare"]', `[${key}] coming back to the window does not take it again by itself`, JSON.stringify(regs));
         await page.click('#plus-si-register-go');
         await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         chk(JSON.stringify(regs) === '["spare","spare"]', `[${key}] the person's Try again succeeds`, JSON.stringify(regs));

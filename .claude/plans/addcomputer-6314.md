@@ -26,8 +26,10 @@ it $0). The coordinator already sends that price with the address list (`price.d
     Kosmos+ website. Come back to this window when you are done." The page makes no promise
     about checking; coming back fires focus, which re-reads and re-arms the 20 minutes. Pending and could-not-list
     variants reworded in the same voice.
-  - Auto: while the none panel is on screen, the page re-runs Check again itself on window focus and every 10 s
-    for 20 minutes (`plusSiBoughtAutoCheck`), quietly (no focus move, no failure line). With exactly ONE free
+  - Auto: while the none panel is on screen, the page re-runs Check again itself on window focus, and on a tick
+    that backs off (10 s for 2 minutes, then 60 s) for 20 minutes after the panel showed or the window last gained
+    focus (`plusSiBoughtAutoCheck`). Quiet: Check again is not disabled during it (a busy flag guards re-entry), so
+    the focus stays where it was; a failed quiet read leaves the panel as it was. With exactly ONE free
     bought address, this computer takes it with no click (`plusSiBoughtTake`), never after a refusal this sign-in
     and never an address already tried (`PLUS_SI_AUTO_TRIED`); two or more always wait for a pick.
   - Card heading line-height 1.2 (it wraps on a phone now; the #6299 cause).
@@ -55,6 +57,6 @@ it $0). The coordinator already sends that price with the address list (`price.d
 - Rejected: a Stripe success redirect into the app (needs a URL scheme and a coordinator change).
 
 ## Known limits
-- The automatic re-read stops 20 minutes after the panel first showed; Check again still works after that.
+- The tick stops 20 minutes after the panel showed or the window last gained focus; focus and Check again still work.
 - Not in this change: the website pre-filling the address (kosmos-relay), and the website's post-payment lines
   (waiting for Josh's own notes).
