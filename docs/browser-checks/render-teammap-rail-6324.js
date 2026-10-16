@@ -86,7 +86,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       return Math.abs(a.getBoundingClientRect().top - pr.getBoundingClientRect().top);
     });
     const gapClosed = await labelGap();
-    say('CONTROL: with no project open the two rail labels share a line', gapClosed !== null && gapClosed <= 1, 'apart ' + gapClosed + 'px');
+    say('baseline: with no project open the two rail labels share a line', gapClosed !== null && gapClosed <= 1, 'apart ' + gapClosed + 'px');
     await p.evaluate((id) => openProject(id), made.id);
     await p.waitForFunction((names) => names.every((n) => document.querySelector('#alist .lrow[data-agent="' + n + '"]')), NAMES, { timeout: 15000 });
     await p.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => {});
@@ -105,6 +105,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         pageDown: Math.max(document.documentElement.scrollHeight - document.documentElement.clientHeight,
           document.body.scrollHeight - document.body.clientHeight),
         // The first agent row of the list, wholly inside the window: the list was not pushed off.
+        fold: document.body.classList.contains('fold-a'),
         firstRow: (() => { const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
           return r.top >= 0 && r.bottom <= window.innerHeight; })() };
     });
@@ -176,7 +177,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.setViewportSize({ width: 960, height: 720 });
     await p.waitForFunction(() => window.innerWidth === 960 && window.innerHeight === 720 && document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
     const auto = await state();
-    say('at 960 wide the agents column folds by default and the map goes with it', auto.cons && auto.btn === false && auto.shown === false, JSON.stringify(auto));
+    say('at 960 wide the agents column folds by default and the map goes with it', auto.cons && auto.fold && auto.btn === false && auto.shown === false, JSON.stringify(auto));
     if (await p.evaluate(() => document.body.classList.contains('fold-a'))) await p.click('#rail-agents-fold');
     await p.waitForFunction(() => !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden
       && document.getElementById('alist-teammap').getClientRects().length > 0, null, { timeout: 5000 }).catch(() => {});
@@ -211,6 +212,20 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     }, made.id);
     say('CONTROL: the repaint really replaced the focused button', kept.replaced, JSON.stringify(kept));
     say('focus comes back to the same member after a repaint', kept.on === 'rmcy', JSON.stringify(kept));
+    // A focused member's ring (2px outline, 2px offset) is drawn inside the scroll box, which clips at its padding edge.
+    const ring = await p.evaluate(() => {
+      const box = document.getElementById('alist-teammap');
+      const n = box.querySelector('.pjtm-node[data-agent="rmada"]');
+      const fits = () => { const b = box.getBoundingClientRect(); const r = n.getBoundingClientRect();
+        return r.left - 4 >= b.left - 0.5 && r.right + 4 <= b.right + 0.5; };
+      const ok = fits();
+      box.style.padding = '0';
+      const bare = fits();
+      box.style.padding = '';
+      return { ok, bare };
+    });
+    say('a member\'s focus ring fits inside the map box', ring.ok === true, JSON.stringify(ring));
+    say('CONTROL: without the box\'s padding the same instrument reads the ring clipped', ring.bare === false, JSON.stringify(ring));
     // A repaint keeps the map's own scroll position (a person scrolled down a big team stays where they were).
     const scrolled = await p.evaluate((pid) => {
       const box = document.getElementById('alist-teammap');
@@ -256,7 +271,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.click('#rail-agents-fold');
     await p.waitForFunction(() => document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
     const folded = await state();
-    say('folding the agents column hides the button and the map', folded.btn === false && folded.shown === false, JSON.stringify(folded));
+    say('folding the agents column hides the button and the map', folded.fold && folded.btn === false && folded.shown === false, JSON.stringify(folded));
     await p.click('#rail-agents-fold');
     await p.waitForFunction(() => !document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
     const unfolded = await state();
