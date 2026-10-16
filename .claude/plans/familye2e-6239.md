@@ -112,3 +112,11 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - tools.browser-checks-quiet-4253.test.js finds every harness by its boardEnv, with a check that both known proofs
   are found.
 - Rerun: VERDICT PASS 23/23; the quiet guard 7/7.
+
+## Round 10 (sonnet) fixes
+- The "every check ran" line names the steps that never ran (the company negative control now reads "19 ran; never
+  ran: step 11").
+- Step 9's detail points back at step 8 when the join is refused for a spent ticket or code (they share both).
+- Deduplicated: the step 4b wording control (round 4), the copied helpers (#6287). NITs kept: the port range shared
+  with fed-own-e2e.js (picked free at use), the family-words check by text (the negative control pins the hash).
+- Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 13/20.
