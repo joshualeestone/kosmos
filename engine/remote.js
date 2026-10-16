@@ -2063,7 +2063,7 @@ function vouchedFor(vouched, d) {
 /** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
 const UNKNOWN_DEVICE = 'unknown_device';
 /** kosmos#6286: what the person reads when Kosmos+ holds no sign-in with the id they allowed. */
-const UNKNOWN_WORDS = 'Kosmos+ has no sign-in waiting with that id, so nobody was let in. It is on this computer\'s list of devices you let in: remove it there.';
+const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was refused, or never asked). It is on this computer\'s list of devices you let in: remove it there if you did not mean to allow it.';
 /** Let a device in: the binary writes this Mac's list FIRST, then tells the
     coordinator; a failed ack heals on the tunnel's next poll and the allow
     stands. The coordinator's 404 (kosmos#6286) does not heal: it holds no
@@ -2089,8 +2089,9 @@ async function deviceAllow(id, name, code) {
   }
   const got = parseSaid(r);
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
-     nobody was let in at Kosmos+. The tunnel keeps the entry on this computer's list (its own), so the person is told
-     both, as a refusal, never as allowed. A joining computer's 404 does not answer this (its pairing trust stands). */
+     Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
+     told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
+     a live sign-in could pass this computer's gate while it is on the list. A joining computer's 404 does not answer this (its pairing trust stands). */
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
     return { ok: false, because: UNKNOWN_WORDS };
   }
