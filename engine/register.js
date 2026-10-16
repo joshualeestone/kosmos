@@ -195,8 +195,8 @@ function jobReader(platform) {
     let foreign = null;
     return {
       win32: false, known: true, fleet: null,
-      // #6320: true while some login jobs are only waiting their turn to be read (not a failure to say to a person).
-      deferred: () => !!(foreign && foreign.deferred),
+      // #6320: why an agent read null: 'waiting' (a plist only waiting its turn; not to be said to a person) or 'unread'.
+      whyNull: (name) => NULL_WHY.get(name) || 'unread',
       mac: true,
       of: (name) => {
         if (fs.existsSync(create.plistPath(name))) return true;
@@ -207,26 +207,32 @@ function jobReader(platform) {
         let dir = null;
         // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
         try { dir = fs.realpathSync.native(create.workerDir(name)); } catch (e) {
-          if (!(e && e.code === 'ENOENT')) return null;   // could not look at the folder itself: not a proven absence
+          if (!(e && e.code === 'ENOENT')) { NULL_WHY.set(name, 'unread'); return null; }   // could not look at the folder itself: not a proven absence
           dir = null;   // no folder: nothing can start in it, and survey's `missing` needs a folder anyway
         }
         // The answer for a folder only changes when a login job, a launcher script or the home folder does.
         const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + os.homedir();
-        if (VERDICTS.map.has(memoKey)) return VERDICTS.map.get(memoKey);
+        if (VERDICTS.map.has(memoKey)) { const m = VERDICTS.map.get(memoKey); NULL_WHY.set(name, m.why); return m.verdict; }
+        let why = null;   // #6320: for a null, 'waiting' when the only reason is a plist waiting its turn, else 'unread'
         const verdict = (() => {
           // The folder itself or a folder inside it, as a start script's mention is.
           if (dir && [...foreign.dirs].some((d) => d === dir || d.startsWith(dir + '/'))) return true;
           /* While something could not be read, no answer here can be a proven absence, so the text scan is skipped. An
              agent a script would have shown as covered reads as unknown instead: intended, and safe (never repaired). */
-          if (foreign.unknownAll) return null;
+          if (foreign.unknownAll) {
+            // Waiting alone is not to be said; but a broken plist naming this folder is a real could-not-read.
+            why = foreign.deferred && !(dir && mentionsFolder(foreign.suspects, folderSpellings(dir, create.workerDir(name)))) ? 'waiting' : 'unread';
+            return null;
+          }
           const spellings = folderSpellings(dir, create.workerDir(name));
           if (dir && mentionsFolder(foreign.texts, spellings)) return true;
           /* A login job that could not be read and names this agent's folder might start it, so "no job" is not
              proven: null, which Repair never acts on (#570). One that could not be read at all might be anyone's. */
-          if (dir && mentionsFolder(foreign.suspects, spellings)) return null;
+          if (dir && mentionsFolder(foreign.suspects, spellings)) { why = 'unread'; return null; }
           return false;
         })();
-        VERDICTS.map.set(memoKey, verdict);
+        VERDICTS.map.set(memoKey, { verdict, why });
+        NULL_WHY.set(name, why);
         return verdict;
       },
     };
@@ -243,7 +249,8 @@ function jobReader(platform) {
    through plutil. Plists and the start scripts they name are cached by mtime and size. */
 const FOREIGN_CACHE = new Map();
 const SCRIPT_CACHE = new Map();
-let VERDICTS = { sig: null, map: new Map() };   // per-agent answers for one state of the login jobs and their scripts
+let VERDICTS = { sig: null, map: new Map() };
+const NULL_WHY = new Map();   // #6320: per agent, why the last answer was null   // per-agent answers for one state of the login jobs and their scripts
 function unxml(v) {
   const cp = (m, n) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m);   // an impossible one stays as written
   const named = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
@@ -253,7 +260,8 @@ function unxml(v) {
 }
 const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything this large is not read
 /* plutil runs synchronously on the board's request path, so one survey converts at most PLUTIL_BUDGET binary plists;
-   the rest count as could-not-read this time and are tried again a minute later. */
+   the rest wait their turn (agents they might cover read unknown for that survey, and are not said to the person) and
+   are read on the next survey. */
 const PLUTIL_BUDGET = 4;
 let plutilLeft = PLUTIL_BUDGET;
 function plistKeys(file) {
@@ -411,6 +419,7 @@ function foreignLoginFolders() {
     const sig = st.mtimeMs + ':' + st.size;
     sigParts.push(file + ':' + sig);
     let got = FOREIGN_CACHE.get(file);
+    const kept = got;   // what was known before this survey looked again
     if (!got || got.sig !== sig || (got.retryAt && Date.now() >= got.retryAt)) {
       try { got = { sig, keys: plistKeys(file) }; } catch (e) {
         got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null };
@@ -421,12 +430,12 @@ function foreignLoginFolders() {
         got.budget = budget;
         if (got.raw === null && !budget && !(prevEntry.logged && prevEntry.sig === sig)) { console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
         if (got.raw === null && !budget) got.logged = true;
-        else if (budget && prevEntry.logged && prevEntry.sig === sig) got.logged = true;   // a skip keeps the record
       }
       // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
       // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.
       const budgetSkip = !got.keys && got.raw === null && got.budget;
-      if (budgetSkip) { deferred = true; FOREIGN_CACHE.delete(file); continue; }   // read on the next survey, not a failure
+      // Read on the next survey, not a failure. What was known before (its logged record, its retry) is left as it was.
+      if (budgetSkip) { deferred = true; if (kept) FOREIGN_CACHE.set(file, kept); else FOREIGN_CACHE.delete(file); continue; }
       if (!got.keys && got.raw === null) got.retryAt = Date.now() + 60000;
       FOREIGN_CACHE.set(file, got);
     }
@@ -630,11 +639,11 @@ function survey(opts) {
        login job Kosmos did not write might start the agent but could not be read (#6310). */
     missing: agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile).map((x) => x.name),
     /* #6320: the ones we could not check (job === null), the same filter as `missing` for the other answer, so the two
-       lists never overlap. Only on the Mac, where the null comes from a login job we could not read; not while jobs
-       are merely waiting their turn (the plutil budget). jobs.deferred() reads state the `agents` pass above set up,
-       so this must stay after it. */
-    unknown: jobs.mac && !(jobs.deferred && jobs.deferred())
-      ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile).map((x) => x.name) : [],
+       lists never overlap. Only on the Mac, where the null comes from something we could not read; never for an agent
+       whose only reason is a plist waiting its turn (the plutil budget). jobs.whyNull reads what the `agents` pass
+       above recorded, so this must stay after it. */
+    unknown: jobs.mac
+      ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile && jobs.whyNull(x.name) !== 'waiting').map((x) => x.name) : [],
   };
 }
 
