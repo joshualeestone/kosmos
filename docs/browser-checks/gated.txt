@@ -270,6 +270,7 @@ render-voice-4409
 render-waiting-badge-4025
 render-waiting-phone-718
 render-webhooks-1307
+render-whatsnew-title-6299
 render-win32-board-copy
 render-workchip-zero-2157
 render-workindicator-2146

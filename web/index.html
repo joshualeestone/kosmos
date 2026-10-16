@@ -1411,7 +1411,9 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   background: none; color: var(--label-2); font-size: 1.5rem; line-height: 1; cursor: pointer; }
 .wn-x:hover { color: var(--label); background: var(--bg); }
 .wn-mark { display: block; width: 52px; height: 52px; border-radius: 14px; margin: 0 auto; }
-.wn-title { margin: 16px 0 22px; font-size: 1.5rem; letter-spacing: -.01em; color: var(--label); }
+/* #6299: its own line-height. The body's is an absolute 16px, which a 24px title inherited as is, so a title that
+   wraps (a phone: "Kosmos has been updated to" / "0.7.51") drew its two lines on top of each other. */
+.wn-title { margin: 16px 0 22px; font-size: 1.5rem; line-height: 1.2; letter-spacing: -.01em; color: var(--label); }
 .wn-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; text-align: left; list-style: none; margin: 0; padding: 0; }
 .wn-tiles.one { grid-template-columns: minmax(0, 320px); justify-content: center; }
 /* An odd last tile spans both columns, so five highlights leave no empty cell beside the fifth (0.7.03 walk). */
