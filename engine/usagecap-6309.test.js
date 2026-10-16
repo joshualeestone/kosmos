@@ -225,22 +225,6 @@ test('past the heads-up the count is kept only a moment, so crossing the cap ref
   usagecap.resetForTests();
 });
 
-test('the gate reads at most GATE_PER_CALL_BYTES a call, since it counts on the message path', () => {
-  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
-  const dir = path.join(CONFIG, 'projects', 'big');
-  fs.mkdirSync(dir, { recursive: true });
-  const one = line('x', NOW - 1000, 1);
-  const n = Math.ceil((usagecap.GATE_PER_CALL_BYTES + 1024 * 1024) / one.length);
-  fs.writeFileSync(path.join(dir, 'big.jsonl'), Array.from({ length: n }, (_, i) => line('b' + i, NOW - 1000, 1)).join(''));
-  apply({ usage_cap: { monthly_tokens: 1000000000, warn_pct: 80, tz: 'UTC' } });
-  usagecap.resetForTests();
-  assert.equal(usagecap.capInForce(NOW).complete, false, 'one gate call read past its budget');
-  usagecap.resetForTests();
-  assert.equal(usagecap.capNow(orgpolicy.currentStrict(), NOW).complete, true, 'CONTROL: the rollup\'s full budget reads it in one call');
-  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
-  usagecap.resetForTests();
-});
-
 test('deleting a transcript after a full count does not lower the month (tokens used cannot be un-used)', () => {
   usagecap.resetForTests();
   const root = tmp('aw-usecap-del-');
@@ -254,6 +238,30 @@ test('deleting a transcript after a full count does not lower the month (tokens 
   assert.deepEqual([after.used, after.over], [123, true], 'a deleted transcript reopened the cap');
   usagecap.resetForTests();
   assert.ok(usagecap.capNow(policy, NOW, [root]).used < 123, 'CONTROL: with no saved count the deletion does lower the count');
+});
+
+test('on the board the gate never counts: a worker thread does, and the gate reads its count', async () => {
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
+  const dir = path.join(CONFIG, 'projects', 'live');
+  fs.mkdirSync(dir, { recursive: true });
+  // The worker counts on the real clock: a line from now, never before this UTC month began.
+  const now = Date.now();
+  const at = Math.max(now - 60e3, Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1));
+  fs.writeFileSync(path.join(dir, 's.jsonl'), line('w1', at, 150));
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests({ worker: true });
+  const first = usagecap.capInForce(Date.now());
+  assert.deepEqual([first.used, first.complete, first.known], [0, false, false],
+    'the gate counted inline: the message path read the transcripts itself');
+  assert.equal(usagecap.capAllows(Date.now()).ok, true, 'CONTROL: before the worker has counted, a new board is open (a known limit)');
+  const until = Date.now() + 10000;
+  while (!(usagecap.latestForTests() && usagecap.latestForTests().complete) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(usagecap.latestForTests(), 'the worker never posted a count');
+  const c = usagecap.capInForce(Date.now());
+  assert.deepEqual([c.used, c.over], [150, true], JSON.stringify(c));
+  assert.equal(usagecap.capAllows(Date.now()).ok, false, 'the worker\'s count did not reach the gate');
+  usagecap.resetForTests();
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
 });
 
 test('capAllows throws on a damaged policy record, as quietAllows does, so the gate decides', () => {
