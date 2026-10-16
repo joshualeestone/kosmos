@@ -853,7 +853,7 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   const codex = Object.assign({}, mark, { runner: 'codex' });
   const c = v.workExcused(stale(480), codex, hist([['idle', 470], ['idle', 200]]), NOW);
   assert.equal(c.state, 'stale');
-  assert.equal(c.turnsSince, 2);
+  assert.equal(c.turnsSince, 1, 'the writing turn was counted as a later one');
   // CONTROL: one turn ended (the writing turn) reads current, as before, with no reason attached.
   const one = v.workExcused(stale(480), codex, hist([['idle', 470]]), NOW);
   assert.equal(one.state, 'worked');
@@ -862,6 +862,24 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   const line = (summary) => v.renderShow({ project: { id: 'wk', name: 'Work Time', members: [{ name: 'mark', present: true, state: 'working', summary }] } })
     .find((l) => l.includes('summary:'));
   assert.match(line(w), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago; 5h 2m of reported work since it was written\)$/);
-  assert.match(line(c), /; 2 turns have ended since it was written\)$/);
+  assert.match(line(c), /; 1 more turn has ended after the one that wrote it\)$/);
   assert.match(line(stale(480)), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago\)$/);
+  // A wait is counted (errs toward stale) but is not reported WORK: a trailing needs_you for 6 h, and no report before
+  // the write (the gap counts too). Neither line may say "reported work".
+  const waited = v.workExcused(stale(480), grok, hist([['idle', 470], ['needs_you', 360]]), NOW);
+  assert.equal(waited.state, 'stale');
+  assert.equal(waited.workAllReported, false);
+  // 6h 10m: the 10 min before the first report count too (no report before the write), plus the 6 h wait.
+  assert.match(line(waited), /; 6h 10m counted as working or waiting since it was written\)$/);
+  assert.doesNotMatch(line(waited), /reported work/);
+  const gap = v.workExcused(stale(480), grok, hist([['idle', 200]]), NOW);
+  assert.equal(gap.state, 'stale');
+  assert.doesNotMatch(line(gap), /reported work/, 'a stretch with no report was called reported work');
+  // The turn-ends-only runner's two other exits say what decided them.
+  const busyAfter = v.workExcused(stale(480), codex, hist([['idle', 470], ['needs_you', 300]]), NOW);
+  assert.match(line(busyAfter), /; it reported working or a wait since it was written\)$/);
+  const old = v.workExcused(stale(26 * 60), codex, hist([['idle', 1500]]), NOW);
+  assert.match(line(old), /; written more than a day ago, and this agent reports only when a turn ends, so its work cannot be timed\)$/);
+  // Combined with the idle note idleNoted adds: both clauses, in order.
+  assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
 });
