@@ -20,10 +20,11 @@ it $0). The coordinator already sends that price with the address list (`price.d
   - Email step: the name is said, not asked ("Your Kosmos+ account will list this computer as <b>name</b>. Change");
     Change opens #5995's box, kept because it is a privacy control (a person's own computer name reaches the account
     unseen without it). Text only, never markup (`plusSiComputerSay`).
-  - No address waiting: heading "Add this computer to your account"; "Your plan covers one computer, and it is
-    already in use. Each computer you add is $20 a month." with the figure from `plusSiAddPrice(b.price)`; no
+  - No address waiting: heading "Add this computer to your account"; "This account has no room for this computer yet.
+    Each computer you add is $20 a month." with the figure from `plusSiAddPrice(b.price)`; no
     figure: "costs a monthly fee, shown before you pay". Button "Add this computer". Hint: "Paying opens the
-    Kosmos+ website. Come back here when you are done; this computer notices by itself." Pending and could-not-list
+    Kosmos+ website. Come back to this window when you are done, and it checks by itself." (Coming back fires
+    focus, which always re-reads and re-arms the 20 minutes.) Pending and could-not-list
     variants reworded in the same voice.
   - Auto: while the none panel is on screen, the page re-runs Check again itself on window focus and every 10 s
     for 20 minutes (`plusSiBoughtAutoCheck`), quietly (no focus move, no failure line). With exactly ONE free
@@ -48,10 +49,12 @@ it $0). The coordinator already sends that price with the address list (`price.d
   literal price in the Plus copy, and that stays true.
 - Kept the "The codes match" button label: refusal messages name it.
 - Kept Check again as a fallback button beside the automatic re-read.
+- Auto-taking the ONE free bought address (Josh 11:28, "it should have just pushed me through") accepts a case: an
+  address bought for a different, later computer is taken by whichever new computer signs in first. The screen says
+  "Connecting this computer as <address>" while it happens, and the account page can retire it. Weighed and taken.
 - Rejected: a Stripe success redirect into the app (needs a URL scheme and a coordinator change).
 
 ## Known limits
-- "Your plan covers one computer" is true for Kosmos+ today; not verified for Enterprise or grandfathered accounts.
 - The automatic re-read stops 20 minutes after the panel first showed; Check again still works after that.
 - Not in this change: the website pre-filling the address (kosmos-relay), and the website's post-payment lines
   (waiting for Josh's own notes).
