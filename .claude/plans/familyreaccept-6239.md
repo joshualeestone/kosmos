@@ -70,13 +70,15 @@ joining again.
 ## Review 4 (sonnet) fixes and one deferral
 - The route's own catch line ("Nothing was sent to your company.") is said for the family in a review.
 - A refused review preview (already accepted here, or no longer this family's computer) reads /api/org again, so the
-  button goes when it no longer belongs (R12).
+  button goes when it no longer belongs (R12). R12 first ran red on the real page: the re-read sat after a finally that a
+  return inside the try skipped; it now runs inside finally.
 - reviewAccepted is a time: only a /api/org read that STARTED after the Accept may say the words were not recorded, so
   a read in flight from before the Accept cannot (reasoned from the code; not driven by the browser check).
 - Deferred, with the reason: "reports nothing" when wordsNeeded. Review 4 noted that a record with a consent hash and no
   remembered words is wordsNeeded while mayReport() is true, so backups (gated on mayReport alone) can still run. The
   sentence is about reports, and in that state the rollup really sends none; backups have their own Settings screen.
   What would change this: if a family's backups should also wait for a parent, that is a backuptick change, not words.
+  Moot since kosmos#6288 (relay#403, live 02:08 CDT 10-16): a family is never backed up, so no backup runs in that state.
 
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
