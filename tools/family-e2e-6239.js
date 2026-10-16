@@ -61,8 +61,8 @@ const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 // The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
 // + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report (at worst the next 5-minute tick
-// after the join, plus 90) 390 = 855 s, before HTTP timeouts. 15 min covers it.
-const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
+// after the join, plus 90) 390 + a retried first sign-in 90 = 945 s, before HTTP timeouts. 17 min covers it.
+const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 17 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
@@ -279,15 +279,19 @@ async function nextCode(email, before) {
 /* A board signs in to an existing account: the in-app wizard's routes (#3149). */
 async function boardSignin(b, email, name) {
   const before = devCodes(email).length;
+  let retried = false;
   let r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
   // The first tunnel call of a run can outlast the board's wait while the debug tunnel binary starts (seen twice, always
   // the first board to sign in): asked again once, on that answer only.
   if (r.status !== 200 && /did not answer in time/.test(r.text)) {
     info(b.letter + ' signin-start: the tunnel did not answer in time; asking once more');
     r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
+    retried = true;
   }
   if (r.status !== 200) { info(b.letter + ' signin-start ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
-  const code = await nextCode(email, before);
+  let code = await nextCode(email, before);
+  // After a retry two codes may arrive (the first start may have gone through late): let them settle, take the newest.
+  if (retried && code) { await new Promise((res) => setTimeout(res, 2000)); const all = devCodes(email); code = all[all.length - 1]; }
   if (!code) { info(b.letter + ': no sign-in code arrived for ' + email); return false; }
   r = await http(b.base, 'POST', '/api/remote/signin-verify', { email, code });
   if (r.status !== 200 || !r.json || r.json.stage !== 'session') { info(b.letter + ' signin-verify ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
@@ -344,13 +348,13 @@ async function startBoard(letter) {
   // The fake tmux (no agent runs here; the boards only need one to read).
   b.tmuxWrap = path.join(REPO, 'test-support', 'fake-tmux.sh');
   const s = start('board-' + letter, process.execPath, [path.join(REPO, 'server.js')], { cwd: REPO, env: boardEnv(b) });
-  b.startedAt = Date.now();   // its rollup ticks count from here (server.js: once at +60 s, then every 5 min)
   b.proc = s;
   // A board that EXITED (a port taken between the check and its bind) is reported at once.
   const up = await waitFor(async () => {
     if (s.child.exitCode !== null) return { exited: true };
     return (await fetch(b.base + '/api/projects', { signal: AbortSignal.timeout(3000) })).ok;
   }, 60000, 250);
+  b.startedAt = Date.now();   // answering: its rollup ticks count from about here (server.js: once at +60 s, then every 5 min)
   if (!up || up.exited) throw new Error('board ' + letter + (up ? ' exited at start' : ' did not answer on ' + b.base) + ' (log: ' + s.log + ')\n' + fedproofReadLog(s.log).slice(-2000));
   return b;
 }
@@ -576,20 +580,26 @@ async function main() {
     const joinedAt = Date.now();
     const ov = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
-    chk(ov.status === 200 && before === 0, 'step 9b control: before K\'s first report, the console counts nobody reporting', ov.status + ' reporting=' + before);
+    // The same measure the positive check reads: K's own row, present and not yet reported.
+    const inv0 = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
+    const row0 = (inv0.json && Array.isArray(inv0.json.members) ? inv0.json.members : []).find((m) => m && m.email === kid) || null;
+    chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
+      'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report', ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found'));
     // The first tick at or after the join (ticks: start+60 s, then every 5 min).
     let tickAt = K.startedAt + ROLLUP_FIRST_MS;
     while (tickAt < joinedAt) tickAt += ROLLUP_EVERY_MS;
     let row = null;
+    let invStatus = 0;
     await waitFor(async () => {
       const inv = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
+      invStatus = inv.status;
       const members = inv.json && Array.isArray(inv.json.members) ? inv.json.members : [];
       row = members.find((m) => m && m.email === kid) || null;
       return !!(row && row.reportedAt);
     }, Math.max(0, tickAt - Date.now()) + REPORT_SLACK_MS, 3000);
     const offset = Math.round((joinedAt - K.startedAt) / 1000);
     chk(!!(row && row.reportedAt), 'step 9b: K\'s first report lands under the family\'s words (its own row in the parent\'s console)',
-      'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found'));
+      'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; inventory ' + invStatus + '; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found'));
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"

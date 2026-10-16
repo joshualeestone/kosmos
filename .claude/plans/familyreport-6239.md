@@ -29,3 +29,13 @@ reason.
   firing yet: the passing run did not need it.
 - Rerun (exclusive queued turn, 03:17): VERDICT PASS 25/25; joined 17 s after K started, tick due at 60 s, K's row
   state ok.
+
+## Round 2 (sonnet) fixes
+- The control reads the same measure as the check: K's own inventory row is present with no report before the tick
+  (as well as nobody counted reporting); then the same row reports.
+- After a retried sign-in start, the harness waits for codes to settle and takes the newest, so a late first code
+  cannot be used. Still not seen firing.
+- K's start is stamped when its board answers (closer to the tick's own start); the watchdog is 17 min (the retry
+  added up to 90 s); a failed inventory read shows its status rather than "row not found".
+- Rerun (exclusive queued turn, 03:54): VERDICT PASS 25/25; K's row went from state unavailable, reportedAt null, to
+  state ok, reportedAt 2026-10-16; joined 10 s after K started.
