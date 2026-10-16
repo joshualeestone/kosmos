@@ -30,3 +30,11 @@ That the person promoting reads the runbook step. If not, the hold is not set an
 
 ## After merge
 Reinstall on Mortals (`tools/install-site-deploy-kick.sh`) only AFTER Splinter lifts the current hold. The job is unloaded until then, and the installer would load it.
+
+## Review notes
+- **Review 1 (sonnet).** Four warnings, all fixed:
+  - a silent gh failure (exit 1, no words) read as a set hold with exit 0, so set or not is now the read's own status (`hold_ok`), with a test;
+  - an unreadable hold idles the backstop until the read works, and the tick's line and the runbook now say so;
+  - a 404 can also mean the repo is invisible to the token (commented: the next read fails the same way, so nothing is asked);
+  - the runbook said "hold automatic site deploys" while a push still deploys, so it now says only the backstop is held, not to push during a promote, and how to see a hold (`gh variable list`).
+  - Nits taken: a reason with line breaks stays one line (test); the hold is in the kick's header list.

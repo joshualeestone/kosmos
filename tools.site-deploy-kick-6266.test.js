@@ -33,6 +33,7 @@ printf '%s\\n' "$*" >> "$FAKE_LOG"
 # kosmos#6305: the site-deploy hold variable. Absent (404) unless FAKE_HOLD names a reason; FAKE_HOLD_FAIL fails it otherwise.
 if [ "$*" = "api repos/owner/site/actions/variables/SITE_DEPLOY_HOLD --jq .value" ]; then
   [ -n "\${FAKE_HOLD_FAIL:-}" ] && { echo 'gh: Bad credentials (HTTP 401)' >&2; exit 1; }
+  [ -n "\${FAKE_HOLD_SILENT:-}" ] && exit 1
   [ -n "\${FAKE_HOLD:-}" ] && { printf '%s\\n' "$FAKE_HOLD"; exit 0; }
   echo 'gh: Not Found (HTTP 404)' >&2; exit 1
 fi
@@ -379,5 +380,19 @@ test('kosmos#6305: a hold that cannot be read is treated as held (nothing asked,
   assert.equal(r.status, 1, r.out);
   assert.equal(r.dispatched, 0, 'an unreadable hold let a deploy through: ' + r.calls.join('\n'));
   assert.match(r.out, /could not read the site-deploy hold on owner\/site \(gh: gh: Bad credentials \(HTTP 401\)\); treated as held, nothing asked/, r.out);
+});
+
+test('kosmos#6305: a hold read that fails silently (exit 1, no words) is still a failed read, not a set hold', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_RUNS: runs([['completed', 3600]]), FAKE_HOLD_SILENT: '1' });
+  assert.equal(r.status, 1, r.out);
+  assert.equal(r.dispatched, 0, r.calls.join('\n'));
+  assert.match(r.out, /could not read the site-deploy hold on owner\/site \(gh failed, no reason given\); treated as held/, r.out);
+  assert.doesNotMatch(r.out, /held: +\(SITE_DEPLOY_HOLD/, 'a failed read was reported as a set hold');
+});
+
+test('kosmos#6305: a hold reason with line breaks stays one line', needJq, () => {
+  const r = kick(state({ 'last-deployed': OLD + '\n' }), { FAKE_HOLD: 'promoting\n0.7.51' });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, /held: promoting 0\.7\.51 \(SITE_DEPLOY_HOLD/, r.out);
 });
 
