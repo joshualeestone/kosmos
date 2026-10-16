@@ -1168,8 +1168,13 @@ if [ -z "$adopt" ]; then
     # Review 5: never into a home that resolved to the person's own account home (their Codex Desktop's, perhaps).
     if [ "${_codex_home_shared:-0}" = 1 ]; then
       say "$SESSION: its file-edit hook was not set up (its Codex home is the account's own); undo copies and changed-by will miss its edits"
+      # Review 6: a hooks.json of ours left there by an earlier launch goes too.
+      if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ]; then
+        "$NODE_BIN" -e 'try { require(process.argv[1]).removeOurs(process.argv[2]); } catch (_) {}' "$_eng/codexhooks.js" "$EFFECTIVE_CODEX_HOME" 2>/dev/null || true
+      fi
     elif [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -n "${EFFECTIVE_CODEX_HOME:-}" ]; then
-      _codex_ver="$("$CLAUDE" --version 2>/dev/null | head -n 1)"
+      # Review 6, measured: `codex --version` writes <CODEX_HOME>/tmp/arg0 every run, so it runs against the private home.
+      _codex_ver="$(CODEX_HOME="$EFFECTIVE_CODEX_HOME" "$CLAUDE" --version 2>/dev/null | head -n 1)"
       _codex_ver="${_codex_ver#codex-cli }"
       if ! _hooks_why="$("$NODE_BIN" "$_eng/codexhooks.js" install "$EFFECTIVE_CODEX_HOME" "$BRIDGE" "$_codex_ver" 2>&1 >/dev/null)"; then
         say "$SESSION: its file-edit hook was not set up (${_hooks_why:-no reason given}); undo copies and changed-by will miss its edits"
