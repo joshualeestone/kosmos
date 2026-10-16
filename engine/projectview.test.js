@@ -836,3 +836,32 @@ test('#5635 F2 (0.7.50, the Claude seat): a trailing working with nothing after 
   // CONTROL: a wait is long by nature and is not capped: a trailing needs_you for 18 h stays stale.
   assert.equal(v.workExcused(summary, claude, hist([['working', last + 0.3], ['needs_you', last]]), NOW).state, 'stale');
 });
+
+test('#6329: a stale summary says which rule kept it stale (reported work past the rhythm, or turns that ended)', () => {
+  const at = (minAgo) => NOW - minAgo * 60000;
+  const stale = (minAgo) => ({ state: 'stale', file: 'summaries/2026-09-29-11.md', at: new Date(at(minAgo)).toISOString(), ageMinutes: minAgo });
+  const hist = (rows) => { const a = rows.map(([state, minAgo]) => ({ state, at: at(minAgo) })); a.truncated = false; return () => a; };
+  const raw = { id: 'wk', name: 'Work Time', folder: '/p/wk', agents: ['mark'], tasks: [] };
+  const mark = projects.describe(raw, BOARD.agents, [raw]).agents.find((m) => m.sessionName === 'mark');
+  assert.ok(mark && mark.present && mark.tied, 'fixture');
+  // Reported work past the rhythm: working at the write (2 min), idle, then working since 300 min ago: 302 min.
+  const grok = Object.assign({}, mark, { runner: 'grok' });
+  const w = v.workExcused(stale(480), grok, hist([['working', 485], ['idle', 478], ['working', 300]]), NOW);
+  assert.equal(w.state, 'stale');
+  assert.equal(w.workedSince, 302);
+  // A runner that reports turn ends only: two turns have ended since it was written.
+  const codex = Object.assign({}, mark, { runner: 'codex' });
+  const c = v.workExcused(stale(480), codex, hist([['idle', 470], ['idle', 200]]), NOW);
+  assert.equal(c.state, 'stale');
+  assert.equal(c.turnsSince, 2);
+  // CONTROL: one turn ended (the writing turn) reads current, as before, with no reason attached.
+  const one = v.workExcused(stale(480), codex, hist([['idle', 470]]), NOW);
+  assert.equal(one.state, 'worked');
+  assert.equal(one.turnsSince, undefined);
+  // The line names it; a stale summary with nothing measured keeps the old words.
+  const line = (summary) => v.renderShow({ project: { id: 'wk', name: 'Work Time', members: [{ name: 'mark', present: true, state: 'working', summary }] } })
+    .find((l) => l.includes('summary:'));
+  assert.match(line(w), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago; 5h 2m of reported work since it was written\)$/);
+  assert.match(line(c), /; 2 turns have ended since it was written\)$/);
+  assert.match(line(stale(480)), /older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 8h 0m ago\)$/);
+});
