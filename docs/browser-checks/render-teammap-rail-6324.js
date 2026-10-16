@@ -101,6 +101,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         nodes: box ? [...box.querySelectorAll('.pjtm-node[data-agent]')].map((n) => n.dataset.agent) : [],
         over: box ? box.scrollWidth - box.clientWidth : null,
         tall: box ? box.scrollHeight - box.clientHeight : null,
+        // The page scrolling down: the body is the scroller in this layout (height 100vh, overflow-y auto), so read both.
+        pageDown: Math.max(document.documentElement.scrollHeight - document.documentElement.clientHeight,
+          document.body.scrollHeight - document.body.clientHeight),
         // The first agent row of the list, wholly inside the window: the list was not pushed off.
         firstRow: (() => { const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
           return r.top >= 0 && r.bottom <= window.innerHeight; })() };
@@ -153,18 +156,21 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('CONTROL: ten members make the map taller than its box (so the cap is reached)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
     say('CONTROL: the first agent row is in view before the map opens', before.firstRow === true, JSON.stringify(before.firstRow));
     say('with the map open the first agent row is still in view', opened.firstRow === true, JSON.stringify(opened.firstRow));
+    say('with the map open the page does not scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
     const uncapped = () => p.evaluate(() => {
       const box = document.getElementById('alist-teammap');
       box.style.maxHeight = 'none';
       const r0 = document.querySelector('#alist .lrow');
       const r = r0 ? r0.getBoundingClientRect() : null;
-      const out = { firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
+      const out = { pageDown: Math.max(document.documentElement.scrollHeight - document.documentElement.clientHeight,
+          document.body.scrollHeight - document.body.clientHeight), firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
       box.style.maxHeight = '';
       return out;
     });
     // CONTROL for the arm above: without the cap the same instrument must see the row leave, or it cannot see a push.
     const uncapTall = await uncapped();
     say('CONTROL: at 1280x900, with the cap removed, the first agent row leaves the view', uncapTall.firstRow === false, JSON.stringify(uncapTall));
+    say('CONTROL: at 1280x900, with the cap removed, the page scrolls down', uncapTall.pageDown > 0, JSON.stringify(uncapTall));
     // The narrowest, shortest window the consolidated layout keeps: 960x720. Below 1280 the agents column folds by
     // default (CONSOLIDATED_FOLD_WIDTH), and the map goes with it; a person who unfolds it gets the rail at its floor.
     await p.setViewportSize({ width: 960, height: 720 });
@@ -179,9 +185,11 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('at 960x720 the map fits the rail sideways', short.over !== null && short.over <= 0, 'overflow ' + short.over + 'px');
     say('CONTROL: at 960x720 the map is still taller than its box (so the cap is reached)', short.tall > 0, 'map overflow ' + short.tall + 'px');
     say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
+    say('at 960x720 the page does not scroll down', short.pageDown <= 0, 'page ' + short.pageDown + 'px');
     // CONTROL for the two arms above: without the cap the same instruments must go red, or they cannot see a push.
     const uncapShort = await uncapped();
     say('CONTROL: at 960x720, with the cap removed, the first agent row leaves the view', uncapShort.firstRow === false, JSON.stringify(uncapShort));
+    say('CONTROL: at 960x720, with the cap removed, the page scrolls down', uncapShort.pageDown > 0, JSON.stringify(uncapShort));
     await p.setViewportSize({ width: 1280, height: 900 });
     await p.waitForFunction(() => window.innerWidth === 1280 && !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
@@ -214,6 +222,12 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       m.name = 'Ada renamed';
       paintRailPjNotice();
       const r = { at, now: box.scrollTop, replaced: !node.isConnected };
+      // The same repaint WITHOUT the restore: write the changed markup straight into the box.
+      box.scrollTop = box.scrollHeight;
+      r.at2 = box.scrollTop;
+      m.name = 'Ada renamed again';
+      setIfChanged(box, pjTeamMap(PROJECTS.find((x) => x.id === pid), LAST, pjRedHere));
+      r.bare = box.scrollTop;
       m.name = was;
       paintRailPjNotice();
       box.scrollTop = 0;
@@ -221,6 +235,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     }, made.id);
     say('CONTROL: the map was scrolled down and the repaint replaced its buttons', scrolled.at > 0 && scrolled.replaced, JSON.stringify(scrolled));
     say('a repaint keeps the map scrolled where it was', Math.abs(scrolled.now - scrolled.at) <= 1, JSON.stringify(scrolled));
+    say('CONTROL: the same repaint without the restore loses the position', scrolled.bare < scrolled.at2 - 1, JSON.stringify(scrolled));
     // A focused member leaving the project: its button is gone, so focus goes to the Team map button, not the page.
     const left = await p.evaluate((pid) => {
       document.querySelector('#alist-teammap .pjtm-node[data-agent="rmjo"]').focus();
