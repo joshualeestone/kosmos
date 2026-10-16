@@ -1997,7 +1997,11 @@ function pendingDevices() {
       /* kosmos#4794: why a joining computer's code is still "" (the tunnel's wait_reason, or was_a_computer), from a
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
-    }));
+    }))
+    /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
+       (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
+       drawn as a phone whose Allow can never work, so it is shown the way a former computer is: Allow off, Not me. */
+    .map((d) => (d.device_id.startsWith('computer:') && !d.joining_computer ? { ...d, code: '', code_wait: 'was_a_computer' } : d));
   // kosmos#5786 (b): the device just allowed automatically is not also shown as waiting while the tunnel's snapshot
   // still lists it (until its next poll).
   const here = recentlyVouched(settings);
@@ -2051,7 +2055,8 @@ async function devicesList() {
   if (!r.ok) return r;
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
   const vouched = read().vouched || {};
-  /* #6315: REQUEST_ID here too, so an allowed computer listed by its minted id can still be removed. */
+  /* #6315: REQUEST_ID here too. A joining computer allowed with its code is never written to the allow-list, but one
+     the tunnel had no record of as a computer could have been allowed as a phone, and must still be removable. */
   return { ok: true, because: null, data: { devices: list
     .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .map((d) => ({
@@ -2090,7 +2095,8 @@ async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
-     show; without one the tunnel would take it as a phone and put the id on this computer's gate. */
+     show; without one the tunnel could take it as a phone (when it has no record of it as a computer) and put the id on
+     this computer's gate. */
   if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
     return { ok: false, because: 'code_pending' };   // the page words it: the code is still being worked out
   }
