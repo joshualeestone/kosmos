@@ -52575,6 +52575,7 @@ function plusSiAddPrice(said) {
   return m[2] ? m[1] + ' a ' + m[2] : m[1] + ' every ' + m[3] + ' ' + m[4] + 's';
 }
 function plusSiBoughtTake(row) {
+  if (PLUS_SI_AUTO_TRIED.indexOf(row.name) === -1) PLUS_SI_AUTO_TRIED.push(row.name);   // tried once, by hand or not: never taken by itself again
   PLUS_SI_BOUGHT_SEQ += 1;   // a read still out is not answered over this pick
   document.getElementById('plus-si-bought').hidden = true;
   plusSiMsg('');
@@ -52600,8 +52601,8 @@ function plusSiBoughtPick(b) {
     list.appendChild(btn);
   }
   const auto = PLUS_SI_AUTO_READ; PLUS_SI_AUTO_READ = false;
-  if (free.length === 1 && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
-    PLUS_SI_AUTO_TRIED.push(free[0].name);
+  // Not after a refusal this sign-in: the person then sees what happened and picks.
+  if (free.length === 1 && !PLUS_SI_REFUSED.length && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
     plusSiBoughtTake(free[0]);
     return;
   }
@@ -52639,7 +52640,7 @@ function plusSiBoughtPick(b) {
     if (!PLUS_SI_SESSION) return;
     const ep = PLUS_SI_EPOCH;
     plusSiMsg('');
-    PLUS_SI_REFUSED = [];   // the person asked to look again: an address refused earlier may be free now (its computer retired)
+    if (!PLUS_SI_AUTO_READ) PLUS_SI_REFUSED = [];   // the person asked to look again (the page's own read does not): an address refused earlier may be free now (its computer retired)
     const run = plusSiSession(PLUS_SI_SESSION, true); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
     run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ) { if (PLUS_SI_AUTO_READ) { PLUS_SI_AUTO_READ = false; return; } plusSiReReadFailed(); } });
   });
