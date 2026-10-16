@@ -65,17 +65,15 @@ const NAME_MAX = 60;
    the file with the agent's own words and every other managed block. */
 const BLOCK_MAX = 128 * 1024;
 
-/* 🔑 The company policy's fallback name (companyEntry); until #6273 also the name the migrated single policy wore (#685). Josh's model is that
-   a policy's name says who MANDATES it, and the one policy that predates
-   names was mandated by nobody nameable -- it is simply the company's. Not
-   an example row: it only ever appears wrapping a policy the person
-   actually saved, and they can rename it. */
+/* 🔑 The company policy's fallback name: companyEntry() uses it when the company's ai_policy has no usable name, where
+   "Company AI policy" is true. It no longer names anything the person saved (#6273, MIGRATED_NAME below). */
 const DEFAULT_NAME = 'Company AI policy';
 
-/* #6273: the name a migrated #479 record wears. The #685 model above held while no company policy existed. Since #5534
-   the company's real policy arrives separately (companyEntry) and falls back to DEFAULT_NAME, so the person's own
-   migrated entry wearing the same name could put two "### Company AI policy" headings in one stack, one of them owned
-   by nobody's company. Every entry in policy.json is the person's own (problem() takes only a pasted or URL source),
+/* #6273: the name a migrated #479 record wears. #685 named it DEFAULT_NAME, on Josh's model that a policy's name says
+   who mandates it and the one policy that predates names "is simply the company's". That held while no company policy
+   existed. Since #5534 the company's real policy arrives separately (companyEntry) and falls back to DEFAULT_NAME, so
+   the person's own migrated entry wearing the same name could put two "### Company AI policy" headings in one stack,
+   one of them owned by nobody's company. Every entry in policy.json is the person's own (problem() takes only a pasted or URL source),
    so it now wears the neutral name; DEFAULT_NAME stays the company policy's fallback, where it is true. */
 const MIGRATED_NAME = 'AI policy';
 
@@ -114,7 +112,7 @@ function newId() { return crypto.randomBytes(12).toString('hex'); }
    mutation persists the migrated shape. */
 const MIGRATED_ID = 'p1';
 
-/* #6273 review 1: the record's version. 3 means written by a build that already names the migrated entry MIGRATED_NAME,
+/* #6273: the record's version. 3 means written by a build that already names the migrated entry MIGRATED_NAME,
    so a "Company AI policy" on p1 in a version-3 record was chosen by the person and stays. An older reader looks only at
    `policies`, so a downgrade still reads it. */
 const RECORD_VERSION = 3;
@@ -175,9 +173,9 @@ function read() {
   }
   /* #6273: a record migrated before the name changed still holds "Company AI policy" on its p1 entry. Renamed on read
      (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name, and only in a
-     record written before #6273 (review 1: once a version-3 record holds it, the person chose it, so a rename back to
+     record written before #6273 (once a version-3 record holds it, the person chose it, so a rename back to
      it sticks). An entry the person named themselves has a random id. Kept when another entry already wears
-     MIGRATED_NAME, so no two collide. The company's policy is deliberately NOT in that check (review 3): skipping the
+     MIGRATED_NAME, so no two collide. The company's policy is deliberately NOT in that check: skipping the
      rename for it would let the next save keep "Company AI policy" for good in a version-3 record, the false owner
      beside a real one. Two near-equal headings are told apart by their provenance lines, which stay true. */
   const old = !(typeof rec.version === 'number' && rec.version >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
