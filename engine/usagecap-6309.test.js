@@ -173,6 +173,17 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   const moved = usagecap.capInForce(NOW);
   assert.equal(moved.complete, false, 'CONTROL: the new zone\'s first count is short');
   assert.ok(moved.used >= 123, `a zone change reopened the cap while the count caught up: ${moved.used}`);
+  // A move to a zone whose month starts LATER (Chicago, 5 hours after UTC): once the new count is full it replaces the
+  // UTC one, which held 100 tokens from before Chicago's month began.
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests();
+  assert.equal(usagecap.capInForce(NOW).used, 123, 'CONTROL: the UTC month');
+  apply({ usage_cap: { monthly_tokens: 100, warn_pct: 80, tz: 'America/Chicago' } });
+  usagecap.resetForTests({ perCallBytes: 200, keepFloor: true });
+  assert.ok(usagecap.capInForce(NOW).used >= 123, 'CONTROL: while Chicago\'s count catches up, the UTC count holds the cap up');
+  let full;
+  for (let i = 1; i <= 20; i++) { full = usagecap.capInForce(NOW + i * usagecap.MEMO_SHORT_MS); if (full.complete) break; }
+  assert.deepEqual([full.complete, full.used], [true, 23], 'a later zone kept the earlier zone\'s hours for the rest of the month');
   // A new month does not inherit last month's count: November's own first count is short, and stays below October's.
   const NOV2 = Date.UTC(2026, 10, 2);
   const nov = path.join(CONFIG, 'projects', 'p1', 'nov.jsonl');
@@ -203,6 +214,22 @@ test('past the heads-up the count is kept only a moment, so crossing the cap ref
   fs.appendFileSync(main, line('m10', NOW - 400, 50));
   fs.utimesSync(main, NOW / 1000, NOW / 1000);
   assert.equal(usagecap.capInForce(NOW + usagecap.MEMO_SHORT_MS + 1000).used, low.used, 'CONTROL: far from the cap the minute memo holds');
+  usagecap.resetForTests();
+});
+
+test('the gate reads at most GATE_PER_CALL_BYTES a call, since it counts on the message path', () => {
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
+  const dir = path.join(CONFIG, 'projects', 'big');
+  fs.mkdirSync(dir, { recursive: true });
+  const one = line('x', NOW - 1000, 1);
+  const n = Math.ceil((usagecap.GATE_PER_CALL_BYTES + 1024 * 1024) / one.length);
+  fs.writeFileSync(path.join(dir, 'big.jsonl'), Array.from({ length: n }, (_, i) => line('b' + i, NOW - 1000, 1)).join(''));
+  apply({ usage_cap: { monthly_tokens: 1000000000, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests();
+  assert.equal(usagecap.capInForce(NOW).complete, false, 'one gate call read past its budget');
+  usagecap.resetForTests();
+  assert.equal(usagecap.capNow(orgpolicy.currentStrict(), NOW).complete, true, 'CONTROL: the rollup\'s full budget reads it in one call');
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
   usagecap.resetForTests();
 });
 

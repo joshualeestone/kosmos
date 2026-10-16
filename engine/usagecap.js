@@ -25,6 +25,9 @@ const store = require('./store');
 
 const cache = new Map();
 let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
+/* The gate counts on the message path, so each of its calls reads at most this much (the rollup's tick reads the full
+   per-call budget, off that path). A board catching up takes longer; the month's saved count holds the cap up meanwhile. */
+const GATE_PER_CALL_BYTES = 8 * 1024 * 1024;
 
 /* The month's start in the cap's zone. A zone this runtime cannot read counts from 14 hours before the UTC month
    began (the earliest any zone's month starts), so it never counts less than the month: closed, not open. */
@@ -40,10 +43,10 @@ function roots() {
 }
 
 /** { tokens, complete, since } for this month in `tz`. `rootsList` is for tests. */
-function monthTokens(tz, now = Date.now(), rootsList = roots()) {
+function monthTokens(tz, now = Date.now(), rootsList = roots(), bytes = perCallBytes) {
   const since = sinceFor(tz, now);
   const out = { tokens: 0, complete: true, since };
-  const budget = { left: perCallBytes };
+  const budget = { left: bytes };
   const add = (file) => {
     let st;
     try { st = fs.statSync(file); } catch { return; }
@@ -75,18 +78,19 @@ function monthTokens(tz, now = Date.now(), rootsList = roots()) {
 
 /* The month's highest count, kept on disk. Tokens used this month cannot be un-used, so the count in force is never
    below it: not while a restarted board counts the month again from the start (a bounded amount per call), and not
-   after a transcript is deleted or moved (usagecap-6309.test.js pins both). */
+   after a transcript is deleted or moved. A count saved under another zone (the cap's zone changed) holds the cap up
+   only while the new zone's count catches up; a full count in the new zone then replaces it, since the two months
+   start hours apart. usagecap-6309.test.js pins each of these. */
 const FLOOR = () => path.join(store.ROOT, 'usage-cap-month.json');
 /* The same month in another zone starts at most 26 hours away (UTC-12 to UTC+14), so a saved count whose start is
-   within FLOOR_SAME_MONTH_MS is this month's, counted from a zone the cap has since left. It stays the floor until the
-   new zone's count catches up: a zone change must not reopen the cap. A new month is weeks away, and starts at 0. */
+   within FLOOR_SAME_MONTH_MS is this month's. { used, sameZone }: sameZone when it was counted from this very start. */
 const FLOOR_SAME_MONTH_MS = 26 * 60 * 60 * 1000;
 function readFloor(since) {
   try {
     const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8'));
-    return j && Number.isFinite(j.since) && Math.abs(j.since - since) <= FLOOR_SAME_MONTH_MS
-      && Number.isSafeInteger(j.used) && j.used > 0 ? j.used : 0;
-  } catch { return 0; }
+    const ok = j && Number.isFinite(j.since) && Math.abs(j.since - since) <= FLOOR_SAME_MONTH_MS && Number.isSafeInteger(j.used) && j.used > 0;
+    return ok ? { used: j.used, sameZone: j.since === since } : { used: 0, sameZone: false };
+  } catch { return { used: 0, sameZone: false }; }
 }
 function writeFloor(since, used) {
   try { const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8')); if (j && j.since === since && j.used === used) return; } catch { /* write it */ }
@@ -100,14 +104,14 @@ function writeFloor(since, used) {
 
 /** What `policy` says now: orgpolicy.capAt with this month's count, plus `complete` (the count has caught up) and
  *  `known` (caught up, or held up by a saved count of this month). { capped: false } with no cap. */
-function capNow(policy, now = Date.now(), rootsList) {
+function capNow(policy, now = Date.now(), rootsList, bytes = perCallBytes) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) return { capped: false };
-  const m = rootsList ? monthTokens(u.tz, now, rootsList) : monthTokens(u.tz, now);
+  const m = monthTokens(u.tz, now, rootsList || roots(), bytes);
   const floor = readFloor(m.since);
-  const used = Math.max(m.tokens, floor);
+  const used = m.complete && !floor.sameZone ? m.tokens : Math.max(m.tokens, floor.used);
   if (m.complete) writeFloor(m.since, used);
-  return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor > 0 };
+  return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor.used > 0 };
 }
 
 /* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
@@ -124,7 +128,7 @@ function capInForce(now = Date.now()) {
   const policy = orgpolicy.currentStrict();
   const key = JSON.stringify((policy && policy.usage_cap) || null);
   if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < memo.ms) return memo.value;
-  const value = capNow(policy, now);
+  const value = capNow(policy, now, undefined, Math.min(perCallBytes, GATE_PER_CALL_BYTES));
   memo = { key, at: now, value, ms: value.complete === false || value.warn === true ? MEMO_SHORT_MS : MEMO_MS };
   return value;
 }
@@ -144,4 +148,4 @@ function resetForTests({ perCallBytes: n, keepFloor = false } = {}) {
   perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
 }
 
-module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };
+module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS, MEMO_SHORT_MS, GATE_PER_CALL_BYTES, FLOOR };
