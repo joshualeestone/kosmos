@@ -401,6 +401,12 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(asked === 2, `[${key}] coming back to the window re-read the list`, String(asked));
         chk(mid.id === 'plus-si-bought-recheck' && mid.off === false, `[${key}] during the page's own read the focus stays on Check again, which stays pressable`, JSON.stringify(mid));
         chk(after.id === 'plus-si-bought-recheck' && after.none, `[${key}] and after it, the panel and the focus are as they were`, JSON.stringify(after));
+        // A person's own Check again that still finds nothing keeps them on Check again (a second Enter must not pay).
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = true; });
+        await page.click('#plus-si-bought-recheck');
+        await page.waitForTimeout(2200);
+        const manual = await page.evaluate(() => document.activeElement && document.activeElement.id);
+        chk(asked === 3 && manual === 'plus-si-bought-recheck', `[${key}] a person's Check again that finds nothing leaves the focus on Check again`, asked + ' ' + manual);
       } else if (key === 'quiet-to-list') {
         await page.focus('#plus-si-bought-recheck');
         await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });

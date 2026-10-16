@@ -51392,7 +51392,7 @@ function paintPlusJoin() {
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name : name) + ', and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
       : '<p class="plus-join-say">If ' + name + (other ? other + ',' : '') + ' showed this same code when you allowed it, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
@@ -52569,10 +52569,10 @@ async function plusSiSession(data, again, keep, auto) {
       document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = false; });
       return;
     }
-    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST, { reshow: true, quiet });
+    if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST, { reshow: true, quiet, again: true });
     else {
       /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
-      plusSiBoughtPick({ addresses: [], buy_url: '' }, { reshow: true, quiet, unread: true });
+      plusSiBoughtPick({ addresses: [], buy_url: '' }, { reshow: true, quiet, unread: true, again: true });
       PLUS_SI_BOUGHT_LAST = null;   // a placeholder, not a list: another failed read must not read it as "none waiting"
       document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not check your account just now.';
       document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or add this computer on the Kosmos+ website.';
@@ -52581,6 +52581,7 @@ async function plusSiSession(data, again, keep, auto) {
     plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
   }
+  const had = document.activeElement;   // #6314: where the person was, read BEFORE the panel is hidden below
   if (bought) bought.hidden = true;   // plusSiBoughtPick shows it again; every other way on is without it
   const own = /^([a-z0-9-]{3,32})\./.exec(String(data.account_address || ''));
   const ownRow = b && own ? b.addresses.filter((r) => r.name === own[1])[0] : null;
@@ -52602,7 +52603,7 @@ async function plusSiSession(data, again, keep, auto) {
   // exists: the list offers it, rather than a name step that could make another.
   const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.first_free === true);
   if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
-  plusSiBoughtPick(b, { quiet });
+  plusSiBoughtPick(b, { quiet, again, had });
 }
 /* kosmos#6314: Stripe's "$20/month" (engine PRICE_SHAPE already refused any other shape) as the page says it,
    "$20 a month"; '' when there is no figure, and the caller then names no amount. */
@@ -52625,7 +52626,8 @@ function plusSiBoughtTake(row) {
    adding this computer. */
 function plusSiBoughtPick(b, opts) {
   const quiet = !!(opts && opts.quiet), reshow = !!(opts && opts.reshow), unread = !!(opts && opts.unread);
-  const had = document.activeElement;   // where the person was, before this repaint
+  const again = !!(opts && opts.again);
+  const had = opts && opts.had !== undefined ? opts.had : document.activeElement;   // where the person was before this read
   PLUS_SI_BOUGHT_LAST = b;
   plusSiRegisterMode('');
   const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
@@ -52677,7 +52679,9 @@ function plusSiBoughtPick(b, opts) {
   // A person's read moves the focus to the panel's one job. The page's own read moves it only when the element that had
   // it is no longer on screen (the add panel gave way to a list), so a keyboard or screen-reader user keeps a place.
   const gone = !!had && had !== document.body && had.offsetParent === null;
-  if (!quiet || gone) (free.length ? first : document.getElementById('plus-si-bought-buy')).focus();
+  // A person's Check again that still finds nothing keeps them on Check again (a second Enter must not open the payment
+  // page); the panel's first showing leads with Add this computer.
+  if (!quiet || gone) (free.length ? first : document.getElementById(again ? 'plus-si-bought-recheck' : 'plus-si-bought-buy')).focus();
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
@@ -52698,8 +52702,7 @@ function plusSiBoughtPick(b, opts) {
     });
   });
 }
-/* kosmos#6314: the page's own Check again, only while the none panel is on screen and this window is in front, for
-   20 minutes after it first showed, and never over a read already out (the button is disabled while one runs). */
+/* kosmos#6314: the page's own Check again (see the PLUS_SI_AUTO_* names for its window, back-off and busy guard). */
 function plusSiBoughtAutoCheck(fromFocus) {
   const none = document.getElementById('plus-si-bought-none');
   const btn = document.getElementById('plus-si-bought-recheck');
