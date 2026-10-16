@@ -120,3 +120,14 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Deduplicated: the step 4b wording control (round 4), the copied helpers (#6287). NITs kept: the port range shared
   with fed-own-e2e.js (picked free at use), the family-words check by text (the negative control pins the hash).
 - Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 13/20.
+
+## Round 11 (opus) fixes
+- The three synchronous child calls (the preflight, dev-cert, org-create) each have a 30 s timeout with SIGKILL: a
+  timer cannot fire while one blocks, so the watchdog could not bound them. Shown with a stand-in that hangs: the run
+  ends at 30 s with a failure.
+- Steps 9 and 11 need exactly one "joined" and one "left" row in the family's log (org-create writes org_created, not
+  joined), so a parent's row could never be read as K's; step 11's poll reports a throw or an error answer.
+- The preflight passes PATH only when set; node:dns is required at the top.
+- Kept (NITs): the hand-written step list beside EXPECTED_CHECKS (both say to update with a new step); the quiet
+  guard's discovery by text.
+- Rerun: VERDICT PASS 23/23.
