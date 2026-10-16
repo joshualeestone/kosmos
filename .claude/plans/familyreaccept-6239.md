@@ -107,6 +107,14 @@ joining again.
   no Accept can follow the refusal without a Leave or a read that clears it first (the join panel needs an unjoined
   page, and the only local write that unjoins it is the Leave), so no arm could tell it apart.
 
+## Review 12 (sonnet) fixes
+- With the words held back, the joined sentence still asked a parent to accept them (no button, and the refusal above
+  says the account is no longer the family's). It now says only what holds: this computer still shows the family and
+  reports nothing to it. R8 asserts it.
+- A review answered as not a family's said "Kosmos takes your company's terms on itself", false for a family record; it
+  now says Kosmos+ did not answer as a family account and holds the words back like a refusal (R15).
+- A Leave sets wroteAt, so a read that started before it cannot put the joined view back.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
