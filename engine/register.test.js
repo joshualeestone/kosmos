@@ -926,7 +926,7 @@ test('#6310: a launcher that is a link into a guarded folder is not read; nor is
   assert.equal(s.agents.find((x) => x.name === 'plainw').job, null);
 });
 
-test('#6320: a real unreadable plist still lists the unknown while another only waits its turn; Linux lists none', (t) => {
+test('#6320: a real unreadable plist still lists the unknown while another only waits its turn', (t) => {
   if (!fs.existsSync('/usr/bin/plutil')) return t.skip('no plutil off a Mac');
   if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();

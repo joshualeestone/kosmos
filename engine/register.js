@@ -184,7 +184,7 @@ function jobReader(platform) {
      the plist check said no Linux agent comes back after a restart. */
   if (platform === 'linux') {
     const lj = require('./linuxjob');
-    return { win32: false, linux: true, known: true, fleet: null, of: (name) => lj.presence(name) };
+    return { win32: false, linux: true, mac: false, known: true, fleet: null, of: (name) => lj.presence(name) };
   }
   if (platform !== 'win32') {
     /* #6310: OUR plist is one way an agent starts at login, not the only one. The fleet Mac's 18 agents each start from
@@ -193,11 +193,12 @@ function jobReader(platform) {
        that a login job not written by Kosmos starts has a job (foreignLoginFolders says what counts). Read lazily: the
        foreign jobs are only looked at for a name with no plist of ours. */
     let foreign = null;
+    const NULL_WHY = new Map();   // #6320: this survey's reason for each null answer, read by survey() after its pass
     return {
       win32: false, known: true, fleet: null,
       // #6320: why an agent read null: 'waiting' (a plist only waiting its turn; not to be said to a person) or 'unread'.
       whyNull: (name) => NULL_WHY.get(name) || 'unread',
-      mac: true,
+      mac: true,   // #6320: only the Mac's nulls mean "a login job could not be read"; the unknown list is Mac-only
       of: (name) => {
         if (fs.existsSync(create.plistPath(name))) return true;
         if (!foreign) {
@@ -239,8 +240,8 @@ function jobReader(platform) {
   }
   let all;
   try { all = require('./win32job').list(); } catch { all = { known: false }; }
-  if (!all.known) return { win32: true, known: false, fleet: null, of: () => null };
-  return { win32: true, known: true, fleet: all.names, of: (name) => all.names.has(name) };
+  if (!all.known) return { win32: true, mac: false, known: false, fleet: null, of: () => null };
+  return { win32: true, mac: false, known: true, fleet: all.names, of: (name) => all.names.has(name) };
 }
 
 /* #6310: the worker folders that a login job NOT written by Kosmos starts. A job not Disabled that is KeepAlive or
@@ -249,8 +250,7 @@ function jobReader(platform) {
    through plutil. Plists and the start scripts they name are cached by mtime and size. */
 const FOREIGN_CACHE = new Map();
 const SCRIPT_CACHE = new Map();
-let VERDICTS = { sig: null, map: new Map() };
-const NULL_WHY = new Map();   // #6320: per agent, why the last answer was null   // per-agent answers for one state of the login jobs and their scripts
+let VERDICTS = { sig: null, map: new Map() };   // per-agent answers for one state of the login jobs and their scripts
 function unxml(v) {
   const cp = (m, n) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m);   // an impossible one stays as written
   const named = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
