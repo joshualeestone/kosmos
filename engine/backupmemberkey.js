@@ -49,6 +49,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const backupkeys = require('./backupkeys');
+const orgkeypin = require('./orgkeypin');
 
 const BACKUP_KEY_ROUTE = '/v1/org/backup-key';
 const MEMBER_KEY_ROUTE = '/v1/org/backup/member-key';
@@ -142,6 +143,11 @@ async function ensureNow(opts, seen) {
     const company = companyOf(bk.data);
     if (!company) return { ok: false, because: 'the company backup key Kosmos+ sent could not be read' };
     seen.company = company;
+    // kosmos#5686 (b1-mac): the company key must carry escrowd's signature and match the one pinned at the join, once
+    // a verification key ships (orgkeypin.js); until then this answers ok and changes nothing. Checked before any key
+    // is read, kept or wrapped, so nothing is ever wrapped to a key this computer did not accept.
+    const vouched = orgkeypin.check(store.ROOT, bk.data, company, opts.orgKeyPin || {});
+    if (!vouched.ok) return { ok: false, orgKeyRefused: true, because: vouched.because };
     const read = readKeys(company.org, company.member);
     if (!read.ok) return { ...UNREADABLE };
     const keys = read.keys;
