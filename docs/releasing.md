@@ -244,6 +244,18 @@ cut's sha before it starts waiting:
   others stay unverified unless you repeat them, so say so where you record the release. On a staging
   cut, confirm prod's `latest.json` and `/setup` did not move.
 
+  **Hold automatic site deploys for the promote (kosmos#6305).** The site-deploy backstop (kosmos#6266, a job on
+  Mortals) asks GitHub for a site deploy whenever the site's main is ahead of what is served. Before promoting, set
+  the hold, and clear it once the promote is served and checked:
+
+  ```
+  gh variable set SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site --body "promoting <V>"
+  gh variable delete SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site
+  ```
+
+  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. If the variable cannot be read,
+  it holds too. A forgotten hold stops automatic site deploys, so clear it in the same sitting.
+
   **Before any promote, put the site checkout back to what is served, in this order.**
   1. **The tracked files, from origin.** Step 7b and the trap leave the checkout behind origin's main:
      its local `dist/latest-staging.json` (or `latest.json`) still names the PREVIOUS version, and
