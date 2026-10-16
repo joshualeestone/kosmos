@@ -584,6 +584,7 @@ test('#6310: a login job we cannot read makes unknown only the agent it names; t
   const s = mac.survey();
   assert.deepEqual(s.missing, ['plainy']);
   assert.equal(s.agents.find((x) => x.name === 'unkx').job, null);
+  assert.deepEqual(s.unknown, ['unkx'], '#6320: the unknown agent is listed for the banner, and only it');
   assert.equal(s.agents.find((x) => x.name === 'ownx').job, true, 'our own plist still answers on its own');
   const r = mac.repair();
   assert.deepEqual(r.results.map((x) => x.name), ['plainy']);
