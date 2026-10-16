@@ -645,9 +645,15 @@ test('#6310: a login job that cannot be read at all makes every agent without it
     assert.equal(s.agents.find((x) => x.name === 'ownz').job, true);
     mac.repair();
     assert.equal(fs.existsSync(create.plistPath('anyz')), false, 'Repair acted on an unknown agent');
-    // CONTROL: once it can be read again (it names nobody), the agent is counted again: a failed read is not cached.
+    // CONTROL: once it can be read again (it names nobody), the agent is counted again, a minute later: a failed
+    // read is retried, not cached for good.
     fs.chmodSync(locked, 0o644);
-    assert.deepEqual(mac.survey().missing, ['anyz']);
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    try {
+      assert.deepEqual(mac.survey().missing, [], 'retried before its minute');
+      t.mock.timers.tick(61000);
+      assert.deepEqual(mac.survey().missing, ['anyz']);
+    } finally { t.mock.timers.reset(); }
   } finally {
     try { fs.chmodSync(locked, 0o644); } catch { /* reset removes it */ }
   }
@@ -672,4 +678,28 @@ test('#6310: a binary plist is read through plutil', (t) => {
   require('node:child_process').execFileSync('/usr/bin/plutil', ['-convert', 'binary1', file]);
   assert.equal(fs.readFileSync(file).slice(0, 8).toString('latin1'), 'bplist00', 'the fixture is not binary');
   assert.deepEqual(mac.survey().missing, []);
+});
+
+test('#6310: a start script that cannot be read leaves "no job" unproven; a nested Disabled and a closing full stop do not mislead', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+  reset();
+  agent('nestx');
+  agent('dotx');
+  const bin = path.join(SB, 'scripts');
+  fs.mkdirSync(bin, { recursive: true });
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  // A Disabled key inside EnvironmentVariables is not the job's own.
+  foreignJob('com.nestx.discord.plist', { raw: raw('\t<key>EnvironmentVariables</key>\n\t<dict>\n\t\t<key>Disabled</key>\n\t\t<true/>\n\t</dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>WorkingDirectory</key>\n\t<string>' + create.workerDir('nestx') + '</string>\n') });
+  const dotScript = path.join(bin, 'launch-dotx.sh'); fs.writeFileSync(dotScript, '# starts the agent in ' + create.workerDir('dotx') + '.\n', 'utf8');
+  foreignJob('com.dotx.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + dotScript + '</string>\n\t</array>\n') });
+  assert.deepEqual(mac.survey().missing, [], 'a nested Disabled or a closing full stop misread a covered agent');
+  // Now an unreadable launcher script: every agent without its own plist is unknown, and nothing is repaired.
+  agent('lostx');
+  const locked = path.join(bin, 'launch-locked.sh'); fs.writeFileSync(locked, 'echo\n', 'utf8'); fs.chmodSync(locked, 0o000);
+  try {
+    foreignJob('com.locked.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + locked + '</string>\n\t</array>\n') });
+    const s = mac.survey();
+    assert.deepEqual(s.missing, []);
+    assert.equal(s.agents.find((x) => x.name === 'lostx').job, null);
+  } finally { fs.chmodSync(locked, 0o644); }
 });
