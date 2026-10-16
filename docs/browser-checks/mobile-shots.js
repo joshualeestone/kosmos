@@ -626,12 +626,13 @@ const SCREENS = [
       const r = document.querySelector('#pj-room');
       if (!r) return;
       r.scrollIntoView({ block: 'start' });
-      /* #6262: block 'start' puts the room's title under the sticky top bar on a phone (the App Store shot showed it cut
-         in half), which no person sees on opening a room. Step back by whatever is pinned over the top edge. */
+      /* #6262: block 'start' puts the project's heading (above the thread) under the sticky top bar on a phone (the App
+         Store shot showed the title cut in half), which no person sees on opening a room. Step back by whatever bar is
+         pinned over the top edge; a full-screen overlay is not a bar. */
       let el = document.elementFromPoint(Math.round(innerWidth / 2), 2), pinned = 0;
       for (; el && el !== document.body; el = el.parentElement) {
         const pos = getComputedStyle(el).position;
-        if (pos === 'fixed' || pos === 'sticky') { pinned = el.getBoundingClientRect().bottom; break; }
+        if (pos === 'fixed' || pos === 'sticky') { const b = el.getBoundingClientRect(); if (b.height < innerHeight / 2) pinned = b.bottom; break; }
       }
       if (pinned > 0) window.scrollBy(0, -(pinned + 8));
     });

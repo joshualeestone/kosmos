@@ -73,7 +73,7 @@ scales it down for smaller iPhones. In upload order:
 
 | # | File | What it shows |
 |---|---|---|
-| 1 | `01-home.png` | The team at a glance, with Cleo first and her question waiting, and Dana working below her |
+| 1 | `01-home.png` | The team at a glance: Dana working first, and Cleo below her with her question waiting |
 | 2 | `02-push-landing.png` | Where a notification tap lands: Cleo's question about the printer quote, ready to answer |
 | 3 | `03-agent-chat.png` | A direct conversation with Dana, the writer, about the catalogue |
 | 4 | `04-project-room.png` | A project room: the agents on the spring catalogue talking to each other |
