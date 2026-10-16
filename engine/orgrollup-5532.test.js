@@ -967,7 +967,7 @@ test('#5534 slice 2 review 3: end to end with the real policy module, an expired
   assert.deepEqual([body.policyVersion, body.policyRefused], [2, false], 'the real module reported an expired copy of the policy in force as a refusal');
 });
 
-test('#6309: the month\'s usage against the cap leaves only under words naming the policy, for this company\'s cap, once counted in full', async (t) => {
+test('#6309: the month\'s usage against the cap leaves only under words naming the cap, for this company\'s cap, once known', async (t) => {
   const POLICY_ONLY = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent"];
   const NAMED = [...POLICY_ONLY, "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one"];
   const CAP = { usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } };
@@ -978,7 +978,7 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
     accept(root, lines);
     const orgId = oe.readEnrollment({ root }).org.id;
     const asked = [];
-    const usagecap = { capNow: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' }; } };
+    const usagecap = { capReport: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' }; } };
     const op = { refresh: () => ({ applied: { org: whose || orgId, version: 3, policy: CAP }, refused: null }) };
     await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: Date.UTC(2026, 9, 7, 12) });
     const sent = c.sent.find((x) => x.route === r.ROUTE);
@@ -1006,6 +1006,32 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
   assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false, month: '2026-10' }, 'a restarted board blanked the count it already knew');
   const none = await send(NAMED, { count: { capped: false } });
   assert.equal('policyUsage' in none.body, false, 'no cap, and usage was sent');
+});
+
+test('#6309: a tick whose count is not known yet sends what it last sent, so the parent\'s row is not cleared', async (t) => {
+  const NAMED = ['agent names', "which version of your company's policy this Kosmos has applied, and whether it refused one your company sent",
+    "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one"];
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, NAMED);
+  const orgId = oe.readEnrollment({ root }).org.id;
+  const op = { refresh: () => ({ applied: { org: orgId, version: 3, policy: { usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } } }, refused: null }) };
+  let count = { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' };
+  const usagecap = { capReport: () => count };
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 });
+  const sent = () => c.sent.filter((x) => x.route === r.ROUTE).map((x) => x.body);
+  assert.deepEqual(sent()[0].policyUsage, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }, 'CONTROL: the first daily carries the count');
+  // A restart that has no saved count: the count is not known.
+  count = { capped: true, used: 3, cap: 1000, pct: 0, warn: false, over: false, tz: 'UTC', complete: false, known: false, month: '2026-10' };
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 + r.CHANGE_MIN_MS + 1000 });
+  assert.equal(sent().length, 1, 'an unknown count moved the signature and made a change send');
+  await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: T0 + 24 * 60 * 60 * 1000 });
+  const next = sent()[1];
+  assert.ok(next, 'premise: the next daily went');
+  assert.deepEqual([next.policyVersion, next.policyUsage], [3, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }],
+    'the daily with an unknown count did not repeat the last count, so the coordinator would clear the parent\'s row');
 });
 
 test('#6309: reaching the heads-up or the cap is a change; the count moving is not; a bad shape is left out', () => {

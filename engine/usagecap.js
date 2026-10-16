@@ -19,7 +19,8 @@
  * The gate (capAllows) never counts. It runs on the message path, and counting a heavy month is slow: measured on a
  * Mac holding 8,313 transcripts touched this month (2.5 GB), a bounded count took over 3.7 s a call and had not
  * caught up after 31 minutes. So a worker thread (usagecap-worker.js) counts, and the gate reads its latest count with
- * the month's saved one. The rollup's tick, already off the message path, counts itself (capNow).
+ * the month's saved one. The rollup reads the same way (capReport): on the enrolled board its tick runs in the board's
+ * own process, so it must not count either.
  */
 
 const fs = require('node:fs');
@@ -158,18 +159,34 @@ function ensureWorker(tz) {
   if (workerTz !== tz) { workerTz = tz; try { worker.postMessage({ tz }); } catch { /* the exit handler resets it */ } }
 }
 
+function stopWorker() {
+  latest = null;
+  if (!worker) return;
+  const w = worker;
+  worker = null; workerTz = null;
+  try { w.terminate(); } catch { /* already gone */ }
+}
+/* `policy`'s cap with the worker's latest count and the month's saved one. No cap stops the worker: a cap taken out,
+   or a family left, leaves nothing counting. */
+function fromWorker(policy, now) {
+  const u = policy && policy.usage_cap;
+  if (!orgpolicy.capShapeOk(u)) { stopWorker(); return { capped: false }; }
+  ensureWorker(u.tz);
+  const since = sinceFor(u.tz, now);
+  const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
+  return withFloor(policy, m);
+}
+
+/** What the rollup reports for `policy`: capNow's shape, from the worker on the board (never an inline count). */
+function capReport(policy, now = Date.now()) {
+  return mode === 'worker' ? fromWorker(policy, now) : capNow(policy, now);
+}
+
 /** The policy in force (orgpolicy.currentStrict) with this month's count: { capped: false } or capNow's answer.
  *  Throws when the policy record is damaged, as currentStrict does; the gate decides what a fault means. */
 function capInForce(now = Date.now()) {
   const policy = orgpolicy.currentStrict();
-  if (mode === 'worker') {
-    const u = policy && policy.usage_cap;
-    if (!orgpolicy.capShapeOk(u)) return { capped: false };
-    ensureWorker(u.tz);
-    const since = sinceFor(u.tz, now);
-    const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
-    return withFloor(policy, m);
-  }
+  if (mode === 'worker') return fromWorker(policy, now);
   const key = JSON.stringify((policy && policy.usage_cap) || null);
   if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < memo.ms) return memo.value;
   const value = capNow(policy, now);
@@ -188,8 +205,8 @@ function capAllows(now = Date.now()) {
 /** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
  *  without it the gate counts inline (mode 'sync'). */
 function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false } = {}) {
-  cache.clear(); cacheSince = null; memo = null; latest = null; workerFailedAt = -Infinity;
-  if (worker) { const w = worker; worker = null; workerTz = null; try { w.terminate(); } catch { /* already gone */ } }
+  cache.clear(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
+  stopWorker();
   mode = useWorker ? 'worker' : 'sync';
   if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
   perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
@@ -198,4 +215,4 @@ function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker =
 /** For tests: the worker's last count, or null. */
 function latestForTests() { return latest; }
 
-module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };
+module.exports = { monthTokens, capNow, capReport, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };

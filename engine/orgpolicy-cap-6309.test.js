@@ -73,7 +73,7 @@ test('the heads-up is at warn_pct and the refusal at the cap, in the policy\'s o
   assert.deepEqual(orgpolicy.capAllows(p, 999), { ok: true }, 'CONTROL: one short of the cap still goes');
   const at = orgpolicy.capAllows(p, 1000);
   assert.equal(at.ok, false);
-  assert.match(at.because, /this month's usage cap is reached \(1000 of 1000 tokens\)/);
+  assert.match(at.because, /this month's usage cap is reached \(1,000 of 1,000 tokens\)/, 'a person reads it: thousands are separated');
   assert.match(at.because, /under the policy set for this Kosmos; it opens again on the 1st \(UTC time\)/);
   assert.doesNotMatch(at.because, /company|dollar|\$/i);
   for (const none of [null, {}, { usage_cap: null }, { usage_cap: { ...CAP, warn_pct: 100 } }]) {

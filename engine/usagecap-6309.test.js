@@ -268,6 +268,11 @@ test('on the board the gate never counts: a worker thread does, and the gate rea
   const c = usagecap.capInForce(Date.now());
   assert.deepEqual([c.used, c.over], [150, true], JSON.stringify(c));
   assert.equal(usagecap.capAllows(Date.now()).ok, false, 'the worker\'s count did not reach the gate');
+  assert.equal(usagecap.capReport(orgpolicy.currentStrict(), Date.now()).used, 150, 'the rollup reads the worker\'s count too');
+  // The cap taken out: the worker stops and its count goes.
+  apply({ quiet_hours: null });
+  assert.deepEqual(usagecap.capInForce(Date.now()), { capped: false });
+  assert.equal(usagecap.latestForTests(), null, 'a board with no cap kept its counter');
   usagecap.resetForTests();
   fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
 });

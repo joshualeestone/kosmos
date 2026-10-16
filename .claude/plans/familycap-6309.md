@@ -54,7 +54,12 @@ must use its own cache: readFile takes the cache as a parameter (default: the sw
 Three reviewers in a row flagged the gate counting transcripts inside deliverWithGap. I deferred it twice, then
 measured it: on this Mac (8,313 transcripts touched this month, 2.5 GB) a bounded count took over 3.7 s a call and
 had not caught up after 31 minutes. Deferring was wrong. Now a worker thread (engine/usagecap-worker.js) counts, and
-the gate reads its latest count with the month's saved one; it never reads a transcript. The rollup's tick runs in a
-child process and counts itself. Tests use the inline count ('sync', resetForTests); one test drives the real worker.
+the gate reads its latest count with the month's saved one; it never reads a transcript. The rollup reads the same
+way (capReport): on the enrolled board its tick runs in the board's own process (server.js orgRollupTick), so an inline
+count there was the same stall. (I first wrote that the tick ran in a child process. It does not; iteration 7 caught
+it.) The worker stops when no cap is in force. Tests use the inline count ('sync', resetForTests); one test drives the
+real worker.
+Known limit: the worker's month cache holds a set of message ids per transcript touched this month (about 8,300 files
+on this fleet Mac; a child's computer has far fewer).
 Weakest premise: that a worker thread is cheap enough to keep on every board with a cap. It starts only when a cap is
 in force, is unref'd, and recounts every 10 s off the main thread.

@@ -344,7 +344,8 @@ function capAllows(policy = currentStrict(), used = 0) {
 }
 /** kosmos#6309: the refusal's words for capAt's { used, cap, tz }. */
 function capSentence(c) {
-  return `this month's usage cap is reached (${c.used} of ${c.cap} tokens), under ${POLICY_SETTER}; it opens again on the 1st (${c.tz} time)`;
+  const n = (x) => Number(x).toLocaleString('en-US');
+  return `this month's usage cap is reached (${n(c.used)} of ${n(c.cap)} tokens), under ${POLICY_SETTER}; it opens again on the 1st (${c.tz} time)`;
 }
 
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
