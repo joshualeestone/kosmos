@@ -27,6 +27,7 @@
  *   R8  a review refused because this account is no longer in the family keeps the engine's reason, reads /api/org again
  *       and does not put focus on the words button.
  *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
+ *   R12 a refused review preview (already accepted here) says why and reads /api/org again.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -352,6 +353,17 @@ async function run(engineName) {
       E + ' R11 org_bad_world keeps the words and says to press Accept again', JSON.stringify(r11));
     if (r11.box) await page.click('#plus-org-family-no');
     await setEnroll(null);
+    // R12: the review preview itself refused: the reason shows and the view is read again.
+    await reread(WAITING);
+    await setPreview({ ok: false, because: 'This Kosmos already has its family\u2019s words accepted here.' });
+    m = await mark();
+    await page.click('#plus-org-words');
+    await page.waitForTimeout(300);
+    const r12 = { msg: await text('plus-org-msg'), box: await shown('plus-org-family'),
+      reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
+    chk(r12.msg === 'This Kosmos already has its family\u2019s words accepted here.' && !r12.box && r12.reread,
+      E + ' R12 a refused review preview says why and reads /api/org again', JSON.stringify(r12));
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
     await page.waitForTimeout(250);
