@@ -39,7 +39,7 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - tools.browser-checks-quiet-4253.test.js holds this file's boards to the three dead phone-home addresses too (red
   when one is changed).
 - Rerun: VERDICT PASS 22/22.
-- Kept: the default binary dir (as fed-own-e2e.js, with its usage line); the plan's file name (most plans here have
+- Kept: the default binary dir (superseded in round 8: now required); the plan's file name (most plans here have
   no timestamp).
 
 ## Round 2 (sonnet) fixes
@@ -161,3 +161,12 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - relay dev-cert's failure carries its stderr, as the preflight and org-create do.
 - The quiet guard says it scans tools/ only, and its slice failure names the startBoard anchor.
 - Rerun: VERDICT PASS 23/23; the quiet guard 7/7.
+
+## Round 16 (sonnet) fixes
+- The family words are pinned by hash, not one word: step 9 requires the accepted words' hash in the audit row to
+  differ from the company's pinned 68fb6404...1151 (the board's preview answer carries no hash, so step 7 keeps its
+  text check and says step 9 pins it). Negative control: step 9 red on exactly that hash.
+- The orphan sweep's comment states its limit (a board never names the sandbox; boards stop through the started list).
+- The step 4b control's detail says when a 403 failed on wording; the join code is redacted from step 6's detail.
+- Deduplicated: round numbers in comments, the copied helpers (#6287).
+- Rerun: VERDICT PASS 23/23; negative control VERDICT FAIL 12/19.

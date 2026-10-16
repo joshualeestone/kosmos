@@ -61,6 +61,8 @@ const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
+// The company's consent hash, as kosmos-relay pins it (consent_hash_for("company")): a family's words must not be these.
+const COMPANY_CONSENT_HASH = '68fb6404e47cd76af21b12578002d4a92d2f422efe7e68b450a0581995661151';
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
 const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 3, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,
@@ -194,7 +196,9 @@ function ownedAlive() {
   }
   // An orphaned seat names the sandbox (its state dir) AND runs one of this run's binaries, or a
   // script inside the sandbox. A stranger that merely mentions the path (tail -f of a log, an
-  // editor, a grep) runs something else and is never matched.
+  // editor, a grep) runs something else and is never matched. Limit: a board (node <repo>/server.js)
+  // never names the sandbox, so boards are stopped through the started list and their remembered
+  // descendants only; an orphan that does not name the sandbox is not swept here.
   const ours = [...Object.values(BIN), process.execPath];
   // A sandbox script shows in ps as '/bin/sh <sandbox>/...', so an interpreter then the sandbox counts too.
   const runsOurs = (cmd) => cmd.startsWith(SANDBOX) || /^\/bin\/(ba|z)?sh /.test(cmd) && cmd.includes(' ' + SANDBOX)
@@ -437,7 +441,8 @@ async function main() {
     // CONTROL for step 6: before any Allow, the console refuses the parent's browser (not an allowed sign-in). Matched by
     // its words: the coordinator's answer carries no code field for this refusal, so the wording is the only handle.
     const c = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token));
-    chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser', c.status + ' ' + c.text.slice(0, 160));
+    chk(c.status === 403 && /allow this sign-in on one of your computers first/.test(c.text), 'step 4b control: before the Allow, the console refuses the parent\'s browser',
+      c.status + ' ' + c.text.slice(0, 160) + (c.status === 403 ? ' (matched by its words: a 403 with other words means the coordinator reworded it)' : ''));
   }
   /* The coordinator names a session's device itself (kosmos#5422: an id the browser offers is replaced), so the row on
      P is found by the four characters the sign-up answered, as the person matches them on screen. */
@@ -474,7 +479,7 @@ async function main() {
     }, 45000, 1500);
     if (!r) r = { status: 0, json: null, text: 'no answer: ' + lastErr };   // review 1: report the cause, not a TypeError
     code = r.json && (r.json.code || r.json.invite_code) || '';
-    chk(r.status === 200 && !!code, 'step 6: the parent makes a join code in the console', r.status + ' ' + r.text.slice(0, 160));
+    chk(r.status === 200 && !!code, 'step 6: the parent makes a join code in the console', r.status + ' ' + (code ? r.text.split(code).join('[code]') : r.text).slice(0, 160));
   }
 
   // 7. K previews the code: a family, with its own words, and nothing joined yet.
@@ -487,6 +492,8 @@ async function main() {
     // Review 1: the words' own text, never the keys (a key could carry "family").
     const flat = (v) => (Array.isArray(v) ? v.flatMap(flat) : v && typeof v === 'object' ? Object.values(v).flatMap(flat) : typeof v === 'string' ? [v] : []);
     const words = flat(pv.consent || {}).join(' ');
+    // By their text here (the board's preview answer carries no hash); step 9 pins the hash the join recorded as not
+    // the company's, so this check does not rest on one word alone.
     chk(/family/i.test(words) && !/company/i.test(words), 'step 7: the words K shows are the family\'s, naming no company', words.slice(0, 160));
     const st = await http(K.base, 'GET', '/api/org', undefined, SCREEN);   // as the screen, as step 9 reads it
     chk(st.status === 200 && st.json && st.json.enrolled === false, 'step 7 control: K is not joined after a preview', st.status + ' ' + st.text.slice(0, 120));
@@ -525,7 +532,9 @@ async function main() {
       return !!joinRow;
     }, 20000, 1000);
     if (!a) a = { status: 0, text: 'no answer: ' + lastErr };   // round 7: report the cause, not a TypeError
-    chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || ''), 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
+    // And the hash of the words accepted is not the company's (round 16: the discriminating check for step 7's words).
+    const accepted = ((joinRow && joinRow.detail || '').match(/consent sha256:([0-9a-f]{64})/) || [])[1] || '';
+    chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || '') && accepted && accepted !== COMPANY_CONSENT_HASH, 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
