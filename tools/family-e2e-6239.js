@@ -25,6 +25,7 @@
  *        that_showed_its_words covers it.
  *   9    with the words read and accepted on K, K joins; its board says family; the coordinator's audit row records
  *        the join with "words shown on the board's screen (the board's word)".
+ *   9b   K's first report is accepted under the family's words (the console counts it reporting; 0 before, the control).
  *   10   the spent code, previewed again, is refused in words that name no company.
  *   11   K leaves the family.
  * Nothing here is production: every service and board runs under one mktemp sandbox on free high ports.
@@ -59,11 +60,14 @@ const FEDPROOF_DOMAIN = 'fedproof.localhost';
 const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 // The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
-// + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 = 465 s, before HTTP timeouts. 15 min covers it.
+// + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report 150 = 615 s, before HTTP
+// timeouts. 15 min covers it.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
+// K's first rollup goes a minute after its board starts (server.js orgRollupTick); allow that plus a slow send.
+const REPORT_MS = 150000;
 // The company's consent hash, as kosmos-relay pins it (consent_hash_for("company") in coordinator/tests/api.rs): a
 // family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
 // admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
@@ -72,7 +76,7 @@ const COMPANY_CONSENT_HASH = '68fb6404e47cd76af21b12578002d4a92d2f422efe7e68b450
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
 const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 3, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,
-  'step 9': 3, 'step 10': 1, 'step 11': 3 };
+  'step 9': 3, 'step 9b': 2, 'step 10': 1, 'step 11': 3 };
 const EXPECTED_CHECKS = Object.values(STEP_CHECKS).reduce((a, b) => a + b, 0);
 const T0 = Date.now();
 
@@ -467,7 +471,8 @@ async function main() {
   chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? String(listed.device_id || '').slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
     const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
-    // Only that the route answered: it says allowed even for an id nobody holds (#6286). Step 6 proves the Allow took.
+    // Only that the route answered: before #6286's fix (kosmos#6291 with a tunnel carrying kosmos-relay#404) it said
+    // allowed even for an id nobody holds, so the claim that the Allow took is step 6's, either way.
     chk(r.status === 200, 'step 4b: P\'s Allow route answers for the parent\'s browser', r.status + ' ' + r.text.slice(0, 200));
   }
 
@@ -549,6 +554,23 @@ async function main() {
     // And the hash of the words accepted is not the company's (round 16: the discriminating check for step 7's words).
     const accepted = ((joinRow && joinRow.detail || '').match(/consent sha256:([0-9a-f]{64})/) || [])[1] || '';
     chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || '') && accepted && accepted !== COMPANY_CONSENT_HASH, 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
+  }
+
+  // 9b. K reports under the family's words: its first rollup (a minute after the board starts) is accepted by the
+  // coordinator only when the words K accepted are the family's current ones, so a report landing is the family's words
+  // working for reporting, not only for joining (#6239). CONTROL: straight after the join, before that first tick, the
+  // console counts nobody reporting.
+  if (joined) {
+    const ov = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
+    const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
+    chk(ov.status === 200 && before === 0, 'step 9b control: before K\'s first report, the console counts nobody reporting', ov.status + ' reporting=' + before);
+    let now = null;
+    await waitFor(async () => {
+      const o2 = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
+      now = o2.json && o2.json.members ? o2.json.members.reporting : null;
+      return now === 1;
+    }, REPORT_MS, 3000);
+    chk(now === 1, 'step 9b: K\'s first report is accepted under the family\'s words (the console counts it reporting)', 'reporting=' + now);
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
