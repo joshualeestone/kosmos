@@ -81,7 +81,7 @@ function providerOfModel(model) {
 /* kosmos#6309: a policyUsage build() may send: whole numbers and booleans only. */
 function usageOk(u) {
   return !!u && typeof u === 'object' && Number.isSafeInteger(u.used) && u.used >= 0 && Number.isSafeInteger(u.cap) && u.cap >= 1
-    && typeof u.warn === 'boolean' && typeof u.over === 'boolean';
+    && typeof u.warn === 'boolean' && typeof u.over === 'boolean' && typeof u.month === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(u.month);
 }
 /**
  * The body. Inputs, all plain:
@@ -90,7 +90,7 @@ function usageOk(u) {
  *   agents       [{ name, provider, model, state }]
  *   projects     [{ name, agents: [agent name] }]
  *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
- *   lastActive, backupLastOk, policyVersion, policyRefused, policyUsage ({ used, cap, warn, over }, kosmos#6309)
+ *   lastActive, backupLastOk, policyVersion, policyRefused, policyUsage ({ used, cap, warn, over, month }, kosmos#6309)
  */
 function build(input) {
   const i = input || {};
@@ -191,7 +191,7 @@ function build(input) {
     } : {}),
     /* kosmos#6309: this month's tokens against the policy's usage cap, so the parent's console row shows used / cap and
        whether the heads-up or the cap is reached. Whole numbers and booleans only; anything else leaves it out. */
-    ...(usageOk(i.policyUsage) ? { policyUsage: { used: i.policyUsage.used, cap: i.policyUsage.cap, warn: i.policyUsage.warn, over: i.policyUsage.over } } : {}),
+    ...(usageOk(i.policyUsage) ? { policyUsage: { used: i.policyUsage.used, cap: i.policyUsage.cap, warn: i.policyUsage.warn, over: i.policyUsage.over, month: i.policyUsage.month } } : {}),
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
@@ -800,7 +800,7 @@ async function tick(opts) {
       /* kosmos#6309: the cap's count, only under words that name it (capConsented: the policy line does not), and only
          for this company's policy. */
       const u = mine && accepted.capConsented === true ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
-      if (u.capped && u.known === true) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over };
+      if (u.capped && u.known === true) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over, month: u.month };
       /* A cap whose count is not known yet (a new board still counting the month): the coordinator reads the policy
          without a count as "no cap", so none of the policy is sent this tick, and the company keeps what it had. */
       else if (u.capped) { delete g.policyVersion; delete g.policyRefused; }

@@ -238,6 +238,14 @@ test('deleting a transcript after a full count does not lower the month (tokens 
   assert.deepEqual([after.used, after.over], [123, true], 'a deleted transcript reopened the cap');
   usagecap.resetForTests();
   assert.ok(usagecap.capNow(policy, NOW, [root]).used < 123, 'CONTROL: with no saved count the deletion does lower the count');
+  usagecap.resetForTests();
+  const monthRoot = tmp('aw-usecap-month-');
+  seed(monthRoot);
+  // The month it names (relay review: a count carried into November must not read as November's).
+  assert.equal(usagecap.capNow(policy, NOW, [monthRoot]).month, '2026-10');
+  assert.equal(usagecap.capNow({ usage_cap: { ...policy.usage_cap, tz: 'Pacific/Kiritimati' } }, NOW, [monthRoot]).month, '2026-10', 'UTC+14: the 1st starts on Sep 30 in UTC');
+  assert.equal(usagecap.capNow({ usage_cap: { ...policy.usage_cap, tz: 'Etc/GMT+12' } }, Date.UTC(2026, 10, 1, 11), [monthRoot]).month, '2026-10', 'UTC-12: still October at 11:00 UTC on Nov 1');
+  usagecap.resetForTests();
 });
 
 test('on the board the gate never counts: a worker thread does, and the gate reads its count', async () => {
