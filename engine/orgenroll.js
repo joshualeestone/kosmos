@@ -657,6 +657,8 @@ async function enrollNow(code, accepted, opts) {
   /* #5534 review 3: joined to another company than the policy in force here (a move by code): the old company's policy
      ends now, whether or not the follow-up refresh reaches the new company. */
   if (org && org.id) endForeignPolicy(opts, org.id);
+  // kosmos#5686 (b1-mac): a Join to another company starts its own pin (the same company's keeps it).
+  if (org && org.id) { try { require('./orgkeypin').clearUnlessFor(storeRoot(opts), org.id); } catch { /* a left pin refuses, never trusts */ } }
   return { ok: true, ...rec };
 }
 
@@ -822,6 +824,10 @@ function retireWorldId(opts) {
   setJoinUnknown(null, opts);
   // And the words accepted for it (#5532): a later join remembers its own before it sends.
   try { fs.rmSync(path.join(storeRoot(opts), CONSENT_FILE), { force: true }); } catch { /* unread without a matching record */ }
+  /* kosmos#5686 (b1-mac): and the company backup key pinned for it (orgkeypin.js). HERE, not in clearEnrollment: a
+     Leave clears the record before the company answers and puts it back when it refuses (last admin), and a pin
+     dropped then would be taken afresh with no Join; every ending that is final retires the id. */
+  try { require('./orgkeypin').clear(storeRoot(opts)); } catch { /* best effort: a left pin refuses, never trusts */ }
 }
 
 async function leaveNow(opts, retry) {
