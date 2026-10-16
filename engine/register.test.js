@@ -924,3 +924,23 @@ test('#6310: a launcher that is a link into a guarded folder is not read; nor is
   assert.deepEqual(touched, [], 'the lower-case guarded path was stat-ed');
   assert.equal(s.agents.find((x) => x.name === 'plainw').job, null);
 });
+
+test('#6320: a real unreadable plist still lists the unknown while another only waits its turn; Linux lists none', (t) => {
+  if (!fs.existsSync('/usr/bin/plutil')) return t.skip('no plutil off a Mac');
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+  reset();
+  for (const n of ['wa1', 'wa2', 'wa3', 'wa4', 'wa5']) {
+    agent(n);
+    foreignJob('com.' + n + '.discord.plist', { dir: create.workerDir(n) });
+    require('node:child_process').execFileSync('/usr/bin/plutil', ['-convert', 'binary1', path.join(SB, 'launch', 'com.' + n + '.discord.plist')]);
+  }
+  agent('lostz');
+  foreignJob('com.zz.locked.plist', {});
+  const locked = path.join(SB, 'launch', 'com.zz.locked.plist');
+  fs.chmodSync(locked, 0o000);
+  try {
+    const s = mac.survey();
+    assert.ok(s.unknown.includes('lostz'), 'a real failure was hidden because another plist was only waiting: ' + JSON.stringify(s.unknown));
+  } finally { fs.chmodSync(locked, 0o644); }
+  assert.deepEqual(register.survey({ platform: 'linux' }).unknown, [], 'the unknown list is Mac-only');
+});
