@@ -71,7 +71,7 @@ function others(gathered) {
 }
 const inv = (name) => ({ agents: [{ name, provider: 'openai', model: 'gpt-5.1', state: 'working' }], projects: [{ name: 'P-' + name, agents: [name] }],
   usageByDay: { '2026-10-07': { 'gpt-5.1': { input_tokens: 5 } } }, lastActive: null, partial: false, policyVersion: 9,
-  policyUsage: { used: 5, cap: 10, warn: true, over: false } });
+  policyUsage: { used: 5, cap: 10, warn: true, over: false, month: '2026-10' } });
 const T0 = Date.UTC(2026, 9, 7, 12);
 const rollups = (c) => c.sent.filter((x) => x.route === r.ROUTE).map((x) => x.body);
 

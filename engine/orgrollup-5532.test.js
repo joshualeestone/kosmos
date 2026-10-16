@@ -978,7 +978,7 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
     accept(root, lines);
     const orgId = oe.readEnrollment({ root }).org.id;
     const asked = [];
-    const usagecap = { capNow: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true }; } };
+    const usagecap = { capNow: (policy, now) => { asked.push([policy, now]); return count || { capped: true, used: 850, cap: 1000, pct: 85, warn: true, over: false, tz: 'UTC', complete: true, known: true, month: '2026-10' }; } };
     const op = { refresh: () => ({ applied: { org: whose || orgId, version: 3, policy: CAP }, refused: null }) };
     await r.tick({ root, remote: c, sources: sources(), orgpolicy: op, usagecap, now: Date.UTC(2026, 9, 7, 12) });
     const sent = c.sent.find((x) => x.route === r.ROUTE);
@@ -986,7 +986,7 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
     return { body: sent.body, asked };
   };
   const named = await send(NAMED);
-  assert.deepEqual(named.body.policyUsage, { used: 850, cap: 1000, warn: true, over: false }, 'CONTROL: under words naming the policy, the usage is sent');
+  assert.deepEqual(named.body.policyUsage, { used: 850, cap: 1000, warn: true, over: false, month: '2026-10' }, 'CONTROL: under words naming the policy, the usage is sent');
   assert.deepEqual(named.asked, [[CAP, Date.UTC(2026, 9, 7, 12)]], 'counted against the policy in force, at the tick\'s clock');
   const without = await send(['agent names, the AI provider and model each uses']);
   assert.equal('policyUsage' in without.body, false, 'the usage left under words that do not name the policy');
@@ -1002,8 +1002,8 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
   assert.equal('policyUsage' in short.body, false, 'a count still catching up was sent as the month');
   assert.equal('policyVersion' in short.body || 'policyRefused' in short.body, false, 'the version went without the count, which clears the parent\'s row');
   // Still catching up but held up by the month's saved count (a restart): a true lower bound, so it goes.
-  const floored = await send(NAMED, { count: { capped: true, used: 900, cap: 1000, pct: 90, warn: true, over: false, tz: 'UTC', complete: false, known: true } });
-  assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false }, 'a restarted board blanked the count it already knew');
+  const floored = await send(NAMED, { count: { capped: true, used: 900, cap: 1000, pct: 90, warn: true, over: false, tz: 'UTC', complete: false, known: true, month: '2026-10' } });
+  assert.deepEqual(floored.body.policyUsage, { used: 900, cap: 1000, warn: true, over: false, month: '2026-10' }, 'a restarted board blanked the count it already knew');
   const none = await send(NAMED, { count: { capped: false } });
   assert.equal('policyUsage' in none.body, false, 'no cap, and usage was sent');
 });
@@ -1011,14 +1011,15 @@ test('#6309: the month\'s usage against the cap leaves only under words naming t
 test('#6309: reaching the heads-up or the cap is a change; the count moving is not; a bad shape is left out', () => {
   const base = { world: 'w', agents: [{ name: 'Leo', state: 'idle' }], projects: [] };
   const sig = (x) => r.signature(r.build(Object.assign({ reason: 'change' }, base, x)));
-  const u = (used, warn, over) => ({ policyUsage: { used, cap: 1000, warn, over } });
+  const u = (used, warn, over) => ({ policyUsage: { used, cap: 1000, warn, over, month: '2026-10' } });
   assert.equal(sig(u(100, false, false)), sig(u(700, false, false)), 'the count moving made a change');
   assert.notEqual(sig(u(700, false, false)), sig(u(800, true, false)), 'reaching the heads-up was not a change');
   assert.notEqual(sig(u(800, true, false)), sig(u(1000, true, true)), 'reaching the cap was not a change');
   const crypto = require('node:crypto');
   assert.equal(sig({}), crypto.createHash('sha256').update(JSON.stringify([['Leo'], []])).digest('hex'), 'a board with no cap got a new signature');
   for (const bad of [{ used: -1, cap: 1000, warn: false, over: false }, { used: 1.5, cap: 1000, warn: false, over: false },
-    { used: 1, cap: 0, warn: false, over: false }, { used: 1, cap: 1000, warn: 'yes', over: false }, { used: 1, cap: 1000 }, 'x', null]) {
+    { used: 1, cap: 0, warn: false, over: false }, { used: 1, cap: 1000, warn: 'yes', over: false }, { used: 1, cap: 1000 },
+    { used: 1, cap: 1000, warn: false, over: false }, { used: 1, cap: 1000, warn: false, over: false, month: '2026-13' }, 'x', null]) {
     assert.equal('policyUsage' in r.build({ world: 'w', policyUsage: bad }), false, JSON.stringify(bad));
   }
 });

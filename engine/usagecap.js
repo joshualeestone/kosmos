@@ -122,7 +122,10 @@ function withFloor(policy, m) {
   const floor = readFloor(m.since);
   const used = m.complete && !floor.sameZone ? m.tokens : Math.max(m.tokens, floor.used);
   if (m.complete) writeFloor(m.since, used);
-  return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor.used > 0 };
+  /* `month` ('YYYY-MM') names the month counted, so a count carried forward after the board stops reporting is never
+     read as this month's. The 1st's local midnight falls within 14 hours of the UTC 1st, so two days on is that month. */
+  const month = new Date(m.since + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7);
+  return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor.used > 0, month };
 }
 
 /* Mode 'sync' only (tests): the inline count is kept for MEMO_MS, or MEMO_SHORT_MS while catching up or past the
