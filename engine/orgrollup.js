@@ -85,8 +85,12 @@ function providerOfModel(model) {
  *   agents       [{ name, provider, model, state }]
  *   projects     [{ name, agents: [agent name] }]
  *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
- *   lastActive, backupLastOk, policyVersion, policyRefused
+ *   lastActive, backupLastOk, policyVersion, policyRefused, policyUsage ({ used, cap, warn, over }, kosmos#6309)
  */
+function usageOk(u) {
+  return !!u && typeof u === 'object' && Number.isSafeInteger(u.used) && u.used >= 0 && Number.isSafeInteger(u.cap) && u.cap >= 1
+    && typeof u.warn === 'boolean' && typeof u.over === 'boolean';
+}
 function build(input) {
   const i = input || {};
   // The clock the body is checked against: the tick's own (review 20), so build() is a pure function of its input.
@@ -184,6 +188,9 @@ function build(input) {
       policyVersion: Number.isSafeInteger(i.policyVersion) && i.policyVersion >= 1 ? i.policyVersion : null,
       policyRefused: i.policyRefused === true,
     } : {}),
+    /* kosmos#6309: this month's tokens against the policy's usage cap, so the parent's console row shows used / cap and
+       whether the heads-up or the cap is reached. Whole numbers and booleans only; anything else leaves it out. */
+    ...(usageOk(i.policyUsage) ? { policyUsage: { used: i.policyUsage.used, cap: i.policyUsage.cap, warn: i.policyUsage.warn, over: i.policyUsage.over } } : {}),
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
@@ -408,6 +415,9 @@ function signature(body) {
      daily. Added only when the body carries it, so a board under words not naming the policy keeps its signature. */
   const parts = [agents, projects];
   if ('policyVersion' in body) parts.push([body.policyVersion, body.policyRefused === true]);
+  /* kosmos#6309: reaching the heads-up or the cap is a change, so the parent hears within minutes; the count itself is
+     not (it moves with every message, and would send every few minutes). Added only when the body carries it. */
+  if (body.policyUsage) parts.push(['usage', body.policyUsage.warn, body.policyUsage.over]);
   return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 
@@ -615,7 +625,7 @@ async function sendOthers(c) {
     if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
     // The company's policy is the computer's, reported by the enrolled Kosmos. Stripped BEFORE the signature below, so
     // the signature is of what is sent (board review 12: moving this after it would change every other Kosmos's).
-    delete g.policyVersion; delete g.policyRefused;
+    delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
     const sig = signature(build(Object.assign({ world: got.world, nowMs: c.now, reason: 'change' }, g)));
     const reason = c.reason === 'daily' || missedPrev.has(got.world) ? 'daily' : c.reason;
     /* A partial read (board reviews 1 and 3): the company takes a Kosmos's statuses from its first daily of the day,
@@ -778,7 +788,7 @@ async function tick(opts) {
      applyPolicy makes before saving, a bundle over 64 KB or naming another company, which a working coordinator never
      sends (it caps a policy at 16 KB and signs each company's own) and which never reach the disk. Known limit
      (review 5): a newer bundle left unapplied by a failed save, then expired a week later, reads as a refusal. */
-  delete g.policyVersion; delete g.policyRefused;
+  delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
   if (accepted.policyConsented === true) {
     try {
       const op = o.orgpolicy || require('./orgpolicy');
@@ -786,8 +796,12 @@ async function tick(opts) {
       const mine = pr.applied && rec.org && pr.applied.org === rec.org.id ? pr.applied : null;
       g.policyVersion = mine ? mine.version : null;
       g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
+      /* kosmos#6309: the cap's count, only for this company's policy and only once it has caught up (a short count is
+         left out, so the company keeps what it had, rather than reporting too little). */
+      const u = mine ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
+      if (u.capped && u.complete !== false) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over };
     } catch {
-      delete g.policyVersion; delete g.policyRefused;
+      delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
       const lp = st.lastPolicy;
       if (lp && typeof lp === 'object' && 'version' in lp) { g.policyVersion = lp.version; g.policyRefused = lp.refused === true; }
     }

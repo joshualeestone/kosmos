@@ -70,7 +70,8 @@ function others(gathered) {
   };
 }
 const inv = (name) => ({ agents: [{ name, provider: 'openai', model: 'gpt-5.1', state: 'working' }], projects: [{ name: 'P-' + name, agents: [name] }],
-  usageByDay: { '2026-10-07': { 'gpt-5.1': { input_tokens: 5 } } }, lastActive: null, partial: false, policyVersion: 9 });
+  usageByDay: { '2026-10-07': { 'gpt-5.1': { input_tokens: 5 } } }, lastActive: null, partial: false, policyVersion: 9,
+  policyUsage: { used: 5, cap: 10, warn: true, over: false } });
 const T0 = Date.UTC(2026, 9, 7, 12);
 const rollups = (c) => c.sent.filter((x) => x.route === r.ROUTE).map((x) => x.body);
 
@@ -92,6 +93,7 @@ test('#5532 widening: with the enrolled Kosmos\'s daily, every other Kosmos on t
     assert.equal(x.usageWithheld, true, 'another Kosmos sent usage the words do not name');
     assert.deepEqual(x.usage, [], 'usage rows left another Kosmos');
     assert.equal('policyVersion' in x, false, 'another Kosmos reported a policy version');
+    assert.equal('policyUsage' in x, false, 'another Kosmos reported a usage cap count (#6309: the cap is the computer\'s)');
   }
 });
 
