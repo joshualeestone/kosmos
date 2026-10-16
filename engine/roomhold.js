@@ -441,7 +441,7 @@ async function flushReleased(roster, { isAgy, isLimitable, readReport, now, deca
       if (inProjects.length && !workingNow(readReport, inName, now, decayMs)) {
         const chatMod = require('./chat');
         if (chatMod.addressable(inName, roster).ok === true && !chatMod.accountHeldVerdict(inName, roster) && boxEmpty(card) === true) {
-          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, only: inProjects });
+          const done = await flushOnIdle(inName, { deliver, roster, shownOf, DELIVERY, env, stale, afterOf, only: inProjects });
           inputProjects(inName);   // drop the notes for posts now told
           for (const d of done) out.push({ name: inName, why: 'input', ...d });
           continue;
@@ -545,4 +545,4 @@ function carriedLine(name, projectId, ids, after, state) {
     : `room-hold: ${name} could not yet be told of ${ids.length} held post(s) in ${projectId} on an arrival there (delivery=${state || 'none'})\n`;
 }
 
-module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, inputNoted, forgetInput, carriedLine };
+module.exports = { withoutStale, HELD, KEEP, SHOWN, dir, fileFor, off, shouldHold, hold, heldIn, heldProjects, take, restore, forget, forgetProject, dropShown, clauseFor, flushOnIdle, addressedId, plainId, flushReleased, noteInput, toldLine, cappedId, isAddressed, isCapped, noteLimit, limitKept, carriedLine };
