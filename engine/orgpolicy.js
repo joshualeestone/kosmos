@@ -337,7 +337,10 @@ function capAt(policy = currentStrict(), used = 0) {
 }
 
 /** kosmos#6309: { ok: true } | { ok: false, because } for giving an agent a new message with `used` tokens this month. */
-function capAllows(policy = currentStrict(), used = 0) {
+function capAllows(policy, used) {
+  /* Both required: the gate is usagecap.capAllows, which counts the month. A call that forgot the count would read 0
+     and always allow. */
+  if (!Number.isFinite(used)) throw new Error('orgpolicy.capAllows needs this month\'s count; the gate is usagecap.capAllows');
   const c = capAt(policy, used);
   if (!c.capped || !c.over) return { ok: true };
   return { ok: false, because: capSentence(c) };
