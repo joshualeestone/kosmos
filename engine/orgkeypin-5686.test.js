@@ -245,3 +245,11 @@ test('the backup tick says a refused company key to the person, once', async () 
   await stop.tick(); t += 3 * 24 * 3600 * 1000; await stop.tick();
   assert.deepEqual(said, [`company backup: ${refused.because}`]);
 });
+
+test('the backup job carries orgKeyRefused to the scheduler, and snapshots nothing', async () => {
+  const job = require('./backupjob');
+  let snaps = 0;
+  const r = await job.runOnce({}, { ensureMemberKey: async () => ({ ok: false, orgKeyRefused: true, because: 'refused' }), now: () => Date.now(), snapshot: async () => { snaps++; return { ok: true }; } });
+  assert.equal(r.result.orgKeyRefused, true, JSON.stringify(r));
+  assert.equal(snaps, 0);
+});
