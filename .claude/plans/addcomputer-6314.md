@@ -22,7 +22,7 @@ it $0). The coordinator already sends that price with the address list (`price.d
     unseen without it). Text only, never markup (`plusSiComputerSay`).
   - No address waiting: heading "Add this computer to your account"; "This account has no room for this computer yet.
     Each computer you add is $20 a month." with the figure from `plusSiAddPrice(b.price)`; no
-    figure: "costs a monthly fee, shown before you pay". Button "Add this computer". Hint: "Paying opens the
+    figure: "has a fee, shown before you pay". Button "Add this computer". Hint: "Paying opens the
     Kosmos+ website. Come back to this window when you are done, and it checks by itself." (Coming back fires
     focus, which always re-reads and re-arms the 20 minutes.) Pending and could-not-list
     variants reworded in the same voice.

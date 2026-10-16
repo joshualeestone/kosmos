@@ -50292,9 +50292,10 @@ function paintAsk() {
   /* kosmos#6314 (Josh 11:30, landed scrolled down at the devices list: "on the laptop it doesnt say anything about it"):
      on Kosmos+ the requests stay in this section (#4610), so a NEW one is scrolled into view, once per set of requests;
      the same set repainting every few seconds never moves the page again. */
-  const waitingKey = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => d.device_id).join(',') : '';
-  if (waitingKey && waitingKey !== ASK.shownKey && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
-  ASK.shownKey = waitingKey;
+  const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id)) : [];
+  const before = ASK.shownKey ? ASK.shownKey.split(',') : [];
+  if (waiting.some((id) => before.indexOf(id) === -1) && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  ASK.shownKey = waiting.join(',');
 }
 async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
@@ -51715,9 +51716,9 @@ function plusSiComputerSay() {
   if (!el || !said || !shown) return;
   const name = String(el.value || '').trim();
   // Text only, never markup: the name is the person's own (or the computer's), shown as typed.
-  said.textContent = name ? 'Your Kosmos+ account will list this computer as ' : 'Your Kosmos+ account will list this computer with no name';
-  shown.textContent = name;
-  shown.hidden = !name;
+  // An emptied box sends the plain name, which the account lists as "This computer" (engine deviceNameFrom).
+  said.textContent = 'Your Kosmos+ account will list this computer as ';
+  shown.textContent = name || 'This computer';
 }
 function plusSiComputerEdit(open) {
   const says = document.getElementById('plus-si-computer-says');
@@ -52492,7 +52493,7 @@ let PLUS_SI_BOUGHT_LAST = null;   // the last list shown, re-shown when a re-rea
 let PLUS_SI_AUTO_TRIED = [];
 let PLUS_SI_NONE_SINCE = 0;     // when the none panel was first shown this sign-in (0: not shown)
 let PLUS_SI_AUTO_READ = false;  // set by plusSiBoughtAutoCheck just before its click; the click handler takes and clears it
-var PLUS_SI_AUTO_OFF = false;   // a browser check sets this to time its own reads; only the 10 s tick obeys it, not focus
+
 const PLUS_SI_AUTO_EVERY_MS = 10000, PLUS_SI_AUTO_FOR_MS = 20 * 60 * 1000;
 async function plusSiBoughtRead() {
   const ctl = new AbortController();
@@ -52648,14 +52649,14 @@ function plusSiBoughtPick(b, opts) {
   document.getElementById('plus-si-bought-none-lead').textContent = pending
     ? 'An address on this account is waiting for its payment.'
     : 'This account has no room for this computer yet. '
-      + (cost ? 'Each computer you add is ' + cost + '.' : 'Each computer you add costs a monthly fee, shown before you pay.');
+      + (cost ? 'Each computer you add is ' + cost + '.' : 'Each computer you add has a fee, shown before you pay.');
   /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
      reads as another computer's: say how to free it, beside the way to buy one. */
   const own = PLUS_SI_SESSION && /^([a-z0-9-]{3,32}\.[a-z0-9.-]+)$/.exec(String(PLUS_SI_SESSION.account_address || ''));
   const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
   /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   document.getElementById('plus-si-bought-none-hint').textContent = (pending
-    ? 'If you finished paying, check again in a moment. If not, finish on the Kosmos+ website.'
+    ? 'If you finished paying, this window checks by itself in a moment. If not, finish on the Kosmos+ website.'
     : 'Paying opens the Kosmos+ website. Come back to this window when you are done, and it checks by itself.')
     + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
@@ -52677,7 +52678,13 @@ function plusSiBoughtPick(b, opts) {
     if (!auto) plusSiMsg('');   // the page's own read leaves a line the person may be reading
     if (!auto) PLUS_SI_REFUSED = [];   // the person asked to look again (the page's own read does not): an address refused earlier may be free now (its computer retired)
     const run = plusSiSession(PLUS_SI_SESSION, true, undefined, auto); const sq = PLUS_SI_BOUGHT_SEQ;   // the read's own number, taken as it starts
-    run.catch(() => { if (ep === PLUS_SI_EPOCH && sq === PLUS_SI_BOUGHT_SEQ && !auto) plusSiReReadFailed(); });
+    run.catch(() => {
+      if (ep !== PLUS_SI_EPOCH || sq !== PLUS_SI_BOUGHT_SEQ) return;
+      if (!auto) { plusSiReReadFailed(); return; }
+      // The page's own read: no failure said, but the controls it disabled come back, or no read could start again.
+      const r = document.getElementById('plus-si-bought-recheck'); if (r) r.disabled = false;
+      document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = false; });
+    });
   });
 }
 /* kosmos#6314: the page's own Check again, only while the none panel is on screen and this window is in front, for
@@ -52686,8 +52693,8 @@ function plusSiBoughtAutoCheck(fromFocus) {
   const none = document.getElementById('plus-si-bought-none');
   const btn = document.getElementById('plus-si-bought-recheck');
   if (!PLUS_SI_SESSION || !none || none.hidden || none.offsetParent === null || !btn || btn.disabled) return;
+  if (window.__kosmosPlusAutoOff === true) return;   // test seam: a browser check times its own reads
   if (fromFocus === true && PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();   // coming back re-arms the 20 minutes
-  else if (PLUS_SI_AUTO_OFF) return;
   if (document.visibilityState !== 'visible' || !PLUS_SI_NONE_SINCE || Date.now() - PLUS_SI_NONE_SINCE > PLUS_SI_AUTO_FOR_MS) return;
   PLUS_SI_AUTO_READ = true;
   btn.click();
