@@ -34,3 +34,7 @@ That people want the map per project, not per company.
 - `docs/browser-checks/render-teammap-6103.js`: opens, closes, every member, opens an agent, fits 375 wide, and
   a forced rebuild (setLive memory cleared, a new node) keeps the focused member focused. Mutants proven red:
   no button, dead map click, no focus restore.
+- The same browser check proves movedBy reaches the page through the real route (review round 3): a part
+  written to the board's projects.json as moved by tmada shows "tmada handed tmben 1 open part" after a
+  reload, after a CONTROL showing a screen-given task is no hand-off. Mutant: partsOf without its movedBy
+  carry reds it.

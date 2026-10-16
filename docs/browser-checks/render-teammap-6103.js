@@ -134,6 +134,49 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const viaMap = await detailOf();
     say('a member on the map opens that agent page', viaMap.shown && /tmben/i.test(viaMap.name), JSON.stringify(viaMap));
 
+    // movedBy reaches the browser through the real route (GET /api/projects), not only through projects.mbList in the
+    // unit test: a part recorded on disk as moved by tmada shows as a hand-off on the page.
+    const mbPid = await p.evaluate(async () => {
+      const r = await fetch('/api/projects'); const j = await r.json();
+      const pr = (j.projects || []).find((x) => x.name === 'Map Team');
+      const t = await fetch('/api/project/' + pr.id + '/tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sentence: 'Hand this over', who: 'tmben' }) });
+      if (!t.ok) throw new Error('task create failed: ' + t.status + ' ' + (await t.text()));
+      return pr.id;
+    });
+    const mbOpenMap = async () => {
+      await p.reload({ waitUntil: 'networkidle' });
+      if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+      await p.click('[data-tab="projects"]');
+      await p.locator('#pj-list').getByText('Map Team').first().click();
+      await p.waitForFunction(() => document.querySelectorAll('#pj-one-agents .pj-member').length === 3, null, { timeout: 15000 });
+      if ((await state()).open === false) await p.click('#pj-teammap-btn');
+      return p.textContent('#pj-teammap');
+    };
+    const mbBefore = await mbOpenMap();
+    say('CONTROL: a task given out from the screen is no hand-off between agents', /tmben[^]*holds 1 open part/.test(mbBefore) && /No hand-offs between agents/.test(mbBefore), mbBefore);
+    // Every projects.json under the data root; the store is the one holding this project (backups and copies can sit beside it).
+    const mbFindStores = (dir, out = []) => { for (const e of fs.readdirSync(dir, { withFileTypes: true })) { const f = path.join(dir, e.name); if (e.isFile() && e.name === 'projects.json') out.push(f); else if (e.isDirectory()) mbFindStores(f, out); } return out; };
+    const mbCandidates = mbFindStores(roots.DATA);
+    const mbStore = mbCandidates.find((f) => { try { return fs.readFileSync(f, 'utf8').includes(mbPid); } catch { return false; } });
+    say('CONTROL: the projects store is on disk where the board reads it', !!mbStore, JSON.stringify(mbCandidates));
+    const mbAll = JSON.parse(fs.readFileSync(mbStore, 'utf8'));
+    const mbList = Array.isArray(mbAll) ? mbAll : mbAll.projects;
+    const mbProj = mbList.find((x) => x.id === mbPid);
+    const mbTask = mbProj.tasks.find((x) => x.sentence === 'Hand this over');
+    const mbParts = Array.isArray(mbTask.parts) && mbTask.parts.length ? mbTask.parts : [{ id: 1, who: mbTask.who, sentence: mbTask.sentence, closedAt: null }];
+    mbTask.parts = mbParts.map((x, i) => (i === 0 ? { ...x, who: 'tmben', movedVia: 'process', movedBy: 'tmada', movedAt: new Date().toISOString() } : x));
+    fs.writeFileSync(mbStore, JSON.stringify(mbAll, null, 2));
+    const mbDisk1 = fs.readFileSync(mbStore, 'utf8').includes('"movedBy": "tmada"');
+    const mbAfter = await mbOpenMap();
+    // What the route itself serves for that part, so a red says whether the route or the page lost movedBy.
+    const mbServed = await p.evaluate(async (id) => {
+      const j = await (await fetch('/api/projects')).json();
+      const t = ((j.projects || []).find((x) => x.id === id) || {}).tasks || [];
+      const hit = t.find((x) => x.sentence === 'Hand this over');
+      return hit ? { keys: Object.keys(hit), parts: hit.parts } : 'no such task in the route';
+    }, mbPid);
+    say('a part moved by an agent shows as a hand-off on the page (movedBy survives the route)', /tmada handed tmben 1 open part/.test(mbAfter), 'disk after write=' + mbDisk1 + ' disk after route=' + fs.readFileSync(mbStore, 'utf8').includes('"movedBy": "tmada"') + ' route parts=' + JSON.stringify(mbServed) + ' page=' + mbAfter);
+
     say('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) {
     failures++;
