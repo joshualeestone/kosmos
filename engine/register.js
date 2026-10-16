@@ -222,7 +222,9 @@ function unxml(v) {
     .replace(/&#([0-9]+);/g, (m, d) => String.fromCodePoint(parseInt(d, 10)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
+const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything this large is not read
 function plistKeys(file) {
+  if (fs.statSync(file).size > PLIST_MAX) throw new Error('too large to be a login job');
   const buf = fs.readFileSync(file);
   let text;
   if (buf.slice(0, 8).toString('latin1') === 'bplist00') {
@@ -235,7 +237,8 @@ function plistKeys(file) {
   const pa = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text);
   const prog = /<key>Program<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
   const args = (prog ? [unxml(prog[1])] : []).concat(pa ? [...pa[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => unxml(m[1])) : []);
-  const periodic = has('StartInterval') || has('StartCalendarInterval');
+  // Run on a schedule or on an event: a task, not an agent.
+  const periodic = ['StartInterval', 'StartCalendarInterval', 'WatchPaths', 'QueueDirectories', 'StartOnMount'].some(has);
   const starts = !flag('Disabled') && (flag('KeepAlive') || (flag('RunAtLoad') && !periodic));
   return { dir: wd ? unxml(wd[1]) : null, starts, args };
 }
@@ -250,7 +253,8 @@ function folderSpellings(...dirs) {
   }
   return [...out];
 }
-/* The whole folder path, not a prefix of a longer one: .../workers/leo must not match .../workers/leonardo. */
+/* The whole folder path, bounded by characters a name cannot hold: .../workers/leo does not match .../workers/leonardo
+   or .../xworkers/leo. A path below the folder (.../leo/sub) does match. */
 function mentionsFolder(texts, spellings) {
   for (const sp of new Set(spellings)) {
     if (!sp) continue;
@@ -282,6 +286,7 @@ function foreignLoginFolders() {
   let names;
   try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts, suspects, unknownAll: !(e && e.code === 'ENOENT') }; }
   const seen = new Set();
+  const scripts = new Set();
   for (const f of names) {
     if (!f.endsWith('.plist') || f.startsWith(create.SERVICE_LABEL_PREFIX)) continue;
     const file = path.join(create.AGENTS_DIR, f);
@@ -293,7 +298,9 @@ function foreignLoginFolders() {
     let got = FOREIGN_CACHE.get(file);
     if (!got || got.sig !== sig) {
       try { got = { sig, keys: plistKeys(file) }; } catch (e) { got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null }; }
-      FOREIGN_CACHE.set(file, got);
+      // A file that could not be read at all is asked again next time (a timeout or a permission may clear); one that
+      // read but is not a property list stays as read until it changes.
+      if (got.keys || got.raw !== null) FOREIGN_CACHE.set(file, got); else FOREIGN_CACHE.delete(file);
     }
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
     if (!got.keys.starts) continue;
@@ -303,11 +310,13 @@ function foreignLoginFolders() {
     texts.push(got.keys.args.join('\n'));
     for (const a of got.keys.args) {
       if (!path.isAbsolute(a)) continue;
+      scripts.add(a);
       const t = scriptText(a);
       if (t !== null) texts.push(t);
     }
   }
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);
+  for (const k of SCRIPT_CACHE.keys()) if (!scripts.has(k)) SCRIPT_CACHE.delete(k);
   return { dirs, texts, suspects, unknownAll };
 }
 
