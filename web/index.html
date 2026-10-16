@@ -19385,7 +19385,7 @@ window.kosmosMeasureScrollbarWidth();
                  anyone is sent to pay. The figure is never written here: it is Stripe's, read with the list
                  (plusSiAddPrice), so the page and the website cannot disagree. -->
             <p class="plus-si-lead" id="plus-si-bought-none-lead">Your plan covers one computer, and it is already in use.</p>
-            <p class="fhint" id="plus-si-bought-none-hint">Add this one on the Kosmos+ website, then come back and press Check again.</p>
+            <p class="fhint" id="plus-si-bought-none-hint">Paying opens the Kosmos+ website. Come back here when you are done; this computer notices by itself.</p>
             <div class="frow">
               <a class="btn uprime" id="plus-si-bought-buy" style="text-decoration:none" href="#" target="_blank" rel="noreferrer noopener">Add this computer</a>
               <button class="btn" type="button" id="plus-si-bought-recheck">Check again</button>
@@ -51402,7 +51402,7 @@ function paintPlusJoin() {
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
      the code steps back, small and grey. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Now press <b>Allow</b> on ' + name + other + '.</p>'
+    + '<p class="plus-join-next">Now press Allow on ' + name + other + '.</p>'
     + '<p class="plus-join-code-small" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
@@ -52668,7 +52668,7 @@ function plusSiBoughtPick(b) {
   /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   document.getElementById('plus-si-bought-none-hint').textContent = (pending
     ? 'If you finished paying, check again in a moment. If not, finish on the Kosmos+ website.'
-    : 'Add this one on the Kosmos+ website, then come back and press Check again.')
+    : 'Paying opens the Kosmos+ website. Come back here when you are done; this computer notices by itself.')
     + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
   buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
