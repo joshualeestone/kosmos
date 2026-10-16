@@ -2081,8 +2081,16 @@ async function deviceAllow(id, name, code) {
     if (/\bsas_mismatch:/.test(said)) return { ok: false, because: 'code_changed' };
     if (/\bsas_pending:/.test(said)) return { ok: false, because: 'code_pending' };
   }
-  return parseSaid(r);
+  const got = parseSaid(r);
+  /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
+     nothing was allowed and the tunnel took back its local grant. Said as a refusal, never as allowed. */
+  if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
+    return { ok: false, because: 'Kosmos+ has no sign-in waiting with that id, so nothing was allowed.' };
+  }
+  return got;
 }
+/** kosmos#6286: the tunnel's `account_ack` when the coordinator holds no sign-in with the id an Allow named. */
+const UNKNOWN_DEVICE = 'unknown_device';
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
 async function deviceDeny(id) {
