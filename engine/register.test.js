@@ -860,3 +860,13 @@ test('#6310: one survey converts at most four binary plists; the fifth is read o
     assert.deepEqual(mac.survey().missing, []);
   } finally { t.mock.timers.reset(); }
 });
+
+test('#6310: a WorkingDirectory created after the first survey covers the agent at once', () => {
+  reset();
+  agent('latex');
+  const run = path.join(create.workerDir('latex'), 'run');
+  foreignJob('com.latex.discord.plist', { dir: run });
+  assert.deepEqual(mac.survey().missing, ['latex'], 'the folder does not exist yet, so nothing starts in it');
+  fs.mkdirSync(run, { recursive: true });
+  assert.deepEqual(mac.survey().missing, [], 'a remembered answer missed the folder appearing');
+});

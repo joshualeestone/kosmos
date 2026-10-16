@@ -380,7 +380,12 @@ function foreignLoginFolders() {
     sigParts.push(file + ':' + sig);
     let got = FOREIGN_CACHE.get(file);
     if (!got || got.sig !== sig || (got.retryAt && Date.now() >= got.retryAt)) {
-      try { got = { sig, keys: plistKeys(file) }; } catch (e) { got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null }; }
+      try { got = { sig, keys: plistKeys(file) }; } catch (e) {
+        got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null };
+        // Said once per file and state, so a login job that keeps the banner quiet leaves a trace in the board's log.
+        if (got.raw === null && !(FOREIGN_CACHE.get(file) || {}).logged) { got.logged = true; console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
+        else if (got.raw === null) got.logged = true;
+      }
       // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
       // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.
       if (!got.keys && got.raw === null) got.retryAt = Date.now() + 60000;
@@ -389,7 +394,11 @@ function foreignLoginFolders() {
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
     if (!got.keys.startsHere) continue;
     if (got.keys.dir) {
-      try { const real = fs.realpathSync.native(got.keys.dir); dirs.add(real); sigParts.push('wd:' + real); } catch { /* a job whose folder is gone starts nobody we know */ }
+      // The written folder goes into the signature too, so a folder created later is seen at once.
+      sigParts.push('wd=' + got.keys.dir);
+      if (path.isAbsolute(got.keys.dir)) {   // a relative one has no meaning outside the job
+        try { const real = fs.realpathSync.native(got.keys.dir); dirs.add(real); sigParts.push('wd:' + real); } catch { /* not there (yet) */ }
+      }
     }
     if (!got.keys.starts) continue;   // a scheduled job's own folder counted above; its scripts do not
     texts.add(got.keys.args.join('\n'));

@@ -26,7 +26,13 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   (StartInterval, StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount). Why the split: on 10-16 the
   fleet Mac's survey showed Vivienne with no login job when her bot had not been restored after the move, while her
   scheduled email jobs' scripts name her folder; counting those mentions would have hidden a real missing agent.
-  A KeepAlive dict of conditions only may not start a job at login: accepted over-match.
+  A KeepAlive dict of conditions only may not start a job at login: accepted over-match. A scheduled job's own
+  WorkingDirectory still counts, though it could hide a missing agent the way a script mention would: a WorkingDirectory
+  is a job's own statement of where it runs, much stronger evidence than a word in a script, and the error it risks
+  (a banner line missing) is the safe one; not counting it risks Repair starting a second copy of a running agent.
+- A login job that can never be read (a corrupt binary plist, a root-only file) keeps every agent without its own plist
+  unknown until it changes or goes; the board logs it once ("could not read login job ..."), and #6320 will tell the
+  person. A relative WorkingDirectory is ignored.
 - A job's arguments are searched only when they look like launchers: executable, or named like a script (.sh, .js,
   .py and so on). A log being followed or a data file is never read; when even its folder cannot be opened, only a
   script-like name leaves "no job" unproven. A launcher that exists but cannot be read may be
