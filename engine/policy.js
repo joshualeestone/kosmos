@@ -177,8 +177,10 @@ function read() {
      (persisted by the next mutation, as the v1 migration is) only for that fixed id and that exact name, and only in a
      record written before #6273 (review 1: once a version-3 record holds it, the person chose it, so a rename back to
      it sticks). An entry the person named themselves has a random id. Kept when another entry already wears
-     MIGRATED_NAME, so no two collide. */
-  const old = !(Number(rec.version) >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
+     MIGRATED_NAME, so no two collide. The company's policy is deliberately NOT in that check (review 3): skipping the
+     rename for it would let the next save keep "Company AI policy" for good in a version-3 record, the false owner
+     beside a real one. Two near-equal headings are told apart by their provenance lines, which stay true. */
+  const old = !(typeof rec.version === 'number' && rec.version >= RECORD_VERSION) && policies.find((p) => p.id === MIGRATED_ID && p.name === DEFAULT_NAME);
   if (old && !policies.some((p) => p !== old && p.name.toLowerCase() === MIGRATED_NAME.toLowerCase())) old.name = MIGRATED_NAME;
   return { state: 'saved', policies, because: null };
 }
