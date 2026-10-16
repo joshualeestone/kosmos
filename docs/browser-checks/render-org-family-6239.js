@@ -354,7 +354,7 @@ async function run(engineName) {
     await page.waitForTimeout(250);
     const r8 = { msg: await text('plus-org-msg'), focus: await focus(), row: await shown('plus-org-words'), say: await text('plus-org-say'),
       reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
-    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread && !r8.row
+    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus === 'plus-org-say' && r8.reread && !r8.row
         && r8.say.includes('reports nothing to the family') && !r8.say.includes('accepts'),
       E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again, nobody asked to accept', JSON.stringify(r8));
     // R14: held-back words do not outlive this membership. Leave (no read for a minute after it), join the family again,
@@ -409,9 +409,9 @@ async function run(engineName) {
     await page.waitForTimeout(300);
     const r15 = { msg: await text('plus-org-msg'), box: await shown('plus-org-family'), row0: await shown('plus-org-words') };
     await reread(WAITING);
-    Object.assign(r15, { row: await shown('plus-org-words'), say: await text('plus-org-say') });
+    Object.assign(r15, { row: await shown('plus-org-words'), say: await text('plus-org-say'), focus: await focus() });
     chk(r15.msg === 'Kosmos+ did not answer as a family account, so there are no family words to read here.' && !r15.box && !r15.row0 && !r15.row
-        && !r15.say.includes('accepts'), E + ' R15 a review answered as not a family\'s says so and the words stay held back', JSON.stringify(r15));
+        && !r15.say.includes('accepts') && r15.focus === 'plus-org-say', E + ' R15 a review answered as not a family\'s says so, the words stay held back, focus on the joined sentence', JSON.stringify(r15));
     // A read that says the words are no longer needed releases them.
     await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
@@ -420,9 +420,9 @@ async function run(engineName) {
     await setPreview({ ok: false, code: 'org_not_named', because: 'Your family does not name this Kosmos as your work Kosmos right now, so there is nothing to accept here.' });
     await page.click('#plus-org-words');
     await page.waitForTimeout(300);
-    const r16 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words'), say: await text('plus-org-say') };
-    chk(r16.msg.startsWith('Your family does not name this Kosmos') && !r16.row && !r16.say.includes('accepts'),
-      E + ' R16 a review preview refused as not named here holds the words back', JSON.stringify(r16));
+    const r16 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words'), say: await text('plus-org-say'), focus: await focus() };
+    chk(r16.msg.startsWith('Your family does not name this Kosmos') && !r16.row && !r16.say.includes('accepts') && r16.focus === 'plus-org-say',
+      E + ' R16 a review preview refused as not named here holds the words back, focus on the joined sentence', JSON.stringify(r16));
     await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R17: a read older than the page's own write is dropped, and its one-time note is carried to the next read.

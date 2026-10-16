@@ -137,6 +137,12 @@ joining again.
   code, so the words stay offered (the engine test pins both).
 - Focus goes to the joined sentence when a review preview is held back, as on the Accept path.
 
+## Review 16 (sonnet) fixes
+- The joined sentence had no tabindex, so focus sent there by a held-back preview went nowhere on a fresh page (only the
+  Accept paths set it). It carries tabindex="-1" in the markup; R8, R15 and R16 assert focus lands on it.
+- The not-member Accept refusal repaints before focusing the sentence; sign-out also drops a carried note and a pending
+  "could not record" check.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
