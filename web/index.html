@@ -19903,7 +19903,7 @@ window.kosmosMeasureScrollbarWidth();
        tab layout's button. Here in the head, under the notice: the head is not rebuilt each poll. Painted by
        paintRailTeamMap (from paintRailPjNotice) with the same pjTeamMap and PJ_TEAMMAP_OPEN as the tab layout. -->
   <button class="btn-quiet pj-tmbtn alist-tmbtn" id="alist-teammap-btn" type="button" aria-expanded="false" aria-controls="alist-teammap" hidden>Team map</button>
-  <div id="alist-teammap" class="pjtm alist-tm" hidden></div>
+  <div id="alist-teammap" class="pjtm alist-tm" aria-label="Team map" hidden></div>
 </div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the
@@ -24649,7 +24649,7 @@ function paintRailTeamMap(op) {
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
-  setIfChanged(box, open ? pjTeamMap(op, LAST) : '');
+  setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : []) : '');
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
     const to = back || (btn.getClientRects().length > 0 ? btn : null);

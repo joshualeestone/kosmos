@@ -146,6 +146,19 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
     say('CONTROL: the first agent row is in view before the map opens', before.firstRow === true, JSON.stringify(before.firstRow));
     say('with the map open the first agent row is still in view', opened.firstRow === true, JSON.stringify(opened.firstRow));
+    const uncapped = () => p.evaluate(() => {
+      const box = document.getElementById('alist-teammap');
+      box.style.maxHeight = 'none';
+      const r0 = document.querySelector('#alist .lrow');
+      const r = r0 ? r0.getBoundingClientRect() : null;
+      const out = { pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+        firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
+      box.style.maxHeight = '';
+      return out;
+    });
+    // CONTROL for the arm above: without the cap the same instrument must see the row leave, or it cannot see a push.
+    const uncapTall = await uncapped();
+    say('CONTROL: at 1280x900, with the cap removed, the first agent row leaves the view', uncapTall.firstRow === false, JSON.stringify(uncapTall));
     // The narrowest, shortest window the consolidated layout keeps: 960x720. Below 1280 the agents column folds by
     // default (CONSOLIDATED_FOLD_WIDTH), and the map goes with it; a person who unfolds it gets the rail at its floor.
     await p.setViewportSize({ width: 960, height: 720 });
@@ -161,17 +174,8 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('at 960x720 the open map scrolls itself, not the page', short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
     say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
     // CONTROL for the two arms above: without the cap the same instruments must go red, or they cannot see a push.
-    const uncapped = await p.evaluate(() => {
-      const box = document.getElementById('alist-teammap');
-      box.style.maxHeight = 'none';
-      const r0 = document.querySelector('#alist .lrow');
-      const r = r0 ? r0.getBoundingClientRect() : null;
-      const out = { pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
-        firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
-      box.style.maxHeight = '';
-      return out;
-    });
-    say('CONTROL: with the cap removed the first agent row leaves the view', uncapped.firstRow === false, JSON.stringify(uncapped));
+    const uncapShort = await uncapped();
+    say('CONTROL: at 960x720, with the cap removed, the first agent row leaves the view', uncapShort.firstRow === false, JSON.stringify(uncapShort));
     await p.setViewportSize({ width: 1280, height: 900 });
     await p.waitForFunction(() => window.innerWidth === 1280 && !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
