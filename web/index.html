@@ -11719,6 +11719,10 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
    `.panel p` (0,1,1) out-ranks `.fhint` (0,1,0), so without this it comes out at body type, 13px, the label's size.
    Measured in a browser (2026-10-13): 13 with no font here. `.85rem` would be 13.6px. */
 #plus-state2 #plus-si-computer-hint { font: var(--text-callout) var(--font-ui); color: #8fa0c4; margin: 0 0 8px; }
+/* #6314: the name said before sign-in, one line, the hint's own voice; Change reads at the sentence's size. */
+#plus-state2 #plus-si-computer-says { font: var(--text-callout) var(--font-ui); color: #8fa0c4; margin: 0; }
+#plus-state2 #plus-si-computer-says b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
+#plus-state2 #plus-si-computer-says .linkish { font: inherit; }
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
@@ -19220,11 +19224,18 @@ window.kosmosMeasureScrollbarWidth();
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
              has been read: its words ("...by this name") are only true of a box that shows a name. 47 is
              what fits before the " (Kosmos app)" ending the engine adds. -->
+        <!-- kosmos#6314 (Josh, 2026-10-16: "i wasnt logged in so it shouldnt have asked for a name for the computer
+             because we ask again here"): before sign-in the name is SAID, not asked. The box stays one press away
+             (Change), because it is #5995's privacy control: without it a person's own name ("Sam's MacBook") goes
+             to the account unseen. -->
         <div class="field" id="plus-si-computer-field" hidden>
+          <p class="fhint" id="plus-si-computer-says"><span id="plus-si-computer-said">Your Kosmos+ account will list this computer as </span><b id="plus-si-computer-shown"></b>. <button class="linkish" type="button" id="plus-si-computer-change" aria-controls="plus-si-computer-edit">Change</button></p>
+          <div id="plus-si-computer-edit" hidden>
           <label class="flabel" for="plus-si-computer">Name for this computer</label>
           <p class="fhint" id="plus-si-computer-hint">Your Kosmos+ account will list this computer by this name.</p>
           <input type="text" id="plus-si-computer" class="tk-inp plus-si-wide" maxlength="47" autocomplete="off" spellcheck="false"
             placeholder="This computer" aria-describedby="plus-si-computer-hint">
+          </div>
         </div>
         <div class="frow">
           <button class="btn uprime" type="button" id="plus-signin-code">Email me a code</button>
@@ -19361,10 +19372,14 @@ window.kosmosMeasureScrollbarWidth();
           <p class="plus-si-lead" id="plus-si-bought-lead">Pick the address this computer will use.</p>
           <div class="frow" id="plus-si-bought-list" role="group" aria-labelledby="plus-si-bought-lead"></div>
           <div id="plus-si-bought-none" hidden>
-            <p class="plus-si-lead" id="plus-si-bought-none-lead">Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.</p>
-            <p class="fhint" id="plus-si-bought-none-hint">Buy one on the Kosmos+ website, then check again here.</p>
+            <!-- kosmos#6314 (Josh, 2026-10-16: "instead of saying 'buy an address' ... get them to add the computer to
+                 their account"): framed as adding THIS computer to the account, and it says what that costs before
+                 anyone is sent to pay. The figure is never written here: it is Stripe's, read with the list
+                 (plusSiAddPrice), so the page and the website cannot disagree. -->
+            <p class="plus-si-lead" id="plus-si-bought-none-lead">Your plan covers one computer, and it is already in use.</p>
+            <p class="fhint" id="plus-si-bought-none-hint">Add this one on the Kosmos+ website, then come back and press Check again.</p>
             <div class="frow">
-              <a class="btn uprime" id="plus-si-bought-buy" style="text-decoration:none" href="#" target="_blank" rel="noreferrer noopener">Buy an address</a>
+              <a class="btn uprime" id="plus-si-bought-buy" style="text-decoration:none" href="#" target="_blank" rel="noreferrer noopener">Add this computer</a>
               <button class="btn" type="button" id="plus-si-bought-recheck">Check again</button>
             </div>
           </div>
@@ -51675,12 +51690,35 @@ function plusSiComputerName(again) {
     if (PLUS_SI_COMPUTER.failed) return;
     el.value = r.name;
     PLUS_SI_COMPUTER.loaded = true;
+    plusSiComputerSay();
     const field = document.getElementById('plus-si-computer-field'); if (field) field.hidden = false;
     if (typeof plusSiMeasure === 'function') plusSiMeasure();   // the card grew by one field
   })();
   PLUS_SI_COMPUTER.reading = mine;
   return mine;
 }
+/* kosmos#6314: the line that says the name (the box itself is behind Change). Says what the box holds, so a name
+   kept from an earlier sign-in reads the same; an emptied box is a choice, and says so. */
+function plusSiComputerSay() {
+  const el = document.getElementById('plus-si-computer');
+  const said = document.getElementById('plus-si-computer-said');
+  const shown = document.getElementById('plus-si-computer-shown');
+  if (!el || !said || !shown) return;
+  const name = String(el.value || '').trim();
+  // Text only, never markup: the name is the person's own (or the computer's), shown as typed.
+  said.textContent = name ? 'Your Kosmos+ account will list this computer as ' : 'Your Kosmos+ account will list this computer with no name';
+  shown.textContent = name;
+  shown.hidden = !name;
+}
+function plusSiComputerEdit(open) {
+  const says = document.getElementById('plus-si-computer-says');
+  const edit = document.getElementById('plus-si-computer-edit');
+  if (says) says.hidden = !!open;
+  if (edit) edit.hidden = !open;
+  if (open) { const el = document.getElementById('plus-si-computer'); if (el) el.focus(); }
+  if (typeof plusSiMeasure === 'function') plusSiMeasure();
+}
+{ const ch = document.getElementById('plus-si-computer-change'); if (ch && ch.addEventListener) ch.addEventListener('click', () => plusSiComputerEdit(true)); }
 /** What the start sends for the name: { computer_name } once the box has shown a name, {} before. */
 function plusSiComputerSent() {
   const el = document.getElementById('plus-si-computer');
@@ -51861,6 +51899,7 @@ function plusSiClear() {
   {
     const cn = document.getElementById('plus-si-computer'); if (cn) cn.value = '';
     const cf = document.getElementById('plus-si-computer-field'); if (cf) cf.hidden = true;
+    plusSiComputerEdit(false);   // #6314: the next sign-in says the name again, the box closed
     if (typeof PLUS_SI_COMPUTER !== 'undefined') { PLUS_SI_COMPUTER.loaded = false; PLUS_SI_COMPUTER.reading = null; PLUS_SI_COMPUTER.failed = false; }
   }
   const sug = document.getElementById('plus-si-name-suggested'); if (sug) sug.hidden = true;   // #3842: a fresh one next time
@@ -52292,7 +52331,7 @@ async function plusSiRequestCode(btn) {
   plusSetBusy(btn, false);
   /* #5995: the box shows the name as it was kept (one line, cut to fit; a cleared box stays empty), so coming back
      to this step shows what was sent and not what was typed. */
-  { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') cn.value = r.data.computer_name; }
+  { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') { cn.value = r.data.computer_name; plusSiComputerSay(); } }
   /* #3796: one short line on the code step replaces the paragraph (#6313: its words claim only what the board knows);
      the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
@@ -52508,8 +52547,8 @@ async function plusSiSession(data, again, keep) {
       /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
       plusSiBoughtPick({ addresses: [], buy_url: '' });
       PLUS_SI_BOUGHT_LAST = null;   // a placeholder, not a list: another failed read must not read it as "none waiting"
-      document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not list the addresses on this account just now.';
-      document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or buy one on the Kosmos+ website.';
+      document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not check your account just now.';
+      document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or add this computer on the Kosmos+ website.';
     }
     const why = got.because || 'That did not work. Check again in a moment.';
     plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
@@ -52537,6 +52576,13 @@ async function plusSiSession(data, again, keep) {
   const firstFree = !PLUS_SI_NOT_FREE && !own && !b.this_name && !b.addresses.some((r) => r.first_free === true);
   if (firstFree) { if (again && !keep) plusSiMsg(''); PLUS_SI_FIRST_FREE = true; plusSiAsBefore(data); return; }
   plusSiBoughtPick(b);
+}
+/* kosmos#6314: Stripe's "$20/month" (engine PRICE_SHAPE already refused any other shape) as the page says it,
+   "$20 a month"; '' when there is no figure, and the caller then names no amount. */
+function plusSiAddPrice(said) {
+  const m = /^(\S+)\/(?:(day|week|month|year)|(\d{1,2}) (day|week|month|year)s)$/.exec(String(said || ''));
+  if (!m) return '';
+  return m[2] ? m[1] + ' a ' + m[2] : m[1] + ' every ' + m[3] + ' ' + m[4] + 's';
 }
 function plusSiBoughtPick(b) {
   PLUS_SI_BOUGHT_LAST = b;
@@ -52566,22 +52612,26 @@ function plusSiBoughtPick(b) {
   list.hidden = free.length === 0;
   document.getElementById('plus-si-bought-none').hidden = free.length > 0;
   const pending = b.addresses.filter((r) => r.state === 'pending').length;
+  const cost = plusSiAddPrice(b.price);
   document.getElementById('plus-si-bought-none-lead').textContent = pending
-    ? 'An address on this account is waiting for its payment.'
-    : 'Each computer on Kosmos+ has its own address, and this account has none waiting for this computer.';
+    ? 'A computer you added is waiting for its payment.'
+    : 'Your plan covers one computer, and it is already in use. '
+      + (cost ? 'Each computer you add is ' + cost + '.' : 'Each computer you add costs a monthly fee, shown before you pay.');
   /* A computer set up before and then reset (or signed out and forgotten) is no longer known here, so its old address
      reads as another computer's: say how to free it, beside the way to buy one. */
   const own = PLUS_SI_SESSION && /^([a-z0-9-]{3,32}\.[a-z0-9.-]+)$/.exec(String(PLUS_SI_SESSION.account_address || ''));
   const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
   /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   document.getElementById('plus-si-bought-none-hint').textContent = (pending
-    ? 'If you finished paying, check again in a moment. If not, buy it on the Kosmos+ website.'
-    : 'Buy one on the Kosmos+ website, then check again here.')
+    ? 'If you finished paying, check again in a moment. If not, finish on the Kosmos+ website.'
+    : 'Add this one on the Kosmos+ website, then come back and press Check again.')
     + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
   buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
   document.getElementById('plus-si-bought').hidden = false;
   plusSiShow('plus-si-register');
+  // #6314: with nothing to pick, this step is adding a computer, not signing in, so the heading says so.
+  if (!free.length) { const t = document.getElementById('plus-si-title'); if (t) t.textContent = 'Add this computer to your account'; }
   const first = list.querySelector('button');
   (free.length ? first : document.getElementById('plus-si-bought-recheck')).focus();
 }
