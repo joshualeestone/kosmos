@@ -9,7 +9,7 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 
 ## Steps
 1. [x] `engine/register.js` `jobReader` (Mac): our plist, OR a non-Kosmos LaunchAgent (RunAtLoad or KeepAlive, not
-   Disabled, no schedule) whose WorkingDirectory is the worker folder, OR whose arguments or named start script (64 KB
+   Disabled, no schedule) whose WorkingDirectory is the worker folder, OR whose arguments or named start script (2 MB
    or less) contain the whole worker folder path (see Decided for the exact rule). Plist XML read as text (no process on the 5 s poll); binary
    plists through plutil; cached by mtime and size.
 2. [x] Tests in `engine/register.test.js`: the fleet shape with a no-job control; disabled, never-starting and
@@ -21,10 +21,16 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 ## Decided, not missed
 - Matching by folder, not by label (`com.<name>.discord`): the label is this fleet's habit; the folder is what makes a
   job start THIS agent.
-- A job "starts at login" when it is KeepAlive, or RunAtLoad with no schedule, and not Disabled. A periodic job
-  (StartInterval, StartCalendarInterval) runs a task, not an agent, so it never counts, whichever way it names a folder.
+- A job "starts at login" when it is KeepAlive, or RunAtLoad with no schedule or trigger (StartInterval,
+  StartCalendarInterval, WatchPaths, QueueDirectories, StartOnMount), and its own top-level Disabled is not true. A
+  KeepAlive job counts even with a schedule, because launchd starts it at login anyway.
+- A start script that exists but cannot be read, or text over 2 MB, may be any agent's launcher, so every agent
+  without its own plist is unknown. A binary over the limit (the interpreter itself) is skipped. The limit was 64 KB
+  until a read-only survey of the fleet Mac showed real launchers of 109 KB, 110 KB and 375 KB (Kosmos's own board).
+- Deferred, not missed: when agents are unknown the banner shows only proven absences, so it can go quiet. Telling the
+  person "we could not check N agents" needs new copy and a field on /api/register; it is a follow-up, not this card.
 - The folder may be the WorkingDirectory, or named in the start command (ProgramArguments or Program) or in a start
-  script of 64 KB or less that the command names, as written, as its real path, or under the home folder as ~ or $HOME.
+  script of 2 MB or less that the command names, as written, as its real path, or under the home folder as ~ or $HOME.
 - A plist that reads as text but not as a property list makes UNKNOWN only an agent whose folder it names; one that
   cannot be read at all makes every agent without its own plist unknown. Unknown is never repaired, and the banner
   counts only proven absences, so an unknown agent is not listed there (the safe direction for a button that starts

@@ -184,9 +184,9 @@ function jobReader(platform) {
   if (platform !== 'win32') {
     /* #6310: OUR plist is one way an agent starts at login, not the only one. The fleet Mac's 18 agents each start from
        their own LaunchAgent (com.<name>.discord, KeepAlive, WorkingDirectory = the worker folder), so the banner said
-       all 18 "will not come back" and its button would have installed and started a second copy of each. An agent
-       whose folder is the WorkingDirectory of a login job that is not ours counts as having a job. Read lazily: the
-       foreign jobs are only looked at for a name with no plist of ours. */
+       all 18 "will not come back" and its button would have installed and started a second copy of each. An agent a
+       login job that is not ours starts (see foreignLoginFolders for what counts) has a job. Read lazily: the foreign
+       jobs are only looked at for a name with no plist of ours. */
     let foreign = null;
     return {
       win32: false, known: true, fleet: null,
@@ -231,8 +231,14 @@ function plistKeys(file) {
     text = require('child_process').execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', file], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
   } else text = buf.toString('utf8');
   if (!/<plist[\s>]/.test(text)) { const e = new Error('not a property list'); e.raw = text; throw e; }
-  const flag = (k) => new RegExp('<key>' + k + '</key>\\s*(<true\\s*/>|<dict\\s*>|<dict\\s*/>)').test(text);
-  const has = (k) => new RegExp('<key>' + k + '</key>').test(text);
+  /* Top-level keys only: a key of the same name inside a nested dict (EnvironmentVariables, a KeepAlive condition)
+     does not count. Inner dicts are folded to <dict/> from the innermost out. */
+  let top = text.slice(text.indexOf('<dict'), text.lastIndexOf('</dict>') + 7);
+  const outer = /^<dict\s*>([\s\S]*)<\/dict>$/.exec(top);
+  top = outer ? outer[1] : top;
+  for (let prev = ''; prev !== top;) { prev = top; top = top.replace(/<dict\s*>(?:(?!<dict[\s>])[\s\S])*?<\/dict>/g, '<dict/>'); }
+  const flag = (k) => new RegExp('<key>' + k + '</key>\\s*(<true\\s*/>|<dict\\s*>|<dict\\s*/>)').test(top);
+  const has = (k) => new RegExp('<key>' + k + '</key>').test(top);
   const wd = /<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
   const pa = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text);
   const prog = /<key>Program<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
@@ -258,20 +264,31 @@ function folderSpellings(...dirs) {
 function mentionsFolder(texts, spellings) {
   for (const sp of new Set(spellings)) {
     if (!sp) continue;
-    const re = new RegExp('(?<![A-Za-z0-9._/-])' + sp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9._-])');
+    const re = new RegExp('(?<![A-Za-z0-9._/-])' + sp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])');
     if (texts.some((t) => re.test(t))) return true;
   }
   return false;
 }
+/* A start script's text; null when the path is not a file (an argument that is not a path); UNREADABLE when it is a
+   file this survey cannot read, or text over SCRIPT_MAX, which leaves "no job" unproven. A failed read is not cached.
+   SCRIPT_MAX is generous because real launchers are large: Kosmos's own board job runs a 375 KB script. */
+const SCRIPT_MAX = 2 * 1024 * 1024;
+const UNREADABLE = Symbol('unreadable');
 function scriptText(file) {
   let st;
-  try { st = fs.statSync(file); } catch { return null; }
-  if (!st.isFile() || st.size > 65536) return null;
+  try { st = fs.statSync(file); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? null : UNREADABLE; }
+  if (!st.isFile()) return null;
+  if (st.size > SCRIPT_MAX) {
+    /* A large BINARY (the interpreter itself: /bin/bash, node) is not a launcher script; only large text is unproven. */
+    let head;
+    try { const fd = fs.openSync(file, 'r'); try { head = Buffer.alloc(4096); head = head.subarray(0, fs.readSync(fd, head, 0, 4096, 0)); } finally { fs.closeSync(fd); } } catch { return UNREADABLE; }
+    return head.includes(0) ? null : UNREADABLE;
+  }
   const sig = st.mtimeMs + ':' + st.size;
   const got = SCRIPT_CACHE.get(file);
   if (got && got.sig === sig) return got.text;
-  let text = null;
-  try { text = fs.readFileSync(file, 'utf8'); } catch { text = null; }
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
   SCRIPT_CACHE.set(file, { sig, text });
   return text;
 }
@@ -296,11 +313,12 @@ function foreignLoginFolders() {
     if (!st.isFile()) continue;
     const sig = st.mtimeMs + ':' + st.size;
     let got = FOREIGN_CACHE.get(file);
-    if (!got || got.sig !== sig) {
+    if (!got || got.sig !== sig || (got.retryAt && Date.now() >= got.retryAt)) {
       try { got = { sig, keys: plistKeys(file) }; } catch (e) { got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null }; }
-      // A file that could not be read at all is asked again next time (a timeout or a permission may clear); one that
-      // read but is not a property list stays as read until it changes.
-      if (got.keys || got.raw !== null) FOREIGN_CACHE.set(file, got); else FOREIGN_CACHE.delete(file);
+      // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
+      // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.
+      if (!got.keys && got.raw === null) got.retryAt = Date.now() + 60000;
+      FOREIGN_CACHE.set(file, got);
     }
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
     if (!got.keys.starts) continue;
@@ -312,7 +330,8 @@ function foreignLoginFolders() {
       if (!path.isAbsolute(a)) continue;
       scripts.add(a);
       const t = scriptText(a);
-      if (t !== null) texts.push(t);
+      if (t === UNREADABLE) unknownAll = true;   // it may be any agent's launcher
+      else if (t !== null) texts.push(t);
     }
   }
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);
