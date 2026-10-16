@@ -1739,7 +1739,9 @@ function restoreAccount(name, dir, platform) {
        the job on the move's. Said in the answer, not only here: a Repair rebuilds from the record. */
     if (qwenJob) {
       try { store.writeProfile(clean, { qwenAccount: qwenBefore }); }
-      catch { return { ...unwritten, because: String(unwritten.because || 'we could not change how it is started').replace(/[.]\s*$/, '') + `; and its Qwen record could not be put back either, so it names ${spoken}'s old account` }; }
+      /* Its own sentence: the job's refusal says "nothing changed", which is no longer true (review 1). The job is on the
+         move's account and the record on the old one, so say what each way of starting it would do. */
+      catch { return { ...unwritten, because: `we could not rewrite how ${spoken} is started, and Kosmos's note of its Qwen account now names its old account, so a restart keeps it on the new account but a Repair would put it back on the old one` }; }
     }
     return unwritten;
   }

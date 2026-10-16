@@ -159,14 +159,17 @@ test('#6231: a Qwen put-back whose job write fails and whose record cannot be un
   const jobDir = nodePath.dirname(jobfix.jobPath(name));
   const real = store.writeProfile;
   let calls = 0;
-  store.writeProfile = (...args) => { calls++; if (calls === 2) throw new Error('disk'); return real(...args); };
-  fs.chmodSync(jobfix.jobPath(name), 0o444); fs.chmodSync(jobDir, 0o555);
   let back;
-  try { back = create.restoreAccount(name, a); }
+  try {
+    store.writeProfile = (...args) => { calls++; if (calls === 2) throw new Error('disk'); return real(...args); };
+    fs.chmodSync(jobfix.jobPath(name), 0o444); fs.chmodSync(jobDir, 0o555);
+    back = create.restoreAccount(name, a);
+  }
   finally { store.writeProfile = real; fs.chmodSync(jobDir, 0o755); fs.chmodSync(jobfix.jobPath(name), 0o644); }
   assert.equal(calls, 2, 'PRECONDITION: the record was written, then its undo was tried');
   assert.notEqual(back.outcome, 'created', 'PRECONDITION: the job write failed');
-  assert.match(String(back.because), /Qwen record could not be put back either, so it names .*old account/);
+  assert.match(String(back.because), /Qwen account now names its old account, so a restart keeps it on the new account but a Repair would put it back on the old one/);
+  assert.doesNotMatch(String(back.because), /nothing (was )?changed|have not changed/, 'it says nothing changed, but the record did');
   assert.equal(store.readProfile(name).qwenAccount, a, 'the record is left on the old account, as the answer says');
 });
 
