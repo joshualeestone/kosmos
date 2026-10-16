@@ -52,15 +52,11 @@ const BIN = {
 const FEDPROOF_DOMAIN = 'fedproof.localhost';
 const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
-const DELIVERY_MS = Number(process.env.FEDPROOF_DELIVERY_MS) || 30000;   // how long a delivery may take
-const ABSENCE_MS = Number(process.env.FEDPROOF_ABSENCE_MS) || 12000;     // how long an absence is watched
-const SEND_MS = 30000;                                                      // how long a post may keep "staying local"
-const LEAVE_MS = 30000;                                                     // how long a stopped seat may take to leave
-// The bounded waits, worst case: coordinator 60 + relay 30 + 3 boards x 60 + 6 codes x 20
-// + seats 90 + 3 sends x 30 + 2 deliveries x 30 + C's seat 45 + C leaving 30 + 2 absences
-// x 12 + 7b send 30 + 2 = ~770 s, before HTTP timeouts. 15 min covers it with margin.
+// The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
+// + the console's Allow 45 + K's join 30 = 425 s, before HTTP timeouts. 15 min covers it with margin.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
+const EXPECTED_CHECKS = 21;   // every chk in main before the last; a skipped step leaves fewer
 const T0 = Date.now();
 
 const results = [];
@@ -140,11 +136,6 @@ function serviceEnv(home, extra) {
 }
 /* The keys an env handed to the coordinator or relay may carry: anything else came from
    somewhere this harness did not choose. Returns the keys outside that list. */
-const SERVICE_KEYS = new Set(['PATH', 'TMPDIR', 'HOME', 'NO_COLOR', 'RUST_LOG']);
-function fedproofForeignKeys(env) {
-  return Object.keys(env || {}).filter((k) => !SERVICE_KEYS.has(k) && !k.startsWith('KOSMOS_'));
-}
-
 function psTable() {
   const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
   return out.split('\n').map((l) => l.match(/^\s*(\d+)\s+(\d+)\s(.*)$/)).filter(Boolean)
@@ -182,13 +173,6 @@ function ownedDescendants(entry, table) {
   const out = [];
   for (const [d, cmd] of entry.known) { const row = table.find((r) => r.pid === d); if (row && row.cmd === cmd) out.push(d); }
   return out;
-}
-/* One started process and every descendant it has now (seats, tunnels), by exact pid. */
-async function stopTree(entry) {
-  let table = [];
-  try { table = psTable(); } catch { table = []; }
-  const own = ownedDescendants(entry, table);
-  await stopPids(isLive(entry) ? [...own, entry.child.pid] : own);   // exited: never signal its own pid
 }
 /* Every pid this run owns that is still alive: the started processes, their descendants,
    and anything whose command line names the sandbox (a seat orphaned by its board). */
@@ -266,19 +250,6 @@ async function nextCode(email, before) {
 
 /* The web sign-up, as coordinator/src/signin.html drives it: the terms version is read off
    the served page (never hardcoded here), then signup start + verify with the dev code. */
-async function webSignup(email) {
-  const page = await fetch(REL.coordinator + '/signup', { signal: AbortSignal.timeout(10000) }).then((r) => r.text());
-  const terms = (page.match(/var TERMS_VERSION = "([^"]+)"/) || [])[1];
-  if (!terms) { info('the sign-up page carries no TERMS_VERSION'); return false; }
-  const before = devCodes(email).length;
-  let r = await http(REL.coordinator, 'POST', '/v1/signup/start', { email });
-  if (r.status !== 200) { info('signup/start ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
-  const code = await nextCode(email, before);
-  if (!code) { info('no signup code for ' + email); return false; }
-  r = await http(REL.coordinator, 'POST', '/v1/signup/verify', { email, code, device_id: 'fedproof-web-' + RUN, device_name: 'fedproof browser', accepted_terms: terms });
-  if (r.status !== 200) { info('signup/verify ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
-  return true;
-}
 /* A board signs in to an existing account: the in-app wizard's routes (#3149). */
 async function boardSignin(b, email, name) {
   const before = devCodes(email).length;
@@ -303,7 +274,7 @@ function boardEnv(b) {
     HOME: b.home,
     PORT: String(b.port),
     AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
-    // #4253: three boards per run, each a fresh install id; never phone home, report, or post to the community.
+    // #4253: two boards per run, each a fresh install id; never phone home, report, or post to the community.
     AGENT_WORKFORCE_CREATED_URL: 'http://127.0.0.1:9/api/created',
     AGENT_WORKFORCE_FEEDBACK_URL: 'http://127.0.0.1:9/api/feedback',
     AGENT_WORKFORCE_COMMUNITY_URL: 'http://127.0.0.1:9/',
@@ -338,29 +309,8 @@ async function startBoard(letter) {
   fs.writeFileSync(path.join(b.data, 'fake-panes'), fleet.line({ session: b.agent + '-discord', claim: b.agent, title: '✳ idle' }) + '\n');
   fs.writeFileSync(path.join(b.data, 'fake-sessions'), b.agent + '-discord\n');
   fs.writeFileSync(path.join(b.data, 'fake-screen'), '❯ \n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n');
-  // What Kosmos types into the agent: a wrapper that logs set-buffer text, then acts as the fake tmux.
-  b.typed = path.join(b.data, 'typed.log');
-  fs.writeFileSync(b.typed, '');
-  b.tmuxWrap = path.join(b.data, 'tmux-wrap.sh');
-  // Every call that is not one of the fake's reads is recorded with its arguments, and
-  // load-buffer's text too (a file, or stdin via '-'), so a federated text that reached a pane
-  // by ANY verb (set-buffer, paste-buffer, send-keys -l, load-buffer) is in typed.log.
-  const fake = path.join(REPO, 'test-support', 'fake-tmux.sh');
-  fs.writeFileSync(b.tmuxWrap, [
-    '#!/bin/sh',
-    'T="' + b.typed + '"',
-    'case "$1" in',
-    '  list-panes|list-sessions|capture-pane|display-message|has-session) ;;',
-    '  load-buffer)',
-    '    printf \'%s\\n\' "$*" >> "$T"',
-    '    for a in "$@"; do last="$a"; done',
-    '    if [ "$last" = - ]; then tee -a "$T" | "' + fake + '" "$@"; exit $?; fi',
-    '    [ -f "$last" ] && cat "$last" >> "$T" ;;',
-    '  *) printf \'%s\\n\' "$*" >> "$T" ;;',
-    'esac',
-    'exec "' + fake + '" "$@"',
-    '',
-  ].join('\n'), { mode: 0o755 });
+  // The fake tmux (no agent runs here; the boards only need one to read).
+  b.tmuxWrap = path.join(REPO, 'test-support', 'fake-tmux.sh');
   const s = start('board-' + letter, process.execPath, [path.join(REPO, 'server.js')], { cwd: REPO, env: boardEnv(b) });
   b.proc = s;
   // A board that EXITED (a port taken between the check and its bind) is reported at once.
@@ -371,79 +321,6 @@ async function startBoard(letter) {
   if (!up || up.exited) throw new Error('board ' + letter + (up ? ' exited at start' : ' did not answer on ' + b.base) + ' (log: ' + s.log + ')\n' + fedproofReadLog(s.log).slice(-2000));
   return b;
 }
-function remoteJson(b) { try { return JSON.parse(fs.readFileSync(path.join(b.data, 'Kosmos', 'remote.json'), 'utf8')); } catch { return {}; } }
-function fedproofStateFile(b, f) { try { return fs.readFileSync(path.join(b.state, f), 'utf8').trim(); } catch { return null; } }
-async function roomText(b, id) {
-  const r = await http(b.base, 'GET', '/api/project/' + encodeURIComponent(id) + '/room?as=text');
-  return r.status === 200 ? r.text : '';
-}
-async function post(b, id, text) {
-  const r = await http(b.base, 'POST', '/api/project/' + encodeURIComponent(id) + '/room', { text });
-  return r;
-}
-/* The detector every delivery assertion uses: the text as an EXTERNAL row in b's room. */
-async function hasExternal(b, id, text) {
-  const t = await roomText(b, id);
-  return t.split('\n').some((l) => l.includes(text) && /\[external (person|agent)\] /.test(l));
-}
-const ANY_STAYED = /stayed on this computer/i;
-// ONLY the not-connected variants of engine/fedseats.js post(): the seat is down, or the
-// own-room seat was refused. Not "ended", "nobody has joined", sealed-room or too-long.
-// engine/fedseats.js farSide: "the external project" for another person's project, "the other computers in this
-// project" for one shared between one person's own computers, the case this harness runs (the 10-06 02:54 run
-// recorded 37 of these and the old pattern matched none).
-const NOT_CONNECTED = /stayed on this computer: (the connection to (the external project|the other computers in this project) is not up right now|this project is not connected to your other computers right now)/;
-/* The room lines AFTER the (last) line carrying `text`, or null if `text` is not there. */
-async function linesAfter(b, id, text) {
-  const lines = (await roomText(b, id)).split('\n');
-  let at = -1;
-  for (let i = 0; i < lines.length; i++) if (lines[i].includes(text)) at = i;
-  return at < 0 ? null : lines.slice(at + 1);
-}
-/* The first non-blank room line after the line carrying `text` ('' if none). A note is tied
-   to a post by being the VERY NEXT row: a note from any other post would sit after that post. */
-function fedproofNextLine(after) { return ((after || []).find((l) => l.trim()) || ''); }
-/* Post, and repeat with a fresh text while the board answers that post with a "stayed on
-   this computer" note (its seat not yet marked connected). The note is written in the same
-   request (server.js federateOut), so it is in the room when the response arrives. */
-async function postUntilSent(b, id, prefix) {
-  const until = Date.now() + SEND_MS;
-  const tried = [];
-  for (;;) {
-    const text = prefix + '-' + crypto.randomBytes(3).toString('hex');
-    const r = await post(b, id, text);
-    tried.push(text);
-    const after = await linesAfter(b, id, text);
-    const stayed = after && after.some((l) => ANY_STAYED.test(l));
-    if (r.status === 200 && after && !stayed) return { text, r, tried };
-    if (Date.now() > until) return { text: null, r, tried };
-    await sleep(500);
-  }
-}
-
-// ---------- relay log ----------
-function relayMembers() { return fedproofParseMembers(stripAnsi(fedproofReadLog(REL.log))); }
-/* The live members a relay log's text describes (pure, so it can be checked on a fixture). */
-function fedproofParseMembers(text) {
-  const seated = new Map();   // "room|member" -> live count
-  // tracing's default line: `<time>  INFO <target>: federation member authenticated peer=.. room=.. member=..`
-  // and `... federation member disconnected peer=.. room=.. member=..` (kosmos-relay serve.rs).
-  for (const line of text.split('\n')) {
-    const ev = line.match(/federation member (authenticated|disconnected)/);
-    const room = line.match(/\broom=(\S+)/);
-    const member = line.match(/\bmember=(\S+)/);
-    if (!ev || !room || !member) continue;
-    const k = room[1] + '|' + member[1];
-    seated.set(k, (seated.get(k) || 0) + (ev[1] === 'authenticated' ? 1 : -1));
-  }
-  const live = [];
-  for (const [k, n] of seated) if (n > 0) { const [room, member] = k.split('|'); live.push({ room, member }); }
-  return live;
-}
-
-const TYPED_WATCH = [];   // { board, text, expect } re-read at the end of the run
-
-/* kosmos#6239: the family join, end to end, as people do it. */
 async function webSignupSession(email, deviceId) {
   const page = await fetch(REL.coordinator + '/signup', { signal: AbortSignal.timeout(10000) }).then((r) => r.text());
   const terms = (page.match(/var TERMS_VERSION = "([^"]+)"/) || [])[1];
@@ -536,7 +413,7 @@ async function main() {
     const p = await http(P.base, 'GET', '/api/remote/pending');
     const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
     return devs.find((d) => d && sess && d.code === sess.match_code) || null;
-  }, 60000, 1500);
+  }, sess ? 60000 : 0, 1500);   // no session, nothing to find: no wait
   chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? listed.device_id.slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
     const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
@@ -557,7 +434,12 @@ async function main() {
   if (sess) {
     // The Allow reaches the coordinator through P's tunnel, so the console may refuse for a moment first.
     let r = null;
-    await waitFor(async () => { r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token)); return r.status === 200; }, 45000, 1500);
+    let lastErr = '';
+    await waitFor(async () => {
+      try { r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token)); } catch (e) { lastErr = String(e && e.message || e); return false; }
+      return r.status === 200;
+    }, 45000, 1500);
+    if (!r) r = { status: 0, json: null, text: 'no answer: ' + lastErr };   // review 1: report the cause, not a TypeError
     code = r.json && (r.json.code || r.json.invite_code) || '';
     chk(r.status === 200 && !!code, 'step 6: the parent makes a join code in the console', r.status + ' ' + r.text.slice(0, 160));
   }
@@ -568,10 +450,12 @@ async function main() {
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     pv = r.json || {};
     chk(r.status === 200 && pv.ok === true && pv.org && pv.org.kind === 'family', 'step 7: K previews the code as a family', r.status + ' ' + r.text.slice(0, 200));
-    const words = JSON.stringify(pv.consent || {});
+    // Review 1: the words' own text, never the keys (a key could carry "family").
+    const flat = (v) => (Array.isArray(v) ? v.flatMap(flat) : v && typeof v === 'object' ? Object.values(v).flatMap(flat) : typeof v === 'string' ? [v] : []);
+    const words = flat(pv.consent || {}).join(' ');
     chk(/family/i.test(words) && !/company/i.test(words), 'step 7: the words K shows are the family\'s, naming no company', words.slice(0, 160));
     const st = await http(K.base, 'GET', '/api/org');
-    chk(st.json && st.json.enrolled !== true, 'step 7 control: K is not joined after a preview');
+    chk(st.status === 200 && st.json && st.json.enrolled === false, 'step 7 control: K is not joined after a preview', st.status + ' ' + st.text.slice(0, 120));
   }
 
   // 8. a join that does not say the words were shown is refused, and the code is not spent (CONTROL for step 9).
@@ -598,7 +482,7 @@ async function main() {
   if (code) {
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
-    chk(r.json && r.json.ok === false && !/company/i.test(b), 'step 10: the used code is refused in words that name no company', b || r.text.slice(0, 160));
+    chk(r.json && r.json.ok === false && b.length > 0 && !/company/i.test(b), 'step 10: the used code is refused in words that name no company', b || r.text.slice(0, 160));
   }
 
   // 11. the child's computer leaves the family.
@@ -606,8 +490,11 @@ async function main() {
     const r = await http(K.base, 'POST', '/api/org/leave', {}, SCREEN);
     chk(r.json && r.json.ok === true, 'step 11: K leaves the family', r.status + ' ' + r.text.slice(0, 200));
     const g = await http(K.base, 'GET', '/api/org');
-    chk(g.json && g.json.enrolled !== true, 'step 11: K is no longer joined');
+    chk(g.status === 200 && g.json && g.json.enrolled === false, 'step 11: K is no longer joined', g.status + ' ' + g.text.slice(0, 120));
   }
+  // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
+  const ran = results.length;
+  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran');
 }
 
 (async () => {

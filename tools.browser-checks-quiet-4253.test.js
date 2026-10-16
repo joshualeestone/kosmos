@@ -81,12 +81,15 @@ test('#4253: the lib names the same dead addresses the runners export (one fact,
   }
 });
 
-test('#4253: the federation proof\'s boards (an env built from nothing) name all three dead addresses', () => {
-  const src = fs.readFileSync(path.join(__dirname, 'tools', 'fed-own-e2e.js'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  const start = src.indexOf('function boardEnv(');
-  const end = src.indexOf('async function startBoard(');
-  assert.ok(start >= 0 && end > start, 'boardEnv not found where expected');
-  const body = src.slice(start, end);
-  for (const k of KEYS) assert.match(body, new RegExp(k + ": 'http://127\\.0\\.0\\.1:9/"), k + ' is not pointed at the dead port');
-});
+// kosmos#6239: the family join proof builds its boards' env the same way, so it is held to the same three addresses.
+for (const tool of ['fed-own-e2e.js', 'family-e2e-6239.js']) {
+  test('#4253: ' + tool + '\'s boards (an env built from nothing) name all three dead addresses', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'tools', tool), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const start = src.indexOf('function boardEnv(');
+    const end = src.indexOf('async function startBoard(');
+    assert.ok(start >= 0 && end > start, 'boardEnv not found where expected');
+    const body = src.slice(start, end);
+    for (const k of KEYS) assert.match(body, new RegExp(k + ": 'http://127\\.0\\.0\\.1:9/"), k + ' is not pointed at the dead port');
+  });
+}

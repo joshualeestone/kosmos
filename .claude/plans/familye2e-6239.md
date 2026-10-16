@@ -26,3 +26,18 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 ## Found, not this branch's
 - P's /api/remote/devices/allow answered {ok, acked, allowed: true} for a device id the coordinator does not hold
   (the browser's own offered id, replaced at sign-in). Nothing is granted to a real device, but the answer says one was.
+  Filed as kosmos#6286 (the coordinator side answers 404 correctly; the board misreports).
+
+## Round 1 (opus) fixes
+- A guarded step that does not run can no longer pass: the run ends with "every check ran (21)", red when one is
+  skipped (shown: step 8 forced off, 20 ran, VERDICT FAIL).
+- The not-joined controls need a 200 and enrolled === false (an error answer no longer passes them); the spent-code
+  refusal must say something; the family words are checked in their text, not the JSON keys.
+- An invite call that only throws reports its cause, not a TypeError; no 60 s wait when there is no session.
+- The code copied from fed-own-e2e.js that this run never calls is gone (20 declarations, the pane recorder and the
+  room helpers); the watchdog budget and the board-count comment describe this run.
+- tools.browser-checks-quiet-4253.test.js holds this file's boards to the three dead phone-home addresses too (red
+  when one is changed).
+- Rerun: VERDICT PASS 22/22.
+- Kept: the default binary dir (as fed-own-e2e.js, with its usage line); the plan's file name (most plans here have
+  no timestamp).
