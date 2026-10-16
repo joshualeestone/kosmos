@@ -5365,6 +5365,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { max-height: 40vh; overflow-y: auto; }
   /* kosmos#6324: the team map's button and box take a line each in the wrapping head, and fold away with the column. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { flex: 0 0 100%; min-width: 0; }
+  /* kosmos#6324: a big team must not push the agents list off a page that does not scroll (#980): the map scrolls itself. */
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 45vh; overflow-y: auto; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
@@ -19898,8 +19900,7 @@ window.kosmosMeasureScrollbarWidth();
   <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
   <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
   <!-- kosmos#6324: the team map (#6103) from the consolidated layout, which hides the Members card that holds the
-       tab layout's button. Here in the head, under the notice, for the notice's reason: the head is not rebuilt each
-       poll, so focus and the open state stay put. Painted by paintRailTeamMap (from paintRailPjNotice) with the same
+       tab layout's button. Here in the head, under the notice: the head is not rebuilt each poll. Painted by paintRailTeamMap (from paintRailPjNotice) with the same
        pjTeamMap and the same PJ_TEAMMAP_OPEN as the tab layout, so the two layouts draw one map. -->
   <button class="btn-quiet pj-tmbtn alist-tmbtn" id="alist-teammap-btn" type="button" aria-expanded="false" aria-controls="alist-teammap" hidden>Team map</button>
   <div id="alist-teammap" class="pjtm alist-tm" hidden></div>
@@ -24633,7 +24634,7 @@ function paintRailPjNotice() {
   pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
-  paintRailTeamMap(op);
+  if (typeof paintRailTeamMap === 'function') paintRailTeamMap(op);   // typeof: tests lift paintRailPjNotice alone
 }
 /* kosmos#6324: the rail's team map, for the open project in the consolidated layout (op), or nothing. Rides
    paintRailPjNotice, so it is painted wherever the notice is: each poll, a project read and a layout switch. */
@@ -24646,7 +24647,15 @@ function paintRailTeamMap(op) {
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
-  setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : []) : '');
+  // A repaint replaces the map's buttons, so a focused member is found again by its data-agent.
+  const ae = document.activeElement;
+  const had = ae && box.contains(ae) && ae.dataset ? ae.dataset.agent : null;
+  setIfChanged(box, open ? pjTeamMap(op, LAST) : '');
+  if (had && !box.contains(document.activeElement)) {
+    const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
+    const to = back || (btn.hidden ? null : btn);
+    if (to) to.focus();
+  }
 }
 /* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
    tick() every poll AND by pjMarkOpen() the instant a project opens or closes, so the grouping tracks
