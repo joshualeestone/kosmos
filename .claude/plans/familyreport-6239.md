@@ -52,3 +52,10 @@ reason.
 - Rerun (exclusive queued turn, 04:00): VERDICT PASS 25/25; joined 27 s after K started (stamped at the enroll answer),
   tick due 60 s. The 300 s branch of the tick formula was not reached (the join came before 60 s); it is checked by
   reading, not by a run.
+
+## Round 4 (sonnet) fixes
+- The control passes only on its own condition. Round 3's "inconclusive" arm let a past-due tick pass, the exact case it
+  exists to catch, and it was tallied green. A tick due within 5 s of the reads (or past) now fails the control and says
+  why: a rare false red to rerun, never a pass it could not prove.
+- The retry's match words are named at the site (the board's own refusal, engine/remote.js); a rewording only loses the
+  retry.

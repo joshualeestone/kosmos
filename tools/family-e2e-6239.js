@@ -282,7 +282,8 @@ async function boardSignin(b, email, name) {
   let retried = false;
   let r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
   // The first tunnel call of a run can outlast the board's wait while the debug tunnel binary starts (seen twice, always
-  // the first board to sign in): asked again once, on that answer only.
+  // the first board to sign in): asked again once, on that answer only. The words are the board's own refusal for a tunnel
+  // that does not answer (engine/remote.js); if they are reworded, this retry silently stops, which only loses the retry.
   if (r.status !== 200 && /did not answer in time/.test(r.text)) {
     info(b.letter + ' signin-start: the tunnel did not answer in time; asking once more');
     r = await http(b.base, 'POST', '/api/remote/signin-start', { email });
@@ -589,12 +590,13 @@ async function main() {
     // reportedAt is a day, not a time, so this control is what shows the report came after the join.
     const inv0 = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
     const row0 = (inv0.json && Array.isArray(inv0.json.members) ? inv0.json.members : []).find((m) => m && m.email === kid) || null;
-    // A tick due within moments of these reads could land between them and the join: then the control cannot tell, and
-    // says so rather than going red for the wrong reason.
+    // Round 4: the control passes only on its own condition. When a tick was due within 5 s of these reads (or already
+    // past), a report may have landed between the join and them; the control then FAILS and says so, a rare false red
+    // to rerun, never a pass it could not prove. (The two reads are a moment apart; that window is inside the same 5 s.)
     const nearTick = tickAt - Date.now() < 5000;
-    chk((ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt) || (nearTick && inv0.status === 200 && !!row0),
+    chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
       'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report',
-      ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found') + (nearTick ? ' (a tick was due within 5 s: inconclusive, not counted against)' : ''));
+      ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found') + (nearTick ? ' (a tick was due within 5 s or past: the control could not be read cleanly; rerun)' : ''));
     let row = null;
     let invStatus = 0;
     await waitFor(async () => {
