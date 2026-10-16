@@ -37,7 +37,10 @@ const REPO = path.resolve(__dirname, '..');
 // This Mac's external SSD; on any other machine FEDPROOF_BIN_DIR must be set.
 // Absolute: the services run with cwd SANDBOX and the boards with cwd REPO, and the orphan
 // sweep compares command lines against these exact paths.
-const BIN_DIR = path.resolve(process.env.FEDPROOF_BIN_DIR || '/Volumes/BigLobsterStorage/targets/renet-4693/debug');
+// Required (rounds 1, 4, 6, 8): the three binaries must be built from relay main for this run, so no default can be
+// trusted to hold them. USAGE above says how to build them.
+if (!process.env.FEDPROOF_BIN_DIR) { console.log('set FEDPROOF_BIN_DIR to the debug dir holding kosmos-coordinator, kosmos-relay and kosmos-tunnel built from kosmos-relay origin/main (see USAGE at the top of this file)'); process.exit(2); }
+const BIN_DIR = path.resolve(process.env.FEDPROOF_BIN_DIR);
 const BIN = {
   coordinator: path.join(BIN_DIR, 'kosmos-coordinator'),
   relay: path.join(BIN_DIR, 'kosmos-relay'),
@@ -473,7 +476,7 @@ async function main() {
     const flat = (v) => (Array.isArray(v) ? v.flatMap(flat) : v && typeof v === 'object' ? Object.values(v).flatMap(flat) : typeof v === 'string' ? [v] : []);
     const words = flat(pv.consent || {}).join(' ');
     chk(/family/i.test(words) && !/company/i.test(words), 'step 7: the words K shows are the family\'s, naming no company', words.slice(0, 160));
-    const st = await http(K.base, 'GET', '/api/org');   // no screen headers needed: whether it is enrolled is told to anyone
+    const st = await http(K.base, 'GET', '/api/org', undefined, SCREEN);   // as the screen, as step 9 reads it
     chk(st.status === 200 && st.json && st.json.enrolled === false, 'step 7 control: K is not joined after a preview', st.status + ' ' + st.text.slice(0, 120));
   }
 
@@ -525,7 +528,7 @@ async function main() {
   if (joined) {
     const r = await http(K.base, 'POST', '/api/org/leave', {}, SCREEN);
     chk(r.json && r.json.ok === true, 'step 11: K leaves the family', r.status + ' ' + r.text.slice(0, 200));
-    const g = await http(K.base, 'GET', '/api/org');
+    const g = await http(K.base, 'GET', '/api/org', undefined, SCREEN);
     chk(g.status === 200 && g.json && g.json.enrolled === false, 'step 11: K is no longer joined', g.status + ' ' + g.text.slice(0, 120));
     let rows = [];
     // ok:true above means the coordinator confirmed the leave (a pending one answers pending, not ok), and it writes the
@@ -548,7 +551,7 @@ async function main() {
     // Review 4: say where it was, so a hang names its step.
     const last = results.length ? results[results.length - 1].label : 'before step 1';
     console.log('FAIL  watchdog: the run took over ' + WATCHDOG_MS / 1000 + ' s; the last check was: ' + last);
-    results.push({ ok: false }); halted = true; fedproofFinish(1);
+    results.push({ ok: false, label: 'watchdog' }); halted = true; fedproofFinish(1);
   }, WATCHDOG_MS);
   let crashed = null;
   try { await main(); } catch (err) { crashed = err; }
@@ -578,6 +581,6 @@ for (const st of [process.stdout, process.stderr]) st.on('error', () => { /* ter
 // Anything thrown outside main's own try (an event handler, a stray rejection) still tears down.
 for (const ev of ['uncaughtException', 'unhandledRejection']) process.on(ev, (err) => {
   console.log('FAIL  harness error (' + ev + '): ' + (err && err.message ? err.message : err));
-  results.push({ ok: false }); halted = true; fedproofFinish(1);
+  results.push({ ok: false, label: 'harness error (' + ev + ')' }); halted = true; fedproofFinish(1);
 });
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']) process.on(sig, () => { if (!halted) console.log('interrupted (' + sig + ')'); results.push({ ok: false }); halted = true; fedproofFinish(1); });
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGQUIT']) process.on(sig, () => { if (!halted) console.log('interrupted (' + sig + ')'); results.push({ ok: false, label: 'interrupted (' + sig + ')' }); halted = true; fedproofFinish(1); });

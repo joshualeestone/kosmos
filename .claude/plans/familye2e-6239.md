@@ -11,7 +11,7 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
   second device and no operator step on the live box. Splinter was told (21:1x).
 - A tool, not a test in the suite: it needs three relay debug binaries and runs minutes (as fed-own-e2e.js).
 
-## Result (first run 2026-10-15 23:0x CDT, relay main 416f8a05 built on the external SSD; current figures under Round 5)
+## First result (historical: the 21-check version, 2026-10-15 23:0x CDT; the current figures are in the latest round below)
 - VERDICT PASS, 21/21: the console refuses the parent's browser until P allows it (control), P allows it by the code
   its sign-up showed, org-create --kind family, the parent's join code, K's preview (family, family words, not joined),
   the refused join without the words screen (control), the join with it, K's board says family, the audit row
@@ -92,4 +92,12 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
   writes the row before answering; a confirmed leave answers ok, a pending one answers pending).
 - Step 7 checks the previewed org is the one step 5 made (its slug); the binaries check reads runners once; a
   redundant clause in the stale test dropped.
+- Rerun: VERDICT PASS 23/23.
+
+## Round 8 (sonnet) fixes
+- FEDPROOF_BIN_DIR is required (raised in rounds 1, 4, 6 and 8): no default path, and a run without it stops before
+  making anything, with the build line (shown: rc 2).
+- The not-joined reads in steps 7 and 11 go as the screen, as step 9's does.
+- The watchdog, signal and uncaught-error failures carry a label.
+- Kept (round 4): the step 4b control matches the refusal's words (it has no code field).
 - Rerun: VERDICT PASS 23/23.
