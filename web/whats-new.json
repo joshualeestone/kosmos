@@ -1,6 +1,11 @@
 {
-  "version": "0.7.52",
+  "version": "0.7.53",
   "highlights": [
+    {
+      "icon": "shield",
+      "title": "A second computer can be allowed",
+      "line": "When you add another computer to your Kosmos+ account, its request to be allowed now shows on your first computer, so you can allow it."
+    },
     {
       "icon": "chat",
       "title": "No typing behind unsent text",
@@ -26,11 +31,6 @@
       "icon": "tasks",
       "title": "Long task and room messages arrive whole",
       "line": "A message from a colleague or a room now reaches an agent in one piece, unless it is longer than a chat message can be."
-    },
-    {
-      "icon": "tasks",
-      "title": "Idle agents hear which scheduled run is due",
-      "line": "When a repeating task's run is due, an idle agent's reminder names that run and tells it how to record it."
     }
   ]
 }
