@@ -59,3 +59,4 @@ reason.
   why: a rare false red to rerun, never a pass it could not prove.
 - The retry's match words are named at the site (the board's own refusal, engine/remote.js); a rewording only loses the
   retry.
+- Rerun (exclusive queued turn, 04:36): VERDICT PASS 25/25; joined 1 s after K started, tick due 60 s; K's row unavailable then ok.
