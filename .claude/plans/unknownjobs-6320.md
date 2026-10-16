@@ -24,11 +24,12 @@ names it, instead of going quiet; it offers no button for it. An older board wit
   not be read"; the list is empty there, as before.
 - Not while login jobs are only waiting their turn under the plutil budget: those are not read YET. A budget-skipped
   plist is no longer cached for a minute; the next survey converts the next four.
-- The unknown-only panel is not the alarm style (nothing to fix), and its copy says it goes away once it can be read.
+- The unknown-only panel uses the solid `boardfail` shape, which this file defines for "we could not read this" (a
+  dashed panel means an empty slot); it has no button. Its copy says it goes away once it can be read.
 - Browser check: `render-survival.js` needs a live board and does not cover the unknown panel; the commit carries a
-  `Browser-check:` trailer with that reason. Screens `restart-unknown` and `restart-both` added to
-  docs/browser-checks/mobile-shots.js (they stub /api/register on their own page); 8 shots (iPhone 15 and desktop,
-  light and dark), 0 overflow, kept in ~/.cache/claude-handoffs/shots-6320/. The first shots showed the combined panel
+  `Browser-check:` trailer with that reason. Screens `restart-unknown`, `restart-both` and `restart-both-done`
+  (the repair report keeps the could-not-check line) added to docs/browser-checks/mobile-shots.js (they stub
+  /api/register on their own page); 9 shots, 0 overflow, kept in ~/.cache/claude-handoffs/shots-6320/. The first shots showed the combined panel
   crammed under its button; spacing added only when the line follows the fixable list.
 - Each null records why (`whyNull`, per survey): 'waiting' when a plist waiting its turn is the only open question and
   no broken plist names the folder; otherwise 'unread', listed. When a genuinely unreadable file exists at the same

@@ -439,8 +439,10 @@ const SCREENS = [
     await at(page, '');
     await page.waitForSelector('#restart-wrap [data-survival-fix]', { state: 'visible', timeout: 15000 });
     await page.click('#restart-wrap [data-survival-fix]');
-    // #6320: the report that replaces the panel still says which agents could not be checked.
-    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+    // #6320: the report that replaces the panel still says which agents could not be checked. Wait for the REPORT
+    // (the button gone and "Done." there), since the unknown line was already on the panel before the click.
+    await page.waitForFunction(() => { const w = document.getElementById('restart-wrap');
+      return w && !w.querySelector('[data-survival-fix]') && /Done\./.test(w.innerText) && !!w.querySelector('[data-survival-unknown]'); }, null, { timeout: 15000 });
   } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',

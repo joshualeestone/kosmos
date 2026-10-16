@@ -220,12 +220,12 @@ function jobReader(platform) {
           if (dir && [...foreign.dirs].some((d) => d === dir || d.startsWith(dir + '/'))) return true;
           /* While something could not be read, no answer here can be a proven absence, so the text scan is skipped. An
              agent a script would have shown as covered reads as unknown instead: intended, and safe (never repaired). */
+          const spellings = folderSpellings(dir, create.workerDir(name));
           if (foreign.unknownAll) {
             // Waiting alone is not to be said; but a broken plist naming this folder is a real could-not-read.
-            why = foreign.deferred && !(dir && mentionsFolder(foreign.suspects, folderSpellings(dir, create.workerDir(name)))) ? 'waiting' : 'unread';
+            why = foreign.deferred && !(dir && mentionsFolder(foreign.suspects, spellings)) ? 'waiting' : 'unread';
             return null;
           }
-          const spellings = folderSpellings(dir, create.workerDir(name));
           if (dir && mentionsFolder(foreign.texts, spellings)) return true;
           /* A login job that could not be read and names this agent's folder might start it, so "no job" is not
              proven: null, which Repair never acts on (#570). One that could not be read at all might be anyone's. */
