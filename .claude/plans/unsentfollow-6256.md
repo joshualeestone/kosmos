@@ -1,7 +1,8 @@
 # unsentfollow-6256: follow-ups from the #6249 review rounds (an unsent line in an idle agent's input box)
 
-Stacked on msgsubmit-6249 (0b5088a133, Sonya's #6249, not merged yet); rebased onto main when it merges. Splinter
-routed it 2026-10-15 17:05. Finished looks like: each of the card's 11 items fixed or closed with a reason.
+Built stacked on msgsubmit-6249 (Sonya's #6249); #6249 merged as #6279 and this branch is now rebased onto main
+(see "Rebased onto main" below). Splinter routed it 2026-10-15 17:05. Finished looks like: each of the card's
+11 items fixed or closed with a reason.
 
 ## Fixed
 1. **Room posts held by text in the box.** messages.js notes the post (roomhold.noteInput: member, project, id) when it
