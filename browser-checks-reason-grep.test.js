@@ -498,6 +498,7 @@ const SITE_COUNTS = {
   'render-tasks.js': [0, 1],
   'render-teamcreate-4557.js': [1, 1],
   'render-teammap-6103.js': [3, 1],
+  'render-teammap-rail-6324.js': [3, 1],
   'render-thread.js': [1, 0],
   'render-token-usage-2617.js': [2, 2],
   'render-tophead-consolidated-2282.js': [1, 1],

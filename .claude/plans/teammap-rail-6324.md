@@ -22,14 +22,17 @@ Stacked on `teammap-6103` (PigeonPete, #6103, not yet merged). Rebase onto main 
 ## Weakest premise
 The rail is narrow (16.6vw, at least 200px). A deep reporting tree indents 16px per level, so a 4+ level tree
 squeezes the words. Measured at 1280 wide in the browser check; not measured on a very deep org.
-Height: the open map is capped at 45vh and scrolls inside itself, so a big team cannot make the page scroll (#980).
-That nested scroll is a trade: on a big team the map is a small scrolling box. The browser check uses ten members so
-the cap is reached (with a control that the map really overflows its box).
+Height: the open map is capped at 35vh and scrolls inside its own box. That nested scroll is a trade: on a big team
+the map is a small scrolling box. The browser check (ten members, with a control that the map really overflows its
+box) measures no page scroll and the agents list in view at 1280x900 and 1280x720, with the project notice empty.
+NOT covered: a long project notice plus the open map on a short window. The rail head's row is auto-sized and the
+notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today.
 Focus: a repaint finds a focused member again by data-agent; if the project closes, the map and its button go and
 focus falls to the page, as the tab layout's does.
 
 ## Checks
 - Unit (`web.teammap-rail-6324.test.js`): the rail painter, lifted from the page and called, paints the map only
   while a project is open in the consolidated layout, and empties it otherwise.
-- Browser (`docs/browser-checks/render-teammap-rail-6324.js`): consolidated layout, project open; the button
-  shows, the map opens and closes, every member is on it, a member opens its page, folded hides it.
+- Browser (`docs/browser-checks/render-teammap-rail-6324.js`, gated): consolidated layout, project open; the button
+  shows, the map opens and closes, every member is on it, height and list-in-view at two heights, focus kept over a
+  repaint, folded hides it, the open state carries to the tab layout, a member opens its page.
