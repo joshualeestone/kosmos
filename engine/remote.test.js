@@ -4478,6 +4478,22 @@ test('#5786 (b): a device the person said Not me to is never allowed by a vouch,
   remote.setOn(false);
 });
 
+test('kosmos#6286: an automatic allow Kosmos+ does not take (refused meanwhile, e.g. Not me) is taken back out and stops', async () => {
+  const removesOf = () => recorded().filter((x) => x[0] === 'devices' && x[1] === 'remove').map((x) => x[x.indexOf('--device-id') + 1]);
+  process.env.FAKE_TUNNEL_MODE = 'allow-unknown';
+  try {
+    const { secret, plant } = await vouchSignedIn('vouchunknown');
+    plant([{ device_id: 'dev-unk', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
+    remote.vouchTickForTests();
+    plant([{ device_id: 'dev-unk', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6', vouch: vouchFor(secret, 'dev-unk') }]);
+    remote.vouchTickForTests();
+    await until(() => removesOf().includes('dev-unk'), 'the entry Kosmos+ did not take was removed');
+    assert.equal(allowsOf().filter((x) => x === 'dev-unk').length, 1, 'an allow Kosmos+ refused was tried again');
+    assert.equal(remote.vouchSecretForTests(), null, 'the secret stayed live after Kosmos+ refused the device');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  remote.setOn(false);
+});
+
 test('#5786 (b): a remove that timed out keeps the "on this computer" note (it may not have happened)', async () => {
   const { secret, plant } = await vouchSignedIn('vouchslow');
   plant([{ device_id: 'dev-slow', name: 'Mac · Safari', first_seen: nowS(), code: 'VR-D6' }]);
