@@ -629,3 +629,47 @@ test('#6310: a kept-alive job whose start script names the folder covers the age
     '\t<key>KeepAlive</key>\n\t<true/>\n');
   assert.deepEqual(mac.survey().missing, ['leo', 'periodx']);
 });
+
+test('#6310: a login job that cannot be read at all makes every agent without its own plist unknown, and none is repaired', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+  reset();
+  agent('ownz', { job: true });
+  agent('anyz');
+  foreignJob('com.locked.thing.plist', {});
+  const locked = path.join(SB, 'launch', 'com.locked.thing.plist');
+  fs.chmodSync(locked, 0o000);
+  try {
+    const s = mac.survey();
+    assert.deepEqual(s.missing, []);
+    assert.equal(s.agents.find((x) => x.name === 'anyz').job, null);
+    assert.equal(s.agents.find((x) => x.name === 'ownz').job, true);
+    mac.repair();
+    assert.equal(fs.existsSync(create.plistPath('anyz')), false, 'Repair acted on an unknown agent');
+    // CONTROL: once it can be read again (it names nobody), the agent is counted again: a failed read is not cached.
+    fs.chmodSync(locked, 0o644);
+    assert.deepEqual(mac.survey().missing, ['anyz']);
+  } finally {
+    try { fs.chmodSync(locked, 0o644); } catch { /* reset removes it */ }
+  }
+});
+
+test('#6310: KeepAlive written as a dict counts; a folder preceded by other name characters does not', () => {
+  reset();
+  agent('dictx');
+  agent('edgex');
+  const raw = (extra) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n' + extra + '</dict>\n</plist>\n';
+  foreignJob('com.dictx.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>\n\t<key>WorkingDirectory</key>\n\t<string>' + create.workerDir('dictx') + '</string>\n') });
+  foreignJob('com.edgex.discord.plist', { raw: raw('\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/echo</string>\n\t\t<string>old' + create.workerDir('edgex') + '</string>\n\t</array>\n') });
+  assert.deepEqual(mac.survey().missing, ['edgex']);
+});
+
+test('#6310: a binary plist is read through plutil', (t) => {
+  if (!fs.existsSync('/usr/bin/plutil')) return t.skip('no plutil off a Mac');
+  reset();
+  agent('binx');
+  foreignJob('com.binx.discord.plist', { dir: create.workerDir('binx') });
+  const file = path.join(SB, 'launch', 'com.binx.discord.plist');
+  require('node:child_process').execFileSync('/usr/bin/plutil', ['-convert', 'binary1', file]);
+  assert.equal(fs.readFileSync(file).slice(0, 8).toString('latin1'), 'bplist00', 'the fixture is not binary');
+  assert.deepEqual(mac.survey().missing, []);
+});

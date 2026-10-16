@@ -9,14 +9,14 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 
 ## Steps
 1. [x] `engine/register.js` `jobReader` (Mac): our plist, OR a non-Kosmos LaunchAgent (RunAtLoad or KeepAlive, not
-   Disabled) whose WorkingDirectory is the worker folder, OR a KeepAlive job whose arguments or named start script
-   (64 KB or less) contain the whole worker folder path. Plist XML read as text (no process on the 5 s poll); binary
+   Disabled, no schedule) whose WorkingDirectory is the worker folder, OR whose arguments or named start script (64 KB
+   or less) contain the whole worker folder path (see Decided for the exact rule). Plist XML read as text (no process on the 5 s poll); binary
    plists through plutil; cached by mtime and size.
 2. [x] Tests in `engine/register.test.js`: the fleet shape with a no-job control; disabled, never-starting and
    other-folder jobs do not cover; unreadable plist gives null; a start-script mention covers a KeepAlive job, not a
    periodic one, and `.../leo` does not match `.../leonardo`.
-3. [x] Measured on the fleet Mac (read-only survey): 0.7.51 says 18 missing, this branch says 2 (both genuinely have no
-   login job).
+3. [x] Measured on the fleet Mac (read-only survey): 0.7.51 says 18 missing; this branch, after review, says 1
+   (leftover-unrelated, which genuinely has no login job).
 
 ## Decided, not missed
 - Matching by folder, not by label (`com.<name>.discord`): the label is this fleet's habit; the folder is what makes a
@@ -29,6 +29,13 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   cannot be read at all makes every agent without its own plist unknown. Unknown is never repaired, and the banner
   counts only proven absences, so an unknown agent is not listed there (the safe direction for a button that starts
   processes).
+- Over-match is accepted on purpose: a starting job whose script merely names a worker folder (a watcher, a comment)
+  marks that agent covered. That hides a banner line; the opposite error installs and starts a second copy of a live
+  agent, the harm this card is about.
+- A file that could not be read is asked again on the next survey (a failed read is not cached); one that read but is
+  not a property list is cached until it changes. Plists over 256 KB are not read (they count as unreadable).
+- Only ~/Library/LaunchAgents is read (Kosmos writes its own jobs there); /Library jobs are not. A start script on a
+  hung network mount would block the survey's read; not handled.
 - Not covered, stated so nobody reads it as covered: a relative `cd`, a folder built from variables other than HOME,
   a job switched off with `launchctl disable` (the override database, not the plist). The first two read as missing
   (Repair would add a second job); the last reads as covered.
