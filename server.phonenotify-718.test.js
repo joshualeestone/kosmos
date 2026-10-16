@@ -216,6 +216,33 @@ test('needs_you names the project it stands under, carried forward when the repo
   assert.equal(sent[0].body.project, 'Henderson lease');
 });
 
+test('#6254: a kind whose sub-switch is off sends nothing of that kind, the master on', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  // needsYou off: a needs_you report does not buzz; replied (its switch still on) does.
+  const off = await call('PUT', '/api/phone-notify', { body: { kind: 'needsYou', on: false } });
+  assert.equal(off.code, 200, off.text);
+  assert.equal(off.json.kinds.needsYou, false, 'the needsYou sub-switch did not turn off');
+  assert.equal(off.json.kinds.replied, true, 'another kind was turned off by mistake');
+  await withLeo(async (h) => {
+    await report(h, 'needs_you');
+    assert.equal(sent.length, 0, 'needs_you buzzed with its switch off');
+    await reply(h);
+    assert.equal(sent.length, 1, 'replied did not buzz with its switch on');
+    // replied off too (a plain PUT, no agent header needed): now neither buzzes, master still on.
+    await call('PUT', '/api/phone-notify', { body: { kind: 'replied', on: false } });
+    sent.length = 0;
+    await report(h, 'working'); await report(h, 'needs_you'); await reply(h);
+    assert.equal(sent.length, 0, 'a kind buzzed with its switch off');
+  });
+  // an unknown kind name is refused, and defaults persist unreadable-as-default.
+  const bad = await call('PUT', '/api/phone-notify', { body: { kind: 'nope', on: true } });
+  assert.equal(bad.code, 400, bad.text);
+  const st = await call('GET', '/api/phone-notify');
+  assert.equal(st.json.kinds.ready, true, 'ready lost its default');
+  assert.equal(st.json.kinds.postedRoom, false, 'postedRoom default is off');
+});
+
 test('turning on always mints a fresh token, one turn-on at a time', async () => {
   enrol();
   /* #4136: the two turn-ons must really overlap. Fired as two HTTP PUTs, the first could finish its mint before the
