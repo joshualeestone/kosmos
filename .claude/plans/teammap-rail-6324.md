@@ -24,6 +24,9 @@ While a project with members is open, the button takes its own line in the Agent
 about one button lower than the projects list beside it (as it already does whenever the notice has text). The two
 rail LABELS still share a line (#3948 item 2): the browser check measures that, with a control with no project open.
 If that arm ever reds, the control moves onto the label line instead. Design shots are to be taken for review.
+The capped map hides its scrollbar, as #867 has every list in the agents rail do. That costs a cue: on a big team the
+only sign there is more is the node cut off at the box's bottom edge. Kept for consistency with #867; the design
+review may want a thin scrollbar or a fade on this one box, which is a CSS-only change.
 
 ## Weakest premise
 The rail is narrow (16.6vw, at least 200px). A deep reporting tree indents 16px per level, so a 4+ level tree
