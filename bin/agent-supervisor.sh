@@ -1160,9 +1160,9 @@ if [ -z "$adopt" ]; then
     # #5812 item 2: the PreToolUse hook that tells the board which files a Codex agent is about to edit (the undo copy,
     # #5153, and "changed by" on a project file). engine/codexhooks.js writes it, with the trust record Codex needs before
     # it will run it, into the agent's PRIVATE home (#4592). Codex has hooks on by default and, in the TUI, STOPS on an
-    # untrusted hook ("Hooks need review"), so the install runs only for the pinned Codex version (the hash is verified
-    # for that one) and removes its hooks.json whenever it cannot vouch for the record: a failure launches the agent with
-    # no hook, as before, never on the review screen.
+    # untrusted hook ("Hooks need review"), so the install runs only for the one Codex version its trust hash was verified
+    # for (codexhooks.js HASH_VERIFIED_FOR) and removes its hooks.json whenever it cannot vouch for the record: a failure
+    # launches the agent with no hook, as before, never on the review screen.
     if [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -n "${EFFECTIVE_CODEX_HOME:-}" ]; then
       _codex_ver="$("$CLAUDE" --version 2>/dev/null | head -n 1)"
       _codex_ver="${_codex_ver#codex-cli }"
