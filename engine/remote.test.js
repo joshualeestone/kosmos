@@ -349,6 +349,7 @@ if (args[0] === 'devices') {
   if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  if (verb === 'allow' && mode.includes('allow-unknown')) { console.log(JSON.stringify({ allowed: false, acked: false, account_ack: 'unknown_device', device_id: flag('--device-id') })); process.exit(0); }
   console.log(JSON.stringify({ [verb === 'allow' ? 'allowed' : verb === 'deny' ? 'denied' : 'removed']: true, device_id: flag('--device-id') }));
   process.exit(0);
 }
@@ -1183,6 +1184,19 @@ test('allow drives the binary with the Mac-first verb, the id and the kind; a ba
   assert.equal(call[call.indexOf('--device-id') + 1], 'dev-9');
   assert.equal(call[call.indexOf('--name') + 1], 'iPhone');
   assert.ok(call.includes('--coordinator'), 'allow forgot the coordinator, so the phone would never be told');
+});
+
+test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refusal, never allowed', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'allow-unknown';
+  try {
+    const r = await remote.deviceAllow('family-web-cb519c', 'iPhone');
+    assert.equal(r.ok, false, 'an allow of an id the coordinator does not hold read as allowed');
+    assert.equal(r.because, 'Kosmos+ has no sign-in waiting with that id, so nothing was allowed.');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
+  const ok = await remote.deviceAllow('dev-9', 'iPhone');
+  assert.equal(ok.ok, true, ok.because);
 });
 
 test('deny remembers the No, so a re-ask from the same id carries when this Mac said no', async () => {
