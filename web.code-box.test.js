@@ -141,7 +141,7 @@ test('an empty email is said before anything is asked', async () => {
   assert.equal(asked, 0);
 });
 
-test('#6313: a good ask starts the one-minute "nothing yet" line; a refused ask does not', async () => {
+test('#6313: a good ask arms the one-minute "nothing yet" timer; a refused ask does not (what it shows is the browser check)', async () => {
   const w = boxWorld(async () => ({ ok: true, json: async () => ({ stage: 'code_sent' }) }));
   w.el('plus-signin-email').value = 'her@example.com';
   await w.click();
