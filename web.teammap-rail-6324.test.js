@@ -164,3 +164,22 @@ test('#6324: the rail passes the needs-you predicate, so a member drawn red gets
   assert.match(r.els['alist-teammap'].innerHTML, /class="pjtm-node pjtm-need" type="button" data-agent="pixel"/, 'a member the predicate draws red is not marked on the rail map');
   assert.doesNotMatch(r.els['alist-teammap'].innerHTML, /pjtm-need" type="button" data-agent="(roo|quill)"/, 'a member not drawn red was marked');
 });
+
+test('#6324: the map keeps its scroll position for the same project, and another project starts at the top', () => {
+  const a = build('RailScrollA');
+  const b = build('RailScrollB');
+  const projects = [a.p, b.p];
+  const r = rig({ consolidated: true, current: a.p.id, projects, board: a.board });
+  r.open.add(String(a.p.id));
+  r.open.add(String(b.p.id));
+  r.paint();
+  r.els['alist-teammap'].scrollTop = 120;
+  r.paint();
+  assert.equal(r.els['alist-teammap'].scrollTop, 120, 'a repaint of the same project lost its scroll position');
+  const r2 = rig({ consolidated: true, current: b.p.id, projects, board: a.board });
+  // The same box carried over from project A, as the page's one box is.
+  Object.assign(r2.els['alist-teammap'], { scrollTop: 120, dataset: { ...r.els['alist-teammap'].dataset }, innerHTML: r.els['alist-teammap'].innerHTML });
+  r2.open.add(String(b.p.id));
+  r2.paint();
+  assert.equal(r2.els['alist-teammap'].scrollTop, 0, 'another project\'s map opened at the last project\'s scroll position');
+});

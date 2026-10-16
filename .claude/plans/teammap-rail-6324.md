@@ -34,7 +34,9 @@ the map is a small scrolling box. The browser check (ten members, with a control
 box) measures that the first agent row stays wholly in view at 1280x900 and 960x720, with the project notice empty. Below 1280 wide the agents column folds by default and
 the map goes with it; the 960x720 arms unfold it first, as a person would.
 NOT covered: a long project notice plus the open map on a short window. The rail head's row is auto-sized and the
-notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today.
+notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today. Also not covered:
+folding the agents column drops keyboard focus from anything in the rail head, the map included (as it does for
+the notice's buttons and the rows; the fold is CSS only).
 Focus: a repaint finds a focused member again by data-agent; a focused member who leaves hands focus to the Team map
 button. While the map is shown, a repaint keeps its scroll position. Its scrollbar is hidden, as every list in the
 agents rail hides its own (#867).

@@ -271,8 +271,10 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       const btn = document.getElementById('pj-teammap-btn');
       const box = document.getElementById('pj-teammap');
       return { cons: document.body.classList.contains('consolidated'), expanded: btn && btn.getAttribute('aria-expanded'),
+        tabBtn: !!btn && !btn.hidden && btn.getClientRects().length > 0,
         shown: !!box && !box.hidden && box.getClientRects().length > 0 };
     });
+    say('CONTROL: the instrument that read the tab button unreachable reads it visible in the tab layout', carried.tabBtn === true, JSON.stringify(carried));
     await p.evaluate(() => applyLayout('consolidated', true));
     say('the map opened in the rail is open in the tab layout too', carried.cons === false && carried.shown && carried.expanded === 'true', JSON.stringify(carried));
     await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
