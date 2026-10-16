@@ -83,7 +83,13 @@ function kosmosEntry(nodeBin, bridge, withToolHooks = true) {
     ...entry,
     /* #4043 (Gemini-Sub's spec): agy's ask_question stops the turn for the person; report it as
        needs_you, and working again once answered. Matched to that one tool only. */
-    PreToolUse: [{ matcher: '^ask_question$', hooks: [handler('PreToolUse')] }],
+    /* #5812 item 4: PreToolUse also runs before agy's two file tools, so the bridge asks the board to keep a copy and
+       note the writer before the edit (the other providers' keep). MEASURED on agy 1.2.17 (card comment 6225769167):
+       under --dangerously-skip-permissions, which the supervisor always passes, the edit goes ahead whatever the
+       hook answers (ask, allow, or nothing); agy waits for the hook to EXIT before it runs the tool, so the keep
+       lands before the write. The bridge answers these with ASK, as for any tool that is not ask_question.
+       PostToolUse stays ask_question only: the bridge reads any PostToolUse as "working". */
+    PreToolUse: [{ matcher: '^(ask_question|write_to_file|replace_file_content)$', hooks: [handler('PreToolUse')] }],
     PostToolUse: [{ matcher: '^ask_question$', hooks: [handler('PostToolUse')] }],
   };
 }
