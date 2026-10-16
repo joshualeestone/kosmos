@@ -29,10 +29,11 @@ it $0). The coordinator already sends that price with the address list (`price.d
   - Auto: while the none panel is on screen, the page re-runs Check again itself on window focus, and on a tick
     that backs off (10 s for 2 minutes, then 60 s) for 20 minutes after the panel showed or the window last gained
     focus (`plusSiBoughtAutoCheck`). Quiet: Check again is not disabled during it (a busy flag guards re-entry), so
-    the focus stays where it was; a failed quiet read leaves the panel as it was. With exactly ONE free
-    bought address, this computer takes it with no click (`plusSiBoughtTake`), never an address already tried in this sign-in, and not while a refusal stands (a
-    person's Check again clears refusals, never tries)
-    and never an address already tried (`PLUS_SI_AUTO_TRIED`); two or more always wait for a pick.
+    the focus stays where it was (moved only if the element that had it is gone); a failed quiet read leaves the
+    panel as it was. A person's Check again that still finds nothing keeps the focus on Check again.
+    With exactly ONE free bought address, this computer takes it with no click (`plusSiBoughtTake`): never an address
+    already tried in this sign-in (`PLUS_SI_AUTO_TRIED`), and not while a refusal stands (a person's Check again
+    clears refusals, never tries); two or more always wait for a pick.
   - Card heading line-height 1.2 (it wraps on a phone now; the #6299 cause).
 - `web/index.html`, the waiting computer (`paintPlusJoin`): "Allow this computer from your other one." then two
   steps naming "your other computer, <name>" and Settings > Kosmos+; after the match, "The codes match." and "Now
