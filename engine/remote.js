@@ -1675,6 +1675,11 @@ async function companyComplete(name, acceptTerms, second) {
 const LEGACY_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const KEYED_ID = /^k1\.[A-Za-z0-9_-]{32}$/;
 const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+/* #6315: a request can also be another of the person's computers asking to join, and the coordinator names that
+   request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681; a computer id
+   is 32 lowercase hex). The colon kept every such request out of the list, so no second computer could ever be
+   allowed. Requests and their answers take either shape; this computer's OWN device ids stay DEVICE_ID. */
+const REQUEST_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32}|computer:[0-9a-f]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
 /* #4610 (Josh, 12:50, a brand-new account was shown older requests): a new identity does not inherit the old one's
@@ -1832,6 +1837,8 @@ function vouchRows() {
   const selves = ownDeviceIds(settings);
   // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
   const denied = settings.denied || {};
+  /* #6315: DEVICE_ID, not REQUEST_ID, on purpose: a minted computer: id never qualifies, so a computer is never
+     allowed by a vouch even on a row that carries no joining_computer. */
   return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
@@ -1972,7 +1979,7 @@ function pendingDevices() {
      Kosmos+. Its id is remote.json's device_id (the page used it only to relabel the row). Not listed, not counted. */
   const selves = ownDeviceIds(settings);
   const devices = list
-    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .filter((d) => !selves.includes(String(d.device_id)))
     .map((d) => ({
       device_id: String(d.device_id),
@@ -2034,7 +2041,7 @@ function deviceArgs(verb, id, withCoordinator) {
   return args;
 }
 function checkId(id) {
-  return typeof id === 'string' && DEVICE_ID.test(id) ? null : { ok: false, because: 'that is not a device we know' };
+  return typeof id === 'string' && REQUEST_ID.test(id) ? null : { ok: false, because: 'that is not a device we know' };
 }
 /** The devices this Mac lets in, joined with the sidecar (name, when let
     in, last used). Not enrolled means none, without asking the binary. */
@@ -2045,7 +2052,7 @@ async function devicesList() {
   const list = r.data && Array.isArray(r.data.devices) ? r.data.devices : [];
   const vouched = read().vouched || {};
   return { ok: true, because: null, data: { devices: list
-    .filter((d) => d && DEVICE_ID.test(String(d.device_id || '')))
+    .filter((d) => d && REQUEST_ID.test(String(d.device_id || '')))
     .map((d) => ({
       device_id: String(d.device_id),
       name: typeof d.name === 'string' && d.name.trim() ? d.name.trim().slice(0, 60) : null,
