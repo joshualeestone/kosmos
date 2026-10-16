@@ -360,6 +360,7 @@ async function startBoard(letter) {
     if (s.child.exitCode !== null) return { exited: true };
     return (await fetch(b.base + '/api/projects', { signal: AbortSignal.timeout(3000) })).ok;
   }, 60000, 250);
+  b.answeredAt = Date.now();   // the timers were armed somewhere between startedAt and this
   if (!up || up.exited) throw new Error('board ' + letter + (up ? ' exited at start' : ' did not answer on ' + b.base) + ' (log: ' + s.log + ')\n' + fedproofReadLog(s.log).slice(-2000));
   return b;
 }
@@ -587,7 +588,6 @@ async function main() {
     // The first tick at or after the join: start + 60 s if the join came first, else the next multiple of 300 s.
     const sinceStart = joinedAt - K.startedAt;
     const tickAt = K.startedAt + (sinceStart <= ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : Math.ceil(sinceStart / ROLLUP_EVERY_MS) * ROLLUP_EVERY_MS);
-    const nearBefore = tickAt - Date.now() < 5000;   // measured before the reads and again after, so a tick during them shows
     const safe = async (route) => { try { return await http(REL.coordinator, 'GET', route, undefined, bearer(sess.token)); } catch (e) { return { status: 0, json: null, text: String(e && e.message || e) }; } };
     const ov = await safe('/v1/org/console/overview');
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
@@ -598,14 +598,20 @@ async function main() {
     // The control passes only on its own condition: these reads, made after the join, show no report. That holds
     // whenever the tick falls, so a pass is sound. If a tick landed between the join and the reads, the row shows a
     // report and the control fails; nearTick then says why in the detail, so the red reads as timing (rerun).
-    const nearTick = nearBefore || tickAt - Date.now() < 5000;
+    // Could a real tick have fallen from the join to just after these reads? A real tick at offset t lands between
+    // startedAt + t and answeredAt + t (the board's boot is between them), for t = 60 s, then every 300 s.
+    const readsDone = Date.now();
+    let nearTick = false;
+    for (let t = ROLLUP_FIRST_MS; K.startedAt + t <= readsDone + 5000; t = t === ROLLUP_FIRST_MS ? ROLLUP_EVERY_MS : t + ROLLUP_EVERY_MS) {
+      if (K.answeredAt + t >= joinedAt) { nearTick = true; break; }
+    }
     chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
       'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report',
       ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found') + (nearTick ? ' (a tick was due within 5 s or past: the control could not be read cleanly; rerun)' : ''));
     let row = null;
     let invStatus = 0;
     await waitFor(async () => {
-      const inv = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
+      const inv = await safe('/v1/org/console/inventory');   // a thrown read sets status 0, not the last good read's
       invStatus = inv.status;
       const members = inv.json && Array.isArray(inv.json.members) ? inv.json.members : [];
       row = members.find((m) => m && m.email === kid) || null;

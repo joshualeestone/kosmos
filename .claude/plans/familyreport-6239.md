@@ -22,7 +22,7 @@ reason.
 ## Round 1 (opus) fixes
 - Step 9b waits for the first rollup tick after the join (corrected in round 3: ticks fall at K's start + 60, 300, 600 s; a join
   starts none), plus 90 s, so a join later than 60 s no longer fails for the wrong reason; the detail says when K joined
-  and when the tick was due. The watchdog budget counts the worst case (855 s).
+  and when the tick was due. The watchdog budget counts the worst case (855 s; 945 s and 19 min since rounds 1 and 5).
 - The positive check is K's own row (by email) in the parent's console inventory, not a count of reporting members.
 - The labels say what is measured: a report lands. The words gate itself is not exercised (no mismatched-words arm).
 - Found while re-running: P's first sign-in failed twice with "the tunnel program did not answer in time" (always the
@@ -78,3 +78,11 @@ reason.
   rollup's run lock, print wait) reads differently from a refused report. The wait itself stays the next tick plus 90 s.
 - The closure parameter no longer shadows path; the watchdog's duplicate comment is gone.
 - Rerun (exclusive queued turn, 05:25): VERDICT PASS 25/25. The sign-in retry FIRED and worked (P signin-start timed out, asked once more, the run passed). Joined 42 s after K's spawn, tick due 60 s.
+
+## Round 7 (opus) fixes
+- The tick is a window, not a point: the board arms its timers between its spawn stamp and its first answer, so a real
+  tick at offset t falls in [startedAt + t, answeredAt + t]. The control's timing note now names a red whenever any
+  such window overlaps the span from the join to just after its reads (the 60 s to 60 s + boot band included).
+- The report poll reads through safe(), so a thrown last read shows status 0, not an earlier read's 200.
+- Declined: matching the retried sign-in's code by count. The settle's bound and failure mode are stated at the site,
+  and the retry has now fired and passed once.
