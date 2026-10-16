@@ -42,7 +42,11 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   not a property list is cached until it changes. Plists over 256 KB are not read (they count as unreadable).
 - Only ~/Library/LaunchAgents is read (Kosmos writes its own jobs there); /Library jobs are not. A start script on a
   hung network mount would block the survey's read; not handled.
-- Not covered, stated so nobody reads it as covered: a relative `cd`, a folder built from variables other than HOME,
+- Only the program or the script it runs (a job's first two arguments) can make every agent unknown when it cannot be
+  read; an unreadable file further along (a log being followed) is data. A binary is never searched.
+- Cost, measured on the fleet Mac (about 80 agents, 40 login jobs): one warm survey takes about 50 ms.
+- Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
+  only), the legacy OnDemand key, and plist XML comments, a relative `cd`, a folder built from variables other than HOME,
   a job switched off with `launchctl disable` (the override database, not the plist). The first two read as missing
   (Repair would add a second job); the last reads as covered.
 - Measured on the fleet Mac after these changes (read-only survey): 1 missing (leftover-unrelated, genuinely no job).
