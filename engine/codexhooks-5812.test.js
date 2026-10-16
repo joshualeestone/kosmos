@@ -195,6 +195,12 @@ test('the bridge reads the files a patch names, once each, in order', () => {
   assert.deepEqual(bridge.patchPaths('*** Update File: spaced.txt  \n'), ['spaced.txt']);
   assert.deepEqual(bridge.patchPaths('  *** Update File: indented.txt\n'), ['indented.txt']);
   assert.deepEqual(bridge.patchPaths('*** Update File:    \n'), [], 'no path, no keep');
+  assert.deepEqual(bridge.patchPaths('*** Update File:   lead.txt\n'), ['lead.txt'], 'review 4: spaces after the colon are trimmed too');
+  // Review 4, measured on Codex: inside an Update hunk an indented line is context, never a heading.
+  const ctx = '*** Begin Patch\n*** Update File: doc.md\n@@\n *** Update File: victim.txt\n-old\n+new\n*** End Patch\n';
+  assert.deepEqual(bridge.patchPaths(ctx), ['doc.md']);
+  const after = '*** Begin Patch\n*** Update File: a.md\n@@\n-x\n+y\n*** Add File: b.md\n+z\n  *** Delete File: c.md\n*** End Patch\n';
+  assert.deepEqual(bridge.patchPaths(after), ['a.md', 'b.md', 'c.md'], 'an indented heading after an Add File body still counts');
 });
 
 test('the bridge makes one keep per file for a PreToolUse apply_patch, and none for anything else', () => {

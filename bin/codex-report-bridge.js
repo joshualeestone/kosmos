@@ -167,20 +167,25 @@ function main() {
 const KEEP_TIMEOUT_MS = 3000;   // never hold the edit longer (the Claude and Gemini hooks' bound)
 const STDIN_TIMEOUT_MS = 2000;  // a hook closes stdin at once; this only bounds a stdin left open
 const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board); the rest get no undo copy and no changed-by, a stated limit
-/* Review 3, measured: Codex accepts a heading with spaces before it and trims the path, so both are allowed here; a
-   path keeping its trailing spaces named a file that does not exist, and an indented heading got no keep at all. The
-   cost, stated: a hunk's context line holding that text would get a keep too (a copy of a file, nothing more). */
-const FILE_LINE = /^\s*\*\*\* (?:Add File|Update File|Delete File|Move to): (.*\S)\s*$/;
+/* Review 3, measured: Codex accepts a heading with spaces before it and trims the path, so both are allowed here (a
+   path keeping its spaces named a file that does not exist; an indented heading got no keep at all). Review 4,
+   measured: inside an Update hunk a line starting with a space is CONTEXT to Codex, never a heading, even when its text
+   reads like one; a keep for it would record this agent as the writer of a file it never touched. So an indented
+   heading counts only outside an Update hunk. */
+const FILE_LINE = /^(\s*)\*\*\* (Add File|Update File|Delete File|Move to):\s*(.*\S)\s*$/;
 
 /* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
    a different file). */
 function patchPaths(patch) {
   if (typeof patch !== 'string') return [];
   const out = [];
+  let inUpdate = false;   // after an Update File (or its Move to) heading, until the next heading
   for (const raw of patch.split('\n')) {
     const m = FILE_LINE.exec(raw.replace(/\r$/, ''));
     if (!m) continue;
-    const p = m[1];
+    const [, indent, kind, p] = m;
+    if (indent && inUpdate) continue;   // a context line that reads like a heading
+    inUpdate = kind === 'Update File' || kind === 'Move to';
     if (/[\u0000-\u001f\u007f]/.test(p) || out.includes(p)) continue;
     out.push(p);
   }
