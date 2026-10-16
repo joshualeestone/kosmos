@@ -168,7 +168,7 @@ test('#6231: a Qwen put-back whose job write fails and whose record cannot be un
   finally { store.writeProfile = real; fs.chmodSync(jobDir, 0o755); fs.chmodSync(jobfix.jobPath(name), 0o644); }
   assert.equal(calls, 2, 'PRECONDITION: the record was written, then its undo was tried');
   assert.notEqual(back.outcome, 'created', 'PRECONDITION: the job write failed');
-  assert.match(String(back.because), /Qwen account now names its old account, so a restart keeps it on the new account but a Repair would put it back on the old one/);
+  assert.match(String(back.because), /Qwen account now names its old account, so a restart moves it to the new account but a Repair would put it back on the old one/);
   assert.doesNotMatch(String(back.because), /nothing (was )?changed|have not changed/, 'it says nothing changed, but the record did');
   assert.equal(store.readProfile(name).qwenAccount, a, 'the record is left on the old account, as the answer says');
 });
