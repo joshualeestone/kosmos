@@ -375,17 +375,23 @@ const visible = (page, sel) => page.evaluate((s) => {
           await page.fill('#plus-si-code-in', '1');
           await page.clock.fastForward('01:01');
           chk(await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim() === ''), `[${key}] #6313 with a digit typed, the minute passes without the "nothing yet" line`, 'shown with a digit typed');
-          // Each request arms its own minute: a fresh ask with nothing typed shows the line again only after a minute.
+          // Each request arms its own minute and cancels the one before: an ask, 30 s, start over and ask again, then 31 s
+          // (the OLD minute would have ended here) must show nothing; 30 s more (the new minute ends) shows the line.
           await page.fill('#plus-si-code-in', '');
           await page.click('#plus-si-code-change');
           await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
           await page.click('#plus-signin-code');
           await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
           await page.clock.fastForward('00:30');
-          const half = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
+          await page.click('#plus-si-code-change');
+          await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
+          await page.click('#plus-signin-code');
+          await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
           await page.clock.fastForward('00:31');
+          const oldEnd = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
+          await page.clock.fastForward('00:30');
           const full = await page.evaluate(() => document.getElementById('plus-si-code-late').textContent.trim());
-          chk(half === '' && /Check the address above/.test(full), `[${key}] #6313 the line comes back for a new request, and only once its own minute has passed`, JSON.stringify({ half, full }));
+          chk(oldEnd === '' && /Check the address above/.test(full), `[${key}] #6313 a new request cancels the minute still running from the last one, and shows the line only when its own minute ends`, JSON.stringify({ oldEnd, full }));
           // The scenario goes on from here: the clock jumps above are safe because nothing else is in flight on this step.
           // The line is taken away again so the layout checks below measure the step as it first opens.
           await page.evaluate(() => plusSiCodeLateReset());

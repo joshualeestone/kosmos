@@ -19257,8 +19257,8 @@ window.kosmosMeasureScrollbarWidth();
       <div id="plus-si-code" hidden>
         <!-- #6313: the coordinator answers the same for an address with no account and sends nothing (deliberate: the
              answer must not say whether an account exists), so the line claims only what the board knows. -->
-        <p class="plus-si-lead" id="plus-si-code-lead">If this address has a Kosmos+ account, a code is on its way. It works for 10 minutes.</p>
-        <p class="plus-si-addr"><b id="plus-si-code-to"></b> <a id="plus-si-code-change" class="plus-signin-link" href="#">Wrong address? Change it</a></p>
+        <p class="plus-si-lead">If this address has a Kosmos+ account, a code is on its way. It works for 10 minutes.</p>
+        <p class="plus-si-addr"><b id="plus-si-code-to"></b> <a id="plus-si-code-change" class="plus-signin-link" href="#" role="button">Wrong address? Change it</a></p>
         <div class="field">
           <!-- The label stays for a screen reader; on screen the line above says it (#3796). -->
           <label class="flabel plus-si-sr" for="plus-si-code-in">The code from the email</label>
@@ -51834,7 +51834,7 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
-  plusSiCodeLateReset();
+  if (typeof plusSiCodeLateReset === 'function') plusSiCodeLateReset();
   /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
      and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
      start carried is kept, so it comes back. */
@@ -52273,8 +52273,8 @@ async function plusSiRequestCode(btn) {
   /* #5995: the box shows the name as it was kept (one line, cut to fit; a cleared box stays empty), so coming back
      to this step shows what was sent and not what was typed. */
   { const cn = document.getElementById('plus-si-computer'); if (cn && r.data && typeof r.data.computer_name === 'string') cn.value = r.data.computer_name; }
-  /* #3796: one short line on the code step ("We sent a code to <email>.") replaces the
-     paragraph; the status line below only says something when a resend went out. */
+  /* #3796: one short line on the code step replaces the paragraph (#6313: its words claim only what the board knows);
+     the status line below only says something when a resend went out. */
   document.getElementById('plus-si-code-to').textContent = email;
   plusSiMsg(btn.id === 'plus-si-code-resend' ? 'Asked for another code.' : '');
   plusSiCodeLateArm();
