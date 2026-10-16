@@ -56,6 +56,60 @@ function engineDir(here) {
   return null;
 }
 
+/* The headers every POST to the board carries: the notify report and (#5812) the hook's keep call. */
+function headersFor(env) {
+  /* #1139 link 3: PRESENT THE LAUNCH TOKEN WHEN WE HAVE ONE.
+     The supervisor mints per launch and puts it in the pane environment, and
+     until now nothing read it, so every report on this path was identified by
+     its pane alone.
+
+     \u26a0\ufe0f SILENCE IS THE SAFE DEFAULT AND IT IS THE COMMON CASE. An agent
+     launched before the mint worked has no token here, so no header is sent
+     and its identity is derived from the pane exactly as before. That is what
+     keeps this from touching agents that are already running.
+
+     \U0001f6d1 AND THE ROUTE DOES NOT DOWNGRADE: a presented token DECIDES, so a
+     token that does not resolve is a REFUSAL rather than a fall back to the
+     pane. That is correct -- a caller free to pick the weaker check would pick
+     it -- but it means a malformed value here turns a working report into a
+     silent refusal. Hence the shape test: the same hex rule the supervisor
+     applies before exporting, applied again before presenting, because a
+     partial write or a stray warning on stdout is exactly what it guards. */
+  const headers = { 'content-type': 'application/json' };
+  const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
+  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
+
+  /* #1968: ALSO present the board token. The agent-token arm above is empty for
+     almost every agent (the common case), and #1946 makes an enforcing board
+     refuse a bare-pane report as the cross-account spoof path. The board token
+     is the same-account credential a report presents instead; this bridge runs
+     INSIDE the agent's pane, same account as the board, so it can read the
+     mode-600 token file. Read via boardauth (the ONE source of truth for the
+     path -- no formula duplicated here). Guarded to the letter of this file's
+     cardinal rule: a token we cannot read must never break the agent, so any
+     failure just omits the header and the pane arm carries the report exactly as
+     before on a non-enforcing board. */
+  const engine = engineDir();
+  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
+     token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
+  if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
+    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
+    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
+  } catch { /* a missed board token must never become a failed turn */ }
+
+  /* #1704 PR2: name this agent's Kosmos (`default` when KOSMOS_WORLD is absent),
+     so a board serving ANOTHER Kosmos answers 421 instead of refusing the report
+     as a stranger's. Nothing is kept on a 421: a report is stale by the time its
+     Kosmos opens, so it costs one report, exactly as a down board does. Guarded
+     by this file's cardinal rule, like the token read above. */
+  try {
+    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(env);
+  } catch { /* a missed world header must never become a failed turn */ }
+
+  return headers;
+}
+
 function main() {
   let event;
   try { event = JSON.parse(process.argv[2] || ''); } catch { return; }
@@ -90,54 +144,7 @@ function main() {
     from_pane: process.env.TMUX_PANE || '',
   });
 
-  /* #1139 link 3: PRESENT THE LAUNCH TOKEN WHEN WE HAVE ONE.
-     The supervisor mints per launch and puts it in the pane environment, and
-     until now nothing read it, so every report on this path was identified by
-     its pane alone.
-
-     \u26a0\ufe0f SILENCE IS THE SAFE DEFAULT AND IT IS THE COMMON CASE. An agent
-     launched before the mint worked has no token here, so no header is sent
-     and its identity is derived from the pane exactly as before. That is what
-     keeps this from touching agents that are already running.
-
-     \U0001f6d1 AND THE ROUTE DOES NOT DOWNGRADE: a presented token DECIDES, so a
-     token that does not resolve is a REFUSAL rather than a fall back to the
-     pane. That is correct -- a caller free to pick the weaker check would pick
-     it -- but it means a malformed value here turns a working report into a
-     silent refusal. Hence the shape test: the same hex rule the supervisor
-     applies before exporting, applied again before presenting, because a
-     partial write or a stray warning on stdout is exactly what it guards. */
-  const headers = { 'content-type': 'application/json' };
-  const token = String(process.env.KOSMOS_AGENT_TOKEN || '').trim();
-  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
-
-  /* #1968: ALSO present the board token. The agent-token arm above is empty for
-     almost every agent (the common case), and #1946 makes an enforcing board
-     refuse a bare-pane report as the cross-account spoof path. The board token
-     is the same-account credential a report presents instead; this bridge runs
-     INSIDE the agent's pane, same account as the board, so it can read the
-     mode-600 token file. Read via boardauth (the ONE source of truth for the
-     path -- no formula duplicated here). Guarded to the letter of this file's
-     cardinal rule: a token we cannot read must never break the agent, so any
-     failure just omits the header and the pane arm carries the report exactly as
-     before on a non-enforcing board. */
-  const engine = engineDir();
-  /* #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token above, the report goes with that
-     token alone and the board token is not read (POST /api/report takes the agent's token; the same switch slice 7 gives the two CLIs, on its own branch until it merges). */
-  if (!(headers['x-kosmos-agent-token'] && process.env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
-    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
-    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
-  } catch { /* a missed board token must never become a failed turn */ }
-
-  /* #1704 PR2: name this agent's Kosmos (`default` when KOSMOS_WORLD is absent),
-     so a board serving ANOTHER Kosmos answers 421 instead of refusing the report
-     as a stranger's. Nothing is kept on a 421: a report is stale by the time its
-     Kosmos opens, so it costs one report, exactly as a down board does. Guarded
-     by this file's cardinal rule, like the token read above. */
-  try {
-    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
-    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
-  } catch { /* a missed world header must never become a failed turn */ }
+  const headers = headersFor(process.env);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
@@ -150,4 +157,93 @@ function main() {
     .finally(() => clearTimeout(timer));
 }
 
-try { main(); } catch { /* same rule at the top: never break the agent */ }
+/* #5812 item 2: the HOOK mode. engine/codexhooks.js installs a PreToolUse hook (matcher apply_patch) that runs this
+   file with the event as JSON on STDIN and no argument; notify always passes its event as the argument, so the two
+   cannot be confused. MEASURED on codex-cli 0.149.1 (card comment 6219788459): tool_name "apply_patch",
+   tool_input.command = the whole patch text, cwd = the agent's folder, session_id. A patch names its files on
+   `*** Add File: `, `*** Update File: `, `*** Delete File: ` and `*** Move to: ` lines, relative to cwd or absolute.
+   Each one gets the board's keep call (#5153's copy while the undo switch is on, and #5812's writer record), the same
+   call the Claude and Gemini hooks make. Nothing is printed: Codex runs the tool when the hook says nothing. */
+const KEEP_TIMEOUT_MS = 3000;   // never hold the edit longer (the Claude and Gemini hooks' bound)
+const STDIN_TIMEOUT_MS = 2000;  // a hook closes stdin at once; this only bounds a stdin left open
+const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board)
+const FILE_LINE = /^\*\*\* (?:Add File|Update File|Delete File|Move to): (.+)$/;
+
+/* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
+   a different file). */
+function patchPaths(patch) {
+  if (typeof patch !== 'string') return [];
+  const out = [];
+  for (const raw of patch.split('\n')) {
+    const m = FILE_LINE.exec(raw.replace(/\r$/, ''));
+    if (!m) continue;
+    const p = m[1];
+    if (/[\u0000-\u001f\u007f]/.test(p) || out.includes(p)) continue;
+    out.push(p);
+  }
+  return out;
+}
+
+/* The keep bodies for one hook event, or [] (any other event or tool, no patch, a relative path with no cwd, a cwd with
+   a control character). */
+function keepRequestsFor(event) {
+  if (!event || typeof event !== 'object' || event.hook_event_name !== 'PreToolUse' || event.tool_name !== 'apply_patch') return [];
+  const input = event.tool_input && typeof event.tool_input === 'object' ? event.tool_input : {};
+  const cwd = typeof event.cwd === 'string' ? event.cwd : '';
+  if (/[\u0000-\u001f\u007f]/.test(cwd)) return [];
+  const session = typeof event.session_id === 'string' ? event.session_id : '';
+  const P = require('node:path').posix;
+  const out = [];
+  for (const file of patchPaths(input.command)) {
+    if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) continue;
+    out.push({ path: P.isAbsolute(file) ? file : P.resolve(cwd, file), cwd, session });
+    if (out.length >= KEEP_MAX) break;
+  }
+  return out;
+}
+
+function readStdin(timeoutMs) {
+  return new Promise((resolve) => {
+    let data = '';
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(data); } };
+    try {
+      process.stdin.setEncoding('utf8');
+      process.stdin.on('data', (c) => { data += c; });
+      process.stdin.on('end', finish);
+      process.stdin.on('error', finish);
+    } catch { finish(); }
+    setTimeout(finish, timeoutMs).unref();
+  });
+}
+
+async function hookMain(io) {
+  const o = io || {};
+  const env = o.env || process.env;
+  const raw = o.input !== undefined ? o.input : await readStdin(STDIN_TIMEOUT_MS);
+  let event;
+  try { event = JSON.parse(raw || ''); } catch { return; }
+  const keeps = keepRequestsFor(event);
+  if (!keeps.length) return;
+  const port = Number(env.KOSMOS_PORT) || 16180;
+  const headers = o.headers || headersFor(env);
+  const doFetch = o.fetchImpl || fetch;
+  await Promise.all(keeps.map((body) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    return Promise.resolve()
+      .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
+      .catch(() => { /* a missed keep must never stop the edit */ })
+      .finally(() => clearTimeout(timer));
+  }));
+}
+
+if (require.main === module) {
+  if (process.argv.length > 2) {
+    try { main(); } catch { /* same rule at the top: never break the agent */ }
+  } else {
+    hookMain().catch(() => { /* never break the agent */ });
+  }
+}
+
+module.exports = { patchPaths, keepRequestsFor, hookMain, headersFor, KEEP_MAX, KEEP_TIMEOUT_MS };
