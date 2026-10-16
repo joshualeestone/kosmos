@@ -50306,6 +50306,12 @@ function paintAsk() {
   out.push(...after);
   askWrite(document.getElementById(inPanel ? 'plus-ask-rows' : 'ask-rows'), out.join(''));
   askWrite(document.getElementById(inPanel ? 'ask-rows' : 'plus-ask-rows'), '');
+  /* kosmos#6314 (Josh 11:30, landed scrolled down at the devices list: "on the laptop it doesnt say anything about it"):
+     on Kosmos+ the requests stay in this section (#4610), so a NEW one is scrolled into view, once per set of requests;
+     the same set repainting every few seconds never moves the page again. */
+  const waitingKey = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => d.device_id).join(',') : '';
+  if (waitingKey && waitingKey !== ASK.shownKey && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  ASK.shownKey = waitingKey;
 }
 async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);

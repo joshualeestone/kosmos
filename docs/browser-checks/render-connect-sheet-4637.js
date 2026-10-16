@@ -153,6 +153,20 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
         return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
+      /* kosmos#6314 (Josh 11:30): a NEW request scrolls the Kosmos+ section's requests into view; the same requests
+         repainting never move the page again. Precondition first, so this cannot pass on a page too short to scroll. */
+      const scroll = await page.evaluate(async () => {
+        const p = document.getElementById('plus-asks');
+        const inView = () => { const r = p.getBoundingClientRect(); return r.bottom > 0 && r.top < window.innerHeight; };
+        const down = () => { for (let n = p.parentElement; n; n = n.parentElement) { if (n.scrollHeight > n.clientHeight + 4) n.scrollTop = n.scrollHeight; } window.scrollTo(0, document.documentElement.scrollHeight); };
+        const wait = () => new Promise((r) => setTimeout(r, 900));
+        down(); await wait(); const hidden = !inView();
+        ASK.shownKey = ''; paintAsk(); await wait(); const shown = inView();
+        down(); await wait(); paintAsk(); await wait(); const stayed = !inView();
+        return { hidden, shown, stayed };
+      });
+      if (!scroll.hidden && width > 600) console.log(`SKIP  ${tag} #6314 scroll: this page is too short at this width to scroll the requests away (the 390 arm proves it)`);
+      else chk(scroll.hidden && scroll.shown && scroll.stayed, `${tag} #6314: a new request scrolls into view on Kosmos+, once (scrolled away first: off screen; new: on screen; same again: not moved)`, JSON.stringify(scroll));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
       chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if windowsbox shows this same code.',
