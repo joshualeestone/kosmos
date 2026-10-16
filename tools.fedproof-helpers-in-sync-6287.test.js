@@ -5,7 +5,8 @@
  * dev-code reading and boardSignin. A fix made in one copy must reach the other, or one proof keeps a bug the other
  * lost.
  *
- * The card proposed extracting them into a shared module. Decided against (the card says why): the helpers close
+ * The card proposed extracting them into a shared module. Decided against (on the card, and in
+ * .claude/plans/proofharness-6287.md): the helpers close
  * over each harness's own module state (results, halted, the process table, the sandbox), so sharing them means a
  * factory, and re-proving both harnesses against freshly built relay binaries, for two files. This guard keeps the
  * copies identical instead: change one, and this fails until the other matches.
@@ -14,7 +15,13 @@
  * these files), or is its own line when it is a one-liner. The module state the helpers share (the process list, the
  * teardown flags, the exit handler, SCREEN) is cut the same way, to the first line that is exactly `});` or the
  * statement's own line. Lines that are only a `//` comment are left out of the comparison, so one copy may explain
- * more than the other; code may not differ. Every name must be found exactly once in BOTH files, and no cut may run
+ * more than the other; code may not differ. A trailing `// ...` on a code line, and a block comment, ARE compared.
+ *
+ * Identical code is not identical behaviour: some inputs differ between the harnesses on purpose, and are not
+ * guarded. They are BIN_DIR and BIN (where the binaries are; fed-own falls back to a default, family exits without
+ * one), SANDBOX (its temp prefix), freePort's range, boardEnv, startBoard, main, and the uncaughtException,
+ * unhandledRejection and signal handlers (family labels each failure for its step table). ownedAlive's orphan sweep
+ * matches command lines against BIN and SANDBOX, so the same code sweeps each harness's own paths. Every name must be found exactly once in BOTH files, and no cut may run
  * past MAX_LINES, so a rename, a removal or a wrong cut fails here rather than shrinking what is compared.
  *
  *   node --test tools.fedproof-helpers-in-sync-6287.test.js
@@ -38,15 +45,18 @@ const SHARED = [
 /* The module state those helpers read and write, by the start of its first line. */
 const SHARED_STATE = [
   'let stopping =', 'const started =', 'const taken =', 'let cleaned =', 'let cleanedDone =', "process.on('exit',",
-  'const SCREEN =',
+  'const SCREEN =', 'let finishing =', 'const KEEP =', 'const LOGS =', 'const T0 =', 'const results =', 'let halted =',
+  'let coord =',
 ];
 /* No helper or statement here is longer than this; a cut that is, ran past its end. */
 const MAX_LINES = 40;
 
-/* The code of a cut, without the lines that are only a `//` comment. */
+/* The code of a cut, without the lines that are only a `//` comment. (A template-literal line starting with `//` would
+   be dropped too; no cut holds one today.) */
 const code = (text) => text.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
 
-/** Every top-level statement starting with `prefix`, each as its text (to the first `});` line, or its own line). */
+/** Every top-level statement starting with `prefix`, each as its text (to the first `});` line, or its own line). A
+    multi-line `const X = {` ending in `};` would run on, and the MAX_LINES cap would fail it: add a terminator then. */
 function statements(src, prefix) {
   const lines = src.split('\n');
   const out = [];
