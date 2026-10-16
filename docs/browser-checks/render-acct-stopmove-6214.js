@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-functions: acctUsageHtml, moveAccountAgents, stopAccountMove
+// Browser-check-functions: acctUsageHtml, moveAccountAgents, stopAccountMove, acctStopClick, acctStopLabel, acctMoveCountShow, engineRestartClick
 
 /**
  * kosmos#6214: Stop a running account move from its row in Settings > AI Models.
@@ -100,6 +100,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const s = stopIn('busy');
       out.stopText = s ? s.textContent.trim() : null;
       out.stopVisible = !!s && s.getBoundingClientRect().width > 0;
+      /* #6231: named for a screen reader, and focused (the pressed Move button is disabled, so focus had fallen to the page). */
+      out.stopName = s ? s.getAttribute('aria-label') : null;
+      out.stopFocused = !!s && document.activeElement === s;
       out.calmHasStop = !!stopIn('calm');
       if (s) s.click();
       await new Promise((x) => setTimeout(x, 100));
@@ -107,6 +110,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const s2 = stopIn('busy');
       out.stoppingText = s2 ? s2.textContent.trim() : null;
       out.stoppingDisabled = s2 ? s2.disabled : null;
+      out.stoppingName = s2 ? s2.getAttribute('aria-label') : 'none drawn';
+      /* #6231: the Move button drops its count once a stop is pressed (it would jump ahead as put-back agents finish). */
+      const mv = box('busy') && box('busy').querySelector('[data-acct-move]');
+      out.moveWhileStopping = mv ? mv.textContent.trim() : null;
       /* Ended: the row is drawn plain again (its Move button no longer reads Moving or a count). It stays disabled until a
          new target is picked, so its disabled state says nothing here. */
       const moveText = () => { const m = box('busy') && box('busy').querySelector('[data-acct-move]'); return m ? m.textContent.trim() : ''; };
@@ -127,6 +134,9 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(r.stopDrawn && r.stopText === 'Stop the move' && r.stopVisible, tag + ' the moving row draws Stop the move', JSON.stringify([r.stopDrawn, r.stopText, r.stopVisible]));
     say(r.calmHasStop === false, tag + ' only the moving row offers the stop');
     say(r.stoppingText === 'Stopping…' && r.stoppingDisabled === true, tag + ' a pressed stop reads Stopping… and cannot be pressed again', JSON.stringify([r.stoppingText, r.stoppingDisabled]));
+    say(r.stopName === 'Stop the move to another account' && r.stopFocused === true, tag + ' #6231: the inserted stop is named and focused', JSON.stringify([r.stopName, r.stopFocused]));
+    say(r.stoppingName === null, tag + ' #6231: while stopping, its visible Stopping… is its name', JSON.stringify(r.stoppingName));
+    say(r.moveWhileStopping === 'Moving…', tag + ' #6231: once stopping, the Move button shows no count', JSON.stringify(r.moveWhileStopping));
     say(r.stops === 1, tag + ' one stop request', String(r.stops));
     say(r.ended === true, tag + ' the move ends and its stop button goes', JSON.stringify(r.endText));
     say(/Moved 1 agent\./.test(r.said) && /Not moved \(Bo, Cy\): you stopped the move before their turn\. They stay on busy@example\.com\./.test(r.said),
@@ -166,12 +176,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         const offer = slot.querySelector('[data-stop-move-offer]');
         const offerVisible = !!offer && offer.getBoundingClientRect().width > 0;
         const afterRefusal = shownText();
+        const title = slot.querySelector('b') ? slot.querySelector('b').textContent.trim() : '';
         if (offer) offer.click();
         await wait(() => !slot.querySelector('[data-stop-move-offer]'), 3000);
         await new Promise((x) => setTimeout(x, 50));
-        return { offered, offerVisible, afterRefusal, afterStop: shownText(), stops };
+        return { offered, offerVisible, afterRefusal, title, afterStop: shownText(), stops };
       });
       say(t.offered && t.offerVisible, ttag + ' the refusal offers a visible Stop the move');
+      say(t.title === 'An account move is running, so Kosmos cannot restart yet', ttag + ' #6231: the title says an account move is why at this width', JSON.stringify(t.title));
       say(/account move/i.test(t.afterRefusal), ttag + ' what is shown says an account move is why', JSON.stringify(t.afterRefusal));
       say(t.stops === 1 && /The move will stop once Al has finished restarting/.test(t.afterStop), ttag + ' the stop\'s answer is shown, naming the agent', JSON.stringify(t.afterStop));
       say(terrs.length === 0, ttag + ' no page error', terrs.join(' | '));
