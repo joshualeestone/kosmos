@@ -85,6 +85,17 @@ test('a new month starts again at zero, and counts what is written after the 1st
   assert.deepEqual(usagecap.monthTokens('UTC', NOV2, [root]), { tokens: 9, complete: true, since: Date.UTC(2026, 10, 1) });
 });
 
+test('a zone whose month starts earlier counts the lines already passed (the cache reads the file again)', () => {
+  usagecap.resetForTests();
+  const root = tmp('aw-usecap-tzmove-');
+  const dir = path.join(root, 'projects', 'p');
+  fs.mkdirSync(dir, { recursive: true });
+  // 2 hours after the UTC month began: before Chicago's (5 hours later), after Tokyo's (9 hours earlier).
+  fs.writeFileSync(path.join(dir, 'a.jsonl'), line('a', OCT1 + 2 * 60 * 60 * 1000, 40) + line('b', NOW - 1000, 2));
+  assert.equal(usagecap.monthTokens('America/Chicago', NOW, [root]).tokens, 2, 'CONTROL: Chicago\'s month has only b');
+  assert.equal(usagecap.monthTokens('Asia/Tokyo', NOW, [root]).tokens, 42, 'a cap moved to an earlier zone lost the lines already read');
+});
+
 test('the swarm daily count on the same file is unchanged by a month count (the month keeps its own cache)', () => {
   usagecap.resetForTests();
   swarm.resetForTests();
@@ -98,7 +109,7 @@ test('the swarm daily count on the same file is unchanged by a month count (the 
   assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 123, 'the month count after a day count');
 });
 
-test('a bounded first count says it is not complete, catches up over later calls, and is never memoised short', () => {
+test('a bounded first count says it is not complete and catches up over later calls', () => {
   const root = tmp('aw-usecap-slow-');
   seed(root);
   usagecap.resetForTests({ perCallBytes: 200 });
@@ -142,11 +153,18 @@ test('capAllows: open with no cap or under it, refused at it with the policy sen
   assert.match(no.because, /123 of 100 tokens/);
   assert.match(no.because, /opens again on the 1st \(UTC time\)/);
 
-  usagecap.resetForTests({ perCallBytes: 200 });
-  assert.equal(usagecap.capInForce(NOW).complete, false, 'CONTROL: the first count is short');
+  // A board restart: the cache is gone, the month's saved count is not. The short count never reads below it.
+  usagecap.resetForTests({ perCallBytes: 200, keepFloor: true });
+  const short = usagecap.capInForce(NOW);
+  assert.equal(short.complete, false, 'CONTROL: the first count after a restart is short');
+  assert.equal(short.used, 123, 'a restart under-counted the month while catching up');
+  assert.equal(usagecap.capAllows(NOW).ok, false, 'a restart let a child over the cap message again');
+  assert.equal(usagecap.capInForce(NOW + 1).complete, false, 'a short count is kept a moment, not recounted per message');
   let last;
-  for (let i = 0; i < 20; i++) { last = usagecap.capInForce(NOW + i); if (last.complete) break; }
-  assert.equal(last.used, 123, 'a short count is not kept for a minute: the next calls catch up');
+  for (let i = 1; i <= 20; i++) { last = usagecap.capInForce(NOW + i * usagecap.MEMO_SHORT_MS); if (last.complete) break; }
+  assert.deepEqual([last.used, last.complete], [123, true], 'the count did not catch up over later calls');
+  usagecap.resetForTests({ perCallBytes: 200 });
+  assert.ok(usagecap.capInForce(NOW).used < 123, 'CONTROL: with no saved count the first count is short');
   usagecap.resetForTests();
 });
 

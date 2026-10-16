@@ -19,6 +19,7 @@ const HASH = 'cd'.repeat(32);
 const FAMILY = {
   reports: [
     "which version of the family's policy this Kosmos has applied, and whether it refused one the family sent",
+    "how much of the family's monthly AI cap this computer has used this month, when the family's policy sets one",
     "the agent, project and activity lines above from every Kosmos on this computer, not only this one",
     "when one of the agents on this computer is stopped by the family's rules: which agent, the kind of thing it tried, the conversation it was in, and when",
   ],
@@ -56,6 +57,8 @@ test('#6239: a family\'s accepted words turn on the policy line and the agent-ev
   const words = oe.acceptedConsent({ root: r, remote: c });
   assert.equal(words.policyConsented, true, 'the family\'s policy line was not read as the policy line');
   assert.equal(words.everyKosmosConsented, true);
+  assert.equal(words.capConsented, true, 'kosmos#6309: the family\'s cap line was not read as consent to send the month\'s count');
+  assert.equal(words.usageConsented, false, 'kosmos#6309: the cap line was read as consent to per-day usage, which the coordinator refuses');
   assert.deepEqual(ae.recordRefusal({ agent: 'Scout', rule: 'quiet-hours' }, { root: r, remote: c, platform: 'darwin' }), { queued: true },
     'a family\'s events line did not let the board report its own refusals');
   // CONTROL: words that name neither phrase turn on neither.
@@ -67,6 +70,7 @@ test('#6239: a family\'s accepted words turn on the policy line and the agent-ev
   const pv2 = await oe.preview('RIVE-JOIN-1234', { root: r2, remote: plain });
   await oe.enroll('RIVE-JOIN-1234', true, { root: r2, remote: plain, consentHash: pv2.served, consent: pv2.consent, orgId: 'o', wordsShown: true });
   assert.equal(oe.acceptedConsent({ root: r2, remote: plain }).policyConsented, false, 'CONTROL');
+  assert.equal(oe.acceptedConsent({ root: r2, remote: plain }).capConsented, false, 'CONTROL: no cap line');
   assert.equal(ae.recordRefusal({ agent: 'Scout', rule: 'quiet-hours' }, { root: r2, remote: plain, platform: 'darwin' }).queued, false, 'CONTROL');
 });
 

@@ -340,7 +340,11 @@ function capAt(policy = currentStrict(), used = 0) {
 function capAllows(policy = currentStrict(), used = 0) {
   const c = capAt(policy, used);
   if (!c.capped || !c.over) return { ok: true };
-  return { ok: false, because: `this month's usage cap is reached (${c.used} of ${c.cap} tokens), under ${POLICY_SETTER}; it opens again on the 1st (${c.tz} time)` };
+  return { ok: false, because: capSentence(c) };
+}
+/** kosmos#6309: the refusal's words for capAt's { used, cap, tz }. */
+function capSentence(c) {
+  return `this month's usage cap is reached (${c.used} of ${c.cap} tokens), under ${POLICY_SETTER}; it opens again on the 1st (${c.tz} time)`;
 }
 
 /* #5534 review 1: the board stopped being this company's enrolled Kosmos (it left, was removed, or the company stopped
@@ -391,4 +395,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
