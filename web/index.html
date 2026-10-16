@@ -6371,6 +6371,20 @@ body:not(.consolidated) .pjcard-members > .pj-addmem, body:not(.consolidated) #p
 body:not(.consolidated) .pjcard-members > .pj-addmem > span, body:not(.consolidated) #pj-tasks-field > #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
 body:not(.consolidated) .pjcard-members > .pj-addmem:hover, body:not(.consolidated) #pj-tasks-field > #pj-newtask:hover { color: var(--k-ink); }
 body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #pj-tasks-field > .tkcards { margin-top: 6px; }
+/* kosmos#6103: the team map. Indented by who reports to whom, one rule down the left per level. */
+.pj-tmbtn { margin-top: 8px; width: 100%; font-size: .875rem; padding: 6px 12px; }
+.pjtm { margin-top: 8px; }
+.pjtm-map ul { list-style: none; margin: 0; padding: 0 0 0 16px; border-left: 1px solid var(--k-rule); }
+.pjtm-map > ul { padding-left: 0; border-left: 0; }
+.pjtm-map li { margin: 6px 0; }
+.pjtm-node { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-width: 0; text-align: left; padding: 6px 10px; border: 1px solid var(--k-rule); border-radius: 8px; background: var(--k-surface); color: var(--k-ink); font: inherit; cursor: pointer; }
+.pjtm-node:hover { background: var(--k-sunk); }
+.pjtm-node b { overflow-wrap: anywhere; }
+.pjtm-sub { font-size: .8125rem; color: var(--k-ink-2); overflow-wrap: anywhere; }
+.pjtm-node.pjtm-need { border-color: var(--danger); }
+.pjtm-haz { position: absolute; top: 6px; right: 8px; font-weight: 700; color: var(--danger); }
+.pjtm-h { font-size: .8125rem; font-weight: 600; margin: 12px 0 4px; }
+.pjtm-hand { margin: 0; padding-left: 18px; font-size: .875rem; }
 /* #3756 (Josh, 0.6.94: "let's make tasks and files work just like they do on the consolidated
    view, where we have the header"): in the tab view too, the Tasks and Files headers are the title
    on the left and, on the same line at the right, a small View All (and Tasks' +), not View All
@@ -16782,6 +16796,10 @@ window.kosmosMeasureScrollbarWidth();
            fedOutsidePaint from GET /api/federation/members. Its own element, not rows inside
            the agents list above: that list's click opens an agent's page, and an outsider has none. -->
       <div id="pj-fed-outside" class="fedout"></div>
+      <!-- kosmos#6103: the team map, read-only, closed until asked for, so the resting card is still
+           the members. pjTeamMap() paints it from the same roster as the list above. -->
+      <button class="btn-quiet pj-tmbtn" id="pj-teammap-btn" type="button" aria-expanded="false" aria-controls="pj-teammap" hidden>Team map</button>
+      <div id="pj-teammap" class="pjtm" hidden></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
            pinned words) is the one control that opens the choosing row. -->
@@ -62052,6 +62070,84 @@ function pjNeedsNotice(roster, redHere) {
   return '<div class="pnotice pn-needs"><span class="haz" aria-hidden="true">!</span><div class="pn-b"><b>' + head + '</b>' + counted + sub + extra + '</div></div>';
 }
 
+/* kosmos#6103 (a user's competitor comparison, via Josh 10-13: "seeing how the agents are connected and where
+   approvals happen"): a project's TEAM MAP, read-only. Its members by who reports to whom (the org chart's own
+   orgTreeOf, so the two cannot disagree on the shape), each with its model family, its status word and the open
+   task parts it holds, then who handed work to whom.
+   🛑 A hand-off comes ONLY from a part's movedBy (#6150), the agent that made the move. No movedBy, no hand-off:
+   the map never guesses that the lead gave it out, because work also moves sideways. Parts moved before movedBy
+   existed record nobody, so the list starts empty and fills from then on.
+   Who needs a person is the needs-you block above the members (pjNeedsNotice), not said a second time here; a
+   member it counts gets the "!". Pure (project and board list in, HTML out), so a test lifts it alone. */
+function pjTeamMap(p, board) {
+  const roster = ((p && p.agents) || []).filter((m) => m && typeof m.sessionName === 'string' && m.sessionName);
+  if (!roster.length) return '<p class="fhint">No agents on this project yet.</p>';
+  const cards = Array.isArray(board) ? board : [];
+  const byName = new Map();
+  for (const m of roster) if (!byName.has(m.sessionName)) byName.set(m.sessionName, m);
+  const nameOf = (m) => String(m.name || m.sessionName);
+  const holds = new Map();
+  const handed = new Map();
+  for (const t of (p.tasks || [])) {
+    if (!t || t.closedAt || (t.progress && t.progress.closed)) continue;
+    for (const x of (t.parts || [])) {
+      if (!x || x.closedAt || typeof x.who !== 'string' || !byName.has(x.who)) continue;
+      holds.set(x.who, (holds.get(x.who) || 0) + 1);
+      const by = typeof x.movedBy === 'string' ? x.movedBy : '';
+      if (by && by !== x.who && byName.has(by)) {
+        const k = JSON.stringify([by, x.who]);
+        handed.set(k, (handed.get(k) || 0) + 1);
+      }
+    }
+  }
+  // The family word the Overview uses (WV_PROVIDER); a Qwen agent runs on codex and is never "OpenAI" (#5977).
+  // The member's own runner (the row's source); the board card only for the account, which a member does not carry.
+  const family = (m) => {
+    const c = cards.find((x) => x && x.sessionName === m.sessionName) || {};
+    const runner = m.runner || c.runner;
+    const account = m.account || c.account;
+    if (runner === 'codex' && account && account.provider === 'alibaba') return 'Qwen';
+    return WV_PROVIDER[runner] || '';
+  };
+  // A member the board cannot see says so rather than a state it does not know (as its row does).
+  const stateWord = (m) => {
+    if (m.present !== true && m.state !== 'restarting') return 'Kosmos cannot see it';
+    const c = stateCopyOf(m);
+    return c && c.label ? c.label : '';
+  };
+  const needs = (m) => typeof m.needsYouHere === 'string' && !!m.needsYouHere;
+  const node = (m) => {
+    const n = holds.get(m.sessionName) || 0;
+    const held = n === 0 ? 'holds no open parts' : n === 1 ? 'holds 1 open part' : 'holds ' + n + ' open parts';
+    const sub = [family(m), stateWord(m), held].filter(Boolean).join(' · ');
+    return '<button class="pjtm-node' + (needs(m) ? ' pjtm-need' : '') + '" type="button" data-agent="' + esc(m.sessionName) + '">'
+      + (needs(m) ? '<span class="pjtm-haz" aria-hidden="true">!</span>' : '')
+      + '<b>' + esc(nameOf(m)) + '</b><span class="pjtm-sub">' + esc(sub) + (needs(m) ? '<span class="vh">, needs you</span>' : '') + '</span></button>';
+  };
+  const tree = orgTreeOf([...byName.values()].map((m) => Object.assign({}, m, { profile: { reportsTo: m.reportsTo } })));
+  const kids = new Map();
+  for (const r of tree) {
+    const k = r.parent || '';
+    if (!kids.has(k)) kids.set(k, []);
+    kids.get(k).push(r.agent.sessionName);
+  }
+  const list = (parent) => {
+    const rows = kids.get(parent) || [];
+    return rows.length ? '<ul>' + rows.map((s) => '<li>' + node(byName.get(s)) + list(s) + '</li>').join('') + '</ul>' : '';
+  };
+  const lines = [...handed].sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+    const [by, to] = JSON.parse(k);
+    return '<li>' + esc(nameOf(byName.get(by))) + ' handed ' + esc(nameOf(byName.get(to))) + ' ' + (n === 1 ? '1 open part' : n + ' open parts') + '</li>';
+  });
+  const hand = lines.length ? '<ul class="pjtm-hand">' + lines.join('') + '</ul>'
+    : '<p class="fhint">No hand-offs between agents on open work yet. One shows here when an agent gives another a part of a task.</p>';
+  return '<div class="pjtm-map" role="group" aria-label="Team map">' + list('') + '</div>'
+    + '<h4 class="pjtm-h">Who handed work to whom</h4>' + hand
+    + (roster.some(needs) ? '<p class="fhint">! needs you: what each one is waiting for is listed above the members.</p>' : '');
+}
+/* kosmos#6103: the projects whose team map is open, by id. In memory only: a reload shows the members again. */
+const PJ_TEAMMAP_OPEN = new Set();
+
 /** The whole notice: '' when every agent has the folder. */
 function pjNotice(roster, projectId) {
   const failing = (roster || []).filter((m) => m && m.told && m.told.state === 'could_not');
@@ -67188,6 +67284,16 @@ function paintOneProject() {
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
     ? roster.map((m) => pjMember(m, true, true, true)).join('')
     : '<p class="fhint">No agents on this project yet.</p>');
+  // kosmos#6103: the team map, from the same roster, painted only while it is open for this project.
+  { const btn = document.getElementById('pj-teammap-btn');
+    const box = document.getElementById('pj-teammap');
+    if (btn && box) {
+      const open = roster.length > 0 && PJ_TEAMMAP_OPEN.has(String(p.id));
+      btn.hidden = roster.length === 0;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      box.hidden = !open;
+      if (open) setIfChanged(box, pjTeamMap(p, typeof LAST !== 'undefined' ? LAST : []));
+    } }
 
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));
   // kosmos#4649 slice B: the "From outside" section, from the last members answer (typeof: tests lift this alone).
@@ -75722,6 +75828,18 @@ document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   // passing PJ_CURRENT so detail-back returns to this project.
   const member = e.target.closest('.pj-member[data-agent]');
   if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
+});
+/* kosmos#6103: the team map's button opens and closes it for this project. A member on the map opens their page the
+   same way a member row does (openDetail, with PJ_CURRENT so Back returns here). */
+document.getElementById('pj-teammap-btn').addEventListener('click', () => {
+  if (!PJ_CURRENT) return;
+  const k = String(PJ_CURRENT);
+  if (PJ_TEAMMAP_OPEN.has(k)) PJ_TEAMMAP_OPEN.delete(k); else PJ_TEAMMAP_OPEN.add(k);
+  paintOneProject();
+});
+document.getElementById('pj-teammap').addEventListener('click', (e) => {
+  const n = e.target.closest('.pjtm-node[data-agent]');
+  if (n && n.dataset.agent) openDetail(n.dataset.agent, undefined, PJ_CURRENT);
 });
 /* #2575: clear a STALE waiting flag through Pete's engine route. It POSTs to
    /api/agent/<name>/clear-selfreport, which records `idle` over a
