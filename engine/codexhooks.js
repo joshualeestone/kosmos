@@ -37,7 +37,9 @@
  *
  * ⚠️ An absent record is APPENDED (as create.js appendCodexTrust does: Codex writes this file too and takes no lock, and
  * an append cannot lose its edit). A CHANGED record is a whole-file replace (the line has to change in place), so an
- * edit by a Codex STILL RUNNING on this home at that moment could be lost. The install runs at
+ * edit by a Codex STILL RUNNING on this home at that moment could be lost. The reverse holds for both paths: that Codex
+ * renaming its own copy of config.toml over the file would drop OUR record while hooks.json stays (the review screen
+ * at the next launch, which then writes the record again). The install runs at
  * launch, before this agent's Codex starts; the window is a previous Codex for the same home still exiting, and the
  * change is rare (the bridge's path moved).
  *
