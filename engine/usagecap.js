@@ -125,14 +125,20 @@ function capNow(policy, now = Date.now(), rootsList, bytes = perCallBytes) {
   return withFloor(policy, monthTokens(u.tz, now, rootsList || roots(), bytes));
 }
 /* capAt for a count `m` ({ tokens, complete, since }) held up by the month's saved count, saving it when complete. */
-function withFloor(policy, m) {
+/* The count in force for `m` with the month's saved one, saving it when `save` (the board saves each count the worker
+   posts, so a process reading the saved count is never behind the board for want of a gate call). */
+function settle(m, save) {
   const floor = readFloor(m.since);
   const used = m.complete && !floor.sameZone ? m.tokens : Math.max(m.tokens, floor.used);
-  if (m.complete) writeFloor(m.since, used);
+  if (save && m.complete) writeFloor(m.since, used);
   /* A partial count is a true lower bound too, so a higher one is saved as it catches up: a restart mid catch-up then
      starts from it, not from the last full count. Not over a count saved under another zone, which still holds the
      cap up until this zone's count is full. */
-  else if ((!floor.used || floor.sameZone) && m.tokens > floor.used) writeFloor(m.since, m.tokens);
+  else if (save && (!floor.used || floor.sameZone) && m.tokens > floor.used) writeFloor(m.since, m.tokens);
+  return { used, floor };
+}
+function withFloor(policy, m, save = true) {
+  const { used, floor } = settle(m, save);
   /* `month` ('YYYY-MM') names the month counted, so a count carried forward after the board stops reporting is never
      read as this month's. The 1st's local midnight falls within 14 hours of the UTC 1st, so two days on is that month. */
   const month = new Date(m.since + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7);
@@ -170,11 +176,15 @@ function ensureWorker(tz, now) {
       const w = new Worker(path.join(__dirname, 'usagecap-worker.js'));
       w.unref();   // never what keeps the board running
       w.on('message', (r) => {
-        if (r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isSafeInteger(r.tokens) && r.tokens >= 0 && typeof r.complete === 'boolean') latest = r;
+        if (worker !== w) return;   // a worker already replaced or stopped
+        if (!(r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isSafeInteger(r.tokens) && r.tokens >= 0 && typeof r.complete === 'boolean')) return;
+        latest = r;
+        try { settle(r, true); } catch { /* best effort, as writeFloor is */ }
       });
       const gone = (e) => {
         if (worker !== w) return;   // stopped on purpose (stopWorker): nothing to say
         worker = null; workerKey = null; workerFailedAt = Date.now();
+        latest = null;   // a count from a counter that has stopped is not current: the saved count holds the cap
         console.error('usagecap: the usage cap\'s counter stopped (' + ((e && e.message) || 'it exited') + '); the cap reads the month\'s saved count until it starts again');
       };
       w.on('error', gone);
@@ -203,7 +213,7 @@ function fromWorker(policy, now) {
   if (workerAllowed) ensureWorker(u.tz, now);
   const since = sinceFor(u.tz, now);
   const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
-  return withFloor(policy, m);
+  return withFloor(policy, m, false);   // the worker's handler saves; the gate only reads
 }
 
 /** What the rollup reports for `policy`: capNow's shape, from the worker on the board (never an inline count). */
