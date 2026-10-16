@@ -102,6 +102,8 @@ async function run(engineName) {
     await page.addInitScript(harness());
     await page.goto(PAGE);
     if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+    // R1 (read here, before any Accept sets it): the joined sentence is focusable by its markup.
+    const sayTab0 = await page.evaluate(() => document.getElementById('plus-org-say').getAttribute('tabindex'));
     await page.evaluate(() => { showTab('settings'); settingsGo('plus'); });
     await page.waitForFunction(() => (window.__org || []).some((x) => x.path === '/api/org' && x.method === 'GET'), null, { timeout: 10000 }).catch(() => {});
     await page.waitForTimeout(200);
@@ -273,9 +275,8 @@ async function run(engineName) {
     const reread = async (st) => { await page.evaluate((v) => { window.__orgState = v; PLUS_ORG.at = 0; plusOrgMaybe(); }, st); await page.waitForTimeout(250); };
     await reread(WAITING);
     const r1 = { joined: await shown('plus-org-in'), say: await text('plus-org-say'), row: await shown('plus-org-words'), label: (await text('plus-org-words')).trim(),
-      // Before any Accept could set it: focus sent to the joined sentence lands only if the markup makes it focusable.
-      tab: await page.evaluate(() => document.getElementById('plus-org-say').tabIndex) };
-    chk(r1.joined && r1.row && r1.label === "Read the family's words" && r1.tab === -1 && r1.say.includes('reports nothing until a parent or guardian reads and accepts them'),
+      tab: sayTab0 };
+    chk(r1.joined && r1.row && r1.label === "Read the family's words" && r1.tab === '-1' && r1.say.includes('reports nothing until a parent or guardian reads and accepts them'),
       E + ' R1 a family whose words changed says reports wait for a parent, and offers them', JSON.stringify(r1));
     const REVIEW = { move: true, review: true, org: FAMILY.org, consent: FAMILY_WORDS };
     const openReview = async () => {
@@ -432,8 +433,10 @@ async function run(engineName) {
     await page.evaluate(() => { PLUS_ORG.wroteAt = Date.now() + 2000; });
     await reread(Object.assign({}, WAITING, { org: { name: 'Stale family', slug: 'stale', kind: 'family' }, leaveRefused: 'The Rivera family' }));
     const r17a = { say: await text('plus-org-say') };
-    await page.evaluate(() => { PLUS_ORG.wroteAt = 0; });
-    await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    // The stand-in stops carrying the note BEFORE reads are let through, so only the carried copy can show it.
+    const after17 = Object.assign({}, WAITING, { wordsNeeded: false, reporting: true });
+    await page.evaluate((st) => { window.__orgState = st; PLUS_ORG.wroteAt = 0; }, after17);
+    await reread(after17);   // a read is sure to happen, whether or not the carried re-read already ran
     const r17 = Object.assign(r17a, { msg: await text('plus-org-msg') });
     chk(!r17.say.includes('Stale family') && r17.msg.includes('Your leave from The Rivera family was refused'),
       E + ' R17 an older read is dropped and its one-time note shows on the next read', JSON.stringify(r17));

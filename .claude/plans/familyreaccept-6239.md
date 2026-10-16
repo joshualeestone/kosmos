@@ -143,6 +143,14 @@ joining again.
 - The not-member Accept refusal repaints before focusing the sentence; sign-out also drops a carried note and a pending
   "could not record" check.
 
+## Review 17 (opus) fixes
+- R17 could not fail with the carry removed: the stand-in kept sending the note, so a later read showed it anyway. The
+  stand-in now stops carrying it before reads are let through, so only the carried copy can show it.
+- R1's focusable check could not fail (a plain paragraph's tabIndex is -1 too, and F2's Accept sets the attribute). It
+  now reads the markup's tabindex attribute on the fresh page, before any Accept.
+- The two preview paths that hold the words back repaint before focusing the joined sentence (as the Accept path does);
+  sign-out also resets the once-a-minute gate so signing in reads the record afresh.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
