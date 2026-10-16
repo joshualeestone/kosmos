@@ -39,7 +39,7 @@ const REPO = path.resolve(__dirname, '..');
 // sweep compares command lines against these exact paths.
 // Required (rounds 1, 4, 6, 8): the three binaries must be built from relay main for this run, so no default can be
 // trusted to hold them. USAGE above says how to build them.
-if (!process.env.FEDPROOF_BIN_DIR) { console.log('set FEDPROOF_BIN_DIR to the debug dir holding kosmos-coordinator, kosmos-relay and kosmos-tunnel built from kosmos-relay origin/main (see USAGE at the top of this file)'); process.exit(2); }
+if (!process.env.FEDPROOF_BIN_DIR) { console.error('set FEDPROOF_BIN_DIR to the debug dir holding kosmos-coordinator, kosmos-relay and kosmos-tunnel built from kosmos-relay origin/main (see USAGE at the top of this file)'); process.exit(2); }
 const BIN_DIR = path.resolve(process.env.FEDPROOF_BIN_DIR);
 const BIN = {
   coordinator: path.join(BIN_DIR, 'kosmos-coordinator'),
@@ -455,9 +455,9 @@ async function main() {
   } catch (e) { info('org-create: ' + String(e.stderr || e.message).slice(0, 300)); }
   chk(/^[0-9a-f]{32}$/.test(orgId), 'step 5: org-create --kind family makes the family, the parent its admin', orgId || '-');
 
-  // 6. the parent makes a join code in the console, with the allowed browser session.
+  // 6. the parent makes a join code in the console, with the allowed browser session (only once there is a family).
   let code = '';
-  if (sess) {
+  if (sess && orgId) {
     // The Allow reaches the coordinator through P's tunnel, so the console may refuse for a moment first.
     let r = null;
     let lastErr = '';
@@ -522,15 +522,18 @@ async function main() {
   }
 
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
-  // (not "already a member"), in the board's own sentence for a used code, which names no company.
-  if (code) {
+  // (not "already a member"), in the board's own sentence for a used code, which names no company. Only after step 9
+  // spent it: an unspent code would fail here for step 9's reason.
+  if (code && joined) {
     // A refused preview names no org to the board, so it says the shared sentence (orgenroll preview calls sayFor with
     // no kind; round 7 corrected round 3, which modelled a family choice the preview does not make).
-    const usedWords = ((require(path.join(REPO, 'engine', 'orgenroll')).SAY) || {}).org_code_used;
+    let usedWords;
+    try { usedWords = ((require(path.join(REPO, 'engine', 'orgenroll')).SAY) || {}).org_code_used; } catch { usedWords = undefined; }
     // Round 12: a renamed sentence is named as itself, not a harness crash.
     if (typeof usedWords !== 'string' || !usedWords) info('step 10: engine/orgenroll SAY.org_code_used is not a sentence here');
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
+    // The company clause pins the board's constant itself (b === usedWords already holds when it is reached).
     chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords && !/company/i.test(b),
       'step 10: the used code is refused as used, in words that name no company', (r.json && r.json.code) + ': ' + (b || r.text.slice(0, 160)));
   }
@@ -546,6 +549,7 @@ async function main() {
     // row before answering; polled only so a slow coordinator reads as slow, not as a missing row.
     let leftErr = '';
     await waitFor(async () => {
+      leftErr = '';
       let a2 = null;
       try { a2 = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch (e) { leftErr = String(e && e.message || e); return false; }
       if (a2.status !== 200) leftErr = a2.status + ' ' + a2.text.slice(0, 120);
