@@ -66,7 +66,7 @@ had not caught up after 31 minutes. Deferring was wrong. Now a worker thread (en
 the gate reads its latest count with the month's saved one; it never reads a transcript. The rollup reads the same
 way (capReport): on the enrolled board its tick runs in the board's own process (server.js orgRollupTick), so an inline
 count there was the same stall. (I first wrote that the tick ran in a child process. It does not; iteration 7 caught
-it.) The worker stops when no cap is in force. Tests use the inline count ('sync', resetForTests); one test drives the
+it.) The worker stops the next time a gate or the rollup reads a policy with no cap in force. Tests use the inline count ('sync', resetForTests); one test drives the
 real worker.
 Known limit: the worker's month cache holds a set of message ids per transcript touched this month (about 8,300 files
 on this fleet Mac; a child's computer has far fewer).

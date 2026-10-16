@@ -2,7 +2,7 @@
 
 /**
  * kosmos#6309: the usage cap's counter, a worker thread started by engine/usagecap.js, so counting the month never
- * blocks the board's message path. Told the cap's zone ({ tz }), it counts the month (usagecap.monthTokens, its own
+ * blocks the board's message path. Told the cap's zone and the board's config folders ({ tz, roots }), it counts the month (usagecap.monthTokens, its own
  * cache in this thread) a bounded amount every CATCH_UP_MS until the count has caught up, then again every RECOUNT_MS,
  * posting each count as { tz, since, tokens, complete }. The pause between catch-up turns keeps a heavy month (measured:
  * over 31 minutes of reads on one computer) from holding a core the whole time. Never throws out of a count: a failed
