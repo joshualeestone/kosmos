@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: policyhead-6270
-diff_hash: c54df39d6d63707db9582f14c2e1d1fe2dd7e688ad5a91b75ad15b79f2c5f104
+diff_hash: b2d5ce8794c8eae1268a8f518141fe6d2e34bf04f818a0cb2ba3ad474b9856e6
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-16T06:43:34Z
@@ -18,7 +18,12 @@ converged: true
 
 Validation: one full validation through the requeue wrapper on HEAD 7f6defa01a after the rebase onto main
 (5bb8af0dc9 base), `validation PASSED for stack=typescript hash=c54df39d6d63`, validation_rc=0 audit_rc=0,
-ended 01:38:36 CDT. The hash equals this file's diff_hash.
+ended 01:38:36 CDT (hash c54df39d6d63).
+
+Rebased 01:49 onto main 772f260448 because #6273 landed: one conflict, the title of one test in
+engine/policy.test.js (both sides renamed it; the body merged cleanly), resolved by keeping both halves. On the rebased
+tree the 25 engine test files that read the policy headings pass (0 fail). diff_hash is the rebased diff; hosted CI
+runs the full suite on it.
 
 ### Per-Iteration Breakdown
 
