@@ -50704,7 +50704,7 @@ async function paintPlus() {
        pairing block's own clearing below, so it happens here. A failed read (r null) is not an answer and keeps it. */
     if (r && typeof plusJoinReset === 'function') plusJoinReset();
     // kosmos#6239 reviews 14-15: so does a family's words on screen, and words held back (both belong to that sign-in).
-    if (r && typeof plusOrgFamilyHide === 'function') { plusOrgFamilyHide(); Object.assign(PLUS_ORG, { wordsRefused: false, carried: null, reviewAccepted: 0 }); }
+    if (r && typeof plusOrgFamilyHide === 'function') { plusOrgFamilyHide(); Object.assign(PLUS_ORG, { wordsRefused: false, carried: null, reviewAccepted: 0, at: 0 }); }
     state1.hidden = false;
     state2.hidden = true;
     flow.hidden = true;
@@ -51093,13 +51093,13 @@ async function plusOrgFamilyReview() {
       refused = true;
       // Review 13: the family no longer names this computer; this record clears only at the next refresh, so the words
       // are held back as after an Accept refused for the same reason (R8), not offered again by the re-read below.
-      if (p.code === 'org_not_named') { PLUS_ORG.wordsRefused = true; plusOrgFocus('plus-org-say'); }
+      if (p.code === 'org_not_named') { PLUS_ORG.wordsRefused = true; plusOrgPaint(); plusOrgFocus('plus-org-say'); }
       msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.';
       return;
     }
     // Kosmos+ did not answer as a family's (review 12): nothing for a parent to read, and the words stay held back until a
     // read says they are no longer needed, so the button does not come back with each read of this computer's record.
-    if (!(p.org && p.org.kind === 'family')) { refused = true; PLUS_ORG.wordsRefused = true; plusOrgFocus('plus-org-say'); msg.textContent = 'Kosmos+ did not answer as a family account, so there are no family words to read here.'; return; }
+    if (!(p.org && p.org.kind === 'family')) { refused = true; PLUS_ORG.wordsRefused = true; plusOrgPaint(); plusOrgFocus('plus-org-say'); msg.textContent = 'Kosmos+ did not answer as a family account, so there are no family words to read here.'; return; }
     plusOrgFamilyShow(null, p);
     plusOrgPaint();   // the words row folds while the words are open
   } finally {
@@ -51144,7 +51144,7 @@ async function plusOrgLeave() {
   /* #5531 review 19: the joined view goes only on a real leave outcome (left, left here only, or pending). A refusal
      before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
   const changed = r.ok === true || r.pending === true;
-  // Words held back after a refusal belong to the membership just left. Every other way out of it is a read, which clears them.
+  // Words held back after a refusal belong to the membership just left. Every other way out of it is a read, which clears them, or a sign-out (paintPlus).
   // A read that started before this write is dropped (review 12), as after a family's Accept.
   if (changed) { PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.wordsRefused = false; PLUS_ORG.wroteAt = Date.now(); }
   PLUS_ORG.at = Date.now();
