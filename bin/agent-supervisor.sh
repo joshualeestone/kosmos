@@ -1164,7 +1164,8 @@ if [ -z "$adopt" ]; then
     # it will run it, into the agent's PRIVATE home (#4592). Codex has hooks on by default and, in the TUI, STOPS on an
     # untrusted hook ("Hooks need review"), so the install runs only for the one Codex version its trust hash was verified
     # for (codexhooks.js HASH_VERIFIED_FOR) and removes its hooks.json whenever it cannot vouch for the record: a failure
-    # launches the agent with no hook, as before, never on the review screen.
+    # launches the agent with no hook, as before, never on the review screen (unless an old hooks.json of ours cannot be
+    # deleted, in a 0700 home Kosmos owns).
     # Review 5: never into a home that resolved to the person's own account home (their Codex Desktop's, perhaps).
     if [ "${_codex_home_shared:-0}" = 1 ]; then
       say "$SESSION: its file-edit hook was not set up (its Codex home is the account's own); undo copies and changed-by will miss its edits"
