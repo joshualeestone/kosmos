@@ -1886,6 +1886,15 @@ function vouchTick() {
   Promise.resolve()
     .then(() => deviceAllow(id, name || undefined))
     .then((r) => {
+      if (r && !r.ok && r.listed) {
+        /* kosmos#6286: Kosmos+ did not take this allow (its ack got a 404), yet the tunnel's entry stands. The row
+           matched here as waiting a moment ago, so it was refused since (Not me, or a deny elsewhere): an automatic
+           allow takes its entry back and stops, whether or not the Not me was pressed on this computer. */
+        if (vouchState === v) stopVouch();
+        return deviceRemove(id).then((rr) => {
+          if (!rr || !rr.ok) process.stderr.write('kosmos+: a device Kosmos+ did not take could not be removed again (' + String((rr && rr.because) || 'no answer') + '); remove it under Devices\n');
+        });
+      }
       if (!r || !r.ok) {
         // Only the tunnel's refusals count: a busy register or Forget is waited out. (A setup-not-finished refusal is
         // not counted either, but the next tick's !enrolled() ends S: it fails closed rather than waiting.)
@@ -2091,9 +2100,11 @@ async function deviceAllow(id, name, code) {
   /* kosmos#6286: the coordinator holds no sign-in with that id (its ack answered 404: refused, or never asked), so
      Kosmos+ did not take this Allow. The tunnel keeps the entry on this computer's list (its own), so the person is
      told both, as a refusal, never as allowed. Not "nobody was let in": a device the account refused that still holds
-     a live sign-in could pass this computer's gate while it is on the list. A joining computer's 404 does not answer this (its pairing trust stands). */
+     a live sign-in could pass this computer's gate while it is on the list. A joining computer's 404 does not
+     answer this (its pairing trust stands). */
   if (got.ok && got.data && got.data.account_ack === UNKNOWN_DEVICE) {
-    return { ok: false, because: UNKNOWN_WORDS };
+    // `listed`: the entry stands on this computer's list, so a caller that must take it back (the vouch path) can.
+    return { ok: false, because: UNKNOWN_WORDS, listed: true };
   }
   return got;
 }
