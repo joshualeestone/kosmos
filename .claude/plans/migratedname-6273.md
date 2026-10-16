@@ -48,8 +48,11 @@ neutral name, and a rename back then sticks.
 - If another entry already wears "AI policy", the migrated entry keeps "Company AI policy" WHILE that clash holds. Not
   renamed to "AI policy (2)": inventing names is worse than keeping one. Review 5 found a save during the clash wrote
   version 3 and froze the old name for good; now read() reports renamePending and every save keeps the record at
-  version 2 while p1 still holds the old name, so the rename applies once the clash is gone. A rename of p1 itself is
-  the person's choice and is saved as version 3 (arms + 2 mutants red). Review 6: a re-ingest of p1 during a clash is
+  version 2 while p1 still holds the old name, so the rename applies once the clash is gone. A rename of p1 to any
+  other name moves it off DEFAULT_NAME, so it saves as version 3 (the person's choice); a rename to the SAME name saves
+  nothing (review 7), so it cannot settle the old name. Review 7 also pinned renaming the clashing entry away
+  (mutant "rename always saves v3" red). The same-name no-op is an EQUIVALENT mutant for the version (the unchanged p1
+  keeps renameStillPending true); it stays to skip a pointless write and agent sync. Review 6: a re-ingest of p1 during a clash is
   pinned too (stays version 2). Kept: assertion messages describe the failure, so "the record is not marked..." is
   right as written.
 

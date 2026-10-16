@@ -220,6 +220,17 @@ test('#6273 a stored migrated entry named "Company AI policy" reads as "AI polic
     assert.equal(versionOnDisk(), 2, 'removing the clashing entry marked the old name as the person\'s choice');
     assert.deepEqual(policy.read().policies.map((p) => p.name), ['AI policy', 'Branding'], 'with the clash gone, the migrated entry still wears the company\'s name');
 
+    // Review 7: the natural way out of a clash is renaming the OTHER entry; that save stays old, and p1 is then renamed.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename(legal.id, 'Legal');
+    assert.equal(versionOnDisk(), 2, 'renaming the clashing entry marked p1\'s old name as the person\'s choice');
+    assert.deepEqual(policy.read().policies.map((p) => p.name), ['AI policy', 'Legal'], 'with the clash renamed away, p1 kept the company\'s name');
+
+    // Review 7: renaming p1 to the name it already wears (spaces collapse to it) saves nothing, so it stays pending.
+    plant([p1, { ...legal, name: 'AI policy' }]);
+    policy.rename('p1', 'Company  AI   policy');
+    assert.equal(versionOnDisk(), 2, 'a rename to the same name settled p1\'s old name for good');
+
     // Re-ingesting p1's words during a clash keeps its name, so it stays pending (version 2).
     plant([p1, { ...legal, name: 'AI policy' }]);
     policy.add({ id: 'p1', text: 'New words.', source: 'pasted' });
@@ -227,10 +238,10 @@ test('#6273 a stored migrated entry named "Company AI policy" reads as "AI polic
 
     // Renaming p1 itself during a clash is the person's choice: saved as theirs (version 3), and it sticks.
     plant([p1, { ...legal, name: 'AI policy' }]);
-    policy.rename('p1', 'Company AI policy');
+    policy.rename('p1', 'Our policy');
     assert.equal(versionOnDisk(), 3, 'a rename the person made to p1 was not saved as theirs');
     policy.rename(legal.id, 'Legal');
-    assert.equal(policy.read().policies[0].name, 'Company AI policy', 'a name the person gave p1 was reverted once the clash went');
+    assert.equal(policy.read().policies[0].name, 'Our policy', 'a name the person gave p1 was reverted once the clash went');
   } finally { policy.clear(); }
 });
 
