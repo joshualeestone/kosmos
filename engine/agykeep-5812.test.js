@@ -141,7 +141,9 @@ const atLeast = (v, min) => {
   for (let i = 0; i < 3; i++) { if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; }
   return true;
 };
-const realAgy = process.platform !== 'win32' && /^\d+\.\d+\.\d+$/.test(installed) && atLeast(installed, '1.2.17');
+/* OPT-IN (review 3): agy updates its own binary (it went 1.2.17 -> 1.4.0 while this was built), and a suite run (a cut,
+   a validation) must not update a machine's shared agy under other agents. Run it by hand: KOSMOS_REAL_AGY_TEST=1. */
+const realAgy = process.env.KOSMOS_REAL_AGY_TEST === '1' && process.platform !== 'win32' && /^\d+\.\d+\.\d+$/.test(installed) && atLeast(installed, '1.2.17');
 
 /* A fake Gemini API: the first call answers with `call`, every later one in words. */
 function fakeGemini(call) {
@@ -165,13 +167,13 @@ function runAgy(home, work, port, env) {
   return new Promise((resolve) => {
     const child = execFile('agy', ['--dangerously-skip-permissions', '-p', 'edit the file'], {
       cwd: work, timeout: 90000,
-      env: { ...process.env, ...env, HOME: home, GEMINI_API_KEY: 'x', GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${port}` },
+      env: { ...process.env, ...env, HOME: home, KOSMOS_AGENT_TOKEN: '', GEMINI_API_KEY: 'x', GOOGLE_GEMINI_BASE_URL: `http://127.0.0.1:${port}` },
     }, (err, stdout, stderr) => resolve({ err, stderr, killed: child.killed || child.signalCode !== null }));
     child.stdin.end();
   });
 }
 
-test(`the REAL agy (${installed}) runs the hook before the write, and the bridge reaches the board`, { skip: realAgy ? false : `needs agy 1.2.17 or newer on PATH (this computer: ${installed})` }, async () => {
+test(`the REAL agy (${installed}) runs the hook before the write, and the bridge reaches the board`, { skip: realAgy ? false : `opt-in: KOSMOS_REAL_AGY_TEST=1 and agy 1.2.17 or newer on PATH (this computer: ${installed})` }, async () => {
   const home = dir();
   const work = dir();
   fs.mkdirSync(path.join(home, '.gemini', 'antigravity-cli'), { recursive: true });

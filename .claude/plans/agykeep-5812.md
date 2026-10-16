@@ -26,6 +26,14 @@ board's `POST /api/undo/keep {path, cwd, session}` from that hook, as the Claude
 ## Versions
 Measured on agy 1.2.17. agy auto-updated to 1.4.0 during the work, and the real-agy test passed on 1.4.0 as well.
 
+## Stated (review 3)
+- A person running agy BY HAND in an agent's folder reads the same hooks file: their edits get a keep and are taken
+  for that agent's (the board matches by folder: the known case Claude's keep has, engine/undo.js), and without
+  --dangerously-skip-permissions they get agy's own prompt before each file edit (the ASK answer every other tool
+  already gets). Rare, and it fails toward asking.
+- The real-agy test is OPT-IN (KOSMOS_REAL_AGY_TEST=1): agy updates its own binary, and a suite run must not update a
+  shared agy under other agents. It passed by hand on 1.4.0; the suite runs the unit, spawn and timing arms.
+
 ## Stated (review 2)
 - Unmeasured: what agy does when it kills a hook at its 5 s handler timeout after the hook already answered. The bridge's
   worst case (node start, the 3 s keep bound, a 500 ms flush) sits near that limit only when the board does not answer;

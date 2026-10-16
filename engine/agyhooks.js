@@ -68,7 +68,8 @@ function shUnquoteAll(cmd) {
 /** The Kosmos entry: PreInvocation reports working (it fires before every model call, which
     follows every tool, so it is also the heartbeat), Stop reports idle, and PreToolUse/PostToolUse
     are hooked for agy's ask_question tool ONLY (needs_you while it waits for the person, working
-    once answered). No other tool is hooked: a hook per tool is a node start inside agy's blocking
+    once answered). #5812: on agy 1.2.17+ (MIN_FILE_TOOL_HOOKS) PreToolUse also runs before write_to_file and
+    replace_file_content (the keep). No other tool is hooked: a hook per tool is a node start inside agy's blocking
     loop, and PreToolUse is agy's permission gate: the bridge answers `{"decision":"allow"}` there ONLY when the
     payload's tool is ask_question, and `{"decision":"ask"}` (agy's own prompt) for anything else or a missing
     payload. A missing or empty decision is a DENY on agy 1.2.11 (measured live, #4043's 0.7.01 regression).
@@ -86,7 +87,7 @@ function kosmosEntry(nodeBin, bridge, withToolHooks = true, withFileTools = fals
   return {
     ...entry,
     /* #4043 (Gemini-Sub's spec): agy's ask_question stops the turn for the person; report it as
-       needs_you, and working again once answered. Matched to that one tool only. */
+       needs_you, and working again once answered. PostToolUse is matched to that one tool only. */
     /* #5812 item 4: PreToolUse also runs before agy's two file tools, so the bridge asks the board to keep a copy and
        note the writer before the edit (the other providers' keep). MEASURED on agy 1.2.17 (card comment 6225769167):
        under --dangerously-skip-permissions, which the supervisor always passes, the edit goes ahead whatever the
