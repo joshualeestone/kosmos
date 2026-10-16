@@ -44,6 +44,10 @@ test('dormant until a verification key ships: answers ok, pins nothing, with or 
   assert.deepEqual(pin.check(ROOT(), answer('o1', k), company('o1', k)), { ok: true });
   assert.deepEqual(pin.check(ROOT(), answer('o1', k, 'garbage'), company('o1', k)), { ok: true });
   assert.equal(pin.readPin(ROOT()), null, 'no pin written');
+  // A Join while dormant writes only its expectation (so it is anchored once a key ships), and check stays dormant.
+  pin.joined(ROOT(), 'o1');
+  assert.deepEqual(pin.readPin(ROOT()), { org: 'o1', public: null });
+  assert.deepEqual(pin.check(ROOT(), answer('o2', k), company('o2', k)), { ok: true }, 'dormant even against the expectation');
 });
 
 test('armed: a missing, malformed or wrong signature is a refusal, and nothing is pinned', () => {
@@ -111,7 +115,7 @@ test('through ensureMemberKey: dormant (no verifyingKey) still registers exactly
   assert.deepEqual(calls, [mk.BACKUP_KEY_ROUTE, mk.MEMBER_KEY_ROUTE]);
 });
 
-test('a Join keeps the same company\'s pin; anything else becomes "expect the joined company"', () => {
+test('a Join keeps the same company\'s pin and an unreadable one; otherwise it becomes "expect the joined company"', () => {
   const k = Buffer.alloc(32, 3);
   pin.check(ROOT(), answer('o1', k, sign('o1', 1, k)), company('o1', k), ARMED_FOR('o1'));
   pin.joined(ROOT(), 'o1');
@@ -120,7 +124,7 @@ test('a Join keeps the same company\'s pin; anything else becomes "expect the jo
   assert.deepEqual(pin.readPin(ROOT()), { org: 'o2', public: null }, 'another company: expect it');
   fs.writeFileSync(path.join(ROOT(), 'backupkeys', pin.PIN_FILE), 'not json');
   pin.joined(ROOT(), 'o1');
-  assert.deepEqual(pin.readPin(ROOT()), { org: 'o1', public: null }, 'unreadable: replaced at a Join');
+  assert.equal(pin.readPin(ROOT()), 'unreadable', 'unreadable: left as it is, even at a Join (review 3)');
 });
 
 test('review 2: the first pin must be the joined company, never one Kosmos+ names instead, however well signed', () => {
@@ -300,4 +304,21 @@ test('review 2: a lost join whose marker names no company settles without touchi
   const r2 = await org.refresh({ root, remote: co });
   assert.equal(r2.enrolled, true, 'precondition: it settled');
   assert.equal(pin.readPin(root).org, 'org_other', 'the pin is untouched');
+});
+
+test('review 3: a first pin never overwrites an expectation a Join wrote while the check ran', () => {
+  const k = Buffer.alloc(32, 3);
+  const fsMod = require('node:fs');
+  const real = fsMod.readFileSync;
+  let reads = 0;
+  // The check's first read sees no pin; a Join lands before its write.
+  fsMod.readFileSync = function (p, ...rest) {
+    if (String(p).endsWith(pin.PIN_FILE) && ++reads === 2) pin.joined(ROOT(), 'o2');
+    return real.call(this, p, ...rest);
+  };
+  try {
+    const r = pin.check(ROOT(), answer('o1', k, sign('o1', 1, k)), company('o1', k), ARMED_FOR('o1'));
+    assert.equal(r.ok, false, JSON.stringify(r));
+  } finally { fsMod.readFileSync = real; }
+  assert.deepEqual(pin.readPin(ROOT()), { org: 'o2', public: null }, 'the Join\'s expectation stands');
 });
