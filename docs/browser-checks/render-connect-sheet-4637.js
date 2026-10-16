@@ -23,7 +23,7 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
- *    codes match" (which posts that code), "Matched. Now press Allow on <name>.", ran out, too many tries;
+ *    codes match" (which posts that code), (#6314) "The codes match. Now press Allow on <name>, your other computer." with the code small, ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -264,8 +264,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "Working out the code with homemac...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
-      chk(jr.shown && /^Check that homemac shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
-        `${tag} #4794 waiting: the code large (as on the Allow card) and "The codes match"`, JSON.stringify(jr));
+      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on homemac, your other computer, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
+        `${tag} #4794/#6314 waiting: the other computer named as the other one, where to look on it, the code large and "The codes match"`, JSON.stringify(jr));
+      /* kosmos#6314 (Josh 11:37): while waiting, the pairing is the page's one job: the devices list and company block step aside. */
+      const aside = await page.evaluate(() => ['plus-devices', 'plus-org'].map((id) => { const e = document.getElementById(id); return !e || getComputedStyle(e).display === 'none'; }));
+      chk(aside[0] && aside[1], `${tag} #6314 waiting: the devices list and the company block are not on screen`, JSON.stringify(aside));
       /* Review 1: while a pairing round is in flight the coordinator's sentence must not come back beside the block. */
       joinDelayMs = 2500;
       const midRound = await page.evaluate(async () => { PLUS_JOIN_AT = 0; const p = paintPlus(); await new Promise((r) => setTimeout(r, 1200));
@@ -287,8 +290,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();
-      chk(confirmBody && confirmBody.code === '482 915' && /^Matched\. Now press Allow on homemac\./.test(jr.text) && jr.code === '482 915' && !jr.button,
-        `${tag} #4794 waiting: "The codes match" posts the code shown; then "Matched. Now press Allow on homemac." and the code stays`, JSON.stringify({ confirmBody, jr }));
+      const small = await page.evaluate(() => { const c = document.querySelector('#plus-join .plus-join-code-small'); return c ? { text: c.textContent, px: parseFloat(getComputedStyle(c).fontSize) } : null; });
+      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now press Allow on homemac, your other computer\./.test(jr.text) && jr.code === '' && !jr.button && small && small.text === '482 915' && small.px < 20,
+        `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and the code steps back, small`, JSON.stringify({ confirmBody, jr, small }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed only once this computer is no longer held (a held
          round restarts and clears it, pairing.rs owe_commitment), so the shape is connected, not held, no code. */
       join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
@@ -315,7 +319,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246 810', on: 'homemac' };
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.shown && /^If homemac showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
+      chk(jr.shown && /^If homemac, your other computer, showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
         `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
       /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
       await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; PLUS_JOIN.held = true; });   // review 7: paintPlusJoin reads the page's answer, not the route
