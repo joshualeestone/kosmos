@@ -30,6 +30,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const dns = require('node:dns');
 const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
 
@@ -58,6 +59,8 @@ const KEEP = process.env.FEDPROOF_KEEP === '1';
 // + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 = 465 s, before HTTP timeouts. 15 min covers it.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
+// Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
+const SYNC_MS = 30000;
 const EXPECTED_CHECKS = 22;   // every chk in main before the last; a skipped step leaves fewer. Adding a chk: bump this.
 const T0 = Date.now();
 
@@ -348,7 +351,7 @@ async function main() {
   {
     let said = '';
     fs.mkdirSync(path.join(SANDBOX, 'kindcheck'), { recursive: true });
-    try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') } }); }
+    try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], timeout: SYNC_MS, killSignal: 'SIGKILL', env: Object.assign(process.env.PATH ? { PATH: process.env.PATH } : {}, { HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') }) }); }
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
     if (!/--kind is company or family/.test(said)) {
       // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
@@ -363,7 +366,7 @@ async function main() {
   }
 
   // 1. coordinator (as #4693: a loopback-only name, an allowlisted env, dev codes to its log)
-  const coordAll = await require('node:dns').promises.lookup(FEDPROOF_COORD_HOST, { all: true }).catch((e) => ({ error: e }));
+  const coordAll = await dns.promises.lookup(FEDPROOF_COORD_HOST, { all: true }).catch((e) => ({ error: e }));
   if (coordAll.error || !coordAll.length || coordAll.some((a) => !['127.0.0.1', '::1'].includes(a.address))) {
     throw new Error(FEDPROOF_COORD_HOST + ' must resolve ONLY to this machine, got ' + (coordAll.error ? coordAll.error.code : coordAll.map((a) => a.address).join(', ')));
   }
@@ -386,7 +389,7 @@ async function main() {
   // 2. relay (the boards' tunnels reach the coordinator through it)
   const relayEnv = serviceEnv(path.join(SANDBOX, 'relay-home'), { RUST_LOG: 'info' });
   const tls = path.join(SANDBOX, 'relay-tls');
-  execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tls], { stdio: 'ignore', env: relayEnv });
+  execFileSync(BIN.relay, ['dev-cert', '--hosts', '127.0.0.1', '--out-dir', tls], { stdio: 'ignore', env: relayEnv, timeout: SYNC_MS, killSignal: 'SIGKILL' });
   const pinned = path.join(SANDBOX, 'relay-coordinator-key');
   fs.writeFileSync(pinned, meta.coordinator_pubkey + '\n');
   const pub = await freePort();
@@ -447,7 +450,7 @@ async function main() {
   let orgId = '';
   try {
     orgId = execFileSync(BIN.coordinator, ['org-create', '--name', 'Rivera family', '--slug', 'rivera-' + RUN, '--admin', parent, '--kind', 'family'],
-      { env: coordEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+      { env: coordEnv, encoding: 'utf8', timeout: SYNC_MS, killSignal: 'SIGKILL', stdio: ['ignore', 'pipe', 'pipe'] });
     orgId = ((orgId.match(/^([0-9a-f]{32})\s*$/m) || [])[1]) || '';   // the id is its own line; logs go beside it
   } catch (e) { info('org-create: ' + String(e.stderr || e.message).slice(0, 300)); }
   chk(/^[0-9a-f]{32}$/.test(orgId), 'step 5: org-create --kind family makes the family, the parent its admin', orgId || '-');
@@ -509,7 +512,9 @@ async function main() {
     await waitFor(async () => {
       try { a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch (e) { a = null; lastErr = String(e && e.message || e); return false; }
       const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
-      joinRow = rows.find((e) => e && e.what === 'joined') || null;
+      // Round 11: exactly one join in this family's log, K's (org-create writes org_created, not joined).
+      const joins = rows.filter((e) => e && e.what === 'joined');
+      joinRow = joins.length === 1 ? joins[0] : null;
       return !!joinRow;
     }, 20000, 1000);
     if (!a) a = { status: 0, text: 'no answer: ' + lastErr };   // round 7: report the cause, not a TypeError
@@ -537,13 +542,15 @@ async function main() {
     let rows = [];
     // ok:true above means the coordinator confirmed the leave (a pending one answers pending, not ok), and it writes the
     // row before answering; polled only so a slow coordinator reads as slow, not as a missing row.
+    let leftErr = '';
     await waitFor(async () => {
       let a2 = null;
-      try { a2 = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch { return false; }
+      try { a2 = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token)); } catch (e) { leftErr = String(e && e.message || e); return false; }
+      if (a2.status !== 200) leftErr = a2.status + ' ' + a2.text.slice(0, 120);
       rows = a2.json && Array.isArray(a2.json.entries) ? a2.json.entries : [];
-      return rows.some((e) => e && e.what === 'left');
+      return rows.filter((e) => e && e.what === 'left').length === 1;
     }, 20000, 1000);
-    chk(rows.some((e) => e && e.what === 'left'), 'step 11: the family\'s audit log records the leave', rows.map((e) => e && e.what).join(','));
+    chk(rows.filter((e) => e && e.what === 'left').length === 1, 'step 11: the family\'s audit log records the leave (one "left" row)', rows.map((e) => e && e.what).join(',') + (leftErr ? '; ' + leftErr : ''));
   }
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
   const ran = results.length;
