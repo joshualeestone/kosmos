@@ -193,3 +193,8 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Deduplicated: STEP_CHECKS by hand (round 14), the copied helpers (#6287), the pinned company hash (round 17), round
   numbers in comments, the quiet guard's discovery by text.
 - Rerun: VERDICT PASS 23/23.
+
+## Round 19 (opus): converged (zero BLOCKERs, WARNINGs or CONVENTIONs; NITs only)
+- Kept (NITs): the match code printed in steps 4 and 4b (a pairing hint, unlike the join code, which can join an org);
+  the exit-0 preflight branch keeps a fixed sentence; raw wait and port literals (each with its reason at the site);
+  the plan's file name.
