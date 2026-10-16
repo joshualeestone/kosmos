@@ -50898,7 +50898,7 @@ async function paintPlus() {
 /* ---- #5531 (Enterprise E0.2): this Kosmos joining a company. The 5-second repaint above asks at most once a minute,
    and never while a call is out. */
 // open: the person opened the company block (10-08). dismissed: the company note they closed with Cancel (#5791).
-var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0 };
+var PLUS_ORG = { at: 0, busy: false, state: null, open: false, dismissed: null, reviewAccepted: 0, wroteAt: 0 };
 /* kosmos#6251: a sentence written for a company, said for a family when the org this board knows is one ("your
    company" becomes "your family"), as engine/orgenroll.js inKind does for the engine's own sentences. */
 function plusOrgIn(org, text) {
@@ -50913,6 +50913,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
   PLUS_ORG.at = Date.now();
   const askedAt = Date.now();   // kosmos#6239: a read that started before a review's Accept says nothing about it
   fetch('/api/org').then((res) => res.json()).then((j) => {
+    // kosmos#6239: a read that started before this page last set the state itself (a review's Accept) is older than it.
+    if (askedAt < (PLUS_ORG.wroteAt || 0)) return;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
     const msg = document.getElementById('plus-org-msg');
@@ -51088,6 +51090,7 @@ async function plusOrgFamilyAccept() {
     msg.textContent = '';   // round 2: no earlier line stays over the joined view
     // A review's Accept can be taken while this computer records nothing (its print not pinned): the next read says so.
     if (f.p.review === true) PLUS_ORG.reviewAccepted = Date.now();
+    PLUS_ORG.wroteAt = Date.now();
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
     PLUS_ORG.at = 0;
@@ -51099,7 +51102,7 @@ async function plusOrgFamilyAccept() {
 }
 document.getElementById('plus-org-family-accept').addEventListener('click', plusOrgFamilyAccept);
 /* Not now, and Escape inside the words: nothing is joined, and focus goes back to the code field (round 1). A review
-   (words that changed after joining) accepts nothing, and focus goes back to the joined view's button. */
+   (the family's words not accepted on this computer) accepts nothing, and focus goes back to the joined view's button. */
 function plusOrgFamilyNotNow() {
   if (PLUS_ORG.busy) return;   // round 2: an Accept in flight may already have joined, so nothing says otherwise
   const review = !!(PLUS_ORG_FAMILY && PLUS_ORG_FAMILY.p && PLUS_ORG_FAMILY.p.review === true);
