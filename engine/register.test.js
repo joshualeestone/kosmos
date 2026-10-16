@@ -779,3 +779,14 @@ test('#6310: a data file in a folder the survey cannot open does not doubt every
     assert.equal(s.agents.find((x) => x.name === 'plains').job, null, 'a launcher in a closed folder was read as proof of no job');
   } finally { fs.chmodSync(closed, 0o755); }
 });
+
+test('#6310: a WorkingDirectory inside the agent folder covers it; a sibling folder does not', () => {
+  reset();
+  agent('subx');
+  agent('sibx');
+  fs.mkdirSync(path.join(create.workerDir('subx'), 'run'), { recursive: true });
+  fs.mkdirSync(create.workerDir('sibx') + '-old', { recursive: true });
+  foreignJob('com.subx.discord.plist', { dir: path.join(create.workerDir('subx'), 'run') });
+  foreignJob('com.sibx.discord.plist', { dir: create.workerDir('sibx') + '-old' });
+  assert.deepEqual(mac.survey().missing, ['sibx']);
+});

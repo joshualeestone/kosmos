@@ -34,7 +34,7 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Deferred, not missed: when agents are unknown the banner shows only proven absences, so it can go quiet (one
   unreadable launcher anywhere, a TCC-protected or root-only script, does that for every agent without its own plist). Telling the
   person "we could not check N agents" needs new copy and a field on /api/register: follow-up card #6320.
-- The folder may be the WorkingDirectory, or named in the start command (ProgramArguments or Program) or in a start
+- The folder may be the WorkingDirectory (or a folder inside it), or named in the start command (ProgramArguments or Program) or in a start
   script of 2 MB or less that the command names, as written, as its real path, or under the home folder as ~ or $HOME.
 - A plist that reads as text but not as a property list makes UNKNOWN only an agent whose folder it names; one that
   cannot be read at all makes every agent without its own plist unknown. Unknown is never repaired, and the banner
@@ -45,7 +45,9 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   agent, the harm this card is about.
 - A plist that could not be read is asked again a minute later; a launcher script that could not be read, on the
   next survey. A plist that read but is not a property list (or has no closing dict) is cached until it changes.
-  Plists over 256 KB are not read (they count as unreadable).
+  Plists over 256 KB are not read (they count as unreadable). One survey converts at most 4 binary plists with plutil
+  (it blocks the board for up to 2 s each when it hangs); the rest count as unreadable and are tried a minute later.
+  An agent whose own folder cannot be resolved (anything but "it does not exist") is unknown, not missing.
 - Only ~/Library/LaunchAgents is read (Kosmos writes its own jobs there); /Library jobs are not. A start script on a
   hung network mount would block the survey's read; not handled.
 - Each agent's answer is remembered until a login job, a launcher script or the home folder changes. Measured on the
