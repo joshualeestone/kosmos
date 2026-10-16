@@ -67,6 +67,13 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       return { id: body.project.id, codes };
     }, NAMES);
     say('CONTROL: the ten fixture members were added', made.codes.every((c) => c >= 200 && c < 300), JSON.stringify(made.codes));
+    // A four-level reporting chain (rmada <- rmben <- rmcy <- rmdee), so the map indents and the sideways arms test it.
+    const chained = await p.evaluate(async (pairs) => {
+      const codes = [];
+      for (const [who, to] of pairs) codes.push((await fetch('/api/agent/' + who + '/profile', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reportsTo: to }) })).status);
+      return codes;
+    }, [['rmben', 'rmada'], ['rmcy', 'rmben'], ['rmdee', 'rmcy']]);
+    say('CONTROL: the reporting chain was saved', chained.every((c) => c >= 200 && c < 300), JSON.stringify(chained));
 
     await p.click('[data-tab="projects"]');
     await p.evaluate(() => applyLayout('consolidated', true));
@@ -106,12 +113,28 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('the rail map starts closed', before.shown === false && before.expanded === 'false', JSON.stringify(before));
     const gapBtn = await labelGap();
     say('with the Team map button showing the two rail labels still share a line', gapBtn !== null && gapBtn <= 1, 'apart ' + gapBtn + 'px');
+    // CONTROL for that instrument: push the Agents label line down and it must read them apart.
+    const pushed = await p.evaluate(() => {
+      const lead = document.querySelector('#rail-agents .lead');
+      lead.style.paddingTop = '20px';
+      const a = document.querySelector('#rail-agents .railname').getBoundingClientRect().top;
+      const pr = document.querySelector('#rail-projects .railname').getBoundingClientRect().top;
+      lead.style.paddingTop = '';
+      return Math.abs(a - pr);
+    });
+    say('CONTROL: the label instrument reads a pushed label line as apart', pushed > 1, 'apart ' + pushed + 'px');
 
     await p.click('#alist-teammap-btn');
     await p.waitForFunction(() => !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
     const opened = await state();
     say('the button opens the map and says so', opened.shown && opened.expanded === 'true', JSON.stringify(opened));
     say('every member is on the rail map', NAMES.every((n) => opened.nodes.includes(n)) && opened.nodes.length === NAMES.length, JSON.stringify(opened.nodes));
+    const depth = await p.evaluate(() => {
+      let d = 0;
+      for (const ul of document.querySelectorAll('#alist-teammap .pjtm-map ul')) { let n = 0; for (let e = ul; e && e.id !== 'alist-teammap'; e = e.parentElement) if (e.tagName === 'UL') n++; d = Math.max(d, n); }
+      return d;
+    });
+    say('CONTROL: the map nests four levels deep, so the sideways arms include the indent', depth >= 4, 'depth ' + depth);
     const words = await p.textContent('#alist-teammap');
     say('the map says what each holds and who handed work', /holds no open parts/.test(words) && /Who handed work to whom/.test(words), words);
     say('the open map fits the rail (no sideways scroll)', opened.over !== null && opened.over <= 0, 'overflow ' + opened.over + 'px');
@@ -184,11 +207,11 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
 
     // Folding the agents column hides the map with the rest of the head, and unfolding brings it back.
     await p.click('#rail-agents-fold');
-    await p.waitForTimeout(250);
+    await p.waitForFunction(() => document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
     const folded = await state();
     say('folding the agents column hides the button and the map', folded.btn === false && folded.shown === false, JSON.stringify(folded));
     await p.click('#rail-agents-fold');
-    await p.waitForTimeout(250);
+    await p.waitForFunction(() => !document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
     const unfolded = await state();
     say('unfolding brings the open map back', unfolded.btn && unfolded.shown, JSON.stringify(unfolded));
 
@@ -208,7 +231,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
 
     await p.click('#alist-teammap-btn');
-    await p.waitForTimeout(200);
+    await p.waitForFunction(() => document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
     const closed = await state();
     say('a second click closes it', closed.shown === false && closed.expanded === 'false', JSON.stringify(closed));
 

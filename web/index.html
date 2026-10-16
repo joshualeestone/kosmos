@@ -24652,7 +24652,7 @@ function paintRailTeamMap(op) {
   setIfChanged(box, open ? pjTeamMap(op, LAST) : '');
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
-    const to = back || (btn.hidden ? null : btn);
+    const to = back || (btn.getClientRects().length > 0 ? btn : null);
     if (to) to.focus();
   }
 }

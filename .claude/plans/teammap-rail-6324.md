@@ -27,7 +27,8 @@ If that arm ever reds, the control moves onto the label line instead. Design sho
 
 ## Weakest premise
 The rail is narrow (16.6vw, at least 200px). A deep reporting tree indents 16px per level, so a 4+ level tree
-squeezes the words. Measured at 1280 wide in the browser check; not measured on a very deep org.
+squeezes the words. The browser check's fixture is a four-level chain, measured at 1280 and 960 (unfolded) wide;
+not measured deeper than that.
 Height: the open map is capped at 35vh and scrolls inside its own box. That nested scroll is a trade: on a big team
 the map is a small scrolling box. The browser check (ten members, with a control that the map really overflows its
 box) measures that the first agent row stays wholly in view (and no page scroll) at 1280x900 and 960x720, with the project notice empty. Below 1280 wide the agents column folds by default and
