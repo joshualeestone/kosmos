@@ -29,6 +29,7 @@
  *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
  *   R12 a refused review preview (already accepted here) says why and reads /api/org again.
  *   R13 an open review's words close when a read says they are accepted here (another window accepted them).
+ *   R14 words held back after R8 do not outlive the membership: after a leave and a new join they are offered again.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -343,8 +344,22 @@ async function run(engineName) {
       reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
     chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread && !r8.row,
       E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again', JSON.stringify(r8));
-    // The stand-in board's state never moves on, which is what clears the held-back words in real use: reset it here.
-    await page.evaluate(() => { PLUS_ORG.wordsRefused = false; });
+    // R14: held-back words do not outlive this membership. Leave (no read for a minute after it), join the family again,
+    // and the next read still says the words are needed: the button is offered with the line that names it.
+    await page.evaluate((st) => { window.__leaveAnswer = { ok: true }; window.__orgState = st; }, WAITING);
+    await page.click('#plus-org-leave');
+    await page.click('#plus-org-leave-yes');
+    await page.waitForTimeout(300);
+    await open();
+    await setPreview(FAMILY);
+    await connect('RIVERA-CODE');
+    if (await shown('plus-org-family')) await page.click('#plus-org-family-accept');
+    await page.waitForFunction(() => document.getElementById('plus-org-msg').textContent !== '', null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(250);
+    const r14 = { msg: await text('plus-org-msg'), row: await shown('plus-org-words') };
+    chk(r14.row && r14.msg === 'Kosmos+ took the family’s words, but this computer could not record them, so it still reports nothing. Press Read the family’s words to try again.',
+      E + ' R14 after a leave and a new join, the words are offered again with the line that names them', JSON.stringify(r14));
+    await page.evaluate(() => { window.__leaveAnswer = null; document.getElementById('plus-org-msg').textContent = ''; });
     // R11: org_bad_world keeps the ticket and the words; Accept works again.
     await reread(WAITING);
     await openReview();

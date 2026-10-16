@@ -100,6 +100,11 @@ joining again.
   back (PLUS_ORG.wordsRefused) until a read says the computer is no longer joined or the words are no longer needed; R8
   asserts the button stays hidden.
 
+## Review 10 (sonnet) fix
+- The held-back words outlived the membership: after a refusal, a Leave (no read for a minute after it) and a new join
+  whose words were not recorded, the page said "Press Read the family's words" with no such button. A real Leave and any
+  successful family Accept now clear `wordsRefused`; R14 drives that sequence.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a

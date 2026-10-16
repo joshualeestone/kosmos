@@ -51096,6 +51096,7 @@ async function plusOrgFamilyAccept() {
     // the words not kept): the next read says so.
     PLUS_ORG.reviewAccepted = Date.now();
     PLUS_ORG.wroteAt = Date.now();
+    PLUS_ORG.wordsRefused = false;   // words held back belong to the membership this Accept replaced
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
     PLUS_ORG.at = 0;
@@ -51196,7 +51197,7 @@ async function plusOrgLeave() {
   /* #5531 review 19: the joined view goes only on a real leave outcome (left, left here only, or pending). A refusal
      before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
   const changed = r.ok === true || r.pending === true;
-  if (changed) PLUS_ORG.state = { enrolled: false, org: null, role: null };
+  if (changed) { PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.wordsRefused = false; }
   PLUS_ORG.at = Date.now();
   const org0 = st0 && st0.org;   // kosmos#6251: the org left, for its kind
   const name = (org0 && org0.name) || plusOrgIn(org0, 'your company');
