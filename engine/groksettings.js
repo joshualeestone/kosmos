@@ -49,9 +49,11 @@ const HOOK_EVENTS = Object.freeze([
 
 /* #5812 item 3: the tool hook, apart from HOOK_EVENTS (which the test pins to the bridge's report states): grok runs it
    just before search_replace or write, and the bridge asks the board to keep a copy and note the writer. MEASURED on
-   grok 1.0.41 (card comment 6222103286): the matcher is a regex over the tool name, and anchored it fires for write
-   and not for read_file (a "" matcher fires for read_file, the control). Anchored, so a tool whose name merely contains
-   these does not start the bridge. */
+   grok 1.0.41 (card comment 6222103286, and the anchored form in review 1): the matcher is a regex over the tool name;
+   anchored, it fires for write and search_replace and not for read_file (a "" matcher fires for read_file, the
+   control). Anchored, so a tool whose name merely contains these does not start the bridge.
+   NOT on win32 (review 1): the payload of a Windows grok was never measured, so the Windows form of the file carries
+   the lifecycle hooks only, as before. */
 const TOOL_EVENT = 'PreToolUse';
 const TOOL_MATCHER = '^(search_replace|write)$';
 /* The dedup key: any command containing this stem is "ours". Same doctrine as
@@ -118,7 +120,7 @@ function definitionFor(bridgePath, opts, matcher) {
 function desiredContent(bridgePath, opts) {
   const hooks = {};
   for (const event of HOOK_EVENTS) hooks[event] = [definitionFor(bridgePath, opts)];
-  hooks[TOOL_EVENT] = [definitionFor(bridgePath, opts, TOOL_MATCHER)];
+  if (((opts && opts.platform) || process.platform) !== 'win32') hooks[TOOL_EVENT] = [definitionFor(bridgePath, opts, TOOL_MATCHER)];
   return { hooks };
 }
 

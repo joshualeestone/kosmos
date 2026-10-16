@@ -218,6 +218,7 @@ function keepRequestFor(event, platform) {
   const win = (platform || process.platform) === 'win32';
   const P = win ? require('node:path').win32 : require('node:path').posix;
   if (win && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;
+  if (win && /^[\\/]/.test(file)) return null;   // review 1: rooted with no drive, the board would read it on its own drive
   if (!P.isAbsolute(file) && !P.isAbsolute(cwd)) return null;
   return { path: P.isAbsolute(file) ? file : P.resolve(cwd, file), cwd, session: typeof event.session_id === 'string' ? event.session_id : '' };
 }
