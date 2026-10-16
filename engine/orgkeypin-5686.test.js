@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 /**
  * kosmos#5686 (b1-mac): engine/orgkeypin.js decides whether this computer may wrap its member key to the company key
  * Kosmos+ named: dormant until a verification key ships; with one, escrowd's signature is required and the first

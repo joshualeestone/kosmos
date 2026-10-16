@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope'); // this file's temp dirs, removed when it exits
 
 // kosmos#5686 (b1-mac): the Mac's check of escrowd's org-key signature, pinned to the SAME known vector as kosmos-relay
 // coordinator/src/orgkeysig.rs a_known_signature_is_pinned_for_the_macs_verifier: escrow key [5; 32] (so verification
