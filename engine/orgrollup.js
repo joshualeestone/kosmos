@@ -78,6 +78,16 @@ function providerOfModel(model) {
   return null;
 }
 
+/* #5534 review 3, kosmos#6309: what was last sent, sent again (a read that failed, or a cap's count not known yet),
+   so the signature does not move and nothing reported is cleared: the policy fields, and the month's count with them
+   (the coordinator reads the version without a count as "no cap"). Nothing when nothing was sent. */
+function repeatLastPolicy(g, st) {
+  const lp = st && st.lastPolicy;
+  if (!lp || typeof lp !== 'object' || !('version' in lp)) return;
+  g.policyVersion = lp.version;
+  g.policyRefused = lp.refused === true;
+  if (usageOk(lp.usage)) g.policyUsage = lp.usage;
+}
 /* kosmos#6309: a policyUsage build() may send: whole numbers and booleans only. */
 function usageOk(u) {
   return !!u && typeof u === 'object' && Number.isSafeInteger(u.used) && u.used >= 0 && Number.isSafeInteger(u.cap) && u.cap >= 1
@@ -799,15 +809,15 @@ async function tick(opts) {
       g.policyRefused = !!pr.refused && pr.local !== true && pr.stale !== true;
       /* kosmos#6309: the cap's count, only under words that name it (capConsented: the policy line does not), and only
          for this company's policy. */
-      const u = mine && accepted.capConsented === true ? (o.usagecap || require('./usagecap')).capNow(mine.policy, now) : { capped: false };
+      // usagecap.capReport, never an inline count: the enrolled board runs this tick in its own process (server.js).
+      const u = mine && accepted.capConsented === true ? (o.usagecap || require('./usagecap')).capReport(mine.policy, now) : { capped: false };
       if (u.capped && u.known === true) g.policyUsage = { used: u.used, cap: u.cap, warn: u.warn, over: u.over, month: u.month };
       /* A cap whose count is not known yet (a new board still counting the month): the coordinator reads the policy
-         without a count as "no cap", so none of the policy is sent this tick, and the company keeps what it had. */
-      else if (u.capped) { delete g.policyVersion; delete g.policyRefused; }
+         without a count as "no cap", so what was last sent goes again, as for a failed read below. */
+      else if (u.capped) { delete g.policyVersion; delete g.policyRefused; repeatLastPolicy(g, st); }
     } catch {
       delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
-      const lp = st.lastPolicy;
-      if (lp && typeof lp === 'object' && 'version' in lp) { g.policyVersion = lp.version; g.policyRefused = lp.refused === true; }
+      repeatLastPolicy(g, st);
     }
   }
   if (due && g.partial) {
@@ -854,7 +864,7 @@ async function tick(opts) {
     if (r && r.ok) {
       const done = Object.assign({ enrolledAs, lastAt: now, dailyAt: body.reason === 'daily' ? now : (st.dailyAt || st.lastAt || null), lastSig: g.partial ? (st.lastSig || null) : sig },
         // #5534: what was reported, so a read that fails next time sends the same (review 3).
-        'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true } } : {},
+        'policyVersion' in body ? { lastPolicy: { version: body.policyVersion, refused: body.policyRefused === true, ...(body.policyUsage ? { usage: body.policyUsage } : {}) } } : {},
         st.others && typeof st.others === 'object' ? { others: st.others } : {},
         // Board review 5: the holds and missed dailies survive a board stopped while the others are read.
         Array.isArray(st.othersHeld) ? { othersHeld: st.othersHeld } : {}, Array.isArray(st.othersMissed) ? { othersMissed: st.othersMissed } : {});
