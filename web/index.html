@@ -5366,7 +5366,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* kosmos#6324: the team map's button and box take a line each in the wrapping head, and fold away with the column. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { flex: 0 0 100%; min-width: 0; }
   /* kosmos#6324: a big team's map scrolls inside its own box rather than growing the rail head without limit. */
-  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm::-webkit-scrollbar { display: none; }   /* #867: no scrollbar inside the agents rail */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
@@ -24655,7 +24656,7 @@ function paintRailTeamMap(op) {
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
     const to = back || (btn.getClientRects().length > 0 ? btn : null);
-    if (to) to.focus();
+    if (to) to.focus({ preventScroll: true });
   }
 }
 /* #3218/#3387: paint the single Agents list (#alist) from the last board sample (LAST). Called by
