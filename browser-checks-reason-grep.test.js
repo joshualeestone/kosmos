@@ -496,6 +496,7 @@ const SITE_COUNTS = {
   'render-talk.js': [1, 0],
   'render-taskhover-4880.js': [1, 0],
   'render-tasks.js': [0, 1],
+  'render-teammap-6103.js': [3, 1],
   'render-teamcreate-4557.js': [1, 1],
   'render-thread.js': [1, 0],
   'render-token-usage-2617.js': [2, 2],
