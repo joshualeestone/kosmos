@@ -88,3 +88,15 @@ test('review 1: a Codex other than the pinned version launches with NO hooks.jso
   assert.match(r.out, /its file-edit hook was not set up \(this Codex is 9\.9\.9/);
   assert.equal(fs.existsSync(nodePath.join(r.runtime, 'hooks.json')), false);
 });
+
+test('review 5: a private home that resolves to the account home itself gets NO hook (never the person\'s own home)', () => {
+  const name = 'agent-hook4';
+  const first = run(name, accountHome());
+  assert.ok(first.runtime, first.out);
+  fs.rmSync(nodePath.join(first.runtime, 'hooks.json'), { force: true });
+  fs.writeFileSync(nodePath.join(first.runtime, 'auth.json'), '{"OPENAI_API_KEY":null,"tokens":{}}', { mode: 0o600 });
+  const r = run(name, first.runtime);   // the "account home" IS the agent's private home
+  assert.match(r.out, /refused a private Codex home that resolves to the selected account home/);
+  assert.match(r.out, /its file-edit hook was not set up \(its Codex home is the account's own\)/);
+  assert.equal(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), false);
+});

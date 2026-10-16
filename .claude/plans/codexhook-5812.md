@@ -25,13 +25,20 @@ comment 6219788459). This change wires that hook to the same board call the Clau
      that line replaced (a second table with the same key would be a TOML duplicate and codex would not load the config).
      Present in any other form (a person set enabled = false, say): left alone, and said.
 2. `bin/codex-report-bridge.js`: a second mode. Notify passes its event as argv (unchanged); a hook passes JSON on stdin
-   with no argv. For PreToolUse + apply_patch it parses the patch's `*** Add File:`, `*** Update File:`, `*** Delete
-   File:` and `*** Move to:` lines, resolves each against the payload's cwd, and posts one keep per path (at most 20, in
+   with no argv. For PreToolUse + apply_patch it parses the patch's `*** Add File: `, `*** Update File: `, `*** Delete
+   File: ` and `*** Move to: ` lines as Codex's patch engine does (measured in reviews 3 to 5: the path is everything
+   after ": " with only its end trimmed; an indented heading counts, except inside an Update hunk, where an indented line
+   is context), resolves each against the payload's cwd, and posts one keep per path (at most 20, in
    parallel, each bounded at 3 s). Prints nothing; always exit 0 (a hook that fails must never stop the edit).
 3. `bin/agent-supervisor.sh`, the codex launch: read `codex --version` and run the install against the runtime home. A
    failed install launches the agent as today, with no hooks.json, and says so. No features flag: hooks are on by default.
 
 ## Residual, stated
+- PreToolUse runs before Codex applies the patch, so a patch Codex then rejects (context that does not match, a
+  misplaced Move to) still sends its keeps and records this agent as the writer, as Claude Code's Edit hook does; the
+  board's write window bounds it.
+- The hook goes only into a separate private home: a launch whose private home resolved to the account home (warned
+  since #4592) gets no hook.
 - Rolling Kosmos back to a build before this one leaves the hook and its record in each Codex home. Harmless with the
   same Codex: 0.149.1 has been the only Codex pin since the runner manifest began (cae0a88124, 08-26), so the record
   still matches. It would show the review screen only for an older Kosmos launching a DIFFERENT, self-installed Codex
