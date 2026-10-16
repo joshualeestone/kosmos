@@ -82,7 +82,13 @@ test('#4253: the lib names the same dead addresses the runners export (one fact,
 });
 
 // kosmos#6239: the family join proof builds its boards' env the same way, so it is held to the same three addresses.
-for (const tool of ['fed-own-e2e.js', 'family-e2e-6239.js']) {
+// Every proof harness that builds its boards' env (round 9 of #6239: found by its boardEnv, not listed by hand).
+const HARNESSES = fs.readdirSync(path.join(__dirname, 'tools'))
+  .filter((f) => f.endsWith('.js') && /function boardEnv\(/.test(fs.readFileSync(path.join(__dirname, 'tools', f), 'utf8')));
+test('#4253: the harness list is found, and holds both known proofs', () => {
+  for (const t of ['fed-own-e2e.js', 'family-e2e-6239.js']) assert.ok(HARNESSES.includes(t), t + ' was not found by its boardEnv');
+});
+for (const tool of HARNESSES) {
   test('#4253: ' + tool + '\'s boards (an env built from nothing) name all three dead addresses', () => {
     const src = fs.readFileSync(path.join(__dirname, 'tools', tool), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

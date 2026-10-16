@@ -101,3 +101,14 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - The watchdog, signal and uncaught-error failures carry a label.
 - Kept (round 4): the step 4b control matches the refusal's words (it has no code field).
 - Rerun: VERDICT PASS 23/23.
+
+## Round 9 (opus) fixes
+- The stale comment about a default bin dir is gone; the watchdog budget counts the two audit polls (465 s).
+- "Stale" now means exactly what an older binary prints for an unknown flag: its org-create usage line, which has no
+  --kind (read from relay main before #398). Shown with stand-ins: that line says predates relay#398; a config error
+  says the check could not run. (My first attempt, "says nothing about a kind", called a config error stale: caught by
+  rerunning round 6's arm.)
+- A pending row without a device_id fails step 4b as a check, not a TypeError; the file is 755 like fed-own-e2e.js.
+- tools.browser-checks-quiet-4253.test.js finds every harness by its boardEnv, with a check that both known proofs
+  are found.
+- Rerun: VERDICT PASS 23/23; the quiet guard 7/7.

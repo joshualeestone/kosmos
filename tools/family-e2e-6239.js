@@ -34,7 +34,6 @@ const crypto = require('node:crypto');
 const { spawn, execFileSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '..');
-// This Mac's external SSD; on any other machine FEDPROOF_BIN_DIR must be set.
 // Absolute: the services run with cwd SANDBOX and the boards with cwd REPO, and the orphan
 // sweep compares command lines against these exact paths.
 // Required (rounds 1, 4, 6, 8): the three binaries must be built from relay main for this run, so no default can be
@@ -56,7 +55,7 @@ const FEDPROOF_DOMAIN = 'fedproof.localhost';
 const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 // The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
-// + the console's Allow 45 + K's join 30 = 425 s, before HTTP timeouts. 15 min covers it with margin.
+// + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 = 465 s, before HTTP timeouts. 15 min covers it.
 const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 const EXPECTED_CHECKS = 22;   // every chk in main before the last; a skipped step leaves fewer. Adding a chk: bump this.
@@ -353,7 +352,10 @@ async function main() {
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
     if (!/--kind is company or family/.test(said)) {
       // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
-      const stale = /--kind|unknown|unexpected|usage: org-create/i.test(said);
+      // An older binary answers an unknown flag with its org-create usage line, which has no --kind (relay main before
+      // #398: "org-create: usage: org-create --name <n> --slug <s> --admin <email> [--domain <d>]"). Anything else is
+      // a different failure, said as itself.
+      const stale = /usage: org-create/.test(said) && !/--kind/.test(said);
       throw new Error(stale
         ? 'the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 300)
         : 'the family-kind check could not run the coordinator binary at ' + BIN.coordinator + '. It said: ' + (said.slice(0, 600) || '(nothing)'));
@@ -434,7 +436,7 @@ async function main() {
     const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
     return devs.find((d) => d && sess && d.code === sess.match_code) || null;
   }, sess ? 60000 : 0, 1500);   // no session, nothing to find: no wait
-  chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? listed.device_id.slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
+  chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? String(listed.device_id || '').slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
     const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
     // Only that the route answered: it says allowed even for an id nobody holds (#6286). Step 6 proves the Allow took.
