@@ -657,8 +657,11 @@ async function enrollNow(code, accepted, opts) {
   /* #5534 review 3: joined to another company than the policy in force here (a move by code): the old company's policy
      ends now, whether or not the follow-up refresh reaches the new company. */
   if (org && org.id) endForeignPolicy(opts, org.id);
-  // kosmos#5686 (b1-mac): a Join to another company starts its own pin (the same company's keeps it).
-  if (org && org.id) { try { require('./orgkeypin').clearUnlessFor(storeRoot(opts), org.id); } catch { /* a left pin refuses, never trusts */ } }
+  /* kosmos#5686 (b1-mac): a person's Join to another company starts its own pin (the same company's keeps it). NEVER on
+     a review (the automatic re-accept, #5791, runs with no person, against a record the hourly refresh rewrites from
+     the coordinator): a breached coordinator could name another org and then refuse a report to make this run
+     (review 1 of macsig-5686, probed). */
+  if (org && org.id && !review) { try { require('./orgkeypin').clearUnlessFor(storeRoot(opts), org.id); } catch { /* a left pin refuses, never trusts */ } }
   return { ok: true, ...rec };
 }
 
@@ -781,6 +784,8 @@ async function settleUnknownJoin(unsure, opts) {
     try { writeEnrollment(rec, opts); } catch { setJoinUnknown(unsure, opts); return { ok: false, enrolled: false, because: "This Kosmos's data folder could not be written." }; }
     setStopped(null, opts);
     setLeavePending(false, opts);   // joined again after an unconfirmed leave: that old leave must never be sent now (review 35)
+    // kosmos#5686 (b1-mac): the join a person made (its marker exists only after their Accept) starts its own pin.
+    try { require('./orgkeypin').clearUnlessFor(storeRoot(opts), org.id); } catch { /* a left pin refuses, never trusts */ }
     const policy = takePolicy(d, opts, org.id);   // #5534 review 1: the settled join's answer carries the policy too
     return { ok: true, enrolled: true, member: true, ...rec, ...(policy ? { policy } : {}) };
   }

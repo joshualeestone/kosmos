@@ -29,7 +29,8 @@
  * error.
  *
  * Kept from ensureMemberKey's answer, for the scheduler: unreadableKeyFile (a person must move the file aside; not a
- * retry), refusal, pendingEpoch and lostEpochIgnored.
+ * retry), orgKeyRefused (the company key was not accepted, kosmos#5686: said to the person), refusal, pendingEpoch and
+ * lostEpochIgnored.
  *
  * An ok key that comes with pendingEpoch is NEVER sealed under. ensureMemberKey keeps an unregistered key above a
  * registered one only on the lost path (a move waiting out the day, or a registration that was refused or got no
@@ -115,7 +116,7 @@ function fromAnswer(st, r, named, now) {
       isEpoch(r.pendingEpoch) ? { pendingEpoch: r.pendingEpoch } : {});
   }
   return Object.assign({ ok: false, because: (r && typeof r.because === 'string' && r.because) || 'the backup key could not be set up on this computer', state: keep },
-    r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
+    r && r.unreadableKeyFile === true ? { unreadableKeyFile: true } : {}, r && r.orgKeyRefused === true ? { orgKeyRefused: true } : {}, r && r.refusal && typeof r.refusal === 'object' ? { refusal: r.refusal } : {});
 }
 
 /* The state after a snapshot taken under `key`. A refusal naming a later epoch marks the key lost; anything else
