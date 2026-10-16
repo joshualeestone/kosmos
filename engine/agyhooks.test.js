@@ -33,10 +33,14 @@ test('#4043: a fresh workdir gets the kosmos-report hook: working before each mo
   assert.deepEqual(Object.keys(h).sort(), ['PostToolUse', 'PreInvocation', 'PreToolUse', 'Stop']);
   assert.match(h.PreInvocation[0].command, / PreInvocation$/);
   assert.match(h.Stop[0].command, / Stop$/);
-  for (const ev of ['PreToolUse', 'PostToolUse']) {
-    assert.equal(h[ev][0].matcher, '^ask_question$', ev + ' must be hooked for ask_question ONLY (a hook per tool slows agy\'s loop)');
-    assert.match(h[ev][0].hooks[0].command, new RegExp(' ' + ev + '$'));
-  }
+  // #5812 item 4: PreToolUse also before the two file tools (the keep); PostToolUse stays ask_question ONLY (the bridge
+  // reads any PostToolUse as working). Anchored, so no other tool starts a node in agy's loop.
+  assert.equal(h.PreToolUse[0].matcher, '^(ask_question|write_to_file|replace_file_content)$');
+  assert.equal(h.PostToolUse[0].matcher, '^ask_question$', 'PostToolUse must be hooked for ask_question ONLY (a hook per tool slows agy\'s loop)');
+  const pre = new RegExp(h.PreToolUse[0].matcher);
+  assert.ok(['ask_question', 'write_to_file', 'replace_file_content'].every((t) => pre.test(t)));
+  assert.ok(!['run_command', 'view_file', 'write_to_file_x'].some((t) => pre.test(t)));
+  for (const ev of ['PreToolUse', 'PostToolUse']) assert.match(h[ev][0].hooks[0].command, new RegExp(' ' + ev + '$'));
 });
 
 test('#4043: the person\'s own hooks are kept, and a second run changes nothing', () => {

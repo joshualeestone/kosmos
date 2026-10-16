@@ -85,6 +85,30 @@ function answerFor(eventName, payload) {
   return name === ASK_TOOL ? ALLOW : ASK;
 }
 
+/* #5812 item 4: just before agy writes (write_to_file) or edits (replace_file_content) a file, the board is asked to
+   keep a copy (#5153, only while the person's undo switch is on) and to note which agent is about to write it, as the
+   Claude, Gemini, Codex and Grok hooks do. MEASURED on agy 1.2.17 (card comment 6225769167): PreToolUse carries
+   toolCall.name, toolCall.args.TargetFile (absolute), conversationId and workspacePaths (the agent's folder; there is
+   no cwd field). The keep body is { path, cwd: workspacePaths[0], session: conversationId }. Null (nothing sent) for
+   any other event or tool, a relative or missing path, a control character, and on win32 a UNC path or folder (the
+   board resolves the path synchronously). `platform` is a seam. */
+const KEEP_TOOLS = new Set(['write_to_file', 'replace_file_content']);
+const KEEP_TIMEOUT_MS = 3000;   // the other hooks' bound; agy's handler timeout is HANDLER_TIMEOUT_S (5 s)
+function keepRequestFor(eventName, payload, platform) {
+  if (eventName !== 'PreToolUse' || !payload || typeof payload !== 'object') return null;
+  const call = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall : {};
+  if (!KEEP_TOOLS.has(call.name)) return null;
+  const args = call.args && typeof call.args === 'object' ? call.args : {};
+  const file = typeof args.TargetFile === 'string' ? args.TargetFile : '';
+  const cwd = Array.isArray(payload.workspacePaths) && typeof payload.workspacePaths[0] === 'string' ? payload.workspacePaths[0] : '';
+  if (!file || /[\u0000-\u001f\u007f]/.test(file + cwd)) return null;
+  const win = (platform || process.platform) === 'win32';
+  const P = win ? require('node:path').win32 : require('node:path').posix;
+  if (win && (/^[\\/]{2}/.test(file) || /^[\\/]{2}/.test(cwd))) return null;
+  if (!P.isAbsolute(file) || (win && /^[\\/]/.test(file))) return null;
+  return { path: file, cwd, session: typeof payload.conversationId === 'string' ? payload.conversationId : '' };
+}
+
 /* Whose throttle this is: the pane, else the agent's launch token (hashed), else the process that
    ran the hook (agy itself, one per agent), and 'nopane' only when none is known. A shared key
    would let one agent's heartbeat hold another's back (engine/kosmos-report-hook.js throttleKey,
@@ -296,6 +320,35 @@ function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').d
   return filled;
 }
 
+/* The headers a call to the board carries: the agent's token, the board token unless token-only, the world header. */
+function boardHeaders(env) {
+  const headers = { 'content-type': 'application/json' };
+  const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
+  if (/^[0-9a-f]+$/.test(token)) headers['x-kosmos-agent-token'] = token;
+  const engine = engineDir();
+  if (!(headers['x-kosmos-agent-token'] && env.KOSMOS_AGENT_TOKEN_ONLY === '1')) try {
+    const boardTok = require(require('node:path').join(engine, 'boardauth')).readToken();
+    if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
+  } catch { /* a missed board token must never become a failed turn */ }
+  try {
+    const launchidentity = require(require('node:path').join(engine, 'launchidentity'));
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(env);
+  } catch { /* a missed world header must never become a failed turn */ }
+  return headers;
+}
+/* #5812: one keep call, bounded at KEEP_TIMEOUT_MS with the answer read under the same timer (a board that sends its
+   headers and stalls the body must not hold agy's hook); never throws. `fetchImpl` is a seam. */
+async function postKeep(body, env, fetchImpl) {
+  const doFetch = fetchImpl || fetch;
+  const port = Number(env.KOSMOS_PORT) || 16180;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), KEEP_TIMEOUT_MS);
+  await Promise.resolve()
+    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers: boardHeaders(env), body: JSON.stringify(body), signal: controller.signal }))
+    .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
+    .catch(() => { /* a missed keep must never stop the edit */ })
+    .finally(() => clearTimeout(timer));
+}
 async function main() {
   /* agy reads our stdout as the hook's answer. Every event but PreToolUse: first, always. PreToolUse's answer
      depends on the tool, so it waits for the payload (readStdin gives up after STDIN_TIMEOUT_MS, inside agy's
@@ -307,6 +360,16 @@ async function main() {
   let payload = null;
   try { payload = JSON.parse(raw || ''); } catch { /* the event name alone still reports */ }
   if (eventName === 'PreToolUse') answer(answerFor(eventName, payload));
+  /* #5812 item 4: a file about to be written. The answer above (ASK) is already out; agy waits for this process to
+     exit before it runs the tool, so the keep still lands before the write. Bounded, the answer read under the timer,
+     and no report follows (reportFor maps no tool but ask_question). */
+  const keep = keepRequestFor(eventName, payload);
+  if (keep) {
+    await new Promise((resolve) => setImmediate(resolve));
+    holdStdioFds();
+    await postKeep(keep, process.env);
+    return;
+  }
   const mapped = reportFor(eventName, payload, Date.now());
   if (!mapped) return;
   // #4612: a working report that newly carries an answer is not a repeat, so the answer is part of the key.
@@ -352,4 +415,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir, holdStdioFds };
+module.exports = { keepRequestFor, postKeep, KEEP_TOOLS, KEEP_TIMEOUT_MS, STATE_FOR_EVENT, LAUNCH_EVENT, ASK_TOOL, ALLOW, ASK, answerFor, throttleKey, TIMEOUT_MS, STDIN_TIMEOUT_MS, THROTTLE_MS, markerFile, shouldSend, quotaResetMs, reportFor, buildBody, engineDir, holdStdioFds };
