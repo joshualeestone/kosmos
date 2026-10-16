@@ -22,6 +22,11 @@ Stacked on `teammap-6103` (PigeonPete, #6103, not yet merged). Rebase onto main 
 ## Weakest premise
 The rail is narrow (16.6vw, at least 200px). A deep reporting tree indents 16px per level, so a 4+ level tree
 squeezes the words. Measured at 1280 wide in the browser check; not measured on a very deep org.
+Height: the open map is capped at 45vh and scrolls inside itself, so a big team cannot make the page scroll (#980).
+That nested scroll is a trade: on a big team the map is a small scrolling box. The browser check uses ten members so
+the cap is reached (with a control that the map really overflows its box).
+Focus: a repaint finds a focused member again by data-agent; if the project closes, the map and its button go and
+focus falls to the page, as the tab layout's does.
 
 ## Checks
 - Unit (`web.teammap-rail-6324.test.js`): the rail painter, lifted from the page and called, paints the map only

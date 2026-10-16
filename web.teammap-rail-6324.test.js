@@ -86,7 +86,7 @@ test('#6324: in the consolidated layout with a project open, the rail offers the
   r.paint();
   assert.equal(r.els['alist-teammap-btn'].hidden, false, 'the rail has no Team map button for a project with members');
   assert.equal(r.els['alist-teammap-btn'].attrs['aria-expanded'], 'false');
-  assert.equal(r.els['alist-teammap'].hidden, true, 'the map starts open');
+  assert.equal(r.els['alist-teammap'].hidden, true, 'the map is open before anyone asked for it');
   assert.equal(r.els['alist-teammap'].innerHTML, '', 'a closed map still holds markup');
   r.open.add(String(p.id));
   r.paint();
