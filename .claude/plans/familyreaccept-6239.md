@@ -80,6 +80,10 @@ joining again.
   What would change this: if a family's backups should also wait for a parent, that is a backuptick change, not words.
   Moot since kosmos#6288 (relay#403, live 02:08 CDT 10-16): a family is never backed up, so no backup runs in that state.
 
+## Review 5 (opus) fix
+- A /api/org read that STARTED before the page's own last state write (a review's Accept) is dropped, so a read in
+  flight from before the Accept cannot put the stale wordsNeeded view back (PLUS_ORG.wroteAt). Reasoned from the code.
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -90,7 +94,7 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit (R1 to R11 and F10 all pass 00:4x CDT 10-16).
+- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit: all pass, R12 included, at 2f8cabaf8a (03:0x CDT 10-16).
   Page mutants, each red on its own arms: the review refusal back to a fixed sentence (R5, R7, R8, R11); no
   panel-follows-view rule (R7's Leave); a joining family's words not holding the block open (F10). A step that throws is
   a named FAIL (a click that timed out once ended a run with no verdict line). R4 also proves the page
