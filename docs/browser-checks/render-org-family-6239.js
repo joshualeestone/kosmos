@@ -29,7 +29,7 @@
  *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
  *   R12 a refused review preview (already accepted here) says why and reads /api/org again.
  *   R13 an open review's words close when a read says they are accepted here (another window accepted them).
- *   R14 words held back after R8 do not outlive the membership: after a leave and a new join they are offered again.
+ *   R14 words held back after R8 do not outlive the membership: a Leave clears them, so after a new join they are offered again.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.

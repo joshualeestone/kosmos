@@ -102,8 +102,10 @@ joining again.
 
 ## Review 10 (sonnet) fix
 - The held-back words outlived the membership: after a refusal, a Leave (no read for a minute after it) and a new join
-  whose words were not recorded, the page said "Press Read the family's words" with no such button. A real Leave and any
-  successful family Accept now clear `wordsRefused`; R14 drives that sequence.
+  whose words were not recorded, the page said "Press Read the family's words" with no such button. A real Leave now
+  clears `wordsRefused`; R14 drives that sequence. Review 11: a second clear on a successful Accept was removed, because
+  no Accept can follow the refusal without a Leave or a read that clears it first (the join panel needs an unjoined
+  page, and the only local write that unjoins it is the Leave), so no arm could tell it apart.
 
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
@@ -115,8 +117,11 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms R1 to R12 and F10, chromium and webkit: all pass at 8caa42c877, R13 included (04:0x CDT 10-16); the R13 mutant reds R13. Full validation
-  PASSED at 8caa42c877 (20,885 pass, 0 fail).
+- docs/browser-checks/render-org-family-6239.js arms F0 to F10 and R1 to R14, chromium and webkit. The runs and full
+  validation at the head this ships are recorded in the proof file (`familyreaccept-6239-pre-challenge.md`), not here,
+  because any edit to this file changes the head they describe. The last recorded before R14: all pass and full
+  validation PASSED (20,885 pass, 0 fail) at 8caa42c877; the R13 mutant reds R13; the R8 mutant (refused words not held
+  back) reds R8.
   Page mutants, each red on its own arms: the review refusal back to a fixed sentence (R5, R7, R8, R11); no
   panel-follows-view rule (R7's Leave); a joining family's words not holding the block open (F10). A step that throws is
   a named FAIL (a click that timed out once ended a run with no verdict line). R4 also proves the page

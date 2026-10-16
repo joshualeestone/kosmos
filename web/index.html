@@ -50872,7 +50872,7 @@ function plusOrgPaint() {
   // A company note the person closed with Cancel no longer holds the block open (#5791 review 1).
   /* kosmos#6239: the family's words sit beside the code block and the joined view, so they follow the view they were
      opened for: a joining family's words hold the block open, and they close when this computer joins; a review's close
-     when this computer is no longer joined (a Leave, or a read that says so). */
+     when this computer is no longer joined (a Leave, or a read that says so) or a read says the words are no longer needed. */
   const fam = PLUS_ORG_FAMILY;
   if (fam && fam.p && ((fam.p.review === true && (!here || st.wordsNeeded !== true)) || (fam.p.review !== true && here))) plusOrgFamilyHide();
   const joining = !!(PLUS_ORG_FAMILY && PLUS_ORG_FAMILY.p && PLUS_ORG_FAMILY.p.review !== true);
@@ -51016,7 +51016,6 @@ async function plusOrgFamilyAccept() {
     // the words not kept): the next read says so.
     PLUS_ORG.reviewAccepted = Date.now();
     PLUS_ORG.wroteAt = Date.now();
-    PLUS_ORG.wordsRefused = false;   // words held back belong to the membership this Accept replaced
     PLUS_ORG.open = false;
     PLUS_ORG.state = { enrolled: true, org: r.org || f.p.org, role: r.role || f.p.role };
     PLUS_ORG.at = 0;
@@ -51117,6 +51116,7 @@ async function plusOrgLeave() {
   /* #5531 review 19: the joined view goes only on a real leave outcome (left, left here only, or pending). A refusal
      before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
   const changed = r.ok === true || r.pending === true;
+  // Words held back after a refusal belong to the membership just left. Every other way out of it is a read, which clears them.
   if (changed) { PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.wordsRefused = false; }
   PLUS_ORG.at = Date.now();
   const org0 = st0 && st0.org;   // kosmos#6251: the org left, for its kind
