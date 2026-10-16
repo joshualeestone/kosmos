@@ -629,10 +629,10 @@ function survey(opts) {
        acted on; an unknown row is left alone. On the Mac `job` is null when a
        login job Kosmos did not write might start the agent but could not be read (#6310). */
     missing: agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile).map((x) => x.name),
-    /* #6320: the ones we could not check (job === null): a login job that might start them could not be read. Shown,
-       never acted on. Same filter as `missing` but for the unknown answer, so the two lists never overlap. */
-    /* Only on the Mac, where the null comes from a login job we could not read; and not while jobs are merely waiting
-       their turn (the plutil budget), which is "not read yet", not "could not be read". */
+    /* #6320: the ones we could not check (job === null), the same filter as `missing` for the other answer, so the two
+       lists never overlap. Only on the Mac, where the null comes from a login job we could not read; not while jobs
+       are merely waiting their turn (the plutil budget). jobs.deferred() reads state the `agents` pass above set up,
+       so this must stay after it. */
     unknown: jobs.mac && !(jobs.deferred && jobs.deferred())
       ? agents.filter((x) => !x.removed && x.folder && x.job === null && x.profile).map((x) => x.name) : [],
   };
