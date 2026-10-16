@@ -45,7 +45,7 @@ const pjTeamMap = new Function(['function esc(', 'const STATE_COPY = ', 'functio
 function build(name, setup) {
   const projectsEngine = require('./engine/projects');
   const tasks = require('./engine/tasks');
-  const names = ['ada', 'ben', 'cy'];
+  const names = ['roo', 'pixel', 'quill'];
   const board = fleet.install(names.map((n) => fleet.agent(n, { state: 'idle' })));
   try {
     const dir = nodePath.join(SANDBOX, name);
@@ -65,77 +65,77 @@ test('#6103: a hand-off is said only where a part records who moved it', () => {
     const a = tasks.create(proj.id, { sentence: 'Write the copy' });
     const b = tasks.create(proj.id, { sentence: 'Check the copy' });
     const c = tasks.create(proj.id, { sentence: 'Draw the chart' });
-    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'ben', { via: 'process', by: 'ada' }).changed, true);
-    assert.equal(tasks.assignPart(proj.id, b.number, 1, 'ben', { via: 'process', by: 'ada' }).changed, true);
+    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'pixel', { via: 'process', by: 'roo' }).changed, true);
+    assert.equal(tasks.assignPart(proj.id, b.number, 1, 'pixel', { via: 'process', by: 'roo' }).changed, true);
     // From the screen: a person moved it, so no agent handed it over.
-    assert.equal(tasks.assignPart(proj.id, c.number, 1, 'cy', { via: 'screen' }).changed, true);
+    assert.equal(tasks.assignPart(proj.id, c.number, 1, 'quill', { via: 'screen' }).changed, true);
   });
   assert.ok(p && p.agents.length === 3, 'CONTROL: the real project has its three members');
   const parts = p.tasks.flatMap((t) => t.parts);
-  assert.equal(parts.filter((x) => x.movedBy === 'ada').length, 2, 'CONTROL: the engine recorded two named moves');
+  assert.equal(parts.filter((x) => x.movedBy === 'roo').length, 2, 'CONTROL: the engine recorded two named moves');
   const out = textOf(pjTeamMap(p, board));
-  assert.match(out, /ada handed ben 2 open parts/, 'the named hand-offs are not said');
-  assert.doesNotMatch(out, /handed cy/, 'a move from the screen was drawn as a hand-off between agents');
-  assert.match(out, /ben\b[^]*holds 2 open parts/, 'ben does not show the two parts it holds');
-  assert.match(out, /cy\b[^]*holds 1 open part\b/, 'cy does not show the part it holds');
-  assert.match(out, /ada\b[^]*holds no open parts/, 'ada does not say it holds nothing');
+  assert.match(out, /roo handed pixel 2 open parts/, 'the named hand-offs are not said');
+  assert.doesNotMatch(out, /handed quill/, 'a move from the screen was drawn as a hand-off between agents');
+  assert.match(out, /pixel\b[^]*holds 2 open parts/, 'pixel does not show the two parts it holds');
+  assert.match(out, /quill\b[^]*holds 1 open part\b/, 'quill does not show the part it holds');
+  assert.match(out, /roo\b[^]*holds no open parts/, 'roo does not say it holds nothing');
 });
 
 test('#6103: with no recorded hand-off, the map says none rather than guessing the lead gave it out', () => {
   const { p, board } = build('NoHandoffs', (proj, tasks) => {
     const a = tasks.create(proj.id, { sentence: 'Write it' });
-    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'ben', { via: 'process' }).changed, true);   // nobody named
+    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'pixel', { via: 'process' }).changed, true);   // nobody named
   });
   const out = textOf(pjTeamMap(p, board));
   assert.match(out, /No hand-offs between agents on open work yet/);
   assert.doesNotMatch(out, /\w+ handed \w+ \d/, 'a hand-off was invented');
-  assert.match(out, /ben\b[^]*holds 1 open part\b/, 'CONTROL: the held part still counts');
+  assert.match(out, /pixel\b[^]*holds 1 open part\b/, 'CONTROL: the held part still counts');
 });
 
 test('#6103: a closed part is neither held nor handed', () => {
   const { p, board } = build('Closed', (proj, tasks) => {
     const a = tasks.create(proj.id, { sentence: 'Done already' });
-    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'ben', { via: 'process', by: 'ada' }).changed, true);
+    assert.equal(tasks.assignPart(proj.id, a.number, 1, 'pixel', { via: 'process', by: 'roo' }).changed, true);
   });
   const open = textOf(pjTeamMap(p, board));
-  assert.match(open, /ada handed ben 1 open part\b/, 'CONTROL: while open, the hand-off is said');
+  assert.match(open, /roo handed pixel 1 open part\b/, 'CONTROL: while open, the hand-off is said');
   const closed = { ...p, tasks: p.tasks.map((t) => ({ ...t, parts: t.parts.map((x) => ({ ...x, closedAt: '2026-10-16T16:00:00Z' })) })) };
   const out = textOf(pjTeamMap(closed, board));
   assert.doesNotMatch(out, /\w+ handed \w+ \d/, 'a closed part was drawn as a hand-off');
-  assert.match(out, /ben\b[^]*holds no open parts/, 'a closed part still counts as held');
+  assert.match(out, /pixel\b[^]*holds no open parts/, 'a closed part still counts as held');
 });
 
 test('#6103: members nest under who they report to, and a member needing you is marked', () => {
   const { p, board } = build('Tree', () => {});
-  const agents = p.agents.map((m) => ({ ...m, reportsTo: m.sessionName === 'ada' ? '' : 'ada',
-    needsYouHere: m.sessionName === 'cy' ? 'trust' : null }));
+  const agents = p.agents.map((m) => ({ ...m, reportsTo: m.sessionName === 'roo' ? '' : 'roo',
+    needsYouHere: m.sessionName === 'quill' ? 'trust' : null }));
   const html = pjTeamMap({ ...p, agents }, board);
-  // ada at the top level; ben and cy in the list nested inside ada's item.
-  const top = html.indexOf('data-agent="ada"');
+  // roo at the top level; pixel and quill in the list nested inside roo's item.
+  const top = html.indexOf('data-agent="roo"');
   const nested = html.indexOf('<ul>', top);
-  assert.ok(top !== -1 && nested !== -1, 'ada has no nested list');
-  assert.ok(html.indexOf('data-agent="ben"') > nested && html.indexOf('data-agent="cy"') > nested, 'ben and cy are not under ada');
+  assert.ok(top !== -1 && nested !== -1, 'roo has no nested list');
+  assert.ok(html.indexOf('data-agent="pixel"') > nested && html.indexOf('data-agent="quill"') > nested, 'pixel and quill are not under roo');
   const flat = pjTeamMap(p, board);
   assert.equal((flat.match(/<ul>/g) || []).length, 1, 'CONTROL: with no managers there is one level only');
-  assert.match(html, /class="pjtm-node pjtm-need" type="button" data-agent="cy"/, 'the member needing you is not marked');
-  assert.doesNotMatch(html, /pjtm-need" type="button" data-agent="(ada|ben)"/, 'a member not needing you was marked');
+  assert.match(html, /class="pjtm-node pjtm-need" type="button" data-agent="quill"/, 'the member needing you is not marked');
+  assert.doesNotMatch(html, /pjtm-need" type="button" data-agent="(roo|pixel)"/, 'a member not needing you was marked');
   assert.match(textOf(html), /needs you: what each one is waiting for is listed above/);
   assert.doesNotMatch(textOf(flat), /waiting for is listed above/, 'CONTROL: nobody needs you, nothing pointed at');
 });
 
 test('#6103: each member shows its model family, and a Qwen agent is never OpenAI', () => {
   const { p, board } = build('Family', () => {});
-  const agents = p.agents.map((m) => ({ ...m, runner: m.sessionName === 'ada' ? 'claude' : 'codex' }));
-  const cards = board.map((c) => (c.sessionName === 'cy' ? { ...c, runner: 'codex', account: { provider: 'alibaba' } } : c));
+  const agents = p.agents.map((m) => ({ ...m, runner: m.sessionName === 'roo' ? 'claude' : 'codex' }));
+  const cards = board.map((c) => (c.sessionName === 'quill' ? { ...c, runner: 'codex', account: { provider: 'alibaba' } } : c));
   const out = textOf(pjTeamMap({ ...p, agents }, cards));
-  assert.match(out, /ada Claude ·/);
-  assert.match(out, /ben OpenAI Codex ·/);
-  assert.match(out, /cy Qwen ·/, 'a Qwen agent read as OpenAI');
+  assert.match(out, /roo Claude ·/);
+  assert.match(out, /pixel OpenAI Codex ·/);
+  assert.match(out, /quill Qwen ·/, 'a Qwen agent read as OpenAI');
 });
 
 test('#6103: names are escaped and an empty project says so', () => {
   const { p, board } = build('Escape', () => {});
-  const agents = p.agents.map((m) => (m.sessionName === 'ben' ? { ...m, name: '<img src=x onerror=alert(1)>' } : m));
+  const agents = p.agents.map((m) => (m.sessionName === 'pixel' ? { ...m, name: '<img src=x onerror=alert(1)>' } : m));
   const html = pjTeamMap({ ...p, agents }, board);
   assert.ok(!html.includes('<img'), 'a name reached the page as markup');
   assert.ok(html.includes('&lt;img'), 'CONTROL: the name is there, escaped');
