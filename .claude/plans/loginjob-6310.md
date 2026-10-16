@@ -62,7 +62,9 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Each agent's answer is remembered until a login job, a launcher script or the home folder changes. Measured on the
   fleet Mac (about 80 agents, 40 login jobs): a cold survey about 22 ms, a warm one about 9 ms.
 - A launcher under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads, app containers, iCloud
-  Drive) or on another volume is never touched, so the five-second poll raises no prompt; a script-like name there
+  Drive), under either the OS home or Kosmos's, or on another volume is never touched, not even with stat (a test
+  records every file call to prove it), so the five-second poll raises no prompt; the same goes for a WorkingDirectory
+  there, which then counts as not resolved; a script-like name there
   leaves every agent without its own plist unknown (#6320 is how the person will be told).
 - Script text is matched ignoring case (the Mac's disks do), under the folder as written, its real path, and ~ or
   $HOME for both the OS home and Kosmos's own; the quoted forms "$HOME" and "${HOME}" read as $HOME.

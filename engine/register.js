@@ -174,7 +174,8 @@ function readRoot(dir) {
  * (see foreignLoginFolders), and answers null when one of them that might start
  * this agent could not be read: a broken plist that names its folder, or a plist or
  * launcher script that could not be read at all (then null for every agent without
- * its own plist).
+ * its own plist), or the agent's own folder could not be resolved (other than "it
+ * does not exist").
  */
 function jobReader(platform) {
   /* #4918 review 11: on Linux the startup job is a systemd user unit, never a plist, so the survey reads the unit;
@@ -210,7 +211,8 @@ function jobReader(platform) {
         const verdict = (() => {
           // The folder itself or a folder inside it, as a start script's mention is.
           if (dir && [...foreign.dirs].some((d) => d === dir || d.startsWith(dir + '/'))) return true;
-          // While something could not be read, no answer here can be a proven absence: skip the text scan.
+          /* While something could not be read, no answer here can be a proven absence, so the text scan is skipped. An
+             agent a script would have shown as covered reads as unknown instead: intended, and safe (never repaired). */
           if (foreign.unknownAll) return null;
           const spellings = folderSpellings(dir, create.workerDir(name));
           if (dir && mentionsFolder(foreign.texts, spellings)) return true;
@@ -322,10 +324,14 @@ const UNREADABLE = Symbol('unreadable');
 /* Folders macOS guards with a privacy prompt (TCC), and other volumes: a launcher there is not touched at all, so the
    board never raises a prompt on its five-second poll. A script-like name there leaves "no job" unproven. */
 function protectedPath(file) {
-  const home = create.homeDir();
   const under = (d) => file === d || file.startsWith(d + '/');
-  return under('/Volumes') || ['Documents', 'Desktop', 'Downloads', 'Library/Containers', 'Library/Group Containers',
-    'Library/Mobile Documents'].some((d) => under(path.join(home, d)));
+  if (under('/Volumes')) return true;
+  // Both homes, as folderSpellings uses: the OS user's is the one whose privacy prompt would appear.
+  for (const home of new Set([require('node:os').homedir(), create.homeDir()].filter(Boolean))) {
+    if (['Documents', 'Desktop', 'Downloads', 'Library/Containers', 'Library/Group Containers', 'Library/Mobile Documents']
+      .some((d) => under(path.join(home, d)))) return true;
+  }
+  return false;
 }
 const SCRIPT_RETRY_MS = 60000;
 function scriptText(file) {
@@ -382,9 +388,12 @@ function foreignLoginFolders() {
     if (!got || got.sig !== sig || (got.retryAt && Date.now() >= got.retryAt)) {
       try { got = { sig, keys: plistKeys(file) }; } catch (e) {
         got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null };
-        // Said once per file and state, so a login job that keeps the banner quiet leaves a trace in the board's log.
-        if (got.raw === null && !(FOREIGN_CACHE.get(file) || {}).logged) { got.logged = true; console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
-        else if (got.raw === null) got.logged = true;
+        /* Said once per file and version (a changed file that still fails is said again), so a login job that keeps the
+           banner quiet leaves a trace in the board's log. A spent plutil budget is not a failure and is not said. */
+        const prevEntry = FOREIGN_CACHE.get(file) || {};
+        const budget = e && /budget spent/.test(String(e.message));
+        if (got.raw === null && !budget && !(prevEntry.logged && prevEntry.sig === sig)) { console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
+        if (got.raw === null && !budget) got.logged = true;
       }
       // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
       // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.
@@ -396,7 +405,7 @@ function foreignLoginFolders() {
     if (got.keys.dir) {
       // The written folder goes into the signature too, so a folder created later is seen at once.
       sigParts.push('wd=' + got.keys.dir);
-      if (path.isAbsolute(got.keys.dir)) {   // a relative one has no meaning outside the job
+      if (path.isAbsolute(got.keys.dir) && !protectedPath(got.keys.dir)) {   // relative: no meaning outside the job; guarded: never touched
         try { const real = fs.realpathSync.native(got.keys.dir); dirs.add(real); sigParts.push('wd:' + real); } catch { /* not there (yet) */ }
       }
     }
@@ -406,7 +415,8 @@ function foreignLoginFolders() {
       if (!path.isAbsolute(a)) continue;
       scripts.add(a);
       const t = scriptText(a);
-      let ast = null; try { ast = fs.statSync(a); } catch { ast = null; }
+      let ast = null;
+      if (!protectedPath(a)) { try { ast = fs.statSync(a); } catch { ast = null; } }   // a guarded path is never touched
       // Mode too: a file made executable (or renamed to a script) becomes a launcher without its contents changing.
       sigParts.push(a + ':' + (ast ? ast.mode + ':' + ast.size + ':' + ast.mtimeMs : 'none') + ':' + String(t === UNREADABLE));
       if (t === UNREADABLE) unknownAll = true;   // a launcher we cannot read may be any agent's

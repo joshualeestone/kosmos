@@ -815,17 +815,19 @@ test('#6310: a quoted "$HOME" spelling matches; a launcher in a privacy-guarded 
   assert.equal(s.agents.find((x) => x.name === 'plaint').job, null);
 });
 
-test('#6310: an oversized plist doubts only an agent it names; an unreadable launcher is tried again a minute later', (t) => {
-  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
+test('#6310: an oversized plist doubts only an agent it names', () => {
   reset();
   agent('bigx');
   agent('plainu');   // CONTROL
   fs.mkdirSync(path.join(SB, 'launch'), { recursive: true });
   fs.writeFileSync(path.join(SB, 'launch', 'com.big.thing.plist'), 'runs ' + create.workerDir('bigx') + '\n' + 'x'.repeat(300 * 1024), 'utf8');
-  let s = mac.survey();
+  const s = mac.survey();
   assert.deepEqual(s.missing, ['plainu']);
   assert.equal(s.agents.find((x) => x.name === 'bigx').job, null);
-  // An unreadable launcher, then readable: still unknown until its minute is up.
+});
+
+test('#6310: an unreadable launcher is tried again a minute later', (t) => {
+  if (process.getuid && process.getuid() === 0) return t.skip('root reads a mode-000 file');
   reset();
   agent('plainu');
   const bin = path.join(SB, 'scripts');
@@ -869,4 +871,23 @@ test('#6310: a WorkingDirectory created after the first survey covers the agent 
   assert.deepEqual(mac.survey().missing, ['latex'], 'the folder does not exist yet, so nothing starts in it');
   fs.mkdirSync(run, { recursive: true });
   assert.deepEqual(mac.survey().missing, [], 'a remembered answer missed the folder appearing');
+});
+
+test('#6310: a launcher or WorkingDirectory in a privacy-guarded folder is never looked at, not even with stat', () => {
+  reset();
+  agent('plainv');
+  const docs = path.join(create.homeDir(), 'Documents');
+  fs.mkdirSync(docs, { recursive: true });
+  const guarded = path.join(docs, 'launch.sh');
+  fs.writeFileSync(guarded, 'echo\n', 'utf8');
+  const raw = '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>WorkingDirectory</key>\n\t<string>' + docs + '</string>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + guarded + '</string>\n\t</array>\n</dict>\n</plist>\n';
+  foreignJob('com.docs.app.plist', { raw });
+  const touched = [];
+  const wrap = (obj, key) => { const orig = obj[key]; obj[key] = function (p, ...rest) { if (typeof p === 'string' && p.startsWith(docs)) touched.push(key + ' ' + p); return orig.call(this, p, ...rest); }; return () => { obj[key] = orig; }; };
+  const undo = [wrap(fs, 'statSync'), wrap(fs, 'readFileSync'), wrap(fs, 'openSync'), wrap(fs.realpathSync, 'native'), wrap(fs, 'existsSync')];   // the code resolves with .native
+  try {
+    const s = mac.survey();
+    assert.equal(s.agents.find((x) => x.name === 'plainv').job, null, 'a guarded launcher should leave others unknown');
+  } finally { undo.reverse().forEach((u) => u()); }
+  assert.deepEqual(touched, [], 'the survey touched a guarded path: ' + touched.join(', '));
 });
