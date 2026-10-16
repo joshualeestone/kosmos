@@ -431,6 +431,17 @@ const SCREENS = [
     await at(page, '');
     await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
   } },
+  { name: 'restart-both-done', owner: 'Angel', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/register', (route) => route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, missing: ['roo-lane'], unknown: ['cleo-park'],
+        agents: [{ name: 'roo-lane', shownAs: 'Roo' }, { name: 'cleo-park', shownAs: 'Cleo' }] }) })
+      : route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, results: [{ name: 'roo-lane', shownAs: 'Roo', ok: true, started: true }] }) }));
+    await at(page, '');
+    await page.waitForSelector('#restart-wrap [data-survival-fix]', { state: 'visible', timeout: 15000 });
+    await page.click('#restart-wrap [data-survival-fix]');
+    // #6320: the report that replaces the panel still says which agents could not be checked.
+    await page.waitForSelector('#restart-wrap [data-survival-unknown]', { state: 'visible', timeout: 15000 });
+  } },
   { name: 'login-notice', owner: 'Angel', noServiceWorker: true, go: async (page) => {
     const adv = [{ agents: ['roo-lane', 'pixel-moss', 'cleo-park'], names: ['Roo', 'Pixel', 'Cleo'], provider: 'Claude', service: 'Claude Code-credentials',
       email: 'owner@example.com', daysLeft: 5, severity: 'notice', expired: false }];
