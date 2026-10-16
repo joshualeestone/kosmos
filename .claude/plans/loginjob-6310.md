@@ -47,6 +47,7 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Cost, measured on the fleet Mac (about 80 agents, 40 login jobs): one warm survey takes about 50 ms.
 - Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
   only), the legacy OnDemand key, and plist XML comments, a relative `cd`, a folder built from variables other than HOME,
-  a job switched off with `launchctl disable` (the override database, not the plist). The first two read as missing
-  (Repair would add a second job); the last reads as covered.
+  a job switched off with `launchctl disable` (the override database, not the plist). A chained launcher, a relative
+  `cd` and other variables read as missing (Repair would add a second job); OnDemand, comments and `launchctl disable`
+  can read either way.
 - Measured on the fleet Mac after these changes (read-only survey): 1 missing (leftover-unrelated, genuinely no job).
