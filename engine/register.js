@@ -194,17 +194,27 @@ function jobReader(platform) {
       win32: false, known: true, fleet: null,
       of: (name) => {
         if (fs.existsSync(create.plistPath(name))) return true;
-        if (!foreign) foreign = foreignLoginFolders();
+        if (!foreign) {
+          foreign = foreignLoginFolders();
+          if (VERDICTS.sig !== foreign.sig) VERDICTS = { sig: foreign.sig, map: new Map() };
+        }
         let dir = null;
         // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
         try { dir = fs.realpathSync.native(create.workerDir(name)); } catch { dir = null; }
-        if (dir && foreign.dirs.has(dir)) return true;
-        const spellings = folderSpellings(dir, create.workerDir(name));
-        if (dir && mentionsFolder(foreign.texts, spellings)) return true;
-        /* A login job that could not be read and names this agent's folder might start it, so "no job" is not proven:
-           null, which Repair never acts on (#570). One that could not be read at all might be anyone's. */
-        if (foreign.unknownAll || (dir && mentionsFolder(foreign.suspects, spellings))) return null;
-        return false;
+        // The answer for a folder only changes when a login job, a launcher script or the home folder does.
+        const memoKey = name + '\0' + dir + '\0' + create.homeDir();
+        if (VERDICTS.map.has(memoKey)) return VERDICTS.map.get(memoKey);
+        const verdict = (() => {
+          if (dir && foreign.dirs.has(dir)) return true;
+          const spellings = folderSpellings(dir, create.workerDir(name));
+          if (dir && mentionsFolder(foreign.texts, spellings)) return true;
+          /* A login job that could not be read and names this agent's folder might start it, so "no job" is not
+             proven: null, which Repair never acts on (#570). One that could not be read at all might be anyone's. */
+          if (foreign.unknownAll || (dir && mentionsFolder(foreign.suspects, spellings))) return null;
+          return false;
+        })();
+        VERDICTS.map.set(memoKey, verdict);
+        return verdict;
       },
     };
   }
@@ -220,6 +230,7 @@ function jobReader(platform) {
    through plutil. Plists and the start scripts they name are cached by mtime and size. */
 const FOREIGN_CACHE = new Map();
 const SCRIPT_CACHE = new Map();
+let VERDICTS = { sig: null, map: new Map() };   // per-agent answers for one state of the login jobs and their scripts
 function unxml(v) {
   return v.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCodePoint(parseInt(h, 16)))
     .replace(/&#([0-9]+);/g, (m, d) => String.fromCodePoint(parseInt(d, 10)))
@@ -233,7 +244,7 @@ function plistKeys(file) {
   if (buf.slice(0, 8).toString('latin1') === 'bplist00') {
     text = require('child_process').execFileSync('/usr/bin/plutil', ['-convert', 'xml1', '-o', '-', file], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] });
   } else text = buf.toString('utf8');
-  if (!/<plist[\s>]/.test(text)) { const e = new Error('not a property list'); e.raw = text; throw e; }
+  if (!/<plist[\s>]/.test(text) || !/<\/dict>/.test(text)) { const e = new Error('not a property list'); e.raw = text; throw e; }
   /* Top-level keys only: a key of the same name inside a nested dict (EnvironmentVariables, a KeepAlive condition)
      does not count. Inner dicts are folded to <dict/> from the innermost out. */
   let top = text.slice(text.indexOf('<dict'), text.lastIndexOf('</dict>') + 7);
@@ -253,12 +264,14 @@ function plistKeys(file) {
 }
 /* The ways a start script may write the folder: as it is, as its real path, and under the home folder as ~ or $HOME. */
 function folderSpellings(...dirs) {
-  const home = require('node:os').homedir();
+  const homes = new Set([require('node:os').homedir(), create.homeDir()].filter(Boolean));
   const out = new Set();
   for (const d of dirs) {
     if (!d) continue;
     out.add(d);
-    if (home && d.startsWith(home + '/')) { const rest = d.slice(home.length); out.add('~' + rest); out.add('$HOME' + rest); out.add('${HOME}' + rest); }
+    for (const home of homes) {
+      if (d.startsWith(home + '/')) { const rest = d.slice(home.length); out.add('~' + rest); out.add('$HOME' + rest); out.add('${HOME}' + rest); }
+    }
   }
   return [...out];
 }
@@ -267,20 +280,25 @@ function folderSpellings(...dirs) {
 function mentionsFolder(texts, spellings) {
   for (const sp of new Set(spellings)) {
     if (!sp) continue;
-    const re = new RegExp('(?<![A-Za-z0-9._/-])' + sp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])');
+    const re = new RegExp('(?<![A-Za-z0-9._/-])' + sp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])', 'i');   // the Mac's disks ignore case
     if (texts.some((t) => re.test(t))) return true;
   }
   return false;
 }
-/* A start script's text; null when the path is not a text file (a binary such as the interpreter, a folder, nothing);
-   UNREADABLE when it is a file this survey cannot read, or text over SCRIPT_MAX. A failed read is not cached.
-   SCRIPT_MAX is generous because real launchers are large: Kosmos's own board job runs a 375 KB script. */
+/* Whether an argument looks like something that runs: executable, or named like a script. Only these are searched
+   or can leave "no job" unproven; a log being followed or a data file passed along is neither. */
+const SCRIPT_EXT = /\.(sh|bash|zsh|command|js|mjs|cjs|py|rb|pl)$/i;
+function launcherLike(file, st) { return !!(st.mode & 0o111) || SCRIPT_EXT.test(file); }
+/* A launcher's text; null when the argument is not a launcher-like text file (a binary such as the interpreter, a
+   data file, a folder, nothing); UNREADABLE when it is a launcher-like file this survey cannot read. Text over
+   SCRIPT_MAX is not searched (null): a bundled CLI is many megabytes and never names a worker folder, and treating it
+   as unreadable would make every agent unknown. A failed read is not cached. */
 const SCRIPT_MAX = 2 * 1024 * 1024;
 const UNREADABLE = Symbol('unreadable');
 function scriptText(file) {
   let st;
   try { st = fs.statSync(file); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? null : UNREADABLE; }
-  if (!st.isFile()) return null;
+  if (!st.isFile() || !launcherLike(file, st)) return null;
   const sig = st.mtimeMs + ':' + st.size;
   const got = SCRIPT_CACHE.get(file);
   if (got && got.sig === sig) return got.text;
@@ -290,8 +308,7 @@ function scriptText(file) {
     try { head = Buffer.alloc(4096); head = head.subarray(0, fs.readSync(fd, head, 0, 4096, 0)); } finally { fs.closeSync(fd); }
   } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
   // A binary is never a launcher script, whatever its size (the interpreter itself: /bin/bash is about 1.9 MB).
-  if (head.includes(0)) { SCRIPT_CACHE.set(file, { sig, text: null }); return null; }
-  if (st.size > SCRIPT_MAX) return UNREADABLE;
+  if (head.includes(0) || st.size > SCRIPT_MAX) { SCRIPT_CACHE.set(file, { sig, text: null }); return null; }
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
   SCRIPT_CACHE.set(file, { sig, text });
@@ -306,9 +323,10 @@ function foreignLoginFolders() {
   const suspects = [];
   let unknownAll = false;
   let names;
-  try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts: [], suspects, unknownAll: !(e && e.code === 'ENOENT') }; }
+  try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts: [], suspects, unknownAll: !(e && e.code === 'ENOENT'), sig: 'none:' + (e && e.code) }; }
   const seen = new Set();
   const scripts = new Set();
+  const sigParts = [];   // everything the answers depend on, so a change anywhere drops the remembered ones
   for (const f of names) {
     if (!f.endsWith('.plist') || f.startsWith(create.SERVICE_LABEL_PREFIX)) continue;
     const file = path.join(create.AGENTS_DIR, f);
@@ -317,6 +335,7 @@ function foreignLoginFolders() {
     try { st = fs.statSync(file); } catch (e) { if (!(e && e.code === 'ENOENT')) unknownAll = true; continue; }   // gone since the listing: skipped
     if (!st.isFile()) continue;
     const sig = st.mtimeMs + ':' + st.size;
+    sigParts.push(file + ':' + sig);
     let got = FOREIGN_CACHE.get(file);
     if (!got || got.sig !== sig || (got.retryAt && Date.now() >= got.retryAt)) {
       try { got = { sig, keys: plistKeys(file) }; } catch (e) { got = { sig, keys: null, raw: e && typeof e.raw === 'string' ? e.raw : null }; }
@@ -331,18 +350,20 @@ function foreignLoginFolders() {
       try { dirs.add(fs.realpathSync.native(got.keys.dir)); } catch { /* a job whose folder is gone starts nobody we know */ }
     }
     texts.add(got.keys.args.join('\n'));
-    got.keys.args.forEach((a, i) => {
-      if (!path.isAbsolute(a)) return;
+    for (const a of got.keys.args) {
+      if (!path.isAbsolute(a)) continue;
       scripts.add(a);
       const t = scriptText(a);
-      /* Only the program or the script it runs (the first two arguments) may be a launcher; an unreadable file further
-         along (a log being followed, a data file) is somebody's data, not a reason to doubt every agent. */
-      if (t === UNREADABLE) { if (i < 2) unknownAll = true; } else if (t !== null) texts.add(t);
-    });
+      sigParts.push(a + ':' + (SCRIPT_CACHE.has(a) ? SCRIPT_CACHE.get(a).sig : String(t === UNREADABLE)));
+      if (t === UNREADABLE) unknownAll = true;   // a launcher we cannot read may be any agent's
+      else if (t !== null) texts.add(t);
+    }
   }
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);
   for (const k of SCRIPT_CACHE.keys()) if (!scripts.has(k)) SCRIPT_CACHE.delete(k);
-  return { dirs, texts: [...texts], suspects, unknownAll };
+  // A failed read is retried, so while one stands nothing is remembered (the sig is unique each time).
+  const sig = unknownAll || [...FOREIGN_CACHE.values()].some((g) => g.retryAt) ? 'retry:' + Date.now() + ':' + Math.random() : sigParts.join('|');
+  return { dirs, texts: [...texts], suspects, unknownAll, sig };
 }
 
 function strays(profileNames, jobs) {
