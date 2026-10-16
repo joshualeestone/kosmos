@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: sitekick-6266
-diff_hash: edf2ce08119c15ab010646cb27f4ac7633a9109bdbdc802aab3a5bd06218eefb
+diff_hash: bed8934a2258da3a427f7cd82098b1bea9b287ad205d3079314005c1e4d1e17f
 validation: tools.site-deploy-kick-6266.test.js 18/18 (fake gh checks exact argv and runs the script's own --jq through real jq); bash -n on both scripts; the repo-wide guards (all-node-tests-considered, comment-deferral, windows-tests-1777, fixture-discipline, web.machine-absence-claims, shell-shard, every-test-runs, install.reachable) pass, run alone from the repo root after rebasing onto main. Measured against the real gh on Agent1s: the wall clock cuts off a hung call (GH_HOST=10.255.255.1, limit 3 s) in 5 s. CI on the PR is the merge gate.
 subdir_audit: passed
 timestamp: 2026-10-16T00:02:33Z
@@ -116,3 +116,10 @@ Reviewer models alternated opus and sonnet. Each guard was mutated out at least 
 - Live gone back to an older commit while main is unchanged is left to the job's schedule run.
 - A run waiting near 3 hours behind CI is called stuck; a run cancelled at the 45-minute timeout counts from creation (unconfirmed).
 - The source record's -dirty mark covers only the script; plist values are not XML-escaped (plain paths on Mortals).
+
+### Rebase before merge
+- Main moved 4 commits after CI and one also edited package.json's test:shell line, so the rebase conflicted
+  there. Resolved by taking main's line and inserting this branch's two `bash -n` entries (checked: the line differs
+  from main by exactly that insertion). The code under review is unchanged; the diff hash is recomputed for it.
+  Re-run after the rebase: the 18 tests and the package.json readers (shell-shard, every-test-runs, install.reachable,
+  install.local-board) plus the guards, all pass.
