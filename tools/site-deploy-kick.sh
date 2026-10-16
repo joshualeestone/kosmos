@@ -36,8 +36,9 @@
 # seconds: one short run per 15 minutes on the shared runner, the pace the schedule was meant to have.
 # Each tick writes the time to its heartbeat file (it proves launchd STARTED the tick, not that gh worked; the log
 # says what the tick did), so a quiet log can be told apart from a job that never runs. A tick prints only when it
-# asks, cannot read something, or sees a stuck run (at most two lines); the log is not rotated (about 10 to 20 KB a
-# day, about 40 KB at the very worst: a stuck run plus a failed dispatch every tick; kept by --uninstall).
+# asks, cannot read something, sees a stuck run, or is held (kosmos#6305: one line a tick, about 96 a day while a
+# hold is set); the log is not rotated (about 10 to 20 KB a day, about 40 KB at the very worst: a stuck run plus a
+# failed dispatch every tick; a held day is about 10 KB; kept by --uninstall).
 #
 # Unconfirmed: if GitHub reports a run killed at the workflow's 45-minute timeout as "cancelled" rather than
 # "timed_out", its gap counts from creation and the next tick may ask at once (the job's own 15-minute deploy limit

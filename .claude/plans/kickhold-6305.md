@@ -15,7 +15,7 @@ Filed and claimed by Angel at 07:2x CDT on 2026-10-16, at Splinter's suggestion.
 - **docs/releasing.md** has the set and clear commands before the "Before any promote" steps.
 
 ## Not built
-- **The site's own deploy workflow does not read the variable yet** (the card's optional item). A push-triggered site deploy is NOT held by this; only the backstop is. The site repo is a separate PR, and the release flow's own cut detection already skips push runs during a cut.
+- **The site's own deploy workflow does not read the variable yet** (the card's optional item). Its own runs (a push, its 15-minute schedule, a manual run) are NOT held by this; only the backstop is. The site repo is a separate PR, and the release flow's own cut detection already skips push runs during a cut.
 - **The promote script (`tools/promote-channel.sh`) does not set or clear the variable itself.** That is a manual step in the runbook. Automating it means the promote script holds a gh login with variable write, which is a bigger change than this card.
 
 ## Weakest premise
@@ -26,7 +26,7 @@ That the person promoting reads the runbook step. If not, the hold is not set an
 - unreadable (401): nothing dispatched, exit 1, "treated as held";
 - the hung-gh and missing-gh tests now meet the hold read first, and their expected lines say so;
 - mutants: removing the hold check, and treating an unreadable hold as clear, each turn a test red;
-- 20/20 pass; `bash -n` passes on the kick.
+- 22/22 pass; `bash -n` passes on the kick.
 
 ## After merge
 Reinstall on Mortals (`tools/install-site-deploy-kick.sh`) only AFTER Splinter lifts the current hold. The job is unloaded until then, and the installer would load it.
@@ -38,3 +38,8 @@ Reinstall on Mortals (`tools/install-site-deploy-kick.sh`) only AFTER Splinter l
   - a 404 can also mean the repo is invisible to the token (commented: the next read fails the same way, so nothing is asked);
   - the runbook said "hold automatic site deploys" while a push still deploys, so it now says only the backstop is held, not to push during a promote, and how to see a hold (`gh variable list`).
   - Nits taken: a reason with line breaks stays one line (test); the hold is in the kick's header list.
+- **Review 2 (opus).** Two warnings, both fixed:
+  - the kick's header promised a quiet log, but a held tick writes a line, so it now says so and gives the held-day size;
+  - the runbook said only a push still deploys, so it now names push, schedule and manual runs of the site workflow.
+  - Nit taken: the test count (22).
+  - Not taken: --check showing what would happen after a hold (cosmetic); a byte-cut reason under no LANG (cosmetic).
