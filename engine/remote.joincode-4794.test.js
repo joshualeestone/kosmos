@@ -41,6 +41,10 @@ if (args[0] === 'devices' && args[1] === 'allow') {
   console.log(JSON.stringify({ allowed: true }));
   process.exit(0);
 }
+if (args[0] === 'devices' && args[1] === 'list' && process.env.FAKE_LIST) {   // #6315: the allowed list
+  console.log(process.env.FAKE_LIST);
+  process.exit(0);
+}
 if (args[0] === 'join') {
   if (mode === 'unsupported') { process.stderr.write("error: unrecognized subcommand 'join'\\n"); process.exit(2); }
   if (args[1] === 'status') {
@@ -74,7 +78,7 @@ function unenrol() { fs.rmSync(nodePath.join(DATA_ROOT, 'remote'), { recursive: 
 function recorded() {
   try { return fs.readFileSync(RECORD, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse); } catch { return []; }
 }
-test.beforeEach(() => { fs.rmSync(RECORD, { force: true }); delete process.env.FAKE_JOIN; });
+test.beforeEach(() => { fs.rmSync(RECORD, { force: true }); delete process.env.FAKE_JOIN; delete process.env.FAKE_LIST; });
 test.afterEach(() => { remote.resetForTests(); unenrol(); });
 test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -224,9 +228,32 @@ test('#6315: a computer id is never allowed without the code both screens show',
   assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').length, 0, 'a code-less computer Allow reached the tunnel');
 });
 
-test('#6315: Not me takes the minted id too', async () => {
+test('#6315: Not me and Remove take the minted id too', async () => {
   enrol();
-  const r = await remote.deviceDeny(MINTED);
-  const call = recorded().find((a) => a[0] === 'devices' && a[a.indexOf('--device-id') + 1] === MINTED);
-  assert.ok(call, 'Not me on the minted id never reached the tunnel: ' + JSON.stringify(r));
+  await remote.deviceDeny(MINTED);
+  await remote.deviceRemove(MINTED);
+  const verbs = recorded().filter((a) => a[0] === 'devices' && a[a.indexOf('--device-id') + 1] === MINTED).map((a) => a[1]);
+  assert.ok(verbs.includes('deny'), 'Not me on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
+  assert.ok(verbs.some((v) => v !== 'deny' && v !== 'allow'), 'Remove on the minted id never reached the tunnel: ' + JSON.stringify(verbs));
+});
+
+test('#6315: a computer: row with no usable computer name is shown as a former computer, never as a phone', () => {
+  const dir = enrol();
+  fs.writeFileSync(nodePath.join(dir, 'pending.json'), JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', first_seen: 1792168082, code: 'K7-4M', joining_computer: null },
+  ] }));
+  remote.setOn(true);
+  const [row] = remote.pendingDevices().devices;
+  assert.deepEqual([row.device_id, row.code, row.code_wait], [MINTED, '', 'was_a_computer']);
+});
+
+test('#6315: the allowed list keeps a computer: id, so it can be removed', async () => {
+  enrol();
+  process.env.FAKE_LIST = JSON.stringify({ devices: [
+    { device_id: MINTED, name: 'computer tmnt', allowed_at: 1792168200, last_seen: 0 },
+    { device_id: 'computer:' + 'a'.repeat(31), name: 'short', allowed_at: 1792168200, last_seen: 0 },
+  ] });
+  const got = await remote.devicesList();
+  assert.equal(got.ok, true, got.because);
+  assert.deepEqual(got.data.devices.map((d) => d.device_id), [MINTED]);
 });
