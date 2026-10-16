@@ -51139,16 +51139,19 @@ async function plusOrgFamilyReview() {
   if (PLUS_ORG.busy) return;
   const btn = document.getElementById('plus-org-words');
   PLUS_ORG.busy = true; btn.disabled = true; msg.textContent = '';
+  let refused = false;   // read after finally: a return inside try would skip anything placed after it
   try {
     const p = await plusOrgPost('preview', { review: true });
-    if (!p.ok) { msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
+    if (!p.ok) { refused = true; msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
     if (!(p.org && p.org.kind === 'family')) { msg.textContent = 'Kosmos takes your company\u2019s terms on itself; there is nothing to read here.'; return; }
     plusOrgFamilyShow(null, p);
     plusOrgPaint();   // the words row folds while the words are open
-  } finally { PLUS_ORG.busy = false; btn.disabled = false; }
-  // A refused review (already accepted, or no longer this family's computer) reads the view again, so the button goes
-  // when it no longer belongs; the refusal line stays (keepMsg).
-  if (!PLUS_ORG_FAMILY && msg.textContent !== '') { PLUS_ORG.at = 0; plusOrgMaybe(true); }
+  } finally {
+    PLUS_ORG.busy = false; btn.disabled = false;
+    // A refused review (already accepted, or no longer this family's computer) reads the view again, so the button goes
+    // when it no longer belongs; the refusal line stays (keepMsg).
+    if (refused) { PLUS_ORG.at = 0; plusOrgMaybe(true); }
+  }
 }
 document.getElementById('plus-org-words').addEventListener('click', plusOrgFamilyReview);
 document.getElementById('plus-org-family-no').addEventListener('click', plusOrgFamilyNotNow);
