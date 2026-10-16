@@ -15,10 +15,16 @@
  * The count has its own cache (readFile's `cache`), never the swarm's: the swarm counts from local midnight and this
  * from the month's start, and one cache entry per file resets whenever `since` changes. Reads are bounded per call
  * (READ_PER_CALL_BYTES), so a first count catches up over a few calls; `complete` says whether it has. Never throws.
+ *
+ * The gate (capAllows) never counts. It runs on the message path, and counting a heavy month is slow: measured on a
+ * Mac holding 8,313 transcripts touched this month (2.5 GB), a bounded count took over 3.7 s a call and had not
+ * caught up after 31 minutes. So a worker thread (usagecap-worker.js) counts, and the gate reads its latest count with
+ * the month's saved one. The rollup's tick, already off the message path, counts itself (capNow).
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { Worker } = require('node:worker_threads');
 const swarm = require('./swarm');
 const orgpolicy = require('./orgpolicy');
 const store = require('./store');
@@ -26,9 +32,6 @@ const store = require('./store');
 const cache = new Map();
 let cacheSince = null;   // the month start `cache` was counted from
 let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
-/* The gate counts on the message path, so each of its calls reads at most this much (the rollup's tick reads the full
-   per-call budget, off that path). A board catching up takes longer; the month's saved count holds the cap up meanwhile. */
-const GATE_PER_CALL_BYTES = 8 * 1024 * 1024;
 
 /* The month's start in the cap's zone. A zone this runtime cannot read counts from 14 hours before the UTC month
    began (the earliest any zone's month starts), so it never counts less than the month: closed, not open. */
@@ -112,28 +115,61 @@ function writeFloor(since, used) {
 function capNow(policy, now = Date.now(), rootsList, bytes = perCallBytes) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) return { capped: false };
-  const m = monthTokens(u.tz, now, rootsList || roots(), bytes);
+  return withFloor(policy, monthTokens(u.tz, now, rootsList || roots(), bytes));
+}
+/* capAt for a count `m` ({ tokens, complete, since }) held up by the month's saved count, saving it when complete. */
+function withFloor(policy, m) {
   const floor = readFloor(m.since);
   const used = m.complete && !floor.sameZone ? m.tokens : Math.max(m.tokens, floor.used);
   if (m.complete) writeFloor(m.since, used);
   return { ...orgpolicy.capAt(policy, used), complete: m.complete, known: m.complete || floor.used > 0 };
 }
 
-/* Every message to every agent asks, so the count is kept for MEMO_MS (the cap is monthly: a minute late is nothing)
-   and recounted when the policy's cap changes. A count still catching up, or past the heads-up, is kept for
-   MEMO_SHORT_MS only: the catch-up moves on without every message paying for a bounded read, and near the cap a
-   message cannot slip past it for a whole minute. */
+/* Mode 'sync' only (tests): the inline count is kept for MEMO_MS, or MEMO_SHORT_MS while catching up or past the
+   heads-up, and recounted when the policy's cap changes. */
 const MEMO_MS = 60 * 1000;
 const MEMO_SHORT_MS = 5 * 1000;
 let memo = null;
+
+/* The counter. 'worker' (the board): a worker thread counts and posts each count here. 'sync' (resetForTests): the
+   gate counts inline, a bounded amount per call, so a test reads a count the moment it asks. */
+const WORKER_RETRY_MS = 60 * 1000;
+let mode = 'worker';
+let worker = null;
+let workerTz = null;
+let workerFailedAt = -Infinity;
+let latest = null;   // the worker's last count: { tz, since, tokens, complete }
+function ensureWorker(tz) {
+  if (!worker) {
+    if (Date.now() - workerFailedAt < WORKER_RETRY_MS) return;
+    try {
+      const w = new Worker(path.join(__dirname, 'usagecap-worker.js'));
+      w.unref();   // never what keeps the board running
+      w.on('message', (r) => { if (r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isFinite(r.tokens)) latest = r; });
+      const gone = () => { if (worker === w) { worker = null; workerTz = null; workerFailedAt = Date.now(); } };
+      w.on('error', gone);
+      w.on('exit', gone);
+      worker = w;
+    } catch { workerFailedAt = Date.now(); return; }
+  }
+  if (workerTz !== tz) { workerTz = tz; try { worker.postMessage({ tz }); } catch { /* the exit handler resets it */ } }
+}
 
 /** The policy in force (orgpolicy.currentStrict) with this month's count: { capped: false } or capNow's answer.
  *  Throws when the policy record is damaged, as currentStrict does; the gate decides what a fault means. */
 function capInForce(now = Date.now()) {
   const policy = orgpolicy.currentStrict();
+  if (mode === 'worker') {
+    const u = policy && policy.usage_cap;
+    if (!orgpolicy.capShapeOk(u)) return { capped: false };
+    ensureWorker(u.tz);
+    const since = sinceFor(u.tz, now);
+    const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
+    return withFloor(policy, m);
+  }
   const key = JSON.stringify((policy && policy.usage_cap) || null);
   if (memo && memo.key === key && now - memo.at >= 0 && now - memo.at < memo.ms) return memo.value;
-  const value = capNow(policy, now, undefined, Math.min(perCallBytes, GATE_PER_CALL_BYTES));
+  const value = capNow(policy, now);
   memo = { key, at: now, value, ms: value.complete === false || value.warn === true ? MEMO_SHORT_MS : MEMO_MS };
   return value;
 }
@@ -146,11 +182,17 @@ function capAllows(now = Date.now()) {
   return { ok: false, because: orgpolicy.capSentence(c) };
 }
 
-/** `keepFloor` keeps the month's saved count, as a board restart does. */
-function resetForTests({ perCallBytes: n, keepFloor = false } = {}) {
-  cache.clear(); cacheSince = null; memo = null;
+/** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
+ *  without it the gate counts inline (mode 'sync'). */
+function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false } = {}) {
+  cache.clear(); cacheSince = null; memo = null; latest = null; workerFailedAt = -Infinity;
+  if (worker) { const w = worker; worker = null; workerTz = null; try { w.terminate(); } catch { /* already gone */ } }
+  mode = useWorker ? 'worker' : 'sync';
   if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
   perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
 }
 
-module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, MEMO_MS, MEMO_SHORT_MS, GATE_PER_CALL_BYTES, FLOOR };
+/** For tests: the worker's last count, or null. */
+function latestForTests() { return latest; }
+
+module.exports = { monthTokens, capNow, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS, FLOOR };

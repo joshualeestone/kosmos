@@ -49,3 +49,12 @@ must use its own cache: readFile takes the cache as a parameter (default: the sw
 - A cap refusal is not an agent event yet (no coordinator rule word); the parent sees used / cap in the console.
 - The heads-up is the parent's (console). A banner on the child's board is new board UI and waits on design.
 - A fault reading the policy or the count reads as open, as quiet hours do.
+
+## The count moved off the message path (challenge loop, iterations 1, 5 and 6)
+Three reviewers in a row flagged the gate counting transcripts inside deliverWithGap. I deferred it twice, then
+measured it: on this Mac (8,313 transcripts touched this month, 2.5 GB) a bounded count took over 3.7 s a call and
+had not caught up after 31 minutes. Deferring was wrong. Now a worker thread (engine/usagecap-worker.js) counts, and
+the gate reads its latest count with the month's saved one; it never reads a transcript. The rollup's tick runs in a
+child process and counts itself. Tests use the inline count ('sync', resetForTests); one test drives the real worker.
+Weakest premise: that a worker thread is cheap enough to keep on every board with a cap. It starts only when a cap is
+in force, is unref'd, and recounts every 10 s off the main thread.
