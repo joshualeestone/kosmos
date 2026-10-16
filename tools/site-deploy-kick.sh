@@ -11,6 +11,7 @@
 # (workflow_dispatch, ref main) only when site main differs from what the deploy job last published, using the job's
 # own state folder. Everything else stays the job's: the cut check, the lock, retries and parking, the reports. So:
 #   - paused (a person made ~/.kosmos-site-autodeploy/paused): nothing is asked;
+#   - held (kosmos#6305: the site repo's SITE_DEPLOY_HOLD variable is set, or cannot be read): nothing is asked;
 #   - main equals last-deployed, or main is the parked sha: nothing is asked (the job reports a parked sha itself);
 #   - a site deploy run on main is queued or running: nothing is asked. A queued one deploys main as it is when it
 #     starts; a merge made while one is already running waits for the next tick;
@@ -121,9 +122,16 @@ if [ -e "$STATE/paused" ]; then note "paused ($STATE/paused): would ask nothing"
 # may be on any computer. Set: nothing asked, and the reason is the tick's line. Absent (404): no hold. Unreadable
 # (any other failure): treated as HELD, because a missed deploy waits fifteen minutes and a deploy during a promotion
 # is the harm a hold exists to stop.
-hold_why=""; hold="$(ghb api "repos/$REPO/actions/variables/SITE_DEPLOY_HOLD" --jq .value 2>"$ERR")" || hold_why="$(why)"
-if [ -z "$hold_why" ]; then say "held: ${hold:0:120} (SITE_DEPLOY_HOLD on $REPO); nothing asked"; exit 0; fi
-if ! grep -q 'HTTP 404' "$ERR" 2>/dev/null; then say "could not read the site-deploy hold on $REPO$hold_why; treated as held, nothing asked"; exit 1; fi
+# A 404 is also what a token that cannot see the repo gets, so it reads as "no hold" then; the next read (site main)
+# fails the same way, so such a tick still asks nothing. The read's own status decides set or not, never the words.
+hold_ok=0; hold_why=""
+hold="$(ghb api "repos/$REPO/actions/variables/SITE_DEPLOY_HOLD" --jq .value 2>"$ERR")" && hold_ok=1 || hold_why="$(why)"
+if [ "$hold_ok" = 1 ]; then
+  say "held: $(printf '%s' "${hold:0:120}" | tr '\n\r\t' '   ') (SITE_DEPLOY_HOLD on $REPO); nothing asked"; exit 0
+fi
+if ! grep -q 'HTTP 404' "$ERR" 2>/dev/null; then
+  say "could not read the site-deploy hold on $REPO${hold_why:- (gh failed, no reason given)}; treated as held, nothing asked (the backstop stays idle until this read works)"; exit 1
+fi
 main="$(ghb api "repos/$REPO/commits/main" --jq .sha 2>"$ERR")" || { say "could not read site main ($REPO)$(why); nothing asked"; exit 1; }
 case "$main" in
   *[!0-9a-f]*|'') say "site main read as '${main:0:60}', not a sha; nothing asked"; exit 1 ;;

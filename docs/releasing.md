@@ -253,8 +253,11 @@ cut's sha before it starts waiting:
   gh variable delete SITE_DEPLOY_HOLD --repo joshualeestone/chaoskosmos-site
   ```
 
-  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. If the variable cannot be read,
-  it holds too. A forgotten hold stops automatic site deploys, so clear it in the same sitting.
+  While it is set, the backstop asks nothing and its last tick says `held: <reason>`. It holds ONLY the backstop: a
+  push to the site repo still runs the site's deploy workflow, so do not push to the site during a promote. If the
+  variable cannot be read (the backstop's gh login lost access), the backstop holds too, every tick, until that read
+  works again; its last tick says so. A forgotten hold stops automatic site deploys, so clear it in the same sitting;
+  `gh variable list --repo joshualeestone/chaoskosmos-site` shows whether one is set.
 
   **Before any promote, put the site checkout back to what is served, in this order.**
   1. **The tracked files, from origin.** Step 7b and the trap leave the checkout behind origin's main:
