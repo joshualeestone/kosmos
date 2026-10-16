@@ -859,6 +859,7 @@ test('#6310: one survey converts at most four binary plists; the fifth is read o
     const first = mac.survey();
     assert.equal(first.agents.filter((x) => x.job === true).length, 4, 'more or fewer than four were converted in one survey');
     assert.equal(first.agents.filter((x) => x.job === null).length, 1);
+    assert.deepEqual(first.unknown, [], '#6320: a plist only waiting its turn was told to the person as unreadable');
     t.mock.timers.tick(61000);
     assert.deepEqual(mac.survey().missing, []);
   } finally { t.mock.timers.reset(); }
