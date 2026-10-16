@@ -578,8 +578,8 @@
       "shownIn": "0.7.51"
     },
     {
-      "title": "Messages left in the box go first",
-      "line": "A line left unsent in a Claude agent's input box is now sent before your next message, in order, instead of sitting there.",
+      "title": "No typing behind unsent text",
+      "line": "Kosmos no longer types behind unsent text in a Claude agent's box, and sends its own unsent line first with the next message.",
       "icon": "chat",
       "platforms": [
         "mac"
