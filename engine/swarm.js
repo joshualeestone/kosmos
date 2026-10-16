@@ -302,8 +302,12 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
         if (j.type !== 'assistant' || !j.message || typeof j.message !== 'object') continue;
         e.finished = j.message.stop_reason === 'end_turn';
         const id = typeof j.message.id === 'string' && j.message.id ? j.message.id : null;
-        if (id && e.seen.has(id)) continue;
-        if (id) e.seen.add(id);
+        /* kosmos#6309: a caller whose cache carries `sharedSeen` counts each message once across all its files. A resumed
+           or forked session copies earlier messages into its new file (measured: 10,459 of 180,614 ids this month, a
+           5.68% overcount on a monthly cap). */
+        const seen = cache.sharedSeen instanceof Set ? cache.sharedSeen : e.seen;
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
         const at = Date.parse(j.timestamp || '');
         if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
       }

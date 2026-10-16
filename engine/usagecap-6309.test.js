@@ -104,6 +104,33 @@ test('swarm.readFile reads a file again when `since` moves earlier (a day start 
   assert.equal(swarm.readFile(main, OCT1, NOW, undefined, c).tokens, 120, 'an earlier start kept its read position and lost m1');
 });
 
+test('a message copied into a second file (a resumed or forked session) counts once in the month', () => {
+  usagecap.resetForTests();
+  const root = tmp('aw-usecap-fork-');
+  const dir = path.join(root, 'projects', 'p');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'a.jsonl'), line('m1', NOW - 5000, 100) + line('m2', NOW - 4000, 7));
+  fs.writeFileSync(path.join(dir, 'b.jsonl'), line('m1', NOW - 5000, 100) + line('m3', NOW - 1000, 5));   // b resumed a
+  assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 112, 'a copied message was counted twice');
+  usagecap.resetForTests();
+});
+
+test('a session untouched this month: its helpers\' folder is not read (old sessions are most of a computer)', () => {
+  usagecap.resetForTests();
+  const root = tmp('aw-usecap-oldsub-');
+  const dir = path.join(root, 'projects', 'p');
+  fs.mkdirSync(path.join(dir, 'old', 'subagents'), { recursive: true });
+  const old = path.join(dir, 'old.jsonl');
+  fs.writeFileSync(old, line('o', OCT1 - 1e6, 1));
+  fs.utimesSync(old, (OCT1 - 1e6) / 1000, (OCT1 - 1e6) / 1000);
+  fs.writeFileSync(path.join(dir, 'old', 'subagents', 'h.jsonl'), line('h', NOW - 1000, 9));
+  assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 0, 'an old session\'s helpers\' folder was listed');
+  fs.utimesSync(old, NOW / 1000, NOW / 1000);
+  usagecap.resetForTests();
+  assert.equal(usagecap.monthTokens('UTC', NOW, [root]).tokens, 9, 'CONTROL: a session written this month has its helpers read');
+  usagecap.resetForTests();
+});
+
 test('a caller\'s own cache is never swept per read (a month can hold every transcript; sweeping each read is quadratic)', () => {
   const root = tmp('aw-usecap-sweep-');
   const main = seed(root);
