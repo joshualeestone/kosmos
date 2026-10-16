@@ -6379,9 +6379,10 @@ body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #
 .pjtm-map li { margin: 6px 0; }
 .pjtm-node { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-width: 0; text-align: left; padding: 6px 10px; border: 1px solid var(--k-rule); border-radius: 8px; background: var(--k-surface); color: var(--k-ink); font: inherit; cursor: pointer; }
 .pjtm-node:hover { background: var(--k-sunk); }
+.pjtm-node:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pjtm-node b { overflow-wrap: anywhere; }
 .pjtm-sub { font-size: .8125rem; color: var(--k-ink-2); overflow-wrap: anywhere; }
-.pjtm-node.pjtm-need { border-color: var(--danger); }
+.pjtm-node.pjtm-need { border-color: var(--danger); padding-right: 24px; }
 .pjtm-haz { position: absolute; top: 6px; right: 8px; font-weight: 700; color: var(--danger); }
 .pjtm-h { font-size: .8125rem; font-weight: 600; margin: 12px 0 4px; }
 .pjtm-hand { margin: 0; padding-left: 18px; font-size: .875rem; }
@@ -62077,9 +62078,11 @@ function pjNeedsNotice(roster, redHere) {
    🛑 A hand-off comes ONLY from a part's movedBy (#6150), the agent that made the move. No movedBy, no hand-off:
    the map never guesses that the lead gave it out, because work also moves sideways. Parts moved before movedBy
    existed record nobody, so the list starts empty and fills from then on.
-   Who needs a person is the needs-you block above the members (pjNeedsNotice), not said a second time here; a
-   member it counts gets the "!". Pure (project and board list in, HTML out), so a test lifts it alone. */
-function pjTeamMap(p, board) {
+   Who needs a person is the needs-you block above the members (pjNeedsNotice), not said a second time here; every
+   member that block lists gets the "!": the same two sets, needsYouHere and a present member `redHere` draws red
+   (callers pass pjRedHere, as they do to pjNeedsNotice). Pure (project, board list and predicate in, HTML out), so a
+   test lifts it alone. */
+function pjTeamMap(p, board, redHere) {
   const roster = ((p && p.agents) || []).filter((m) => m && typeof m.sessionName === 'string' && m.sessionName);
   if (!roster.length) return '<p class="fhint">No agents on this project yet.</p>';
   const cards = Array.isArray(board) ? board : [];
@@ -62115,7 +62118,8 @@ function pjTeamMap(p, board) {
     const c = stateCopyOf(m);
     return c && c.label ? c.label : '';
   };
-  const needs = (m) => typeof m.needsYouHere === 'string' && !!m.needsYouHere;
+  const needs = (m) => (typeof m.needsYouHere === 'string' && !!m.needsYouHere)
+    || (typeof redHere === 'function' && m.present === true && !!redHere(m));
   const node = (m) => {
     const n = holds.get(m.sessionName) || 0;
     const held = n === 0 ? 'holds no open parts' : n === 1 ? 'holds 1 open part' : 'holds ' + n + ' open parts';
@@ -67292,7 +67296,15 @@ function paintOneProject() {
       btn.hidden = roster.length === 0;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       box.hidden = !open;
-      if (open) setIfChanged(box, pjTeamMap(p, typeof LAST !== 'undefined' ? LAST : []));
+      if (open) {
+        // A repaint keeps a focused member focused (as pjKeepOpenFocus does for the notice), found by data-agent.
+        const had = box.contains(document.activeElement) && document.activeElement.dataset ? document.activeElement.dataset.agent : null;
+        setIfChanged(box, pjTeamMap(p, typeof LAST !== 'undefined' ? LAST : [], pjRedHere));
+        if (had && !box.contains(document.activeElement)) {
+          const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
+          if (back) back.focus();
+        }
+      }
     } }
 
   paintFreeAgentPicker(p, document.getElementById('pj-one-add'), document.getElementById('pj-one-add-go'));

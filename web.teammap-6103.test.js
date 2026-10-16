@@ -103,6 +103,30 @@ test('#6103: a closed part is neither held nor handed', () => {
   const out = textOf(pjTeamMap(closed, board));
   assert.doesNotMatch(out, /\w+ handed \w+ \d/, 'a closed part was drawn as a hand-off');
   assert.match(out, /pixel\b[^]*holds no open parts/, 'a closed part still counts as held');
+  // A closed TASK whose parts are still open: the task-level skip alone keeps them out.
+  const closedTask = { ...p, tasks: p.tasks.map((t) => ({ ...t, closedAt: '2026-10-16T16:00:00Z' })) };
+  assert.ok(closedTask.tasks.every((t) => t.parts.some((x) => !x.closedAt)), 'CONTROL: the parts are still open');
+  const outTask = textOf(pjTeamMap(closedTask, board));
+  assert.doesNotMatch(outTask, /\w+ handed \w+ \d/, 'a closed task\'s open part was drawn as a hand-off');
+  assert.match(outTask, /pixel\b[^]*holds no open parts/, 'a closed task\'s open part still counts as held');
+  const doneTask = { ...p, tasks: p.tasks.map((t) => ({ ...t, progress: { ...(t.progress || {}), closed: true } })) };
+  assert.match(textOf(pjTeamMap(doneTask, board)), /pixel\b[^]*holds no open parts/, 'a task whose progress says closed still counts');
+});
+
+test('#6103: the "!" marks every member the needs-you block lists, the red-but-uncounted ones too', () => {
+  const { p, board } = build('RedHere', () => {});
+  // pjNeedsNotice lists needsYouHere members AND present members its redHere predicate draws red (a connection
+  // Kosmos gave up on, #3410). The map takes the same predicate, so the two cannot disagree.
+  const agents = p.agents.map((m) => ({ ...m, needsYouHere: null }));
+  assert.ok(agents.every((m) => m.present === true), 'CONTROL: the fixture members are present');
+  const redHere = (m) => m.sessionName === 'pixel';
+  const html = pjTeamMap({ ...p, agents }, board, redHere);
+  assert.match(html, /class="pjtm-node pjtm-need" type="button" data-agent="pixel"/, 'a red, uncounted member has no "!"');
+  assert.doesNotMatch(html, /pjtm-need" type="button" data-agent="(roo|quill)"/, 'a member not drawn red was marked');
+  assert.match(textOf(html), /needs you: what each one is waiting for is listed above/, 'the hint is missing when only red members exist');
+  const absent = agents.map((m) => (m.sessionName === 'pixel' ? { ...m, present: false } : m));
+  assert.doesNotMatch(pjTeamMap({ ...p, agents: absent }, board, redHere), /pjtm-need/, 'an absent member was marked (the block counts only present ones)');
+  assert.doesNotMatch(pjTeamMap({ ...p, agents }, board), /pjtm-need/, 'CONTROL: with no predicate, nothing red is marked');
 });
 
 test('#6103: members nest under who they report to, and a member needing you is marked', () => {
@@ -145,6 +169,6 @@ test('#6103: names are escaped and an empty project says so', () => {
 test('#6103: the page wires the map: a closed-by-default button, a painter call, and member clicks open the agent', () => {
   assert.match(PAGE, /<button class="btn-quiet pj-tmbtn" id="pj-teammap-btn" type="button" aria-expanded="false" aria-controls="pj-teammap" hidden>Team map<\/button>/);
   assert.match(PAGE, /<div id="pj-teammap" class="pjtm" hidden><\/div>/);
-  assert.match(slice('function paintOneProject('), /setIfChanged\(box, pjTeamMap\(p, /, 'paintOneProject never paints the map');
+  assert.match(slice('function paintOneProject('), /setIfChanged\(box, pjTeamMap\(p, typeof LAST !== 'undefined' \? LAST : \[\], pjRedHere\)\)/, 'paintOneProject never paints the map, or paints it without the needs-you block\'s predicate');
   assert.match(PAGE, /getElementById\('pj-teammap'\)\.addEventListener\('click'[^]{0,200}openDetail\(n\.dataset\.agent, undefined, PJ_CURRENT\)/);
 });

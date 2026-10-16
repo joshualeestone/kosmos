@@ -99,6 +99,22 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const closed = await state();
     say('a second click closes it', closed.open === false && closed.expanded === 'false', JSON.stringify(closed));
 
+    // A repaint of the open map keeps a focused member focused (keyboard users), found by data-agent.
+    await p.click('#pj-teammap-btn');
+    await p.waitForSelector('#pj-teammap .pjtm-node[data-agent="tmcy"]', { state: 'visible', timeout: 5000 });
+    const kept = await p.evaluate(() => {
+      const old = document.querySelector('#pj-teammap .pjtm-node[data-agent="tmcy"]');
+      old.focus();
+      const before = document.activeElement && document.activeElement.dataset.agent;
+      document.getElementById('pj-teammap').__lastLive = null;   // setLive's memory of what it wrote: forces a rebuild
+      paintOneProject();
+      const now = document.querySelector('#pj-teammap .pjtm-node[data-agent="tmcy"]');
+      const rebuilt = !!now && now !== old;   // a NEW node, so focus had to be put back, not merely kept
+      return { before, rebuilt, after: document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.agent : null };
+    });
+    say('a repaint keeps the focused member focused', kept.before === 'tmcy' && kept.rebuilt && kept.after === 'tmcy', JSON.stringify(kept));
+    await p.click('#pj-teammap-btn');   // closed again, as the arms below expect
+
     // The agent page is open when #panel-detail shows and #d-name names the agent.
     const detailOf = () => p.evaluate(() => { const d = document.getElementById('panel-detail'); const n = document.getElementById('d-name');
       return { shown: !!d && !d.hidden && d.getClientRects().length > 0, name: n ? (n.textContent || '').trim() : '' }; });
