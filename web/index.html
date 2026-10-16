@@ -11729,7 +11729,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 /* #6314: the name said before sign-in, one line, the hint's own voice; Change reads at the sentence's size. */
 #plus-state2 #plus-si-computer-says { font: var(--text-callout) var(--font-ui); color: #8fa0c4; margin: 0; }
 #plus-state2 #plus-si-computer-says b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
-#plus-state2 #plus-si-computer-says .linkish { font: inherit; }
+#plus-state2 #plus-si-computer-says .linkish { font: inherit; padding: 6px 4px; margin: -6px -4px; }   /* a 24px+ target without moving the line */
 #plus-state2 .plus-si-lead b { color: #E6EBF7; font-weight: 600; overflow-wrap: anywhere; }
 #plus-state2 .tk-inp:not(select), #plus-org .tk-inp:not(select) { --danger: #E8705E; background: #16223e; color: #E6EBF7; -webkit-text-fill-color: #E6EBF7;
   caret-color: #E6EBF7; border: 1px solid #5c78a6; border-radius: 10px; }
@@ -52625,6 +52625,7 @@ function plusSiBoughtTake(row) {
    adding this computer. */
 function plusSiBoughtPick(b, opts) {
   const quiet = !!(opts && opts.quiet), reshow = !!(opts && opts.reshow), unread = !!(opts && opts.unread);
+  const had = document.activeElement;   // where the person was, before this repaint
   PLUS_SI_BOUGHT_LAST = b;
   plusSiRegisterMode('');
   const field = document.getElementById('plus-si-name-field'); if (field) field.hidden = true;
@@ -52641,7 +52642,7 @@ function plusSiBoughtPick(b, opts) {
     btn.addEventListener('click', () => plusSiBoughtTake(row));
     list.appendChild(btn);
   }
-  // Not after a refusal this sign-in: the person then sees what happened and picks.
+  // Not after a refusal, until the person presses Check again (that clears the refusals): they see what happened and pick.
   if (!reshow && free.length === 1 && !PLUS_SI_REFUSED.length && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
     plusSiBoughtTake(free[0]);
     return;
@@ -52666,6 +52667,7 @@ function plusSiBoughtPick(b, opts) {
     + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
   buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
+  buy.textContent = pending ? 'Finish on the website' : 'Add this computer';   // #6314: the link says what it does now
   document.getElementById('plus-si-bought').hidden = false;
   plusSiShow('plus-si-register');
   // #6314: with nothing to pick, this step is adding a computer, not signing in, so the heading says so.
@@ -52673,8 +52675,10 @@ function plusSiBoughtPick(b, opts) {
   if (free.length) PLUS_SI_NONE_SINCE = 0;   // a list to pick from: the add panel's own clock starts again next time it shows
   else if (!PLUS_SI_NONE_SINCE) PLUS_SI_NONE_SINCE = Date.now();
   const first = list.querySelector('button');
-  // A person's read moves the focus to the panel's one job; the page's own read moves none.
-  if (!quiet) (free.length ? first : document.getElementById('plus-si-bought-buy')).focus();
+  // A person's read moves the focus to the panel's one job. The page's own read moves it only when the element that had
+  // it is no longer on screen (the add panel gave way to a list), so a keyboard or screen-reader user keeps a place.
+  const gone = !!had && had !== document.body && had.offsetParent === null;
+  if (!quiet || gone) (free.length ? first : document.getElementById('plus-si-bought-buy')).focus();
 }
 {
   const again = document.getElementById('plus-si-bought-recheck');
