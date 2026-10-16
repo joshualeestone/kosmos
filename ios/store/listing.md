@@ -7,8 +7,10 @@ run it again.
 
 **Refreshed 2026-10-15 for #6262** (Mona Lisa): the app now ships as `io.kosmos.app` under KOSMOS Agent Manager,
 Inc. (#6280), Kosmos runs on Windows as well as the Mac (its Windows tunnel, `engine/remote.js`
-`kosmos-tunnel.exe`), and the app has Face ID unlock (`ios/Kosmos/BiometricAuth.swift`). The copy describes the
-product as it will be at launch (Josh, 09-14). Every fact below was re-read on origin/main at 24e44896eb.
+`kosmos-tunnel.exe`). The copy describes the product as it will be at launch (Josh, 09-14), **but only what the
+reviewed build does**: App Review checks the listing against the binary (2.3.1). Face ID is the example. It is built
+(`ios/Kosmos/BiometricAuth.swift`) but switched off (`KosmosConfig.requireBiometricUnlock = false`, with no setting), so
+the copy does not mention it until it can be turned on. Every fact below was re-read on origin/main at 24e44896eb.
 
 The facts this copy relies on, and where each came from (first read 2026-09-25):
 
@@ -17,7 +19,9 @@ The facts this copy relies on, and where each came from (first read 2026-09-25):
   "We won't have Apple in-app purchases for Kosmos"; kosmos-relay #117).
 - The app signs in at login.kosmosplus.com, then shows the person's own
   computer (a Mac or a Windows PC running Kosmos) through the relay (`ios/README.md`).
-- The app can lock behind Face ID (`BiometricAuth.swift`; iOS answers yes or no, nothing leaves the phone).
+- Face ID unlock is wired but OFF, with no setting to turn it on (`ContentView.swift`, `requireBiometricUnlock`). Not
+  in the copy. A Face ID setting would add to the native surface App Review looks for (4.2), so it is worth building
+  before submission.
 - The company name on kosmosplus.com is KOSMOS Agent Manager, Inc.
 - A push is sent for three things only: an agent needs you, replied, or posted
   (kosmos-relay `coordinator/src/notify.rs:46`, at `1ff95bde6`). There is no
@@ -70,7 +74,7 @@ Know when it matters
 Kosmos sends a notification when an agent needs your decision, replies to you, or posts in one of your projects. Tap it and you land on that agent, ready to answer.
 
 Your work stays on your computer
-Your agents, their conversations and their files live on your own computer. The app connects to it over an encrypted connection, and each new phone has to be approved on that computer before it can see anything. You can also lock the app with Face ID.
+Your agents, their conversations and their files live on your own computer. The app connects to it over an encrypted connection, and each new phone has to be approved on that computer before it can see anything.
 
 Made for a phone
 The board is laid out for one hand: large tap targets, a menu that stays out of the way, and a dark theme for late nights. If you lose signal, the app says so and reloads by itself when you are back online.
@@ -146,7 +150,7 @@ account, with the review phone already approved or approvable by us.
 
 Native features beyond the web view: push notifications through APNs that open
 the agent that asked, an offline page that reloads by itself when the phone is
-back online, pull to refresh, Face ID unlock, and links to other sites that open in Safari rather than in the app.
+back online, pull to refresh, and links to other sites that open in Safari rather than in the app.
 
 Demo account: (Josh to fill in)
 Contact during review: (Josh to fill in)

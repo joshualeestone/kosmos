@@ -4,7 +4,7 @@ Draft only. Nothing has been entered into App Store Connect.
 
 **Re-checked 2026-10-15 for #6262** (Mona Lisa), at origin/main 24e44896eb. The app's Swift sources still import
 Apple frameworks only (Foundation, LocalAuthentication, Network, Security, SwiftUI, UIKit, UserNotifications,
-WebKit). There is no package manager, no third-party SDK and no analytics, so the table below stands. What changed
+WebKit; LocalAuthentication is for a Face ID lock that is built but switched off). There is no package manager, no third-party SDK and no analytics, so the table below stands. What changed
 is in "Account deletion" (it now exists) and in the new section "What is not on this label".
 
 **What this is based on.** These answers come from reading the code, not from
