@@ -30,11 +30,12 @@ The rail is narrow (16.6vw, at least 200px). A deep reporting tree indents 16px 
 squeezes the words. Measured at 1280 wide in the browser check; not measured on a very deep org.
 Height: the open map is capped at 35vh and scrolls inside its own box. That nested scroll is a trade: on a big team
 the map is a small scrolling box. The browser check (ten members, with a control that the map really overflows its
-box) measures that the first agent row stays wholly in view (and no page scroll) at 1280x900 and 960x720, with the project notice empty.
+box) measures that the first agent row stays wholly in view (and no page scroll) at 1280x900 and 960x720, with the project notice empty. Below 1280 wide the agents column folds by default and
+the map goes with it; the 960x720 arms unfold it first, as a person would.
 NOT covered: a long project notice plus the open map on a short window. The rail head's row is auto-sized and the
 notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today.
 Focus: a repaint finds a focused member again by data-agent; if the project closes, the map and its button go and
-focus falls to the page, as the tab layout's does.
+focus falls to the page.
 
 ## Checks
 - Unit (`web.teammap-rail-6324.test.js`): the rail painter, lifted from the page and called, paints the map only
