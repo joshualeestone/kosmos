@@ -78,14 +78,19 @@ function monthTokens(tz, now = Date.now(), rootsList = roots()) {
    child already over the cap could message freely after every restart. A month's count only grows, so the larger of
    the two is right; a transcript deleted mid-month keeps the higher number until the 1st, which errs closed. */
 const FLOOR = () => path.join(store.ROOT, 'usage-cap-month.json');
+/* The same month in another zone starts at most 26 hours away (UTC-12 to UTC+14), so a saved count whose start is
+   within FLOOR_SAME_MONTH_MS is this month's, counted from a zone the cap has since left. It stays the floor until the
+   new zone's count catches up: a zone change must not reopen the cap. A new month is weeks away, and starts at 0. */
+const FLOOR_SAME_MONTH_MS = 26 * 60 * 60 * 1000;
 function readFloor(since) {
   try {
     const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8'));
-    return j && j.since === since && Number.isSafeInteger(j.used) && j.used > 0 ? j.used : 0;
+    return j && Number.isFinite(j.since) && Math.abs(j.since - since) <= FLOOR_SAME_MONTH_MS
+      && Number.isSafeInteger(j.used) && j.used > 0 ? j.used : 0;
   } catch { return 0; }
 }
 function writeFloor(since, used) {
-  if (readFloor(since) === used) return;
+  try { const j = JSON.parse(fs.readFileSync(FLOOR(), 'utf8')); if (j && j.since === since && j.used === used) return; } catch { /* write it */ }
   const tmp = FLOOR() + '.' + process.pid + '.tmp';
   try {
     fs.mkdirSync(path.dirname(FLOOR()), { recursive: true });
