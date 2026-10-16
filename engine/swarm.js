@@ -333,7 +333,9 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   e.mtimeMs = st.mtimeMs;
   e.touched = now;
   cache.set(file, e);
-  if (cache.size > 256) {
+  /* Only the swarm's own cache is swept. A caller's cache (kosmos#6309: the usage cap's month, cleared each month) can
+     hold every transcript of a month, and sweeping it on each of those reads is a pass over the whole map per file. */
+  if (cache === fileCache && cache.size > 256) {
     for (const [k, v] of cache) if (now - v.touched > CACHE_TTL_MS) cache.delete(k);
   }
   return { tokens: e.tokens, finished: e.finished, mtimeMs: e.mtimeMs, caughtUp: e.offset >= st.size };

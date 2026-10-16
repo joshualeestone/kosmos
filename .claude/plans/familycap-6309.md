@@ -16,8 +16,8 @@ quiet-hours gate (engine/chat.js); the look-after commands still go.
 
 ## Known limits (said on the card)
 - The meter reads Claude Code transcripts only, so a non-Claude agent's tokens are not counted yet.
-- A board new to the cap (no saved count for the month) counts the month a bounded amount per call, and until it has
-  caught up it enforces the partial count. A restarted board does not: the month's saved count holds it up.
+- A board new to the cap (no saved count for the month) enforces nothing until its worker posts a first count, and
+  then the partial count until it has caught up. A restarted board does not: the month's saved count holds it up.
 - Every Claude transcript on the computer counts, Claude Code used outside Kosmos too.
 - A board older than this ignores usage_cap (unknown keys stay unread): no cap is enforced there, and the console must
   not imply one is.
