@@ -347,7 +347,9 @@ function workExcused(summary, member, readHistory, nowMs) {
      `working` reports stand behind all of it; waits and stretches with no report are counted too (errs toward stale),
      and then the line says so instead. */
   if (worked > SUMMARY_RHYTHM_HOURS * 3600000) {
-    return { ...summary, workedSince: Math.ceil(worked / 60000), workAllReported: reportedWorking >= worked };
+    // Reported work alone past the rhythm is said as such, even if waits were counted too.
+    const byReports = reportedWorking > SUMMARY_RHYTHM_HOURS * 3600000;
+    return { ...summary, workedSince: Math.ceil((byReports ? reportedWorking : worked) / 60000), workAllReported: byReports || reportedWorking >= worked };
   }
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
@@ -574,7 +576,7 @@ const SUMMARY_WORDS = {
         : '; ' + span(s.workedSince) + ' counted as working or waiting since it was written')
       : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
         : s.waitedSince ? '; it reported working or a wait since it was written'
-          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so its work cannot be timed' : '';
+          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns' : '';
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
