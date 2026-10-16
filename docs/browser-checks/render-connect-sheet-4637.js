@@ -278,7 +278,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "Working out the code with homemac...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
-      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on homemac, your other computer, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
+      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
         `${tag} #4794/#6314 waiting: the other computer named as the other one, where to look on it, the code large and "The codes match"`, JSON.stringify(jr));
       /* kosmos#6314 (Josh 11:37): while waiting, the pairing is the page's one job: the devices list and company block step aside. */
       const aside = await page.evaluate(() => ['plus-devices', 'plus-org'].map((id) => { const e = document.getElementById(id); return !e || getComputedStyle(e).display === 'none'; }));

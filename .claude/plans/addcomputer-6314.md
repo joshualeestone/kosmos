@@ -23,8 +23,8 @@ it $0). The coordinator already sends that price with the address list (`price.d
   - No address waiting: heading "Add this computer to your account"; "This account has no room for this computer yet.
     Each computer you add is $20 a month." with the figure from `plusSiAddPrice(b.price)`; no
     figure: "has a fee, shown before you pay". Button "Add this computer". Hint: "Paying opens the
-    Kosmos+ website. Come back to this window when you are done, and it checks by itself." (Coming back fires
-    focus, which always re-reads and re-arms the 20 minutes.) Pending and could-not-list
+    Kosmos+ website. Come back to this window when you are done." The page makes no promise
+    about checking; coming back fires focus, which re-reads and re-arms the 20 minutes. Pending and could-not-list
     variants reworded in the same voice.
   - Auto: while the none panel is on screen, the page re-runs Check again itself on window focus and every 10 s
     for 20 minutes (`plusSiBoughtAutoCheck`), quietly (no focus move, no failure line). With exactly ONE free
@@ -32,7 +32,7 @@ it $0). The coordinator already sends that price with the address list (`price.d
     and never an address already tried (`PLUS_SI_AUTO_TRIED`); two or more always wait for a pick.
   - Card heading line-height 1.2 (it wraps on a phone now; the #6299 cause).
 - `web/index.html`, the waiting computer (`paintPlusJoin`): "Allow this computer from your other one." then two
-  steps naming "<name>, your other computer" and Settings > Kosmos+; after the match, "The codes match." and "Now
+  steps naming "your other computer, <name>" and Settings > Kosmos+; after the match, "The codes match." and "Now
   press Allow on <name>, your other computer." with the code small. While waiting, `#plus-flow.plus-joining` hides
   the devices list and the company block.
 - `web/index.html`, the other computer (`paintAsk`): on Kosmos+ a NEW waiting request scrolls `#plus-asks` into view

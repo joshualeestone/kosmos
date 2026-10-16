@@ -19385,7 +19385,7 @@ window.kosmosMeasureScrollbarWidth();
                  anyone is sent to pay. The figure is never written here: it is Stripe's, read with the list
                  (plusSiAddPrice), so the page and the website cannot disagree. -->
             <p class="plus-si-lead" id="plus-si-bought-none-lead">This account has no room for this computer yet.</p>
-            <p class="fhint" id="plus-si-bought-none-hint">Paying opens the Kosmos+ website. Come back to this window when you are done, and it checks by itself.</p>
+            <p class="fhint" id="plus-si-bought-none-hint">Paying opens the Kosmos+ website. Come back to this window when you are done.</p>
             <div class="frow">
               <a class="btn uprime" id="plus-si-bought-buy" style="text-decoration:none" href="#" target="_blank" rel="noreferrer noopener">Add this computer</a>
               <button class="btn" type="button" id="plus-si-bought-recheck">Check again</button>
@@ -51412,7 +51412,7 @@ function paintPlusJoin() {
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + name + other + ', and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name : name) + ', and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
       : '<p class="plus-join-say">If ' + name + (other ? other + ',' : '') + ' showed this same code when you allowed it, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
@@ -52583,6 +52583,10 @@ async function plusSiSession(data, again, keep, auto) {
   if (!again) PLUS_SI_UNREAD = !b && !got.off;
   if (again && !b && !got.off) {
     if (/start again from the email/i.test(String(got.because || ''))) { plusSiFail(got.because); return; }
+    if (quiet) {   // #6314: the page's own read failed: the panel stays exactly as it was, its picks given back
+      document.querySelectorAll('#plus-si-bought-list button').forEach((x) => { x.disabled = false; });
+      return;
+    }
     if (PLUS_SI_BOUGHT_LAST) plusSiBoughtPick(PLUS_SI_BOUGHT_LAST, { reshow: true, quiet });
     else {
       /* Never had a list (the first read failed too): the none panel, saying so, with Check again and the website. */
@@ -52591,7 +52595,6 @@ async function plusSiSession(data, again, keep, auto) {
       document.getElementById('plus-si-bought-none-lead').textContent = 'Kosmos+ could not check your account just now.';
       document.getElementById('plus-si-bought-none-hint').textContent = 'Check again in a moment, or add this computer on the Kosmos+ website.';
     }
-    if (quiet) return;   // #6314: the page's own read fails quietly; the next one tries again
     const why = got.because || 'That did not work. Check again in a moment.';
     plusSiMsg(keep ? String(keep).replace(/[.!?]+$/, '') + '. ' + why : why);   // a refused pick's reason is not overwritten
     return;
@@ -52676,8 +52679,8 @@ function plusSiBoughtPick(b, opts) {
   const ownHeld = own && b.addresses.some((r) => r.address === own[1] && r.state === 'in_use') && !b.this_name;
   /* A pending address is a checkout under way, or one cancelled (its hold ends by itself), so both ways on. */
   document.getElementById('plus-si-bought-none-hint').textContent = (pending
-    ? 'If you finished paying, this window checks by itself in a moment. If not, finish on the Kosmos+ website.'
-    : 'Paying opens the Kosmos+ website. Come back to this window when you are done, and it checks by itself.')
+    ? 'If you finished paying, it can take a moment. If not, finish on the Kosmos+ website.'
+    : 'Paying opens the Kosmos+ website. Come back to this window when you are done.')
     + (ownHeld ? ' If this computer used to be ' + own[1] + ', retire it on your account page first, then check again.' : '');
   const buy = document.getElementById('plus-si-bought-buy');
   buy.href = b.buy_url || (PLUS_ACCOUNT_URL + 'signin#add-computer');
