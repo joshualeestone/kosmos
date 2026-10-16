@@ -207,6 +207,26 @@ test('#6315: Allow takes the minted id and hands it to the tunnel unchanged; a m
   const call = recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').find((a) => a[a.indexOf('--device-id') + 1] === MINTED);
   assert.ok(call, 'the minted id never reached the tunnel');
   assert.equal(call[call.indexOf('--code') + 1], '050 584');
-  const bad = await remote.deviceAllow('computer:not-hex', 'tmnt', '050 584');
-  assert.equal(bad.ok, false, 'a malformed computer id was let through');
+  const before = recorded().length;
+  for (const near of ['computer:' + 'A'.repeat(32), 'computer:' + 'a'.repeat(31), 'computer:' + 'a'.repeat(33)]) {
+    const bad = await remote.deviceAllow(near, 'tmnt', '050 584');
+    assert.deepEqual([bad.ok, bad.because], [false, 'that is not a device we know'], near);
+  }
+  assert.equal(recorded().length, before, 'a near-miss computer id reached the tunnel');
+});
+
+test('#6315: a computer id is never allowed without the code both screens show', async () => {
+  enrol();
+  for (const code of [undefined, '', 'K7-4M']) {
+    const r = await remote.deviceAllow(MINTED, 'tmnt', code);
+    assert.equal(r.ok, false, 'a computer was allowed with code ' + JSON.stringify(code));
+  }
+  assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').length, 0, 'a code-less computer Allow reached the tunnel');
+});
+
+test('#6315: Not me takes the minted id too', async () => {
+  enrol();
+  const r = await remote.deviceDeny(MINTED);
+  const call = recorded().find((a) => a[0] === 'devices' && a[a.indexOf('--device-id') + 1] === MINTED);
+  assert.ok(call, 'Not me on the minted id never reached the tunnel: ' + JSON.stringify(r));
 });

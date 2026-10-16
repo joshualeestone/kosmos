@@ -1678,7 +1678,7 @@ const DEVICE_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
 /* #6315: a request can also be another of the person's computers asking to join, and the coordinator names that
    request by a minted id, `computer:<the joining computer's id>` (kosmos-relay MINTED_PREFIX, kosmos#4681; a computer id
    is 32 lowercase hex). The colon kept every such request out of the list, so no second computer could ever be
-   allowed. Requests and their answers take either shape; this computer's OWN device ids stay DEVICE_ID. */
+   allowed. Requests and their answers take any of the three shapes; this computer's OWN device ids stay DEVICE_ID. */
 const REQUEST_ID = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32}|computer:[0-9a-f]{32})$/;
 const DEVICE_NAME = /^[^\n\r]{1,60}$/;
 function pendingFile() { return path.join(STATE_DIR(), 'pending.json'); }
@@ -2088,6 +2088,11 @@ const UNKNOWN_WORDS = 'Kosmos+ holds no sign-in waiting with that id (it was ref
 async function deviceAllow(id, name, code) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
+  /* #6315: a minted computer: id is always a computer, and a computer is allowed only with the code both screens
+     show; without one the tunnel would take it as a phone and put the id on this computer's gate. */
+  if (id.startsWith('computer:') && !(typeof code === 'string' && JOIN_CODE.test(code))) {
+    return { ok: false, because: 'compare the code on both computers, then allow' };
+  }
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
