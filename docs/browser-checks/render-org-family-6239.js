@@ -28,6 +28,7 @@
  *       and does not put focus on the words button.
  *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
  *   R12 a refused review preview (already accepted here) says why and reads /api/org again.
+ *   R13 an open review's words close when a read says they are accepted here (another window accepted them).
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -364,6 +365,13 @@ async function run(engineName) {
     chk(r12.msg === 'This Kosmos already has its family\u2019s words accepted here.' && !r12.box && r12.reread,
       E + ' R12 a refused review preview says why and reads /api/org again', JSON.stringify(r12));
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    // R13: a read that says the words are accepted here closes an open review.
+    await reread(WAITING);
+    await openReview();
+    const open13 = await shown('plus-org-family');
+    await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    const r13 = { open13, box: await shown('plus-org-family'), row: await shown('plus-org-words') };
+    chk(r13.open13 && !r13.box && !r13.row, E + ' R13 a read that says the words are accepted closes an open review', JSON.stringify(r13));
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
     await page.waitForTimeout(250);
