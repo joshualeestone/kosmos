@@ -32,6 +32,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const create = require('./create');
 const remove = require('./remove');
 const status = require('./status');
@@ -174,8 +175,9 @@ function readRoot(dir) {
  * (see foreignLoginFolders), and answers null when one of them that might start
  * this agent could not be read: a broken plist that names its folder, or a plist or
  * launcher script that could not be read at all (then null for every agent without
- * its own plist), or the agent's own folder could not be resolved (other than "it
- * does not exist").
+ * its own plist that no WorkingDirectory covers), the login jobs folder could not be
+ * listed, or the agent's own folder could not be resolved (other than "it does not
+ * exist").
  */
 function jobReader(platform) {
   /* #4918 review 11: on Linux the startup job is a systemd user unit, never a plist, so the survey reads the unit;
@@ -206,7 +208,7 @@ function jobReader(platform) {
           dir = null;   // no folder: nothing can start in it, and survey's `missing` needs a folder anyway
         }
         // The answer for a folder only changes when a login job, a launcher script or the home folder does.
-        const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + require('node:os').homedir();
+        const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + os.homedir();
         if (VERDICTS.map.has(memoKey)) return VERDICTS.map.get(memoKey);
         const verdict = (() => {
           // The folder itself or a folder inside it, as a start script's mention is.
@@ -241,9 +243,10 @@ const SCRIPT_CACHE = new Map();
 let VERDICTS = { sig: null, map: new Map() };   // per-agent answers for one state of the login jobs and their scripts
 function unxml(v) {
   const cp = (m, n) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m);   // an impossible one stays as written
-  return v.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => cp(m, parseInt(h, 16)))
-    .replace(/&#([0-9]+);/g, (m, d) => cp(m, parseInt(d, 10)))
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  const named = { lt: '<', gt: '>', quot: '"', apos: "'", amp: '&' };
+  // One pass, so a decoded '&' never starts another reference.
+  return v.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|lt|gt|quot|apos|amp);/g, (m, r) =>
+    (r[0] === '#' ? cp(m, r[1] === 'x' ? parseInt(r.slice(2), 16) : parseInt(r.slice(1), 10)) : named[r]));
 }
 const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything this large is not read
 /* plutil runs synchronously on the board's request path, so one survey converts at most PLUTIL_BUDGET binary plists;
@@ -290,7 +293,7 @@ function plistKeys(file) {
 }
 /* The ways a start script may write the folder: as it is, as its real path, and under the home folder as ~ or $HOME. */
 function folderSpellings(...dirs) {
-  const homes = new Set([require('node:os').homedir(), create.homeDir()].filter(Boolean));
+  const homes = new Set([os.homedir(), create.homeDir()].filter(Boolean));
   const out = new Set();
   for (const d of dirs) {
     if (!d) continue;
@@ -323,15 +326,32 @@ const SCRIPT_MAX = 2 * 1024 * 1024;
 const UNREADABLE = Symbol('unreadable');
 /* Folders macOS guards with a privacy prompt (TCC), and other volumes: a launcher there is not touched at all, so the
    board never raises a prompt on its five-second poll. A script-like name there leaves "no job" unproven. */
-function protectedPath(file) {
-  const under = (d) => file === d || file.startsWith(d + '/');
+function guardedSpelling(file) {
+  const f = file.toLowerCase();   // the Mac's disks ignore case, so ~/documents is Documents
+  const under = (d) => { const x = d.toLowerCase(); return f === x || f.startsWith(x + '/'); };
   if (under('/Volumes')) return true;
   // Both homes, as folderSpellings uses: the OS user's is the one whose privacy prompt would appear.
-  for (const home of new Set([require('node:os').homedir(), create.homeDir()].filter(Boolean))) {
+  for (const home of new Set([os.homedir(), create.homeDir()].filter(Boolean))) {
     if (['Documents', 'Desktop', 'Downloads', 'Library/Containers', 'Library/Group Containers', 'Library/Mobile Documents']
       .some((d) => under(path.join(home, d)))) return true;
   }
   return false;
+}
+/* Guarded as written, or a symlink (followed a few links deep) that points into a guarded place. lstat and readlink
+   look at the link itself, never into the folder it points to, so following a link this way raises no prompt. A link
+   that cannot be read counts as guarded: the safe answer, and it is not touched further. */
+function protectedPath(file) {
+  let cur = file;
+  for (let hop = 0; hop < 8; hop++) {
+    if (guardedSpelling(cur)) return true;
+    let lst;
+    try { lst = fs.lstatSync(cur); } catch { return false; }   // nothing there: nothing to protect
+    if (!lst.isSymbolicLink()) return false;
+    let to;
+    try { to = fs.readlinkSync(cur); } catch { return true; }
+    cur = path.resolve(path.dirname(cur), to);
+  }
+  return true;   // a chain this long is not followed: treat as guarded
 }
 const SCRIPT_RETRY_MS = 60000;
 function scriptText(file) {
@@ -380,6 +400,8 @@ function foreignLoginFolders() {
     const file = path.join(create.AGENTS_DIR, f);
     seen.add(file);
     let st;
+    // A plist that is a link into a guarded folder is not read: unknown for everyone, untouched.
+    if (protectedPath(file)) { unknownAll = true; sigParts.push(file + ':guarded'); continue; }
     try { st = fs.statSync(file); } catch (e) { if (!(e && e.code === 'ENOENT')) unknownAll = true; continue; }   // gone since the listing: skipped
     if (!st.isFile()) continue;
     const sig = st.mtimeMs + ':' + st.size;
@@ -394,6 +416,7 @@ function foreignLoginFolders() {
         const budget = e && /budget spent/.test(String(e.message));
         if (got.raw === null && !budget && !(prevEntry.logged && prevEntry.sig === sig)) { console.warn('[register] #6310: could not read login job ' + file + ' (' + (e && e.message) + '); agents without their own plist read as unknown'); }
         if (got.raw === null && !budget) got.logged = true;
+        else if (budget && prevEntry.logged && prevEntry.sig === sig) got.logged = true;   // a skip keeps the record
       }
       // A file that could not be read at all is asked again a minute later (a timeout or a permission may clear), so a
       // slow plutil does not run on every poll; one that read but is not a property list stays as read until it changes.

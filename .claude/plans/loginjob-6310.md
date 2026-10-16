@@ -51,8 +51,7 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Over-match is accepted on purpose: a starting job whose script merely names a worker folder (a watcher, a comment)
   marks that agent covered. That hides a banner line; the opposite error installs and starts a second copy of a live
   agent, the harm this card is about.
-- A plist that could not be read is asked again a minute later; a launcher script that could not be read, on the
-  next survey. A plist that read but is not a property list (or has no closing dict) is cached until it changes.
+- A plist or a launcher script that could not be read is asked again a minute later. A plist that read but is not a property list (or has no closing dict) is cached until it changes.
   A plist over 256 KB is not a job launchd loads; its first 256 KB are kept as a suspect (only an agent it names is
   unknown), cached until it changes. A launcher that could not be read is asked again a minute later. One survey converts at most 4 binary plists with plutil
   (it blocks the board for up to 2 s each when it hangs); the rest count as unreadable and are tried a minute later.
@@ -62,7 +61,8 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - Each agent's answer is remembered until a login job, a launcher script or the home folder changes. Measured on the
   fleet Mac (about 80 agents, 40 login jobs): a cold survey about 22 ms, a warm one about 9 ms.
 - A launcher under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads, app containers, iCloud
-  Drive), under either the OS home or Kosmos's, or on another volume is never touched, not even with stat (a test
+  Drive), under either the OS home or Kosmos's, in any letter case, or on another volume, or a symlink pointing there
+  (its own target is read with readlink, which does not open the folder), is never touched, not even with stat (a test
   records every file call to prove it), so the five-second poll raises no prompt; the same goes for a WorkingDirectory
   there, which then counts as not resolved; a script-like name there
   leaves every agent without its own plist unknown (#6320 is how the person will be told).
@@ -70,6 +70,10 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
   $HOME for both the OS home and Kosmos's own; the quoted forms "$HOME" and "${HOME}" read as $HOME.
 - Known inconsistency, not changed here: `create.jobMissing` (the offline card's "Made before Kosmos recorded this")
   still looks only at Kosmos's own plist, so an agent covered here can still get that card's no-job wording. In #6320.
+- Not covered: a PARENT folder that is a link into a guarded place (~/work linked into Documents) is not detected,
+  so a path through it is stat'ed and could raise a prompt.
+- Tests that need a mode-000 file skip as root. CI does not run as root (GitHub's Linux runners use an ordinary
+  user; the Mac runner is kosmos-ci), so they run there; a root run would not cover the unreadable paths.
 - Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
   only), the legacy OnDemand key, plist XML comments, a UTF-16 script (read as binary) or plist (read as not a plist), a relative script argument
   resolved against the job's WorkingDirectory, a relative `cd`, a folder built from variables other than HOME,
