@@ -299,7 +299,8 @@ function workExcused(summary, member, readHistory, nowMs) {
       if (r.at - lastIdle > TURN_END_SAME_MS) turnsEnded += 1;
       lastIdle = r.at;
     }
-    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : summary;
+    // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
+    return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded };
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
   let stateAt = NaN;  // when that report was filed (the cap below runs from it)
@@ -335,7 +336,8 @@ function workExcused(summary, member, readHistory, nowMs) {
      is work only when that report says busy (or there is none); the board's read of the screen right now does not add
      to it. This replaces review 3's rule that the board's busy read wins (#1995). */
   if (state === null || busy(state)) worked += span(state, stateAt, from, now);
-  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return summary;
+  // #6329: stale because the member reported more than the rhythm of work since it was written; the line says so.
+  if (worked > SUMMARY_RHYTHM_HOURS * 3600000) return { ...summary, workedSince: Math.ceil(worked / 60000) };
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
@@ -554,7 +556,11 @@ const SUMMARY_WORDS = {
       return (s.idleKind === 'started' ? 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before this session started (' : 'last written more than ' + SUMMARY_RHYTHM_HOURS + ' hours before it went idle (') + one(s.file) + ', ' + ago(s.ageMinutes)
         + (s.idleKind === 'started' ? '; started ' + ago(s.idleMinutes) + ' and idle since then)' : '; idle since ' + ago(s.idleMinutes) + ')');
     }
-    return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes)
+    /* #6329: which rule fired, when it is known: reported work past the rhythm since it was written, or (a runner that
+       reports turn ends only) turns that have ended since. Otherwise the line says only what was measured, as before. */
+    const why = Number.isFinite(s.workedSince) ? '; ' + span(s.workedSince) + ' of reported work since it was written'
+      : Number.isFinite(s.turnsSince) ? '; ' + s.turnsSince + ' turns have ended since it was written' : '';
+    return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
   // #4581 N10: the rhythm is while working; this one was current when the member went idle.
