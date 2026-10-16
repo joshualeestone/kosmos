@@ -566,7 +566,8 @@ ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "$
 # so a child the wrapper left behind kept it open after the shim's alarm had fired (8 minutes to the 900 s cap). Its own
 # 60 s bound (the turn in an empty private marker dir is immediate) says so by name when it trips. It runs $REAL_QH, not
 # the $QH shim: the shim execs its own alarm($QH_DEADLINE), and an alarm set after exec REPLACES the pending one, so
-# through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here.
+# through the shim the 60 s became 240 s (measured). A child the wrapper leaves behind after a trip is not reaped here,
+# and may still write to the file after it is read; the arm has already failed by then.
 mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash "$REAL_QH" "stale-tmpdir" true > $S/stale5467.out 2>&1 ); stale5467_rc=$?   # its own marker dir: the fake holder above holds $S/m
 o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
 TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"
