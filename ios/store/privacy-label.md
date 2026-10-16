@@ -62,7 +62,8 @@ For every row: **linked to the person's identity: yes**, **used for tracking: no
   as Purchase History.
 - **Diagnostics (crash data, performance).** There is no crash reporter or
   analytics SDK. The app's `NSLog` lines stay in the phone's own log.
-- **Face ID.** Checked on the phone by iOS; the app only learns yes or no
+- **Face ID.** A Face ID lock is built but switched off in this build (`requireBiometricUnlock = false`). If it is
+  switched on, iOS checks the face on the phone and the app only learns yes or no; nothing is read or sent
   (`BiometricAuth.swift`).
 - **Usage data, product interaction, advertising.** None. No analytics exist in the app,
   the sign-in page, the board or the coordinator (searched for Plausible,

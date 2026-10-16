@@ -152,5 +152,8 @@ Native features beyond the web view: push notifications through APNs that open
 the agent that asked, an offline page that reloads by itself when the phone is
 back online, pull to refresh, and links to other sites that open in Safari rather than in the app.
 
+Face ID: the build carries a Face ID purpose string for a lock that is built but switched off in this version; the app
+never asks for Face ID.
+
 Demo account: (Josh to fill in)
 Contact during review: (Josh to fill in)
