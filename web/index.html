@@ -24651,7 +24651,7 @@ function paintRailTeamMap(op) {
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
   const top = box.scrollTop;
-  setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : []) : '');
+  setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : [], pjRedHere) : '');
   if (open) box.scrollTop = top;
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
