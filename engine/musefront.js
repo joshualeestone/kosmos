@@ -334,6 +334,14 @@ const DIGEST_MAX = 40;
 const BUSY_RETRIES = 4;
 /* #4612: the most of a turn's final answer sent to the board (the DM shows it when no reply arrived). */
 const FINAL_MAX = 4000;
+/* #6319: an answer longer than FINAL_MAX is cut short enough to end with this marker inside the limit (the board keeps
+   at most 4000 characters too: selfreport finalOf), so the DM never stops mid-sentence with nothing said. */
+const FINAL_CUT_MARK = '… (the answer is longer than Kosmos can show here)';
+function finalCopy(text) {
+  const chars = Array.from(text);   // characters, not UTF-16 units, as the board counts them
+  if (chars.length <= FINAL_MAX) return text;
+  return chars.slice(0, FINAL_MAX - Array.from(FINAL_CUT_MARK).length).join('').trimEnd() + FINAL_CUT_MARK;
+}
 /* #4612 review round 1: a turn that answers the person's DIRECT message (engine/messages.js operatorDirect's envelope,
    "... to answer, run: kosmos reply]"), alone or inside a stop note. A room post from the person, a colleague's or a
    background post is not: its answer belongs to the room, never under the person's DM.
@@ -487,7 +495,7 @@ function createFront({ workspace, sessionId, runTurn, report, write, workingEver
            behind it, then the idle one), so the DM can show it when the agent answered in its own window but never ran
            kosmos reply. A later DM turn replaces this copy. */
         if (answersTheDm(prompt)) {
-          dmAnswer = r && r.ok && text ? { text: Array.from(text).slice(0, FINAL_MAX).join(''), startedAt } : null;
+          dmAnswer = r && r.ok && text ? { text: finalCopy(text), startedAt } : null;
           /* #4612 review: with a newer DM of the person's already waiting, this answer can never be the one to show
              (the DM owed is the newer one), so none is carried. DMs that reached the front in one read share a
              time, which the board's date check alone could not tell apart. */
@@ -690,4 +698,4 @@ function main(argv = process.argv) {
 
 if (require.main === module) main();
 
-module.exports = { turnRecord, logTurn, turnLogFile, TURN_LOG_MAX, createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
+module.exports = { turnRecord, logTurn, turnLogFile, TURN_LOG_MAX, createFront, loadSession, startup, sessionFile, modelFile, keepModel, forgetModel, makeReporter, printable, answersTheDm, finalCopy, FINAL_MAX, FINAL_CUT_MARK, UUID_RE, PROMPT, HELLO, WORKING_EVERY_MS };
