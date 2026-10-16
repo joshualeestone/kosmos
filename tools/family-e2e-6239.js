@@ -494,7 +494,9 @@ async function main() {
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket, wordsShown: true }, SCREEN);
     joined = !!(r.json && r.json.ok === true);
-    chk(joined, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200));
+    // The same ticket and code as step 8's refusal: a refusal here as org_ticket or a spent code means step 8 used them up.
+    chk(joined, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200)
+      + (r.json && /org_ticket|org_code_used/.test(r.json.code || '') ? ' (step 8\'s refusal spent the ticket or the code)' : ''));
     const st = await waitFor(async () => { const g = await http(K.base, 'GET', '/api/org', undefined, SCREEN); return g.json && g.json.enrolled === true ? g.json : null; }, 30000, 1000);
     // Read as the screen: any other caller learns only whether K is enrolled, never which org (#5531 review 12).
     chk(st && st.org && st.org.kind === 'family', 'step 9: K\'s board says it is in a family (kind family)', st ? JSON.stringify(st.org) : '-');
@@ -545,7 +547,10 @@ async function main() {
   }
   // Review 1: a guarded step that did not run would leave the verdict on fewer checks; every one must have run.
   const ran = results.length;
-  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran');   // adding a chk above: bump EXPECTED_CHECKS
+  // Round 10: name the steps that never ran, so a gap explains itself.
+  const stepsSeen = new Set(results.map((x) => ((x.label || '').match(/^step \d+b?/) || [''])[0]));
+  const never = ['step 1', 'step 2', 'step 4', 'step 4b', 'step 5', 'step 6', 'step 7', 'step 8', 'step 9', 'step 10', 'step 11'].filter((x) => !stepsSeen.has(x));
+  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : ''));   // adding a chk above: bump EXPECTED_CHECKS
 }
 
 (async () => {
