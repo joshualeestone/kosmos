@@ -137,3 +137,12 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Step 10 names a missing or renamed SAY.org_code_used and fails as a check, not a harness crash.
 - Deduplicated: the step 4b wording control (round 4), the copied helpers (#6287); NITs kept as in rounds 10 and 11.
 - Rerun: VERDICT PASS 23/23.
+
+## Round 13 (opus) fixes
+- Step 6 runs only once step 5 made the family, and step 10 only once step 9 spent the code, so one failure is not
+  reported twice; the end line names what was skipped. Negative control now: VERDICT FAIL 12/19, the six family checks
+  red and "never ran: step 10, step 11".
+- The orgenroll require in step 10 is guarded too; the leave poll clears an earlier error on each attempt; the
+  missing-bin-dir line goes to stderr; step 10's company clause says it pins the constant.
+- Kept (NIT): round numbers in comments (the copied helpers use the same style; each carries its reason).
+- Rerun: VERDICT PASS 23/23.
