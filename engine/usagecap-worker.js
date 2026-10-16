@@ -15,13 +15,14 @@ const usagecap = require('./usagecap');
 const RECOUNT_MS = 10 * 1000;
 const CATCH_UP_MS = 250;
 let tz = null;
+let roots = [];   // the board's config folders, sent with the zone
 let timer = null;   // always a setTimeout handle
 
 function turn() {
   timer = null;
   if (tz === null) return;
   let r = null;
-  try { r = usagecap.monthTokens(tz, Date.now()); } catch { r = null; }
+  try { r = usagecap.monthTokens(tz, Date.now(), roots); } catch { r = null; }
   if (r) parentPort.postMessage({ tz, since: r.since, tokens: r.tokens, complete: r.complete });
   timer = setTimeout(turn, r && !r.complete ? CATCH_UP_MS : RECOUNT_MS);
 }
@@ -29,6 +30,7 @@ function turn() {
 parentPort.on('message', (m) => {
   if (!m || typeof m.tz !== 'string') return;
   tz = m.tz;
+  roots = Array.isArray(m.roots) ? m.roots.filter((x) => typeof x === 'string') : [];
   if (timer) clearTimeout(timer);
   timer = setTimeout(turn, 0);
 });

@@ -326,6 +326,14 @@ test('on the board the gate never counts: a worker thread does, and the gate rea
   assert.deepEqual([c.used, c.over], [150, true], JSON.stringify(c));
   assert.equal(usagecap.capAllows(Date.now()).ok, false, 'the worker\'s count did not reach the gate');
   assert.equal(usagecap.capReport(orgpolicy.currentStrict(), Date.now()).used, 150, 'the rollup reads the worker\'s count too');
+  // A process that is not the board starts no counter: it reads the saved count (150, saved by the board above).
+  usagecap.resetForTests({ worker: true, board: false, keepFloor: true });
+  const elsewhere = usagecap.capInForce(Date.now());
+  assert.deepEqual([elsewhere.used, elsewhere.known], [150, true], 'CONTROL: the saved count');
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(usagecap.latestForTests(), null, 'a process that is not the board started a counter');
+  usagecap.resetForTests({ worker: true, keepFloor: true });
+  usagecap.capInForce(Date.now());
   // The cap taken out: the worker stops and its count goes.
   apply({ quiet_hours: null });
   assert.deepEqual(usagecap.capInForce(Date.now()), { capped: false });

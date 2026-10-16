@@ -5,7 +5,10 @@ A family's signed org policy can set `usage_cap: { monthly_tokens, warn_pct, tz 
 transcript's tokens on the computer this calendar month (from the 1st in `tz`). At warn_pct the rollup says so, and the
 parent's console shows "Close to this month's cap"; the child's own board shows nothing until the cap (see Decided). At
 the cap, new messages to agents and answers to their questions are refused with the policy's own sentence, beside the
-quiet-hours gate (engine/chat.js); the look-after commands still go.
+quiet-hours gate (engine/chat.js); the look-after commands still go. So are the person's Start, Restart and put-back, and
+making an agent (engine/remove.js, engine/create.js), as quiet hours refuses them: a started agent can go to work
+without a typed message, so starting one is new work, not looking after it. Restarts the board makes to finish a
+change still go.
 
 ## Order
 1. Board: orgpolicy shapeOk holds usage_cap to an exact shape (as the coordinator will); a capAt() reading.
@@ -69,3 +72,9 @@ Known limit: the worker's month cache holds a set of message ids per transcript 
 on this fleet Mac; a child's computer has far fewer).
 Weakest premise: that a worker thread is cheap enough to keep on every board with a cap. It starts only when a cap is
 in force, is unref'd, and recounts every 10 s off the main thread.
+
+## Only the board counts (challenge loop, iteration 13)
+The worker starts only in the board's process (server.js calls usagecap.countOnThisBoard). Any other process that
+reaches a gate reads the month's saved count. A worker that stops unexpectedly logs one line. Reading a transcript
+(readFile, tokensOf) moved out of engine/swarm.js into engine/transcriptread.js, which requires node's own modules
+only, and the board sends its config folders with the zone: the worker no longer loads the engine or status.js.

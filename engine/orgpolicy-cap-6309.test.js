@@ -71,6 +71,7 @@ test('the heads-up is at warn_pct and the refusal at the cap, in the policy\'s o
   assert.equal(orgpolicy.capAt(p, 800).over, false);
   assert.equal(orgpolicy.capAt(p, 999).pct, 99, 'rounded down: it reads 99 until the cap is reached');
   assert.deepEqual(orgpolicy.capAllows(p, 999), { ok: true }, 'CONTROL: one short of the cap still goes');
+  assert.throws(() => orgpolicy.capAllows(p), /needs this month's count/, 'a call without the count read 0 and allowed');
   const at = orgpolicy.capAllows(p, 1000);
   assert.equal(at.ok, false);
   assert.match(at.because, /this month's usage cap is reached \(1,000 of 1,000 tokens\)/, 'a person reads it: thousands are separated');

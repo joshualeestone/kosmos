@@ -23167,6 +23167,9 @@ function start(port = PORT) {
   /* #5532: the enrolled work Kosmos's rollup, a minute after start (once the refresh has answered) and then on a tick. */
   setTimeout(orgRollupTick, 60 * 1000).unref();
   setInterval(orgRollupTick, ORG_ROLLUP_TICK_MS).unref();
+  /* kosmos#6309: this board counts the month for a family's usage cap, in a worker thread that starts only when a cap
+     is in force. Any other process reads the month's saved count. */
+  try { require('./engine/usagecap').countOnThisBoard(); } catch { /* the cap reads the saved count */ }
   setTimeout(agentEventsTick, 2 * 60 * 1000).unref();   // #5683: a first look two minutes after start, a minute after the rollup's, so their computer-print reads do not land together
   setInterval(agentEventsTick, ORG_ROLLUP_TICK_MS).unref();   // #5683: every five minutes, as the rollup
   /* #4408: what this board is running, taken now, before anything can edit the app folder under it. The

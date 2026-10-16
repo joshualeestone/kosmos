@@ -3,7 +3,7 @@
 /**
  * kosmos#6309: this month's tokens on this Kosmos, for a family policy's usage cap (engine/orgpolicy.js capAt).
  *
- * Counted the way the swarm limit counts (engine/swarm.js readFile: each message once, by its id, the four usage
+ * Counted the way the swarm limit counts (engine/transcriptread.js readFile: each message once, by its id, the four usage
  * counts summed), over EVERY Claude Code transcript in this Kosmos's config folders (status.configRoots): each
  * session file and its helpers' files, touched since the month began. Every agent counts, so a child cannot step
  * round the cap by making a new agent.
@@ -26,14 +26,14 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
-const swarm = require('./swarm');
+const transcriptread = require('./transcriptread');
 const orgpolicy = require('./orgpolicy');
 const store = require('./store');
 
 const cache = new Map();
-cache.sharedSeen = new Set();   // each message once across every file of the month (swarm.readFile reads it)
+cache.sharedSeen = new Set();   // each message once across every file of the month (transcriptread.readFile reads it)
 let cacheSince = null;   // the month start `cache` was counted from
-let perCallBytes = swarm.READ_PER_CALL_BYTES;   // resetForTests can lower it
+let perCallBytes = transcriptread.READ_PER_CALL_BYTES;   // resetForTests can lower it
 
 /* The month's start in the cap's zone. A zone this runtime cannot read counts from 14 hours before the UTC month
    began (the earliest any zone's month starts), so it never counts less than the month: closed, not open. */
@@ -61,7 +61,7 @@ function monthTokens(tz, now = Date.now(), rootsList = roots(), bytes = perCallB
     let st;
     try { st = fs.statSync(file); } catch { return false; }
     if (st.mtimeMs < since) return false;
-    const r = swarm.readFile(file, since, now, budget, cache);
+    const r = transcriptread.readFile(file, since, now, budget, cache);
     out.tokens += r.tokens;
     if (!r.caughtUp) out.complete = false;
     return true;
@@ -146,6 +146,9 @@ let memo = null;
 const WORKER_RETRY_MS = 60 * 1000;
 let mode = 'worker';   // also in the worker thread, which calls only monthTokens: nothing there may start a worker
 let worker = null;
+/* Only the board counts (server.js calls countOnThisBoard). Any other process that reaches a gate (a command, a test
+   helper) reads the month's saved count and starts nothing: its own count would never be used. */
+let workerAllowed = false;
 let workerTz = null;
 let workerFailedAt = -Infinity;
 let latest = null;   // the worker's last count: { tz, since, tokens, complete }
@@ -158,13 +161,18 @@ function ensureWorker(tz) {
       w.on('message', (r) => {
         if (r && typeof r.tz === 'string' && Number.isFinite(r.since) && Number.isSafeInteger(r.tokens) && r.tokens >= 0 && typeof r.complete === 'boolean') latest = r;
       });
-      const gone = () => { if (worker === w) { worker = null; workerTz = null; workerFailedAt = Date.now(); } };
+      const gone = (e) => {
+        if (worker !== w) return;   // stopped on purpose (stopWorker): nothing to say
+        worker = null; workerTz = null; workerFailedAt = Date.now();
+        console.error('usagecap: the usage cap\'s counter stopped (' + ((e && e.message) || 'it exited') + '); the cap reads the month\'s saved count until it starts again');
+      };
       w.on('error', gone);
       w.on('exit', gone);
       worker = w;
     } catch { workerFailedAt = Date.now(); return; }
   }
-  if (workerTz !== tz) { workerTz = tz; try { worker.postMessage({ tz }); } catch { /* the exit handler resets it */ } }
+  // The board's config folders go with the zone, so the worker never loads status.js (and the engine with it).
+  if (workerTz !== tz) { workerTz = tz; try { worker.postMessage({ tz, roots: roots() }); } catch { /* the exit handler resets it */ } }
 }
 
 function stopWorker() {
@@ -179,7 +187,7 @@ function stopWorker() {
 function fromWorker(policy, now) {
   const u = policy && policy.usage_cap;
   if (!orgpolicy.capShapeOk(u)) { stopWorker(); return { capped: false }; }
-  ensureWorker(u.tz);
+  if (workerAllowed) ensureWorker(u.tz);
   const since = sinceFor(u.tz, now);
   const m = latest && latest.tz === u.tz && latest.since === since ? latest : { tokens: 0, complete: false, since };
   return withFloor(policy, m);
@@ -212,15 +220,19 @@ function capAllows(now = Date.now()) {
 
 /** `keepFloor` keeps the month's saved count, as a board restart does. `worker` keeps the board's worker counter;
  *  without it the gate counts inline (mode 'sync'). */
-function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false } = {}) {
+/** The board's process: count the month here, in a worker thread. */
+function countOnThisBoard() { workerAllowed = true; }
+
+function resetForTests({ perCallBytes: n, keepFloor = false, worker: useWorker = false, board = true } = {}) {
   cache.clear(); cache.sharedSeen = new Set(); cacheSince = null; memo = null; workerFailedAt = -Infinity;
   stopWorker();
   mode = useWorker ? 'worker' : 'sync';
+  workerAllowed = useWorker && board;
   if (!keepFloor) { try { fs.rmSync(FLOOR(), { force: true }); } catch { /* none */ } }
-  perCallBytes = n > 0 ? n : swarm.READ_PER_CALL_BYTES;
+  perCallBytes = n > 0 ? n : transcriptread.READ_PER_CALL_BYTES;
 }
 
 /** For tests: the worker's last count, or null. */
 function latestForTests() { return latest; }
 
-module.exports = { monthTokens, capNow, capReport, capInForce, capAllows, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS };
+module.exports = { monthTokens, capNow, capReport, capInForce, capAllows, countOnThisBoard, resetForTests, latestForTests, MEMO_MS, MEMO_SHORT_MS };
