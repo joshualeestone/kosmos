@@ -152,7 +152,7 @@ test('#6214: a Qwen agent put back after a stopped move is back on its old accou
 /* #6231 item 13: the job cannot be rewritten AND the Qwen record cannot be put back. The answer must say the record now
    names the old account (a Repair rebuilds from it), not only the job's failure. */
 test('#6231: a Qwen put-back whose job write fails and whose record cannot be undone says so', (t) => {
-  if (process.platform === 'win32' || (process.getuid && process.getuid() === 0)) { t.skip('needs a folder this user cannot write'); return; }
+  if (process.getuid && process.getuid() === 0) { t.skip('root can write a read-only folder'); return; }   // this file is not run on Windows (tools/windows-tests.js)
   const a = qwenAccount('udA'), b = qwenAccount('udB');
   const name = born('qw-undo', 'codex', b, 'alibaba');
   store.writeProfile(name, { qwenAccount: b });
