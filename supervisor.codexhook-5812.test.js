@@ -28,6 +28,11 @@ fs.writeFileSync(FAKE_TMUX, [
 ].join('\n') + '\n', { mode: 0o755 });
 
 const PINNED = require('./engine/runners').MANIFEST.openai.version;
+function hangingCodex() {
+  const f = nodePath.join(SANDBOX, 'codex-hangs.sh');
+  fs.writeFileSync(f, '#!/bin/sh\nif [ "$1" = --version ]; then sleep 30; fi\nexit 0\n', { mode: 0o755 });
+  return f;
+}
 function fakeCodex(version) {
   const f = nodePath.join(SANDBOX, `codex-${version || 'none'}.sh`);
   // It notes the CODEX_HOME its --version ran under (review 6: --version writes into that home).
@@ -42,10 +47,10 @@ function accountHome() {
   fs.writeFileSync(nodePath.join(dir, 'auth.json'), '{"OPENAI_API_KEY":null,"tokens":{}}', { mode: 0o600 });
   return dir;
 }
-function run(name, codexHome, version = PINNED) {
+function run(name, codexHome, version = PINNED, bin = null) {
   const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
   const env = { PATH: process.env.PATH, HOME: SANDBOX, REC: rec, AGENT_WORKFORCE_HOME: SANDBOX, AGENT_WORKFORCE_DATA: nodePath.join(SANDBOX, 'data'), CODEX_HOME: codexHome };
-  const r = spawnSync('/bin/bash', [SUP, name, SANDBOX, fakeCodex(version), FAKE_TMUX, '', 'gpt-5.2', 'codex'], { env, encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync('/bin/bash', [SUP, name, SANDBOX, bin || fakeCodex(version), FAKE_TMUX, '', 'gpt-5.2', 'codex'], { env, encoding: 'utf8', timeout: 30000 });
   const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   const runtime = (/-e CODEX_HOME=(\S+)/.exec(argv) || [])[1] || '';
   const versionHome = fs.existsSync(`${rec}.version-home`) ? fs.readFileSync(`${rec}.version-home`, 'utf8').trim() : '';
@@ -102,4 +107,13 @@ test('review 5: a private home that resolves to the account home itself gets NO 
   assert.match(r.out, /refused a private Codex home that resolves to the selected account home/);
   assert.match(r.out, /its file-edit hook was not set up \(its Codex home is the account's own\)/);
   assert.equal(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), false, 'review 6: ours is removed there too');
+});
+
+test('review 7: a codex whose --version hangs does not hold the launch; the agent starts with no hook', () => {
+  const started = Date.now();
+  const r = run('agent-hook5', accountHome(), PINNED, hangingCodex());
+  assert.match(r.argv, /new-session/, r.out);
+  assert.ok(Date.now() - started < 20000, `took ${Date.now() - started} ms`);
+  assert.match(r.out, /its file-edit hook was not set up \(this Codex is of an unknown version/);
+  assert.equal(fs.existsSync(nodePath.join(r.runtime, 'hooks.json')), false);
 });

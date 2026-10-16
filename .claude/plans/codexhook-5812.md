@@ -34,6 +34,9 @@ comment 6219788459). This change wires that hook to the same board call the Clau
    failed install launches the agent as today, with no hooks.json, and says so. No features flag: hooks are on by default.
 
 ## Residual, stated
+- Who wrote a file: the board names a Codex agent by its folder (undo.ownerOf matches session ids only for Claude), so
+  a Codex agent's edit is attributed only when its working folder is its own agent folder, as Kosmos launches it; any
+  other folder gets no undo copy and no writer, never a wrong one.
 - PreToolUse runs before Codex applies the patch, so a patch Codex then rejects (context that does not match, a
   misplaced Move to) still sends its keeps and records this agent as the writer, as Claude Code's Edit hook does; the
   board's write window bounds it.

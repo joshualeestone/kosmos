@@ -172,6 +172,16 @@ test('review 1: a failed record write leaves no hooks.json', () => {
 
 test('removeOurs leaves a hooks.json that is not ours, and a link', () => {
   const h = home();
+  // Review 7: a person's own hooks.json with ours merged in mentions the bridge but is not ours.
+  const ours = JSON.parse(hooks.hooksJson(hooks.commandFor('/k/codex-report-bridge.js')));
+  ours.hooks.PostToolUse = [{ matcher: '', hooks: [{ type: 'command', command: '/their/own.sh' }] }];
+  fs.writeFileSync(path.join(h, 'hooks.json'), JSON.stringify(ours));
+  assert.equal(hooks.removeOurs(h), false);
+  assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
+  // Ours, from a bridge path that has since moved, is removed.
+  fs.writeFileSync(path.join(h, 'hooks.json'), hooks.hooksJson(hooks.commandFor("/old/it's/codex-report-bridge.js")));
+  assert.equal(hooks.removeOurs(h), true);
+  assert.equal(fs.existsSync(path.join(h, 'hooks.json')), false);
   fs.writeFileSync(path.join(h, 'hooks.json'), '{"hooks":{}}');
   assert.equal(hooks.removeOurs(h), false);
   assert.ok(fs.existsSync(path.join(h, 'hooks.json')));
