@@ -30,7 +30,8 @@ it $0). The coordinator already sends that price with the address list (`price.d
     that backs off (10 s for 2 minutes, then 60 s) for 20 minutes after the panel showed or the window last gained
     focus (`plusSiBoughtAutoCheck`). Quiet: Check again is not disabled during it (a busy flag guards re-entry), so
     the focus stays where it was; a failed quiet read leaves the panel as it was. With exactly ONE free
-    bought address, this computer takes it with no click (`plusSiBoughtTake`), never after a refusal until the person presses Check again
+    bought address, this computer takes it with no click (`plusSiBoughtTake`), never an address already tried in this sign-in, and not while a refusal stands (a
+    person's Check again clears refusals, never tries)
     and never an address already tried (`PLUS_SI_AUTO_TRIED`); two or more always wait for a pick.
   - Card heading line-height 1.2 (it wraps on a phone now; the #6299 cause).
 - `web/index.html`, the waiting computer (`paintPlusJoin`): "Allow this computer from your other one." then two

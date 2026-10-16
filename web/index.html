@@ -50314,7 +50314,7 @@ function paintAsk() {
      the same set repainting every few seconds never moves the page again. */
   const waiting = inPanel ? rows.filter((d) => !answered(d.device_id)).map((d) => String(d.device_id)) : [];
   const before = ASK.shownKey ? ASK.shownKey.split(',') : [];
-  if (waiting.some((id) => before.indexOf(id) === -1) && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  if (waiting.some((id) => before.indexOf(id) === -1) && panel && panel.scrollIntoView) panel.scrollIntoView({ block: 'start', behavior: window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   ASK.shownKey = waiting.join(',');
 }
 async function askAct(act, id, at) {
@@ -52662,7 +52662,6 @@ function plusSiBoughtPick(b, opts) {
     btn.addEventListener('click', () => plusSiBoughtTake(row));
     list.appendChild(btn);
   }
-  // Not after a refusal, until the person presses Check again (that clears the refusals): they see what happened and pick.
   if (!reshow && free.length === 1 && !PLUS_SI_REFUSED.length && PLUS_SI_AUTO_TRIED.indexOf(free[0].name) === -1) {
     plusSiBoughtTake(free[0]);
     return;
@@ -52734,6 +52733,7 @@ function plusSiBoughtAutoCheck(fromFocus) {
   PLUS_SI_AUTO_LAST = Date.now();
   PLUS_SI_AUTO_READ = true;
   btn.click();
+  PLUS_SI_AUTO_READ = false;   // consumed by the handler; cleared here too in case the click reached no handler
 }
 if (typeof window !== 'undefined' && window.addEventListener) {
   window.addEventListener('focus', () => plusSiBoughtAutoCheck(true));
