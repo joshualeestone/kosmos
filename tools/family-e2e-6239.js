@@ -61,8 +61,9 @@ const FEDPROOF_COORD_HOST = 'login.' + FEDPROOF_DOMAIN;
 const KEEP = process.env.FEDPROOF_KEEP === '1';
 // The bounded waits, worst case: coordinator 60 + relay 30 + 2 boards x 60 + 4 codes x 20 + P's waiting list 60
 // + the console's Allow 45 + K's join 30 + the two audit polls 2 x 20 + K's first report (at worst the next 5-minute tick
-// after the join, plus 90) 390 + a retried first sign-in 90 = 945 s, before HTTP timeouts. 17 min covers it.
-const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 17 * 60 * 1000;
+// after the join, plus 90) 390 + a retried first sign-in 90 = 945 s, before HTTP timeouts (90 s each). 19 min leaves
+// room for two.
+const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 19 * 60 * 1000;   // the waits below plus a few HTTP timeouts
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
@@ -293,7 +294,7 @@ async function boardSignin(b, email, name) {
   let code = await nextCode(email, before);
   // After a retry two codes may arrive (the first start may have gone through late): let them settle 2 s and take the
   // newest. A first code written more than 2 s after the retry's would still be taken; verify then fails, as itself.
-  if (retried && code) { await new Promise((res) => setTimeout(res, 2000)); const all = devCodes(email); code = all[all.length - 1]; }
+  if (retried && code) { await sleep(2000); const all = devCodes(email); code = all[all.length - 1]; }
   if (!code) { info(b.letter + ': no sign-in code arrived for ' + email); return false; }
   r = await http(b.base, 'POST', '/api/remote/signin-verify', { email, code });
   if (r.status !== 200 || !r.json || r.json.stage !== 'session') { info(b.letter + ' signin-verify ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
@@ -350,13 +351,15 @@ async function startBoard(letter) {
   // The fake tmux (no agent runs here; the boards only need one to read).
   b.tmuxWrap = path.join(REPO, 'test-support', 'fake-tmux.sh');
   const s = start('board-' + letter, process.execPath, [path.join(REPO, 'server.js')], { cwd: REPO, env: boardEnv(b) });
+  // Stamped at spawn: the board arms its rollup timers during its start, a little after this, so the modelled ticks fall
+  // slightly EARLY. A join just past a modelled tick then waits for the next one, which is longer but never misses one.
+  b.startedAt = Date.now();
   b.proc = s;
   // A board that EXITED (a port taken between the check and its bind) is reported at once.
   const up = await waitFor(async () => {
     if (s.child.exitCode !== null) return { exited: true };
     return (await fetch(b.base + '/api/projects', { signal: AbortSignal.timeout(3000) })).ok;
   }, 60000, 250);
-  b.startedAt = Date.now();   // answering: its rollup ticks count from about here (server.js: once at +60 s, then every 5 min)
   if (!up || up.exited) throw new Error('board ' + letter + (up ? ' exited at start' : ' did not answer on ' + b.base) + ' (log: ' + s.log + ')\n' + fedproofReadLog(s.log).slice(-2000));
   return b;
 }
@@ -584,15 +587,16 @@ async function main() {
     // The first tick at or after the join: start + 60 s if the join came first, else the next multiple of 300 s.
     const sinceStart = joinedAt - K.startedAt;
     const tickAt = K.startedAt + (sinceStart <= ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : Math.ceil(sinceStart / ROLLUP_EVERY_MS) * ROLLUP_EVERY_MS);
-    const ov = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
+    const safe = async (path) => { try { return await http(REL.coordinator, 'GET', path, undefined, bearer(sess.token)); } catch (e) { return { status: 0, json: null, text: String(e && e.message || e) }; } };
+    const ov = await safe('/v1/org/console/overview');
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
     // The same measure the positive check reads: K's own row, present and not yet reported. The positive check's
     // reportedAt is a day, not a time, so this control is what shows the report came after the join.
-    const inv0 = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
+    const inv0 = await safe('/v1/org/console/inventory');
     const row0 = (inv0.json && Array.isArray(inv0.json.members) ? inv0.json.members : []).find((m) => m && m.email === kid) || null;
-    // Round 4: the control passes only on its own condition. When a tick was due within 5 s of these reads (or already
-    // past), a report may have landed between the join and them; the control then FAILS and says so, a rare false red
-    // to rerun, never a pass it could not prove. (The two reads are a moment apart; that window is inside the same 5 s.)
+    // The control passes only on its own condition: these reads, made after the join, show no report. That holds
+    // whenever the tick falls, so a pass is sound. If a tick landed between the join and the reads, the row shows a
+    // report and the control fails; nearTick then says why in the detail, so the red reads as timing (rerun).
     const nearTick = tickAt - Date.now() < 5000;
     chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
       'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report',

@@ -5,11 +5,12 @@ server.js orgRollupTick) is accepted by the coordinator only when the words K ac
 the console counting K as reporting is the family's words working for reporting, not only for joining.
 
 ## Result (2026-10-16 02:50 CDT, run as an exclusive queued turn)
-- VERDICT PASS 25/25. Step 9b control: straight after the join, before the first tick, the console's members.reporting is
-  0; then 1 at 100 s.
+- (Historical, the first design: members.reporting 0, then 1 at 100 s.) The current measure is K's own row in the
+  parent's console inventory, with the overview count only in the control; see the rounds below.
 
 ## Decided
-- Read from the console overview (the parent's own view), not the coordinator's database.
+- Read from the parent's own console (inventory: K's row by email; overview: the reporting count in the control), not the
+  coordinator's database.
 - Not built: an agent-events refusal arm (it needs an agent to act and be refused; a later piece).
 - The step 4b comment is reworded for #6286's fix (kosmos#6291 and kosmos-relay#404).
 
@@ -60,3 +61,13 @@ reason.
 - The retry's match words are named at the site (the board's own refusal, engine/remote.js); a rewording only loses the
   retry.
 - Rerun (exclusive queued turn, 04:36): VERDICT PASS 25/25; joined 1 s after K started, tick due 60 s; K's row unavailable then ok.
+
+## Round 5 (opus) fixes
+- Round 4's comment and this plan said a near tick FAILS the control; the code never read nearTick in the condition.
+  Corrected the words, not the code: a pass means the reads after the join saw no report, which is sound whenever the tick
+  falls; a report already there fails the strict condition, and nearTick only explains that red.
+- K's start is stamped at spawn: the board arms its timers during start, after that, so the model is early (safe: a
+  join just past a modelled tick waits for the next, never for one that already fired).
+- The control's two reads report a thrown call as their own red; the watchdog is 19 min (room for HTTP timeouts); the
+  retry's settle uses sleep(). The plan's first result and decision lines are marked historical or updated.
+- Rerun (exclusive queued turn, 04:50): VERDICT PASS 25/25; joined 2 s after K's spawn stamp, tick due 60 s.
