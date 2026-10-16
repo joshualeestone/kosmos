@@ -3,7 +3,7 @@
  * layout's "Team map" button. The Agents rail head gets its own button and box.
  *
  * Drives the SHIPPED page against a real server (sandboxed roots, fixture panes, never a live agent): a project with
- * ten fixture members, the consolidated layout at 1280x900 and 1280x720. Asserts the tab layout's button cannot be
+ * ten fixture members, the consolidated layout at 1280x900 and at its narrowest, 960x720. Asserts the tab layout's button cannot be
  * reached there (the problem), the rail's button shows and starts closed, opens the map with aria-expanded true, every
  * member is on it, the map scrolls inside its own box, the page does not scroll and the agents list stays in view,
  * focus survives a repaint, folding the agents column hides it, the open state carries to the tab layout, a second
@@ -85,8 +85,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         over: box ? box.scrollWidth - box.clientWidth : null,
         tall: box ? box.scrollHeight - box.clientHeight : null,
         pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight,
-        listSeen: (() => { const l = document.getElementById('alist'); if (!l) return 0; const r = l.getBoundingClientRect();
-          return Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0)); })() };
+        // The first agent row of the list, wholly inside the window: the list was not pushed off.
+        firstRow: (() => { const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
+          return r.top >= 0 && r.bottom <= window.innerHeight; })() };
     });
     const before = await state();
     say('CONTROL: the consolidated layout is on with the project open', before.cons && before.open === made.id, JSON.stringify(before));
@@ -108,14 +109,16 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('CONTROL: the page did not scroll down before the map opened', before.pageDown <= 0, 'page ' + before.pageDown + 'px');
     say('CONTROL: ten members make the map taller than its box (so the next arm tests the cap)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
     say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
-    say('CONTROL: the agents list is in view before the map opens', before.listSeen >= 150, 'list ' + before.listSeen + 'px in view');
-    say('with the map open the agents list is still in view', opened.listSeen >= 150, 'list ' + opened.listSeen + 'px in view');
-    // A shorter window: the cap is a share of the height, so the same must hold at 720 tall.
-    await p.setViewportSize({ width: 1280, height: 720 });
-    await p.waitForTimeout(300);
+    say('CONTROL: the first agent row is in view before the map opens', before.firstRow === true, JSON.stringify(before.firstRow));
+    say('with the map open the first agent row is still in view', opened.firstRow === true, JSON.stringify(opened.firstRow));
+    // The narrowest, shortest window the consolidated layout keeps (960 wide, the rail at its 200px floor), 720 tall.
+    await p.setViewportSize({ width: 960, height: 720 });
+    await p.waitForFunction(() => document.body.classList.contains('consolidated') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
     const short = await state();
-    say('at 1280x720 the open map scrolls itself, not the page', short.shown && short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
-    say('at 1280x720 the agents list is still in view', short.listSeen >= 150, 'list ' + short.listSeen + 'px in view');
+    say('CONTROL: at 960x720 the layout is still consolidated with the map open', short.cons && short.shown, JSON.stringify(short));
+    say('at 960x720 the map fits the rail sideways', short.over !== null && short.over <= 0, 'overflow ' + short.over + 'px');
+    say('at 960x720 the open map scrolls itself, not the page', short.pageDown <= 0, JSON.stringify({ pageDown: short.pageDown, tall: short.tall }));
+    say('at 960x720 the first agent row is still in view', short.firstRow === true, JSON.stringify(short.firstRow));
     await p.setViewportSize({ width: 1280, height: 900 });
     await p.waitForTimeout(300);
 
@@ -133,6 +136,21 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     }, made.id);
     say('CONTROL: the repaint really replaced the focused button', kept.replaced, JSON.stringify(kept));
     say('focus comes back to the same member after a repaint', kept.on === 'rmcy', JSON.stringify(kept));
+    // A focused member leaving the project: its button is gone, so focus goes to the Team map button, not the page.
+    const left = await p.evaluate((pid) => {
+      document.querySelector('#alist-teammap .pjtm-node[data-agent="rmjo"]').focus();
+      const pj = PROJECTS.find((x) => x.id === pid);
+      const saved = pj.agents;
+      pj.agents = saved.filter((a) => a.sessionName !== 'rmjo');
+      paintRailPjNotice();
+      const a = document.activeElement;
+      const r = { gone: !document.querySelector('#alist-teammap .pjtm-node[data-agent="rmjo"]'), on: a ? a.id || (a.dataset && a.dataset.agent) || a.tagName : null };
+      pj.agents = saved;
+      paintRailPjNotice();
+      return r;
+    }, made.id);
+    say('CONTROL: the member really left the map', left.gone, JSON.stringify(left));
+    say('a focused member that leaves hands focus to the Team map button', left.on === 'alist-teammap-btn', JSON.stringify(left));
 
     // Folding the agents column hides the map with the rest of the head, and unfolding brings it back.
     await p.click('#rail-agents-fold');
