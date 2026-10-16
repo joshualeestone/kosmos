@@ -171,8 +171,10 @@ function readRoot(dir) {
  *
  * 📌 THE MAC ARM: our own plist is still checked with `existsSync`, which swallows
  * EACCES into false. Since #6310 it also reads the login jobs Kosmos did not write
- * (see foreignLoginFolders), and answers null for an agent one of them might start
- * but could not be read.
+ * (see foreignLoginFolders), and answers null when one of them that might start
+ * this agent could not be read: a broken plist that names its folder, or a plist or
+ * launcher script that could not be read at all (then null for every agent without
+ * its own plist).
  */
 function jobReader(platform) {
   /* #4918 review 11: on Linux the startup job is a systemd user unit, never a plist, so the survey reads the unit;
@@ -194,7 +196,8 @@ function jobReader(platform) {
         if (fs.existsSync(create.plistPath(name))) return true;
         if (!foreign) foreign = foreignLoginFolders();
         let dir = null;
-        try { dir = fs.realpathSync(create.workerDir(name)); } catch { dir = null; }
+        // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
+        try { dir = fs.realpathSync.native(create.workerDir(name)); } catch { dir = null; }
         if (dir && foreign.dirs.has(dir)) return true;
         const spellings = folderSpellings(dir, create.workerDir(name));
         if (dir && mentionsFolder(foreign.texts, spellings)) return true;
@@ -239,9 +242,9 @@ function plistKeys(file) {
   for (let prev = ''; prev !== top;) { prev = top; top = top.replace(/<dict\s*>(?:(?!<dict[\s>])[\s\S])*?<\/dict>/g, '<dict/>'); }
   const flag = (k) => new RegExp('<key>' + k + '</key>\\s*(<true\\s*/>|<dict\\s*>|<dict\\s*/>)').test(top);
   const has = (k) => new RegExp('<key>' + k + '</key>').test(top);
-  const wd = /<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
-  const pa = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(text);
-  const prog = /<key>Program<\/key>\s*<string>([^<]*)<\/string>/.exec(text);
+  const wd = /<key>WorkingDirectory<\/key>\s*<string>([^<]*)<\/string>/.exec(top);
+  const pa = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(top);
+  const prog = /<key>Program<\/key>\s*<string>([^<]*)<\/string>/.exec(top);
   const args = (prog ? [unxml(prog[1])] : []).concat(pa ? [...pa[1].matchAll(/<string>([^<]*)<\/string>/g)].map((m) => unxml(m[1])) : []);
   // Run on a schedule or on an event: a task, not an agent.
   const periodic = ['StartInterval', 'StartCalendarInterval', 'WatchPaths', 'QueueDirectories', 'StartOnMount'].some(has);
@@ -269,8 +272,8 @@ function mentionsFolder(texts, spellings) {
   }
   return false;
 }
-/* A start script's text; null when the path is not a file (an argument that is not a path); UNREADABLE when it is a
-   file this survey cannot read, or text over SCRIPT_MAX, which leaves "no job" unproven. A failed read is not cached.
+/* A start script's text; null when the path is not a text file (a binary such as the interpreter, a folder, nothing);
+   UNREADABLE when it is a file this survey cannot read, or text over SCRIPT_MAX. A failed read is not cached.
    SCRIPT_MAX is generous because real launchers are large: Kosmos's own board job runs a 375 KB script. */
 const SCRIPT_MAX = 2 * 1024 * 1024;
 const UNREADABLE = Symbol('unreadable');
@@ -278,15 +281,17 @@ function scriptText(file) {
   let st;
   try { st = fs.statSync(file); } catch (e) { return e && (e.code === 'ENOENT' || e.code === 'ENOTDIR') ? null : UNREADABLE; }
   if (!st.isFile()) return null;
-  if (st.size > SCRIPT_MAX) {
-    /* A large BINARY (the interpreter itself: /bin/bash, node) is not a launcher script; only large text is unproven. */
-    let head;
-    try { const fd = fs.openSync(file, 'r'); try { head = Buffer.alloc(4096); head = head.subarray(0, fs.readSync(fd, head, 0, 4096, 0)); } finally { fs.closeSync(fd); } } catch { return UNREADABLE; }
-    return head.includes(0) ? null : UNREADABLE;
-  }
   const sig = st.mtimeMs + ':' + st.size;
   const got = SCRIPT_CACHE.get(file);
   if (got && got.sig === sig) return got.text;
+  let head;
+  try {
+    const fd = fs.openSync(file, 'r');
+    try { head = Buffer.alloc(4096); head = head.subarray(0, fs.readSync(fd, head, 0, 4096, 0)); } finally { fs.closeSync(fd); }
+  } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
+  // A binary is never a launcher script, whatever its size (the interpreter itself: /bin/bash is about 1.9 MB).
+  if (head.includes(0)) { SCRIPT_CACHE.set(file, { sig, text: null }); return null; }
+  if (st.size > SCRIPT_MAX) return UNREADABLE;
   let text;
   try { text = fs.readFileSync(file, 'utf8'); } catch { SCRIPT_CACHE.delete(file); return UNREADABLE; }
   SCRIPT_CACHE.set(file, { sig, text });
@@ -296,12 +301,12 @@ function foreignLoginFolders() {
   const dirs = new Set();
   /* The fleet's older jobs set no WorkingDirectory; the folder is only in the start script they run (WORK_DIR=...), so
      a starting job's arguments and any small script file they name are kept as text to search. */
-  const texts = [];
+  const texts = new Set();   // each distinct text once: many jobs run the same script
   /* A plist that reads as text but not as a property list: an agent whose folder it names is unknown, nobody else. */
   const suspects = [];
   let unknownAll = false;
   let names;
-  try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts, suspects, unknownAll: !(e && e.code === 'ENOENT') }; }
+  try { names = fs.readdirSync(create.AGENTS_DIR); } catch (e) { return { dirs, texts: [], suspects, unknownAll: !(e && e.code === 'ENOENT') }; }
   const seen = new Set();
   const scripts = new Set();
   for (const f of names) {
@@ -323,20 +328,21 @@ function foreignLoginFolders() {
     if (!got.keys) { if (got.raw !== null && got.raw !== undefined) suspects.push(got.raw); else unknownAll = true; continue; }
     if (!got.keys.starts) continue;
     if (got.keys.dir) {
-      try { dirs.add(fs.realpathSync(got.keys.dir)); } catch { /* a job whose folder is gone starts nobody we know */ }
+      try { dirs.add(fs.realpathSync.native(got.keys.dir)); } catch { /* a job whose folder is gone starts nobody we know */ }
     }
-    texts.push(got.keys.args.join('\n'));
-    for (const a of got.keys.args) {
-      if (!path.isAbsolute(a)) continue;
+    texts.add(got.keys.args.join('\n'));
+    got.keys.args.forEach((a, i) => {
+      if (!path.isAbsolute(a)) return;
       scripts.add(a);
       const t = scriptText(a);
-      if (t === UNREADABLE) unknownAll = true;   // it may be any agent's launcher
-      else if (t !== null) texts.push(t);
-    }
+      /* Only the program or the script it runs (the first two arguments) may be a launcher; an unreadable file further
+         along (a log being followed, a data file) is somebody's data, not a reason to doubt every agent. */
+      if (t === UNREADABLE) { if (i < 2) unknownAll = true; } else if (t !== null) texts.add(t);
+    });
   }
   for (const k of FOREIGN_CACHE.keys()) if (!seen.has(k)) FOREIGN_CACHE.delete(k);
   for (const k of SCRIPT_CACHE.keys()) if (!scripts.has(k)) SCRIPT_CACHE.delete(k);
-  return { dirs, texts, suspects, unknownAll };
+  return { dirs, texts: [...texts], suspects, unknownAll };
 }
 
 function strays(profileNames, jobs) {
