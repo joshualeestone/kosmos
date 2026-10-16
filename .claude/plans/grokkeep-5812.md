@@ -19,6 +19,10 @@ Chat Completions server (card comment 6222103286). This wires that hook to the b
    the person's own ~/.grok, and no reading of its content can tell an untouched older file from a person who deleted
    just the tool hook (the bytes are identical), so any refresh would put back a hook a person removed. The other way,
    a per-home stamp, is Kosmos state in a person's folder for a one-time upgrade; not worth it for this.
+   STATED (review 5): the birth write itself (engine/create.js, unchanged) rewrites our file whenever ANY grok agent is
+   made on that grok home, as it always has for the lifecycle hooks. So for a default-account agent, a person who
+   removed the tool hook from their own ~/.grok gets it back at the next default-account grok agent made, and every
+   older agent on that home gets the hook at that moment too. Accepted: it is this file's existing behaviour.
 
 ## Differences from the Codex slice, measured
 - No trust record: hooks in $GROK_HOME/hooks run as they are (only project hooks need trust).

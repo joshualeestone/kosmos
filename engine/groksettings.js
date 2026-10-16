@@ -131,7 +131,7 @@ function entryIsOurs(entry) {
 
 /**
  * Ensure our grok report-hook file at hookFilePath wires every lifecycle event to
- * the bridge. Idempotent by content (we own the file). Returns { prepared:true,
+ * the bridge, and (#5812, not on win32) the PreToolUse tool hook. Idempotent by content (we own the file). Returns { prepared:true,
  * changed } or { prepared:false, because } in a sentence -- never throws for an
  * expected shape, because the caller (create.js at birth) fails soft: a hook file it
  * could not prepare costs the agent a self-report, not its existence, which is the
