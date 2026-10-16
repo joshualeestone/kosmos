@@ -123,6 +123,13 @@ joining again.
   (stoppedFor, leaveRefused). They are now carried to the next read, which runs at once (R17, which also drives the drop).
 - The leave-refused line says "reports nothing to the family" while the words are held back.
 
+## Review 14 (sonnet) fixes
+- The two real writers of wroteAt (an Accept, a Leave) were driven by no arm: R17 set the time by hand. R18 holds a
+  /api/org read open across each and releases it after; the stand-in answers with the state as it was when asked.
+- Signing out of Kosmos+ hid the block but kept a family's words on screen and words held back, so signing in again
+  within the minute showed them. paintPlus now closes the words and releases the hold when it hides the block (R19,
+  driven through paintPlus with a stand-in /api/remote).
+
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
 page's refusal line is written for this screen. And a family record written before cleanOrg kept `kind` reads as a
@@ -133,7 +140,7 @@ company (never wordsNeeded); families are newer than that change, so none should
   family's current words; Accept without wordsShown is refused with nothing sent; with it, the coordinator gets the NEW
   hash and wordsNeeded clears; a company with its words withdrawn is never wordsNeeded; a caller that is not the screen
   never sees the field. Mutant: wordsNeeded forced false, 1 test red.
-- docs/browser-checks/render-org-family-6239.js arms F0 to F10 and R1 to R17, chromium and webkit. The runs and full
+- docs/browser-checks/render-org-family-6239.js arms F0 to F10 and R1 to R19, chromium and webkit. The runs and full
   validation at the head this ships are recorded in the proof file (`familyreaccept-6239-pre-challenge.md`), not here,
   because any edit to this file changes the head they describe. The last recorded before R14: all pass and full
   validation PASSED (20,885 pass, 0 fail) at 8caa42c877; the R13 mutant reds R13; the R8 mutant (refused words not held

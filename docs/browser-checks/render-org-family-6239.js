@@ -33,6 +33,8 @@
  *   R15 a review answered as not a family's says so, and the words stay held back across a read of the same record.
  *   R16 a review preview refused as not named here (org_not_named) holds the words back, as R8 does for an Accept.
  *   R17 a read that started before the page's own write is dropped, and a one-time note it carried shows on the next read.
+ *   R18 a /api/org read asked before an Accept or a Leave, held open and released after it, changes nothing.
+ *   R19 signing out of Kosmos+ closes a family's words on screen and releases words held back.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -66,6 +68,13 @@ function harness() {
       const u = String(url);
       const body = init && init.body ? JSON.parse(init.body) : null;
       if (u.includes('/api/org')) window.__org.push({ path: u.replace(/^.*?(\/api\/org[^?]*).*$/, '$1'), method: (init && init.method) || 'GET', body });
+      // A read held open (R18): it answers with the state as it was when asked, once the check releases it.
+      if (u.endsWith('/api/org') && !(init && init.method) && window.__holdNext && window.__orgState) {
+        const held = window.__holdNext; window.__holdNext = null;
+        const asked = JSON.stringify(window.__orgState);
+        await held;
+        return new Response(asked, { status: 200, headers: { 'content-type': 'application/json' } });
+      }
       if (u.endsWith('/api/org/preview')) return enc(Object.assign({ ok: true, role: 'member', ticket: 't-' + window.__org.length }, window.__preview || {}));
       if (u.endsWith('/api/org/enroll')) {
         const a = window.__enrollAnswer || { ok: true, org: (window.__preview || {}).org, role: 'member' };
@@ -76,7 +85,7 @@ function harness() {
       if (u.endsWith('/api/org') && window.__orgState) return enc(window.__orgState);
       if (u.endsWith('/api/org') && window.__joined) return enc({ enrolled: true, reporting: true, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' });
       if (u.endsWith('/api/org')) return enc({ enrolled: false, stoppedFor: null, leaveRefused: null, org: null, role: null, enrolledAt: null });
-      if (u.endsWith('/api/remote') && !(init && init.method)) return enc({ enrolled: true, on: true });
+      if (u.endsWith('/api/remote') && !(init && init.method)) return enc(window.__remote || { enrolled: true, on: true });
       if (u.includes('/api/history')) return enc({ readable: false });
       return enc({});
     };
@@ -426,6 +435,40 @@ async function run(engineName) {
     chk(!r17.say.includes('Stale family') && r17.msg.includes('Your leave from The Rivera family was refused'),
       E + ' R17 an older read is dropped and its one-time note shows on the next read', JSON.stringify(r17));
     await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
+    // R18: a read asked before the page's own write (an Accept, then a Leave) lands after it and changes nothing.
+    const holdRead = () => page.evaluate(() => { window.__holdNext = new Promise((r) => { window.__releaseRead = r; }); PLUS_ORG.at = 0; plusOrgMaybe(); });
+    const releaseRead = async () => { await page.evaluate(() => window.__releaseRead()); await page.waitForTimeout(300); };
+    await reread(WAITING);
+    await openReview();
+    await holdRead();
+    await page.evaluate(() => { window.__orgState = { enrolled: true, reporting: true, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member', enrolledAt: '2026-10-15T00:00:00.000Z' }; });
+    await setEnroll({ ok: true, org: { name: 'The Rivera family', slug: 'rivera', kind: 'family' }, role: 'member' });
+    await page.click('#plus-org-family-accept');
+    await page.waitForTimeout(300);
+    await releaseRead();
+    const r18a = { row: await shown('plus-org-words'), say: await text('plus-org-say'), msg: await text('plus-org-msg') };
+    await setEnroll(null);
+    await holdRead();
+    await page.evaluate(() => { window.__leaveAnswer = { ok: true }; });
+    await page.click('#plus-org-leave');
+    await page.click('#plus-org-leave-yes');
+    await page.waitForTimeout(300);
+    await releaseRead();
+    const r18b = { joined: await shown('plus-org-in') };
+    chk(!r18a.row && !r18a.say.includes('reports nothing until') && !r18a.msg.includes('could not record') && !r18b.joined,
+      E + ' R18 a read asked before an Accept or a Leave lands after it and changes nothing', JSON.stringify([r18a, r18b]));
+    await page.evaluate(() => { window.__leaveAnswer = null; window.__orgState = null; document.getElementById('plus-org-msg').textContent = ''; });
+    await reread(WAITING);
+    // R19: signed out of Kosmos+ with the words open: they close, and do not come back on signing in again.
+    await openReview();
+    const open19 = await shown('plus-org-family');
+    await page.evaluate(() => { PLUS_ORG.wordsRefused = true; });   // as after R8, so the release is seen too
+    // The board's own repaint, signed out and then in again (paintPlus reads /api/remote).
+    await page.evaluate(async () => { window.__remote = { enrolled: false }; await paintPlus(); });
+    await page.evaluate(async () => { window.__remote = null; await paintPlus(); plusOrgPaint(); });
+    await reread(WAITING);
+    const r19 = { open19, box: await shown('plus-org-family'), plus: await shown('plus-org'), row: await shown('plus-org-words') };
+    chk(r19.open19 && r19.plus && !r19.box && r19.row, E + ' R19 signing out closes the family\'s words and releases held-back words: signed in again, the button is back', JSON.stringify(r19));
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
     await page.waitForTimeout(250);
