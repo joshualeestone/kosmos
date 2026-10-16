@@ -61,7 +61,11 @@ const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 15 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
-const EXPECTED_CHECKS = 22;   // every chk in main before the last; a skipped step leaves fewer. Adding a chk: bump this.
+// One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
+// from it, so adding a check means changing one number here.
+const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 3, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,
+  'step 9': 3, 'step 10': 1, 'step 11': 3 };
+const EXPECTED_CHECKS = Object.values(STEP_CHECKS).reduce((a, b) => a + b, 0);
 const T0 = Date.now();
 
 const results = [];
@@ -417,7 +421,8 @@ async function main() {
   const kid = 'kid-' + RUN + '@example.com';
   const webDevice = 'family-web-' + RUN;
   const sess = await webSignupSession(parent, webDevice);
-  chk(!!sess, 'step 4: the parent\'s account is made through the web sign-up, with a browser session', sess ? 'device ' + sess.device_status : '-');
+  // The session's match code is how P's row is found in 4b: it must be a real one (undefined would match a codeless row).
+  chk(!!sess && typeof sess.match_code === 'string' && sess.match_code !== '', 'step 4: the parent\'s account is made through the web sign-up, with a browser session and its match code', sess ? 'device ' + sess.device_status + ', code ' + sess.match_code : '-');
   chk(await boardSignin(P, parent, 'famp-' + RUN), 'step 4: P signs in as the parent');
   chk(await webSignupSession(kid, 'family-kidweb-' + RUN) !== null, 'step 4: the child\'s account is made through the web sign-up');
   chk(await boardSignin(K, kid, 'famk-' + RUN), 'step 4: K signs in as the child');
@@ -437,7 +442,7 @@ async function main() {
   const listed = await waitFor(async () => {
     const p = await http(P.base, 'GET', '/api/remote/pending');
     const devs = p.json && Array.isArray(p.json.devices) ? p.json.devices : [];
-    return devs.find((d) => d && sess && d.code === sess.match_code) || null;
+    return devs.find((d) => d && sess && typeof sess.match_code === 'string' && sess.match_code !== '' && d.code === sess.match_code) || null;
   }, sess ? 60000 : 0, 1500);   // no session, nothing to find: no wait
   chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? String(listed.device_id || '').slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
@@ -562,8 +567,12 @@ async function main() {
   const ran = results.length;
   // Round 10: name the steps that never ran, so a gap explains itself.
   const stepsSeen = new Set(results.map((x) => ((x.label || '').match(/^step \d+b?/) || [''])[0]));
-  const never = ['step 1', 'step 2', 'step 4', 'step 4b', 'step 5', 'step 6', 'step 7', 'step 8', 'step 9', 'step 10', 'step 11'].filter((x) => !stepsSeen.has(x));
-  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : ''));   // adding a chk above: bump EXPECTED_CHECKS
+  const never = Object.keys(STEP_CHECKS).filter((x) => !stepsSeen.has(x));
+  // A step whose own count is off names itself too (a check added without updating STEP_CHECKS).
+  const counts = {};
+  for (const x of results) { const k = ((x.label || '').match(/^step \d+b?/) || [''])[0]; if (k) counts[k] = (counts[k] || 0) + 1; }
+  const off = Object.keys(STEP_CHECKS).filter((k) => (counts[k] || 0) !== STEP_CHECKS[k] && stepsSeen.has(k)).map((k) => k + ' ' + (counts[k] || 0) + '/' + STEP_CHECKS[k]);
+  chk(ran === EXPECTED_CHECKS, 'end: every check ran (' + EXPECTED_CHECKS + ')', ran + ' ran' + (never.length ? '; never ran: ' + never.join(', ') : '') + (off.length ? '; counts off: ' + off.join(', ') : ''));   // adding a chk above: bump EXPECTED_CHECKS
 }
 
 (async () => {
