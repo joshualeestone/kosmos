@@ -64,7 +64,9 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   /* A `since` that moved EARLIER (the day's start after a zone change) needs lines already passed, so the file is read
      again from the start. */
   if (!e || st.size < e.offset || since < e.since) {
-    // A file read again from the start gives back the ids it counted, or a caller's shared set would skip them all.
+    /* A file read again from the start gives back the ids it counted, or a caller's shared set would skip them all.
+       Not exact: an id this file counted and no longer holds, which another file skipped as already seen, is not
+       counted again (the cap's saved count covers the month). */
     if (e && cache.sharedSeen instanceof Set) for (const id of e.seen) cache.sharedSeen.delete(id);
     e = freshEntry(since);
   }

@@ -97,7 +97,7 @@ test('a zone whose month starts earlier counts the lines already passed (the cac
   assert.equal(usagecap.monthTokens('Asia/Tokyo', NOW, [root]).tokens, 42, 'a cap moved to an earlier zone lost the lines already read');
 });
 
-test('swarm.readFile reads a file again when `since` moves earlier (a day start after a zone change)', () => {
+test('transcriptread.readFile reads a file again when `since` moves earlier (a day start after a zone change)', () => {
   const root = tmp('aw-usecap-earlier-');
   const main = seed(root);
   const c = new Map();
@@ -351,10 +351,29 @@ test('on the board the gate never counts: a worker thread does, and the gate rea
   assert.equal(usagecap.latestForTests(), null, 'a process that is not the board started a counter');
   usagecap.resetForTests({ worker: true, keepFloor: true });
   usagecap.capInForce(Date.now());
-  // The cap taken out: the worker stops and its count goes.
+  // The cap taken out: the worker stops and its count goes. Wait for a count first, or the check cannot fail.
+  const until3 = Date.now() + 30000;
+  while (!usagecap.latestForTests() && Date.now() < until3) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(usagecap.latestForTests(), 'CONTROL: the worker posted a count before the cap was taken out');
   apply({ quiet_hours: null });
   assert.deepEqual(usagecap.capInForce(Date.now()), { capped: false });
   assert.equal(usagecap.latestForTests(), null, 'a board with no cap kept its counter');
+  usagecap.resetForTests();
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
+});
+
+test('on the board a cap in force starts the count at once, without a message or a rollup', async () => {
+  fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
+  const dir = path.join(CONFIG, 'projects', 'boot');
+  fs.mkdirSync(dir, { recursive: true });
+  const now = Date.now();
+  fs.writeFileSync(path.join(dir, 's.jsonl'), line('b1', Math.max(now - 60e3, Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth(), 1)), 30));
+  apply({ usage_cap: { monthly_tokens: 1000, warn_pct: 80, tz: 'UTC' } });
+  usagecap.resetForTests({ worker: true, board: false });   // not yet the board: nothing starts
+  usagecap.countOnThisBoard();                              // as server.js does at start
+  const until = Date.now() + 30000;
+  while (!(usagecap.latestForTests() && usagecap.latestForTests().complete) && Date.now() < until) await new Promise((r) => setTimeout(r, 50));
+  assert.equal(usagecap.latestForTests() && usagecap.latestForTests().tokens, 30, 'the board waited for a first message to start counting');
   usagecap.resetForTests();
   fs.rmSync(path.join(CONFIG, 'projects'), { recursive: true, force: true });
 });
