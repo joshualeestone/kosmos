@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: familyreport-6239
-diff_hash: 8c713438577c0cf6dc7706dd4b1cc17d7c2a6e5befe4993ac69dd6d1190b2c15
+diff_hash: d793f1d52bf73df48e05f1505ef5b6c21c2fb099f5191d2d9cc577135f4b705b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-16T11:30:00Z
+timestamp: 2026-10-16T13:22:00Z
 iterations: 8
 converged: true
 ---
@@ -28,8 +28,12 @@ once (05:25) and that run passed.
 Not exercised by a run: the 300 s branch of the tick schedule (every join came before 60 s); it is checked by reading
 and by the helper's offsets (60, 60, 60, 300, 300, 300, 600, 900 s for joins at 0 to 650 s).
 
-Validation: the closing gate ran through queued-heavy on aeee832020: FINAL-VALIDATION v=0 a=0, validation-log PASSED
-(hash 8c713438577c).
+Validation: the closing gate ran through queued-heavy on 2cfa5dd631 (rebased on main with #6304): FINAL-VALIDATION
+v=0 a=0, validation-log PASSED (hash d793f1d52bf7). The harness on that head: VERDICT PASS 25/25 (07:48).
+
+After the PR: CI went red on the #6287 helper-sync guard (it landed on main after this branch's base): boardSignin is a
+shared helper and the sign-in retry was in the family copy only. The same boardSignin is now in tools/fed-own-e2e.js
+too; the guard passes 2/2. fed-own-e2e.js was not rerun (its change only adds the retry on the board's exact refusal).
 
 #### Iteration 1 (opus)
 The wait could miss the first tick (a join after 60 s). Fixed: wait for the first tick after the join plus 90 s; read
