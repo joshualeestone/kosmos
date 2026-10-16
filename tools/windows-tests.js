@@ -50,6 +50,7 @@ const ALSO = ['agentpermission-5406.test.js', 'backupdevicekey-5535.test.js', 'p
   'projects.linuxopen-5881.test.js',   // #5881: its Linux arms and its Mac and Windows controls run there (the Windows one through a spy); the stand-in arm skips
   'accounts.fsync-5434.test.js',   // #5434 slice 2: the account stores' saves must work on Windows too
   'store.fsync-5434.test.js',   // #5434 slice 4: store.js's profile, settings and picture saves, on Windows too
+  'orgkeypin-5686.test.js',   // #5686 b1-mac: the company-key pin is written and checked on Windows too (its 0600 check skips there)
   'allowance.fsync-5434.test.js',   // #5434 slice 5: the account folder's weekly files, on Windows too
   'create.codexfsync-5434.test.js',   // #5434 slice 7: the codex config.toml rewrite, on Windows too
   'create.codexlock-5434.test.js',    // #5434 slice 8: one lock for the codex config.toml writers; the trust append flushed
