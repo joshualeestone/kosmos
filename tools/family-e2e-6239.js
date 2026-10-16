@@ -416,7 +416,8 @@ async function main() {
   chk(!!listed, 'step 4b: P lists the parent\'s browser as waiting, with the code its sign-up showed', listed ? listed.device_id.slice(0, 8) + '... ' + listed.code : 'match code ' + (sess && sess.match_code));
   if (listed) {
     const r = await http(P.base, 'POST', '/api/remote/devices/allow', { device_id: listed.device_id, code: listed.code }, SCREEN);
-    chk(r.status === 200, 'step 4b: P allows the parent\'s browser', r.status + ' ' + r.text.slice(0, 200));
+    // Only that the route answered: it says allowed even for an id nobody holds (#6286). Step 6 proves the Allow took.
+    chk(r.status === 200, 'step 4b: P\'s Allow route answers for the parent\'s browser', r.status + ' ' + r.text.slice(0, 200));
   }
 
   // 5. the operator makes the family (orgs are operator-made: org-create --kind family).
@@ -435,7 +436,7 @@ async function main() {
     let r = null;
     let lastErr = '';
     await waitFor(async () => {
-      try { r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token)); } catch (e) { lastErr = String(e && e.message || e); return false; }
+      try { r = await http(REL.coordinator, 'POST', '/v1/org/invites', {}, bearer(sess.token)); } catch (e) { r = null; lastErr = String(e && e.message || e); return false; }
       return r.status === 200;
     }, 45000, 1500);
     if (!r) r = { status: 0, json: null, text: 'no answer: ' + lastErr };   // review 1: report the cause, not a TypeError
@@ -453,12 +454,13 @@ async function main() {
     const flat = (v) => (Array.isArray(v) ? v.flatMap(flat) : v && typeof v === 'object' ? Object.values(v).flatMap(flat) : typeof v === 'string' ? [v] : []);
     const words = flat(pv.consent || {}).join(' ');
     chk(/family/i.test(words) && !/company/i.test(words), 'step 7: the words K shows are the family\'s, naming no company', words.slice(0, 160));
-    const st = await http(K.base, 'GET', '/api/org');
+    const st = await http(K.base, 'GET', '/api/org');   // no screen headers needed: whether it is enrolled is told to anyone
     chk(st.status === 200 && st.json && st.json.enrolled === false, 'step 7 control: K is not joined after a preview', st.status + ' ' + st.text.slice(0, 120));
   }
 
   let joined = false;
-  // 8. a join that does not say the words were shown is refused, and the code is not spent (CONTROL for step 9).
+  // 8. a join that does not say the words were shown is refused (CONTROL for step 9). That the code is not spent by it
+  // is shown by step 9 joining with the same code.
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket }, SCREEN);
     chk(r.json && r.json.ok === false && r.json.code === 'org_family_words_unseen', 'step 8: a family join without the words screen is refused', r.status + ' ' + r.text.slice(0, 200));
@@ -482,10 +484,12 @@ async function main() {
   // 10. the spent code, previewed again: the coordinator checks a code before anything else, so it is told "used"
   // (not "already a member"), in the board's own sentence for a used code, which names no company.
   if (code) {
-    const SAY = require(path.join(REPO, 'engine', 'orgenroll')).SAY;
+    // The board's own choice for a family: a family's sentence where it has one, else the shared one (orgenroll sayCode).
+    const oe = require(path.join(REPO, 'engine', 'orgenroll'));
+    const usedWords = (oe.FAMILY_SAY && oe.FAMILY_SAY.org_code_used) || oe.SAY.org_code_used;
     const r = await http(K.base, 'POST', '/api/org/preview', { code }, SCREEN);
     const b = (r.json && r.json.because) || '';
-    chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === SAY.org_code_used && !/company/i.test(b),
+    chk(r.json && r.json.ok === false && r.json.code === 'org_code_used' && b === usedWords && !/company/i.test(b),
       'step 10: the used code is refused as used, in words that name no company', (r.json && r.json.code) + ': ' + (b || r.text.slice(0, 160)));
   }
 
