@@ -58,8 +58,8 @@ and still repaired. A login job that cannot be read leaves the answer unknown (s
 - A launcher under a folder macOS guards with a privacy prompt (Documents, Desktop, Downloads, app containers, iCloud
   Drive) or on another volume is never touched, so the five-second poll raises no prompt; a script-like name there
   leaves every agent without its own plist unknown (#6320 is how the person will be told).
-- Script text is matched ignoring case, with "$HOME" and "${HOME}" quoted forms read as $HOME, (the Mac's disks do), under the folder as written, its real path, and ~ or
-  $HOME for both the OS home and Kosmos's own.
+- Script text is matched ignoring case (the Mac's disks do), under the folder as written, its real path, and ~ or
+  $HOME for both the OS home and Kosmos's own; the quoted forms "$HOME" and "${HOME}" read as $HOME.
 - Known inconsistency, not changed here: `create.jobMissing` (the offline card's "Made before Kosmos recorded this")
   still looks only at Kosmos's own plist, so an agent covered here can still get that card's no-job wording. In #6320.
 - Not covered, stated so nobody reads it as covered: a launcher that runs a SECOND script holding the folder (one hop
