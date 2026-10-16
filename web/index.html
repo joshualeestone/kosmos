@@ -9622,6 +9622,23 @@ body.consolidated .tkcard:hover { border-color: transparent; }
 #nt-modal .rm-box.rm-box-form { max-height: 100%; overflow-y: auto; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
+/* #6255 DESIGN MOCK (Help Kosmos Grow), design branch growmock-6255 only, never merged: an always-skippable invite
+   step modelled on Jitter's onboarding screen (Josh, 2026-10-15). Engraved line art in the first-run choice screens'
+   language: the gold dot is you, the outlined dots are the people you invite. */
+#grow-modal .rm-box { max-width: 30rem; text-align: center; }
+.grow-art { display: block; width: 220px; height: 70px; margin: 0 auto var(--space-5); fill: none; stroke: var(--label-2);
+  stroke-width: 2; stroke-linecap: round; }
+.grow-art .g { fill: var(--gold); stroke: none; }
+.grow-art .o { fill: var(--bg-elevated); stroke: var(--gold-edge); stroke-width: 2.5; }
+#grow-modal .rm-title { margin-bottom: var(--space-3); }
+#grow-modal .rm-small { margin-bottom: var(--space-5); }
+.grow-fields { display: flex; flex-direction: column; gap: var(--space-3); margin: 0 0 var(--space-3); text-align: left; }
+.grow-fields .tk-inp { width: 100%; box-sizing: border-box; }
+.grow-fine { font: var(--text-footnote, var(--text-caption)) var(--font-ui); color: var(--label-2); margin: 0 0 var(--space-6); line-height: 1.4; }
+#grow-modal .rm-acts { justify-content: center; }
+#grow-modal .rm-acts .btn { min-width: 9rem; justify-content: center; }
+.grow-sent-ok { width: 54px; height: 54px; margin: 0 auto var(--space-5); border-radius: 50%; background: var(--gold); display: flex; align-items: center; justify-content: center; }
+.grow-sent-ok svg { width: 26px; height: 26px; stroke: var(--label); fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
 /* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
    Cancel button crowding the dropdown), and the label gets air from the menu so
    the two are not touching. Scoped to #am-modal so no other modal's layout moves. */
@@ -13780,6 +13797,31 @@ window.kosmosMeasureScrollbarWidth();
      working throughout; only the board restarts. The sentence order is the
      design: first what happens to the person, then the line that stops it
      being alarming. "Kosmos closes", never "the board closes". -->
+<!-- #6255 DESIGN MOCK (Help Kosmos Grow): design branch only, never merged. growMock(state) draws it for the shots. -->
+<div class="rm-back" id="grow-modal" hidden>
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="grow-t" aria-describedby="grow-d">
+    <div id="grow-ask">
+      <svg class="grow-art" viewBox="0 0 220 70" aria-hidden="true"><path d="M110 35 L46 18 M110 35 L46 52 M110 35 L174 18 M110 35 L174 52"/>
+        <circle class="g" cx="110" cy="35" r="13"/><circle class="o" cx="38" cy="16" r="9"/><circle class="o" cx="38" cy="54" r="9"/><circle class="o" cx="182" cy="16" r="9"/><circle class="o" cx="182" cy="54" r="9"/></svg>
+      <h2 class="rm-title" id="grow-t">Help Kosmos grow</h2>
+      <p class="rm-small" id="grow-d">Know someone who would like their own AI agents? Invite them. When one of them joins Kosmos+, your next month of Kosmos+ is free.</p>
+      <div class="grow-fields">
+        <input class="tk-inp" type="email" aria-label="First person's email" placeholder="name@example.com" id="grow-e1">
+        <input class="tk-inp" type="email" aria-label="Second person's email" placeholder="name@example.com" id="grow-e2">
+        <input class="tk-inp" type="email" aria-label="Third person's email" placeholder="name@example.com" id="grow-e3">
+      </div>
+      <p class="grow-fine">Each person gets one email from Kosmos+ with a link to install Kosmos. You can invite more later in Settings, Kosmos+.</p>
+      <div class="rm-acts"><button class="btn" type="button">Skip</button><button class="btn uprime" type="button" id="grow-send" disabled>Send invites</button></div>
+    </div>
+    <div id="grow-sent" hidden>
+      <div class="grow-sent-ok" aria-hidden="true"><svg viewBox="0 0 26 26"><path d="M5 13.5l5 5L21 7.5"/></svg></div>
+      <h2 class="rm-title">Invites sent</h2>
+      <p class="rm-small">We'll tell you here when someone you invited joins Kosmos+. Your free month starts with your next bill.</p>
+      <div class="rm-acts"><button class="btn uprime" type="button">Done</button></div>
+    </div>
+  </div>
+</div>
+
 <div class="rm-back" id="updconfirm" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="uc-t" aria-describedby="uc-small">
     <h2 class="rm-title" id="uc-t">Update Kosmos?</h2>
@@ -36098,6 +36140,20 @@ function streakLocalDay(d) {
 }
 function streakLabel(n) { return n === 1 ? '1 day in the Kosmos' : n + ' days in a row in the Kosmos'; }
 function streakCongrats(n) { return "Congrats you've been in the Kosmos for " + n + ' days!'; }
+/* #6255 DESIGN MOCK (design branch only, never merged): draws Help Kosmos Grow's three states for /design-shots. */
+window.growMock = function (state) {
+  const m = document.getElementById('grow-modal');
+  if (state === 'reward') {
+    const slot = document.getElementById('streak-slot');
+    slot.innerHTML = '<div class="utoast streak"><span class="udot" aria-hidden="true"></span><div class="utxt" role="status"><b>Someone you invited joined Kosmos+.</b>'
+      + '<small>Your next month of Kosmos+ is free. Thank you for helping Kosmos grow.</small></div><button type="button" class="ux" aria-label="Dismiss">&times;</button></div>';
+    m.hidden = true; return;
+  }
+  m.hidden = false;
+  document.getElementById('grow-ask').hidden = state === 'sent';
+  document.getElementById('grow-sent').hidden = state !== 'sent';
+  if (state === 'filled') { document.getElementById('grow-e1').value = 'sam@example.com'; document.getElementById('grow-e2').value = 'jordan@example.com'; document.getElementById('grow-send').disabled = false; }
+};
 let streakDay = null, streakAsking = false, streakNoteTimer = null, streakInputAt = 0, streakMisses = 0;   // the load itself is not input: it already counted its own day
 function streakNoteGone() {
   const slot = document.getElementById('streak-slot');

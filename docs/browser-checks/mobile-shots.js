@@ -471,6 +471,14 @@ const SCREENS = [
     else await page.evaluate(() => document.getElementById('kstreak').classList.add('show'));
     await page.waitForFunction(() => getComputedStyle(document.getElementById('kstreak')).opacity === '1', null, { timeout: 5000 });
   } },
+  /* #6255 DESIGN MOCK (design branch growmock-6255 only): Help Kosmos Grow, over the 5th-day streak note it follows. */
+  ...['ask', 'filled', 'sent', 'reward'].map((st) => ({ name: 'grow-' + st, owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => {
+    await page.route('**/api/streak', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 5, congrats: true }) }));
+    await at(page, '');
+    await page.waitForSelector('#streak-slot .utoast.streak', { state: 'visible', timeout: 12000 });
+    await page.evaluate((s) => window.growMock(s), st);
+    await page.waitForSelector(st === 'reward' ? '#streak-slot .utoast.streak small' : '#grow-modal:not([hidden])', { state: 'visible', timeout: 5000 });
+  } })),
   /* Both assert they got there: a renamed control must fail the shot, not
      quietly photograph the home screen again. */
   // phoneOnly: the menu button (#burger) exists only at phone widths, so the desktop size skips it.
