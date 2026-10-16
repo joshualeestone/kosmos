@@ -40,7 +40,7 @@ function slice(start) {
 
 /* A stand-in for the few elements the two painters touch. setIfChanged is the page's own contract (write only on a
    change), reduced to the write. */
-function rig({ consolidated, current, projects, board }) {
+function rig({ consolidated, current, projects, board, red = () => false }) {
   const el = () => ({ hidden: false, innerHTML: '', textContent: '', dataset: {}, attrs: {},
     setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return this.attrs[k]; } });
   const els = { 'alist-pj-notice': el(), 'alist-pj-notice-said': el(), 'alist-teammap-btn': el(), 'alist-teammap': el() };
@@ -50,7 +50,7 @@ function rig({ consolidated, current, projects, board }) {
     body: { classList: { contains: (c) => c === 'consolidated' && consolidated } } };
   const open = new Set();
   // eslint-disable-next-line no-new-func
-  const make = new Function('document', 'PJ_CURRENT', 'PROJECTS', 'LAST', 'PJ_TEAMMAP_OPEN',
+  const make = new Function('document', 'PJ_CURRENT', 'PROJECTS', 'LAST', 'PJ_TEAMMAP_OPEN', 'RED',
     ['function esc(', 'const STATE_COPY = ', 'function restartingLabel(', 'function stateCopyOf(', 'const WV_PROVIDER = ',
       'function orgTreeOf(', 'function pjTeamMap(', 'function paintRailTeamMap(', 'function paintRailPjNotice('].map(slice).join('\n')
     + `
@@ -59,9 +59,9 @@ function pjById(id) { return PROJECTS.find((x) => x.id === id) || null; }
 function pjKeepOpenFocus(box, paint) { paint(); }
 function pjNeedsNotice() { return ''; }
 function pjNotice() { return ''; }
-function pjRedHere() { return false; }
+function pjRedHere(m) { return RED(m); }
 return { paint: paintRailPjNotice };`);
-  const api = make(document, current, projects, board, open);
+  const api = make(document, current, projects, board, open, red);
   return { els, open, paint: api.paint };
 }
 
@@ -149,4 +149,18 @@ test('#6324: the page wires the rail map: a closed button in the rail head, and 
   assert.match(PAGE, /getElementById\('alist-teammap-btn'\)\.addEventListener\('click'[^]{0,250}PJ_TEAMMAP_OPEN[^]{0,150}paintRailPjNotice\(\)/);
   assert.match(PAGE, /getElementById\('alist-teammap'\)\.addEventListener\('click'[^]{0,200}openDetail\(n\.dataset\.agent, undefined, PJ_CURRENT\)/);
   assert.match(PAGE, /body\.consolidated\.fold-a #rail-agents > \.alist-tmbtn, [^{]*#rail-agents > \.alist-tm \{ display: none; \}/, 'folding the agents column does not hide the map');
+});
+
+test('#6324: the rail passes the needs-you predicate, so a member drawn red gets the "!" as in the tab layout', () => {
+  const { p, board } = build('RailRed');
+  const present = { ...p, agents: p.agents.map((m) => ({ ...m, present: true })) };
+  const plain = rig({ consolidated: true, current: p.id, projects: [present], board });
+  plain.open.add(String(p.id));
+  plain.paint();
+  assert.doesNotMatch(plain.els['alist-teammap'].innerHTML, /pjtm-need/, 'CONTROL: with nobody red, no member is marked');
+  const r = rig({ consolidated: true, current: p.id, projects: [present], board, red: (m) => m.sessionName === 'pixel' });
+  r.open.add(String(p.id));
+  r.paint();
+  assert.match(r.els['alist-teammap'].innerHTML, /class="pjtm-node pjtm-need" type="button" data-agent="pixel"/, 'a member the predicate draws red is not marked on the rail map');
+  assert.doesNotMatch(r.els['alist-teammap'].innerHTML, /pjtm-need" type="button" data-agent="(roo|quill)"/, 'a member not drawn red was marked');
 });
