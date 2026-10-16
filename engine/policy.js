@@ -66,7 +66,7 @@ const NAME_MAX = 60;
 const BLOCK_MAX = 128 * 1024;
 
 /* 🔑 The company policy's fallback name: companyEntry() uses it when the company's ai_policy has no usable name, where
-   "Company AI policy" is true. It no longer names anything the person saved (#6273, MIGRATED_NAME below). */
+   "Company AI policy" is true. It is no longer the name a migrated record is given (#6273, MIGRATED_NAME below). */
 const DEFAULT_NAME = 'Company AI policy';
 
 /* #6273: the name a migrated #479 record wears. #685 named it DEFAULT_NAME, on Josh's model that a policy's name says
@@ -269,10 +269,13 @@ function rename(id, name) {
   if (current.policies.some((p, i) => i !== at && p.name.toLowerCase() === next.toLowerCase())) {
     throw new Error('another policy already wears that name');
   }
+  // #6273: the same name again changes nothing, so nothing is saved (a save would also settle a pending rename of p1).
+  if (next === current.policies[at].name) return current.policies[at];
   const policies = current.policies.slice();
   policies[at] = { ...policies[at], name: next };
-  // Renaming p1 itself is the person's choice, so it is saved as theirs (version 3); any other rename keeps it pending.
-  persist(policies, policies[at].id !== MIGRATED_ID && renameStillPending(current, policies));
+  // Renaming p1 to anything else moves it off DEFAULT_NAME, so it is saved as theirs (version 3); renaming another entry
+  // keeps a pending rename of p1 pending.
+  persist(policies, renameStillPending(current, policies));
   return policies[at];
 }
 
