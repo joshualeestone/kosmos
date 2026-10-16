@@ -3,9 +3,9 @@
  * layout's "Team map" button. The Agents rail head gets its own button and box.
  *
  * Drives the SHIPPED page against a real server (sandboxed roots, fixture panes, never a live agent): a project with
- * three fixture members, the consolidated layout at 1280 wide. Asserts the tab layout's button cannot be reached there
+ * ten fixture members, the consolidated layout at 1280 wide. Asserts the tab layout's button cannot be reached there
  * (the problem), the rail's button shows and starts closed, opens the map with aria-expanded true, every member is on
- * it, the map fits the rail, folding the agents column hides it, a second click closes it, and a member on the map opens
+ * it, the map fits the rail sideways and scrolls itself rather than the page, folding the agents column hides it, a second click closes it, and a member on the map opens
  * that agent's page. What the map counts is the unit suites' (web.teammap-6103.test.js, web.teammap-rail-6324.test.js).
  *
  * Every arm after the controls reds on the #6103 page alone: there is no #alist-teammap-btn and no #alist-teammap.
@@ -23,7 +23,8 @@ const { chromium } = require('playwright');
 const REPO = path.resolve(__dirname, '..', '..');
 const PORT = Number(execFileSync(process.execPath,
   ['-e', "const s=require('node:net').createServer();s.listen(0,'127.0.0.1',()=>{process.stdout.write(String(s.address().port));s.close()})"], { encoding: 'utf8' }));
-const NAMES = ['rmada', 'rmben', 'rmcy'];
+// Ten members, so the open map is taller than the rail can give it and the height cap is exercised.
+const NAMES = ['rmada', 'rmben', 'rmcy', 'rmdee', 'rmeve', 'rmfay', 'rmgus', 'rmhal', 'rmivy', 'rmjo'];
 
 let failures = 0;
 const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { failures++; console.log('FAIL  ' + n + '  --  ' + (note || 'assertion failed')); } };
@@ -65,7 +66,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       for (const n of names) codes.push((await fetch('/api/project/' + body.project.id + '/agent/' + n, { method: 'POST', headers: { 'content-type': 'application/json' } })).status);
       return { id: body.project.id, codes };
     }, NAMES);
-    say('CONTROL: the three fixture members were added', made.codes.every((c) => c >= 200 && c < 300), JSON.stringify(made.codes));
+    say('CONTROL: the ten fixture members were added', made.codes.every((c) => c >= 200 && c < 300), JSON.stringify(made.codes));
 
     await p.click('[data-tab="projects"]');
     await p.evaluate(() => applyLayout('consolidated', true));
@@ -81,7 +82,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         tabBtn: vis(document.getElementById('pj-teammap-btn')),
         btn: vis(btn), expanded: btn && btn.getAttribute('aria-expanded'), shown: vis(box),
         nodes: box ? [...box.querySelectorAll('.pjtm-node[data-agent]')].map((n) => n.dataset.agent) : [],
-        over: box ? box.scrollWidth - box.clientWidth : null };
+        over: box ? box.scrollWidth - box.clientWidth : null,
+        tall: box ? box.scrollHeight - box.clientHeight : null,
+        pageDown: document.documentElement.scrollHeight - document.documentElement.clientHeight };
     });
     const before = await state();
     say('CONTROL: the consolidated layout is on with the project open', before.cons && before.open === made.id, JSON.stringify(before));
@@ -93,12 +96,31 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.waitForFunction(() => !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
     const opened = await state();
     say('the button opens the map and says so', opened.shown && opened.expanded === 'true', JSON.stringify(opened));
-    say('every member is on the rail map', NAMES.every((n) => opened.nodes.includes(n)) && opened.nodes.length === 3, JSON.stringify(opened.nodes));
+    say('every member is on the rail map', NAMES.every((n) => opened.nodes.includes(n)) && opened.nodes.length === NAMES.length, JSON.stringify(opened.nodes));
     const words = await p.textContent('#alist-teammap');
     say('the map says what each holds and who handed work', /holds no open parts/.test(words) && /Who handed work to whom/.test(words), words);
     say('the open map fits the rail (no sideways scroll)', opened.over !== null && opened.over <= 0, 'overflow ' + opened.over + 'px');
     const pageOver = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     say('the open map does not widen the page', pageOver <= 0, 'overflow ' + pageOver + 'px');
+    // Height: with ten members the map is taller than its cap, so it must scroll inside itself, not push the page.
+    say('CONTROL: the page did not scroll down before the map opened', before.pageDown <= 0, 'page ' + before.pageDown + 'px');
+    say('CONTROL: ten members make the map taller than its box (so the next arm tests the cap)', opened.tall > 0, 'map overflow ' + opened.tall + 'px');
+    say('the open map does not make the page scroll down', opened.pageDown <= 0, 'page ' + opened.pageDown + 'px');
+
+    // Focus survives a repaint that replaces the map's buttons (a member's word changing between polls).
+    const kept = await p.evaluate((pid) => {
+      const node = document.querySelector('#alist-teammap .pjtm-node[data-agent="rmcy"]');
+      node.focus();
+      const pj = PROJECTS.find((x) => x.id === pid);
+      const m = pj.agents.find((a) => a.sessionName === 'rmcy');
+      m.name = 'Cy renamed';
+      paintRailPjNotice();
+      const now = document.querySelector('#alist-teammap .pjtm-node[data-agent="rmcy"]');
+      const a = document.activeElement;
+      return { replaced: !!now && now !== node && !node.isConnected, on: a && a.dataset ? a.dataset.agent || a.id : null };
+    }, made.id);
+    say('CONTROL: the repaint really replaced the focused button', kept.replaced, JSON.stringify(kept));
+    say('focus comes back to the same member after a repaint', kept.on === 'rmcy', JSON.stringify(kept));
 
     // Folding the agents column hides the map with the rest of the head, and unfolding brings it back.
     await p.click('#rail-agents-fold');
