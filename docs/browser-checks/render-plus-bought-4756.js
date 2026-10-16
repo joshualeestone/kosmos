@@ -202,9 +202,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       const regs = [];
       let asked = 0;
       await open(page);
-      // kosmos#6314: the add panel's own 10 s re-read would make the exact read counts below depend on timing; focus
-      // still re-reads (paid-by-focus drives it on purpose).
-      await page.evaluate(() => { PLUS_SI_AUTO_OFF = true; });
+      // kosmos#6314: the add panel's own re-reads (the 10 s tick and window focus) would make the exact read counts below
+      // depend on timing; the scenarios that test them switch them back on first.
+      await page.evaluate(() => { window.__kosmosPlusAutoOff = true; });
       await page.route('**/api/remote/signin-**', (route, req) => {
         const p = new URL(req.url()).pathname;
         // #6027: some answers are sent late (setTimeout below), so each one catches its own rejection after close.
@@ -353,7 +353,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         chk(/Each computer you add is \$20 a month\./.test(lead), `[${key}] and says what it costs, in Stripe's figure`, lead);
         chk(/^Add this computer$/.test((await page.textContent('#plus-si-bought-buy')).trim()), `[${key}] the button adds this computer`, await page.textContent('#plus-si-bought-buy'));
         chk(asked === 1 && regs.length === 0, `[${key}] nothing asked again or registered yet`, asked + ' ' + JSON.stringify(regs));
-        await page.evaluate(() => window.dispatchEvent(new Event('focus')));   // back from the website
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });   // back from the website
         await page.waitForFunction(() => /Signed in\. Connecting this computer to Kosmos\+\./.test(document.getElementById('plus-signin-msg').textContent), null, { timeout: 8000 }).catch(() => {});
         chk(asked === 2, `[${key}] coming back to the window checked again with no press`, String(asked));
         chk(JSON.stringify(regs) === '["paid"]', `[${key}] and took the one paid address with no pick`, JSON.stringify(regs));
@@ -384,7 +384,7 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForTimeout(1500);   // room for a second automatic register, which must not come
         chk(JSON.stringify(regs) === '["spare"]', `[${key}] the one free address was taken with no click, once`, JSON.stringify(regs));
         chk((await page.textContent('#plus-si-register-go')).trim() === 'Try again', `[${key}] the offline failure offers Try again`);
-        await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+        await page.evaluate(() => { window.__kosmosPlusAutoOff = false; window.dispatchEvent(new Event('focus')); });
         await page.waitForTimeout(1200);
         chk(JSON.stringify(regs) === '["spare"]', `[${key}] coming back to the window does not take it again by itself`, JSON.stringify(regs));
         await page.click('#plus-si-register-go');
