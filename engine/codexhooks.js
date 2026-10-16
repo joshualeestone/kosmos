@@ -8,7 +8,9 @@
  *
  * MEASURED on codex-cli 0.149.1, the pinned build (card comment 6219788459), against the real CLI and a local fake
  * Responses server, no model quota:
- *   - a file edit is an `apply_patch` call; PreToolUse fires before it with tool_input.command = the whole patch text;
+ *   - a file edit is an `apply_patch` call; PreToolUse fires before it with tool_input.command = the whole patch text.
+ *     NOT covered (review 9, measured): an apply_patch the model sends through the shell (exec_command with a heredoc)
+ *     is applied by Codex but reaches no hook here; see the plan;
  *   - hooks are ON by default (`codex features list`: hooks stable true), and a hook runs only with a trust record.
  *     🛑 AN UNTRUSTED OR CHANGED HOOK IS NOT SKIPPED IN THE TUI, WHICH IS HOW KOSMOS RUNS CODEX: it stops the agent at
  *     launch on "Hooks need review" (test-support/codex-screens/hook-review-*; #4589 types nothing into it). Only
