@@ -202,7 +202,7 @@ function jobReader(platform) {
         // .native: the path as the disk spells it, so a WorkingDirectory written in another case still matches.
         try { dir = fs.realpathSync.native(create.workerDir(name)); } catch { dir = null; }
         // The answer for a folder only changes when a login job, a launcher script or the home folder does.
-        const memoKey = name + '\0' + dir + '\0' + create.homeDir();
+        const memoKey = name + '\0' + dir + '\0' + create.homeDir() + '\0' + require('node:os').homedir();
         if (VERDICTS.map.has(memoKey)) return VERDICTS.map.get(memoKey);
         const verdict = (() => {
           if (dir && foreign.dirs.has(dir)) return true;
@@ -232,8 +232,9 @@ const FOREIGN_CACHE = new Map();
 const SCRIPT_CACHE = new Map();
 let VERDICTS = { sig: null, map: new Map() };   // per-agent answers for one state of the login jobs and their scripts
 function unxml(v) {
-  return v.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#([0-9]+);/g, (m, d) => String.fromCodePoint(parseInt(d, 10)))
+  const cp = (m, n) => (n >= 0 && n <= 0x10ffff ? String.fromCodePoint(n) : m);   // an impossible one stays as written
+  return v.replace(/&#x([0-9a-fA-F]+);/g, (m, h) => cp(m, parseInt(h, 16)))
+    .replace(/&#([0-9]+);/g, (m, d) => cp(m, parseInt(d, 10)))
     .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 }
 const PLIST_MAX = 262144;   // a launchd plist is a few hundred bytes; anything this large is not read
@@ -354,7 +355,9 @@ function foreignLoginFolders() {
       if (!path.isAbsolute(a)) continue;
       scripts.add(a);
       const t = scriptText(a);
-      sigParts.push(a + ':' + (SCRIPT_CACHE.has(a) ? SCRIPT_CACHE.get(a).sig : String(t === UNREADABLE)));
+      let ast = null; try { ast = fs.statSync(a); } catch { ast = null; }
+      // Mode too: a file made executable (or renamed to a script) becomes a launcher without its contents changing.
+      sigParts.push(a + ':' + (ast ? ast.mode + ':' + ast.size + ':' + ast.mtimeMs : 'none') + ':' + String(t === UNREADABLE));
       if (t === UNREADABLE) unknownAll = true;   // a launcher we cannot read may be any agent's
       else if (t !== null) texts.add(t);
     }
