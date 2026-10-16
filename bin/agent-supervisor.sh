@@ -1175,9 +1175,11 @@ if [ -z "$adopt" ]; then
     elif [ -n "$_eng" ] && [ -n "${NODE_BIN:-}" ] && [ -n "${EFFECTIVE_CODEX_HOME:-}" ]; then
       # Review 6, measured: `codex --version` writes <CODEX_HOME>/tmp/arg0 every run, so it runs against the private home.
       # Review 7: with node's folder on PATH (an npm codex is `#!/usr/bin/env node`, and the pane gets that folder too),
-      # and at most 5 s (bash 3.2 has no timeout): a stalled first exec must not hold the launch. The whole process GROUP
-      # is killed at 5 s, not just the program: a child still holding the output pipe would keep $(...) waiting (measured
-      # by its test). No answer is an empty version, which means no hook.
+      # and codex itself at most 5 s (bash 3.2 has no timeout): a stalled first exec must not hold the launch. The whole
+      # process GROUP is killed at 5 s, not just the program: a child still holding the output pipe would keep $(...)
+      # waiting (measured by its test). Not covered: a child that leaves the group (setsid) after codex has exited on its
+      # own. No answer is an empty version, which means no hook (a slow first exec after an update costs that launch its
+      # hook, and says so).
       _codex_ver="$(CODEX_HOME="$EFFECTIVE_CODEX_HOME" PATH="$PATH:$(dirname "$NODE_BIN")" perl -e '
         my $p = fork; die unless defined $p;
         if (!$p) { setpgrp(0, 0); exec @ARGV; exit 127 }
