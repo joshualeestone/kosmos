@@ -24,12 +24,13 @@
  *   R6  a company, or a family whose words are accepted, is offered nothing to read.
  *   R7  a review refused with no code keeps the words and says to press Accept again; one with a code says to read them
  *       again (never "Connect Account", never "tries again on its own"); Leave with the words open closes them.
- *   R8  a review refused because this account is no longer in the family keeps the engine's reason, reads /api/org again
- *       and does not put focus on the words button.
+ *   R8  a review refused because this account is no longer in the family keeps the engine's reason, reads /api/org again,
+ *       does not put focus on the words button, and the joined sentence asks nobody to accept.
  *   R11 org_bad_world (the ticket kept) keeps the words and says to press Accept again.
  *   R12 a refused review preview (already accepted here) says why and reads /api/org again.
  *   R13 an open review's words close when a read says they are accepted here (another window accepted them).
  *   R14 words held back after R8 do not outlive the membership: a Leave clears them, so after a new join they are offered again.
+ *   R15 a review answered as not a family's says so, and the words stay held back across a read of the same record.
  *   R9  a leave refused while the words are needed says a parent is needed, not that Kosmos takes the terms on itself.
  *   R10 an Accept the next read contradicts (still wordsNeeded) says this computer could not record the words.
  *   F10 a family's words checked while the block was held open only by a line under it stay up, with the code above.
@@ -340,10 +341,11 @@ async function run(engineName) {
     await page.click('#plus-org-family-accept');
     await page.waitForFunction(() => document.getElementById('plus-org-family').hidden, null, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(250);
-    const r8 = { msg: await text('plus-org-msg'), focus: await focus(), row: await shown('plus-org-words'),
+    const r8 = { msg: await text('plus-org-msg'), focus: await focus(), row: await shown('plus-org-words'), say: await text('plus-org-say'),
       reread: await page.evaluate((k) => window.__org.slice(k).some((x) => x.path === '/api/org' && x.method === 'GET'), m) };
-    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread && !r8.row,
-      E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again', JSON.stringify(r8));
+    chk(r8.msg === 'Your family says this account is no longer in it. Nothing changed on this computer.' && r8.focus !== 'plus-org-words' && r8.reread && !r8.row
+        && r8.say.includes('reports nothing to the family') && !r8.say.includes('accepts'),
+      E + ' R8 no longer in the family: the engine\'s reason, the view read again, the words button not offered again, nobody asked to accept', JSON.stringify(r8));
     // R14: held-back words do not outlive this membership. Leave (no read for a minute after it), join the family again,
     // and the next read still says the words are needed: the button is offered with the line that names it.
     await page.evaluate((st) => { window.__leaveAnswer = { ok: true }; window.__orgState = st; }, WAITING);
@@ -389,6 +391,19 @@ async function run(engineName) {
     await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
     const r13 = { open13, box: await shown('plus-org-family'), row: await shown('plus-org-words') };
     chk(r13.open13 && !r13.box && !r13.row, E + ' R13 a read that says the words are accepted closes an open review', JSON.stringify(r13));
+    // R15: a review answered as not a family's: says so, and the words stay held back across a read of the same record.
+    await reread(WAITING);
+    await setPreview({ move: true, review: true, org: COMPANY.org, consent: COMPANY_WORDS });
+    await page.click('#plus-org-words');
+    await page.waitForTimeout(300);
+    const r15 = { msg: await text('plus-org-msg'), box: await shown('plus-org-family'), row0: await shown('plus-org-words') };
+    await reread(WAITING);
+    Object.assign(r15, { row: await shown('plus-org-words'), say: await text('plus-org-say') });
+    chk(r15.msg === 'Kosmos+ did not answer as a family account, so there are no family words to read here.' && !r15.box && !r15.row0 && !r15.row
+        && !r15.say.includes('accepts'), E + ' R15 a review answered as not a family\'s says so and the words stay held back', JSON.stringify(r15));
+    // A read that says the words are no longer needed releases them.
+    await reread(Object.assign({}, WAITING, { wordsNeeded: false, reporting: true }));
+    await page.evaluate(() => { document.getElementById('plus-org-msg').textContent = ''; });
     // R9: a leave refused (the last admin) while the words are needed.
     await page.evaluate((st) => { window.__orgState = Object.assign({}, st, { leaveRefused: 'The Rivera family' }); PLUS_ORG.at = 0; plusOrgMaybe(); }, WAITING);
     await page.waitForTimeout(250);

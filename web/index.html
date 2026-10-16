@@ -50892,7 +50892,10 @@ function plusOrgPaint() {
      and offers them, unless they are already open. */
   const wordsRow = document.getElementById('plus-org-words-row');
   if (wordsRow) wordsRow.hidden = !(here && st.wordsNeeded === true && !PLUS_ORG_FAMILY && !PLUS_ORG.wordsRefused);
-  if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
+  // Words held back (review 12): the record here still says joined until the next refresh, but no parent can accept, so
+  // the sentence asks nothing of them.
+  if (here && st.wordsNeeded === true && PLUS_ORG.wordsRefused) document.getElementById('plus-org-say').textContent = 'This Kosmos still shows ' + (st.org.name || 'a family account') + ' on this computer, and it reports nothing to the family.';
+  else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.';
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') : ''));
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks
@@ -51071,7 +51074,9 @@ async function plusOrgFamilyReview() {
   try {
     const p = await plusOrgPost('preview', { review: true });
     if (!p.ok) { refused = true; msg.textContent = p.because || 'The family\u2019s words could not be read just now. Try again in a minute.'; return; }
-    if (!(p.org && p.org.kind === 'family')) { refused = true; msg.textContent = 'Kosmos takes your company\u2019s terms on itself; there is nothing to read here.'; return; }
+    // Kosmos+ did not answer as a family's (review 12): nothing for a parent to read, and the words stay held back until a
+    // read says they are no longer needed, so the button does not come back with each read of this computer's record.
+    if (!(p.org && p.org.kind === 'family')) { refused = true; PLUS_ORG.wordsRefused = true; msg.textContent = 'Kosmos+ did not answer as a family account, so there are no family words to read here.'; return; }
     plusOrgFamilyShow(null, p);
     plusOrgPaint();   // the words row folds while the words are open
   } finally {
@@ -51117,7 +51122,8 @@ async function plusOrgLeave() {
      before anything was done (the screen check, "not your work Kosmos") changed nothing, so the view stays and says why. */
   const changed = r.ok === true || r.pending === true;
   // Words held back after a refusal belong to the membership just left. Every other way out of it is a read, which clears them.
-  if (changed) { PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.wordsRefused = false; }
+  // A read that started before this write is dropped (review 12), as after a family's Accept.
+  if (changed) { PLUS_ORG.state = { enrolled: false, org: null, role: null }; PLUS_ORG.wordsRefused = false; PLUS_ORG.wroteAt = Date.now(); }
   PLUS_ORG.at = Date.now();
   const org0 = st0 && st0.org;   // kosmos#6251: the org left, for its kind
   const name = (org0 && org0.name) || plusOrgIn(org0, 'your company');
