@@ -42,8 +42,9 @@ notice is uncapped, so that pair can make the page scroll, as a long notice can 
 folding the agents column drops keyboard focus from anything in the rail head, the map included (as it does for
 the notice's buttons and the rows; the fold is CSS only).
 Focus: a repaint finds a focused member again by data-agent; a focused member who leaves hands focus to the Team map
-button; after a switch to another project it goes to the button, never into the new map. While the map is shown, a
-repaint keeps its scroll position. Its scrollbar is hidden, as every list in the
+button; after a switch to another project whose map is drawn differently, it goes to the button. If the focused member
+was the last one, the button goes too and focus falls to the page. While the map is shown, a repaint keeps its scroll
+position. Its scrollbar is hidden, as every list in the
 agents rail hides its own (#867).
 
 ## Checks
