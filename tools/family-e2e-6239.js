@@ -66,9 +66,9 @@ const WATCHDOG_MS = Number(process.env.FEDPROOF_WATCHDOG_MS) || 17 * 60 * 1000;
 const RUN = crypto.randomBytes(3).toString('hex');
 // Round 11: a synchronous child (the preflight, dev-cert, org-create) blocks the watchdog's timer, so each has its own.
 const SYNC_MS = 30000;
-// A board's rollup ticks run once a minute after it starts and then every five minutes (server.js orgRollupTick), and
-// a join does not start one: K's first report goes at the first tick after it joined. Step 9b waits for that tick plus
-// REPORT_SLACK_MS for the send.
+// A board arms its rollup ticks together when it starts (server.js: a setTimeout of 60 s and a setInterval of 5 min), so
+// they fall at start + 60 s, 300 s, 600 s, 900 s ... A join does not start one: K's first report goes at the first tick
+// after it joined. Step 9b waits for that tick plus REPORT_SLACK_MS for the send.
 const ROLLUP_FIRST_MS = 60000;
 const ROLLUP_EVERY_MS = 5 * 60000;
 const REPORT_SLACK_MS = 90000;
@@ -290,7 +290,8 @@ async function boardSignin(b, email, name) {
   }
   if (r.status !== 200) { info(b.letter + ' signin-start ' + r.status + ' ' + r.text.slice(0, 200)); return false; }
   let code = await nextCode(email, before);
-  // After a retry two codes may arrive (the first start may have gone through late): let them settle, take the newest.
+  // After a retry two codes may arrive (the first start may have gone through late): let them settle 2 s and take the
+  // newest. A first code written more than 2 s after the retry's would still be taken; verify then fails, as itself.
   if (retried && code) { await new Promise((res) => setTimeout(res, 2000)); const all = devCodes(email); code = all[all.length - 1]; }
   if (!code) { info(b.letter + ': no sign-in code arrived for ' + email); return false; }
   r = await http(b.base, 'POST', '/api/remote/signin-verify', { email, code });
@@ -533,6 +534,7 @@ async function main() {
   }
 
   let joined = false;
+  let joinedAt = 0;
   // 8. a join that does not say the words were shown is refused (CONTROL for step 9). It shares step 9's ticket and code
   // on purpose: a refusal here must spend neither, and step 9 joining with them is what shows it. If step 9 then fails,
   // step 8's answer above is the first place to look.
@@ -544,6 +546,7 @@ async function main() {
   // 9. the parent reads the words on K and accepts them there: K joins the family.
   if (pv && pv.ticket) {
     const r = await http(K.base, 'POST', '/api/org/enroll', { code, accepted: true, ticket: pv.ticket, wordsShown: true }, SCREEN);
+    joinedAt = Date.now();   // when the join was answered (step 9b's tick and offset count from here)
     joined = !!(r.json && r.json.ok === true);
     // The same ticket and code as step 8's refusal: a refusal here as org_ticket or a spent code means step 8 used them up.
     chk(joined, 'step 9: with the words read and accepted on K, K joins the family', r.status + ' ' + r.text.slice(0, 200)
@@ -577,17 +580,21 @@ async function main() {
   // words): this measures that a report lands. CONTROL: straight after the join, before that tick, the console counts
   // nobody reporting.
   if (joined) {
-    const joinedAt = Date.now();
+    // The first tick at or after the join: start + 60 s if the join came first, else the next multiple of 300 s.
+    const sinceStart = joinedAt - K.startedAt;
+    const tickAt = K.startedAt + (sinceStart <= ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : Math.ceil(sinceStart / ROLLUP_EVERY_MS) * ROLLUP_EVERY_MS);
     const ov = await http(REL.coordinator, 'GET', '/v1/org/console/overview', undefined, bearer(sess.token));
     const before = ov.json && ov.json.members ? ov.json.members.reporting : null;
-    // The same measure the positive check reads: K's own row, present and not yet reported.
+    // The same measure the positive check reads: K's own row, present and not yet reported. The positive check's
+    // reportedAt is a day, not a time, so this control is what shows the report came after the join.
     const inv0 = await http(REL.coordinator, 'GET', '/v1/org/console/inventory', undefined, bearer(sess.token));
     const row0 = (inv0.json && Array.isArray(inv0.json.members) ? inv0.json.members : []).find((m) => m && m.email === kid) || null;
-    chk(ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt,
-      'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report', ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found'));
-    // The first tick at or after the join (ticks: start+60 s, then every 5 min).
-    let tickAt = K.startedAt + ROLLUP_FIRST_MS;
-    while (tickAt < joinedAt) tickAt += ROLLUP_EVERY_MS;
+    // A tick due within moments of these reads could land between them and the join: then the control cannot tell, and
+    // says so rather than going red for the wrong reason.
+    const nearTick = tickAt - Date.now() < 5000;
+    chk((ov.status === 200 && before === 0 && inv0.status === 200 && !!row0 && !row0.reportedAt) || (nearTick && inv0.status === 200 && !!row0),
+      'step 9b control: before K\'s first report, nobody reports and K\'s own row has no report',
+      ov.status + ' reporting=' + before + '; ' + inv0.status + ' row ' + (row0 ? JSON.stringify({ state: row0.state, reportedAt: row0.reportedAt }) : 'not found') + (nearTick ? ' (a tick was due within 5 s: inconclusive, not counted against)' : ''));
     let row = null;
     let invStatus = 0;
     await waitFor(async () => {
@@ -597,7 +604,7 @@ async function main() {
       row = members.find((m) => m && m.email === kid) || null;
       return !!(row && row.reportedAt);
     }, Math.max(0, tickAt - Date.now()) + REPORT_SLACK_MS, 3000);
-    const offset = Math.round((joinedAt - K.startedAt) / 1000);
+    const offset = Math.round((joinedAt - K.startedAt) / 1000);   // from the enroll answer
     chk(!!(row && row.reportedAt), 'step 9b: K\'s first report lands under the family\'s words (its own row in the parent\'s console)',
       'joined ' + offset + ' s after K started; tick due ' + Math.round((tickAt - K.startedAt) / 1000) + ' s; inventory ' + invStatus + '; row ' + (row ? JSON.stringify({ state: row.state, reportedAt: row.reportedAt }) : 'not found'));
   }

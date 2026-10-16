@@ -19,7 +19,7 @@ which the step reports as a failure, so the step cannot pass on a refused report
 reason.
 
 ## Round 1 (opus) fixes
-- Step 9b waits for the first rollup tick after the join (ticks run once at K's start + 60 s, then every 5 min; a join
+- Step 9b waits for the first rollup tick after the join (corrected in round 3: ticks fall at K's start + 60, 300, 600 s; a join
   starts none), plus 90 s, so a join later than 60 s no longer fails for the wrong reason; the detail says when K joined
   and when the tick was due. The watchdog budget counts the worst case (855 s).
 - The positive check is K's own row (by email) in the parent's console inventory, not a count of reporting members.
@@ -39,3 +39,16 @@ reason.
   added up to 90 s); a failed inventory read shows its status rather than "row not found".
 - Rerun (exclusive queued turn, 03:54): VERDICT PASS 25/25; K's row went from state unavailable, reportedAt null, to
   state ok, reportedAt 2026-10-16; joined 10 s after K started.
+
+## Round 3 (opus) fixes
+- The tick schedule was modelled wrongly: server.js arms the 60 s setTimeout and the 5 min setInterval together, so
+  ticks fall at start + 60, 300, 600, 900 s, not 60, 360, 660 (my round 1 model). A join at 300-360 s would have waited
+  for a tick that never comes and gone red for the wrong reason. Now: start + 60 s if the join came first, else the
+  next multiple of 300 s. The constants' comment, the step comment and round 1's line here are corrected together.
+- The join is stamped when the enroll answers, not after step 9's polls, so the tick and the reported offset are exact.
+- A tick due within 5 s of the control's reads makes the control inconclusive (said in its detail), not red.
+- The settle after a retried sign-in is stated with its bound (2 s); the comment says the control is what shows the
+  report came after the join (reportedAt is a day).
+- Rerun (exclusive queued turn, 04:00): VERDICT PASS 25/25; joined 27 s after K started (stamped at the enroll answer),
+  tick due 60 s. The 300 s branch of the tick formula was not reached (the join came before 60 s); it is checked by
+  reading, not by a run.
