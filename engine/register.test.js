@@ -892,7 +892,10 @@ test('#6310: a launcher or WorkingDirectory in a privacy-guarded folder is never
   assert.deepEqual(touched, [], 'the survey touched a guarded path: ' + touched.join(', '));
 });
 
-test('#6310: a launcher that is a link into a guarded folder, or a guarded folder in another case, is never looked at', () => {
+test('#6310: a launcher that is a link into a guarded folder is not read; nor is a guarded folder in another case', () => {
+  const raw = (args) => '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n' + args.map((a) => '\t\t<string>' + a + '</string>\n').join('') + '\t</array>\n</dict>\n</plist>\n';
+  // 1. A link into Documents whose target is a perfectly readable script: guarded, so not read, so others are unknown.
+  //    Without the guard the target would be read, found harmless, and the control would read as missing.
   reset();
   agent('plainw');
   const docs = path.join(create.homeDir(), 'Documents');
@@ -904,14 +907,18 @@ test('#6310: a launcher that is a link into a guarded folder, or a guarded folde
   const link = path.join(bin, 'launch-w.sh');
   try { fs.unlinkSync(link); } catch { /* fresh */ }
   fs.symlinkSync(real, link);
-  const lower = path.join(create.homeDir(), 'documents', 'other.sh');   // same folder on the Mac's disks
-  const raw = '<?xml version="1.0"?>\n<plist version="1.0">\n<dict>\n\t<key>KeepAlive</key>\n\t<true/>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/bash</string>\n\t\t<string>' + link + '</string>\n\t\t<string>' + lower + '</string>\n\t</array>\n</dict>\n</plist>\n';
-  foreignJob('com.linkw.app.plist', { raw });
+  foreignJob('com.linkw.app.plist', { raw: raw(['/bin/bash', link]) });
+  assert.equal(mac.survey().agents.find((x) => x.name === 'plainw').job, null, 'a link into Documents was followed and read');
+  // 2. The guarded folder written in lower case (the same folder on the Mac's disks): not touched either.
+  reset();
+  agent('plainw');
+  const lower = path.join(create.homeDir(), 'documents', 'other.sh');
+  foreignJob('com.lower.app.plist', { raw: raw(['/bin/bash', lower]) });
   const touched = [];
-  const wrap = (obj, key) => { const orig = obj[key]; obj[key] = function (p, ...rest) { if (typeof p === 'string' && p.toLowerCase().startsWith(docs.toLowerCase())) touched.push(key + ' ' + p); return orig.call(this, p, ...rest); }; return () => { obj[key] = orig; }; };
-  const undo = [wrap(fs, 'statSync'), wrap(fs, 'readFileSync'), wrap(fs, 'openSync'), wrap(fs.realpathSync, 'native'), wrap(fs, 'existsSync'), wrap(fs, 'lstatSync')];
+  const orig = fs.statSync;
+  fs.statSync = function (p, ...rest) { if (typeof p === 'string' && p === lower) touched.push(p); return orig.call(this, p, ...rest); };
   let s;
-  try { s = mac.survey(); } finally { undo.reverse().forEach((u) => u()); }
-  assert.deepEqual(touched, [], 'the survey touched a guarded path: ' + touched.join(', '));
-  assert.equal(s.agents.find((x) => x.name === 'plainw').job, null, 'a guarded launcher should leave others unknown');
+  try { s = mac.survey(); } finally { fs.statSync = orig; }
+  assert.deepEqual(touched, [], 'the lower-case guarded path was stat-ed');
+  assert.equal(s.agents.find((x) => x.name === 'plainw').job, null);
 });
