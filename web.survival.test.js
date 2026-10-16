@@ -125,6 +125,8 @@ test('#6320: agents that could not be checked are named, with no button for them
   assert.doesNotMatch(only.innerHTML, /data-survival-fix/, 'a button offered to set up agents we could not check');
   const one = await paint({ ok: true, missing: [], unknown: ['ava'] });
   assert.match(one.innerHTML, /whether one of your agents comes back/);
+  assert.match(one.innerHTML, /We will leave it as it is/);
+  assert.doesNotMatch(one.innerHTML, /these agents|leave them/, 'one agent spoken of as many');
   // Both at once: the missing ones keep their button, the unknown ones are said beneath it.
   const both = await paint({ ok: true, missing: ['rick'], unknown: ['ava'] });
   assert.match(both.innerHTML, /One of your agents will not come back/);
@@ -135,7 +137,7 @@ test('#6320: agents that could not be checked are named, with no button for them
   assert.equal(old.hidden, true);
 });
 
-test('#6320: the name of an unknown agent is escaped, and the unknown-only panel is not the alarm style', async () => {
+test('#6320: the name of an unknown agent is escaped, and the unknown-only panel has the solid could-not-read shape', async () => {
   const wrap = { hidden: false, innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'restart-wrap' ? wrap : null) };
   const realEsc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -144,5 +146,5 @@ test('#6320: the name of an unknown agent is escaped, and the unknown-only panel
   )(doc, async () => ({ ok: true, json: async () => ({ ok: true, missing: [], unknown: ['x'], agents: [{ name: 'x', shownAs: '<b>x' }] }) }), realEsc, () => true, false, false, '');
   assert.match(wrap.innerHTML, /data-survival-unknown>&lt;b&gt;x</);
   assert.doesNotMatch(wrap.innerHTML, /<b>x/);
-  assert.doesNotMatch(wrap.innerHTML, /boardfail/);
+  assert.match(wrap.innerHTML, /pj-empty boardfail/, 'could-not-read is the solid unanswered-question shape');
 });
