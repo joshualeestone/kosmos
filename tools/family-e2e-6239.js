@@ -348,7 +348,11 @@ async function main() {
     try { execFileSync(BIN.coordinator, ['org-create', '--name', 'x', '--slug', 'x', '--admin', 'x@example.com', '--kind', 'nonsense'], { stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH, HOME: SANDBOX, KOSMOS_DATA_DIR: path.join(SANDBOX, 'kindcheck') } }); }
     catch (e) { said = String(e.stderr || '') + String(e.stdout || ''); }
     if (!/--kind is company or family/.test(said)) {
-      throw new Error('the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 200));
+      // Round 6: "stale" only when it does not know --kind; anything else is said as itself.
+      const stale = /--kind|unknown|unexpected|usage: org-create/i.test(said) && !/kind is company or family/.test(said);
+      throw new Error(stale
+        ? 'the coordinator binary at ' + BIN.coordinator + ' predates the family kind (relay#398); rebuild from kosmos-relay origin/main (see USAGE). It said: ' + said.slice(0, 300)
+        : 'the family-kind check could not run the coordinator binary at ' + BIN.coordinator + '. It said: ' + (said.slice(0, 600) || '(nothing)'));
     }
   }
 
@@ -488,9 +492,14 @@ async function main() {
     // Read as the screen: any other caller learns only whether K is enrolled, never which org (#5531 review 12).
     chk(st && st.org && st.org.kind === 'family', 'step 9: K\'s board says it is in a family (kind family)', st ? JSON.stringify(st.org) : '-');
     // The join record says the screen showing the words is the board's word, not proof.
-    const a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
-    const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
-    const joinRow = rows.find((e) => e && e.what === 'joined');
+    let a = null;
+    let joinRow = null;
+    await waitFor(async () => {   // as step 11 polls for its row
+      a = await http(REL.coordinator, 'GET', '/v1/org/audit', undefined, bearer(sess.token));
+      const rows = a.json && Array.isArray(a.json.entries) ? a.json.entries : [];
+      joinRow = rows.find((e) => e && e.what === 'joined') || null;
+      return !!joinRow;
+    }, 20000, 1000);
     chk(joinRow && /words shown on the board's screen \(the board's word\)/.test(joinRow.detail || ''), 'step 9: the family\'s audit row records the join with the words shown as the board\'s claim', joinRow ? joinRow.detail : a.status + ' ' + a.text.slice(0, 160));
   }
 

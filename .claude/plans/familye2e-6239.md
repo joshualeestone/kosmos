@@ -75,3 +75,11 @@ them, the board saying family, the coordinator's audit row, the spent code's neu
 - Current figures, re-measured on this version: VERDICT PASS 23/23. NEGATIVE CONTROL (--kind company): VERDICT FAIL
   13/20, failing the six family checks; the company's join is taken at step 8 (no words screen needed), so step 9
   cannot join, step 11 is skipped, and "every check ran" fails at 19 of 22 too.
+
+## Round 6 (sonnet) fixes
+- The preflight calls a binary stale only when it does not know --kind; any other failure is reported as itself with
+  its output (both arms shown with stand-in binaries: "unknown command" says predates relay#398; a config error says
+  the check could not run and prints it).
+- Step 9 polls the audit log for its "joined" row, as step 11 does for "left".
+- Deduplicated: the default bin dir (rounds 1 and 4, kept as fed-own-e2e.js), the copied helpers (#6287).
+- Rerun: VERDICT PASS 23/23.
