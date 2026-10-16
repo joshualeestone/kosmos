@@ -323,7 +323,9 @@ function holdStdioFds(fsMod = require('node:fs'), devNull = require('node:os').d
   return filled;
 }
 
-/* The headers a call to the board carries: the agent's token, the board token unless token-only, the world header. */
+/* The headers a call to the board carries: the agent's token, the board token unless token-only, the world header.
+   #4491 slice 8: with KOSMOS_AGENT_TOKEN_ONLY exactly '1' and the agent's own token, the board token is not read: POST
+   /api/report and POST /api/undo/keep both take the agent's token (undo/keep narrows it to the agent's own sessions). */
 function boardHeaders(env) {
   const headers = { 'content-type': 'application/json' };
   const token = String(env.KOSMOS_AGENT_TOKEN || '').trim();
