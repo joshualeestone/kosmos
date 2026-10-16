@@ -167,12 +167,15 @@ function main() {
 const KEEP_TIMEOUT_MS = 3000;   // never hold the edit longer (the Claude and Gemini hooks' bound)
 const STDIN_TIMEOUT_MS = 2000;  // a hook closes stdin at once; this only bounds a stdin left open
 const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (each is a request to the board); the rest get no undo copy and no changed-by, a stated limit
-/* Review 3, measured: Codex accepts a heading with spaces before it and trims the path, so both are allowed here (a
-   path keeping its spaces named a file that does not exist; an indented heading got no keep at all). Review 4,
+/* Review 3, measured: Codex accepts a heading with spaces before it and trims the END of the path, so both are allowed
+   here (a path keeping trailing spaces named a file that does not exist; an indented heading got no keep at all).
+   Review 5, measured with Codex's own patch engine: everything after the one space of ": " IS the path, leading spaces
+   included (`*** Add File:  x` creates " x"), and a heading with no space after the colon is refused, so neither is
+   trimmed nor accepted here. Review 4,
    measured: inside an Update hunk a line starting with a space is CONTEXT to Codex, never a heading, even when its text
    reads like one; a keep for it would record this agent as the writer of a file it never touched. So an indented
    heading counts only outside an Update hunk. */
-const FILE_LINE = /^(\s*)\*\*\* (Add File|Update File|Delete File|Move to):\s*(.*\S)\s*$/;
+const FILE_LINE = /^(\s*)\*\*\* (Add File|Update File|Delete File|Move to): (.*\S)\s*$/;
 
 /* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
    a different file). */
