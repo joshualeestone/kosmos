@@ -84,7 +84,7 @@ gone() { ! pgrep -f "^sleep $1$" >/dev/null; }
 # answer also reads as; exited; killed) and REAP_RC the wrapper's exit status where wait got one, so a red can say.
 # The stat is read once, trimmed. The notours branch waits only when the process is gone (kill -0 fails), which is bounded and gives a dead child's
 # status (137 for a KILL); while it is alive it does not wait, since that wait would have no bound.
-reap() { local p=$1 i=0 pp st; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')"; [ "$pp" = "$$" ] || { if kill -0 "$p" 2>/dev/null; then REAP_HOW="notours(ppid='$pp', alive)"; else wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="notours(ppid='$pp', gone)"; fi; return 0; }; st="$(ps -o stat= -p "$p" 2>/dev/null | tr -d ' ')"; case "$st" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="exited(stat='$st')"; return 0;; esac; sleep 0.25; i=$((i+1)); done; if ours "$p"; then kill -KILL "$p" 2>/dev/null; REAP_HOW=killed; else REAP_HOW="bound, not ours"; fi; wait "$p" 2>/dev/null; REAP_RC=$?; return 1; }
+reap() { local p=$1 i=0 pp st; REAP_HOW=""; REAP_RC=""; while [ "$i" -lt "${2:-40}" ]; do pp="$(ps -o ppid= -p "$p" 2>/dev/null)"; pp="${pp// /}"; [ "$pp" = "$$" ] || { if kill -0 "$p" 2>/dev/null; then REAP_HOW="notours(ppid='$pp', alive)"; else wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="notours(ppid='$pp', gone)"; fi; return 0; }; st="$(ps -o stat= -p "$p" 2>/dev/null)"; st="${st// /}"; case "$st" in ''|Z*) wait "$p" 2>/dev/null; REAP_RC=$?; REAP_HOW="exited(stat='$st')"; return 0;; esac; sleep 0.25; i=$((i+1)); done; if ours "$p"; then kill -KILL "$p" 2>/dev/null; REAP_HOW=killed; else REAP_HOW="bound, not ours"; fi; wait "$p" 2>/dev/null; REAP_RC=$?; return 1; }
 hold
 o=$(/bin/bash $QH --light "a" sh -c 'cut -d" " -f4- $KOSMOS_RUN_MARKER_DIR/light-side-claim' 2>&1)
 o2=$(cd /tmp && QUEUED_HEAVY_LIB=$QUEUED_HEAVY_LIB KOSMOS_RUN_MARKER_DIR=$S/mlab /bin/bash $QH "lab" sh -c 'cat $KOSMOS_RUN_MARKER_DIR/machine-claim; echo "CL=${KOSMOS_CLAIM_LABEL:-unset}"' 2>&1)
@@ -509,7 +509,7 @@ side5331() {   # $1 the copy, $2 its marker dir, $3 the reap bound in 0.25 s pol
   case "$cst" in T*) ;; *) kill -CONT "$cap" 2>/dev/null; kill -KILL $w 2>/dev/null; echo "never started: the STOP did not show (stat '$cst')" >> "$m.why"; echo 2 > "$m.r"; return ;; esac
   echo "capper $cap stat $(ps -o stat= -p "$cap" 2>/dev/null | tr -d ' '), wrapper $w stat $(ps -o stat= -p "$w" 2>/dev/null | tr -d ' ') before the TERM" >> "$m.why"   # kosmos#6048
   for p in $(pgrep -f "^sleep $((U+3))$"); do kill -KILL $p; done
-  kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"
+  kill $w 2>/dev/null; t0=$(date +%s); reap $w "$3"; r=$?; echo $(( $(date +%s) - t0 )) > "$m.t"   # pipe-status-ok
   echo "reap: $REAP_HOW, wrapper exit ${REAP_RC:-?}$([ "${REAP_RC:-}" = 127 ] && echo ' (not this shell'"'"'s child)'), 'claim released' lines by then: $(if [ -f "$m.log" ]; then grep -c 'claim released' "$m.log"; else echo 'no log'; fi)" >> "$m.why"
   # The control's capper is left stopped: KILLed here, only while it is still the copy's subshell (a pid can be reused).
   case "$(ps -o command= -p "$cap" 2>/dev/null)" in *qh-*5331.sh*) kill -KILL "$cap" 2>/dev/null;; esac
@@ -562,7 +562,12 @@ ok "#5467 CONTROL: without the re-exec the waiter IS matched (the arm above is n
 # Review 1: the file is gone once read, and it WAS in this test's TMPDIR (the waiter named it), so "gone" is not "never here".
 ok "#5467: the arguments file was written in TMPDIR and is gone once read" '[ "${r5467##* }" = y ] && [ -z "$(ls "$TMPDIR" | grep queued-heavy-args)" ]'
 # Review 1: a stale TMPDIR (removed since) falls back to /tmp instead of stopping the run before it waits.
-mkdir -p $S/mstale5467; o=$(cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir /bin/bash $QH "stale-tmpdir" true 2>&1)   # its own marker dir: the fake holder above holds $S/m
+# kosmos#6337: the output goes to a FILE, not $(...): a command substitution waits for every process holding its pipe,
+# so a child the wrapper left behind kept it open after the shim's alarm had fired (8 minutes to the 900 s cap). Its own
+# 60 s bound (the turn in an empty private marker dir is immediate) says so by name when it trips.
+mkdir -p $S/mstale5467; ( cd /tmp && KOSMOS_RUN_MARKER_DIR=$S/mstale5467 TMPDIR=$S/gone-tmpdir perl -e 'alarm(shift); exec @ARGV or die' 60 /bin/bash $QH "stale-tmpdir" true > $S/stale5467.out 2>&1 ); stale5467_rc=$?   # its own marker dir: the fake holder above holds $S/m
+o=$(cat $S/stale5467.out); [ "$stale5467_rc" -eq 142 ] && o="$o
+TIMED OUT: the stale-TMPDIR run did not take its turn within 60 s (kosmos#6337)"
 ok "#5467: a stale TMPDIR falls back to /tmp and the run still takes its turn" '[[ "$o" == *"TURN: running stale-tmpdir"* && "$o" == *"END rc=0"* ]]'
 o=$(KOSMOS_RUN_MARKER_DIR=$S/mref5467 perl -e "alarm(20); exec @ARGV" /bin/bash "$REAL_QH" --queued-args "$TMPDIR/queued-heavy-args.x/../escape" 2>&1); r=$?
 ok "#5467: --queued-args refuses a path that continues past its own file name" '[ "$r" = 2 ] && [[ "$o" == *"is internal"* ]]'
