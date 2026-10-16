@@ -290,7 +290,11 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
   let e = cache.get(file);
   /* A `since` that moved EARLIER (the day's start after a zone change) needs lines already passed, so the file is read
      again from the start. */
-  if (!e || st.size < e.offset || since < e.since) e = freshEntry(since);
+  if (!e || st.size < e.offset || since < e.since) {
+    // A file read again from the start gives back the ids it counted, or a caller's shared set would skip them all.
+    if (e && cache.sharedSeen instanceof Set) for (const id of e.seen) cache.sharedSeen.delete(id);
+    e = freshEntry(since);
+  }
   else if (e.since !== since) { e.since = since; e.tokens = 0; }   // a new day: earlier lines add nothing, so keep the position
   if (st.size > e.offset) {
     const take = (text) => {
@@ -307,7 +311,7 @@ function readFile(file, since, now = Date.now(), budget = { left: readPerCallByt
            5.68% overcount on a monthly cap). */
         const seen = cache.sharedSeen instanceof Set ? cache.sharedSeen : e.seen;
         if (id && seen.has(id)) continue;
-        if (id) seen.add(id);
+        if (id) { seen.add(id); if (seen !== e.seen) e.seen.add(id); }   // e.seen: the ids this file counted
         const at = Date.parse(j.timestamp || '');
         if (Number.isFinite(at) && at >= since) e.tokens += tokensOf(j.message.usage);
       }

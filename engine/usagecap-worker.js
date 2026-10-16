@@ -6,7 +6,7 @@
  * cache in this thread) a bounded amount every CATCH_UP_MS until the count has caught up, then again every RECOUNT_MS,
  * posting each count as { tz, since, tokens, complete }. The pause between catch-up turns keeps a heavy month (measured:
  * over 31 minutes of reads on one computer) from holding a core the whole time. Never throws out of a count: a failed
- * one is retried at the next turn.
+ * one is retried RECOUNT_MS later.
  */
 
 const { parentPort } = require('node:worker_threads');
