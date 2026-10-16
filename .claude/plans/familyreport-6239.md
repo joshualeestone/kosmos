@@ -77,3 +77,4 @@ reason.
 - A missed report prints K's own reason (its /api/org reporting and reportingWait), so a skipped or waiting tick (the
   rollup's run lock, print wait) reads differently from a refused report. The wait itself stays the next tick plus 90 s.
 - The closure parameter no longer shadows path; the watchdog's duplicate comment is gone.
+- Rerun (exclusive queued turn, 05:25): VERDICT PASS 25/25. The sign-in retry FIRED and worked (P signin-start timed out, asked once more, the run passed). Joined 42 s after K's spawn, tick due 60 s.
