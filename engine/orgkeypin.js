@@ -17,7 +17,7 @@
  *     or not (escrowd signs only the key it recorded for that org and epoch, but the
  *     pin also stops a coordinator naming a different org with a key of its own);
  *   - only a final end of this computer's enrollment (orgenroll.js retireWorldId: a confirmed Leave, or a removal; not
- *     a Leave the company refused) or a person's Join to ANOTHER company clears the pin, so the next pin is taken after
+ *     a Leave the company refused) or a person's Join to ANOTHER company (or a person's move of the enrollment here) clears the pin, so the next pin is taken after
  *     a person's act. The pin is for the current org epoch (1 today); an
  *     org-key rotation, when it exists, must move it deliberately.
  * WHAT THIS PROVES, AND WHAT IT DOES NOT (review 3). escrowd makes every org key and keeps its private half sealed under
@@ -32,7 +32,7 @@
  * Until a verification key ships (VERIFYING_KEY null), check() answers ok and pins nothing; a person's Join still
  * writes "expect <org>" (joined()), so a Join made while dormant is anchored once a key ships. Nothing else changes.
  *
- * Never throws. The pin file is 0600 under <root>/backupkeys (the member key's own folder).
+ * check() and clear() never throw; joined() throws on a failed write and its callers (orgenroll.js) catch it. The pin file is 0600 under <root>/backupkeys (the member key's own folder).
  */
 
 const fs = require('node:fs');
@@ -115,7 +115,7 @@ function check(root, data, company, opts = {}) {
       if (typeof expected !== 'string' || expected !== here.org) {
         return { ok: false, because: 'Kosmos+ named a company backup key for a different company from the one this computer joined, so it was not used' };
       }
-      // A Join may have written its expectation since the read above (no lock spans the two paths): pin only over the
+      // Only a second process on this root could interleave a Join here (both paths are synchronous): pin only over the
       // state that was read, else answer not-yet and let the next run decide (review 3).
       if (JSON.stringify(readPin(root)) !== JSON.stringify(pin)) return { ok: false, because: 'the company backup key changed while it was being checked; it is checked again on the next run' };
       writePin(root, here);
