@@ -177,8 +177,8 @@ const KEEP_MAX = 20;            // a patch naming more files gets the first 20 (
    heading counts only outside an Update hunk. */
 const FILE_LINE = /^(\s*)\*\*\* (Add File|Update File|Delete File|Move to): (.*\S)\s*$/;
 
-/* The files a patch names, in order, once each. A line with a control character in its path is skipped (it would name
-   a different file). */
+/* The files a patch names, in order, once each. A path with a control character gets no keep (no guessing at what it
+   names). */
 function patchPaths(patch) {
   if (typeof patch !== 'string') return [];
   const out = [];

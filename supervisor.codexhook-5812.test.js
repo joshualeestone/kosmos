@@ -30,7 +30,8 @@ fs.writeFileSync(FAKE_TMUX, [
 const PINNED = require('./engine/runners').MANIFEST.openai.version;
 function fakeCodex(version) {
   const f = nodePath.join(SANDBOX, `codex-${version || 'none'}.sh`);
-  fs.writeFileSync(f, `#!/bin/sh\n[ "$1" = --version ] && echo "codex-cli ${version}"\nexit 0\n`, { mode: 0o755 });
+  // It notes the CODEX_HOME its --version ran under (review 6: --version writes into that home).
+  fs.writeFileSync(f, `#!/bin/sh\nif [ "$1" = --version ]; then echo "$CODEX_HOME" >> "$REC.version-home"; echo "codex-cli ${version}"; fi\nexit 0\n`, { mode: 0o755 });
   return f;
 }
 
@@ -47,7 +48,8 @@ function run(name, codexHome, version = PINNED) {
   const r = spawnSync('/bin/bash', [SUP, name, SANDBOX, fakeCodex(version), FAKE_TMUX, '', 'gpt-5.2', 'codex'], { env, encoding: 'utf8', timeout: 30000 });
   const argv = fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '';
   const runtime = (/-e CODEX_HOME=(\S+)/.exec(argv) || [])[1] || '';
-  return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), argv, runtime };
+  const versionHome = fs.existsSync(`${rec}.version-home`) ? fs.readFileSync(`${rec}.version-home`, 'utf8').trim() : '';
+  return { code: r.status, out: (r.stdout || '') + (r.stderr || ''), argv, runtime, versionHome };
 }
 
 test('a codex launch installs the hook and its trust record in the private home', () => {
@@ -62,6 +64,7 @@ test('a codex launch installs the hook and its trust record in the private home'
   assert.ok(cfg.includes(`[hooks.state."${nodePath.join(r.runtime, 'hooks.json')}:pre_tool_use:0:0"]\ntrusted_hash = "sha256:`), cfg);
   assert.match(cfg, /trust_level = "trusted"/, 'the folder trust the launch already wrote is still there');
   assert.equal(/file-edit hook was not set up/.test(r.out), false);
+  assert.equal(r.versionHome, r.runtime, 'review 6: codex --version ran against the private home, not the account\'s');
 });
 
 test('CONTROL: a hook record changed by hand is left alone, and the agent launches with NO hooks.json, saying so', () => {
@@ -93,10 +96,10 @@ test('review 5: a private home that resolves to the account home itself gets NO 
   const name = 'agent-hook4';
   const first = run(name, accountHome());
   assert.ok(first.runtime, first.out);
-  fs.rmSync(nodePath.join(first.runtime, 'hooks.json'), { force: true });
+  assert.ok(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), 'an earlier launch left our hooks.json');
   fs.writeFileSync(nodePath.join(first.runtime, 'auth.json'), '{"OPENAI_API_KEY":null,"tokens":{}}', { mode: 0o600 });
   const r = run(name, first.runtime);   // the "account home" IS the agent's private home
   assert.match(r.out, /refused a private Codex home that resolves to the selected account home/);
   assert.match(r.out, /its file-edit hook was not set up \(its Codex home is the account's own\)/);
-  assert.equal(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), false);
+  assert.equal(fs.existsSync(nodePath.join(first.runtime, 'hooks.json')), false, 'review 6: ours is removed there too');
 });
