@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: macsig-5686
 diff_hash: 3bcb0b6bac7b2955de65ff7c2c0c62ed96e5f76577c62e0f75d0b0f93934effb
-validation: passed (Mortals, the full suite at 44bb34c475, entry hash e3937c69a639; 21252 tests, 21001 pass, 0 fail, 0 cancelled, the rest skipped). The first run at 995be1ffa failed ONE test, the #1777 guard (the new pin test branches on win32 and nothing ran it on Windows); fixed by adding it to tools/windows-tests.js ALSO, with the reachable and #1732 guards run alone first. Nine mutants turned the pin tests red.
+validation: passed (Mortals, the full suite at 44bb34c475, entry hash e3937c69a639; 21252 tests, 21001 pass, 0 fail, 0 cancelled, the rest skipped). The first run at 995be1ffa failed ONE test, the #1777 guard (the new pin test branches on win32 and nothing ran it on Windows); fixed by adding it to tools/windows-tests.js ALSO, with the reachable and #1732 guards run alone first. Thirteen mutants turned the pin tests red (listed below).
 subdir_audit: passed
 timestamp: 2026-10-16T12:04:32Z
 iterations: 4
