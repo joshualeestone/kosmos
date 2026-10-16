@@ -219,7 +219,7 @@ test('#6315: a computer id is never allowed without the code both screens show',
   enrol();
   for (const code of [undefined, '', 'K7-4M']) {
     const r = await remote.deviceAllow(MINTED, 'tmnt', code);
-    assert.equal(r.ok, false, 'a computer was allowed with code ' + JSON.stringify(code));
+    assert.deepEqual([r.ok, r.because], [false, 'code_pending'], 'a computer was allowed, or refused in unworded terms, with code ' + JSON.stringify(code));
   }
   assert.equal(recorded().filter((a) => a[0] === 'devices' && a[1] === 'allow').length, 0, 'a code-less computer Allow reached the tunnel');
 });
