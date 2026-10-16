@@ -29,6 +29,8 @@ const chat = require('./chat');
 const orgpolicy = require('./orgpolicy');
 const usagecap = require('./usagecap');
 const fleet = require('../test-support/fleet');
+const removal = require('./remove');
+const create = require('./create');
 
 test.beforeEach(() => { chat.resetForTests(); usagecap.resetForTests(); });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -123,6 +125,33 @@ test('#6309: answering an agent\'s question at the cap is refused with nothing p
     const r = await chat.answerQuestionMenu('casey', 1, board.agents, { question: 'Proceed?', label: 'Yes' });
     assert.notEqual(r.capped, true, 'CONTROL: under the cap it is refused for another reason or none: ' + JSON.stringify(r));
   });
+});
+
+test('#6309: at the cap the person\'s Start, Restart and put-back are refused, and no agent is made, as in quiet hours', () => {
+  create.setRunner(null);   // dry-run: nothing reaches launchd
+  apply(OVER);
+  const ae = require('./agentevents');
+  const real = ae.recordRefusal; const seen = [];
+  ae.recordRefusal = (ev) => { seen.push(ev); return { queued: true }; };
+  let r, back, made;
+  try {
+    r = removal.restart('nobody-here', 'restart', { startIfDead: true, quiet: true });
+    back = removal.restore('nobody-here', { quiet: true });
+    made = create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name: 'Homework Helper', role: 'helper' });
+  } finally { ae.recordRefusal = real; }
+  assert.deepEqual([r.outcome, r.capped], [removal.OUTCOME.REFUSED, true], JSON.stringify(r));
+  assert.match(r.because, /^it was not started: this month's usage cap is reached/);
+  assert.deepEqual([back.capped, back.outcome], [true, removal.OUTCOME.REFUSED], JSON.stringify(back));
+  assert.match(back.because, /^it was not put back: this month's usage cap is reached/);
+  assert.deepEqual([made.capped, made.outcome], [true, create.OUTCOME.REFUSED], JSON.stringify(made));
+  assert.match(made.because, /^no agent is made now: this month's usage cap is reached/);
+  assert.ok(!fs.existsSync(create.workerDir('homework-helper')), 'a folder was made at the cap');
+  assert.deepEqual(seen, [], 'a cap refusal was reported as an agent event (the coordinator has no word for it)');
+  assert.notEqual(removal.restart('nobody-here', 'provider', {}).capped, true, 'a restart the board makes to finish a change was refused for the cap');
+  apply(UNDER);
+  assert.notEqual(removal.restart('nobody-here', 'restart', { startIfDead: true, quiet: true }).capped, true, 'CONTROL: under the cap');
+  assert.notEqual(removal.restore('nobody-here', { quiet: true }).capped, true, 'CONTROL: put back under the cap');
+  assert.notEqual(create.createAgent({ claudeBin: '/bin/echo', tmuxBin: '/bin/echo', name: 'Homework Helper', role: 'helper' }).capped, true, 'CONTROL: made under the cap');
 });
 
 test('#6309: a damaged policy record does not shut every agent off (a fault reads as open)', async () => {
