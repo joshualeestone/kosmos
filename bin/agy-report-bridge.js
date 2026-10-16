@@ -336,8 +336,9 @@ function boardHeaders(env) {
   } catch { /* a missed world header must never become a failed turn */ }
   return headers;
 }
-/* #5812: one keep call, bounded at KEEP_TIMEOUT_MS with the answer read under the same timer (a board that sends its
-   headers and stalls the body must not hold agy's hook); never throws. `fetchImpl` is a seam. */
+/* #5812: one keep call, bounded at KEEP_TIMEOUT_MS; never throws. `fetchImpl` is a seam. The answer's body is not
+   read: this bridge ends with process.exit (the finally below main), so a board that sends its headers and stalls
+   its body cannot hold agy's hook, unlike the Codex and Grok bridges, which must read it under their timer. */
 async function postKeep(body, env, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const port = Number(env.KOSMOS_PORT) || 16180;
@@ -345,7 +346,6 @@ async function postKeep(body, env, fetchImpl) {
   const timer = setTimeout(() => controller.abort(), KEEP_TIMEOUT_MS);
   await Promise.resolve()
     .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers: boardHeaders(env), body: JSON.stringify(body), signal: controller.signal }))
-    .then((res) => (res && typeof res.text === 'function' ? res.text() : null))
     .catch(() => { /* a missed keep must never stop the edit */ })
     .finally(() => clearTimeout(timer));
 }
