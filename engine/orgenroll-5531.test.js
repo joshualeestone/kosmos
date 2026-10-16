@@ -1050,6 +1050,10 @@ test('#5531 follow-up: reviewHere shows this record\'s company\'s words, and acc
   const elsewhere = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9', world: 'f'.repeat(32), thisComputer: false } }) });
   assert.equal(elsewhere.ok, false, 'a world the company does not name here was offered a review');
   assert.equal(elsewhere.code, 'org_not_named');
+  // An unclear answer (no world in it) is not "not named": no code, so the screen keeps offering the words.
+  const unclear = await org.reviewHere({ root: a, remote: withConsent({ enrolled: { computer: 'c9' } }) });
+  assert.equal(unclear.ok, false);
+  assert.equal(unclear.code, undefined, 'an unclear status was given the not-named code: ' + JSON.stringify(unclear));
   assert.equal(r.served, SERVED, 'the review does not carry the company\'s hash, so accepting could not record the words there');
   // No hash the board can echo: accepting could not make it report, so it is not offered (review 1).
   const noHash = await org.reviewHere({ root: a, remote: withConsent({ consentHash: undefined }) });

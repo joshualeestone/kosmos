@@ -127,8 +127,15 @@ joining again.
 - The two real writers of wroteAt (an Accept, a Leave) were driven by no arm: R17 set the time by hand. R18 holds a
   /api/org read open across each and releases it after; the stand-in answers with the state as it was when asked.
 - Signing out of Kosmos+ hid the block but kept a family's words on screen and words held back, so signing in again
-  within the minute showed them. paintPlus now closes the words and releases the hold when it hides the block (R19,
-  driven through paintPlus with a stand-in /api/remote).
+  within the minute showed them. paintPlus now closes the words and releases the hold in its not-signed-in branch (R19,
+  driven through paintPlus with a stand-in /api/remote). Review 15: my first version put this after that branch's
+  return, where it never ran; R19 would have been red on the page and its mutant alike.
+
+## Review 15 (opus) fixes
+- The sign-out release moved into paintPlus's not-signed-in branch (above).
+- `org_not_named` only on a clear answer (no longer a member, another org, named elsewhere); an unclear status gives no
+  code, so the words stay offered (the engine test pins both).
+- Focus goes to the joined sentence when a review preview is held back, as on the Accept path.
 
 ## Weakest premise
 That the engine's other review sentences read well to a parent: they are family-worded by inKind (#6251), but only the
