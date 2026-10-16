@@ -20,7 +20,7 @@ converged: true
 Validation: Mortals full suite on 6499c03342 (this diff), clean: 21285 tests, 0 failed, 0 cancelled, 252 skipped.
 Mortals hashed with ids at 9 (675e8c8af300); mortals-validate matched it to this diff (local a1391a9a76a3). The
 real-Codex arm skips on Mortals (no codex there); it ran and passed on this Mac (codex-cli 0.149.1), 26/26 with the
-supervisor tests, with its broken-record control. The validated head 6499c03342 is the PR head.
+supervisor tests, with its broken-record control. The PR adds only this proof file on top of the validated head 6499c03342.
 
 ### Per-Iteration Breakdown
 
