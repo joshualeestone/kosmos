@@ -52,6 +52,10 @@ comment 6219788459). This change wires that hook to the same board call the Clau
 ## Not in this change
 - Windows (win32keyed's codex launch): a separate slice, as #6033 was for Claude.
 - Writes through `exec_command` (a shell redirect, sed -i): no path to read reliably; never guessed.
+- An `apply_patch` sent THROUGH the shell (`exec_command` with `apply_patch <<'EOF' ... EOF`): Codex 0.149.1 catches and
+  applies it, but no PreToolUse reaches this hook (matcher apply_patch; measured in review 9 with a fake model, with a
+  normal apply_patch call as the control). Those edits get no undo copy and no changed-by. Follow-up: measure which
+  event and tool_name that form carries, then match it and read the patch out of the command.
 - Grok and Antigravity (#5812 items 3 and 4).
 
 ## Weakest premise
