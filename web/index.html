@@ -24642,14 +24642,16 @@ function paintRailTeamMap(op) {
   const btn = document.getElementById('alist-teammap-btn');
   const box = document.getElementById('alist-teammap');
   if (!btn || !box) return;
-  const roster = op ? (op.agents || []).filter((m) => m && typeof m.sessionName === 'string' && m.sessionName) : [];
+  const roster = op ? (op.agents || []) : [];   // the tab layout's own test for "has members" (paintOneProject)
   const open = roster.length > 0 && PJ_TEAMMAP_OPEN.has(String(op.id));
   const ae = document.activeElement;
   const had = ae && box.contains(ae) && ae.dataset ? ae.dataset.agent : null;
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
+  const top = box.scrollTop;
   setIfChanged(box, open ? pjTeamMap(op, typeof LAST !== 'undefined' ? LAST : []) : '');
+  if (open) box.scrollTop = top;
   if (had && !box.contains(document.activeElement)) {
     const back = [...box.querySelectorAll('.pjtm-node[data-agent]')].find((n) => n.dataset.agent === had);
     const to = back || (btn.getClientRects().length > 0 ? btn : null);

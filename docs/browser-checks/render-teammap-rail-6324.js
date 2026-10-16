@@ -203,6 +203,24 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     }, made.id);
     say('CONTROL: the repaint really replaced the focused button', kept.replaced, JSON.stringify(kept));
     say('focus comes back to the same member after a repaint', kept.on === 'rmcy', JSON.stringify(kept));
+    // A repaint keeps the map's own scroll position (a person scrolled down a big team stays where they were).
+    const scrolled = await p.evaluate((pid) => {
+      const box = document.getElementById('alist-teammap');
+      box.scrollTop = box.scrollHeight;
+      const at = box.scrollTop;
+      const node = box.querySelector('.pjtm-node[data-agent="rmada"]');
+      const m = PROJECTS.find((x) => x.id === pid).agents.find((a) => a.sessionName === 'rmada');
+      const was = m.name;
+      m.name = 'Ada renamed';
+      paintRailPjNotice();
+      const r = { at, now: box.scrollTop, replaced: !node.isConnected };
+      m.name = was;
+      paintRailPjNotice();
+      box.scrollTop = 0;
+      return r;
+    }, made.id);
+    say('CONTROL: the map was scrolled down and the repaint replaced its buttons', scrolled.at > 0 && scrolled.replaced, JSON.stringify(scrolled));
+    say('a repaint keeps the map scrolled where it was', Math.abs(scrolled.now - scrolled.at) <= 1, JSON.stringify(scrolled));
     // A focused member leaving the project: its button is gone, so focus goes to the Team map button, not the page.
     const left = await p.evaluate((pid) => {
       document.querySelector('#alist-teammap .pjtm-node[data-agent="rmjo"]').focus();
