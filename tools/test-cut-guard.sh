@@ -1243,6 +1243,16 @@ out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
   && pass "#6334 junk in the suite-max file reads as 1" \
   || fail "#6334 junk in the suite-max file did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+: > "$SMAX/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 an empty suite-max file reads as 1" \
+  || fail "#6334 an empty suite-max file did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
+SMAXD="$T/smaxd"; mkdir -p "$SMAXD/suite-max"
+out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAXD")"; rc=$?
+{ [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
+  && pass "#6334 a suite-max that is a directory reads as 1" \
+  || fail "#6334 a suite-max directory did not read as 1 (rc=$rc, $(printf '%s' "$out" | tail -3))"
 printf '5\n' > "$SMAX/suite-max"
 out="$(rt_e2e sprobe-live KOSMOS_RUN_MARKER_DIR="$SMAX" KOSMOS_SUITE_MAX=1)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
