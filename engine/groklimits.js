@@ -16,8 +16,8 @@
  * reading can be days old: `at` is the line's own time, for the page to say how old it is, and a reading whose period
  * has ended is dropped (its figure belongs to a period that is over). A line whose shape is not the one above is
  * skipped: no figure is better than a wrong one. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
- * while no reading is found (a busy day logs past 256 KB, measured: the 09-29 readings sit 1.2 MB from the end of a
- * 1.5 MB log). Never throws.
+ * while no reading is found (a busy day logs past 256 KB, measured: the last 09-29 reading sits about 355 KB from the
+ * end of a 1.5 MB log; the 4 MB step is headroom, not a measurement). Never throws.
  *
  * Returns { windows: [{ usedPct, windowMinutes, resetsAt }], plan, at } (times in epoch ms), the shape
  * codexlimits.read returns, so the page draws both the same way; or null.
@@ -66,7 +66,7 @@ function readingOfRow(row) {
  * @param {string} home  the account's Grok folder (~/.grok, or a named account's ~/.grok-<label>)
  * @param {number} [now] epoch ms
  */
-function read(home, now = Date.now()) {
+function read(home, now = Date.now(), since = null) {
   try {
     if (typeof home !== 'string' || !home) return null;
     const file = path.join(home, 'logs', 'unified.jsonl');
@@ -81,6 +81,8 @@ function read(home, now = Date.now()) {
         let row; try { row = JSON.parse(line); } catch { continue; }
         const r = readingOfRow(row);
         if (!r) continue;
+        // A reading logged before this folder's current sign-in began is another login's (review 1): it says nothing.
+        if (Number.isFinite(since) && r.at < since) return null;
         // The newest reading decides, even when its period is over: then there is no current figure.
         const windows = r.windows.filter((w) => w.resetsAt > now);
         return windows.length ? { ...r, windows } : null;
@@ -91,4 +93,38 @@ function read(home, now = Date.now()) {
   } catch { return null; }
 }
 
-module.exports = { read, readingOfRow, BILLING_MSG, TAIL_STEPS };
+/**
+ * When the folder's current grok.com sign-in began, as epoch ms, or null when it cannot be told (review 1: a folder
+ * reused by another login, or signed in again, keeps the earlier login's log, and its readings must not show as this
+ * account's). The login is told by the keys of auth.json's entries (`https://auth.x.ai::<id>`) and their user_id,
+ * hashed; the first time a login is seen in a folder, its start is auth.json's own time, recorded in `recordFile` so a
+ * token refresh (which rewrites auth.json under the same login) does not move it. The codexlimits.signedInSince shape.
+ */
+function signedInSince(dir, recordFile) {
+  let mtime = null, id = null;
+  try {
+    const file = path.join(dir, 'auth.json');
+    mtime = fs.statSync(file).mtimeMs;
+    const auth = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (auth && typeof auth === 'object' && !Array.isArray(auth)) {
+      const parts = Object.keys(auth).filter((k) => /^https:\/\/auth\.x\.ai::/.test(k)).sort()
+        .map((k) => k + '\n' + (auth[k] && typeof auth[k] === 'object' && typeof auth[k].user_id === 'string' ? auth[k].user_id : ''));
+      if (parts.length) id = require('node:crypto').createHash('sha256').update(parts.join('\n')).digest('hex').slice(0, 32);
+    }
+  } catch { /* unreadable: whatever was read stands */ }
+  if (mtime == null || !id || !recordFile) return mtime;
+  try {
+    let rec = {};
+    try { rec = JSON.parse(fs.readFileSync(recordFile, 'utf8')) || {}; } catch { rec = {}; }
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) rec = {};
+    const key = path.resolve(dir), had = rec[key];
+    if (had && had.login === id && Number.isFinite(had.since)) return had.since;
+    rec[key] = { login: id, since: mtime };
+    const tmp = recordFile + '.' + process.pid + '.' + require('node:crypto').randomBytes(6).toString('hex') + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(rec), { mode: 0o600 });
+    fs.renameSync(tmp, recordFile);
+    return mtime;
+  } catch { return mtime; }
+}
+
+module.exports = { read, readingOfRow, signedInSince, BILLING_MSG, TAIL_STEPS };

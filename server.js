@@ -11600,7 +11600,13 @@ const server = http.createServer(async (req, res) => {
              (engine/groklimits.js), or null: none logged, or its period is over. An API key never gets a billing
              reading, so its row carries none. */
           if (!r || r.authMode !== 'subscription' || !r.dir) return r;
-          let limits = null; try { limits = require('./engine/groklimits').read(r.dir, Date.now()); } catch { limits = null; }
+          /* Only readings since this folder's current sign-in began count (review 1: a folder signed in again, or reused,
+             keeps the earlier login's log). This read records a login it has not seen before, one small file. */
+          let limits = null;
+          try {
+            const gl = require('./engine/groklimits');
+            limits = gl.read(r.dir, Date.now(), gl.signedInSince(r.dir, path.join(store.ROOT, 'grok-signins.json')));
+          } catch { limits = null; }
           return { ...r, limits };
         });
         /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
