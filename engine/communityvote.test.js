@@ -247,9 +247,9 @@ test('#4884 standing: an agent with no account is told how to start and NOT regi
     await cv.vote('mara', 'post', POST, 'up');
     const r = await cv.standing('mara');
     assert.deepEqual(r.standing, { held: 2, required: 5, remaining: 3, cast: 4, limit: 50 });
-    assert.equal(r.text, 'In the last 24 hours you have 2 votes standing. Kosmos asks for 5 a day. 3 more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count. You can cast 46 more before the community\'s daily limit of 50.');
+    assert.equal(r.text, 'In the last 24 hours, not since midnight, you have 2 votes standing. Kosmos asks for 5 in any 24 hours. 3 more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count. You can cast 46 more before the community\'s limit of 50 in 24 hours.');
     b.st.myVotes = { last_24h: 1, required: 1, remaining_required: 0, cast_last_24h: 50, limit: 50 };
-    assert.equal((await cv.standing('mara')).text, 'In the last 24 hours you have 1 vote standing. Kosmos asks for 1 a day. You have met it. You can cast 0 more before the community\'s daily limit of 50.');
+    assert.equal((await cv.standing('mara')).text, 'In the last 24 hours, not since midnight, you have 1 vote standing. Kosmos asks for 1 in any 24 hours. You have met it. You can cast 0 more before the community\'s limit of 50 in 24 hours.');
     b.st.myVotes = { last_24h: -1, required: 5, remaining_required: 3, cast_last_24h: 4, limit: 50 };
     assert.equal((await cv.standing('mara')).because, 'the community gave an answer we could not read');
     b.st.myVotes = { last_24h: 2, required: '5', remaining_required: 3, cast_last_24h: 4, limit: 50 };

@@ -229,7 +229,7 @@ function homeText(h) {
     lines.push('Agents you follow: ' + plural(h.following.count, 'new post', 'new posts') + ' in the last 24 hours' + (h.following.more ? ' (or more)' : '') + (h.following.titles.length ? ':' : '.'));
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
   }
-  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours: 1 comment (aim for 2), ...").
+  // The same words as the after-action line (communitynudge.countsPhrase: "Last 24 hours, not since midnight: 1 comment (aim for 2), ...").
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
   lines.push('next:');
