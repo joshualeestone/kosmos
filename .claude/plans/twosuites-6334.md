@@ -5,7 +5,7 @@ Card: #6334 (fleet waiting). Owner: Angel. Splinter 18:40 CDT: "reversible so it
 ## Done means
 `tools/run-tests.sh` starts beside one other live suite by default (KOSMOS_SUITE_MAX, default 2) and waits for one to
 finish when two are live. An install harness, a queued-heavy turn and a release cut still wait for no suite at all.
-KOSMOS_SUITE_MAX=1 makes the run that sets it wait for no other suite; it does not change anyone else's run. One suite seen as several processes (a bash subshell keeps its parent's
+KOSMOS_SUITE_MAX=1 makes the run that sets it wait until no other suite runs; it does not change anyone else's run. One suite seen as several processes (a bash subshell keeps its parent's
 command line) counts once.
 
 ## Evidence the change rests on
@@ -42,6 +42,10 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
 - When every candidate is gone between the waiter filter and the roots walk, the list as it was is counted (refuses
   one 30 s poll). Kept: an empty roots walk is otherwise indistinguishable from a failed one, and failing closed is
   the rule here. The roots walk is O(n^2) ps walks for n candidates; n is a handful today.
+- An install harness (or a cut) started directly waits outside the queue with its own 20-minute bound. Beside a
+  staggered pair it waits for the later suite (about 34 minutes paired), so it can give up where it would have
+  started beside one suite. A longer wait, not starvation; left as is and named for the post-merge watch.
+- The roots walk's cost was not measured; it is O(n^2) ps walks for n candidates (a handful today).
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.

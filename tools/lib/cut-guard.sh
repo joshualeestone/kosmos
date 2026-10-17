@@ -556,7 +556,7 @@ kosmos_refuse_if_suite_live() {
     n="$(printf '%s\n' "$out" | grep -c . || true)"
     [ "$n" -le "$allowed" ] && return 0
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
-    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (KOSMOS_SUITE_MAX=$((allowed + 1)), #6334). Wait for one to finish, or $override." >&2
+    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (a limit of $((allowed + 1)) from KOSMOS_SUITE_MAX or the suite-max file, #6334). Wait for one to finish, or $override." >&2
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
