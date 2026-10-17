@@ -89,3 +89,11 @@ test('#6341: a holder out of usage is not named, and alone does not make a decis
   const withQuestion = [{ ...ann, ...rate }, { ...bo, state: 'needs_you', stateProject: p.id }, { ...cy, state: 'idle' }];
   assert.deepEqual(tasks.waitingOnOf(t, withQuestion), [{ who: 'bo', reason: 'question' }], 'CONTROL: a question beside it is still named');
 });
+
+test('#6341 review 6: a second, real reason beside a rate limit still names the holder', () => {
+  const { t } = setup('UsagePlus');
+  const [ann, bo, cy] = realCards();
+  const roster = [{ ...ann, state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited', forMs: 30 * 60000 }, ownBound: { raised: true } },
+    { ...bo, state: 'working' }, { ...cy, state: 'idle' }];
+  assert.deepEqual(tasks.waitingOnOf(t, roster), [{ who: 'ann', reason: 'own_bound' }]);
+});

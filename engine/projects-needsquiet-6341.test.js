@@ -121,6 +121,21 @@ test('#6341: out of usage never counts on a project, even a live one (Josh 19:47
   assert.equal(r.summary.needsYou, 0);
 });
 
+test('#6341 review 6: a second, real reason beside a rate limit is shown, not hidden with it', () => {
+  reset();
+  const p = projects.create({ name: 'Both', folder: folder('both'), agents: ['ob61'] });
+  roomPost(p.id);
+  const rate = { stuckError: { stuck: true, state: 'rate_limited', forMs: 30 * 60000 } };
+  const both = cards([fleet.agent('ob61', { state: 'rate_limited' })]).map((c) => ({ ...c, ...rate, ownBound: { raised: true } }));
+  assert.equal(projects.needsYouReason({ ...both[0], present: true, tied: true }, p.id), 'stuck_rate', 'CONTROL: the rate limit wins the plain reason');
+  const r = one(both, p.id);
+  assert.equal(member(r, 'ob61').needsYouHere, 'own_bound', 'the Kosmos give-up was hidden along with the rate limit');
+  assert.equal(r.summary.needsYou, 1);
+  // CONTROL: the rate limit alone is still quiet.
+  const alone = cards([fleet.agent('ob61', { state: 'rate_limited' })]).map((c) => ({ ...c, ...rate }));
+  assert.deepEqual(member(one(alone, p.id), 'ob61').needsYouQuiet, { reason: 'stuck_rate', because: 'usage' });
+});
+
 test('#6341: a paused project raises nothing, a question included', () => {
   reset();
   const p = projects.create({ name: 'Held', folder: folder('held'), agents: ['qq61'] });

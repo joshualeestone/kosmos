@@ -947,6 +947,14 @@ function needsQuietBecause(reason, m, ctx) {
   if (reason !== 'question' && !ctx.live) return 'inactive';
   return null;
 }
+/* #6341 review 6: needsYouReason, but a rate limit never outranks a second, real reason. Out of usage is quiet on a
+   project (Josh 19:47), so a member that is rate-limited AND, say, lost its connection must be shown for the
+   connection, not hidden with the rate limit. 'stuck_rate' is returned only when nothing else needs the person. */
+function needsYouReasonPastUsage(m, projectId) {
+  const why = needsYouReason(m, projectId);
+  if (why !== 'stuck_rate') return why;
+  return needsYouReason({ ...m, stuckError: null }, projectId) || 'stuck_rate';
+}
 /* #6341 review 5: what a dismissal is kept under. A question is kept with its own words, so the agent's NEXT question
    about this project is news and shown; every other reason is kept as the reason. */
 const NEEDS_KEY_WORDS = 300;
@@ -1179,7 +1187,7 @@ function describe(project, roster, all) {
      among the red rows the count skips, and a changed reason comes back. */
   const quiet = needsQuietContext(project);
   for (const m of members) {
-    const why = needsYouReason(m, project.id);
+    const why = needsYouReasonPastUsage(m, project.id);
     const hidden = why === null ? null : needsQuietBecause(why, m, quiet);
     m.needsYouHere = hidden ? null : why;
     m.needsYouKey = needsDismissKey(why, m);   // what the page sends back to dismiss this member's row
@@ -1201,7 +1209,7 @@ function describe(project, roster, all) {
     const m = members.find((x) => x.sessionName === name);
     if (!m) { verdict[name] = 'drop'; continue; }   // no longer a member
     if (!m.present || !m.tied) continue;   // not judged: whatever is stored stays as it is
-    const why = needsYouReason(m, project.id);
+    const why = needsYouReasonPastUsage(m, project.id);
     const standing = quiet.dismissed[name] === 'elsewhere' ? why === null && needsRedElsewhere(m) : needsDismissKey(why, m) === quiet.dismissed[name];
     if (standing) { verdict[name] = 'stand'; continue; }
     const since = Date.parse(quiet.gone[name]);
@@ -3902,7 +3910,7 @@ module.exports = {
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX,
+  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX,
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,

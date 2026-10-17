@@ -1770,7 +1770,8 @@ function cardsNeedingPerson(task, roster, members) {
     && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true)
     /* #6341 (Josh, 10-16 19:47: "a couple agents were out of usage but that should never show in the project, only on
        the agent"): an agent that is only out of usage does not put its tasks in Needs your decision either. */
-    && projects.needsYouReason({ ...card, present: true, tied: true }, task.projectId) !== 'stuck_rate');
+    // Review 6: only when nothing else needs the person; a second, real reason beside the rate limit still counts.
+    && projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) !== 'stuck_rate');
 }
 
 /**
@@ -1783,7 +1784,7 @@ function cardsNeedingPerson(task, roster, members) {
 function waitingOnOf(task, roster, members) {
   return cardsNeedingPerson(task, roster, members).map((card) => ({
     who: card.sessionName,
-    reason: projects.needsYouReason({ ...card, present: true, tied: true }, task.projectId) || 'other',
+    reason: projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other',
   }));
 }
 
