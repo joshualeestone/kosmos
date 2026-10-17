@@ -27414,9 +27414,11 @@ function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctS
 /* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok), or an Antigravity usage reading (#6176), is still under way.
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
    handshake timeout), so the reads continue until nothing is pending or the count runs out. An Antigravity usage run
-   can take up to 50 s before Kosmos gives up on it (review 5), so while one is pending the count runs to agyMax (56 s):
-   the row then reaches "could not report" instead of stopping on "Asking". */
+   can take up to 50 s before Kosmos gives up on it (review 5), so a pending one is followed by TIME instead: agyMax reads'
+   worth (56 s) from the paint that first saw it pending, whatever started that paint (review 7: a reset or retry read
+   arrives at the cap), so the row reaches its answer or "could not report" rather than stopping on "Asking". */
 const ACCT_FOLLOWUP = { ms: 3500, max: 6, agyMax: 16, busyMax: 60 };
+let acctAgyFollowUntil = 0;   // when following a pending Antigravity reading stops; 0 while none is pending
 /* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled) or a
    half-pressed Disconnect or Delete. Focus alone is not busy (round 4: a button keeps focus after its answer, and the
    row then kept saying "checking" long after its check had ended). */
@@ -27424,7 +27426,7 @@ function acctListBusy(box) { return !!(box && box.querySelector('.acct-check:dis
 /* The next follow-up read, `n` of at most ACCT_FOLLOWUP.max. One that finds the list busy waits a turn, still counted,
    and none reads if the list has been painted again meanwhile. */
 function acctFollowUp(n, busy) {
-  if (n > ACCT_FOLLOWUP.agyMax) return;   // the outer bound; each paint decides max or agyMax by what is pending
+  if (n > ACCT_FOLLOWUP.max) return;
   /* A turn skipped because the list is busy (a Check now in flight, a half-armed Disconnect) waits without spending a
      read, under its own cap (about 3.5 minutes), so a long press does not use up the reads and leave a row saying
      "checking" after the check has finished (review round 15). */
@@ -28051,8 +28053,13 @@ async function paintAccounts(opts) {
   /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   const pendingRows = list.filter((a) => a && a.connection && a.connection.liveCheckPending);
-  const followMax = pendingRows.some((a) => a.authMode === 'antigravity') ? ACCT_FOLLOWUP.agyMax : ACCT_FOLLOWUP.max;
-  if (followUp < followMax && pendingRows.length) acctFollowUp(followUp + 1);
+  const agyPending = pendingRows.some((a) => a.authMode === 'antigravity');
+  if (!agyPending) acctAgyFollowUntil = 0;
+  /* A window that ended more than a read ago belongs to an earlier run (no paint may come between two runs): open a new
+     one. A run never stays pending past its own 50 s cap, so this cannot follow one run forever. */
+  else if (!acctAgyFollowUntil || Date.now() > acctAgyFollowUntil + ACCT_FOLLOWUP.ms) acctAgyFollowUntil = Date.now() + ACCT_FOLLOWUP.agyMax * ACCT_FOLLOWUP.ms;
+  if (agyPending && Date.now() < acctAgyFollowUntil) acctFollowUp(Math.min(followUp + 1, ACCT_FOLLOWUP.max));
+  else if (followUp < ACCT_FOLLOWUP.max && pendingRows.length) acctFollowUp(followUp + 1);
   acctFiveHourRepaint(list);
   if (!followUp) {
     acctCancelSay();  /* post-await writer, same reason as the catch above */

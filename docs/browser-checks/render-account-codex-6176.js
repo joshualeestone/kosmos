@@ -201,6 +201,14 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }
     const aReads = await pa.evaluate(() => window.__reads);
     say(aReads >= 12 && aReads <= 17, '[chromium open] a pending Antigravity reading is followed for about 56 s, not 21 s', 'reads=' + aReads);
+    // The same when the read that finds it pending came at the cap (a reset or retry read, review 7).
+    await pa.evaluate(() => { window.__reads = 0; });
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }   // let the first budget run out
+    await pa.evaluate(() => { window.__reads = 0; });
+    await pa.evaluate(() => paintAccounts({ followUp: ACCT_FOLLOWUP.max }));
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }
+    const capReads = await pa.evaluate(() => window.__reads);
+    say(capReads >= 12 && capReads <= 18, '[chromium open] a pending Antigravity reading found by a read at the cap is still followed for about 56 s', 'reads=' + capReads);
     await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
     await pa.evaluate(() => { window.__reads = 0; });
     await pa.clock.runFor(11 * 60e3); await pa.waitForTimeout(300);
