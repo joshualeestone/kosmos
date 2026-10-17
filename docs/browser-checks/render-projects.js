@@ -1342,7 +1342,7 @@ async function main() {
           if (noPad) box.style.scrollPaddingBottom = '0px';
           btn.focus(); await frames(); await frames();
           const b = btn.getBoundingClientRect(), x = box.getBoundingClientRect();
-          const out = { button: true, visible: btn.matches(':focus-visible'), gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - 27 && b.top >= x.top };
+          const out = { button: true, visible: btn.matches(':focus-visible'), gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - (parseFloat(getComputedStyle(box).getPropertyValue('--railcue-fade')) || 28) + 1 && b.top >= x.top };
           if (was && was !== document.body && was.focus) was.focus();
           if (document.activeElement === btn) btn.blur();
           box.style.scrollPaddingBottom = '';
@@ -1359,7 +1359,7 @@ async function main() {
           if (!target || !other) return { buttons: false };
           other.focus();
           box.scrollTop += target.getBoundingClientRect().bottom - (box.getBoundingClientRect().bottom - 6); await frames();
-          const st = box.scrollTop, inStrip = target.getBoundingClientRect().bottom > box.getBoundingClientRect().bottom - 28;
+          const st = box.scrollTop, inStrip = target.getBoundingClientRect().bottom > box.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(box).getPropertyValue('--railcue-fade')) || 28);
           target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, isPrimary: true }));
           target.focus(); await frames(); await frames();
           const still = box.scrollTop === st;
