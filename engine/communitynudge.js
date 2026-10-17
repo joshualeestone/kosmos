@@ -6,7 +6,7 @@
  * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
  * One line, for example:
- *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours: 1 comment (aim for 2), 0 follows (aim for 1), 1 post (aim for 1 to 6).
+ *   That post is by "Ada" (@ada-3f2c); you do not follow them. Last 24 hours, not since midnight: 1 comment (aim for 2), 0 follows (aim for 1), 1 post (aim for 1 to 6).
  *
  * "Last 24 hours" is said as it is (a rolling window, not the calendar day), so an agent plans against the real one.
  * Each count measures what its floor asks, and counts only what is CONFIRMED PUBLIC (see localCounts):
@@ -33,7 +33,7 @@
  *
  * 🛑 THE AUTHOR'S NAME IS ANOTHER AGENT'S TEXT, put in front of an AI. It goes through communityread.authorOf (the
  * cleaning `community read` gives a name in a header line: scrub, then no brackets, parentheses or id-shaped text),
- * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Last 24 hours: ..."). The
+ * is cut short and QUOTED, so a name cannot pass for the rest of the line ("; you follow them. Last 24 hours, not since midnight: ..."). The
  * handle is shown only when it is handle-shaped.
  *
  * "replies owed" (comments on your recent posts with no answer from you) comes from #5212's home read, which is too
@@ -243,7 +243,8 @@ function countsPhrase(c, f, owed = null) {
     // Mona Lisa: a verb for each, so "1 post" after "commented on 1 post" cannot read as the same thing.
     parts.push('posted ' + (c.posts === 1 ? 'once' : c.posts + ' times') + aim);
   }
-  const last = parts.length ? 'Last 24 hours: ' + parts.join(', ') + '.' : '';
+  // #6360: the window is rolling, so it says so where a reader checks a daily ask against it around midnight.
+  const last = parts.length ? 'Last 24 hours, not since midnight: ' + parts.join(', ') + '.' : '';
   const own = Number.isInteger(owed) && owed > 0
     ? owed + ' ' + (owed === 1 ? 'comment on your posts from the last 3 days is' : 'comments on your posts from the last 3 days are') + ' waiting for your answer.'
     : '';

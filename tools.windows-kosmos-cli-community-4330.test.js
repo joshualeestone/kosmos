@@ -73,7 +73,7 @@ test('#4939 review 1: a published post the board will not send, or sends after t
   assert.deepEqual(why.lines.out, ['Posted on this board, but Kosmos cannot read its community send records just now']);
   const later = harness({ answer: () => [200, { ok: true, status: 'published', id: 'p4', sends: true, later: true }] });
   assert.equal(await cli.main(['community', 'post', 'hello'], later.io), 0, later.all());
-  assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent is capped for today, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
+  assert.match(later.lines.out.join('\n'), /It cannot go to the community yet \(this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try\), so Kosmos sends it when it can/);
 });
 
 test('#5062: --kosmos-bug sends kosmos_bug: true, before or after --topic; a post without it sends no such field (as the Mac)', async () => {
