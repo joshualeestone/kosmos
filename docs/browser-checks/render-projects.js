@@ -1290,6 +1290,40 @@ async function main() {
       contrastFails += 1;
       console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
+    /* #6349: with more of the notice below the box's edge, the box carries data-more and its bottom fades (a cue a Mac's
+       hidden scrollbar does not give); scrolled to the end, or with the notice short again, neither. Set by the page's
+       own observer (railPjMore), so each step waits two frames for it rather than calling it. Copies as above, removed
+       in finally. */
+    const cue = await page.evaluate(async () => {
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const box = document.getElementById('alist-pj-notice');
+      const row = box && box.querySelector('.pnotice');
+      if (!box || !row) return { missing: true };
+      const fade = () => { const a = getComputedStyle(box, '::after'); return a.content !== 'none' && a.content !== 'normal' && parseFloat(a.height) > 0; };
+      const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
+      const copies = [];
+      try {
+        const before = { more: box.hasAttribute('data-more'), fade: fade() };
+        while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
+        await frames();
+        const grown = { more: box.hasAttribute('data-more'), fade: fade(), scrolls: box.scrollHeight > box.clientHeight + 1 };
+        box.scrollTop = box.scrollHeight; await frames();
+        const atEnd = { more: box.hasAttribute('data-more'), fade: fade() };
+        box.scrollTop = 0; await frames();
+        const backUp = { more: box.hasAttribute('data-more') };
+        for (const c of copies.splice(0)) c.remove(); await frames();
+        const shortAgain = { more: box.hasAttribute('data-more'), fade: fade() };
+        return { before, grown, atEnd, backUp, shortAgain };
+      } finally {
+        for (const c of copies) c.remove();
+        if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
+      }
+    });
+    if (cue.missing || cue.before.more || !cue.grown.scrolls || !cue.grown.more || !cue.grown.fade || cue.atEnd.more || cue.atEnd.fade
+        || !cue.backUp.more || cue.shortAgain.more || cue.shortAgain.fade) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected no cue when short, the fade while more is below, none at the end, back when scrolled up, none once short again (${scheme}), got ${JSON.stringify(cue)}`);
+    }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
     const rail = { on: railOn, off: railOff };

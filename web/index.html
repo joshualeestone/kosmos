@@ -5377,6 +5377,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 4px; }   /* padding: room at the sides for a node's focus ring (2px + 2px offset), which the scroll box would clip */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm::-webkit-scrollbar { display: none; }   /* #867: no scrollbar inside the agents rail */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
+  /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
+     the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
+     does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the
+     cap's size; drawn over the rows (the box has no background of its own) and never takes a click. */
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -76119,6 +76124,23 @@ function pjNeedsOpenClick(e) {
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
+/* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read from the box
+   itself on scroll, on any change to what it holds (every painter, the retry handlers included), and on resize, so it
+   holds whatever sets the cap. */
+function railPjMore() {
+  const rn = document.getElementById('alist-pj-notice');
+  if (!rn) return;
+  const more = rn.scrollHeight - rn.scrollTop - rn.clientHeight > 2;
+  if (more !== rn.hasAttribute('data-more')) rn.toggleAttribute('data-more', more);
+}
+{
+  const rn = document.getElementById('alist-pj-notice');
+  if (rn) {
+    rn.addEventListener('scroll', railPjMore, { passive: true });
+    if (typeof MutationObserver === 'function') new MutationObserver(railPjMore).observe(rn, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('resize', railPjMore);
+  }
+}
 /* #6341: Dismiss on a "needs you" row. The board keeps it (per member and reason), so it holds across windows and a
    reload, and the project's Issue count drops with the row. Focus goes to the next row's Dismiss, else the last
    Dismiss left (the row above), else the notice's first button, else the Members heading, so a keyboard user is not
