@@ -2644,7 +2644,7 @@ async function run() {
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
   const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
-  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them, or their community line could not show because the community is off); those cards are not as the busy table says'); return 2; }
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them); those cards are not as the busy table says'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }

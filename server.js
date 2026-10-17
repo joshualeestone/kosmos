@@ -1222,7 +1222,6 @@ const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few
 const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
-const communitystore = require('./engine/communitystore'); // #5314: agent card shows time since last community post
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
