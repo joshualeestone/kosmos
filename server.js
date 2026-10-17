@@ -10988,8 +10988,10 @@ const server = http.createServer(async (req, res) => {
   }
   /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
      for a request made on THIS computer's own screen: never one that came through Kosmos+ (the tunnel always sets
-     x-forwarded-host), so a phone let in here cannot use this computer's key to reach the other computers, and never
-     an agent's token (isViaScreen). The address must be one an account's computer can have. */
+     x-forwarded-host and x-forwarded-for, replacing a visitor's; pinned in kosmos-relay's proxy tests), so a phone let
+     in here cannot use this computer's key to reach the other computers; and with no agent token (isViaScreen). A local
+     process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
+     tunnel with this computer's key itself. The address must be one an account's computer can have. */
   if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
