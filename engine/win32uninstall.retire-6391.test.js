@@ -42,7 +42,7 @@ test('#6391 retirePc: exit 0 means told, and the connector is asked with retire 
   assert.deepEqual(out, { told: true });
   assert.equal(calls.length, 1, 'the connector was not asked exactly once');
   assert.equal(calls[0].bin, 'C:\\app\\bin\\kosmos-tunnel.exe');
-  assert.deepEqual(calls[0].args, ['retire', '--state-dir', 'D:\\data\\remote', '--coordinator', 'https://coord.example']);
+  assert.deepEqual(calls[0].args, ['retire', '--coordinator', 'https://coord.example', '--state-dir', 'D:\\data\\remote']);
   assert.equal(calls[0].opts.windowsHide, true, 'the console child must be hidden (no black window flash)');
   assert.equal(calls[0].opts.shell, undefined, 'no shell: argv must reach CreateProcess unparsed');
   assert.ok(Number.isFinite(calls[0].opts.timeout) && calls[0].opts.timeout > 0, 'a short timeout must be set');
@@ -92,6 +92,16 @@ test('#6391 retirePc: the default timeout is the generous RETIRE_TIMEOUT_MS, and
   assert.equal(seenTimeout, uninstaller.RETIRE_TIMEOUT_MS, 'default timeout not wired to RETIRE_TIMEOUT_MS');
   uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', timeoutMs: 1234, existsSync: () => true, spawnSync });
   assert.equal(seenTimeout, 1234, 'o.timeoutMs did not override the default');
+});
+
+test('#6391 remote.connectorFile is exported and names the Windows connector (the reuse this change relies on)', () => {
+  // uninstall() resolves the default connector path as <app>/bin/ + remote.connectorFile(platform),
+  // so convention-5 duplication of the filename is avoided. Guard the export so a future removal is caught.
+  const remote = require('./remote');
+  assert.equal(typeof remote.connectorFile, 'function', 'remote.connectorFile is no longer exported');
+  assert.equal(remote.connectorFile('win32'), 'kosmos-tunnel.exe');
+  assert.equal(typeof remote.DEFAULT_COORDINATOR, 'string', 'remote.DEFAULT_COORDINATOR is no longer exported');
+  assert.ok(remote.DEFAULT_COORDINATOR.startsWith('https://'), 'coordinator default is not an https URL');
 });
 
 test('#6391 source order: the retire call precedes deleteAllExcept in uninstall() (portable backstop)', () => {

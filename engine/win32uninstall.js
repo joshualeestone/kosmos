@@ -500,29 +500,31 @@ const RETIRE_TIMEOUT_MS = 60 * 1000;
  * account and only the account page (its one-day `recently_online` rule) or a signed-in phone can
  * remove it. So, like the Mac uninstall (install/setup.sh, "RETIRE THIS MAC ... #793"), run the
  * connector's `retire` verb first, best-effort with a generous timeout (RETIRE_TIMEOUT_MS; see its
- * note); the caller says the outcome either way. The caller resolves the connector path and passes
- * it as `tunnelBin`: the `AGENT_WORKFORCE_TUNNEL_BIN` override remote.js documents, else
- * `app\bin\kosmos-tunnel.exe` (#583, #4597) beside this engine dir (`app\engine`) -- the SAME
- * default remote.js's own `bundledConnector` derives from its `__dirname`, so a layout that would
- * break this default already breaks the board's connector, and the env override is the escape hatch
- * for a non-standard layout. The bundle the connector lives in is never deleted from here.
- * `windowsHide`: the board that spawns this runs as a hidden task, so a console child would flash a
- * black window (#4597). No `shell`: argv goes straight to CreateProcess, never re-parsed by cmd.exe.
+ * note); the caller says the outcome either way. The CALLER resolves the connector path and passes
+ * it as `tunnelBin` (so there is one derivation of it there, not a second here): the
+ * `AGENT_WORKFORCE_TUNNEL_BIN` override remote.js documents, else `<app>\bin\` + the per-platform
+ * filename from remote.js's own `connectorFile()` (#583, #4597). An empty/missing `tunnelBin` is
+ * treated as "no connector" -> could-not-tell. The bundle the connector lives in is never deleted
+ * from here. `windowsHide`: the board that spawns this runs as a hidden task, so a console child
+ * would flash a black window (#4597). No `shell`: argv goes straight to CreateProcess, unparsed.
  *
  * Returns `{told: boolean}` and NEVER throws: a retire we could not even attempt (no connector, a
  * spawn error) is just "could not be told", the same as a timeout or a non-zero exit. Seams
- * (`existsSync` / `spawnSync` / `tunnelBin`) are for tests.
+ * (`existsSync` / `spawnSync`) are for tests; `tunnelBin` is caller-resolved, required.
  *
- * @param {object} o  { remoteDir, coordinator, tunnelBin?, existsSync?, spawnSync?, timeoutMs? }
+ * @param {object} o  { remoteDir, coordinator, tunnelBin, existsSync?, spawnSync?, timeoutMs? }
  */
 function retirePc(o) {
   const exists = o.existsSync || fs.existsSync;
   const run = o.spawnSync || require('node:child_process').spawnSync;
-  const tunnelBin = o.tunnelBin || path.join(path.dirname(__dirname), 'bin', 'kosmos-tunnel.exe');
-  if (!exists(tunnelBin)) return { told: false };   // no connector to ask with: cannot tell
+  const tunnelBin = o.tunnelBin;
+  if (!tunnelBin || !exists(tunnelBin)) return { told: false };   // no connector to ask with: cannot tell
   let r;
   try {
-    r = run(tunnelBin, ['retire', '--state-dir', o.remoteDir, '--coordinator', o.coordinator],
+    // Argument ORDER mirrors engine/remote.js's retireHere() exactly (--coordinator then
+    // --state-dir); the flags are order-independent, but matching keeps the two call sites
+    // literally the same verb rather than merely equivalent.
+    r = run(tunnelBin, ['retire', '--coordinator', o.coordinator, '--state-dir', o.remoteDir],
       { timeout: o.timeoutMs || RETIRE_TIMEOUT_MS, windowsHide: true, encoding: 'utf8' });
   } catch { return { told: false }; }   // spawn itself threw
   // Timed out (r.error ETIMEDOUT + r.signal), killed, or a non-zero exit: all "could not be told".
@@ -740,18 +742,22 @@ async function uninstall(opts) {
         const hadKey = ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(remoteDir, f)));
         if (hadKey) {
           const retire = o.retirePc || retirePc;
-          /* The coordinator URL, env-or-default, inlined exactly as the Mac sibling does
-             (install/setup.sh: ${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://login.kosmosplus.com};
-             engine/remote.js DEFAULT_COORDINATOR is the same value). Inlined on purpose rather than
-             pulling the whole tunnel-supervisor module (remote.js) into a short-lived uninstaller for
-             one string; a test can pin it via o.coordinator. */
-          const coordinator = o.coordinator || env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || 'https://login.kosmosplus.com';
-          /* The connector path: the AGENT_WORKFORCE_TUNNEL_BIN override remote.js documents, else
-             the bundled default retirePc derives from __dirname. Resolved here where env is in
-             scope. */
-          const tunnelBin = o.tunnelBin || env.AGENT_WORKFORCE_TUNNEL_BIN || undefined;
-          /* The retire timeout, env-overridable by the SAME seam remote.js honours
-             (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS); the generous RETIRE_TIMEOUT_MS default otherwise. */
+          /* ONE derivation of the coordinator URL and the connector filename (convention 5): both
+             come from engine/remote.js rather than being re-spelled here. The one-time require is
+             negligible in this terminal, hadKey-only uninstall path, and it is the whole tunnel
+             module's single source of truth for these facts. The env overrides (honoured here, where
+             the uninstall's env seam is in scope) are the same ones remote.js reads. */
+          const remote = require('./remote');
+          const coordinator = o.coordinator || env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || remote.DEFAULT_COORDINATOR;
+          /* Connector: AGENT_WORKFORCE_TUNNEL_BIN override, else `<app>\bin\` + remote.js's own
+             per-platform connectorFile(). `<app>` is this engine dir's parent (this file is
+             `app\engine\win32uninstall.js`), the same `__dirname`-relative layout remote.js's
+             bundledConnector() uses, so a layout that broke this would already break the board. */
+          const tunnelBin = o.tunnelBin || env.AGENT_WORKFORCE_TUNNEL_BIN
+            || path.join(path.dirname(__dirname), 'bin', remote.connectorFile(platform));
+          /* Retire timeout: the SAME env seam remote.js honours (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS),
+             else the generous RETIRE_TIMEOUT_MS default. No upper cap (remote.js's retireTimeoutMs
+             caps against its register bound); inconsequential for a one-shot uninstaller. */
           const envTimeout = Number(env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS);
           const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : undefined;
           const told = retire({ remoteDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }).told === true;
