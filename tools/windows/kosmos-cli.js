@@ -104,7 +104,7 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
-    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark; a mark without it drops an earlier one',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -1177,10 +1177,10 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  /* kosmos#4889, as install/kosmos: --clear is built's one option; any other --word is refused, and past a bare --
-     everything is the note. */
+  /* kosmos#4889, as install/kosmos: --clear and (#6330) --file <path> are built's options; any other --word is
+     refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
   let clear = false, past = false, file = null, wantFile = false;
   const words = [];
@@ -1199,10 +1199,17 @@ async function taskBuilt(ctx, args) {
   let fingerprint = null;
   if (file !== null) {
     if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
-    let bytes;
-    try { if (!fs.statSync(file).isFile()) throw new Error('not a file'); bytes = fs.readFileSync(file); }
-    catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
-    fingerprint = 'sha256:' + require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+    /* In chunks, as shasum streams on the Mac: a whole-file read refuses anything over 2 GiB (review 1). */
+    const hash = require('node:crypto').createHash('sha256');
+    let fd = null;
+    try {
+      if (!fs.statSync(file).isFile()) throw new Error('not a file');
+      fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(1 << 20);
+      for (let got; (got = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, got));
+    } catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+    fingerprint = 'sha256:' + hash.digest('hex');
   }
   const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
