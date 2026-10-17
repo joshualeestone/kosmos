@@ -84,7 +84,9 @@ function activate() {
          "no owner recorded". (A process that makes the folder again AFTER this one has ended cannot be caught
          here; the guard lists what such a folder holds instead.) */
       try {
-        if (ownerLine && fs.existsSync(dir)) fs.writeFileSync(path.join(dir, '.kts-owner'), ownerLine + '\tsurvived its sweep\n');
+        if (ownerLine && fs.existsSync(dir)) {
+          fs.writeFileSync(path.join(dir, '.kts-owner'), ownerLine + '\tsurvived its sweep\n');
+        }
       } catch { /* the leak is still reported, without its owner */ }
     });
   } catch {

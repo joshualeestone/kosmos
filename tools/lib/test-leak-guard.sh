@@ -201,13 +201,16 @@ leak_kts_owners() {
           case "$rest" in *$'\t'*) why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
       esac
       echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why"
+    elif [ -f "$d/.kts-owner" ]; then
+      # An EMPTY owner file was cut while tmpscope wrote it (a kill at creation); a remade dir has none at all.
+      echo "  ${d##*/}: owner line cut (the test was killed while tmpscope wrote it)"
     else
       # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
       held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort) || held=""
       n=$(printf '%s' "$held" | grep -c . || true)
       shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
       if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
-      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061; it holds: ${shown:-nothing}"
+      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: ${shown:-nothing}"
     fi
   done
 }
