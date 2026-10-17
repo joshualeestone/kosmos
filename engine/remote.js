@@ -1832,7 +1832,7 @@ function startVouch() {
 /* kosmos#6407: `signins` reads the snapshot's list of every phone or browser sign-in on the account (id and first_seen),
    only to decide whether to open the tab. `devices` is only what knocked at this computer's gate, and the sign-in that
    arms the tab usually happened on the website, so it is in `signins` only. A tunnel that predates the field writes
-   none: an empty list. The allow below matches `devices` only. */
+   none: an empty list. vouchTick's allow matches `devices` only. */
 function vouchRows(signins = false) {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
@@ -1867,7 +1867,7 @@ function vouchTick() {
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
     const recent = (d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S;
-    if (!rows.some(recent) && !(vouchRows(true) || []).some(recent)) return;   // the file is read again: it can go between
+    if (!rows.some(recent) && !(vouchRows(true) || []).some(recent)) return;   // a second read: null if pending.json went in between
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).

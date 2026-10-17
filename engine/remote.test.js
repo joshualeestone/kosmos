@@ -4457,8 +4457,14 @@ test('#5786 (b): a secret ends on Sign out and on switching off, and an old requ
 
 test('kosmos#6407: a recent sign-in that never knocked here (in signins only) still opens the connect tab; this computer\'s own and a Not me one do not', async () => {
   let r = await vouchSignedIn('vouchsign1');
+  // Premise for every refusal below: each id is one the filter would otherwise take (the engine's DEVICE_ID), so it is
+  // refused for the reason named, not for its shape. dev-web, the CONTROL, has the same shape and is taken.
+  const SHAPE = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+  const own = remote.read().device_id;
+  for (const id of [own, 'dev-refused', 'dev-old', 'dev-web']) assert.match(String(id), SHAPE, 'premise: ' + id + ' has the shape of a device id');
+  assert.ok(remote.ownDeviceIds().includes(own), 'premise: the sign-in id of this computer is one of its own ids');
   // This computer's own sign-in, fresh: never "the person, a moment ago" (an app-only sign-in opens no tab).
-  r.plant([], [{ device_id: remote.read().device_id, first_seen: nowS() - 30 }]);
+  r.plant([], [{ device_id: own, first_seen: nowS() - 30 }]);
   remote.vouchTickForTests();
   assert.equal(remote.vouchOpenedUrlForTests(), '', 'this computer\'s own sign-in opened the browser');
   // A device the person said Not me to, fresh: not either.
