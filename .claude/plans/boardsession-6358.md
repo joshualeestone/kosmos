@@ -13,8 +13,10 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     - At most 1000 exist; past that, the one minted longest ago ends first (by age, not by use).
   - `tokenOk` / `tokenOkAny` look a cookie up as a session and never compare it to the board token. Header and query
     tokens are unchanged.
-  - A cookie that is no live session (the old cookie, which held the token, or one a restart forgot) does not stop
-    `?boot=` / `?token=` from signing in again.
+  - A valid `?boot=` / `?token=` is always answered with a redirect to the clean address, a live session or not, so
+    an address never keeps the token (the app reads a kept `token=` as a refusal). A live session already the
+    signing-in token's is kept; a cookie that is no live session (the old token cookie, or one a restart forgot) is
+    no sign-in. The clean address has no sign-in parameter, so there is no redirect loop.
   - New exports:
     - `accepts(t)` (on bootstrap) and `clearedCookieHeader()`;
     - `liveSessionIds()`, for the proof route, which does not call it yet;
@@ -36,7 +38,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     there is no token. Refusal is read from the board's own answer (`signInWasRefused`): an accepted `?token=` is
     redirected to the clean address, a refused one is not, so the committed page still carries `token=`. A second
     restart or a down board is no refusal, so the app simply signs in again.
-  - Giving up loads `?signin=failed` without the token. The app then stays out of it until a read works, which in
+  - Giving up loads `?signin=failed` without the token; the page reads that marker at load, before boot's `syncUrl`
+    rewrites the address. The app then stays out of it until a read works, which in
     practice means Kosmos is reopened.
   - `urlForLog` keeps the token out of the two launch log lines.
   - All pure, with `--kosmos-app-mode-selftest` rows: 135 in all. The reload log line goes through `urlForLog` too.
@@ -53,7 +56,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     was on.
   - Accepted cost: the reload drops text typed and not yet sent. Off a board page it falls back to the front page
     without `?mode=`.
-  - If the board refuses the sign-in, or the window is still signed out 70 s after it first told the app: "Kosmos
+  - If the board refuses the sign-in, or the window is still signed out 150 s after it first told the app (well past the 65 s retell plus a poll): "Kosmos
     could not sign this window in. Quit Kosmos with Command-Q, then open it again from your Applications folder." No
     reload loop, and no "this takes a moment" that never ends.
 - **A browser tab on a Mac (`kosmos open`):** "This board is not signed in. It cannot read your agents or projects.

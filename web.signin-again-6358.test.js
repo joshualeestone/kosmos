@@ -112,8 +112,9 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
 });
 
 test('#6358: the signed-out panel tells the app window it is being signed in, and a tab what to do', () => {
-  const render = (window, search = '', since = 0) => {
-    const ctx = { window, location: { search }, URLSearchParams, Date, SIGNED_OUT_SINCE: since, SIGNED_OUT_STUCK_MS: 70000, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
+  const stuckMs = Number(PAGE.match(/const SIGNED_OUT_STUCK_MS = (\d+);/)[1]);
+  const render = (window, search = '', since = 0, failedAtLoad = false) => {
+    const ctx = { window, location: { search }, URLSearchParams, Date, SIGNED_OUT_SINCE: since, SIGNED_OUT_STUCK_MS: stuckMs, SIGNIN_FAILED_AT_LOAD: failedAtLoad, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
     vm.createContext(ctx);
     vm.runInContext(lift(PAGE, 'function boardSigninHtml('), ctx);
     return ctx.boardSigninHtml();
@@ -125,8 +126,10 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   assert.match(refused, /Kosmos could not sign this window in\. Quit Kosmos with Command-Q, then open it again/,
     'when the board refused the app\'s sign-in, the window says what to do, not "this takes a moment"');
   assert.doesNotMatch(refused, /This takes a moment/);
-  const stuck = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', Date.now() - 71000);
-  assert.match(stuck, /Kosmos could not sign this window in/, 'still signed out 70 s after telling the app: the panel stops promising a moment');
+  const stuck = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', Date.now() - stuckMs - 1000);
+  assert.match(stuck, /Kosmos could not sign this window in/, 'still signed out well after telling the app: the panel stops promising a moment');
+  const rewritten = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '?tab=agents', 0, true);
+  assert.match(rewritten, /Kosmos could not sign this window in/, 'the marker read at load holds after boot rewrote the address');
   const soon = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', Date.now() - 5000);
   assert.match(soon, /This takes a moment/, 'a few seconds in, it is still signing in');
   const tab = render({});
@@ -142,4 +145,13 @@ test('#6358: the one sentence (agents box, projects, org note) is true in the ap
   assert.ok(m, 'SIGNIN_SENTENCE is gone');
   assert.match(m[1], /The Kosmos app signs itself in again/, 'true in the app');
   assert.match(m[1], /In a browser tab, open Kosmos from your Applications folder/, 'actionable in a tab');
+});
+
+test('#6358: the stuck switch waits well past the retell plus a poll, and the give-up marker is read before boot rewrites the address', () => {
+  const retell = Number(PAGE.match(/const SIGNED_OUT_RETELL_MS = (\d+);/)[1]);
+  const stuck = Number(PAGE.match(/const SIGNED_OUT_STUCK_MS = (\d+);/)[1]);
+  assert.ok(stuck >= retell + 30000, 'stuck ' + stuck + ' ms vs retell ' + retell + ' ms: a slow poll must not show "could not" while the app is about to sign in');
+  const marker = PAGE.indexOf('const SIGNIN_FAILED_AT_LOAD =');
+  const boot = PAGE.lastIndexOf('showTab(BOOT_TAB);');
+  assert.ok(marker > 0 && boot > 0 && marker < boot, 'SIGNIN_FAILED_AT_LOAD is read before boot\'s showTab (which runs syncUrl)');
 });

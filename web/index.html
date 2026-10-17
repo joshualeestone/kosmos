@@ -24411,7 +24411,11 @@ let SIGNED_OUT_TOLD_AT = 0;
 // stops saying "this takes a moment": the app has not signed the window in (it gave up, or it never will here).
 let SIGNED_OUT_SINCE = 0;
 const SIGNED_OUT_RETELL_MS = 65000;
-const SIGNED_OUT_STUCK_MS = 70000;
+// Well past the retell plus a slow poll, so the panel never says "could not" while the app is about to sign in.
+const SIGNED_OUT_STUCK_MS = 150000;
+/* The app loads ?signin=failed when the board refused its sign-in. Read here, at load: boot's syncUrl (showTab)
+   rewrites the address and keeps only its own parameters, so the marker is gone before the first poll paints. */
+const SIGNIN_FAILED_AT_LOAD = (() => { try { return new URLSearchParams(location.search).get('signin') === 'failed'; } catch { return false; } })();
 function signedOutTellApp(now = Date.now()) {
   if (SIGNED_OUT_TOLD_AT && now - SIGNED_OUT_TOLD_AT < SIGNED_OUT_RETELL_MS) return;
   try {
@@ -38521,8 +38525,8 @@ function boardSigninHtml() {
   try { inApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin); } catch { /* not the app */ }
   if (inApp) {
     // The app loads ?signin=failed when the board refused its sign-in (it does not try again until the board answers).
-    let failed = false;
-    try { failed = new URLSearchParams(location.search).get('signin') === 'failed'; } catch { /* no location (a test) */ }
+    let failed = typeof SIGNIN_FAILED_AT_LOAD !== 'undefined' && SIGNIN_FAILED_AT_LOAD === true;
+    try { if (new URLSearchParams(location.search).get('signin') === 'failed') failed = true; } catch { /* no location (a test) */ }
     // Or still signed out a while after first telling the app: the app is not signing this window in.
     if (typeof SIGNED_OUT_SINCE === 'number' && SIGNED_OUT_SINCE && Date.now() - SIGNED_OUT_SINCE > SIGNED_OUT_STUCK_MS) failed = true;
     return '<div class="pj-empty boardfail">'

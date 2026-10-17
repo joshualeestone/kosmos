@@ -175,10 +175,17 @@ test('bootstrap(): a non-nav method (POST) does not bootstrap even with a valid 
   assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/api/msg?token=T', headers: {} }, routingBase: base, method: 'POST' }), null);
 });
 
-test('bootstrap(): a request that already has a live session does NOT re-bootstrap (no redirect loop)', () => {
+test('#6358: a live session plus a valid ?token= is still redirected to the clean address, keeping that session; the clean address does not bootstrap (no loop)', () => {
+  /* The address must never keep the token: the Mac app reads a kept token= as the board refusing it, and an app
+     reopened while the board stayed up has exactly this request (its cookie survived the quit). */
   const base = 'http://localhost';
   const sid = boardauth.mintSession('T');
-  assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' }), null);
+  const b = boardauth.bootstrap({ token: 'T', req: { url: '/?tab=a&token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' });
+  assert.ok(b, 'a valid ?token= is redirected even with a live session');
+  assert.equal(b.location, '/?tab=a', 'to the clean address');
+  assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';'), 'the live session is kept, not a new one minted');
+  assert.equal(boardauth.bootstrap({ token: 'T', req: { url: '/?tab=a', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: base, method: 'GET' }), null,
+    'the clean address is no bootstrap: no redirect loop');
 });
 
 test('#6358: a cookie that is no live session (the old durable-token cookie, or one a restart forgot) re-bootstraps', () => {

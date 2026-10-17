@@ -598,7 +598,8 @@ function sessionToken(id) {
 
 /** The ids of the live sessions (expired ones swept first). For the board's own proof route (engine/boardproof.js,
  * #6358), which is to answer for a session as it does for a token once that part lands; nothing calls this yet.
- * In this process only: sessions are never stored. */
+ * In this process only: sessions are never stored. The ids are credentials: use them only as HMAC
+ * keys, never send one. */
 function liveSessionIds() {
   _sweepSessions(_nonceNow());
   return [..._sessions.keys()];
@@ -628,10 +629,13 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
      account's worlds, #3055). The Mac app signs in with the default world's token, and after a world switch
      restarts the board that is not the active one, so a `?token=` the gate accepts signs in too. */
   const ok = (t) => matches(t, token) || (typeof accepts === 'function' && accepts(t) === true);
-  // A LIVE session the gate accepts needs no bootstrap (and none means no redirect loop). A cookie whose session
-  // ended (a restart, the cap) is no sign-in at all, so `?boot=` / `?token=` still work.
-  const live = sessionToken(cookieToken(req));
-  if (live !== null && ok(live)) return null;
+  /* A valid `?boot=` / `?token=` is ALWAYS answered with a redirect to the clean address, a live session or not:
+     then an address never keeps the token (the Mac app reads a kept `token=` as the board refusing it), and the
+     clean address carries no sign-in parameter, so there is no redirect loop. A live session that is already the
+     signing-in token's is kept rather than a new one minted; a cookie whose session ended is no sign-in at all. */
+  const liveId = cookieToken(req);
+  const live = sessionToken(liveId);
+  const sessionFor = (t) => ((live !== null && matches(live, t)) ? liveId : mintSession(t));
   /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
      redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
      durable token stays off the browser-open argv. Tried before `?token=` so the
@@ -647,11 +651,11 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
        set, still asserted by engine.boardauth-nonce-1979.test.js) in case a future
        caller needs to tell the two apart; nothing reads it to gate seeding any more.
        The caller writes the marker. */
-    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(mintSession(token)), viaBootNonce: true };
+    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(sessionFor(token)), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
   if (!q || !ok(q)) return null;    // no/invalid query token -> not a bootstrap
-  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(mintSession(q)) };   // the session is q's
+  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(sessionFor(q)) };   // the session is q's
 }
 
 /**

@@ -95,14 +95,17 @@ test('a ?boot= redemption is flagged viaBootNonce, a ?token= bootstrap is not (t
   });
 });
 
-test('#1979: a LIVE session cookie short-circuits before the nonce is even touched', () => {
+test('#6358: a LIVE session plus a valid ?boot= redeems and is redirected to the clean address, keeping that session', () => {
+  /* #6358 changed this from #1979's short-circuit: the address must never keep a sign-in parameter (the Mac app reads
+     a kept one as a refusal), so a valid nonce is redeemed and stripped even when the browser is already signed in. */
   withClock(() => {
     const n = boardauth.mintNonce();
     const sid = boardauth.mintSession('TOK');
     const b = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
-    assert.equal(b, null, 'a request that already has a live session is not a bootstrap (no redirect loop)');
-    // And the nonce was NOT consumed, so it can still redeem on a real first load.
-    assert.equal(boardauth.redeemNonce(n), true, 'the nonce must survive a live-session request unspent');
+    assert.ok(b, 'a valid ?boot= is redirected even with a live session');
+    assert.equal(b.location, '/', 'boot is stripped');
+    assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';'), 'the live session is kept');
+    assert.equal(boardauth.redeemNonce(n), false, 'the nonce was spent: single-use as ever');
   });
 });
 
