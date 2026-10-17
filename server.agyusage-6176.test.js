@@ -61,6 +61,7 @@ test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, th
   process.env.AGENT_WORKFORCE_ANTIGRAVITY_BIN = bin;
   agystatus.remember({ installed: true, signedIn: true });
   agyusage.resetForTests();
+  agyusage.setTokenFileForTests(bin);   // agy's sign-in file, present (any existing file stands in)
   let runs = 0, finish = null;
   agyusage.setRunnerForTests((b, done) => { runs++; finish = () => done(null, payload(0.6)); });
   const row = async (q = '?agents=1') => {

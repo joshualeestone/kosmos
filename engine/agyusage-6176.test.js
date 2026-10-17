@@ -57,13 +57,21 @@ test('#6176 slice 4: a bucket of an unknown window or a bad fraction is skipped,
   assert.equal(r.windows[0].windowMinutes, 10080);
 });
 
-test('#6176 slice 4: refresh runs agy once, keeps the reading, never twice at once, and not again within the interval', async () => {
+/* One rig for every refresh test: agy "installed" as a stub that is never run, a Mac to agystatus, the sign-in file
+   present, and the given runner. Returns the undo. */
+function rig(runner, { token = __filename } = {}) {
   const realResolve = runners.resolveBin;
-  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
+  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/usr/bin/false' } : realResolve(p));
   require('./agystatus').setPlatformForTests('darwin');   // a reading is asked for only on a Mac; CI runs on Linux too
   agyusage.resetForTests();
+  agyusage.setTokenFileForTests(token);
+  if (runner) agyusage.setRunnerForTests(runner);
+  return () => { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.resetForTests(); };
+}
+
+test('#6176 slice 4: refresh runs agy once, keeps the reading, never twice at once, and not again within the interval', async () => {
   let runs = 0, finish;
-  agyusage.setRunnerForTests((bin, done) => { runs++; finish = () => done(null, JSON.stringify(payload())); });
+  const undo = rig((bin, done) => { runs++; finish = () => done(null, JSON.stringify(payload())); });
   try {
     const p1 = agyusage.refresh(NOW);
     assert.ok(p1, 'nothing was started');
@@ -73,35 +81,58 @@ test('#6176 slice 4: refresh runs agy once, keeps the reading, never twice at on
     const r = await p1;
     assert.equal(r.windows[0].usedPct, 75);
     assert.equal(agyusage.lastReading().windows[0].usedPct, 75);
-    assert.equal(agyusage.refresh(NOW + 60e3), null, 'asked again within the interval');
-    assert.equal(runs, 1);
-    // A failed run after the interval keeps the last good reading, and the next try waits only RETRY_MS.
-    agyusage.setRunnerForTests((bin, done) => { runs++; done(new Error('offline'), ''); });
-    await agyusage.refresh(NOW + agyusage.REFRESH_MS + 1);
-    assert.equal(runs, 2, 'CONTROL: a run was made after the interval');
+    assert.equal(agyusage.refresh(NOW + agyusage.REFRESH_MS - 1), null, 'asked again within the interval');
+    const p2 = agyusage.refresh(NOW + agyusage.REFRESH_MS + 1);
+    assert.ok(p2, 'CONTROL: asked again after the interval');
+    finish(); await p2;
+    assert.equal(runs, 2);
+  } finally { undo(); }
+});
+
+test('#6176 slice 4 review 3: a failed run stops the asking until the sign-in is confirmed again, and keeps the reading', async () => {
+  let runs = 0, fail = false, finish;
+  const undo = rig((bin, done) => { runs++; finish = () => (fail ? done(new Error('signed out'), '') : done(null, JSON.stringify(payload()))); });
+  try {
+    const p1 = agyusage.refresh(NOW); finish(); await p1;
+    fail = true;
+    const p2 = agyusage.refresh(NOW + agyusage.REFRESH_MS + 1); finish(); await p2;
+    assert.equal(runs, 2, 'CONTROL: the failing run was made');
     assert.equal(agyusage.lastReading().windows[0].usedPct, 75, 'a failed run lost the last reading');
-    const p3 = agyusage.refresh(Date.now() + agyusage.RETRY_MS + 1);
-    assert.ok(p3, 'after a failed run the next try waited the full interval');
-    await p3;
-    assert.equal(runs, 3);
-    // A new sign-in answer drops the reading and the throttle: the next read asks afresh.
-    agyusage.clear();
-    assert.equal(agyusage.lastReading(), null, 'a reading outlived a sign-in change');
-    assert.ok(agyusage.refresh(Date.now()), 'after a sign-in change the next read did not ask');
-  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
+    assert.equal(agyusage.refresh(NOW + 10 * agyusage.REFRESH_MS), null, 'asked again, unprompted, after a failed run');
+    agyusage.clear();   // agystatus confirmed the sign-in again
+    fail = false;
+    const p3 = agyusage.refresh(NOW + 10 * agyusage.REFRESH_MS);
+    assert.ok(p3, 'a confirmed sign-in did not resume the asking');
+    finish(); await p3;
+  } finally { undo(); }
+});
+
+test('#6176 slice 4 review 3: an answer that cannot be read waits the full interval, not less', async () => {
+  let runs = 0, finish;
+  const undo = rig((bin, done) => { runs++; finish = () => done(null, '{"num_turns":0,"command":{"name":"usage","data":{"groups":[]}}}'); });
+  try {
+    const p1 = agyusage.refresh(NOW); finish(); await p1;
+    assert.equal(agyusage.refresh(NOW + 60e3), null, 'an unreadable answer was asked again within the interval');
+    const p2 = agyusage.refresh(NOW + agyusage.REFRESH_MS + 1);
+    assert.ok(p2, 'an unreadable answer stopped the asking, as only a failure should');
+    finish(); await p2;
+  } finally { undo(); }
+});
+
+test('#6176 slice 4 review 3: no sign-in file, no run', () => {
+  const undo = rig((bin, done) => done(null, JSON.stringify(payload())), { token: '/nonexistent/antigravity-oauth-token' });
+  try { assert.equal(agyusage.refresh(NOW), null, 'agy was run with no sign-in file'); } finally { undo(); }
+  const undo2 = rig((bin, done) => done(null, JSON.stringify(payload())));
+  try { assert.ok(agyusage.refresh(NOW), 'CONTROL: with the file, it runs'); } finally { undo2(); }
 });
 
 test('#6176 slice 4: in a test process with no runner supplied, agy is never run, even where it is installed', () => {
-  // agy "installed" as a stub that is never reached: a missing guard shows as a run started, not as a real agy spawned.
-  const realResolve = runners.resolveBin;
-  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/usr/bin/false' } : realResolve(p));
-  require('./agystatus').setPlatformForTests('darwin');   // past the platform gate, so only the test guard can refuse
-  agyusage.resetForTests();
-  agyusage.setRunnerForTests(null);
+  // Past every other gate (stub bin, a Mac, the sign-in file): a missing guard shows as a run started, never a real agy.
+  const undo = rig(null);
   try {
     assert.equal(agyusage.refresh(NOW), null, 'agy was run in a test process');
     assert.equal(agyusage.isRunning(), false);
-  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.resetForTests(); }
+  } finally { undo(); }
 });
 
 test('#6176 slice 4: a whole-percent used, rounded down once, so 99.6% never reads as at the limit', () => {
@@ -114,31 +145,27 @@ test('#6176 slice 4: a whole-percent used, rounded down once, so 99.6% never rea
 });
 
 test('#6176 slice 4: where agystatus says this is not a Mac, nothing is asked', () => {
-  const agystatus = require('./agystatus');
-  agystatus.setPlatformForTests('win32');
-  agyusage.resetForTests();
-  agyusage.setRunnerForTests((bin, done) => done(null, JSON.stringify(payload())));
+  const undo = rig((bin, done) => done(null, JSON.stringify(payload())));
+  require('./agystatus').setPlatformForTests('win32');
   try {
     assert.equal(agyusage.supported(), false);
     assert.equal(agyusage.refresh(NOW), null, 'a reading was asked for on Windows');
-  } finally { agystatus.setPlatformForTests(null); agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
+  } finally { undo(); }
 });
 
 test('#6176 slice 4 review 2: a run that finishes after the sign-in changed is dropped, not shown on the new row', async () => {
-  const realResolve = runners.resolveBin;
-  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
-  require('./agystatus').setPlatformForTests('darwin');
-  agyusage.resetForTests();
   let finish;
-  agyusage.setRunnerForTests((bin, done) => { finish = () => done(null, JSON.stringify(payload())); });
+  const undo = rig((bin, done) => { finish = () => done(null, JSON.stringify(payload())); });
   try {
     const p1 = agyusage.refresh(NOW);
     agyusage.clear();   // signed in again as someone else while it ran
     finish();
     assert.equal(await p1, null);
     assert.equal(agyusage.lastReading(), null, 'the earlier sign-in reading reached the row');
-    assert.ok(agyusage.refresh(Date.now()), 'after the change the next read did not ask');
-  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.resetForTests(); }
+    const p2 = agyusage.refresh(NOW);
+    assert.ok(p2, 'after the change the next read did not ask');
+    finish(); await p2;   // settled, so nothing is left running when the file ends
+  } finally { undo(); }
 });
 
 test('#6176 slice 4 review 2: agystatus remember and forget clear the reading', async () => {
@@ -146,12 +173,10 @@ test('#6176 slice 4 review 2: agystatus remember and forget clear the reading', 
   const agystatus = require('./agystatus');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agyusage-wire-'));
   agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
-  const realResolve = runners.resolveBin;
-  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
-  agystatus.setPlatformForTests('darwin');
+  let undo = () => {};
   const seed = async () => {
-    agyusage.resetForTests();
-    agyusage.setRunnerForTests((bin, done) => done(null, JSON.stringify(payload())));
+    undo();
+    undo = rig((bin, done) => done(null, JSON.stringify(payload())));
     await agyusage.refresh(NOW);
     assert.ok(agyusage.lastReading(), 'CONTROL: a reading is there before the sign-in changes');
   };
@@ -162,8 +187,5 @@ test('#6176 slice 4 review 2: agystatus remember and forget clear the reading', 
     await seed();
     agystatus.forget();
     assert.equal(agyusage.lastReading(), null, 'Remove left the reading');
-  } finally {
-    runners.resolveBin = realResolve; agystatus.setPlatformForTests(null); agystatus.setLastFileForTests(null);
-    agyusage.resetForTests(); fs.rmSync(dir, { recursive: true, force: true });
-  }
+  } finally { undo(); agystatus.setLastFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
 });

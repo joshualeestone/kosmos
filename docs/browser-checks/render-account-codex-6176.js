@@ -184,7 +184,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [] };
     }, accounts);
     const aNone = await show([agy({ limits: null })]);
-    say(aNone.lines.length === 0 && aNone.nones[0] === 'No current usage reading for this sign-in. Kosmos asks Antigravity when this list opens.', '[chromium open] the Antigravity row with no reading says so, naming Antigravity', JSON.stringify(aNone));
+    say(aNone.lines.length === 0 && aNone.nones[0] === 'No current usage reading from Antigravity for this sign-in.', '[chromium open] the Antigravity row with no reading says so, naming Antigravity', JSON.stringify(aNone));
     const aTwo = await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
     say(aTwo.lines.length === 2 && /^25% of its 5-hour limit used · resets .* · Antigravity last reported it 2 minutes ago$/.test(aTwo.lines[0]) && /^1% of its weekly limit used/.test(aTwo.lines[1]),
       '[chromium open] the Antigravity row draws its five-hour and weekly windows, and says Antigravity reported them', JSON.stringify(aTwo));
