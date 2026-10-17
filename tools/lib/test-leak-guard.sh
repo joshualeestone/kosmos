@@ -175,13 +175,13 @@ leak_family() {
     }'
 }
 
-# _kts_held <dir>: what a kts- dir holds besides .kts-owner, five names then a count, for leak_kts_owners (#6362).
+# _kts_held <dir>: what a kts- dir holds besides .kts-owner (and tmpscope's .kts-owner.new), five names then a count, for leak_kts_owners (#6362).
 _kts_held() {
   local d="$1" held n shown part=""
   # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
   # find's own status, not the pipeline's (whose status is the last stage's). A walk that failed part way (an
   # entry removed under it by a process still writing) keeps what it did print, marked incomplete.
-  held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null) || part=" (listing incomplete)"
+  held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner ! -name .kts-owner.new 2>/dev/null) || part=" (listing incomplete)"
   held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
   n=$(printf '%s' "$held" | grep -c . || true)
   shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
@@ -217,7 +217,7 @@ leak_kts_owners() {
         *$'\t'*)
           rest=${owner#*$'\t'}
           pid=${rest%%$'\t'*}
-          case "$rest" in *$'\t'*) why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
+          case "$rest" in *$'\t'"survived its sweep") why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
       esac
       case "$why" in
         *survived*) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why; it holds: $(_kts_held "$d")" ;;
