@@ -13,10 +13,13 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   - Anything else: no opener.
 - No opener:
   - a non-enforcing board (no nonce): print the plain address, exit 0;
-  - with a nonce, on a terminal (`[ -t 1 ]`): print the one-time sign-in address, say it works once within 2 minutes
+  - with a nonce, on a person's terminal (`[ -t 1 ]` and not `_invoked_by_agent`, the CLI's own agent check): print
+    the one-time sign-in address, say it works once within 2 minutes
     (NONCE_TTL_MS = 120000, engine/boardauth.js) and not to share it, exit 0;
-  - with a nonce, not a terminal: do NOT print it (it would land in a file or a log), say why and what to do
-    (run it in a terminal, or go to the plain address and sign in), exit 1.
+  - with a nonce, not a person's terminal (a pipe, a log, or an agent, whose terminal is its transcript): do NOT
+    print it, say why, and give the full-path command to run in a terminal (`$KOSMOS_HOME/bin/kosmos open`, since the
+    bare name is not always on PATH), on stderr, exit 1. Not "go to the plain address and sign in": on an enforcing
+    board that page has no way to sign in.
 - The platform comes from `KOSMOS_PLATFORM` (the CLI's own seam, used throughout), else `uname -s`.
 
 ## Rejected
@@ -28,6 +31,11 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   move; an unused nonce expires in 2 minutes.
 
 ## Weakest premise
+- An agent is detected the way the rest of the CLI detects one (`_invoked_by_agent`: its session or token variable,
+  or its pane's supervisor claim). An agent started outside Kosmos's supervisor, with none of those, at a terminal,
+  would be handed the address; it works once, within 2 minutes, and such an agent can already read `board.token`.
+- On the no-terminal enforcing path a nonce is minted and thrown away each time (a launcher retrying would mint
+  several); each expires in 2 minutes.
 - `DISPLAY`/`WAYLAND_DISPLAY` as "there is a display". A headless box with a forwarded `DISPLAY` that is dead makes
   xdg-open fail; that path dies with "Could not open a browser. Go to the dashboard yourself: <plain URL>", which,
   on an enforcing board, gives no way in. Not handled here: the fallback could print the nonce address on a
