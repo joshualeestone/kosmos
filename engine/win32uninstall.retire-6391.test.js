@@ -120,7 +120,7 @@ test('#6391 source order: the retire call precedes deleteAllExcept in uninstall(
   const src = fs.readFileSync(require.resolve('./win32uninstall.js'), 'utf8');
   // Anchor on the retire INVOCATION itself (robust to call-site wrapping like `(retire(...) || {})`),
   // and on the delete call. If either is renamed, update both.
-  const retireAt = src.indexOf('retire({ remoteDir, coordinator, tunnelBin');
+  const retireAt = src.indexOf('retire({ remoteDir');
   const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs, rm)');
   assert.ok(retireAt !== -1, 'retire call site not found (renamed?) — update this guard');
   assert.ok(deleteAt !== -1, 'deleteAllExcept call site not found (renamed?) — update this guard');
@@ -236,13 +236,64 @@ test('#6391 with no coordinator/tunnelBin injected and no env override, uninstal
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
+test('#6391 a custom AGENT_WORKFORCE_TUNNEL_STATE inside dataDir is honoured: retire targets it, then it is deleted', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks();
+    const custom = path.join(s.dataDir, 'customremote');
+    fs.mkdirSync(custom, { recursive: true });
+    for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(custom, f), 'fake');
+    s.env.AGENT_WORKFORCE_TUNNEL_STATE = custom;
+    let seen = null;
+    const r = await run(s, { deleteData: true, retirePc: (o) => { seen = o.remoteDir; return { told: true }; } });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.equal(seen, custom, 'retire did not target the custom state dir');
+    assert.ok(!fs.existsSync(custom), 'the custom-state key survived the delete');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#6391 a custom AGENT_WORKFORCE_TUNNEL_STATE outside dataDir is NOT retired (not in the delete scope, so not stranded)', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks();
+    const outside = path.join(s.base, 'outside-remote');
+    fs.mkdirSync(outside, { recursive: true });
+    for (const f of ['mac_id', 'mac_key']) fs.writeFileSync(path.join(outside, f), 'fake');
+    s.env.AGENT_WORKFORCE_TUNNEL_STATE = outside;
+    let called = false;
+    const r = await run(s, { deleteData: true, retirePc: () => { called = true; return { told: true }; } });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.equal(called, false, 'retired a key outside dataDir that the uninstall does not delete');
+    assert.ok(fs.existsSync(path.join(outside, 'mac_key')), 'a key outside dataDir was deleted');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#6391 the REAL retirePc runs inside uninstall() when only spawnRetire/existsSync are injected (glue test)', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks(); withKey(s);
+    s.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '45000';
+    let seenArgs = null; let seenTimeout = null;
+    const r = await run(s, {
+      deleteData: true,
+      // No retirePc: the module retirePc runs; inject only its spawnSync + existsSync seams.
+      spawnRetire: (_bin, args, opts) => { seenArgs = args; seenTimeout = opts.timeout; return { status: 0 }; },
+      existsSync: () => true,
+    });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.deepEqual(seenArgs, ['retire', '--coordinator', 'https://coord.example', '--state-dir', s.remoteDir]);
+    assert.equal(seenTimeout, 45000, 'env timeout did not flow through uninstall() into the real retirePc');
+    assert.ok(r.done.some((d) => /Kosmos\+ address is retired/.test(d)), JSON.stringify(r.done));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
 test('#6391 when the coordinator cannot be told, the summary says the Kosmos+ address may still show, and the data is STILL deleted', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
     noTasks(); withKey(s);
     const r = await run(s, { deleteData: true, retirePc: () => ({ told: false }) });
     assert.equal(r.ok, true, JSON.stringify(r.left));
-    assert.ok(r.notes.some((n) => /could not tell the Kosmos\+ service.*account page/.test(n)), JSON.stringify(r.notes));
+    assert.ok(r.notes.some((n) => /could not confirm.*Kosmos\+.*account page/.test(n)), JSON.stringify(r.notes));
     assert.ok(!r.done.some((d) => /retired/.test(d)), 'it claimed a retire that did not happen');
     assert.ok(!fs.existsSync(s.remoteDir), 'the data folder must still be deleted even when retire failed');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
