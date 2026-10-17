@@ -487,8 +487,8 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    on it). */
 async function tellBuiltMark(projectId, t, by, byKey, roster) {
   if (!t || typeof t.number !== 'number') return [];
-  let rec = null;
-  try { rec = projects.readAll().find((x) => x && x.id === projectId) || null; } catch { rec = null; }
+  // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
+  const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
   if (!rec) return [];
   const notMe = (m) => !(by && sameAgentName(m, by, byKey));
   const member = (m) => projectHasAgent(rec, String(m), false);
@@ -21685,7 +21685,11 @@ const server = http.createServer(async (req, res) => {
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
       let untold = false;
-      if (!viaScreen && body.clear !== true && out.changed === true) {
+      /* #6330 review 5: AGENT_WORKFORCE_TASK_MSG_CAP=0 switches agent task messages off, and a built line is an agent's
+         note typed into other agents' panes, so it is off too. */
+      const switchedOff = TASK_MSG_CAP_PER_HOUR === 0;
+      if (!viaScreen && body.clear !== true && out.changed === true && switchedOff) delivered = [];
+      else if (!viaScreen && body.clear !== true && out.changed === true) {
         /* The mark is recorded by now, so nothing here may fail it: a throw before any line went answers 200, delivered []. */
         try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
         catch (err) {
@@ -21696,8 +21700,14 @@ const server = http.createServer(async (req, res) => {
       }
       /* The same sentence a task message answers with (who was told, kept, or not), for the CLI to print; after a throw
          it says so, never "nobody else is assigned". */
-      const summary = !delivered ? null : untold ? 'Kosmos could not work out who to tell about the mark, so nobody was told.'
-        : taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
+      let summary = null;
+      if (delivered) {
+        try {
+          summary = switchedOff ? 'Agent task messages are switched off on this computer, so nobody was told of the mark.'
+            : untold ? 'Kosmos could not work out who to tell about the mark, so nobody was told.'
+            : taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
+        } catch { summary = null; }
+      }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, summary } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });

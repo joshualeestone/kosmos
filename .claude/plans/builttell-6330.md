@@ -29,6 +29,11 @@ your task P)". The marker is never told. The answer gains `delivered`, one outco
 - The walk stops at the first held task above. If that holder's swarm is switched off it is reported, not skipped
   (it still owns the work); if the only holder there is the marker itself, nobody above is told (the marker is
   already the coordinator). Both deliberate.
+- Review 5: `AGENT_WORKFORCE_TASK_MSG_CAP=0` (agent task messages switched off on this computer) switches these lines
+  off too, and the answer says so. A project list that cannot be read while working out who to tell answers "Kosmos
+  could not work out who to tell", never "nobody else is assigned". Deferred from review 5: the answer still waits
+  for the slowest line, so one pane with a backlog can hold it past the Mac CLI's 15 s (the CLI then says it may
+  still have happened, and a retry is a no-op). A task message has exactly the same exposure through the same CLI.
 - Review 3: lines go to every recipient at once (different panes), so the mark's answer waits for the slowest line, not
   the sum (the Mac CLI waits 15 s); a failure for one recipient is that recipient's could_not and never hides the
   others. The answer also carries `summary` (taskMessageSummary, as a task message), and both CLIs print it.
