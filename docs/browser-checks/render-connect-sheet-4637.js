@@ -13,7 +13,7 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *  - another of the person's computers joining (#4773's joining_computer) reads "Your computer "windowsbox" wants to
  *    join", with "Type the code shown on windowsbox, then press Allow." (#6404); a phone beside it (the CONTROL) keeps its
  *    own name and the device-in-your-hand line;
- *  - each sheet carries the Kosmos+ brand, the code once as one large line read out a character at a time, then
+ *  - each sheet carries the Kosmos+ brand, the code (for a computer, the field for it) once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
  *  - Allow on the computer turns its sheet into "windowsbox is connected." with where to remove it;
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
@@ -217,8 +217,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.keyboard.press('Tab');
       const tabTo = await page.evaluate(() => (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ask) || '');
       await page.keyboard.press('Enter');
-      await page.waitForFunction(() => /Type all six digits/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
-      const shortSaid = await page.evaluate(() => /Type all six digits shown on windowsbox, then press Allow\./.test(document.getElementById('plus-ask-rows').innerText));
+      await page.waitForFunction(() => /Type the six digits/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const shortSaid = await page.evaluate(() => /Type the six digits shown on windowsbox, then press Allow\./.test(document.getElementById('plus-ask-rows').innerText));
       chk(tabTo === 'allow' && shortSaid && !allowBodies[PC_ID] && denyIds.length === 0,
         `${tag} #6404: with two digits, Tab lands on Allow (not Not me) and pressing it says to type all six; nothing sent`, JSON.stringify({ tabTo, shortSaid, denyIds }));
       chk(!inMarkup, `${tag} #6404: the page never writes what is typed as the field's value attribute (the digits are put back after a rebuild)`);
@@ -321,7 +321,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForSelector('#askcode-d-en', { timeout: 5000 }).catch(() => {});
       await page.click('#askcode-d-en');
       await page.keyboard.type('24680'); await page.keyboard.press('Enter'); await page.waitForTimeout(300);
-      const enterShort = !allowBodies['d-en'] && /Type all six digits shown on laptop5/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
+      const enterShort = !allowBodies['d-en'] && /Type the six digits shown on laptop5/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
       await page.keyboard.type('9'); await page.keyboard.press('Enter');
       await page.waitForFunction(() => /That is not the code laptop5 shows/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const enterWrong = !allowBodies['d-en'] && /That is not the code laptop5 shows/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
@@ -344,11 +344,16 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForSelector('#askcode-d-rc', { timeout: 5000 }).catch(() => {});
       pending = [{ ...pending[0], code: '222 444' }];
-      await page.click('#askcode-d-rc'); await page.keyboard.type('222444');
-      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-rc"]');
-      await page.waitForFunction(() => /laptop7 is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
-      chk(allowBodies['d-rc'] && allowBodies['d-rc'].code === '222 444' && /laptop7 is connected\./.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText)),
-        `${tag} #6404: a code typed from the other screen before this page saw it is read again and let in, sending what was typed`, JSON.stringify(allowBodies['d-rc']));
+      // One step in the page, so the page's own 5 s poll cannot read the new code first and skip the re-read under test.
+      const rc = await page.evaluate(async () => {
+        const before = (ASK.devices.find((x) => x.device_id === 'd-rc') || {}).code;
+        askTyped('d-rc', '222444');
+        let reads = 0; const real = window.pollAsk; window.pollAsk = async () => { reads += 1; return real(); };
+        try { await askAct('allow', 'd-rc'); } finally { window.pollAsk = real; }
+        return { before, reads, text: document.getElementById('plus-ask-rows').innerText };
+      });
+      chk(rc.before === '111 333' && rc.reads >= 1 && allowBodies['d-rc'] && allowBodies['d-rc'].code === '222 444' && /laptop7 is connected\./.test(rc.text),
+        `${tag} #6404: a code typed from the other screen before this page saw it is read again and let in, sending what was typed`, JSON.stringify({ rc: { ...rc, text: undefined }, sent: allowBodies['d-rc'] }));
       /* #6404 review 2: two computers waiting at once keep their own typing; Allow on one sends only its code. */
       pending = [{ device_id: 'd-2a', name: 'boxa', code: '111 222', first_seen: now() - 10, joining_computer: 'boxa' },
         { device_id: 'd-2b', name: 'boxb', code: '333 444', first_seen: now() - 10, joining_computer: 'boxb' }];
@@ -395,7 +400,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "Working out the code with homemac, your other computer...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
-      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Type this code there, then press Allow\.\s*Then press The codes match here\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
+      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Type this code there, then press Allow\.\s*Once homemac says this computer is connected, press The codes match here\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
         `${tag} #4794/#6314 waiting: the other computer named as the other one, where to look on it, the code large and "The codes match"`, JSON.stringify(jr));
       /* kosmos#6314 (Josh 11:37): while waiting, the pairing is the page's one job: the devices list and company block step aside. */
       const aside = await page.evaluate(() => ['plus-devices', 'plus-org'].map((id) => { const e = document.getElementById(id); return !e || getComputedStyle(e).display === 'none'; }));
