@@ -213,7 +213,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(partial.value === '48' && partial.focused && partial.caret === 2 && partial.allowOff,
         `${tag} #6404: two digits typed survive a repaint (value, focus, place) and Allow still waits`, JSON.stringify(partial));
       const inMarkup = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id); return !f || f.hasAttribute('value'); }, PC_ID);
-      chk(!inMarkup, `${tag} #6404: what is typed is not written into the card's markup (a poll mid-entry does not rebuild it)`);
+      chk(!inMarkup, `${tag} #6404: the page never writes what is typed as the field's value attribute (the digits are put back after a rebuild)`);
       /* A wrong code: Allow wakes at six digits, but pressing it is answered here and nothing reaches the tunnel. */
       await page.click('#askcode-' + PC_ID, { clickCount: 3 });
       await page.keyboard.type('111 111');
@@ -343,6 +343,34 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const freshOn = await page.evaluate(() => !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]').disabled);
       chk(fresh && fresh.value === '' && fresh.allowOff && !/code changed/.test(fresh.say) && freshOn,
         `${tag} #4794/#6404: a new code clears the refusal and what was typed for the old one; typing the new one brings Allow back`, JSON.stringify({ fresh, freshOn }));
+      /* #6404 review 2: Enter in the field. Five digits: nothing. Six wrong: answered on the sheet. Six right: sent. Never Not me. */
+      pending = [{ device_id: 'd-en', name: 'laptop5', code: '246 801', first_seen: now() - 10, joining_computer: 'laptop5' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-en', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-en');
+      await page.keyboard.type('24680'); await page.keyboard.press('Enter'); await page.waitForTimeout(300);
+      const enterShort = !allowBodies['d-en'] && !/That is not the code/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
+      await page.keyboard.type('9'); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /That is not the code laptop5 shows/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const enterWrong = !allowBodies['d-en'] && /That is not the code laptop5 shows/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
+      await page.click('#askcode-d-en', { clickCount: 3 }); await page.keyboard.type('246801'); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /laptop5 is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      chk(enterShort && enterWrong && allowBodies['d-en'] && allowBodies['d-en'].code === '246 801' && !denyIds.includes('d-en'),
+        `${tag} #6404: Enter in the field: five digits do nothing, six wrong ones are answered, six right ones Allow; never Not me`, JSON.stringify({ enterShort, enterWrong, sent: allowBodies['d-en'], denyIds }));
+      /* #6404 review 2: two computers waiting at once keep their own typing; Allow on one sends only its code. */
+      pending = [{ device_id: 'd-2a', name: 'boxa', code: '111 222', first_seen: now() - 10, joining_computer: 'boxa' },
+        { device_id: 'd-2b', name: 'boxb', code: '333 444', first_seen: now() - 10, joining_computer: 'boxb' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-2b', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-2a'); await page.keyboard.type('111222');
+      const two = await page.evaluate(() => { for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; } paintAsk();
+        const b = document.getElementById('askcode-d-2b'), aOn = !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-2a"]').disabled,
+          bOff = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-2b"]').disabled;
+        return { a: document.getElementById('askcode-d-2a').value, b: b && b.value, aOn, bOff }; });
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-2a"]');
+      await page.waitForFunction(() => /boxa is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      chk(two.a === '111222' && two.b === '' && two.aOn && two.bOff && allowBodies['d-2a'] && allowBodies['d-2a'].code === '111 222' && !allowBodies['d-2b'],
+        `${tag} #6404: two computers waiting keep their own typing; Allow on one sends only its code`, JSON.stringify({ two, a: allowBodies['d-2a'], b: allowBodies['d-2b'] }));
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };

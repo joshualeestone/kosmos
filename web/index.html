@@ -50319,6 +50319,7 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
 function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer')); }
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
 /* #6404: what the person typed for a computer's code, kept across repaints and forgotten when the code changes. */
+// The tunnel's pairing code is six digits in two groups (pairsas), so digits alone are the code; revisit if it gains letters.
 function askDigits(v) { return String(v || '').replace(/\D/g, ''); }
 function askTypedFor(d) {
   const t = ASK.typed && ASK.typed[d.device_id];
