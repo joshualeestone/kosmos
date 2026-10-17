@@ -64,6 +64,9 @@ from a delivery, which carries the card the pane check needs).
   here, those verdicts have their own) and reads the box again right before the Enter; only an `unsent` watch starts
   the day again; docblock lists 'gate'; a test comment that claimed a forget is fixed. Not covered, stated for the PR:
   a resized pane and a line loaded after a restart wait for the next delivery.
+- [x] Round 8 (sonnet): a stale "no expiry" comment fixed; the retry presses only a Claude Code box
+  (composerReadable); a busy retry is spent, said; a temp file left by a failed rename is removed. Declined: the unsent
+  sentence over-promising for a loaded line (it is said when the line is left, when retries are scheduled).
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)

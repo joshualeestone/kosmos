@@ -254,7 +254,7 @@ function saveUnsent() {
     const file = UNSENT_FILE();
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out), { mode: 0o600 });
-    fs.renameSync(tmp, file);
+    try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
   } catch (err) {
     // Best effort: the line is still remembered for this run, but a restart would lose it, so it is said.
     process.stderr.write('chat: could not keep the unsent-lines record (' + (err && err.message) + '); a restart forgets it\n');
@@ -285,8 +285,9 @@ function tellEarlierSubmitted(seq) {
   try { earlierSubmittedHook(seq, new Date().toISOString()); } catch { /* a record that fails is not the delivery's failure */ }
 }
 /* kosmos#6436: a line the board left unsent is pressed again on its own after these delays, so the agent is not left
-   idle until someone next writes to it (agents sat idle 30 to 60 minutes behind one). No expiry otherwise: while the
-   line is in the box nothing newer can be typed in, so sending it late keeps the order. */
+   idle until someone next writes to it (agents sat idle 30 to 60 minutes behind one). A line is pressed late only within
+   its day (UNSENT_KEEP_MS): while it is in the box nothing newer can be typed in, so sending it then keeps the order. A
+   retry that finds a delivery typing there is spent (that delivery presses the line itself); the next one still runs. */
 const UNSENT_RETRY_MS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
 /* The test seam for those retries: (ms, fn) => void. Unset with an injected tmux runner, nothing is scheduled (a test
    that wants them sets it); unset in production, a real unref'd timer. */
@@ -1060,6 +1061,7 @@ async function pressRememberedNow(target, card) {
   const gate = typingGate(name, kept.wire, roster, '', '', new Date().toISOString());
   if (!gate.ok) return 'gate';
   if (paneTarget(gate.allowed.card) !== target) return 'pane';
+  if (!composerReadable(gate.allowed.card)) return 'pane';   // only a Claude Code box is read this way
   card = gate.allowed.card;
   /* Read again right before the Enter: the gates took time, and the box must still be only our line. */
   const now = readComposer(target);
