@@ -1,7 +1,7 @@
 # linuxopen-6361: kosmos open on Linux (kosmos#6361)
 
-Stacked on `boardproof-1765` (Renet Tilley, #1765), which rewrites `cmd_open`'s proof and nonce refusals. Rebase
-onto main once that lands; never merge first. Renet handed the card over and reviews the PR. PigeonPete's
+Built on `boardproof-1765` (Renet Tilley, #1765), which rewrote `cmd_open`'s proof and nonce refusals; that landed
+on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed the card over and reviews the PR. PigeonPete's
 `boardsession-6358` also edits `cmd_open`'s comments; this change touches only its last lines (told, 07:21).
 
 ## The call
