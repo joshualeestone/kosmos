@@ -486,7 +486,9 @@ function listOf(described) {
          the list agrees with the page there. A quiet room does not drop one: this count is "waiting on the person at all,
          whichever project", and an idle room says nothing about a question asked about another one. */
       needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you'
-        && !(m.needsYouQuiet && (m.needsYouQuiet.because === 'paused' || m.needsYouQuiet.because === 'dismissed'))).length,
+        // Review 7: a paused project does not drop a question about ANOTHER project ('elsewhere'): that one still waits.
+        && !(m.needsYouQuiet && (m.needsYouQuiet.because === 'dismissed'
+          || (m.needsYouQuiet.because === 'paused' && m.needsYouQuiet.reason !== 'elsewhere')))).length,
       tasks: openTasks(p.tasks),
     };
   });
