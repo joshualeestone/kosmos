@@ -216,6 +216,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const dl = await waitCase('daily_limit');
       chk(dl && dl.wait === 'This computer has added as many computers as it can today. Try again tomorrow.' && !dl.code && dl.allowOff && dl.denyOn,
         `${tag} #4794: no code yet (daily_limit): Mona's line, no code, Allow disabled, Not me enabled`, JSON.stringify(dl));
+      /* #6383: the joining computer's code ran out; nothing comes until Try again is pressed there. */
+      const cro = await waitCase('code_ran_out');
+      chk(cro && cro.wait === 'The code for laptop3 ran out. On laptop3, press Try again for a new one.' && !cro.code && cro.allowOff && cro.denyOn,
+        `${tag} #6383: code_ran_out: says press Try again on the joining computer, no code, Allow disabled, Not me enabled`, JSON.stringify(cro));
       const wac = await (async () => {   // was_a_computer comes on a row with no joining_computer (devices.rs)
         pending = [{ device_id: 'd-wac', name: 'oldbox', code: '777 777', first_seen: now() - 10, joining_computer: null, code_wait: 'was_a_computer' }];
         await page.evaluate(() => pollAsk());
