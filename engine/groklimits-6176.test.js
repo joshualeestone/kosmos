@@ -111,13 +111,13 @@ test('#6176 review 2: an unchanged log is not read again; a changed one is', () 
   } finally { fs.openSync = realOpen; }
 });
 
-test('#6176 review 3: a billing line with no percent is 0% (protobuf leaves out a zero), never skipped to an older period', () => {
-  const zero = billing(NOW - 60e3, 0, NOW - DAY, NOW + 6 * DAY);
-  delete zero.ctx.config.creditUsagePercent;
-  const h = home([billing(NOW - 2 * DAY, 91, NOW - 8 * DAY, NOW - DAY), zero]);
-  const r = groklimits.read(h, NOW);
-  assert.equal(r && r.windows[0].usedPct, 0, 'a fresh period with no percent read as no reading, or as the old period');
-  assert.equal(groklimits.readingOfRow({ ...zero, ctx: { config: { creditUsagePercent: '5', currentPeriod: zero.ctx.config.currentPeriod } } }), null, 'CONTROL: a percent that is not a number is still refused');
+test('#6176 review 5: a newest billing line with no percent shows no figure, and no older line answers for it', () => {
+  const blank = billing(NOW - 60e3, 0, NOW - 3 * DAY, NOW + 4 * DAY);
+  delete blank.ctx.config.creditUsagePercent;
+  const h = home([billing(NOW - DAY, 40, NOW - 3 * DAY, NOW + 4 * DAY), blank]);
+  assert.equal(groklimits.read(h, NOW), null, 'a line with no percent showed a figure (0%, or the older 40%)');
+  assert.equal(groklimits.read(home([billing(NOW - DAY, 40, NOW - 3 * DAY, NOW + 4 * DAY)]), NOW).windows[0].usedPct, 40, 'CONTROL: the older line alone is read');
+  assert.equal(groklimits.readingOfRow({ ...blank, ctx: { config: { creditUsagePercent: '5', currentPeriod: blank.ctx.config.currentPeriod } } }), null, 'a percent that is not a number was read');
 });
 
 test('#6176 review 3: a growing log has only its new bytes read; a replaced log is read again', () => {
