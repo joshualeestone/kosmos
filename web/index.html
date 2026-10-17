@@ -5382,8 +5382,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
      over the rows; it never takes a click. The scroll padding (and the focusin nudge beside railPjMore, for engines that ignore it on a focus scroll) keeps a
      control focused from the keyboard above the fade (WCAG 2.4.11). */
-  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
-  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { scroll-padding-bottom: 28px; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: var(--railcue-fade); margin-top: calc(-1 * var(--railcue-fade)); pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { --railcue-fade: 28px; scroll-padding-bottom: var(--railcue-fade); }
   @media (forced-colors: active) { html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { display: none; } }   /* the system colours replace --k-bg, and Windows shows the scrollbar there */
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
@@ -76129,8 +76129,7 @@ document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenCl
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 /* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read on the box's
    scroll, on a change to its rows (added, removed, text), on a change to the box's size or any of its top-level rows',
-   and on window resize. A control focused under the fade is scrolled up clear of it here too, since not every engine
-   applies the CSS scroll padding to a focus scroll. */
+   and on window resize. */
 function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
@@ -76151,7 +76150,7 @@ function railPjMore() {
       if (rnPressed) return;
       requestAnimationFrame(() => {
         if (!rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect || document.activeElement !== e.target) return;
-        const fade = 28;   // the ::after's height and the scroll-padding-bottom in the #6349 CSS rules
+        const fade = parseFloat(getComputedStyle(rn).getPropertyValue('--railcue-fade')) || 0;   // the fade's height, one value in the CSS
         const under = e.target.getBoundingClientRect().bottom - (rn.getBoundingClientRect().bottom - fade);
         if (under > 0) rn.scrollTop += Math.ceil(under);
       });

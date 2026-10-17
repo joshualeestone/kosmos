@@ -35,4 +35,7 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
 - Not the background-attachment `local` scroll shadow: the box has no background of its own, so the shadow's cover
   colour would have to copy the head's, and a mismatch paints a visible band (PigeonPete).
 - Bottom only: the card is about rows BELOW the edge; a top cue for rows scrolled past is not asked for.
+- Text in the faded 28px strip is deliberately below full contrast while more is below: that dimming IS the cue.
+  Nothing is lost, because scrolling (or keyboard focus, which is kept clear of the strip) brings any row up to full
+  contrast. Rejected: a cue that does not cover text (a "N more" line), kept as the fallback. Review 8.
 - Weakest premise: that a 28px fade is noticed as "more below" by everyone. Measured nowhere yet with people.
