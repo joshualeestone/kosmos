@@ -32,7 +32,8 @@ and 5:15 pm, in one room.
   the Recommender runner passes `alreadyNoted` (a matching note in the room in the last day) and logs it.
 - `engine/recommender.js` `runOnce`: an item whose note the room already holds (a board restart forgot it) writes no
   note and asks nobody again; the stuck agent still gets its playbook, which says the room holds the earlier note and
-  replies (`playbookText`'s `alreadyNoted`). Budget and retries are as for any convening.
+  replies (`playbookText`'s `alreadyNoted`, kept on the item so a retry says the same). Budget and retries are as for
+  any convening.
 - `engine/projectview.js` `listOf` (`kosmos project list`): a quieted member is not counted as waiting on the person.
 - `web/index.html` `pjMember`: a member the engine marked quiet is not drawn red on the project.
 - `web/index.html` `pjNeedsNotice`: each row gets Dismiss beside Open/Answer (carrying the row's reason); a member with
@@ -58,12 +59,16 @@ back when it changes. Hers is per browser (a join request lives minutes); this i
 ## Known limits
 - "Inactive" is room posts only: a project busy with agents working quietly for a day loses an agent's own condition
   from its Issue (the agent's page and the Agents count still show it).
-- An `elsewhere` dismissal holds while the member has no counted reason here, so a later question about another
-  project stays hidden here until something is counted.
+- An `elsewhere` dismissal holds while the member is still red here for a reason not counted here (a question about
+  another project, a trust wait, a lost connection, a failed restart, a Kosmos give-up); once it is not, the 10-minute
+  grace starts. So a second, different question about another project asked before it recovers stays hidden.
 - A paused project lists nothing in its block, including a red member whose need is about another project.
-- A dismissed question stays dismissed if the same agent asks a different question within the 10-minute grace: the key
-  is the reason, not the question's words.
-- The dismissal and gone-mark write happens on a read (as `everSeen` already does): it re-reads the store just before
-  writing, but a second process writing the projects file in between is not locked out.
+- A dismissed question stays dismissed if the same agent asks a different question about this project while still
+  waiting, or within the 10-minute grace after: the key is the reason, not the question's words.
+- The dismissal and gone-mark write happens on a read (as `everSeen` already does). It re-reads the store just before
+  writing and changes only members whose dismissal and gone mark are still the ones it judged, so a Dismiss pressed in
+  between is kept; a second process writing the projects file in between is not locked out.
+- `lastPostAt` scans new rows once, but each call still pays `record()`'s copy of the rows; it is called only for a
+  project with a member whose reason needs the live test.
 - The Recommender's room check matches the same agent and the same words within a day, so the same words in a new
   episode on the same day write no new note (the stuck agent is still given its playbook).
