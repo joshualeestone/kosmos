@@ -429,7 +429,7 @@ test('a pane that has not taken its line by the wait does not hold the answer: i
   }
 });
 
-test('a mark spends one task-message unit per line it tries, none for a switched-off recipient', async () => {
+test('a mark spends one task-message unit, as one task message does, and none when no line would be tried', async () => {
   const srv = require('./server');
   const n = tasks.create(projectId, { sentence: 'Tag the release', who: 'mona' }).number;
   tasks.addPart(projectId, n, { sentence: 'Check the tag', who: 'zed' });
@@ -437,15 +437,38 @@ test('a mark spends one task-message unit per line it tries, none for a switched
   const before = srv.taskMessageSendCount;
   const r = await mark(n, asAgent('mona'));
   assert.deepEqual(told(r), ['ivy', 'zed'], JSON.stringify(r.json));
-  assert.equal(srv.taskMessageSendCount - before, 2, 'two lines tried, so two units');
-  // CONTROL: with zed switched off only ivy's line is tried, so one unit.
+  assert.equal(srv.taskMessageSendCount - before, 1, 'two recipients, one mark, one unit');
+  // CONTROL: every recipient switched off, so no line would be tried and nothing is spent.
   projects.setSwarmOn(projectId, 'zed', false);
+  projects.setSwarmOn(projectId, 'ivy', false);
   try {
     const before2 = srv.taskMessageSendCount;
-    await mark(n, asAgent('mona'), { note: 'tag pushed' });
-    assert.equal(srv.taskMessageSendCount - before2, 1, 'a switched-off recipient spent a unit');
+    const r2 = await mark(n, asAgent('mona'), { note: 'tag pushed' });
+    assert.equal(r2.json.delivered.length, 2, JSON.stringify(r2.json));
+    assert.equal(srv.taskMessageSendCount - before2, 0, 'a mark that tried no line spent a unit');
   } finally {
     projects.setSwarmOn(projectId, 'zed', true);
+    projects.setSwarmOn(projectId, 'ivy', true);
+  }
+});
+
+test('a line that fails inside the wait is not logged as failing after the answer', async () => {
+  const chat = require('./engine/chat');
+  const n = tasks.create(projectId, { sentence: 'Sweep the logs', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Read them', who: 'ivy' });
+  const real = chat.deliverAsync;
+  chat.deliverAsync = async () => ({ state: chat.DELIVERY.COULD_NOT, because: 'pane gone' });
+  const written = [];
+  const realWrite = process.stderr.write;
+  process.stderr.write = (chunk, ...rest) => { written.push(String(chunk)); return realWrite.call(process.stderr, chunk, ...rest); };
+  try {
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.json.delivered.find((d) => d.agent === 'ivy').state, 'could_not', JSON.stringify(r.json));
+    await new Promise((res) => setTimeout(res, 50));
+    assert.ok(!written.some((w) => /could not be typed after the answer/.test(w)), 'an in-time failure was logged as late: ' + written.join(''));
+  } finally {
+    process.stderr.write = realWrite;
+    chat.deliverAsync = real;
   }
 });
 
