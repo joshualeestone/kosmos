@@ -35,6 +35,11 @@ The tip:
   5-minute timer. Weakest premise: that such a board is rare while pairing (the person is at the two computers being
   paired, which update at once). What would change it: Kosmos+ telling boards a computer was added (a push).
 - The tip takes clicks (review 7 reversed click-through, which protected browser checks at the person's expense).
+- The tip shows the first time a browser sees the switcher, so everyone who already has two or more computers sees it
+  once after this ships, in each browser they use. Accepted: it is one line, dismissible, and explains a control they
+  may not have noticed. Phones over Kosmos+ never show the switcher (the phone menu lists computers instead), so they
+  never get the tip; the phone menu is its own way in.
+- Back to one computer, a tip still up goes with the switcher without counting as seen (review 9).
 
 ## Review log
 - 1 opus: look-back stamped at start and skipped during backoff; forced read follow-up; tokens; phone wrap;
@@ -44,6 +49,7 @@ The tip:
   forced-hidden follow-ups; mobile-shots seeded. 6 sonnet: worldswTipMarkSeen (tab shown, laid out, resize, put away).
 - 7 opus: tip takes clicks; the "once" arm proves the page writes the flag; Escape only while laid out.
 - 8 sonnet: the five checks seeded; no look-back reads while not signed in; tab-shown arm isolated.
+- 9 opus: the tip goes when the switcher goes; existing users and phones stated.
 
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks

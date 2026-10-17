@@ -20,7 +20,10 @@
  *   - #6403: another computer arriving shows the switcher without a reload (window focus or the tab shown again, a
  *     minute after the last read; CONTROL within the minute), with a one-line tip the first time; the menu, the close
  *     button and Escape (not while a dialog is open, the CONTROL) put it away; once only across a reload; a forced
- *     read that finds one computer looks again soon (CONTROL: an ordinary read waits);
+ *     read that finds one computer looks again soon (CONTROL: an ordinary read waits); seen only when a person can see
+ *     it (a hidden tab, a layout that hides it, then a resize); a forced read owed while hidden; no look-back reads
+ *     while not signed in (CONTROL: a forced read still reads); a click on the tip puts it away; back to one computer,
+ *     the tip goes;
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
  *
@@ -318,12 +321,14 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           const wrote = await page.evaluate(async ({ worlds }) => {
             try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            const downBefore = document.getElementById('worldsw-tip').hidden && !document.getElementById('worldsw-btn').getAttribute('aria-describedby');
             window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
             const key = (() => { try { return localStorage.getItem('kosmos.switcherTipSeen'); } catch { return 'n/a'; } })();
             document.getElementById('worldsw-tip-text').click();
             const a = document.activeElement;
-            return { key, tipAfterClick: !document.getElementById('worldsw-tip').hidden, focus: a && a.id };
+            return { downBefore, key, tipAfterClick: !document.getElementById('worldsw-tip').hidden, focus: a && a.id };
           }, { worlds: WORLDS });
+          ok(`${t} #6403: back to one computer, a tip still up goes (not described, not seen)`, wrote.downBefore === true, JSON.stringify(wrote));
           ok(`${t} #6403: the page writes the seen flag itself; a click on the tip's text puts it away, focus on the switcher`,
             wrote.key === '1' && !wrote.tipAfterClick && wrote.focus === 'worldsw-btn', JSON.stringify(wrote));
           await page.reload();
@@ -438,6 +443,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 36 asserts = 144 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: nineteen, five of them with CONTROLs).
-  process.exit(problems.length || pass + problems.length < 144 ? 1 : 0);
+  // 2 engines x 2 themes x 37 asserts = 148 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty, five of them with CONTROLs).
+  process.exit(problems.length || pass + problems.length < 148 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
