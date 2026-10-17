@@ -531,7 +531,7 @@ out="$(sg sprobe-live)"; rc=$?
   && pass "#6334 CONTROL: with no third argument (the harness, queued-heavy, a cut) one live suite still refuses" \
   || fail "#6334 the default no longer refuses beside one suite (rc=$rc, $out)"
 out="$(sg sprobe-two 1)"; rc=$?
-{ [ "$rc" -eq 1 ] && has "$out" "2 test suites (tools/run-tests.sh) are already running" && has "$out" "a limit of 2 from KOSMOS_SUITE_MAX or the suite-max file" && has "$out" "the override"; } \
+{ [ "$rc" -eq 1 ] && has "$out" "2 test suites (tools/run-tests.sh) are already running" && has "$out" "a limit of 2; for tools/run-tests.sh it comes from KOSMOS_SUITE_MAX or the suite-max file" && has "$out" "the override"; } \
   && pass "#6334 with one other allowed, a third suite waits for one of two, naming the limit and the override" \
   || fail "#6334 two live suites did not hold a third (rc=$rc, $out)"
 out="$(sg sprobe-two 2)"; rc=$?

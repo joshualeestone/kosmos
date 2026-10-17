@@ -38,14 +38,16 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
 - A candidate that exits between the waiter filter and the roots walk can make one poll refuse with no suite left.
   That is the refusing side and clears on the next poll; accepted.
 - Two runs starting together beside one live suite cannot both start: each is a live run-tests.sh before it asks,
-  so whichever asks second sees the first and waits. (Iteration 10 raised it; iteration 5 had shown it unreachable.)
+  so whichever asks second sees the first and waits.
+  A queued waiter is dropped from the count while marked, so a run that does not queue (KOSMOS_NO_WAIT, a --side
+  turn) can pass in the moment the head waiter's first ask passes; the waiter then unmarks and asks again, sees it,
+  and goes back to waiting (that second ask is #4498's). The limit holds; the waiter loses its turn once. (Iteration 10 raised it; iteration 5 had shown it unreachable.)
 - When every candidate is gone between the waiter filter and the roots walk, the list as it was is counted (refuses
   one 30 s poll). Kept: an empty roots walk is otherwise indistinguishable from a failed one, and failing closed is
   the rule here. The roots walk is O(n^2) ps walks for n candidates; n is a handful today.
 - An install harness (or a cut) started directly waits outside the queue with its own 20-minute bound. Beside a
   staggered pair it waits for the later suite (about 34 minutes paired), so it can give up where it would have
   started beside one suite. A longer wait, not starvation; left as is and named for the post-merge watch.
-- The roots walk's cost was not measured; it is O(n^2) ps walks for n candidates (a handful today).
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.

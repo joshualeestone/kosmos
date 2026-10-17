@@ -556,7 +556,7 @@ kosmos_refuse_if_suite_live() {
     n="$(printf '%s\n' "$out" | grep -c . || true)"
     [ "$n" -le "$allowed" ] && return 0
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
-    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (a limit of $((allowed + 1)) from KOSMOS_SUITE_MAX or the suite-max file, #6334). Wait for one to finish, or $override." >&2
+    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (a limit of $((allowed + 1)); for tools/run-tests.sh it comes from KOSMOS_SUITE_MAX or the suite-max file, #6334). Wait for one to finish, or $override." >&2
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
@@ -713,8 +713,8 @@ kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_ko
 
 # #4609 light lane: a run declared light (KOSMOS_QUEUE_CLASS=light: one browser check, one focused test file) goes ahead
 # of heavy waiters (full suites, cargo runs, pushes): the class changes the order, never how many hold the box
-# (one turn, or since #6334 up to KOSMOS_SUITE_MAX suites started directly). A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead
-# of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
+# (one turn, or since #6334 up to KOSMOS_SUITE_MAX suites started directly). A heavy waiter that has waited
+# KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 # #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
 # skip a re-run). It waits first among waiters (_kosmos_queue_rank), one canary at a time (_kosmos_suite_waiters_ahead),
