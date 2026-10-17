@@ -45,7 +45,7 @@ test('#6391 retirePc: exit 0 means told, and the connector is asked with retire 
   assert.deepEqual(calls[0].args, ['retire', '--coordinator', 'https://coord.example', '--state-dir', 'D:\\data\\remote']);
   assert.equal(calls[0].opts.windowsHide, true, 'the console child must be hidden (no black window flash)');
   assert.equal(calls[0].opts.shell, undefined, 'no shell: argv must reach CreateProcess unparsed');
-  assert.ok(Number.isFinite(calls[0].opts.timeout) && calls[0].opts.timeout > 0, 'a short timeout must be set');
+  assert.ok(Number.isFinite(calls[0].opts.timeout) && calls[0].opts.timeout > 0, 'a positive timeout must be set');
 });
 
 // The told:false condition ORs r.error / r.signal / r.status!==0, so each branch is isolated
@@ -94,21 +94,29 @@ test('#6391 retirePc: the default timeout is the generous RETIRE_TIMEOUT_MS, and
   assert.equal(seenTimeout, 1234, 'o.timeoutMs did not override the default');
 });
 
-test('#6391 remote.connectorFile is exported and names the Windows connector (the reuse this change relies on)', () => {
-  // uninstall() resolves the default connector path as <app>/bin/ + remote.connectorFile(platform),
-  // so convention-5 duplication of the filename is avoided. Guard the export so a future removal is caught.
+test('#6391 pin (convention 5): win32uninstall defaults equal remote.js, so neither drifts silently', () => {
+  // Production inlines these constants to avoid loading remote.js's exit/signal handlers into the
+  // short-lived uninstaller; this pin is what keeps the inline honest. remote.js owns the canonical
+  // values, and a change there without a matching change here fails this test. (A test may freely
+  // require remote.js — the side-effect concern is only about the production uninstaller process.)
   const remote = require('./remote');
-  assert.equal(typeof remote.connectorFile, 'function', 'remote.connectorFile is no longer exported');
-  assert.equal(remote.connectorFile('win32'), 'kosmos-tunnel.exe');
-  assert.equal(typeof remote.DEFAULT_COORDINATOR, 'string', 'remote.DEFAULT_COORDINATOR is no longer exported');
-  assert.ok(remote.DEFAULT_COORDINATOR.startsWith('https://'), 'coordinator default is not an https URL');
+  assert.equal(uninstaller.DEFAULT_COORDINATOR, remote.DEFAULT_COORDINATOR, 'coordinator default drifted from remote.js');
+  assert.equal(uninstaller.CONNECTOR_EXE, remote.connectorFile('win32'), 'connector filename drifted from remote.js connectorFile(win32)');
+});
+
+test('#6391 defaultTunnelBin resolves <app>/bin/<connector> (the default connector path)', () => {
+  const p = uninstaller.defaultTunnelBin();
+  assert.equal(path.basename(p), uninstaller.CONNECTOR_EXE);
+  assert.equal(path.basename(path.dirname(p)), 'bin', 'connector is not under <app>\\bin');
 });
 
 test('#6391 source order: the retire call precedes deleteAllExcept in uninstall() (portable backstop)', () => {
   // The Windows-only wiring tests below prove ordering by execution, but they skip on Mac CI, so a
   // mistaken move of the retire block BELOW the delete would stay green everywhere else. This static
-  // guard catches exactly that regression on every platform: the key must be retired before it is
-  // deleted. Anchored on two distinctive call-site strings; if either is renamed, update both.
+  // guard is a best-effort portable backstop for exactly that: it catches a wholesale move of the
+  // retire call below the delete, or a rename of either anchor (both fail the test). It is a
+  // heuristic, not a proof — it would not catch a retire planted inside a dead branch, or the same
+  // text duplicated in a comment above the real call; the Windows wiring tests cover live behaviour.
   const src = fs.readFileSync(require.resolve('./win32uninstall.js'), 'utf8');
   const retireAt = src.indexOf('const told = retire({ remoteDir');
   const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs, rm)');
@@ -203,6 +211,26 @@ test('#6391 the env overrides (TUNNEL_BIN, RETIRE_TIMEOUT_MS) reach the retire',
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.equal(seen.tunnelBin, 'C:\\custom\\kosmos-tunnel.exe', 'AGENT_WORKFORCE_TUNNEL_BIN was ignored');
     assert.equal(seen.timeoutMs, 45000, 'AGENT_WORKFORCE_RETIRE_TIMEOUT_MS was ignored');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#6391 with no coordinator/tunnelBin injected and no env override, uninstall() passes the inline defaults to the retire', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks(); withKey(s);
+    delete s.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+    delete s.env.AGENT_WORKFORCE_TUNNEL_BIN;
+    let seen = null;
+    // Call uninstall() directly so coordinator/tunnelBin are genuinely absent (run() injects coordinator).
+    const r = await uninstaller.uninstall({
+      platform: 'win32', env: s.env, home: s.home, projectsRoot: s.projectsRoot, port: PORT, probe: NOBODY_ANSWERING,
+      removeFolder: (dir) => fs.rmSync(dir, { recursive: true, force: true }), sleep: async () => {},
+      liveExecutionAllowed: () => true, deleteData: true,
+      retirePc: (o) => { seen = { coordinator: o.coordinator, tunnelBin: o.tunnelBin }; return { told: true }; },
+    });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.equal(seen.coordinator, uninstaller.DEFAULT_COORDINATOR, 'default coordinator not used');
+    assert.equal(seen.tunnelBin, uninstaller.defaultTunnelBin(), 'default tunnelBin not used');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
