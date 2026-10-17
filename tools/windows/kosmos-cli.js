@@ -938,6 +938,8 @@ async function taskList(ctx, args) {
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
+    // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
+    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint);
   }
   return 0;
 }
