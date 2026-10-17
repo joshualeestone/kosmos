@@ -50071,8 +50071,8 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 /* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk).
-   While storage works it is read on every paint, so another tab's dismissal applies here too. Once a read or write
-   fails, this tab uses its own record until a write succeeds again. */
+   While storage works it is read on every paint, so another tab's dismissal applies here at this tab's next paint.
+   Once a read or write fails, this tab uses its own record until a write succeeds again. */
 function askNoteDismissed() {
   if (!ASK.noteStoreFailed) {
     try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* below */ }
@@ -50089,8 +50089,12 @@ function askNoteSave(keys) {
 /* Added to what was put away before (the newest 200 kept), so a request dismissed earlier and missing from one list
    is not forgotten when another is dismissed. */
 function askNoteDismiss() {
-  const all = askNoteDismissed().filter((k) => (ASK.noteKeys || []).indexOf(k) === -1).concat(ASK.noteKeys || []);
-  askNoteSave(all.slice(-200));
+  // Storage is read here even after a failure, so a save that works again does not drop other tabs' dismissals.
+  let stored = [];
+  try { stored = (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* none */ }
+  const keys = ASK.noteKeys || [];
+  const before = stored.concat((ASK.noteDismissed || []).filter((k) => stored.indexOf(k) === -1));
+  askNoteSave(before.filter((k) => keys.indexOf(k) === -1).concat(keys).slice(-200));
 }
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
 function askBrowserWord(name) {
@@ -50367,11 +50371,14 @@ async function askAct(act, id, at) {
   // 'open' and 'note-dismiss' exist only on the compact notice, whose paint wrote ASK.noteKeys.
   if (act === 'note-dismiss') {
     askNoteDismiss(); paintAsk();
-    // The button is gone with the notice; focus goes to the current view's tab, or on a phone (tabs in a closed menu)
-    // to the button that opens them, not to the page body.
-    const t = [document.querySelector('#tabs [aria-selected="true"]'), document.querySelector('[aria-controls="tabs"]')]
-      .find((el) => el && el.offsetParent);
-    if (t) t.focus();
+    // A notice still showing (it moved on to what it had not named) keeps focus where the repaint put it. Gone, focus
+    // goes to the current view's tab, or on a phone (tabs in a closed menu) the button that opens them.
+    const card = document.getElementById('askcard');
+    if (!card || card.hidden) {
+      const t = [document.querySelector('#tabs [aria-selected="true"]'), document.querySelector('[aria-controls="tabs"]')]
+        .find((el) => el && el.offsetParent);
+      if (t) t.focus();
+    }
     return;
   }
   if (act === 'here-ok') { ASK.hereGone = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
