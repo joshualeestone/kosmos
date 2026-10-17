@@ -11595,6 +11595,13 @@ const server = http.createServer(async (req, res) => {
           /* #4139: a green from the free check says so, not that an agent's request succeeded. */
           return { ...a, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs,
             observedFrom: obs === checkObs ? 'check' : 'agent', ...(stillChecking ? { liveCheckPending: true } : {}) } };
+        }).map((r) => {
+          /* #6176 slice 3: a Grok subscription's usage as Grok last logged it in the account's own folder
+             (engine/groklimits.js), or null: none logged, or its period is over. An API key never gets a billing
+             reading, so its row carries none. */
+          if (!r || r.authMode !== 'subscription' || !r.dir) return r;
+          let limits = null; try { limits = require('./engine/groklimits').read(r.dir, Date.now()); } catch { limits = null; }
+          return { ...r, limits };
         });
         /* #3998 (Josh, 11:34: "it doesn't show up here as a connected subscription"): Gemini on the
            Google subscription gets its own row, from agystatus's LAST confident answer (a live check
