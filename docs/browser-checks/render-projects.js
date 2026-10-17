@@ -1329,6 +1329,18 @@ async function main() {
         const capShrank = step();
         box.style.maxHeight = ''; await frames();
         box.scrollTop = box.scrollHeight; await frames();
+        /* #6324's real cap: the Team map button showing lowers the box's cap by 52px (CSS :has), so at the end of the box
+           more is below again; hiding it gives the room back. The box's height must really change, or the step proves nothing. */
+        const tb = document.getElementById('alist-teammap-btn');
+        const tbWas = tb ? tb.hidden : true;
+        const h0 = box.clientHeight;
+        if (tb) tb.hidden = false; await frames();
+        const teamMap = { ...step(), shrank: box.clientHeight < h0 - 40 };
+        if (tb) tb.hidden = true; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
+        const teamMapOff = step();
+        if (tb) tb.hidden = tbWas; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
         /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
         const last = copies[copies.length - 1];
         last.style.paddingBottom = '120px'; await frames();
@@ -1348,7 +1360,7 @@ async function main() {
         const unfolded = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
         const shortAgain = step();
-        return { before, grown, atEnd, capShrank, rowGrew, backUp, ends, unfolded, shortAgain };
+        return { before, grown, atEnd, capShrank, teamMap, teamMapOff, rowGrew, backUp, ends, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
         body.classList.toggle('fold-a', folded);
@@ -1362,7 +1374,8 @@ async function main() {
        scrolls, with more below at the top and none at the end, so both answers are exercised. */
     const cueRight = (s) => s.more === s.below && s.fade === s.below;
     if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below || !cue.capShrank.below
-        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
+        || !cue.teamMap || !cue.teamMap.shrank || !cue.teamMap.below || cue.teamMapOff.below
+        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.teamMap, cue.teamMapOff, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
         || !cue.ends.ok) {
       contrastFails += 1;
       console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after the box shrank there, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);

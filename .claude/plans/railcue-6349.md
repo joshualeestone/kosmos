@@ -44,3 +44,7 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
   mid-press, so they were removed. Weakest premise: that a dimmed focused button is clear enough to a keyboard user.
 - Forced colors (Windows high contrast): the fade is hidden, so there is no cue there (review 14 suggested a Canvas
   gradient; review 13 found a gradient unreliable in that mode). Known gap, chosen over a wrong-coloured band.
+
+- 16 sonnet (after rebasing onto main with #6324's team-map cap): the arm now shows the real Team map button, checks the
+  box's cap really drops and the fade follows (more below), then hides it again (cue off at the end). The comment says the
+  fade's last pixels are fully covered. Not changed: the sticky strip's 2px padding offset (cosmetic).

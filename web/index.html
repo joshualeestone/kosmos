@@ -5380,7 +5380,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
      the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
      does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
-     over the rows; it never takes a click. A control under it is dimmed, never hidden (WCAG 2.4.11 at AA). */
+     over the rows; it never takes a click. A control under it is dimmed, never hidden (WCAG 2.4.11 at AA), except in its
+     last few pixels, which are fully covered: a control whose top edge sits there shows once scrolled (the plan's trade). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: var(--railcue-fade); margin-top: calc(-1 * var(--railcue-fade)); pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { --railcue-fade: 28px; }
   @media (forced-colors: active) { html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { display: none; } }   /* the system colours replace --k-bg, so the fade would paint the wrong colour */
