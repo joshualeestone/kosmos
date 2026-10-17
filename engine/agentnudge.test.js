@@ -589,7 +589,7 @@ test('#6421: a parent whose subtasks are all built says they wait for the person
     const { calls } = pass(w);
     assert.equal(calls.length, 1);
     assert.match(calls[0].text, /Every subtask under it is closed or built \(2 are built, waiting for the person to check and close them\)/, calls[0].text);
-    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + " '<how its checks went>')."), calls[0].text);
+    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + ').'), 'no checks, so no note asked for: ' + calls[0].text);
   } finally { w.restore(); }
 });
 
@@ -639,7 +639,7 @@ test('#6421: another open part on the parent means it is not this agent\'s to ma
     childOf(w, n, 'write the notes', true);
     const mine = pass(w).calls.find((c) => c.session === w.key.parentshared);
     assert.ok(mine, 'fixture: the agent was not nudged');
-    assert.match(mine.text, /other parts of it are still open, so it is built when they are done too\./, mine.text);
+    assert.match(mine.text, /another part of it \(someone else's, or nobody's\) is still open, so it is not yours alone to mark built\./, mine.text);
     assert.ok(!mine.text.includes('kosmos task built'), 'told to mark a shared task built: ' + mine.text);
   } finally { w.restore(); }
 });
@@ -677,7 +677,7 @@ test('#6421: plural counts, a held built subtask counts as not finished, and an 
       assert.ok(r && r.ok !== false, 'fixture: addPart refused: ' + JSON.stringify(r));
       childOf(w2, m, 'write the notes', true);
       const t2 = pass(w2).calls[0].text;
-      assert.match(t2, /other parts of it are still open/, t2);
+      assert.match(t2, /another part of it \(someone else's, or nobody's\) is still open/, t2);
     } finally { w2.restore(); }
   } finally { w.restore(); }
 });
@@ -691,5 +691,23 @@ test('#6421: the agent\'s own second part is not another\'s: it is still told to
     childOf(w, n, 'write the notes', true);
     const t = pass(w).calls[0].text;
     assert.ok(t.includes('kosmos task built'), t);
+  } finally { w.restore(); }
+});
+
+test('#6421: a colleague who already marked the parent built is done, so this agent is told to mark it too; with checks, the note is asked for', () => {
+  const w = world([{ name: 'parentlate' }, { name: 'parentearly' }]);
+  try {
+    const n = taskOn(w, w.key.parentlate, 'ship an eighth release');
+    const r = tasks.addPart(w.pid, n, { sentence: 'the early half', who: w.key.parentearly });
+    assert.ok(r && r.ok !== false, 'fixture: addPart refused: ' + JSON.stringify(r));
+    childOf(w, n, 'write the notes', true);
+    const d = tasks.setDoneWhen(w.pid, n, ['the notes read well']);
+    assert.ok(d && d.ok !== false, 'fixture: setDoneWhen refused: ' + JSON.stringify(d));
+    const b = tasks.setBuilt(w.pid, n, { by: w.key.parentearly, note: '1 met.' });
+    assert.ok(b && b.ok, 'fixture: the colleague\'s mark refused: ' + JSON.stringify(b));
+    const mine = pass(w).calls.find((c) => c.session === w.key.parentlate);
+    assert.ok(mine, 'fixture: the agent was not nudged');
+    assert.ok(mine.text.includes('(kosmos task built ' + w.pid + ' ' + n + " '<how its checks went>')."), mine.text);
+    assert.ok(!/still open/.test(mine.text), 'a finished colleague read as an open part: ' + mine.text);
   } finally { w.restore(); }
 });

@@ -26,7 +26,10 @@ No subtask built: the line is unchanged.
 - **Another open part on the task** (someone else's, or nobody's): "mark it built" would mark the WHOLE task, declaring
   the colleague's unfinished part built. The sentence then says the other parts are still open and names no command.
   The first version of this plan claimed the sentence could not reach the wrong agent; that held only for a one-part
-  task, and review 1 showed it.
+  task, and review 1 showed it. Not counted as another's: the agent's own second part (review 2), and the part of a
+  colleague who has already marked the task built (review 3: marking never closes a part, and agents cannot close one,
+  so it read open and held back the very command that frees this agent).
+- **The note placeholder** is offered only when the parent has done-when checks, as setBuilt only asks for one then.
 - **A repeating parent**: never marked built (setBuilt refuses it), so it carries no subtask sentence at all.
 
 ## Weakest premise
@@ -35,7 +38,10 @@ done-when checks are unmet, the built note says so (setBuilt asks for it), so th
 mark.
 
 ## Tests
-engine/agentnudge.test.js (+6): all subtasks built names the mark; one built plus one closed says "it"; some built gives
-the counts and names no mark; another open part names no mark; a repeating parent carries no counts (control: the same
-parent not repeating does); control: no built subtask, no sentence. Against main's agentnudge.js the behaviour tests
-fail; one-line mutants of the repeat and other-parts guards each fail exactly their test.
+engine/agentnudge.test.js (+9, through the real sweep unless noted): all subtasks built names the mark (no checks, no
+note placeholder); one built plus one closed says "it"; some built gives the counts and names no mark; plural counts
+with a held built subtask counted as not finished, and an unassigned open part as another's; a colleague's open part
+names no mark; the agent's own second part does not hold it back; a colleague who already marked it is done, and with
+checks the placeholder is asked for; a repeating parent carries no counts (hand-built records; control: not repeating,
+it does); control: no built subtask, no sentence. Against main's agentnudge.js the behaviour tests fail; one-line
+mutants of the repeat, other-part, own-part and already-marked guards each fail exactly their test.

@@ -98,8 +98,12 @@ function openParts(session, projects) {
         const k = t.repeat ? { total: 0 } : tree.progress(t.number);
         /* Another open part (someone else's, or nobody's) means the task is not this agent's alone to mark (review 1:
            setBuilt marks the whole task, so "mark it built" would declare a colleague's unfinished part built). */
-        const others = prog.parts.some((y) => y.who !== session && !y.closedAt);   // its own second part is not another's (review 2)
-        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others } } : {};
+        /* Its own second part is not another's (review 2), and nor is the part of a colleague who has already marked the
+           task built: marking never closes a part, so theirs reads open though they are done (review 3). */
+        const markedBy = t.builtAt && Array.isArray(t.builtWho) ? t.builtWho : [];
+        const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
+        const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
+        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others, checks } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
       }
     }
@@ -144,11 +148,11 @@ function nudgeText(part) {
       const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
       if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
       const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
-      if (s.others === true) return all + ', and other parts of it are still open, so it is built when they are done too.';
+      if (s.others === true) return all + ', and another part of it (someone else\'s, or nobody\'s) is still open, so it is not yours alone to mark built.';
       /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
       /* "When", not "if": the fixed "Pick it up" follows, so the two read as one order of work (review 2). */
       return all + ', so when your own part of it is done, mark it built (kosmos task built '
-        + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' \'<how its checks went>\').';
+        + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (s.checks > 0 ? ' \'<how its checks went>\'' : '') + ').';   // a note only asked for with checks (review 3)
     })()
     : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
