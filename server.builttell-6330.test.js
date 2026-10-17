@@ -340,6 +340,27 @@ test('with agent task messages switched off (cap 0), a mark tells nobody and say
   assert.deepEqual(told(again), ['zed'], JSON.stringify(again.json));
 });
 
+test('built lines count against the task-message valve: past a low cap the mark stands and nobody is told, and it says why', async () => {
+  const srv = require('./server');
+  const n = tasks.create(projectId, { sentence: 'Publish the changelog', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Review it', who: 'zed' });
+  // CONTROL, and one send on the valve whatever ran before: under the default cap zed is told.
+  const first = await mark(n, asAgent('mona'), { note: 'drafted' });
+  assert.deepEqual(told(first), ['zed'], JSON.stringify(first.json));
+  srv.setTaskMsgCapForTests(1);
+  try {
+    const r = await mark(n, asAgent('mona'), { note: 'drafted and checked' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.changed, true);
+    assert.deepEqual(r.json.delivered, [], 'a mark past the cap still told someone: ' + JSON.stringify(r.json));
+    assert.match(r.json.summary, /^Nobody was told of the mark: /, r.json.summary);
+    assert.doesNotMatch(r.json.summary, /\.\.$/);
+    assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtNote, 'drafted and checked', 'the mark did not stand');
+  } finally {
+    srv.setTaskMsgCapForTests();
+  }
+});
+
 test('a project list that cannot be read while working out who to tell is said, not taken as nobody assigned', async () => {
   const n = tasks.create(projectId, { sentence: 'Rotate the keys', who: 'mona' }).number;
   tasks.addPart(projectId, n, { sentence: 'Update the vault', who: 'zed' });
