@@ -11,7 +11,7 @@ Nothing on the screen. An agent that marks a task built (`kosmos task built`) no
 - the open holders, still on the project, of the nearest task above it that has any: its parent, else that task's
   parent, and so on, up the parent chain only (a closed task ends the walk),
 saying "<agent> marked task N built: "<note>"" with how to reply in the task, and for a parent holder "(it is under
-your task P)". The marker is never told. The answer gains `delivered`, one outcome per agent, as a task message's has.
+your task P)". A marker that identified itself (token or pane) is never told; an unidentified caller cannot be excluded. The answer gains `delivered`, one outcome per agent, as a task message's has.
 
 ## Rules
 - Only an agent's NEW mark: not a clear, not the same mark again (`changed: false`), not the person's mark from the

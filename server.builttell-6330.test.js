@@ -362,6 +362,25 @@ test('a project list that cannot be read while working out who to tell is said, 
   }
 });
 
+test('a failure in one recipient\'s own step is that recipient\'s could_not, never the others\' or the summary\'s', async () => {
+  const n = tasks.create(projectId, { sentence: 'Move the domain', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Update DNS', who: 'zed' });
+  tasks.addPart(projectId, n, { sentence: 'Check the certificate', who: 'ivy' });
+  projects.setSwarmOn(projectId, 'zed', false);
+  const real = projects.SWARM_OFF_SENTENCE;
+  projects.SWARM_OFF_SENTENCE = () => { throw new Error('no sentence for zed'); };
+  try {
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(told(r), ['ivy', 'zed'], JSON.stringify(r.json));
+    assert.equal(r.json.delivered.find((d) => d.agent === 'zed').state, 'could_not');
+    assert.doesNotMatch(r.json.summary, /could not work out who to tell/, 'one recipient\'s failure hid everyone: ' + r.json.summary);
+  } finally {
+    projects.SWARM_OFF_SENTENCE = real;
+    projects.setSwarmOn(projectId, 'zed', true);
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));
