@@ -55,7 +55,9 @@
  * platform default is used (Windows: `cmd /c start "" <url>`).
  *
  * Any failure degrades to the plain url, so the worst case is the pre-fix
- * behavior, never a crash with no url.
+ * behavior, never a crash with no url. ONE EXCEPTION (#1765): on an enforcing
+ * board, a listener that cannot prove it holds this account's token gets nothing
+ * at all, no token and no browser (see boardProven below).
  */
 
 const path = require('path');
@@ -148,7 +150,43 @@ async function mintNonce(url, token) {
   }
 }
 
-async function resolveOpenUrl({ appDir, port, timeoutMs }) {
+/* #1765: before the board token goes to the mint, the listener on the port proves it already holds that token
+ * (app/engine/boardproof.js: an HMAC over a fresh random nonce, checked here with our own copy). Every account on a
+ * Windows computer uses the same port, so whatever answers there is not always this account's board.
+ *
+ * When the check does not pass, NOTHING is opened (resolveOpenUrl returns null), not even the plain url: a browser
+ * or the board window pointed at that address would hand the listener the board's sign-in cookie, which is scoped
+ * to 127.0.0.1 and not to the port. install/kosmos's cmd_open refuses the same way. A boardproof module that will
+ * not load cannot check, so it refuses too (the module ships beside this file's engine in every bundle).
+ * `proveBoard` is the test seam: (url, token, timeoutMs) resolving a boolean or { ok, why }. */
+const PROOF_TIMEOUT_MS = 7500; // half the mint's cap, as install/kosmos gives its proof half the request's -m
+
+async function boardProven({ appDir, url, token, proveBoard }) {
+  try {
+    if (typeof proveBoard === 'function') {
+      const r = await proveBoard(url, token, PROOF_TIMEOUT_MS);
+      return (r && typeof r === 'object') ? { ok: r.ok === true, why: r.why || '' } : { ok: r === true, why: r === true ? '' : 'not proven' };
+    }
+    const boardproof = require(path.join(appDir, 'engine', 'boardproof'));
+    let why = '';
+    const ok = await boardproof.boardHoldsToken(url, token, { timeoutMs: PROOF_TIMEOUT_MS, onRefuse: (w) => { why = String(w || ''); } });
+    return { ok: ok === true, why: ok === true ? '' : (why || 'not proven') };
+  } catch (e) {
+    return { ok: false, why: 'the check could not run (' + ((e && e.message) || e) + ')' };
+  }
+}
+
+/* The sentence for a check that did not pass: a board that is not answering reads differently from a listener that
+ * answered and could not prove itself. */
+function refusalWords(url, why) {
+  const w = String(why || '');
+  if (/^request failed: /.test(w) || w === 'timed out') {
+    return 'Kosmos did not answer the check that it is your Kosmos (' + w + '), so nothing was opened and nothing was sent. Try again in a minute.';
+  }
+  return 'whatever is answering at ' + url + ' could not show it is your Kosmos (' + w + '), so nothing was opened and nothing was sent to it. If Kosmos is restarting, try again in a minute.';
+}
+
+async function resolveOpenUrl({ appDir, port, timeoutMs, proveBoard }) {
   const url = `http://127.0.0.1:${port}`;
   const deadline = Date.now() + timeoutMs;
 
@@ -160,6 +198,12 @@ async function resolveOpenUrl({ appDir, port, timeoutMs }) {
   if (!token) {
     // Non-enforcing board (or no store): the plain url authenticates fine.
     return url;
+  }
+  // #1765: the token goes only to a listener that proves it already holds it. Not proven: open nothing (null).
+  const proof = await boardProven({ appDir, url, token, proveBoard });
+  if (!proof.ok) {
+    process.stderr.write('kosmos-open-board: ' + refusalWords(url, proof.why) + '\n');
+    return null;
   }
   const nonce = await mintNonce(url, token);
   if (!nonce) {
@@ -223,6 +267,9 @@ async function main() {
   const port = argValue('--port', DEFAULT_PORT);
   const timeoutMs = Number(argValue('--timeout-ms', '20000')) || 20000;
   const open = await resolveOpenUrl({ appDir, port, timeoutMs });
+  // #1765: the listener could not prove it is this account's board (resolveOpenUrl said why): open nothing, and
+  // hand the window no address.
+  if (open === null) { process.exitCode = 1; return; }
   // #1118: `--print-url` is Kosmos.exe's board window asking for the address to load in itself,
   // instead of a browser. It gets the RESOLVED url (nonced on an enforcing board) and nothing is
   // opened. This is the one case where stdout carries the nonce, and it is safe for the same reason
@@ -258,4 +305,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { resolveOpenUrl, readBoardToken, mintNonce, waitForBoard, openInBrowser };
+module.exports = { resolveOpenUrl, readBoardToken, mintNonce, waitForBoard, openInBrowser, boardProven, refusalWords, PROOF_TIMEOUT_MS };
