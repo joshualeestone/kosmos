@@ -27,7 +27,8 @@ covers what matters (why no code yet). It removes text, so it fits Josh's 10-17 
 - The old-request wording no longer has a computer branch (it can no longer be reached).
 
 ## Steps
-1. web/index.html paintAsk card: joiningRow = !!d.joining_computer; no askAgoSpan and no stale class for it.
+1. web/index.html: askComputerRow(d) (joining, or was_a_computer); the request card gives such a row no age span and no
+   stale fade, and turning it away always gets the fresh wording with the password sentence.
 2. web.allow-card.test.js: pins the new stale expression, askComputerRow and the conditional age span.
 3. render-connect-sheet-4637.js: the one-line age check now expects one age (the phone's); a day-old computer row has
    no age and is not faded; CONTROL: a day-old phone row has its age and is faded.
