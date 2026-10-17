@@ -4227,11 +4227,6 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
    sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
    board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
    the phone's page is on the proxy's own name. */
-/* The socket is this computer's too (review 5: headers alone can be written by a caller elsewhere on the network;
-   Kosmos+ reaches the board over loopback, which is why the header rule stays). Defined below LOOPBACK_PEERS' use. */
-function ticketCallerHere(req) {
-  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
-}
 function madeOnThisComputer(headers) {
   const h = headers || {};
   if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
@@ -4241,6 +4236,11 @@ function madeOnThisComputer(headers) {
   if (typeof h.host !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.host, false))) return false;
   if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
   return true;
+}
+/* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
+   Kosmos+ reaches the board over loopback, which is why the header rule stays). */
+function ticketCallerHere(req) {
+  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
 }
 
 /**
