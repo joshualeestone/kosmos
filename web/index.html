@@ -21339,10 +21339,12 @@ function stateReason(a, opts) {
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
     if (a.stuckError.state === 'auth_failed') return 'Kosmos has seen this agent unable to sign in for about ' + mins + ' minutes. It cannot work until you reconnect its account. Open Settings to reconnect it.';
-    /* #6398 (Josh): the rate-limit paragraph does not render on the CARD face -- the "Rate Limit" pill carries the
-       state there, and the detail (time + "switch its model") lives BEHIND the pill. The detail panel (#d-task) calls
-       taskLine WITHOUT opts.card, so it keeps the full sentence; only the grid/list card (opts.card) drops it. The
-       auth_failed branch above is deliberately untouched (that card still names the expired sign-in). */
+    /* #6398 (Josh): this verbose stuck paragraph (the one Josh quoted -- "paused by a rate limit for about XXX minutes
+       ... wait, or switch its model") does not render on the CARD face. The "Rate Limit" pill carries the state there,
+       and this detail (time + "switch its model") lives BEHIND the pill: the agent detail panel calls taskLine
+       WITHOUT opts.card, so it keeps the full sentence; only the card and list face (opts.card) drops it. Scope is narrow:
+       the short quota/pool/usage reset lines below (#4588/#5805) still render on the card -- Josh asked to remove the
+       paragraph, not the useful reset-time lines. The auth_failed branch above is deliberately untouched. */
     if (a.stuckError.state === 'rate_limited') return (opts && opts.card === true) ? '' : 'Kosmos has seen this agent paused by a rate limit for about ' + mins + ' minutes. It will keep trying when the limit lifts. You can wait, or switch its model.';
   }
   /* #6249: text has sat in its input box, unsent, for a few minutes (engine status unsentInputOf): a message left
@@ -21436,10 +21438,6 @@ function stateReason(a, opts) {
     return rulesBehindLine(a);
   }
   if (!a || a.state !== 'rate_limited') return '';
-  /* #6398 (Josh): on the grid/list CARD a rate-limited agent shows only the "Rate Limit" pill -- every rate-limit
-     sentence (the quota/pool/limit/usage lines below, and the stuck paragraph above) is detail that lives BEHIND the
-     pill. The detail panel (#d-task) calls taskLine without opts.card, so it still renders these; the card does not. */
-  if (opts && opts.card === true) return '';
   /* #4588: an Antigravity agent paused on its account's shared Google quota carries the reset, so the card says
      when the quota comes back. The reset, not a promise: the resume (engine/agyquota.js) can be switched off and
      comes a little after the reset. */
