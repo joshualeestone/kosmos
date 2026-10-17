@@ -779,7 +779,8 @@ const BUILT_NOTE_MAX = 300;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
-const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint'];
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
+  'builtFingerprintBy'];
 /* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
    thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
 const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
@@ -801,8 +802,10 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`; a later mark
- *                          without one keeps it, and only a clear or a new one replaces it
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`
+ *   builtFingerprintBy     who sent it. Another agent's mark without one (the checker's) keeps it; the sender's own
+ *                          mark without one drops it, as that is a new version sent without its fingerprint (review 5:
+ *                          keeping it then presented the old fingerprint as current). A clear drops both
  * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
@@ -838,9 +841,11 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
       /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
-      /* #6330 slice 2 review 3: the fingerprint describes the deliverable, not the last marker, so a mark without one
-         (the checker's, say) keeps the earlier one; only --clear or a new one replaces it. */
-      const kept = print || (t.builtAt && t.builtFingerprint) || '';
+      /* #6330 slice 2: the fingerprint describes the deliverable, so another agent's mark without one (the checker's,
+         review 3) keeps it; its sender's own mark without one drops it (review 5), as above. */
+      const keep = !print && t.builtAt && t.builtFingerprint && (t.builtFingerprintBy || null) !== who;
+      const kept = print || (keep ? t.builtFingerprint : '');
+      const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
         && (t.builtFingerprint || '') === kept) {
         same = true; changed = t; throw NO_WRITE;
@@ -852,7 +857,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
-        ...(kept ? { builtFingerprint: kept } : {}),
+        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
