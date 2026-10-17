@@ -50633,6 +50633,7 @@ function paintAsk() {
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
     // kosmos#6388: several of the person's own computers joining, and nothing else, are computers, not devices.
     const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.'
+      : fresh.every((d) => d.joining_computer && d.recheck) ? n + ' of your computers want to finish a code check.'   // kosmos#6404
       : fresh.every((d) => d.joining_computer) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
@@ -50675,7 +50676,7 @@ function paintAsk() {
     // #6405: no age and no fading for a computer's request (askComputerRow); its code or wait line says where it is.
     const joiningRow = askComputerRow(d);
     const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-    const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
+    const again = d.denied_at && !d.recheck ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     /* #4794 (Mona Lisa's words), #6404: a computer joining shows its code on its own screen; the person types it here. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
     const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
@@ -50710,10 +50711,12 @@ function paintAsk() {
       : e.because === 'code_short' ? 'Type the six digits shown on ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.'
       : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
       : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.'
-      : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed Allow. Type the new one from ' + name + ', then press Allow.'
+      : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed ' + (d.recheck ? 'Confirm' : 'Allow') + '. Type the new one from ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.'
         : 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.')
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
+            // kosmos#6404: a check's other refusals (a key that is no longer trusted, a check that lapsed) never show a tag.
+            : d.recheck ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
             : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
@@ -51867,7 +51870,7 @@ function plusJoinPillWord() {
 function plusJoinLive(j) {
   if (!j || j.supported !== true) return false;
   // kosmos#6404: a fresh code check this computer asked for is live too, code or not.
-  return j.held === true || j.rechecking === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
+  return j.held === true || (j.rechecking === true && j.confirmed !== true) || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
 }
 /* Allowed, but the code ran out before it was confirmed here. While held, a code that ran out says needs_retry instead
    (#6353: no new attempt starts until the person presses Try again; pairing.rs owe_commitment), so this is only when not held. It
@@ -51895,6 +51898,9 @@ async function plusJoinTick() {
     if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || got.recheck_with || '' };
     // kosmos#6404: a check can be asked for: the ending says so, also on a page loaded later (from the probe's one read).
     else if (got.can_recheck === true && !(PLUS_JOIN_NOTE && PLUS_JOIN_NOTE.kind === 'ranout')) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.recheck_with || '' };
+    // The ending is said once and not polled, and paintPlus forgets the last answer once the pairing is not live, so
+    // whether a check can be asked for is kept ON the ending (review 1: the button vanished on the next repaint).
+    if (PLUS_JOIN_NOTE && PLUS_JOIN_NOTE.kind === 'ranout') { PLUS_JOIN_NOTE.recheck = got.can_recheck === true; if (got.recheck_with) PLUS_JOIN_NOTE.with = got.recheck_with; }
     PLUS_JOIN = got;
   }
   PLUS_JOIN_BUSY = false; PLUS_JOIN_AT = Date.now();
@@ -51910,8 +51916,7 @@ function plusJoinCode(code) {
    trust the other one yet. When the tunnel says a check can be asked for (`can_recheck`), one fresh code check finishes
    it; otherwise (every try used, or a tunnel without the check) nothing on either screen can, and the sentence says the
    computer is in. `who` starts the sentence, `name` is the other computer in the next line. */
-function plusJoinRanOutHtml(who, name) {
-  const can = !!(PLUS_JOIN && PLUS_JOIN.can_recheck === true);
+function plusJoinRanOutHtml(who, name, can) {
   const said = PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '';
   if (!can) return '<p class="plus-join-say">' + who + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>' + said;
   return '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>'
@@ -51943,7 +51948,7 @@ function paintPlusJoin() {
          (peers.json has no reader outside pairing.rs), so the sentence says so rather than promising a step. It says the
          other computer allowed this one, which stays true through a later outage (it is said once and not polled). The
          slice that first reads peers (kosmos-relay) must change this sentence, or give this state a way to pair again. */
-      : plusJoinRanOutHtml(note.name ? nn : 'Your other computer', nn);
+      : plusJoinRanOutHtml(note.name ? nn : 'Your other computer', nn, note.recheck === true);
     if (el.__lastJoin !== html) {
       const fid = el.contains(document.activeElement) && document.activeElement.id;
       el.innerHTML = html; el.__lastJoin = html;
@@ -51984,14 +51989,14 @@ function paintPlusJoin() {
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
      round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
-  else if (j.held !== true && stale) html = plusJoinRanOutHtml(named ? name : 'Your other computer', name);   // kosmos#6386, as the ending above
+  else if (j.held !== true && stale) html = plusJoinRanOutHtml(named ? name : 'Your other computer', name, j.can_recheck === true);   // kosmos#6386, as the ending above
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired && PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS)
     html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';   // the tunnel no longer owes the attempt (its Try again lapses too)
   else if (j.confirm_expired) { waits = true; html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>' + plusJoinSlowLine(); }
   else if (stale) html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';
-  else { waits = true; html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>' + plusJoinSlowLine(); }
+  else { waits = true; html = '<p class="plus-join-say">' + (j.rechecking === true ? 'Checking the code with ' : 'Working out the code with ') + name + other + '...</p>' + plusJoinSlowLine(); }
   /* #6385: any other state is not a wait for a code, so the next wait starts its own minute. */
   if (!waits) PLUS_JOIN_NOCODE_AT = 0;
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. A write that
@@ -52028,16 +52033,20 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   PLUS_JOIN_GEN += 1;
   if (res && res.ok) {
     PLUS_JOIN_MSG = ''; PLUS_JOIN_NOTE = null; PLUS_JOIN_CODE_AT = 0;
-    if (PLUS_JOIN) { PLUS_JOIN.can_recheck = false; PLUS_JOIN.rechecking = true; PLUS_JOIN.confirm_expired = false; }
+    if (!PLUS_JOIN) PLUS_JOIN = { supported: true, held: false, join_code: '' };
+    PLUS_JOIN.can_recheck = false; PLUS_JOIN.rechecking = true; PLUS_JOIN.confirm_expired = false; PLUS_JOIN.confirmed = false;
     PLUS_JOIN_WAITING = true;
   } else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
-    const who = (PLUS_JOIN && PLUS_JOIN.recheck_with) || 'your other computer';
+    const who = (PLUS_JOIN_NOTE && (PLUS_JOIN_NOTE.with || PLUS_JOIN_NOTE.name)) || (PLUS_JOIN && PLUS_JOIN.recheck_with) || 'your other computer';
     PLUS_JOIN_MSG = why === 'attempts_used' ? 'Every try for this computer and ' + who + ' is used, so the code cannot be checked again.'
       : why === 'nothing_to_recheck' ? 'There is nothing to check here now.'
         : plusWords(why || 'That did not go through. Try again.');
     PLUS_JOIN_MSG_AT = Date.now();
-    if ((why === 'attempts_used' || why === 'nothing_to_recheck') && PLUS_JOIN) PLUS_JOIN.can_recheck = false;
+    if (why === 'attempts_used' || why === 'nothing_to_recheck') {
+      if (PLUS_JOIN) PLUS_JOIN.can_recheck = false;
+      if (PLUS_JOIN_NOTE) PLUS_JOIN_NOTE.recheck = false;
+    }
   }
   PLUS_JOIN_AT = 0;
   const focusHere = !document.activeElement || document.activeElement === b || document.activeElement === document.body;
