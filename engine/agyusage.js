@@ -14,8 +14,8 @@
  *
  * It is a network call (agy asks Google), so it is never run per repaint: the accounts route shows the last reading
  * and asks for a new one at most every REFRESH_MS, one run at a time (agy's sign-in covers the whole computer, so one
- * reading covers the row). A failed run keeps the last good reading; the page shows its age, and a window whose reset
- * has passed is not drawn. macOS only: on Windows a signed-out print run can open a browser, and /usage there is
+ * reading covers the row). A failed run keeps the last good reading and stops the asking until agy's sign-in is next
+ * confirmed; the page shows the reading's age, and a window whose reset has passed is not drawn. macOS only: on Windows a signed-out print run can open a browser, and /usage there is
  * unmeasured. Never runs agy in a test process unless the test supplies the runner.
  *
  * The reading has codexlimits.read's shape, { windows: [{ usedPct, windowMinutes, resetsAt }], plan, at }, so the
@@ -29,7 +29,6 @@ const { execFile } = require('node:child_process');
 const GROUP = 'Gemini Models';
 const WINDOW_MINUTES = { weekly: 7 * 1440, '5h': 300 };
 const REFRESH_MS = 5 * 60e3;   // the route asks for a new reading at most this often
-const RETRY_MS = 30e3;         // after a run that gave no reading (offline, signed out), ask again sooner (review 1)
 const CAP_SECONDS = 30;        // agy's own print timeout, as agystatus passes (review 1)
 const KILL_MS = 45000;
 
@@ -77,6 +76,7 @@ function setRunnerForTests(fn) { runAgy = fn || defaultRunAgy; runnerSetByTest =
 let last = null;        // the last good reading
 let askedAt = 0;        // when a run was last started
 let running = null;     // the run in flight, shared
+let stopped = false;    // a run failed or hung: ask no more until agy's sign-in is next confirmed (review 3)
 let generation = 0;     // bumped by clear(): a run started before it is another sign-in's, and its answer is dropped
 
 /** The last good reading, or null. Never runs anything. */
@@ -90,7 +90,9 @@ function refresh(now = Date.now()) {
   try {
     if (running) return null;
     if (now - askedAt < REFRESH_MS) return null;
+    if (stopped) return null;
     if (!supported()) return null;
+    if (!tokenPresent()) return null;
     if (!runnerSetByTest && require('./live-execution').inTestRun()) return null;
     const inst = require('./runners').resolveBin('antigravity');
     if (!inst || !inst.present || !inst.bin) return null;
@@ -98,15 +100,19 @@ function refresh(now = Date.now()) {
     const gen = generation;
     running = new Promise((resolve) => {
       let done = false;
-      const cap = setTimeout(() => { if (!done) { done = true; resolve(null); } }, KILL_MS + 5000);
+      const cap = setTimeout(() => { if (!done) { done = true; if (gen === generation) stopped = true; resolve(null); } }, KILL_MS + 5000);
+      if (cap.unref) cap.unref();   // a hung run never holds the board (or a test) open
       try {
         runAgy(inst.bin, (err, out) => {
           if (done) return;
           done = true; clearTimeout(cap);
-          const r = err ? null : parse(out, Date.now());
           if (gen !== generation) { resolve(null); return; }   // the sign-in changed while it ran (review 2): not this row's
+          /* A run that failed (offline, or agy signed out since Kosmos last checked) stops the asking until agy's sign-in is
+             next confirmed (review 3): a signed-out print run may open a browser, so it must not repeat unprompted. An
+             answer that came back but cannot be read (a renamed group) waits the full interval like any other. */
+          if (err) { stopped = true; resolve(null); return; }
+          const r = parse(out, Date.now());
           if (r) last = r;
-          else askedAt = Date.now() - REFRESH_MS + RETRY_MS;   // a failed run waits RETRY_MS, not the full interval
           resolve(r);
         });
       } catch { done = true; clearTimeout(cap); resolve(null); }
@@ -120,7 +126,17 @@ function isRunning() { return !!running; }
 function supported() { try { return require('./agystatus').platform() === 'darwin'; } catch { return false; } }
 /** Drop the reading and the throttle: the sign-in was checked again or removed, so the next read asks afresh
     (review 1: a reading must not outlive a change of Google account). */
-function clear() { last = null; askedAt = 0; generation++; }
-function resetForTests() { last = null; askedAt = 0; running = null; generation++; runAgy = defaultRunAgy; runnerSetByTest = false; }
+function clear() { last = null; askedAt = 0; stopped = false; generation++; }
+/* agy keeps its Google sign-in in this file (measured: present while signed in). A run is never started without it.
+   Whether signing out removes it is unmeasured, so this only narrows the runs; `stopped` is the guard that holds. */
+let tokenFileForTests = null;
+function tokenPresent() {
+  try {
+    const f = tokenFileForTests || path.join(os.homedir(), '.gemini', 'antigravity-cli', 'antigravity-oauth-token');
+    return fs.existsSync(f);
+  } catch { return false; }
+}
+function setTokenFileForTests(f) { tokenFileForTests = f || null; }
+function resetForTests() { last = null; askedAt = 0; running = null; stopped = false; generation++; runAgy = defaultRunAgy; runnerSetByTest = false; tokenFileForTests = null; }
 
-module.exports = { parse, refresh, lastReading, isRunning, supported, clear, setRunnerForTests, resetForTests, GROUP, REFRESH_MS, RETRY_MS };
+module.exports = { parse, refresh, lastReading, isRunning, supported, clear, setRunnerForTests, setTokenFileForTests, resetForTests, GROUP, REFRESH_MS };

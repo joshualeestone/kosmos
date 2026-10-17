@@ -27589,7 +27589,7 @@ function acctGrokUsageHtml(a) {
   return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it now and then while it runs.');
 }
 function acctAgyUsageHtml(a) {
-  return acctLimitsUsageHtml(a, 'Antigravity', 'No current usage reading for this sign-in. Kosmos asks Antigravity when this list opens.');
+  return acctLimitsUsageHtml(a, 'Antigravity', 'No current usage reading from Antigravity for this sign-in.');
 }
 function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
