@@ -15,12 +15,16 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
    pointer-events none. No scrollbar-width (the #3443 win32 bar; web.project-notice-3923.test.js pins it), and no
    fixed height (PigeonPete's cap may change from 40vh to "fill the head").
 2. [x] web/index.html script: railPjMore() sets data-more when scrollHeight - scrollTop - clientHeight > 2; run on the
-   box's scroll, a MutationObserver on its content (every painter, the retry handlers included), and window resize.
+   box's scroll, a MutationObserver on its content (every painter, the retry handlers included), a ResizeObserver on
+   the box (the rail unfolding, a column width; review 1) and window resize. scroll-padding-bottom 28px keeps a
+   keyboard-focused control above the fade (WCAG 2.4.11; review 1).
    The observer does not watch attributes, so toggling data-more cannot loop.
 3. [x] docs/browser-checks/render-projects.js: a #6349 arm after #6347's (copies of the notice's own row, removed in
    finally): no cue when short, fade while more is below, none at the end, back when scrolled up, none once short.
    It waits two frames per step for the page's own observer instead of calling railPjMore.
-4. [ ] Run render-projects.js (light and dark); mutant (drop the data-more rule): the arm goes red.
+4. [~] render-projects.js: first run red on the arm's premise (the base notice already overflows the cap at this
+   viewport); the arm now measures what is below with the cue off and passed at af59859250 (light and dark). Review 1
+   added the unfold, gradient-colour and focus steps: rerun pending. Mutant (fade rule removed) queued.
 5. [ ] Screenshots of the grown box, light and dark, for the PR and the channel.
 
 ## Decided, not missed
