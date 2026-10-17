@@ -11694,6 +11694,7 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
     ['an agent token in the body', page, { token: 'f'.repeat(64) }],
     ['a phone through Kosmos+', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, {}],
     ['through Kosmos+, host only', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com' }, {}],
+    ['through Kosmos+, for only (the webhook path sets only this one)', { ...page, 'x-forwarded-for': '203.0.113.9' }, {}],
   ]) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers, body: JSON.stringify({ address: 'tmnt.kosmosplus.com', ...extra }) });
     assert.equal(r.status, 403, what + ' got a ticket: ' + r.body);

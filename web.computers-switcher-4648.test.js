@@ -171,18 +171,22 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
 /* kosmos#6406 step 2: a plain click on a link to another computer, in the app, asks this computer for a ticket and opens
    the other computer with it in the fragment; anything else keeps the plain address. */
 const OPEN = slice('computersInApp') + slice('computersOpenClick');
-function clickWith({ win, answer, ev, href }) {
+const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
+function clickWith({ win, answer, ev, href, twice }) {
   const went = [];
   const posted = [];
-  const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null) };
+  const attrs = {};
+  const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null),
+    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
   const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
     preventDefault() { this.defaultPrevented = true; } }, ev || {});
   const w = Object.assign({ location: { assign: (u) => went.push(u) } }, win || {});
   const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
-  const run = new Function('window', 'fetch', 'e', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
-    `let computersOpening = false;\n${OPEN}\ncomputersOpenClick(e);`);
-  run(w, fetchFn, e, URL, AbortController, setTimeout, clearTimeout);
-  return { went, posted, e };
+  const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
+  const run = new Function('window', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+    `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
+  run(w, fetchFn, e, second, !!twice, URL, AbortController, setTimeout, clearTimeout);
+  return { went, posted, e, attrs };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
 const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -229,5 +233,16 @@ test('#6406 step 2: every link to another computer is marked for the click', () 
   const a = { setAttribute: (k, v) => { attrs[k] = v; } };
   new Function('window', 'a', `${INAPP}\ncomputersLinkTarget(a);`)(APP, a);
   assert.equal(attrs['data-computer-open'], '1');
+});
+
+test('#6406 step 2: one ticket at a time (a second click while the first is out does nothing more), and the link says it is busy', async () => {
+  let resolve;
+  const t = clickWith({ win: APP, twice: true, answer: () => new Promise((r) => { resolve = r; }) });
+  assert.equal(t.posted.length, 1, 'one request for two clicks');
+  assert.equal(t.attrs['aria-busy'], 'true', 'busy while the ticket is made');
+  resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
+  await settle();
+  assert.equal(t.went.length, 1);
+  assert.equal(t.attrs['aria-busy'], undefined, 'busy is cleared');
 });
 

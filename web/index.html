@@ -2205,6 +2205,8 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
   font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .worldsw-check { flex: none; width: 13px; height: 13px; color: var(--gold); visibility: hidden; }
 .worldsw-row[aria-current="true"] .worldsw-check { visibility: visible; }
+/* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
+a[data-computer-open][aria-busy="true"] { cursor: progress; opacity: .6; }
 .worldsw-row[aria-current="true"] { font-weight: 600; }
 .worldsw-rowname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worldsw-new { display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 4px; padding: 9px 8px 5px;
@@ -30653,10 +30655,20 @@ function computersOpenClick(e) {
   e.preventDefault();
   if (computersOpening) return;   // one at a time: a second click waits for the first
   computersOpening = true;
+  // Said while the ticket is made (review 2: up to 8 s of a link that looked dead).
+  try { a.setAttribute('aria-busy', 'true'); } catch {}
   const plain = url.origin + url.pathname + url.search;
-  const go = (to) => { computersOpening = false; window.location.assign(to); };
+  let settled = false;
+  const go = (to) => {
+    if (settled) return;
+    settled = true;
+    computersOpening = false;
+    try { a.removeAttribute('aria-busy'); } catch {}
+    window.location.assign(to);
+  };
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-  const cut = ctl ? setTimeout(() => ctl.abort(), 8000) : null;
+  // The plain address after 8 s whatever the fetch does (with or without AbortController).
+  const cut = setTimeout(() => { if (ctl) ctl.abort(); go(plain); }, 8000);
   fetch('/api/remote/open-ticket', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -30665,11 +30677,11 @@ function computersOpenClick(e) {
   })
     .then((r) => (r.ok ? r.json() : null))
     .then((b) => {
-      if (cut) clearTimeout(cut);
+      clearTimeout(cut);
       const t = b && typeof b.ticket === 'string' && /^[A-Za-z0-9_-]{20,2048}$/.test(b.ticket) ? b.ticket : '';
       go(t ? plain + '#kpt=' + t : plain);
     })
-    .catch(() => { if (cut) clearTimeout(cut); go(plain); });
+    .catch(() => { clearTimeout(cut); go(plain); });
 }
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('click', computersOpenClick);
 function computersRender(data) {
