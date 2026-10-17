@@ -136,6 +136,34 @@ test('#6341: a paused project raises nothing, a question included', () => {
   assert.equal(listed.needsYou, 0, 'kosmos project list still counted the paused project\'s question');
 });
 
+test('#6341 review 4: an archived project raises nothing, as a paused one', () => {
+  reset();
+  const p = projects.create({ name: 'Gone', folder: folder('gone'), agents: ['qa64'] });
+  assert.equal(selfreport.record('qa64', { state: 'needs_you', because: 'Ship it?', project: p.id }).recorded, true);
+  const roster = cards([fleet.agent('qa64', { state: 'needs_you' })]);
+  assert.equal(one(roster, p.id).summary.needsYou, 1, 'CONTROL: the question counts while the project is live');
+  setStored(p.id, { archived: true });
+  const r = projects.list(roster).find((x) => x.id === p.id) || projects.describe(projects.readAll().find((x) => x.id === p.id), roster, projects.readAll());
+  assert.equal(r.summary.needsYou, 0, 'an archived project counted a question');
+  assert.deepEqual(member(r, 'qa64').needsYouQuiet, { reason: 'question', because: 'paused' });
+});
+
+test('#6341 review 4: a gone mark that is not a time is repaired once, not rewritten on every read', () => {
+  reset();
+  const p = projects.create({ name: 'Bent', folder: folder('bent'), agents: ['bt61'] });
+  roomPost(p.id);
+  projects.dismissNeeds(p.id, 'bt61', 'question');
+  setStored(p.id, { needsDismissGone: { bt61: 'not a time' } });
+  const roster = looping('bt61');   // a different reason: the grace applies
+  one(roster, p.id);
+  const fixed = projects.readAll().find((x) => x.id === p.id).needsDismissGone.bt61;
+  assert.ok(Number.isFinite(Date.parse(fixed)), 'the bad mark was kept');
+  const before = fs.statSync(projects.file()).mtimeMs;
+  one(roster, p.id);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissGone.bt61, fixed, 'the repaired mark moved');
+  assert.equal(fs.statSync(projects.file()).mtimeMs, before, 'a read with nothing to change wrote the store');
+});
+
 test('#6341: a question about this project counts in a quiet room (it is about the project, not the agent)', () => {
   reset();
   const p = projects.create({ name: 'Asked', folder: folder('asked'), agents: ['qa61'] });

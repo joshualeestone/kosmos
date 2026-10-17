@@ -918,7 +918,8 @@ function needsQuietContext(project, now = Date.now()) {
   const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
   let live;   // read only when a member has a reason that needs it (review 1: no log read for a project nobody flags)
   return {
-    paused: project.paused === true,
+    // Review 4: an archived project is as off as a paused one.
+    paused: project.paused === true || project.archived === true,
     dismissed: obj(project.needsDismissed),
     gone: obj(project.needsDismissGone),
     now,
@@ -1216,7 +1217,8 @@ function describe(project, roster, all) {
           if (dis[name] !== quiet.dismissed[name] || gone[name] !== quiet.gone[name]) continue;
           if (v === 'drop') { delete dis[name]; delete gone[name]; }
           else if (v === 'stand') delete gone[name];
-          else if (!gone[name]) gone[name] = v;
+          // A stored mark that is not a time (a hand-edited store) is replaced, or every read would try again (review 4).
+          else if (!Number.isFinite(Date.parse(gone[name]))) gone[name] = v;
         }
         if (Object.keys(dis).length) stored[at].needsDismissed = dis; else delete stored[at].needsDismissed;
         if (Object.keys(gone).length) stored[at].needsDismissGone = gone; else delete stored[at].needsDismissGone;
@@ -2833,7 +2835,8 @@ function cleanParent(value, childId) {
 /* #6341: the person dismissed a "needs you" row on a project's page. Kept on the project (the board, not the browser:
    it can stand for weeks), per member and reason; describe() honours it only while that member's reason is still the
    same one, and drops it once the reason changes. Refuses a project it does not know, a name that is not a member,
-   and a reason the page does not show. Returns the project's dismissals after the write. */
+   and a reason the page does not show. It does not check the member has that reason NOW (a page a moment stale may
+   send one just cleared): such a dismissal hides nothing and lapses after the grace. Returns the project's dismissals. */
 /* 'elsewhere' is a row the page lists after the counted ones (#5692: red here, but its need is not about this project);
    it is dismissed as a whole, and stands while the member has no counted reason here. */
 // stuck_rate is not here: out of usage is never a project's reason (Josh 19:47), so no page shows it to dismiss.
