@@ -77,6 +77,7 @@ function setRunnerForTests(fn) { runAgy = fn || defaultRunAgy; runnerSetByTest =
 let last = null;        // the last good reading
 let askedAt = 0;        // when a run was last started
 let running = null;     // the run in flight, shared
+let generation = 0;     // bumped by clear(): a run started before it is another sign-in's, and its answer is dropped
 
 /** The last good reading, or null. Never runs anything. */
 function lastReading() { return last; }
@@ -94,6 +95,7 @@ function refresh(now = Date.now()) {
     const inst = require('./runners').resolveBin('antigravity');
     if (!inst || !inst.present || !inst.bin) return null;
     askedAt = now;
+    const gen = generation;
     running = new Promise((resolve) => {
       let done = false;
       const cap = setTimeout(() => { if (!done) { done = true; resolve(null); } }, KILL_MS + 5000);
@@ -102,6 +104,7 @@ function refresh(now = Date.now()) {
           if (done) return;
           done = true; clearTimeout(cap);
           const r = err ? null : parse(out, Date.now());
+          if (gen !== generation) { resolve(null); return; }   // the sign-in changed while it ran (review 2): not this row's
           if (r) last = r;
           else askedAt = Date.now() - REFRESH_MS + RETRY_MS;   // a failed run waits RETRY_MS, not the full interval
           resolve(r);
@@ -117,7 +120,7 @@ function isRunning() { return !!running; }
 function supported() { try { return require('./agystatus').platform() === 'darwin'; } catch { return false; } }
 /** Drop the reading and the throttle: the sign-in was checked again or removed, so the next read asks afresh
     (review 1: a reading must not outlive a change of Google account). */
-function clear() { last = null; askedAt = 0; }
-function resetForTests() { last = null; askedAt = 0; running = null; }
+function clear() { last = null; askedAt = 0; generation++; }
+function resetForTests() { last = null; askedAt = 0; running = null; generation++; runAgy = defaultRunAgy; runnerSetByTest = false; }
 
 module.exports = { parse, refresh, lastReading, isRunning, supported, clear, setRunnerForTests, resetForTests, GROUP, REFRESH_MS, RETRY_MS };
