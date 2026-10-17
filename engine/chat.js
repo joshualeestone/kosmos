@@ -965,7 +965,7 @@ const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
-const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own and before the next thing it types to this agent, while the box shows only that line';
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes and before the next thing it types to this agent, while the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
@@ -1038,10 +1038,11 @@ async function pressRememberedNow(target, card) {
   card = gate.allowed.card;
   const box = readComposer(target);
   if (!box.ok) return 'unread';
-  /* Our line is gone from the box (it is empty, or holds nothing that ends ours): forgotten, so these words coming
-     back later are never pressed. Only on two reads that agree a look apart: one read caught mid-redraw must not drop
-     a line that is still there, which would leave the agent refused behind it again. */
-  const gone = (b) => b.ok && (!b.text || !squash(kept.wire).endsWith(squash(b.text)));
+  /* The box is empty: our line went (sent, or cleared by hand), so it is forgotten. Only on two reads that agree a look
+     apart: one read caught mid-redraw must not drop a line that is still there, which would leave the agent refused
+     behind it again. A box holding other text keeps the memory (a person who adds to our line and then deletes the
+     addition leaves our line there), and is never pressed; the day bound ends it. */
+  const gone = (b) => b.ok && !b.text;
   if (gone(box)) {
     if (pauser) await pauser(SUBMIT_LOOK_MS);
     else if (!runner) await new Promise((resolve) => setTimeout(resolve, SUBMIT_LOOK_MS));
@@ -1077,6 +1078,8 @@ async function pressRememberedNow(target, card) {
       if (kept.seq != null) tellEarlierSubmitted(kept.seq);
       return 'sent';
     }
+    const still = recallUnsent(target);
+    if (still && still.id === kept.id) rememberUnsent(target, { ...still, at: Date.now() });   // seen still there
     return 'unsent';
   } finally {
     if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
@@ -2206,7 +2209,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
            Known gap (review 3): if the Enter did take and the box only emptied later, no follow-up row is written; an
            empty box later cannot say whether it was sent or cleared by hand. */
         if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept, false, box.rows)) {
-          rememberUnsent(target, kept);
+          rememberUnsent(target, { ...kept, at: Date.now() });   // still there: the day runs from now
           scheduleUnsentRetries(target, allowed.card);   // its first ones may be long done
         }
       }
