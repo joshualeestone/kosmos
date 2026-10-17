@@ -537,7 +537,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-join .plus-join-steps li { margin: 3px 0; }
   #plus-join .plus-join-done::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2fa36b; margin-right: 8px; vertical-align: 1px; }
   #plus-join .plus-join-next { margin: 6px 0 0; color: var(--k-ink); font-weight: 600; }
-  #plus-join .plus-join-code-small { margin: 6px 0 0; font: 600 1rem/1.3 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .1em; color: var(--k-ink-2); }
   /* While this computer waits to be allowed, the pairing is the page's one job (Josh 11:37). */
   #plus-flow.plus-joining #plus-devices, #plus-flow.plus-joining #plus-org { display: none !important; }
   /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
@@ -50632,7 +50631,7 @@ for (const cid of ['askcard', 'plus-asks']) {
   });
   host.addEventListener('keydown', (e) => {
     const f = e.target.closest('.askcodein');
-    if (!f || e.key !== 'Enter') return;
+    if (!f || e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
     const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.askcode);
     if (allow && !allow.disabled) allow.click();
@@ -51673,7 +51672,7 @@ function paintPlusJoin() {
      the code steps back, small and grey. */
   /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Now type this code on ' + name + other + ', and press Allow there.</p>'
+    + '<p class="plus-join-next">Waiting for ' + name + other + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
     + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the

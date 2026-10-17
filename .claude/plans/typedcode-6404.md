@@ -26,8 +26,8 @@ Screenshot the card (light and dark) and the joining computer's big code.
   and dropped like the other code refusals once the code changes.
 
 - The joining computer (#plus-join) says to TYPE its code on the other computer: held, the steps end "Type this code
-  there, then press Allow." and "Then press The codes match here."; matched while held, the code stays large ("Now type
-  this code on <name>..."); allowed, "If you typed this code on <name> to allow this computer, press The codes match."
+  there, then press Allow." and "Then press The codes match here."; matched while held, the code stays large ("Waiting
+  for <name> to allow this computer. If you have not yet, type this code there and press Allow."); allowed, "If you typed this code on <name> to allow this computer, press The codes match."
 
 ## Calls (decided, with the weakest premise)
 - The joining computer keeps "The codes match" while held (removing it would reorder #4794's whole flow). It decides only
@@ -59,3 +59,5 @@ Screenshot the card (light and dark) and the joining computer's big code.
 - 3 opus: the check's field selector had the device id's colon (`#askcode-computer:...`, invalid CSS: every arm after
   it would have thrown); the joining computer still said "check it shows this same code" and shrank its code; Allow's
   disabled state from the typed value does rebuild the region once (comment corrected); a code that changed between typing and the press says "has a new code" (code_new).
+- 4 sonnet: the matched-while-held line no longer tells someone who already typed and allowed to do it again; Enter
+  ignores an IME composition; the unused small-code CSS removed.

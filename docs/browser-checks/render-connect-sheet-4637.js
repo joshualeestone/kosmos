@@ -26,7 +26,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
- *    codes match" (which posts that code), (#6314, #6404) "The codes match. Now type this code on <name>, your other computer, and press Allow there." with the code
+ *    codes match" (which posts that code), (#6314, #6404) "The codes match. Waiting for <name>, your other computer, to allow this computer. If you have not yet, type this
+ *    code there and press Allow." with the code
  *    still large (it is typed there), ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
@@ -401,7 +402,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();
       const small = await page.evaluate(() => { const c = document.querySelector('#plus-join .plus-join-code-small'); return c ? { text: c.textContent, px: parseFloat(getComputedStyle(c).fontSize) } : null; });
-      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now type this code on homemac, your other computer, and press Allow there\./.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button && !small,
+      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Waiting for homemac, your other computer, to allow this computer\. If you have not yet, type this code there and press Allow\./.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button && !small,
         `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and the code steps back, small`, JSON.stringify({ confirmBody, jr, small }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
          held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
