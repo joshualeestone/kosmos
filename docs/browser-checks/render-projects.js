@@ -1242,11 +1242,10 @@ async function main() {
        height comes from the grid row. Grown from copies of the first row the page drew (no invented markup); each read
        adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the
        copies are removed, so the original rows (and any focus in them) are untouched, and the region is not live while
-       they exist. The CONTROL is
-       the same box with its cap lifted: it must outgrow 40vh and reach the list, or the fixture is too short to show
-       anything at this viewport and the arm fails rather than pass on a box that never needed the cap. Read at this
-       context's own viewport and again at a short window (560px tall), where a fixed 40vh is most likely to be taller
-       than the room the head's grid row leaves it. */
+       they exist. The CONTROL is the same box with its cap lifted: it must outgrow 40vh and reach the list, or the
+       fixture shows nothing at this viewport and the arm fails rather than pass on a box that never needed the cap.
+       Read at this context's own viewport and again at a short window (560px tall), where a fixed 40vh is most likely
+       to be taller than the room the head's grid row leaves it. */
     const longRead = () => page.evaluate(() => {
       const box = document.getElementById('alist-pj-notice');
       const list = document.getElementById('alist');
