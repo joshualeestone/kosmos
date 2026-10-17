@@ -137,6 +137,19 @@ test('#6358: past SESSION_MAX_COUNT the OLDEST session ends first, and the newes
   boardauth._resetSessions();
 });
 
+test('#6358: liveSessionIds lists the live sessions and not the expired ones (the proof route answers for them)', () => {
+  let t = 5000;
+  boardauth._setNonceClock(() => t);
+  try {
+    boardauth._resetSessions();
+    const old = boardauth.mintSession('T');
+    t += boardauth.SESSION_MAX_MS;   // old is now at its cap
+    const fresh = boardauth.mintSession('T');
+    assert.deepEqual(boardauth.liveSessionIds(), [fresh], 'the expired one is gone, the fresh one listed');
+    assert.equal(boardauth.sessionToken(old), null);
+  } finally { boardauth._setNonceClock(null); boardauth._resetSessions(); }
+});
+
 test('#6358: a session ends at its cap, and an unknown or non-string id is no session', () => {
   let t = 1000;
   boardauth._setNonceClock(() => t);

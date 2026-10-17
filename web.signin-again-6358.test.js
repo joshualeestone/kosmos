@@ -107,3 +107,27 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
     assert.doesNotMatch(line, /\\\(url|absoluteString|\\\(page/, 'a log line must not carry the URL, which holds the token: ' + line.trim());
   }
 });
+
+test('#6358: the signed-out panel tells the app window it is being signed in, and a tab what to do', () => {
+  const render = (window) => {
+    const ctx = { window, onWindows: () => false, windowsCopy: () => 'WINDOWS' };
+    vm.createContext(ctx);
+    vm.runInContext(lift(PAGE, 'function boardSigninHtml('), ctx);
+    return ctx.boardSigninHtml();
+  };
+  const app = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } });
+  assert.match(app, /the app is signing this window in again/, 'the app window is told it is being signed in');
+  assert.doesNotMatch(app, /Applications folder|kosmos open/, 'the app window is not sent to open the app it is in');
+  const tab = render({});
+  assert.match(tab, /each time it restarts or updates, and after seven days/, 'a tab is told why it is signed out');
+  assert.match(tab, /open Kosmos from your Applications folder/, 'a tab is told what to do');
+  assert.match(tab, /~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal, then press Reload/, 'and how to bring this tab back');
+  assert.doesNotMatch(tab, /fix(es)? itself the next time Kosmos updates/, 'no promise that an update signs it in');
+});
+
+test('#6358: the one sentence (agents box, projects, org note) is true in the app window and in a tab', () => {
+  const m = PAGE.match(/const SIGNIN_SENTENCE = platformCopy\('signinSentence', '([^']*)'\)/);
+  assert.ok(m, 'SIGNIN_SENTENCE is gone');
+  assert.match(m[1], /The Kosmos app signs itself in again/, 'true in the app');
+  assert.match(m[1], /In a browser tab, open Kosmos from your Applications folder/, 'actionable in a tab');
+});

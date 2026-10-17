@@ -1523,6 +1523,18 @@ func shouldSignInAgain(now: TimeInterval, last: TimeInterval?) -> Bool {
     return now - last >= signInAgainMinGap
 }
 
+/// #6358: PURE, for --kosmos-app-mode-selftest. The page the window signs in again on, as the address the board
+/// token is then added to. Only this board's OWN origin (plain http, its host and port, no user) keeps the page the
+/// person was on; anything else, a Kosmos+ page included (isBoardPage counts those as board pages), becomes the board's
+/// front page, so the token is never added to an address that is not this board.
+func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> String {
+    let front = "http://\(board.host):\(board.port)/"
+    guard let u = committed, u.user == nil, u.password == nil, u.scheme?.lowercased() == "http",
+          let host = u.host?.lowercased(), host == board.host.lowercased(), (u.port ?? 80) == board.port
+    else { return front }
+    return u.absoluteString
+}
+
 /* #6358: the page's "this window is signed out" message. Only the board's own page is heard, as for the badge
    below: a page from anywhere else cannot make the window load the board with its token. */
 final class SigninMessageProxy: NSObject, WKScriptMessageHandler {
@@ -4472,9 +4484,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("#6358: the page is still signed out; not signing in again within \(Int(signInAgainMinGap))s")
             return
         }
-        lastSignInAgainAt = now
-        let page = isBoardPage(committedPageURL, board: board) ? committedPageURL?.absoluteString : nil
-        guard let url = tokenizedBoardURL(page ?? "http://\(board.host):\(board.port)/") else { return }
+        lastSignInAgainAt = now   // systemUptime stops while the Mac sleeps: the throttle only ever waits longer
+        // signInAgainPage keeps the page only on this board's own origin, so the token is never added elsewhere.
+        guard boardTokenValue() != nil, let url = tokenizedBoardURL(signInAgainPage(committedPageURL, board: board)) else {
+            logLine("#6358: the page is signed out and there is no board token to sign in with; not reloading")
+            return
+        }
         logLine("#6358: the page is signed out; signing the window in again")
         webView.load(URLRequest(url: url))
     }
@@ -6829,6 +6844,18 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     logged("http://127.0.0.1:16180/?token=abc123", "http://127.0.0.1:16180/?token=hidden", "the token is hidden")
     logged("http://127.0.0.1:16180/?first-run=1&token=abc123&mode=run", "http://127.0.0.1:16180/?first-run=1&token=hidden&mode=run", "other items are kept")
     logged("http://127.0.0.1:16180/", "http://127.0.0.1:16180/", "no token: unchanged")
+    // #6358: the page the window signs in again on: never an address that is not this board.
+    func againOn(_ s: String?, _ want: String, _ why: String) {
+        ran += 1
+        let got = signInAgainPage(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180))
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "again on   " + why + (got == want ? "" : " -- got " + got))
+    }
+    againOn("http://127.0.0.1:16180/?tab=projects#p1", "http://127.0.0.1:16180/?tab=projects#p1", "this board's page is kept")
+    againOn("https://amy.kosmosplus.com/", "http://127.0.0.1:16180/", "A KOSMOS+ PAGE IS NOT THIS BOARD: the front page, never the token on a remote host")
+    againOn("http://127.0.0.1:16200/", "http://127.0.0.1:16180/", "another port is not this board")
+    againOn("http://user@127.0.0.1:16180/", "http://127.0.0.1:16180/", "a user in the address is refused")
+    againOn(nil, "http://127.0.0.1:16180/", "no committed page: the front page")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -7030,7 +7057,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 118   // #6358: +6 (the sign-in-again throttle, the log redaction); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 123   // #6358: +11 (the sign-in-again throttle, the log redaction, the sign-in-again page); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

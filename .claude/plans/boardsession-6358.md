@@ -21,7 +21,7 @@ Stacked on boardproof-1765 (merge order: boardproof-1765, bpbridges-1765, then t
     `?token=` (read from board.token on the spot). At most once a minute, never on a connect computer, and the URL is
     never logged.
   - Not `loadBoard()`, which runs `kosmos start`.
-  - The throttle is pure, with three `--kosmos-app-mode-selftest` rows (115 in all).
+  - The throttle is pure, with three `--kosmos-app-mode-selftest` rows (123 rows in all now; see below).
 - `web/index.html`: on the poll's 403, inside the Mac app, tell the app once per sign-out (`signedOutTellApp`); a 200
   resets it. A browser tab has no bridge.
 
@@ -43,9 +43,10 @@ Stacked on boardproof-1765 (merge order: boardproof-1765, bpbridges-1765, then t
   - another world signs in only when the gate accepts it.
 - Mutants: a gate that also took the token cookie fails on the refusal assertion.
 - `web.signin-again-6358.test.js`: the page tells the app once and again after a 200, a tab is told nothing, the poll
-  wiring is pinned, and the app proxy checks the origin before acting and logs no URL. Three mutants each fail their
-  own assertion.
-- The app builds against the macOS floor; `--kosmos-app-mode-selftest` passes 115/115.
+  wiring is pinned, and the app proxy checks the origin before acting and logs no URL. Three mutants were run by hand
+  (not in the suite), each restored after: dropping the poll's call, the told-guard, or the proxy's origin check, and
+  each failed its own assertion.
+- The app builds against the macOS floor; `--kosmos-app-mode-selftest` passes 123/123.
 - The server tests that sign in with a cookie take their session from the bootstrap: server.board-auth-1946 and
   -worldswitch-3055.
 
@@ -76,8 +77,26 @@ Stacked on boardproof-1765 (merge order: boardproof-1765, bpbridges-1765, then t
 
 ## Also in this branch (review round 1)
 - The app no longer writes the tokenized URL to its log on launch: `urlForLog` hides the `token` item (three
-  selftest rows; 118 in all).
-- At most 1000 sessions, the oldest ending first.
+  selftest rows).
+- At most 1000 sessions; past it, the one minted longest ago ends first (by age, not by use).
+
+## Also in this branch (review round 2)
+- The app re-signs in on `signInAgainPage`: the page it was on only when that is this board's own origin, else the
+  board's front page. `isBoardPage` also counts Kosmos+ pages, which must never get the token (five selftest rows).
+  With no board token to add, it does not reload.
+- A cookie whose value the gate accepts as one of this account's tokens (the cookie given out before sessions) is
+  ended (`Max-Age=0`) on the first answer that sees it, so an old browser profile stops carrying the token. A cookie
+  that is no token here (another board's) is left alone (server.board-auth-1946).
+- The one sentence (agents box, projects, org note) is true in both places: "The Kosmos app signs itself in again. In
+  a browser tab, open Kosmos from your Applications folder." The tab panel also names the 7-day cap.
+- `liveSessionIds()` for Renet's proof route, which will answer for a session as for a token.
+
+## The Windows app, stated so it is not read as covered
+A restart (or a crash) now signs the Windows window out. Before this, its cookie held the token and survived. Its
+panel says to double-click Kosmos.exe, which signs it back in (the launcher's existing SignInAgain): one action, never
+a dead page. Making it automatic is a launcher change plus a rebuild on the Windows box. The page already posts
+`{ kosmosSignin: true }`, which today's Kosmos.exe ignores. That is for Homer; until then it is a regression in
+convenience, accepted for the security gain.
 - The no-URL-in-logs test checks today's spellings only (`\(url`, `absoluteString`, `\(page`). It is not general
   coverage.
 

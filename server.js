@@ -5533,10 +5533,10 @@ const server = http.createServer(async (req, res) => {
     const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method,
       accepts: (t) => boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
     if (boot) {
-      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a durable
-         cookie is actually taken -- moved here from install/setup.sh, which could
+      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a browser
+         is actually signed in -- moved here from install/setup.sh, which could
          only see the open DISPATCHED, not redeemed. #2073: BOTH a `?boot=` nonce
-         redemption AND a `?token=` bootstrap take the durable cookie in this same
+         redemption AND a `?token=` bootstrap set the cookie (a session, #6358) in this same
          302 (bootstrap sets it either way), so both are that moment. Seeding on
          the `?token=` path too is what lets the app-only install (the native app
          loads with `?token=`, never a browser `?boot=`) mark the machine
@@ -5549,6 +5549,14 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });
       res.end();
       return;
+    }
+    /* #6358: a cookie given out before sessions held one of this account's tokens, and a browser keeps it for up
+       to 400 days. A cookie whose value the gate accepts AS A TOKEN is that cookie: end it on this answer, so the
+       browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone. */
+    const oldCookie = boardauth.cookieToken(req);
+    if (oldCookie && boardauth.sessionToken(oldCookie) === null
+        && boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: oldCookie } })) {
+      res.setHeader('set-cookie', boardauth.clearedCookieHeader());
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
     // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt HERE because a

@@ -377,14 +377,14 @@ test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () =
 const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + '<p><b>This board is not signed in.</b><br>'
   + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '
-  + 'restarts or updates. To keep going, open Kosmos from your Applications folder: the app '
+  + 'restarts or updates, and after seven days. To keep going, open Kosmos from your Applications folder: the app '
   + 'signs itself in.</p>'
   + '<details class="fr-hatch"><summary>Use this browser tab instead?</summary>'
   + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here. '
   + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
-const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. Open Kosmos from your Applications folder to sign in again.';
+const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. The Kosmos app signs itself in again. In a browser tab, open Kosmos from your Applications folder.';
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',

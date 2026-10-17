@@ -409,6 +409,12 @@ function ensureTokenPrimary() {
   }
 }
 
+/** #6358: a Set-Cookie that ends the board cookie now: for a browser still carrying the cookie it was given before
+ * sessions, which held a token (the caller decides when; see server.js). */
+function clearedCookieHeader() {
+  return `${COOKIE_NAME}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
+}
+
 /** The board cookie's value out of a Cookie header, or null. Since #6358 that value is a session id (see
  * sessionToken), never a token. */
 function cookieToken(req) {
@@ -569,7 +575,7 @@ function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresA
 function _resetSessions() { _sessions.clear(); }
 
 /** A new session for `token`: its id is its own random value and never encodes the token. */
-const SESSION_MAX_COUNT = 1000;   // a stated bound on memory: past it, the oldest session ends first
+const SESSION_MAX_COUNT = 1000;   // a stated bound on memory: past it, the session minted longest ago ends first (by age, not by use)
 function mintSession(token) {
   const now = _nonceNow();
   _sweepSessions(now);
@@ -586,6 +592,13 @@ function sessionToken(id) {
   if (!s) return null;
   if (s.expiresAt <= _nonceNow()) { _sessions.delete(id); return null; }
   return s.token;
+}
+
+/** The ids of the live sessions (expired ones swept first), for the board's own proof route (engine/boardproof.js,
+ * #6358), which answers for a session as it does for a token. In this process only: sessions are never stored. */
+function liveSessionIds() {
+  _sweepSessions(_nonceNow());
+  return [..._sessions.keys()];
 }
 
 /** The board-token header, then the `?token=` query: what a request presents besides its cookie. */
@@ -693,7 +706,7 @@ module.exports = {
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
   // #6358: browser sessions (the cookie's value).
-  mintSession, sessionToken, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions,
+  mintSession, sessionToken, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
   reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };

@@ -88,6 +88,19 @@ test('#6358: the board token itself in a cookie is REFUSED (a cookie only ever c
   assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } })).code, 403);
 });
 
+test('#6358: a cookie that still holds the token (given before sessions) is ENDED on sight; another value is left alone', async () => {
+  const old = await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } });
+  assert.match(old.setCookie || '', /^kosmos_board=; HttpOnly; SameSite=Strict; Path=\/; Max-Age=0$/, 'the token cookie is ended: ' + old.setCookie);
+  const shell = await hit('/', { headers: { cookie: `kosmos_board=${TOK}` } });
+  assert.match(shell.setCookie || '', /Max-Age=0/, 'ended on the public shell too, the first thing an old tab loads');
+  const other = await hit('/api/status', { headers: { cookie: 'kosmos_board=not-a-token-here' } });
+  assert.ok(!/kosmos_board=;/.test(other.setCookie || ''), 'a cookie that is no token here (another board\'s) is not touched');
+  const boot = await hit(`/?token=${TOK}`);
+  const sid = (boot.setCookie || '').match(/kosmos_board=([0-9a-f]{64});/)[1];
+  const live = await hit('/api/status', { headers: { cookie: `kosmos_board=${sid}` } });
+  assert.ok(!/kosmos_board=;/.test(live.setCookie || ''), 'a live session is never ended');
+});
+
 test('a valid ?token= on a GET nav BOOTSTRAPS: 302, cookie set, token stripped from the URL', async () => {
   const r = await hit(`/?first-run=1&token=${TOK}`);
   assert.equal(r.code, 302);
