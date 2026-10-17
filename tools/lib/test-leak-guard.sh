@@ -215,10 +215,18 @@ leak_kts_owners() {
     unfinished=""
     if [ -e "$d/.kts-owner.new" ]; then
       # Only the rewrite after a survived sweep writes .kts-owner.new, so its presence alone says the sweep ran.
+      if [ ! -r "$d/.kts-owner.new" ] && [ -z "$owner" ]; then
+        echo "  ${d##*/}: its exit sweep ran and the dir survived it, but its owner copy cannot be read here; it holds: $(_kts_held "$d")"
+        continue
+      fi
       aside=""; [ -r "$d/.kts-owner.new" ] && { IFS= read -r aside < "$d/.kts-owner.new" || true; }
       unfinished="; its owner rewrite did not finish"
-      if [ -n "$aside" ]; then owner="${aside%%$'\t'survived its sweep}"$'\t'"survived its sweep"
-      elif [ -n "$owner" ]; then owner="${owner%%$'\t'survived its sweep}"$'\t'"survived its sweep"
+      [ -n "$aside" ] && owner=$aside
+      if [ -n "$owner" ]; then
+        owner="${owner%%$'\t'survived its sweep}"
+        # A line cut before its tab has no pid field: say so, or the marker would land where the pid is read.
+        case "$owner" in *$'\t'*) ;; *) owner="$owner"$'\t'"pid unknown" ;; esac
+        owner="$owner"$'\t'"survived its sweep"
       else
         echo "  ${d##*/}: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: $(_kts_held "$d")"
         continue
