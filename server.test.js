@@ -4266,6 +4266,24 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     assert.match(ask, /<button class="namego" type="button" aria-label="Answer mara’s question">/,
       'the keyboard path to the answer route does not say it answers (#6400; it used to be the Answer button\'s name)');
     assert.match(api.card({ ...mara, isNamedOurs: false }), /aria-label="Open mara"/, 'CONTROL: a card with no answer route opens');
+
+    // #6398: a rate-limited card and list row say only the pill; the sentence is the pill's hover and screen-reader
+    // text (and the agent's page), never drawn on the board. Stuck past the threshold: the long sentence.
+    const limited = { ...mara, state: 'rate_limited', stateConfidence: 'structured', stateReported: true,
+      stuckError: { stuck: true, state: 'rate_limited', forMs: 45 * 60000 } };
+    const drawn = (html) => html.replace(/ title="[^"]*"/g, '').replace(/<span class="vh">[^<]*<\/span>/g, '');
+    for (const [where, html] of [['card', api.card(limited)], ['row', api.lrow(limited)]]) {
+      assert.match(html, /title="Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': the sentence is not the pill\'s hover text');
+      assert.match(html, /<span class="vh">\. Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': a screen reader no longer hears the sentence');
+      assert.doesNotMatch(drawn(html), /paused by a rate limit|Usage limit/, where + ': the rate-limit sentence is drawn on the board again');
+    }
+    assert.match(api.card(limited), /<b>Rate Limit<\/b>/, 'the pill does not read Rate Limit');
+    assert.match(api.card({ ...limited, stuckError: null }), /<div class="atask"><\/div>/, 'a plain rate-limited card carries a sentence');
+    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence; no rate-limit hover on it.
+    const looping = api.card({ ...limited, crashLoop: { looping: true, count: 4 } });
+    assert.match(looping, /<b>Keeps stopping<\/b>/);
+    assert.match(looping, /restarted it 4 times/, 'a crash-looping rate-limited card lost its crash-loop sentence');
+    assert.doesNotMatch(looping, /<div class="astate[^"]*" title=/, 'a Keeps stopping pill carries the rate-limit hover');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put

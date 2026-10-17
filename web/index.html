@@ -21284,9 +21284,6 @@ function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
-  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
-     to do) is the pill's hover text (rateLimitTitle) and stays on the agent's own page, which calls this without card. */
-  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -21297,6 +21294,10 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
+  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
+     to do) is the pill's hover and screen-reader text and stays on the agent's own page, which calls this without card.
+     Below the crash-loop arm: a crash-looping agent's pill reads "Keeps stopping", so it keeps its own sentence. */
+  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
@@ -22061,27 +22062,32 @@ function answerAttrs(a) {
      to answer carries the answer target on its card or row itself, so a click anywhere on it (or Enter on its name
      button) opens its page with the reply box focused, as the link did (pjAnswerFrom). Same gate as the link had:
      tied to its own session, and not a restart that did not come back (#4006), which has nothing to answer.
-     ⚠️ The board's click handler checks [data-answer] FIRST, so on an answerable card EVERY click inside it answers.
-     A control added to a card later needs its own branch in that handler, above the answer one. */
-  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
-    ? ` data-answer="${esc(a.sessionName)}" data-answer-name="${esc(a.name)}"`
-    : '';
+     The board's click handler checks [data-answer] first, and leaves any other button, link or input inside the card to
+     its own handler (only the name button is an answer route), so a control added to a card later is not swallowed. */
+  return isAnswerable(a) ? ` data-answer="${esc(a.sessionName)}" data-answer-name="${esc(a.name)}"` : '';
+}
+function isAnswerable(a) {
+  return !!(a && a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true));
+}
+/* #6398: the pill reads Rate Limit (not, say, a crash loop's Keeps stopping, which outranks it). */
+function pillIsRateLimit(a) {
+  return !!(a && a.state === 'rate_limited' && stateCopyOf(a) === STATE_COPY.rate_limited);
 }
 /* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
    so it says so; the visible name is in it (SC 2.5.3). */
 function nameGoLabel(a) {
-  return answerAttrs(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
+  return isAnswerable(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
 }
 /* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
    reliably, and the list pill is aria-hidden). Nothing is drawn. */
 function rateLimitVh(a) {
-  if (!a || a.state !== 'rate_limited') return '';
+  if (!pillIsRateLimit(a)) return '';
   const why = stateReason(a);
   return why ? `<span class="vh">. ${esc(why)}</span>` : '';
 }
 /* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
 function rateLimitTitle(a) {
-  if (!a || a.state !== 'rate_limited') return '';
+  if (!pillIsRateLimit(a)) return '';
   const why = stateReason(a);
   return why ? ` title="${esc(why)}"` : '';
 }
@@ -44803,7 +44809,11 @@ for (const boardEl of [document.getElementById('grid'), document.getElementById(
     // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
     // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     const answer = e.target.closest('[data-answer]');
-    if (answer) { pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return; }
+    // A control of its own inside the card (anything but the name, which IS the answer route) is not an answer.
+    const ownControl = e.target.closest('button, a, input, select, textarea, [role="button"]');
+    if (answer && !(ownControl && answer.contains(ownControl) && !ownControl.classList.contains('namego'))) {
+      pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return;
+    }
     // .acard in the grid, .lrow in the list: one contract (data-agent).
     const card = e.target.closest('.acard[data-agent], .lrow[data-agent]');
     if (card) openDetail(card.dataset.agent);
