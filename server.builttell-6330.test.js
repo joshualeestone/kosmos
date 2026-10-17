@@ -321,6 +321,47 @@ test('an agent out of usage is not typed into: its line is kept (#5805), and an 
   }
 });
 
+test('with agent task messages switched off (cap 0), a mark tells nobody and says so; the mark still stands', async () => {
+  const srv = require('./server');
+  const n = tasks.create(projectId, { sentence: 'Tag the release', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Write the notes', who: 'zed' });
+  srv.setTaskMsgCapForTests(0);
+  try {
+    const r = await mark(n, asAgent('mona'), { note: 'tagged' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(r.json.delivered, []);
+    assert.match(r.json.summary, /switched off/, r.json.summary);
+    assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtBy, 'mona');
+  } finally {
+    srv.setTaskMsgCapForTests();
+  }
+  // CONTROL: with the cap back, a new mark on the same task tells zed.
+  const again = await mark(n, asAgent('mona'), { note: 'tagged and pushed' });
+  assert.deepEqual(told(again), ['zed'], JSON.stringify(again.json));
+});
+
+test('a project list that cannot be read while working out who to tell is said, not taken as nobody assigned', async () => {
+  const n = tasks.create(projectId, { sentence: 'Rotate the keys', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Update the vault', who: 'zed' });
+  const real = projects.readAll;
+  let calls = 0;
+  // The route reads the list for membership and setBuilt writes the task; the read inside tellBuiltMark is the last one.
+  projects.readAll = (...a) => {
+    calls += 1;
+    if (new Error().stack.includes('tellBuiltMark')) throw new Error('the projects file could not be read');
+    return real.apply(projects, a);
+  };
+  try {
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(r.json.delivered, []);
+    assert.match(r.json.summary, /could not work out who to tell/, r.json.summary);
+    assert.ok(calls > 1, 'control: the stub saw the route\'s own reads too');
+  } finally {
+    projects.readAll = real;
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));
