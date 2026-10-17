@@ -3663,6 +3663,117 @@ public class NavigationCompleted : ICoreWebView2NavigationCompletedEventHandler
 //
 // Everything here but ReadBoard, DrawIcon and the COM is pure, so tools.win-taskbar-badge-3996.test.js
 // compiles a probe beside this file and drives it.
+// #1765: before this process sends the board token, the listener on the board port shows it already holds that
+// token. Every account on a Windows computer uses the same port, so whatever answers there is not always this
+// account's board. The exchange is engine/boardproof.js's, byte for byte (tools.win-launcher-board-proof-1765.test.js
+// checks this against it): GET /api/board-proof?n=<32 hex nonce>&k=<16 hex key id>, answered with
+// {"proof": HMAC-SHA256(token, "kosmos-board-proof\0" + "127.0.0.1" + "\0" + port + "\0" + nonce)} in hex, which is
+// checked here with our own copy of the token. The request carries no token, only the key id (a hash prefix).
+static class BoardProof
+{
+    internal const string ProofPath = "/api/board-proof";
+    internal const string KeyIdTag = "kosmos-board-proof-key\0";
+    internal const string ProofTag = "kosmos-board-proof\0";
+    internal const string ClientAddress = "127.0.0.1";
+    internal const int NonceBytes = 16;
+    internal const int KeyIdHex = 16;
+    internal const int ProofHex = 64;
+    internal const int AnswerMaxBytes = 4096;
+
+    static string Hex(byte[] bytes)
+    {
+        StringBuilder s = new StringBuilder(bytes.Length * 2);
+        foreach (byte b in bytes) s.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+        return s.ToString();
+    }
+
+    internal static string KeyId(string token)
+    {
+        using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+            return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(KeyIdTag + token))).Substring(0, KeyIdHex);
+    }
+
+    internal static string Proof(string token, string nonce, int port)
+    {
+        using (System.Security.Cryptography.HMACSHA256 mac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(token)))
+            return Hex(mac.ComputeHash(Encoding.UTF8.GetBytes(ProofTag + ClientAddress + "\0" + port.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\0" + nonce)));
+    }
+
+    // A fresh random nonce for every check, so an answer recorded for one check cannot serve another.
+    internal static string NewNonce()
+    {
+        byte[] bytes = new byte[NonceBytes];
+        using (System.Security.Cryptography.RandomNumberGenerator rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+        return Hex(bytes);
+    }
+
+    static bool IsLowerHex(string s, int length)
+    {
+        if (s == null || s.Length != length) return false;
+        foreach (char c in s) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+        return true;
+    }
+
+    // Whether `answer` is the proof for this token, nonce and port. Compared in constant time.
+    internal static bool ProofMatches(string token, string nonce, string answer, int port)
+    {
+        if (string.IsNullOrEmpty(token) || !IsLowerHex(answer, ProofHex)) return false;
+        string want = Proof(token, nonce, port);
+        int diff = 0;
+        for (int i = 0; i < ProofHex; i++) diff |= want[i] ^ answer[i];
+        return diff == 0;
+    }
+
+    // The "proof" string in the board's answer, or null.
+    internal static string ProofIn(string body)
+    {
+        string raw = TaskbarBadge.JsonMember(body, "proof");
+        if (raw == null || raw.Length != ProofHex + 2 || raw[0] != '"' || raw[raw.Length - 1] != '"') return null;
+        return raw.Substring(1, ProofHex);
+    }
+
+    // Does the listener at 127.0.0.1:port hold `token`? False for no answer, a refusal, a timeout, an answer that
+    // is not a 200, longer than AnswerMaxBytes, or not the proof. One deadline covers the whole exchange: the
+    // request is aborted when it passes. Never throws.
+    internal static bool Holds(int port, string token, int timeoutMs)
+    {
+        if (string.IsNullOrEmpty(token) || timeoutMs <= 0) return false;
+        string nonce = NewNonce();
+        System.Net.HttpWebRequest request = null;
+        try
+        {
+            request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://" + ClientAddress + ":" + port.ToString(System.Globalization.CultureInfo.InvariantCulture) + ProofPath + "?n=" + nonce + "&k=" + KeyId(token));
+            request.Proxy = null;   // loopback: never the system proxy
+            request.AllowAutoRedirect = false;   // a listener cannot send the check somewhere else
+            request.Timeout = timeoutMs;
+            request.ReadWriteTimeout = timeoutMs;
+            request.KeepAlive = false;
+            request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+            System.Net.HttpWebRequest aborting = request;
+            using (new System.Threading.Timer(_ => { try { aborting.Abort(); } catch { /* already done */ } }, null, timeoutMs, Timeout.Infinite))
+            using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
+            {
+                if ((int)response.StatusCode != 200) return false;
+                byte[] buffer = new byte[AnswerMaxBytes + 1];
+                int got = 0;
+                using (Stream stream = response.GetResponseStream())
+                {
+                    int n;
+                    while (got < buffer.Length && (n = stream.Read(buffer, got, buffer.Length - got)) > 0) got += n;
+                }
+                if (got > AnswerMaxBytes) return false;
+                return ProofMatches(token, nonce, ProofIn(Encoding.UTF8.GetString(buffer, 0, got)), port);
+            }
+        }
+        catch (System.Net.WebException e)
+        {
+            if (e.Response != null) { try { e.Response.Close(); } catch { /* the answer was not a proof */ } }
+            return false;
+        }
+        catch { return false; }
+    }
+}
+
 static class TaskbarBadge
 {
     // As the Mac app: the page polls every 5 s, the window's own read runs every 10 s but only after
@@ -3826,6 +3937,9 @@ static class TaskbarBadge
             request.ReadWriteTimeout = ReadTimeoutMs;
             request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
             string token = ReadBoardToken();
+            // #1765: the token goes only to a listener that proves it already holds it (BoardProof below). Not
+            // proven is a miss, like no answer: nothing is sent.
+            if (token != null && !BoardProof.Holds(port, token, ReadTimeoutMs / 2)) return false;
             if (token != null) request.Headers[BoardTokenHeader] = token;
             string body;
             using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
