@@ -1099,6 +1099,8 @@ const SCREENS = [
      every screen starts on a freshly loaded board; the style read is stubbed (stubConsolidatedStyle). Desktop only: the consolidated view exists at >= 960px. */
   { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
     await stubConsolidatedStyle(page);   // a later style read says consolidated too, so it cannot undo the layout mid-shot
+    // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (as openConsAgents).
+    await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.evaluate(() => applyLayout('consolidated', true));
