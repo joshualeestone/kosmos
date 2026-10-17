@@ -81,7 +81,7 @@ function activate() {
        gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
     removeAtEnd(() => {
       // #6362: the retry is what wins a race with a process still writing here (measured by hand, 0 of 30 left;
-      // no suite test can make that race on demand, so keep it when editing).
+      // the race cannot be made on demand, so test-support.tmpscope.test.js checks the option instead).
       try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); } catch { /* checked below */ }
       /* #6362: still here means the sweep failed part way (a process this file started was still
          writing into it, or something in it could not be removed), and it may already have taken

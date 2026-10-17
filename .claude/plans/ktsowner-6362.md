@@ -54,9 +54,8 @@ one full run is one data point, not a rate.
 the real guard names the file (control: the same file with nothing locked leaves nothing); a real left-running child
 that remakes the dir after its parent ended is reported by what it wrote. `tools/test-test-leak-guard-4273.sh`: the
 marked owner line, the owner-less listing under set -e and pipefail, and the five-then-count trim. Mutant: dropping
-the owner rewrite reds the survive-sweep test. NOT guarded by a test: the sweep's retry (`maxRetries`). Node retries
-ENOTEMPTY, EBUSY and EPERM but not the EACCES the locked-folder test makes, and a real ENOTEMPTY race is not
-deterministic; arm A's "0 of 30" is the scratch measurement, not a suite check.
+the owner rewrite reds the survive-sweep test. The sweep's retry is guarded by checking the option itself (a victim records what the sweep passes to `fs.rmSync`):
+a real ENOTEMPTY race is not deterministic, so arm A's "0 of 30" stays a scratch measurement.
 - Review 1 and 5: what the guard cannot see, it says it cannot see. An EMPTY `.kts-owner` (cut at creation) reads "owner file empty
   (most likely the test was killed while tmpscope wrote it)"; an unreadable one, "its owner file cannot be read
   here"; a dir it cannot search, "cannot be read here, so its owner is unknown"; a listing that failed part way
