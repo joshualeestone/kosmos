@@ -2205,8 +2205,6 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
   font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .worldsw-check { flex: none; width: 13px; height: 13px; color: var(--gold); visibility: hidden; }
 .worldsw-row[aria-current="true"] .worldsw-check { visibility: visible; }
-/* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
-a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: underline dotted; }
 .worldsw-row[aria-current="true"] { font-weight: 600; }
 .worldsw-rowname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worldsw-new { display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 4px; padding: 9px 8px 5px;
@@ -2804,6 +2802,8 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
             border: 1px solid var(--k-rule); border-radius: 999px; padding: 2px 10px; }
 .oa-note { font-size: 13px; color: var(--k-ink-2); }
 .oa-open { font-size: 13px; color: var(--k-ink); }
+/* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
+a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: underline dotted; }
 .oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
 .oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
            background: var(--k-surface); color: var(--k-ink); border: 1px solid var(--k-rule);

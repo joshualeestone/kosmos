@@ -2287,7 +2287,8 @@ async function openTicket(address) {
     return { ok: false, because: 'this version of Kosmos cannot open another computer directly yet' };
   }
   const got = parseSaid(r);
-  if (!got.ok) return got;
+  // A fixed sentence for any other failure (review 7): the tunnel's own words (a path, a spawn error) stay here.
+  if (!got.ok) return { ok: false, because: 'that did not go through' };
   const t = got.data && got.data.ticket;
   if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
   return { ok: true, because: null, data: { ticket: t } };

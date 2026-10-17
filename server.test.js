@@ -11725,6 +11725,12 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
     assert.equal(ticketCallerHere({ socket: { remoteAddress: peer }, headers: here }), false, String(peer));
   }
   assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: { ...here, 'x-forwarded-for': '1.2.3.4' } }), false);
+  /* Review 7: and the route uses that rule (the test server's socket is always loopback, so this is read from the
+     route's own source). */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/remote/open-ticket'");
+  assert.ok(at > 0, 'the route moved');
+  assert.match(src.slice(at, at + 1200), /if \(!ticketCallerHere\(req\) \|\| !isViaScreen\(req, body\)\)/);
   /* An address no computer of the account can have is refused before the tunnel. */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
