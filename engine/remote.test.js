@@ -4474,7 +4474,7 @@ test('kosmos#6407: a recent sign-in that never knocked here (in signins only) st
   r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
   remote.vouchTickForTests();
   assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
-  // A computer row, by its labels (an older or wrong tunnel could send one in signins): never "the person". The ids
+  // A computer row, by its labels (a wrong tunnel could send one in signins): never "the person". The ids
   // have a device id's shape, so each is refused for its label, not its shape.
   for (const row of [{ device_id: 'dev-joining', joining_computer: 'tmnt' }, { device_id: 'dev-codewait', code_wait: 'another_computer' }]) {
     assert.match(row.device_id, SHAPE, 'premise: ' + row.device_id + ' has the shape of a device id');
@@ -4493,6 +4493,9 @@ test('kosmos#6407: a recent sign-in that never knocked here (in signins only) st
   // signins only opens the tab: a row there carrying the right vouch is never what gets allowed. CONTROL below: the
   // same vouch on a row in devices is allowed.
   const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
+  // Premise: the secret is live and nothing is mid-allow, so this tick does try the rows (it returns early otherwise).
+  assert.ok(remote.vouchSecretForTests(), 'premise: the secret is still live');
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'premise: no allow is out before this tick');
   r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
   remote.vouchTickForTests();
   // Decided in the tick itself: an allow would be out now. Then as long as the CONTROL below is given to land.

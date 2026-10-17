@@ -11,6 +11,9 @@ denied, computers).
 
 ## Order
 This merges FIRST. Alone it changes nothing: a tunnel that predates the field writes no `signins` (an empty list).
+The reverse pairing (new tunnel, older board) cannot reach a person: a Kosmos release bundles the tunnel built from
+kosmos-relay at the cut (tools/build-kosmos-bundle.sh), so with this merged first every release that has the new
+tunnel has this board too.
 
 ## Status
 - [x] remote.js vouchRows(field) + vouchTick arming; test with controls (own sign-in, Not me, old); mutant caught
