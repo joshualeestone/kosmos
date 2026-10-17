@@ -23,7 +23,15 @@ your task P)". The marker is never told. The answer gains `delivered`, one outco
   held task anywhere in the tree (a sibling), whose holder would be told "it is under your task" falsely; and parent
   holders who had left were dropped with no fallback. The walk up the chain replaces both.
 - How often: the built-mark valve the route already applies (builtMarkRefusal) limits how many marks an agent makes;
-  one mark sends one line to each recipient.
+  one mark sends one line to each recipient. A mark counts as new when its note or its marker changes, so re-marking
+  with a different note, or a mark, clear, mark cycle, tells everyone again, up to that valve. Accepted: each is a
+  real change to the task.
+- The walk stops at the first held task above. If that holder's swarm is switched off it is reported, not skipped
+  (it still owns the work); if the only holder there is the marker itself, nobody above is told (the marker is
+  already the coordinator). Both deliberate.
+- Review 3: lines go to every recipient at once (different panes), so the mark's answer waits for the slowest line, not
+  the sum (the Mac CLI waits 15 s); a failure for one recipient is that recipient's could_not and never hides the
+  others. The answer also carries `summary` (taskMessageSummary, as a task message), and both CLIs print it.
 - An agent out of usage is not typed into: its line is kept and typed after its reset (messages.keepTaskLine, #5805),
   as a task message's is; every other line goes through chat.deliverAsync, as a task message's does.
 - A delivery problem never fails the mark: it is recorded before anyone is told, and a throw answers 200 with nobody

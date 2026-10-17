@@ -5061,7 +5061,10 @@ cmd_task() {
           if [ "$clear" = true ]; then
             case "$body" in *'"changed":false'*) say "Task $num on ${project:-the project} was not marked built." ;;
               *) say "Took the built mark off task $num on ${project:-the project}." ;; esac
-          else say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark."; fi ;;
+          else
+            # #6330: the board's own sentence about who was told of the mark (none from an older board).
+            local told; told=$(printf '%s' "$body" | sed -n 's/.*"summary":"\([^"]*\)".*/\1/p')
+            say "Marked task $num on ${project:-the project} built, waiting to be released or checked. Closing it clears the mark.${told:+ $told}"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not mark that task: ${because:-it did not say why}."; exit 1 ;;

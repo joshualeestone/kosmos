@@ -1195,8 +1195,10 @@ async function taskBuilt(ctx, args) {
       : ctx.unreachable('mark that task');
   }
   if (r.json && r.json.task) {
+    // #6330: the board's own sentence about who was told of the mark (none from an older board).
+    const told = typeof r.json.summary === 'string' && r.json.summary.trim() ? ' ' + r.json.summary.trim() : '';
     ctx.out(clear ? (r.json.changed === false ? 'Task ' + num + ' on ' + project + ' was not marked built.' : 'Took the built mark off task ' + num + ' on ' + project + '.')
-      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.');
+      : 'Marked task ' + num + ' on ' + project + ' built, waiting to be released or checked. Closing it clears the mark.' + told);
     return 0;
   }
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not mark that task: ' + ctx.refusedBy(r) + '.'); return 1; }
