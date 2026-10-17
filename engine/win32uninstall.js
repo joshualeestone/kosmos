@@ -483,6 +483,44 @@ function stillOpen(extraLeft, notes) {
   return { ok: false, refused: true, stillOpen: true, done: [], left: [KOSMOS_STILL_OPEN].concat(extraLeft || []).map(oneLine), notes: (notes || []).map(oneLine) };
 }
 
+/* #6391: how long to wait for the Plus coordinator to be told this computer is going away, before
+   the key is deleted. Short and best-effort, like the Mac uninstall (install/setup.sh, #793): an
+   uninstall must never hang on a coordinator that is slow or unreachable. */
+const RETIRE_TIMEOUT_MS = 8000;
+
+/**
+ * #6391: tell the Plus coordinator this computer is going away, WHILE its key can still sign the
+ * retire. The key lives in `<dataDir>\remote` (`mac_id` + `mac_key`, the pair engine/remote.js's
+ * `holdsKey()` reads); deleting the data folder takes it, after which the address stays on the
+ * account and only the account page (its one-day `recently_online` rule) or a signed-in phone can
+ * remove it. So, like the Mac uninstall (install/setup.sh, "RETIRE THIS MAC ... #793"), run the
+ * connector's `retire` verb first, best-effort with a short timeout; the caller says the outcome
+ * either way. The connector is `app\bin\kosmos-tunnel.exe` (#583, #4597), beside this engine dir
+ * (`app\engine`), and the bundle it lives in is never deleted from here. `windowsHide`: the board
+ * that spawns this runs as a hidden task, so a console child would flash a black window (#4597). No
+ * `shell`: argv goes straight to CreateProcess, never re-parsed by cmd.exe.
+ *
+ * Returns `{told: boolean}` and NEVER throws: a retire we could not even attempt (no connector, a
+ * spawn error) is just "could not be told", the same as a timeout or a non-zero exit. Seams
+ * (`existsSync` / `spawnSync` / `tunnelBin`) are for tests.
+ *
+ * @param {object} o  { remoteDir, coordinator, tunnelBin?, existsSync?, spawnSync?, timeoutMs? }
+ */
+function retirePc(o) {
+  const exists = o.existsSync || fs.existsSync;
+  const run = o.spawnSync || require('node:child_process').spawnSync;
+  const tunnelBin = o.tunnelBin || path.join(path.dirname(__dirname), 'bin', 'kosmos-tunnel.exe');
+  if (!exists(tunnelBin)) return { told: false };   // no connector to ask with: cannot tell
+  let r;
+  try {
+    r = run(tunnelBin, ['retire', '--state-dir', o.remoteDir, '--coordinator', o.coordinator],
+      { timeout: o.timeoutMs || RETIRE_TIMEOUT_MS, windowsHide: true, encoding: 'utf8' });
+  } catch { return { told: false }; }   // spawn itself threw
+  // Timed out (r.error ETIMEDOUT + r.signal), killed, or a non-zero exit: all "could not be told".
+  if (!r || r.error || r.signal || r.status !== 0) return { told: false };
+  return { told: true };
+}
+
 /**
  * Remove Kosmos from this computer, except the folder it runs from and every Kosmos's projects and
  * agents' working folders.
@@ -679,6 +717,25 @@ async function uninstall(opts) {
       } else if (!fs.existsSync(dataDir)) {
         done.push(label + ' (' + dataDir + ') were already gone');
       } else {
+        /* #6391: deleteAllExcept is about to take `<dataDir>\remote` with the rest, including the
+           Plus key. Retire this computer at the coordinator FIRST, while the key can still sign it,
+           and only when a key is actually here (holdsKey's `mac_id` + `mac_key` pair) so a computer
+           that was never paired to Kosmos+ says nothing about it. Best-effort; the outcome is said
+           either way, as the Mac uninstall does (install/setup.sh, #793). */
+        const remoteDir = path.join(dataDir, 'remote');
+        const hadKey = ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(remoteDir, f)));
+        if (hadKey) {
+          const retire = o.retirePc || retirePc;
+          /* The coordinator URL, env-or-default, inlined exactly as the Mac sibling does
+             (install/setup.sh: ${AGENT_WORKFORCE_TUNNEL_COORDINATOR:-https://login.kosmosplus.com};
+             engine/remote.js DEFAULT_COORDINATOR is the same value). Inlined on purpose rather than
+             pulling the whole tunnel-supervisor module (remote.js) into a short-lived uninstaller for
+             one string; a test can pin it via o.coordinator. */
+          const coordinator = o.coordinator || env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || 'https://login.kosmosplus.com';
+          const told = retire({ remoteDir, coordinator, tunnelBin: o.tunnelBin, existsSync: o.existsSync, spawnSync: o.spawnRetire }).told === true;
+          if (told) done.push('told the Kosmos+ service this computer is going away, so its Kosmos+ address is retired (the name is free again after a day)');
+          else notes.push('Kosmos could not tell the Kosmos+ service this computer is going away, so its Kosmos+ address may still show on your account page until you remove it there.');
+        }
         const failures = deleteAllExcept(dataDir, keptDirs, rm);
         if (failures.length) left.push(label + ' in ' + dataDir + ', ' + failures.length + ' of which could not be deleted: ' + leftoverList(failures));
         else done.push('deleted ' + label + ' (' + dataDir + '), keeping your projects and working folders');
@@ -773,8 +830,8 @@ async function cliMain(argv, deps) {
 }
 
 module.exports = {
-  uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText,
-  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, BOARD_GONE_CLOCK_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS,
+  uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText, retirePc,
+  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, BOARD_GONE_CLOCK_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS, RETIRE_TIMEOUT_MS,
   KOSMOS_STILL_OPEN, STARTUP_UNREADABLE, STARTUP_WOULD_NOT_SWITCH_OFF,
 };
 
