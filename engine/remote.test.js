@@ -4476,6 +4476,17 @@ test('kosmos#6407: a recent sign-in that never knocked here (in signins only) st
   r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60 }]);
   remote.vouchTickForTests();
   assert.ok(remote.vouchOpenedUrlForTests(), 'a recent website sign-in did not open the connect tab');
+  // signins only opens the tab: a row there carrying the right vouch is never what gets allowed. CONTROL below: the
+  // same vouch on a row in devices is allowed.
+  const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
+  remote.vouchTickForTests();
+  await new Promise((ok) => setTimeout(ok, 200));
+  assert.ok(!allowsOf().includes('dev-web'), 'a row in signins was allowed by its vouch');   // this computer's own sign-in grant is in the record too
+  r.plant([{ device_id: 'dev-web', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6', vouch }], []);
+  remote.vouchTickForTests();
+  for (let i = 0; i < 50 && !allowsOf().includes('dev-web'); i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(allowsOf().includes('dev-web'), 'CONTROL: the same vouch on a devices row was not allowed');
   remote.setOn(false);
 });
 
