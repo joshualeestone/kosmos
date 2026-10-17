@@ -1243,8 +1243,10 @@ async function main() {
        and undone in one synchronous step, so no poll repaints it in between. Only the copies are removed, so the
        original rows (and any focus in them) are untouched, and the region is not live while they exist. The CONTROL is
        the same box with its cap lifted: it must outgrow 40vh and reach the list, or the fixture is too short to show
-       anything at this viewport and the arm fails rather than pass on a box that never needed the cap. */
-    const railLong = await page.evaluate(() => {
+       anything at this viewport and the arm fails rather than pass on a box that never needed the cap. Read at this
+       context's own viewport and again at a short window (560px tall), where a fixed 40vh is most likely to be taller
+       than the room the head's grid row leaves it. */
+    const longRead = () => page.evaluate(() => {
       const box = document.getElementById('alist-pj-notice');
       const list = document.getElementById('alist');
       const row = box && box.querySelector('.pnotice');
@@ -1256,20 +1258,26 @@ async function main() {
       const read = () => { const b = box.getBoundingClientRect(), l = list.getBoundingClientRect();
         return { height: Math.round(b.height), gap: Math.round(l.top - b.bottom) }; };
       const capped = read();
-      const out = { cap: Math.round(innerHeight * 0.4), ...capped, content: box.scrollHeight,
+      const out = { vh: innerHeight, cap: Math.round(innerHeight * 0.4), ...capped, content: box.scrollHeight,
         scrolls: box.scrollHeight > box.clientHeight + 1, overflowY: getComputedStyle(box).overflowY };
       box.style.maxHeight = 'none';
       out.uncapped = read();
       box.style.maxHeight = '';
       for (const c of copies) c.remove();
-      box.setAttribute('aria-live', live);
+      if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
       return out;
     });
-    const longControl = !railLong.missing && railLong.uncapped.height > railLong.cap + 1 && railLong.uncapped.gap < 0;
-    if (railLong.missing || !longControl || !railLong.scrolls || railLong.overflowY !== 'auto'
-        || railLong.height > railLong.cap + 1 || railLong.gap < 0) {
+    const longBad = (r) => r.missing || !(r.uncapped.height > r.cap + 1 && r.uncapped.gap < 0)
+      || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
+    const vpWas = page.viewportSize();
+    const railLong = { full: await longRead() };
+    await page.setViewportSize({ width: vpWas.width, height: 560 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+    railLong.short = await longRead();
+    await page.setViewportSize(vpWas);
+    if (longBad(railLong.full) || longBad(railLong.short)) {
       contrastFails += 1;
-      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, while the same box uncapped runs under it (the control) (${scheme}), got ${JSON.stringify(railLong)}`);
+      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, while the same box uncapped runs under it (the control), at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();

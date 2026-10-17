@@ -28,5 +28,7 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
 
 ## Weakest premise
 That 40vh leaves the agents list usable on a short window. The rule sits inside the 960px+ consolidated block, so
-phones are unaffected; at about 600px tall the list keeps its 200px floor and the body scroll takes over (#980).
-Not measured at small heights.
+phones are unaffected. Review round 3 named the risk exactly: the head height comes from a grid row, so if that row is
+shorter than the lead line plus 40vh, the capped box still runs under the list. The render-projects arm now reads a
+second time at 560px tall to measure it. If it fails there, the fix is a cap tied to the head (the notice filling
+the remaining head height), not a smaller vh.
