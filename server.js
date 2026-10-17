@@ -977,6 +977,7 @@ const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on c
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
+const boardproof = require('./engine/boardproof'); // #1765: prove this board holds a client's token before the client sends it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
    bare `require('./server')` in a unit test must not touch the real store. The
@@ -1064,6 +1065,54 @@ function snapshotWorlds() {
   KNOWN_WORLD_TOKENS = m;
 }
 function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
+/* #1765: the agent tokens for a board proof, by key id. Cached, because the route needs no token and any local
+   process can ask it for random key ids. A key id already in the map is answered from it without looking at the
+   folder; a key id not in it rereads the token files only when the token folder's signature (proofTokenFilesSig,
+   one stat) changed, or the map is PROOF_AGENT_KEYS_MAX_AGE_MS old. With the registry and token-file stats beside it, a stream of random key ids costs a few stats
+   each; a file with nothing to stat is read each time instead (no registry file on a single-world install, no
+   token file on a board started without enforcing). So a token revoked since it was cached is
+   still proved until some lookup misses after the change and rebuilds the map; the gate then refuses it, so the
+   proof gives nothing away. The 200 or 404 tells a caller only whether that key id is in the map. */
+const PROOF_AGENT_KEYS = { sig: null, ids: new Map(), at: 0 };
+// A miss also rebuilds the map once it is this old, even with the folder unchanged: the token readers skip a file
+// they cannot read, so one transient failure would otherwise stay cached until the folder next changes. It also
+// bounds the work: at most one rebuild per interval for a stream of unknown key ids.
+const PROOF_AGENT_KEYS_MAX_AGE_MS = 30000;
+/* The proof route needs no token, so any local process can make it miss on demand: log each distinct failure
+   message once (up to boardproof's LOG_KEEP remembered, then the memory starts again), not once per request. */
+const proofLogOnce = (msg) => boardproof.logOnce(msg);   // one remembered set for the route, in engine/boardproof.js
+/* One stat of the token folder. sendertoken writes token files by a rename into it (securewrite.writeSecret) and
+   removes files from it, so its mtime moves on those changes. NOT on writeSecret's in-place fallback (taken after
+   three failed atomic attempts), nor within one mtime tick: a token written that way is proved after a later change
+   to the folder or once the map is old enough to rebuild on a miss (PROOF_AGENT_KEYS_MAX_AGE_MS), and until then
+   its agent is refused (98), the safe direction. */
+function proofTokenFilesSig() {
+  try { const st = fs.statSync(sendertoken.DIR); return st.mtimeMs + ':' + st.ctimeMs; }
+  catch (e) { if (!(e && e.code === 'ENOENT')) proofLogOnce('could not read the agent token folder: ' + ((e && e.message) || e)); return ''; }
+}
+/* A file's parsed value, kept until the file's mtime or size changes, so the token-free proof route does not read
+   it on every request. `read` returns the value; a file that cannot be stat'ed is read every time (the rare case). */
+const proofFileCache = new Map();
+function proofCachedRead(file, read) {
+  let sig = null;
+  try { const st = fs.statSync(file); sig = st.mtimeMs + ':' + st.size; } catch { sig = null; }
+  const hit = sig && proofFileCache.get(file);
+  if (hit && hit.sig === sig) return hit.value;
+  const value = read();
+  if (sig && value != null) proofFileCache.set(file, { sig, value });   // a failed read is not cached, so it is tried again
+  return value;
+}
+function* proofAgentTokens(k) {
+  const c = PROOF_AGENT_KEYS;   // a key id already in the map was answered by the route before it got here
+  const sig = proofTokenFilesSig();
+  if (sig === c.sig && Date.now() - c.at < PROOF_AGENT_KEYS_MAX_AGE_MS) return;
+  const ids = new Map();
+  for (const t of sendertoken.heldValues()) ids.set(boardproof.keyId(t), t);
+  c.sig = sig;
+  c.at = Date.now();
+  c.ids = ids;
+  if (ids.has(k)) yield ids.get(k);
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -5623,16 +5672,52 @@ const server = http.createServer(async (req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    // #1765: the board proof is asked BEFORE a client sends any token, so it cannot need one. It answers only
+    // with an HMAC over the client's own nonce, keyed on a token the client already holds.
+    const exemptProof = req.method === 'GET' && pathname === boardproof.PROOF_PATH;
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
+  }
+
+  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, address, port and n) for the token whose
+     key id is k, among this board's world tokens and its agents' tokens, or 404. Exempt from the gate above,
+     and for loopback peers only (the socket peer, as remoteWriteGuard reads it). */
+  if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
+    // A second guard: remoteWriteGuard above already refuses a network peer on any route not meant for one.
+    if (!isLoopbackPeer(req)) { sendJson(res, 403, { error: 'the board proof is for this computer only' }); return; }
+    let q = {};
+    try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
+    /* Cheapest lookups first (a cached agent key, the board token, the world tokens, then a rescan of the agent
+       tokens), stopping at the first match; a key id selects at most one token. The world
+       tokens are the ones boardTokenOk accepts (known at start and still listed), so a proof is never given for a
+       token the gate would then refuse. The port is the one this board listens on (see boardproof.js). */
+    const out = boardproof.answer(q, function* (k) {
+      // A cached agent token first: it is the cheapest lookup, and token-only agents ask on every report.
+      if (PROOF_AGENT_KEYS.ids.has(k)) { yield PROOF_AGENT_KEYS.ids.get(k); return; }
+      /* The token this board's account holds: the one it enforces, or, on a board started without enforcing, the
+         file it would enforce from, which the CLI reads and sends all the same (no other account can read it). An
+         enforcing board that could not load its own token proves no board token here, as its gate accepts none;
+         the world and agent tokens below it still accepts, so it still proves those. */
+      if (boardAuthState.on) { if (boardAuthState.token) yield boardAuthState.token; }
+      else { const t = proofCachedRead(boardauth.tokenPath(), () => boardauth.readToken()); if (t) yield t; }   // readToken never throws; null for an unreadable file
+      if (KNOWN_WORLD_TOKENS) {
+        let listed = [];
+        try { const base = worldBase(); listed = proofCachedRead(worlds.registryPath(base), () => worlds.listWorlds(base)); }
+        catch (e) { proofLogOnce('could not list the worlds: ' + ((e && e.message) || e)); listed = []; }
+        for (const w of listed) { const t = KNOWN_WORLD_TOKENS.get(w.id); if (t) yield t; }
+      }
+      yield* proofAgentTokens(k);
+    }, req.socket.localPort, req.socket.localAddress);
+    sendJson(res, out.status, out.body);
+    return;
   }
 
   /* #1979: mint a single-use, short-TTL browser-open nonce. LOOPBACK-ONLY (it is
