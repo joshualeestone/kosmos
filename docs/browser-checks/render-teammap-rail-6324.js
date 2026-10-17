@@ -100,9 +100,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.waitForFunction((names) => names.every((n) => document.querySelector('#alist .lrow[data-agent="' + n + '"]')), NAMES, { timeout: 15000 });
     await p.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => {});
 
-    // The first agent row of the list, wholly inside the window AND below the open map's box. The head's grid row has a
-    // set height and does not clip, so a map taller than the head runs down OVER the list rather than pushing it
-    // (measured 2026-10-16: the cap-removed controls read the row as in view, page scrolled 100px). Both are the harm.
+    // The first agent row of the list, wholly inside the window AND below the open map's box. The head's grid row did not
+    // grow with the map and does not clip, so a map taller than the head runs down OVER the list rather than pushing
+    // it (measured 2026-10-16: the cap-removed controls read the row as in view, page scrolled 100px). Both are the harm.
     await p.evaluate(() => {
       window.rowClear = () => {
         const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();

@@ -36,11 +36,12 @@ not measured deeper than that.
 Height: the open map is capped at 35vh and scrolls inside its own box. That nested scroll is a trade: on a big team
 the map is a small scrolling box. The browser check (ten members, with a control that the map really overflows its
 box) measures that the first agent row stays wholly in view, and below the map's box, at 1280x900 and 960x720, with
-the project notice empty (a control asserts it). The head's grid row has a set height and does not clip, so a map
-taller than the head would run down over the list rather than push it; the cap-removed controls show both. Below 1280 wide the agents column folds by default and
+the project notice empty (a control asserts it). The head's grid row is `auto` in the CSS but did not grow with the
+map (measured 2026-10-16: 604px with the map closed and open at 1280x900), and it does not clip, so a map taller than
+the head would run down over the list rather than push it; the cap-removed controls show both. Below 1280 wide the agents column folds by default and
 the map goes with it; the 960x720 arms unfold it first, as a person would.
-NOT covered: a long project notice plus the open map on a short window. The rail head's row is auto-sized and the
-notice is uncapped, so that pair can make the page scroll, as a long notice can by itself today. Also not covered:
+NOT covered: a long project notice plus the open map on a short window. The notice is uncapped, so that pair can run
+past the head and make the page scroll, as a long notice can by itself today. Also not covered:
 folding the agents column drops keyboard focus from anything in the rail head, the map included (as it does for
 the notice's buttons and the rows; the fold is CSS only).
 Focus: a repaint finds a focused member again by data-agent; a focused member who leaves hands focus to the Team map
