@@ -75,10 +75,17 @@ test('a valid header token PROCEEDS past the guard', async () => {
   assert.notEqual(r.code, 302, 'a header token needs no cookie bootstrap');
 });
 
-test('a valid cookie token PROCEEDS past the guard', async () => {
-  const r = await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } });
+test('#6358: the session cookie a ?token= bootstrap sets PROCEEDS past the guard', async () => {
+  const boot = await hit(`/?token=${TOK}`);
+  const m = (boot.setCookie || '').match(/kosmos_board=([0-9a-f]{64});/);
+  assert.ok(m, 'the bootstrap sets a session cookie: ' + boot.setCookie);
+  const r = await hit('/api/status', { headers: { cookie: `kosmos_board=${m[1]}` } });
   assert.notEqual(r.code, 403);
   assert.notEqual(r.code, 302);
+});
+
+test('#6358: the board token itself in a cookie is REFUSED (a cookie reaches any 127.0.0.1 listener, so it never holds the token)', async () => {
+  assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } })).code, 403);
 });
 
 test('a valid ?token= on a GET nav BOOTSTRAPS: 302, cookie set, token stripped from the URL', async () => {

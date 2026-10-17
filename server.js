@@ -5528,7 +5528,10 @@ const server = http.createServer(async (req, res) => {
     // A valid ?token= on a nav (from `kosmos open` / the native app) sets the
     // cookie and redirects to the clean URL; runs on every route so the operator
     // can land tokenized on the shell and have later /api calls carry the cookie.
-    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method });
+    // #6358: `accepts` is the gate's own test (boardTokenOk, #3055's other worlds included), so a `?token=` signs in
+    // exactly when the same token in a header would be let through.
+    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method,
+      accepts: (t) => boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
     if (boot) {
       /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a durable
          cookie is actually taken -- moved here from install/setup.sh, which could

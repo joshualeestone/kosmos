@@ -600,13 +600,17 @@ function nonCookieToken(req, routingBase) {
  * `/?token=...`, get the cookie, and have the app's later `/api/*` calls succeed.
  * Returns `{ location, setCookie }` or null.
  */
-function bootstrap({ token, req, routingBase, method }) {
+function bootstrap({ token, req, routingBase, method, accepts }) {
   const isNav = method === 'GET' || method === 'HEAD';
   if (!isNav) return null;
-  // #6358: a LIVE session for this token needs no bootstrap (and none means no redirect loop). A cookie whose
-  // session ended (a restart, the cap, another token) is no sign-in at all, so `?boot=` / `?token=` still work.
+  /* #6358: `accepts(t)`, when the caller gives it, says whether the board's gate takes token t (another of this
+     account's worlds, #3055). The Mac app signs in with the default world's token, and after a world switch
+     restarts the board that is not the active one, so a `?token=` the gate accepts signs in too. */
+  const ok = (t) => matches(t, token) || (typeof accepts === 'function' && accepts(t) === true);
+  // A LIVE session the gate accepts needs no bootstrap (and none means no redirect loop). A cookie whose session
+  // ended (a restart, the cap) is no sign-in at all, so `?boot=` / `?token=` still work.
   const live = sessionToken(cookieToken(req));
-  if (live !== null && matches(live, token)) return null;
+  if (live !== null && ok(live)) return null;
   /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
      redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
      durable token stays off the browser-open argv. Tried before `?token=` so the
@@ -625,8 +629,8 @@ function bootstrap({ token, req, routingBase, method }) {
     return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(mintSession(token)), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
-  if (!q || !matches(q, token)) return null;    // no/invalid query token -> not a bootstrap
-  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(mintSession(token)) };
+  if (!q || !ok(q)) return null;    // no/invalid query token -> not a bootstrap
+  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(mintSession(q)) };   // the session is q's
 }
 
 /**
