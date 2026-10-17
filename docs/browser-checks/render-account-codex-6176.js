@@ -17,6 +17,8 @@
  * #6176 slice 3: a Grok (xai) subscription row draws its weekly window the same way ("Grok last reported it ..."); one
  * with no reading says so naming Grok; a Grok API-key row draws nothing; a Grok window past its reset on a list left
  * open is read again and goes.
+ * #6176 slice 4: the Antigravity row draws Gemini's five-hour and weekly windows ("Antigravity last reported it"), says so
+ * with no reading, and its meter goes at its reset on a list left open.
  * Then the timer that takes a window's meter away at its reset on a list left open (Chromium, page clock installed,
  * read counts asserted): the read at a reset; a reset passed in another section; a weekly window alone (no six-hourly
  * read); a window more than six hours out (a wake timer, no read before its reset); a stray five-hour reading on an
@@ -45,6 +47,9 @@ const win = (pct, mins, resetsAt) => ({ usedPct: pct, windowMinutes: mins, reset
 // #6176 slice 3: a Grok (xai) row draws its subscription's usage the same way, from Grok's own billing log.
 const grok = (id, extra) => ({ provider: 'xai', providerName: 'Grok', email: id + '@example.com', label: id, dir: '/home/.grok-' + id,
   name: null, isDefault: false, authMode: 'subscription', keyTail: null, connection: conn, offerable: true, ...extra });
+// #6176 slice 4: the Gemini-on-a-Google-subscription row (one per computer, no folder) draws Antigravity's reading.
+const agy = (extra) => ({ provider: 'antigravity', providerName: 'Gemini', email: null, label: null, dir: null, name: null, isDefault: false,
+  authMode: 'antigravity', keyTail: null, connection: { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified' }, ...extra });
 const ACCOUNTS = [
   grok('gsub', { limits: { windows: [win(67, 10080, now + 50 * H)], plan: 'SuperGrok', at: now - 3 * H } }),
   grok('gnone', { limits: null }),
@@ -162,6 +167,31 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const gAfter = await pg.evaluate(() => ({ meters: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
     say(gBefore === 1 && gAfter.reads === 2 && gAfter.meters === 0, '[chromium open] a Grok window past its reset on a list left open is read again and goes', JSON.stringify({ gBefore, gAfter }));
     await pg.close();
+    // #6176 slice 4: the Antigravity row (no folder, one per computer) draws Gemini's windows as Antigravity reported
+    // them, says so when there is no reading, and its five-hour meter goes at its reset on a list left open.
+    const pa = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await pa.clock.install({ time: new Date(now) });
+    await pa.goto('file://' + PAGE);
+    const show = async (accounts) => pa.evaluate(async (accounts) => {
+      window.__reads = 0;
+      if (!window.__realFetch) window.__realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : window.__realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      const u = document.querySelector('#set-accounts .acct-usage');
+      return { lines: u ? [...u.querySelectorAll('.acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim()) : [],
+        nones: u ? [...u.querySelectorAll('.acct-usage-none')].map((x) => x.textContent.trim()) : [] };
+    }, accounts);
+    const aNone = await show([agy({ limits: null })]);
+    say(aNone.lines.length === 0 && aNone.nones[0] === 'No current usage reading for this sign-in. Kosmos asks Antigravity when this list opens.', '[chromium open] the Antigravity row with no reading says so, naming Antigravity', JSON.stringify(aNone));
+    const aTwo = await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
+    say(aTwo.lines.length === 2 && /^25% of its 5-hour limit used · resets .* · Antigravity last reported it 2 minutes ago$/.test(aTwo.lines[0]) && /^1% of its weekly limit used/.test(aTwo.lines[1]),
+      '[chromium open] the Antigravity row draws its five-hour and weekly windows, and says Antigravity reported them', JSON.stringify(aTwo));
+    await pa.clock.runFor(11 * 60e3); await pa.waitForTimeout(300);
+    const aAfter = await pa.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(aAfter.reads === 2 && aAfter.lines === 1, '[chromium open] an Antigravity window past its reset on a list left open is read again and goes', JSON.stringify(aAfter));
+    await pa.close();
     // The reset passes while another Settings section is open (the list hidden): back on AI Models, the meter goes.
     const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p2.clock.install({ time: new Date(now) });
