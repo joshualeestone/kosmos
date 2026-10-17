@@ -24392,6 +24392,20 @@ function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
    tests lift a caller alone, where the helper does not exist. */
 /* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
    in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
+/* #6358: the board's browser sessions end when it restarts, so the Mac app's window finds itself signed out
+   after a restart. The app reads the board token itself and signs the window in again (kosmosSignin), so tell it,
+   once per sign-out: the app also limits itself to once a minute. A browser tab has no such bridge, and its
+   signed-out panel stands. */
+let SIGNED_OUT_TOLD_APP = false;
+function signedOutTellApp() {
+  if (SIGNED_OUT_TOLD_APP) return;
+  try {
+    const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin;
+    if (!h) return;
+    SIGNED_OUT_TOLD_APP = true;
+    h.postMessage(true);
+  } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
+}
 function restartHowMac() {
   let app = false;
   try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
@@ -24742,6 +24756,7 @@ async function tick() {
       // #2023: a 403 is not-signed-in (no board token, #1946), a known state with
       // a remedy -- flag it so the render shows the remedy, not "cannot read".
       BOARD_NEEDS_SIGNIN = (res.status === 403);
+      if (BOARD_NEEDS_SIGNIN) signedOutTellApp();   // #6358
       // #718 state 3: the relay's own answer for a remote device whose sign-in lapsed.
       BOARD_SIGNED_OUT = relaySignedOut(res.status, said);
       throw new Error(parts.join(' · '));
@@ -24754,6 +24769,7 @@ async function tick() {
        would lock a person out of a board that is up. */
     answered = true;
     BOARD_NEEDS_SIGNIN = false;   // a 200 means this browser is authed (#2023), whatever throws below
+    SIGNED_OUT_TOLD_APP = false;   // #6358: a later sign-out is told again
     BOARD_SIGNED_OUT = false;
 
     const lim = new URLSearchParams(location.search).get('limit');

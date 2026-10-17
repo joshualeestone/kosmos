@@ -1513,6 +1513,29 @@ func tokenizedBoardURL(_ urlString: String) -> URL? {
     return comps.url ?? URL(string: urlString)
 }
 
+/// #6358: PURE, for --kosmos-app-mode-selftest. Whether the page's "signed out" message signs the window in again
+/// now. The board ends every browser session when it restarts, and the app, which reads board.token itself, signs
+/// back in by loading the board with `?token=`. At most once per `signInAgainMinGap`, so a token the board refuses
+/// does not reload the window in a loop. `last` is nil when the app has not tried yet.
+let signInAgainMinGap: TimeInterval = 60
+func shouldSignInAgain(now: TimeInterval, last: TimeInterval?) -> Bool {
+    guard let last = last else { return true }
+    return now - last >= signInAgainMinGap
+}
+
+/* #6358: the page's "this window is signed out" message. Only the board's own page is heard, as for the badge
+   below: a page from anywhere else cannot make the window load the board with its token. */
+final class SigninMessageProxy: NSObject, WKScriptMessageHandler {
+    weak var owner: AppDelegate?
+    init(_ owner: AppDelegate) { self.owner = owner }
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let owner else { return }
+        let origin = message.frameInfo.securityOrigin
+        guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol) else { return }
+        owner.pageSaysSignedOut()
+    }
+}
+
 /* #3996: the page's waiting count, handed to the app. A separate object held WEAKLY to the app:
    WKUserContentController keeps its handlers alive, and holding the AppDelegate there would be a
    cycle. Only the board's own page is heard: the main frame at the board's own address and port
@@ -3692,6 +3715,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let config = WKWebViewConfiguration()
         // #3996: the page hands the app its waiting count each time it polls the board.
         config.userContentController.add(BadgeMessageProxy(delegate), name: "kosmosBadge")
+        // #6358: the page says this window's board session ended (the board restarted).
+        config.userContentController.add(SigninMessageProxy(delegate), name: "kosmosSignin")
         // #4356: the first screen's choice (web/index.html frChoose).
         config.userContentController.add(ModeMessageProxy(delegate), name: "kosmosMode")
         // #4409: the mic button's bridge. Its presence is how the page knows it may draw the button.
@@ -4424,6 +4449,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 if answered || self.badgeMisses >= 3 { self.showBadge(label, asked: asked) }
             }
         }.resume()
+    }
+
+    /// #6358: the board no longer knows this window's session. Load the board's page again with `?token=` (read from
+    /// board.token now, so a rotated token is used), which the board answers with a new session. Not on a connect
+    /// computer (it has no local board here), and at most once per signInAgainMinGap. The URL is never logged: it
+    /// carries the token.
+    private var lastSignInAgainAt: TimeInterval?
+    func pageSaysSignedOut() {
+        guard computerMode != .connect, let board = badgeOrigin else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard shouldSignInAgain(now: now, last: lastSignInAgainAt) else {
+            logLine("#6358: the page is still signed out; not signing in again within \(Int(signInAgainMinGap))s")
+            return
+        }
+        lastSignInAgainAt = now
+        let page = isBoardPage(committedPageURL, board: board) ? committedPageURL?.absoluteString : nil
+        guard let url = tokenizedBoardURL(page ?? "http://\(board.host):\(board.port)/") else { return }
+        logLine("#6358: the page is signed out; signing the window in again")
+        webView.load(URLRequest(url: url))
     }
 
     /// Whether a page origin is this app's board (127.0.0.1 on the resolved port), for BadgeMessageProxy.
@@ -6756,6 +6800,16 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     mode(Array("".utf8), .unreadable, "AN EMPTY FILE ASKS AGAIN, it does not become run")
     mode(Array("unset".utf8), .unreadable, "unset is not a stored choice")
     mode([0xff, 0xfe], .unreadable, "bytes that are not text")
+    // #6358: the sign-in-again throttle.
+    func again(_ now: TimeInterval, _ last: TimeInterval?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = shouldSignInAgain(now: now, last: last)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "again      " : "wait       ") + why)
+    }
+    again(100, nil, true, "never tried: sign in again")
+    again(100, 100 - signInAgainMinGap + 1, false, "tried under a minute ago: wait (a refused token must not loop)")
+    again(100, 100 - signInAgainMinGap, true, "a minute since the last try: again")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -6957,7 +7011,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 112   // #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 115   // #6358: +3 (the sign-in-again throttle); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
