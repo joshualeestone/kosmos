@@ -23,8 +23,9 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
    It waits two frames per step for the page's own observer instead of calling railPjMore.
 4. [~] render-projects.js: first run red on the arm's premise (the base notice already overflows the cap at this
    viewport); the arm now measures what is below with the cue off and passed at af59859250 (light and dark). Review 1
-   added the unfold and gradient-colour steps, review 2 the row-grew step. Rerun and mutant (fade rule removed) must
-   both be read before the PR.
+   added the unfold and gradient-colour steps, review 2 the row-grew step, review 13 the cap-shrank step. Mutant
+   (fade rule removed, on edf576c7): red in light and dark, as required. Rerun at 20520675: red only on row-grew (rows
+   were watched by content box; fixed to border box in fac88d81). A green rerun on the final head is still needed.
 5. [ ] Screenshots of the grown box, light and dark, for the PR and the channel.
 
 ## Decided, not missed

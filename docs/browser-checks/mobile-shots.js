@@ -1041,7 +1041,7 @@ const SCREENS = [
   /* kosmos#6349: the consolidated rail's project notice, capped and with more below, so its bottom fades. Grown from
      copies of the notice's own row (no invented markup) until it outruns the cap; the layout is applied, not saved, and
      every screen starts on a freshly loaded board. Desktop only: the consolidated view exists at >= 960px. */
-  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, go: async (page, data) => {
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.evaluate(() => applyLayout('consolidated', true));
@@ -1052,6 +1052,10 @@ const SCREENS = [
       for (let n = 0; n < 30 && box.scrollHeight <= box.clientHeight * 1.6; n++) box.appendChild(row.cloneNode(true));
     });
     await page.waitForFunction(() => document.getElementById('alist-pj-notice').hasAttribute('data-more'), null, { timeout: 5000 });
+  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded (a late style read could undo the layout)
+    const ok = await page.evaluate(() => document.documentElement.getAttribute('data-layout') === 'consolidated'
+      && document.getElementById('alist-pj-notice').hasAttribute('data-more'));
+    if (!ok) throw new Error('rail-notice-more: the shot is not of a faded rail notice in the consolidated layout');
   } },
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */

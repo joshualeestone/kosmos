@@ -1323,6 +1323,12 @@ async function main() {
         const grown = { ...step(), scrolls: box.scrollHeight > box.clientHeight + 1 };
         box.scrollTop = box.scrollHeight; await frames();
         const atEnd = step();
+        /* The box itself shrinking with no row changing (its cap moving without a window resize): only the box's own size
+           watcher can say more is now below. */
+        box.style.maxHeight = Math.max(60, box.clientHeight - 80) + 'px'; await frames();
+        const capShrank = step();
+        box.style.maxHeight = ''; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
         /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
         const last = copies[copies.length - 1];
         last.style.paddingBottom = '120px'; await frames();
@@ -1334,20 +1340,20 @@ async function main() {
         const rgb = /rgba?\([^)]*\)/g;
         const ends = { img: getComputedStyle(box, '::after').backgroundImage, rail: getComputedStyle(document.getElementById('rail-agents')).backgroundColor };
         ends.ok = /linear-gradient/.test(ends.img) && (ends.img.match(rgb) || []).pop() === ends.rail;
-        /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only the
-           box's own size change can bring the cue back. */
+        /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only a size
+           change (the box's or its rows') can bring the cue back. */
         body.classList.add('fold-a'); await frames();
         copies.push(box.appendChild(row.cloneNode(true))); await frames();
         body.classList.toggle('fold-a', folded); await frames();
         const unfolded = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
         const shortAgain = step();
-        return { before, grown, atEnd, rowGrew, backUp, ends, unfolded, shortAgain };
+        return { before, grown, atEnd, capShrank, rowGrew, backUp, ends, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
         body.classList.toggle('fold-a', folded);
+        box.style.maxHeight = '';
         box.scrollTop = st0;
-        if (document.activeElement && box.contains(document.activeElement)) document.activeElement.blur();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
         await frames();   // the page's own readers settle the cue before the next arm reads the page
       }
@@ -1355,11 +1361,11 @@ async function main() {
     /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
        scrolls, with more below at the top and none at the end, so both answers are exercised. */
     const cueRight = (s) => s.more === s.below && s.fade === s.below;
-    if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below
-        || ![cue.before, cue.grown, cue.atEnd, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
+    if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below || !cue.capShrank.below
+        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
         || !cue.ends.ok) {
       contrastFails += 1;
-      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after the box shrank there, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
