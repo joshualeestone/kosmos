@@ -27521,12 +27521,20 @@ function acctWindowName(m) {
   if (mins % 60 === 0) return (mins / 60) + '-hour';
   return mins + '-minute';
 }
+/* #6176 slice 3: one drawing for a provider's own limit reports (Codex's session files, Grok's billing log). `who` names
+   the tool that reported it; `none` is the line when there is no current reading. */
 function acctCodexUsageHtml(a) {
+  return acctLimitsUsageHtml(a, 'Codex', 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.');
+}
+function acctGrokUsageHtml(a) {
+  return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it when it starts a session on this account.');
+}
+function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
   const now = Date.now();
   const ws = a.limits && Array.isArray(a.limits.windows)
     ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt) && w.resetsAt > now) : [];
-  if (!ws.length) return '<div class="acct-usage"><p class="acct-usage-line acct-usage-none">No current usage reading for this sign-in. Codex reports it while an agent on it is working.</p></div>';
+  if (!ws.length) return '<div class="acct-usage"><p class="acct-usage-line acct-usage-none">' + esc(none) + '</p></div>';
   const age = Number.isFinite(a.limits.at) ? agoWords(Math.max(0, now - a.limits.at)) : '';   // a board clock a little ahead is not a negative age
   const html = ws.map((w, i) => {
     const pct = Math.max(0, Math.min(100, Math.round(w.usedPct)));
@@ -27536,13 +27544,14 @@ function acctCodexUsageHtml(a) {
     const resets = new Date(w.resetsAt).toLocaleString([], sameDay ? { hour: 'numeric', minute: '2-digit' }
       : w.resetsAt - now > 6 * 864e5 ? { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' } : { weekday: 'short', hour: 'numeric', minute: '2-digit' });
     return '<div class="acct-usage-meter acct-usage-codex' + (i ? ' acct-usage-next' : '') + '" data-resets="' + Math.round(w.resetsAt) + '"><span class="bar" aria-hidden="true"><i class="' + band + '" style="width:' + pct + '%"></i></span>'
-      + '<p class="acct-usage-line">' + pct + '% of its ' + esc(name) + ' limit used · resets ' + esc(resets) + (age ? ' · Codex last reported it ' + esc(age) : '') + '</p></div>'
+      + '<p class="acct-usage-line">' + pct + '% of its ' + esc(name) + ' limit used · resets ' + esc(resets) + (age ? ' · ' + esc(who) + ' last reported it ' + esc(age) : '') + '</p></div>'
       + (pct >= ACCT_WARN_PCT ? '<p class="acct-usage-warn' + (band === 'high' ? ' high' : '') + '">' + (pct >= 100 ? 'At its ' + esc(name) + ' limit until ' + esc(resets) + '.' : 'Close to its ' + esc(name) + ' limit.') + '</p>' : '');
   }).join('');
   return '<div class="acct-usage">' + html + '</div>';
 }
 function acctUsageHtml(a, list) {
   if (a && a.provider === 'openai') return acctCodexUsageHtml(a);
+  if (a && a.provider === 'xai') return acctGrokUsageHtml(a);   // #6176 slice 3: a subscription carries limits; a key does not
   /* An older board sends neither field: show nothing. The meter needs only the weekly fields (always sent on a Claude
      row); the agents line and the move need agentsHere, which comes only when the page asks (?agents=1). */
   if (!a || a.provider !== 'anthropic' || (!('weekly' in a) && !('weeklyBlocked' in a) && !('fiveHour' in a) && !a.agentsHere)) return '';
