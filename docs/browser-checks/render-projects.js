@@ -1312,6 +1312,8 @@ async function main() {
       const step = () => ({ more: box.hasAttribute('data-more'), fade: fade(), ...truth() });
       const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
       const copies = [];
+      // What this arm changes besides the copies, so finally can put it back even after a throw.
+      const was = document.activeElement, body = document.body, folded = body.classList.contains('fold-a'), st0 = box.scrollTop;
       try {
         await frames();   // the arm above put the window back; the page's own readers answer on the next frame
         const before = step();
@@ -1334,7 +1336,6 @@ async function main() {
         /* A control focused from the keyboard below the edge is scrolled in clear of the fade (WCAG 2.4.11): once as the
            page ships, and once with the CSS scroll padding off, which only the page's own focusin nudge can then pass
            (an engine that ignores the padding on a focus scroll). */
-        const was = document.activeElement;
         const tryFocus = async (noPad) => {
           const btn = [...box.querySelectorAll('button')].find((b) => b.getBoundingClientRect().top >= box.getBoundingClientRect().bottom);
           if (!btn) return { button: false };
@@ -1342,7 +1343,8 @@ async function main() {
           btn.focus(); await frames(); await frames();
           const b = btn.getBoundingClientRect(), x = box.getBoundingClientRect();
           const out = { button: true, visible: btn.matches(':focus-visible'), gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - 27 && b.top >= x.top };
-          if (was && was.focus) was.focus(); else btn.blur();
+          if (was && was !== document.body && was.focus) was.focus();
+          if (document.activeElement === btn) btn.blur();
           box.style.scrollPaddingBottom = '';
           box.scrollTop = 0; await frames();
           return out;
@@ -1352,7 +1354,6 @@ async function main() {
         focus.clear = !!(focus.padded.clear && focus.unpadded.clear);
         /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only the
            box's own size change can bring the cue back. */
-        const body = document.body, folded = body.classList.contains('fold-a');
         body.classList.add('fold-a'); await frames();
         copies.push(box.appendChild(row.cloneNode(true))); await frames();
         body.classList.toggle('fold-a', folded); await frames();
@@ -1362,6 +1363,10 @@ async function main() {
         return { before, grown, atEnd, rowGrew, backUp, ends, focus, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
+        body.classList.toggle('fold-a', folded);
+        box.style.scrollPaddingBottom = '';
+        box.scrollTop = st0;
+        if (document.activeElement && box.contains(document.activeElement)) document.activeElement.blur();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
       }
     });
