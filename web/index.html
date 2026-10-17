@@ -30157,6 +30157,11 @@ function worldswTipMarkSeen(force) {
   COMPUTERS_TIP_SHOWN = true;
   try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
 }
+/* #6403: the switcher went away (back to one computer): the tip goes too, without counting as seen. */
+function worldswTipDrop() {
+  const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
+  const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
+}
 function worldswTipHide() {
   const tip = document.getElementById('worldsw-tip');
   if (tip && !tip.hidden) worldswTipMarkSeen(true);   // put away (close, Escape, the menu): seen
@@ -30185,6 +30190,7 @@ function worldswComputersSeen(rows, good, signedOut) {
     THIS_COMPUTER_NAME = me ? me.name : '';
     const was = COMPUTERS_OPENABLE;
     COMPUTERS_OPENABLE = rows.length >= 2;
+    if (was && !COMPUTERS_OPENABLE) worldswTipDrop();   // #6403: nowhere to switch to any more: the tip goes with it
     COMPUTERS_SIGNED_OUT = signedOut === true;   // #6403: not signed in to Kosmos+, so a look back has nothing to find
     if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
   } else if (COMPUTERS_OPENABLE) {
