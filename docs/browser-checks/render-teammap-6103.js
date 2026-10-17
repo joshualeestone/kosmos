@@ -136,7 +136,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const viaMap = await detailOf();
     say('a member on the map opens that agent page', viaMap.shown && /tmben/i.test(viaMap.name), JSON.stringify(viaMap));
 
-    // movedBy reaches the browser through the real route (GET /api/projects), not only through projects.mbList in the
+    // movedBy reaches the browser through the real route (GET /api/projects), not only through projects.list in the
     // unit test: a part recorded on disk as moved by tmada shows as a hand-off on the page.
     const mbPid = await p.evaluate(async () => {
       const r = await fetch('/api/projects'); const j = await r.json();
