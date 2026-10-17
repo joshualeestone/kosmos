@@ -355,14 +355,29 @@ KOSMOS_QUEUE_CLASS=heavy
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
 # #6334: up to KOSMOS_SUITE_MAX suites at once (default 2), so this run starts beside one other. Measured 2026-10-16 on
 # the 12-core Mac: two full suites side by side on one commit both passed (21287 tests, 0 failures, shell stages too),
-# about 34 minutes each against 30 alone; the port fights behind the one-suite rule did not come back. Only this
-# suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite at all.
+# about 34 minutes each against 30 alone; that one pair, with nothing else running beside it, showed no port fight. Only
+# this suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite.
 # KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits for no other suite; another
 # agent's run still reads its own). Unset or empty is 2; anything else that is not one to three digits, or is 0,
 # reads as 1.
-_rt_suite_max="${KOSMOS_SUITE_MAX:-2}"
-case "$_rt_suite_max" in ''|*[!0-9]*|????*) _rt_suite_max=1 ;; esac
-_rt_suite_max=$((10#$_rt_suite_max)); [ "$_rt_suite_max" -ge 1 ] || _rt_suite_max=1   # "08" is not octal; 0 reads as 1
+# The Mac-wide cap is a file, suite-max in the run-marker dir (~/.cache/kosmos-run-markers/suite-max), read by every
+# run that has this code, whatever its own tree: `echo 1 > ~/.cache/kosmos-run-markers/suite-max` puts them all back to
+# one at a time without a rebase. It can only lower the limit; unreadable or junk reads as 1.
+_rt_suite_max_of() {   # <value> -> a whole number from 1 to 999 ("08" is not octal; 0 and junk read as 1)
+  local v="$1"
+  case "$v" in ''|*[!0-9]*|????*) v=1 ;; esac
+  v=$((10#$v)); [ "$v" -ge 1 ] || v=1
+  printf '%s' "$v"
+}
+_rt_suite_max="$(_rt_suite_max_of "${KOSMOS_SUITE_MAX:-2}")"
+if command -v _kosmos_marker_dir >/dev/null 2>&1; then
+  _rt_cap_file="$(_kosmos_marker_dir)/suite-max"
+  if [ -e "$_rt_cap_file" ]; then
+    _rt_cap="$(head -1 "$_rt_cap_file" 2>/dev/null | tr -d '[:space:]')"
+    _rt_cap="$(_rt_suite_max_of "$_rt_cap")"
+    if [ "$_rt_cap" -lt "$_rt_suite_max" ]; then _rt_suite_max="$_rt_cap"; fi
+  fi
+fi
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
