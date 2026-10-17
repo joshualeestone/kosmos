@@ -603,7 +603,7 @@
     },
     {
       "title": "Add a computer one step at a time",
-      "line": "Adding a computer to Kosmos+ no longer asks you to name it, shows the monthly price before you pay, and notices your payment by itself.",
+      "line": "Adding a computer to Kosmos+ no longer asks you to name it, shows the price before you pay, and notices your payment by itself.",
       "icon": "shield",
       "rank": 1.1,
       "since": "0.7.54",
@@ -611,7 +611,7 @@
     },
     {
       "title": "Undo covers Codex and Antigravity agents",
-      "line": "With undo on, Codex and Antigravity agents' file edits now keep a copy, and a project's Files page usually names the agent that made them.",
+      "line": "With undo on, Codex and Antigravity file tool edits now keep a copy, and a project's Files page usually names the agent that made them.",
       "icon": "tasks",
       "platforms": [
         "mac"
