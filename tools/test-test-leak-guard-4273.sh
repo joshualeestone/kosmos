@@ -77,6 +77,16 @@ rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 for i in 1 2 3 4 5 6 7; do : > "$root/kts-Zz99Yy/f$i"; done
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'it holds: boardkeychain-4491-Ab f1 f2 f3 f4 (and 4 more)$' && ok "#6362: a long listing shows five and counts the rest" || bad "long listing: rc=$rc out=$out"
+# #6362: a dir the guard cannot read says so rather than "nothing" (find's own status, not the pipeline's).
+if [ "$(id -u)" != 0 ]; then
+  rm -f "$root/kts-Zz99Yy/.kts-owner"; chmod 000 "$root/kts-Zz99Yy"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+  rc2=0; out2=$( (set -e; leak_kts_owners "$root") ) || rc2=1
+  chmod 755 "$root/kts-Zz99Yy"
+  [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'kts-Zz99Yy: no owner recorded: .*; it holds: (could not list)$' && ok "#6362: an unreadable owner-less dir says it could not be listed" || bad "unreadable dir: rc=$rc out=$out"
+  # The guard is a library: a caller WITHOUT pipefail (run-tests.sh has it) must get the same answer.
+  [ "$rc2" -eq 0 ] && printf '%s\n' "$out2" | grep -q 'kts-Zz99Yy: no owner recorded: .*; it holds: (could not list)$' && ok "#6362: the same without pipefail (find's own status is read)" || bad "unreadable dir without pipefail: rc=$rc2 out=$out2"
+fi
 rm -rf "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok

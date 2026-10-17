@@ -207,7 +207,12 @@ leak_kts_owners() {
       echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
       # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
-      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort) || held="(could not list)"
+      # find's own status, not the pipeline's (whose status is the last stage's): a dir it cannot read is said so.
+      if held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null); then
+        held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
+      else
+        held="(could not list)"
+      fi
       n=$(printf '%s' "$held" | grep -c . || true)
       shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
       if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi

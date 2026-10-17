@@ -34,6 +34,9 @@ Mona's two dirs are gone (the run's temp root is removed), so which arm they wer
 That the leaked folders' names identify their test. Many fixture prefixes carry a card number or a test name, but a
 generic one (`tmp-`, a bare mkdtemp) would not; then the report says what is there and a person still has to look.
 
+Also: if a process remakes the dir between a failed sweep and the owner rewrite, the dir is marked "survived its
+sweep" though it was remade; the guard then names the file (right) with a cause that is only roughly right.
+
 ## Not done (next slice, if the card stays open)
 Find the test(s) that leave a process running. That needs the contents of a real owner-less dir, which this change
 makes the next leak report print. The card's "repeated full runs" measurement is the validation run of this branch;
