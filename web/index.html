@@ -51520,16 +51520,23 @@ function paintPlusJoin() {
     : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
   else if (stale) html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
-  /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
-  if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
+  /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. A write that
+     does happen keeps keyboard focus on the same control (a refusal line timing out rebuilds the block). */
+  if (el.__lastJoin !== html) {
+    const fid = el.contains(document.activeElement) && document.activeElement.id;
+    el.innerHTML = html; el.__lastJoin = html;
+    if (fid) { const n = document.getElementById(fid); if (n && n.focus) n.focus(); }
+  }
 }
 /* #6353: Try again. The tunnel starts one new attempt on its next round, so the page reads the pairing straight after. */
 document.getElementById('plus-join').addEventListener('click', async (e) => {
   const b = e.target.closest('#plus-join-retry');
   if (!b || b.disabled) return;
   b.disabled = true;
+  const gen = PLUS_JOIN_GEN;
   let res = null;
   try { res = await fetch('/api/remote/join/retry', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); } catch { res = null; }
+  if (PLUS_JOIN_GEN !== gen) return;   // a Forget or Off reset the pairing while this was out: its answer is about nothing now
   PLUS_JOIN_GEN += 1;
   /* The answer changes what the block says now, before any round: the button must not come back pressable. */
   if (res && res.ok) { PLUS_JOIN_MSG = ''; PLUS_JOIN_CODE_AT = 0; PLUS_JOIN_RETRY_AT = Date.now(); if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = true; } }
