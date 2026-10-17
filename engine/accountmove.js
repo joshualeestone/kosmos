@@ -276,8 +276,9 @@ function leftOnOld(deps, name) {
    block, so nothing in this board process can change it in between (another process writing the job file
    in that moment, such as a hand edit, is not covered). */
 /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
-   was tried. The new account is saved and the agent still runs on its old one, as a partial says. Shared by the
-   sync `putBack` and the async `putBackOne` so the wording cannot drift (#6231 item 7). */
+   was tried. The new account is saved and the agent still runs on its old one, as a partial says. Called from every
+   put-back failure path (the guards, the write rejection, a REFUSED result) so the wording cannot drift (#6231
+   item 7), and it fires the leftOnOld note, so a caller that drops `deps` silently loses the note (#6231 item 9). */
 function putBackFailed(a, why, deps) {
   const acct = (a.wrote && a.wrote.account) || {};
   const who = acct.name || acct.email || acct.label || 'the new account';
@@ -286,7 +287,7 @@ function putBackFailed(a, why, deps) {
   leftOnOld(deps, a.name);   // #6231: noted as still running on its old account, as a partial restart is
 }
 
-/* #6231 item 7: the part of the put-back BEFORE the write, shared by the sync and async forms: the guard, the
+/* #6231 item 7: the part of the put-back BEFORE the write (run by putBackOne for every put-back): the guard, the
    hand-change re-read (SYNC, so nothing in this process can change the account between it and the write-issue --
    contract 3), and the "they changed it since" case. Returns `{ done: true }` when the agent is already settled
    (guard failed or the person had changed it), or `{ proceed: true, dir }` to write `a.from.dir` next. */
@@ -294,7 +295,8 @@ function putBackBefore(m, a) {
   const deps = m.deps;
   /* #6231: each caller says in its own words why a put-back cannot happen, and the agent is noted still on its old
      account (putBackFailed fires leftOnOld). "Can put back" in item 7 means a sync putBack OR an async putBackAsync --
-     the tail awaits putBackAsync, the board wires both -- but the three refusals stay distinct (item 10 reads them). */
+     putBackOne uses putBackAsync when wired and the sync putBack inline otherwise, so either satisfies this guard --
+     but the three refusals stay distinct (item 10 reads them). */
   const canWrite = typeof deps.putBack === 'function' || typeof deps.putBackAsync === 'function';
   if (!canWrite) { putBackFailed(a, 'this Kosmos cannot put an agent back on its old account', deps); return { done: true }; }
   if (typeof deps.readAccount !== 'function') { putBackFailed(a, 'this Kosmos cannot read which account an agent was on', deps); return { done: true }; }
@@ -318,7 +320,7 @@ function putBackBefore(m, a) {
   return { proceed: true, dir: a.from.dir };
 }
 
-/* #6231 item 7: the part AFTER the write, shared by both forms: word the outcome from the write's result (a
+/* #6231 item 7: the part AFTER the write (run by putBackOne): word the outcome from the write's result (a
    create.OUTCOME-shaped `{ outcome, because, account }`, or the async cap's REFUSED-shaped one). */
 function putBackAfter(a, back, deps) {
   if (!back || back.outcome === deps.REFUSED) { putBackFailed(a, (back && back.because) || 'that did not work', deps); return; }
@@ -329,26 +331,22 @@ function putBackAfter(a, back, deps) {
   delete a.account;
 }
 
-/* The read and the write are one synchronous block, so nothing in this board process can change it in between.
-   (Linux/mac put-backs, and any remaining sync caller.) */
-function putBack(m, a) {
-  const pre = putBackBefore(m, a);
-  if (pre.done) return;
-  let back;
-  try { back = m.deps.putBack(a.name, pre.dir); }
-  catch (err) { putBackFailed(a, String((err && err.message) || err), m.deps); return; }
-  putBackAfter(a, back, m.deps);
-}
-
-/* #6231 item 7: the async put-back -- the hand-change re-read stays SYNC (inside putBackBefore, before the await,
-   so no yield sits between the re-read and the write-issue, contract 3), only the write is awaited off the board's
-   thread. The caller keeps the agent HELD until this resolves (contract 3b). */
+/* #6231 item 7: the put-back write. Every caller uses this now -- the move's tail runs only this async form. The
+   hand-change re-read stays SYNC (inside putBackBefore, before the await, so no yield sits between the re-read and
+   the write-issue -- contract 3); only the write itself is awaited off the board's thread, and the caller keeps the
+   agent HELD until this resolves (contract 3b). The board wires putBackAsync (win32: schtasks off the thread;
+   linux/mac: a resolved sync restoreAccount), so a caller that wired only the SYNC putBack still works -- it is run
+   inline -- which is what keeps putBackBefore's `canWrite` (either one) honest. A rejection/throw is worded and
+   NOTED (putBackFailed fires leftOnOld through `m.deps`, the regression #6231 item 9 guards against). */
 async function putBackOne(m, a) {
   const pre = putBackBefore(m, a);
   if (pre.done) return;
   let back;
-  try { back = await m.deps.putBackAsync(a.name, pre.dir); }
-  catch (err) { putBackFailed(a, String((err && err.message) || err)); return; }
+  try {
+    back = typeof m.deps.putBackAsync === 'function'
+      ? await m.deps.putBackAsync(a.name, pre.dir)
+      : m.deps.putBack(a.name, pre.dir);
+  } catch (err) { putBackFailed(a, String((err && err.message) || err), m.deps); return; }
   putBackAfter(a, back, m.deps);
 }
 
@@ -367,7 +365,9 @@ function stop() {
   if (m.stopped) return { status: 200, body: { ...view(m), already: true } };
   m.stopped = true;
   /* #6231 item 7: the put-backs are no longer done here on the board's thread -- the move's async tail (start's
-     finally) puts each not-reached agent back, held until its own put-back settles. stop() only flags the move. */
+     finally) puts each not-reached agent back, ONE AT A TIME, each held until its own put-back settles. So a stop
+     answers at once, but a not-reached agent stays held (its own Update/switch refused) until the in-flight restart
+     and every earlier put-back in the sequence have run; the last agent's hold spans them all. stop() only flags. */
   return { status: 200, body: view(m) };
 }
 

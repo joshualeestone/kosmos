@@ -317,6 +317,20 @@ test('#6231 item 7 (contract 3): a hand change landing mid-batch is still detect
   assert.match(cy.because, /their account had been changed since the move saved it/);
 });
 
+test('#6231 item 7: a caller that wired only the sync putBack (no putBackAsync) still puts back, run inline', async () => {
+  // putBackBefore's canWrite accepts a sync-only putBack; putBackOne must then honour that by running it inline,
+  // or canWrite would be a lie and the agent would be refused with "putBackAsync is not a function".
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  delete d.putBackAsync;
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'the put-back ran through the sync putBack');
+  assert.equal(accountmove.read(out.body.id).agents[1].outcome, 'stopped');
+  assert.equal(d.held.size, 0);
+});
+
 test('#6231 item 7 (contract 4): a second stop while the put-backs are still running is a no-op and says so', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, slow: ['bo'] });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
