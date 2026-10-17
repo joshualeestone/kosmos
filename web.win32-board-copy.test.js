@@ -850,14 +850,15 @@ test('#5865: an unreadable daily-report setting on Linux does not send the perso
   assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
 });
 
-test('#6358: on Linux the not-signed-in panel and sentence point to Kosmos+, never the Mac app, Kosmos.exe or kosmos open', () => {
+test('#6358: on Linux the not-signed-in panel points to Kosmos+ and the sentence to the panel, never the Mac app, Kosmos.exe or kosmos open', () => {
   const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
   assert.match(html, /reach it through Kosmos\+, which stays signed in/);
   assert.match(html, /Signing a local browser tab back in is not available on Linux yet/, 'no remedy is promised that does not work there');
   assert.match(html, /data-board-retry/, 'the panel lost its Reload');
   assert.doesNotMatch(html, /Applications folder|Kosmos\.exe|the app signs itself in/, 'a Linux board has no app');
   const sentence = runPage('linux', [], page.liftConst(SCRIPT, 'SIGNIN_SENTENCE').replace(/^const SIGNIN_SENTENCE = /, '').replace(/;$/, ''));
-  assert.match(sentence, /Through Kosmos\+ it stays signed in\./);
+  assert.match(sentence, /The not-signed-in note on the agents list says what to do\./, 'the sentence points to the panel');
+  assert.doesNotMatch(sentence, /stays signed in/, 'false to a person reading this board through Kosmos+ while signed out');
   assert.doesNotMatch(sentence + html, /kosmos open/, 'kosmos open cannot open a browser on Linux today');
   assert.doesNotMatch(sentence, /Applications folder/);
   // A key the Linux table does not have keeps the Mac words on Linux, as before.

@@ -20092,9 +20092,9 @@ function linuxCopyTable() {
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
     // #6358: a Linux board has no app and no Applications folder, and kosmos open cannot open a browser there yet
-    // (#6361), so a signed-out tab is pointed to Kosmos+, whose connector presents the token itself.
-    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. Through Kosmos+ it stays '
-      + 'signed in.',
+    // (#6361), so a signed-out tab is pointed to Kosmos+, whose connector presents the token itself. No Linux
+    // signinSentence: the default points to the panel, which is true on loopback and through Kosmos+ alike (a
+    // sentence saying Kosmos+ stays signed in would be false to a person signed out ON Kosmos+).
     signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects. Kosmos signs a '
       + 'browser tab out each time it restarts or updates, and after seven days. To use this board from a browser, '
       + 'reach it through Kosmos+, which stays signed in. Signing a local browser tab back in is not available on '
@@ -24401,8 +24401,6 @@ function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
 }
 /* Callers write `typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch(...)`: some
    tests lift a caller alone, where the helper does not exist. */
-/* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
-   in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 /* #6358: the board's browser sessions end when it restarts, so the Mac app's window finds itself signed out
    after a restart. The app reads the board token itself and signs the window in again (kosmosSignin), so tell it.
    Not on every poll: again only after SIGNED_OUT_RETELL_MS, a little over the app's own once-a-minute limit, so a
@@ -24441,6 +24439,8 @@ function signedOutTellApp(now = Date.now()) {
     else win.postMessage({ kosmosSignin: true });
   } catch { /* not in an app, or no window (a test): nothing to tell */ }
 }
+/* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
+   in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 function restartHowMac() {
   let app = false;
   try { app = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
