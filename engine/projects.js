@@ -933,7 +933,8 @@ function roomLive(project, now) {
   try { last = require('./messages').lastPostAt(project.id); } catch { return true; }
   if (last === undefined) return true;
   const born = Date.parse(project.createdAt);
-  return [last, born].some((t) => Number.isFinite(t) && now - t < NEEDS_LIVE_MS);
+  // A time after now (a skewed clock, an import) is not evidence of anything recent (review 2).
+  return [last, born].some((t) => Number.isFinite(t) && t <= now && now - t < NEEDS_LIVE_MS);
 }
 /* #6341: why a reason is quiet ('usage' | 'paused' | 'dismissed' | 'inactive'), or null when it counts. Josh 19:47:
    "a couple agents were out of usage but that should never show in the project, only on the agent", so a rate limit
@@ -1191,7 +1192,9 @@ function describe(project, roster, all) {
     if (Number.isFinite(since) && quiet.now - since >= NEEDS_GONE_MS) drop.push(name);
     else goneNow[name] = Number.isFinite(since) ? quiet.gone[name] : new Date(quiet.now).toISOString();
   }
-  const goneChanged = JSON.stringify(goneNow) !== JSON.stringify(quiet.gone);
+  // Compared by entries, not by serialised order (review 2: a key order that differed would write on every read).
+  const goneChanged = Object.keys(goneNow).length !== Object.keys(quiet.gone).length
+    || Object.keys(goneNow).some((k) => goneNow[k] !== quiet.gone[k]);
   if (drop.length || goneChanged) {
     try {
       const stored = readAll();

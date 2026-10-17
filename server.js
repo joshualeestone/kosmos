@@ -23619,8 +23619,9 @@ function start(port = PORT) {
               ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),   // only non-null is read
             reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
             release: (slot) => agyQuota.releaseCapStart(slot),
-            // #6341: a note the room already holds (same agent, same words, in the last week) is not written again after a restart.
-            alreadyNoted: (projectId, session, because) => messages.recommenderNoted(projectId, session, because, Date.now() - 7 * 24 * 60 * 60 * 1000),
+            // #6341: a note the room already holds (same agent, same words, in the last day) is not written again after a restart.
+            // Review 2: a day, not a week, so a new stuck episode with the same words on another day is convened as new.
+            alreadyNoted: (projectId, session, because) => messages.recommenderNoted(projectId, session, because, Date.now() - 24 * 60 * 60 * 1000),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.

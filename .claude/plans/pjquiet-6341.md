@@ -22,13 +22,19 @@ and 5:15 pm, in one room.
   record (the board, not the browser: these can stand for weeks). `describe()` drops a dismissal once that member's reason
   is gone or different, so the same reason returning later is shown again. An agent the board cannot see is not judged.
   `elsewhere` is the reason for a row the page lists after the counted ones (#5692): it stands while nothing is counted
-  for that member here.
+  for that member here. A dismissal is dropped only once its reason has been away for 10 minutes (`needsDismissGone`
+  holds when it was first seen away), so a reading that flickers between polls does not bring the row back.
+- A room is live when it had a post in the last day OR the project was made in the last day (a new project's room is
+  often silent because its agent is blocked). A message log that cannot be read counts the room as live.
 - `engine/messages.js`: `lastPostAt(projectId)` (posts and outside messages only; Kosmos's own notes do not make a room
   live), kept incrementally against the reader's memory; `recommenderNoted(project, agent, because, since)`.
 - `server.js`: `POST /api/project/<id>/needs-dismiss` `{agent, reason}` (board token; not on the agent-token list);
-  the Recommender runner passes `alreadyNoted` (a matching note in the room in the last 7 days) and logs it.
-- `engine/recommender.js` `runOnce`: an item whose note the room already holds is not convened again (no note, no
-  asks, no playbook), its hourly charge is given back, and it is marked convened.
+  the Recommender runner passes `alreadyNoted` (a matching note in the room in the last day) and logs it.
+- `engine/recommender.js` `runOnce`: an item whose note the room already holds (a board restart forgot it) writes no
+  note and asks nobody again; the stuck agent still gets its playbook, which says the room holds the earlier note and
+  replies (`playbookText`'s `alreadyNoted`). Budget and retries are as for any convening.
+- `engine/projectview.js` `listOf` (`kosmos project list`): a quieted member is not counted as waiting on the person.
+- `web/index.html` `pjMember`: a member the engine marked quiet is not drawn red on the project.
 - `web/index.html` `pjNeedsNotice`: each row gets Dismiss beside Open/Answer (carrying the row's reason); a member with
   `needsYouQuiet` is not listed among the uncounted red rows; `pjNeedsDismissClick` posts, repaints, says it in the
   notice's status line, keeps focus on the next row's Dismiss; a refusal leaves the row and the button reads Try again.
@@ -38,10 +44,11 @@ Same rule as Angel's join-banner dismiss (#6315 follow-up, confirmed with her 19
 back when it changes. Hers is per browser (a join request lives minutes); this is on the board.
 
 ## Tests
-- `engine/projects-needsquiet-6341.test.js` (11): inactive vs live room (25 h vs 1 h, a note does not count), usage
-  never counts, paused, a question in a quiet room counts, dismiss and drop on change, unseen agent not judged,
-  elsewhere, refusals, `lastPostAt`, the Recommender's room check, `recommenderNoted`. 10 of 11 red against main's
-  engine (the 11th is the unchanged-question control).
+- `engine/projects-needsquiet-6341.test.js` (13): inactive vs live room (25 h vs 1 h, a note does not count), a new
+  project is live, an unreadable log is live, usage never counts, paused (and `kosmos project list` agrees), a question
+  in a quiet room counts, dismiss, the 10-minute grace and the drop, unseen agent not judged, elsewhere, refusals,
+  `lastPostAt`, the Recommender's room check and its playbook wording, `recommenderNoted`. The first version's 11 were
+  10 red against main's engine (the 11th is the unchanged-question control).
 - `engine/projects.test.js`: #3726 and #5688 arms updated (their rooms get a post; the rate-limited member is quiet).
 - `web.project-needs-you-5688.test.js`: Dismiss on every row; quiet members not listed again. Red against main's page.
 - `server.project-needs-dismiss-6341.test.js`: the route keeps and refuses. Red against main's server.
@@ -54,3 +61,9 @@ back when it changes. Hers is per browser (a join request lives minutes); this i
 - An `elsewhere` dismissal holds while the member has no counted reason here, so a later question about another
   project stays hidden here until something is counted.
 - A paused project lists nothing in its block, including a red member whose need is about another project.
+- A dismissed question stays dismissed if the same agent asks a different question within the 10-minute grace: the key
+  is the reason, not the question's words.
+- The dismissal and gone-mark write happens on a read (as `everSeen` already does): it re-reads the store just before
+  writing, but a second process writing the projects file in between is not locked out.
+- The Recommender's room check matches the same agent and the same words within a day, so the same words in a new
+  episode on the same day write no new note (the stuck agent is still given its playbook).

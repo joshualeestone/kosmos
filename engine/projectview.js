@@ -482,7 +482,8 @@ function listOf(described) {
       /* Members waiting on the person at all, whichever project their question is about: the project's own
          summary.needsYou counts only questions tied to this project, and an agent whose question is not tied
          to any is still waiting (measured: a Codex member asking read 0 there). */
-      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you').length,
+      // #6341: not a member the project has quieted (a paused project, a dismissed row), so the list agrees with the page.
+      needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && !m.needsYouQuiet).length,
       tasks: openTasks(p.tasks),
     };
   });
