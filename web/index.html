@@ -5384,7 +5384,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
      over the rows; it never takes a click. A control under it is dimmed, never hidden (WCAG 2.4.11 at AA). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: var(--railcue-fade); margin-top: calc(-1 * var(--railcue-fade)); pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
-  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { --railcue-fade: 28px; }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { --railcue-fade: 28px; }
   @media (forced-colors: active) { html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { display: none; } }   /* the system colours replace --k-bg, so the fade would paint the wrong colour */
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
