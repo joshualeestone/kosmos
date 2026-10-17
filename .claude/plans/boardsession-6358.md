@@ -208,3 +208,11 @@ header. A sender that set the cookie to the token would now be refused, and its 
 - **Would change my mind:** a page route that hands back a credential in its response body to a session.
 - Tests: a session cookie alone is refused on both routes and the token is not; both guards mutation-checked.
   1635/1635 across the 127 test files that reach agent-token, and 161/161 in the auth set.
+
+## Round 23 (Opus)
+- **Second weakest premise, named:** a live session has the page's whole authority, and that includes starting an
+  agent that runs as this account and can read the token file. So a session is bounded in TIME (restart or the cap)
+  and the cookie never carries the token. It is not bounded in REACH while live. The round-22 guard closes the
+  one-request mint routes. It is not a cap on what a session can do, and the comments in engine/boardauth.js and
+  server.js now say so.
+- **Declined (NIT), as decided in "Rounds 15 to 17":** the Windows SIGNIN_SENTENCE read through Kosmos+.

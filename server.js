@@ -5666,8 +5666,9 @@ const server = http.createServer(async (req, res) => {
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
-       a session cookie. Otherwise a session could mint its own successor and outlast SESSION_MAX_MS for as long as
-       the board stays up. Every minting caller (kosmos open, open-board.js, the staging check) sends the header. */
+       a session cookie. Otherwise a session could mint its own successor in one request and renew itself past
+       SESSION_MAX_MS. (This closes that one-request mint; it does not cap what a live session can do through the
+       page, which includes starting agents that run as this account.) Every minting caller (kosmos open, open-board.js, the staging check) sends the header. */
     if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;

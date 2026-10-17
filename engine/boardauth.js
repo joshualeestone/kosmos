@@ -469,8 +469,9 @@ function matches(presented, expected) {
 /** `Set-Cookie` value for a browser session (#6358: `value` is a mintSession id, never the board token).
  * HttpOnly so page JS cannot read it; SameSite=Strict so another site cannot cause it to be sent (defence in
  * depth alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the board is plain http on
- * loopback. It carries a session rather than the token, so what a browser holds is worth less and lasts less
- * long: less, not nothing, since a session still opens this board until the board restarts or the cap. Max-Age is
+ * loopback. It carries a session rather than the token, so the cookie itself stops working at the next restart or
+ * the cap. While it is live it has the page's whole authority (which includes starting agents that run as this
+ * account and can read the token file), so it is not worth less than the token while it lives. Max-Age is
  * what the session has left (the whole cap for a new one), so a cookie never outlives the session it names. */
 function cookieHeader(value, maxAgeMs = SESSION_MAX_MS) {
   return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}`;
@@ -513,8 +514,9 @@ function pathWithoutToken(req, routingBase) { return pathWithoutParam(req, routi
 // putting a redeemable value on argv -- so the exact #1946 hostile-second-account
 // (`ps -ww -o args` in a tight loop) can, WITHIN the TTL, `curl .../?boot=<nonce>`
 // and redeem it before the victim's browser does. Since #6358 the 302 sets a
-// session (mintSession), not the durable token, so a race-winner gets one session
-// that the next board restart ends. What #1979 changes is the SIZE of that exposure,
+// session (mintSession), not the durable token, so the cookie a race-winner gets
+// stops working at the next board restart, though while it is live it has the page's
+// whole authority (see cookieHeader). What #1979 changes is the SIZE of that exposure,
 // not its existence: instead of reading the durable token off argv at leisure,
 // forever, an attacker must now WIN a bounded (~2 min), single-use race -- the
 // window is ~2 min not forever, one use not unlimited, and, BECAUSE it is
@@ -565,8 +567,10 @@ function bootNonce(req, routingBase) {
 
 // --- Browser sessions (#6358) -------------------------------------------------
 // The cookie carries a SESSION the board mints at bootstrap, never the board token itself. Sessions live in
-// this process's memory only, so every board restart ends every one: what a browser holds is worth less, and
-// lasts at most until the board next starts (or the cap below). The durable token stays in the mode-600 file
+// this process's memory only, so every board restart ends every one: the cookie stops working at the latest
+// when the board next starts (or at the cap below). While live, a session has the page's whole authority, which
+// can reach the token (an agent runs as this account); what it cannot do is MINT a nonce or an agent token in one
+// request (server.js boardTokenOkWithoutCookie). The durable token stays in the mode-600 file
 // and the CLI's header. Each session remembers the token it was minted from, so the multi-world gate keeps
 // working and a rotated token ends its sessions. The same clock seam as the nonces (_setNonceClock) drives the
 // cap in tests.
