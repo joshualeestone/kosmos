@@ -117,7 +117,8 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const cons = layout === 'consolidated';
             document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
             document.body.classList.toggle('consolidated', cons);
-            const where = () => { const a = document.activeElement; return { inHead: !!(a && a.closest && a.closest('.apphead') && a.getClientRects().length), tag: a && a.tagName + '.' + a.className }; };
+            // The K mark is the first of the fallbacks and shows in both layouts, so it is where focus must land.
+            const where = () => { const a = document.activeElement; return { onK: !!a && a.id === 'klink' && a.getClientRects().length > 0, tag: a && a.tagName + '#' + a.id }; };
             window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
             document.getElementById('worldsw-btn').click(); await new Promise((r) => setTimeout(r, 80));
             const row = document.getElementById('worldsw-glance'); if (row) row.focus();   // a control in the open menu
@@ -138,10 +139,10 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           }, { worlds: WORLDS, layout });
           for (const layout of ['tabs', 'consolidated']) {
             const gone = await hide(layout);
-            ok(`${t} #6396 (${layout}): hiding with the menu open and focused closes it and moves focus to a visible header control, not the page`,
-              gone.before.open && gone.before.inside && !gone.menuOpen && gone.focus.inHead, JSON.stringify(gone));
-            ok(`${t} #6396 (${layout}): hiding with At a glance open closes the sheet and lets go of its scroll lock, focus in the header`,
-              gone.wvBefore && gone.lockedBefore && !gone.wvOpen && !gone.locked && gone.wvFocus.inHead, JSON.stringify(gone));
+            ok(`${t} #6396 (${layout}): hiding with the menu open and focused closes it and moves focus to the K mark, not the page`,
+              gone.before.open && gone.before.inside && !gone.menuOpen && gone.focus.onK, JSON.stringify(gone));
+            ok(`${t} #6396 (${layout}): hiding with At a glance open closes the sheet and lets go of its scroll lock, focus on the K mark`,
+              gone.wvBefore && gone.lockedBefore && !gone.wvOpen && !gone.locked && gone.wvFocus.onK, JSON.stringify(gone));
           }
           const four = await read('four');
           ok(`${t} four computers: it shows, names this one and opens (#6396 CONTROL: the hidden arms above can fail)`, four.shown && four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
