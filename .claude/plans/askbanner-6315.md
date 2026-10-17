@@ -17,7 +17,8 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
 2. [x] render-plus-asks-signin-4610.js (the served list is the check's, then it calls pollAsk): dismiss hides and
    moves focus, one answered elsewhere keeps it away, a repaint keeps it hidden, CONTROL a new request brings it
    back, after nothing waited the same requests show it, the same device asking again shows it, kept across a
-   reload, CONTROL storage cleared shows it, Review clears it, at 1400 and 390. Mutant (ignore the dismissal): red.
+   reload (after the list loads), CONTROL storage cleared shows it, storage throwing still holds in the tab, Review
+   clears it, at 1400 and 390. A mutant run by hand (ignore the dismissal) turned the dismiss arms red.
 3. [x] render-plus-panel-3829.js: its earlier Review press now dismisses, so the #3978 focus arm restores the
    notice first.
 
