@@ -219,6 +219,10 @@ const deliveryQueues = new Map();
 const unsentWires = new Map();   // target -> { wire, at, seq, seen }
 const UNSENT_FILE = () => path.join(store.ROOT, 'unsent-lines.json');
 let unsentLoaded = false;
+/* Each remembered line gets its own id (a retry scheduled for one line never acts on another, whatever the clock says). */
+let unsentIdNext = 0;
+/* A line left longer ago than this is not loaded after a restart: a pane gone that long is not coming back for it. */
+const UNSENT_LOAD_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 function loadUnsent() {
   if (unsentLoaded) return;
   unsentLoaded = true;
@@ -227,8 +231,9 @@ function loadUnsent() {
   if (!raw || typeof raw !== 'object') return;
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
-    if (e && typeof e.wire === 'string' && e.wire) {
-      unsentWires.set(target, { wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '' });
+    if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_LOAD_MAX_MS) {
+      unsentIdNext += 1;
+      unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '' });
     }
   }
 }
@@ -249,7 +254,12 @@ function saveUnsent() {
   } catch { /* best effort: the line is still remembered for this run */ }
 }
 function recallUnsent(target) { loadUnsent(); return unsentWires.get(target) || null; }
-function rememberUnsent(target, entry) { loadUnsent(); unsentWires.set(target, entry); saveUnsent(); }
+function rememberUnsent(target, entry) {
+  loadUnsent();
+  if (!entry.id) { unsentIdNext += 1; entry = { ...entry, id: unsentIdNext }; }
+  unsentWires.set(target, entry);
+  saveUnsent();
+}
 function forgetUnsent(target) { loadUnsent(); if (unsentWires.delete(target)) saveUnsent(); }
 /* kosmos#6436 test seam: what a board restart does to the memory (gone from the process, still on disk). */
 function restartUnsentForTests() { unsentWires.clear(); unsentLoaded = false; }
@@ -900,12 +910,14 @@ function composerIsAll(text, wire) {
    and back) would be sent with it. Text added after ours, or other text on screen, is never pressed. A long end cut
    shorter on screen is still all ours, so it is pressed: the words sent are the board's own. */
 const SCROLLED_MIN = 200;
-function rememberedShows(text, kept) {
+/* `exact`: only all of the line, or exactly what the box showed when it was left (the unattended retries use this;
+   the wider SCROLLED_MIN end is left to a delivery). */
+function rememberedShows(text, kept, exact = false) {
   if (!kept) return false;
   if (composerIsAll(text, kept.wire)) return true;
   const t = squash(text);
   if (!t || !squash(kept.wire).endsWith(t)) return false;
-  return (!!kept.seen && t === kept.seen) || t.length >= SCROLLED_MIN;
+  return (!!kept.seen && t === kept.seen) || (!exact && t.length >= SCROLLED_MIN);
 }
 /* Round 9: does the box still hold the end of what we pasted (its last 20 characters, or all of a shorter message)? */
 function stillHoldsOurEnd(text, wire) {
@@ -997,31 +1009,41 @@ async function pressRememberedNow(target, card) {
   const box = readComposer(target);
   if (!box.ok) return 'unread';
   if (!box.text) { forgetUnsent(target); return 'empty'; }
-  if (!rememberedShows(box.text, kept)) return 'changed';
+  if (!rememberedShows(box.text, kept, true)) return 'changed';
   if (!verifyAtSend(card).ok) return 'pane';
-  const pressed = tmux(['send-keys', '-t', target, 'Enter']);
-  if (!pressed.ran || pressed.status !== 0) return 'unsent';
-  /* Waited without holding the board (#4468), as confirmAsync waits. */
-  const steps = submitConfirmSteps(card, target, kept.wire, false, EARLIER_SETTLE_MS);
-  let step = steps.next();
-  while (!step.done) {
-    if (pauser) await pauser(step.value.wait);
-    else if (!runner) await new Promise((resolve) => setTimeout(resolve, step.value.wait));
-    step = steps.next();
+  /* The pane is busy while this runs, as during a delivery: no line is pasted while this one is being watched. */
+  let release = () => {};
+  const mark = new Promise((resolve) => { release = resolve; });
+  deliveryQueues.set(target, mark);
+  try {
+    const pressed = tmux(['send-keys', '-t', target, 'Enter']);
+    if (!pressed.ran || pressed.status !== 0) return 'unsent';
+    /* Waited without holding the board (#4468), as confirmAsync waits. */
+    const steps = submitConfirmSteps(card, target, kept.wire, false, EARLIER_SETTLE_MS);
+    let step = steps.next();
+    while (!step.done) {
+      if (pauser) await pauser(step.value.wait);
+      else if (!runner) await new Promise((resolve) => setTimeout(resolve, step.value.wait));
+      step = steps.next();
+    }
+    if (step.value && step.value.outcome === 'sent') {
+      const still = recallUnsent(target);
+      if (still && still.id === kept.id) forgetUnsent(target);   // only the line this retry pressed
+      if (kept.seq != null) tellEarlierSubmitted(kept.seq);
+      return 'sent';
+    }
+    return 'unsent';
+  } finally {
+    if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
+    release();
   }
-  if (step.value && step.value.outcome === 'sent') {
-    forgetUnsent(target);
-    if (kept.seq != null) tellEarlierSubmitted(kept.seq);
-    return 'sent';
-  }
-  return 'unsent';
 }
 /* kosmos#6436: the retries after an unsent verdict. Each one that finds the line gone (sent, emptied, or replaced by a
    newer one) does nothing; one that finds a newer line remembered leaves it to that line's own retries. */
 function scheduleUnsentRetries(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return;
-  const at = kept.at;
+  const id = kept.id;
   const schedule = unsentRetryScheduler || (runner ? null : (ms, fn) => {
     const t = setTimeout(fn, ms);
     if (t && typeof t.unref === 'function') t.unref();
@@ -1030,7 +1052,7 @@ function scheduleUnsentRetries(target, card) {
   for (const ms of UNSENT_RETRY_MS) {
     schedule(ms, () => {
       const now = recallUnsent(target);
-      if (!now || now.at !== at) return;   // gone, or a newer line with retries of its own
+      if (!now || now.id !== id) return;   // gone, or a newer line with retries of its own
       Promise.resolve().then(() => pressRememberedNow(target, card)).catch(() => { /* a retry that fails is not the delivery's failure */ });
     });
   }

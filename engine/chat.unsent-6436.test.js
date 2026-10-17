@@ -176,22 +176,48 @@ test('kosmos#6436: a retry that leaves it still there keeps it for the next; a r
   scheduled[1].fn();
   await flush();
   assert.equal(t2.enters(), 1, 'still remembered after a retry that did not take, so the next one presses it');
-  // A newer line left unsent: the older line's retries leave it to its own.
+  // A newer line left unsent (the box was cleared by hand, then the next line also stuck): the older line's retries
+  // leave it to its own, whatever the clock reads (ids, not times).
   scheduled.length = 0;
   const OTHER = 'a newer line the board also left in the box, long enough to be read as its own';
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
   const olderRetries = scheduled.slice();
-  arm([EMPTY, box(OTHER)]);
-  // The box must read empty before the newer paste: deliver it as a fresh line after the older one went.
-  chat.resetForTests();
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
-  arm([EMPTY, box(OTHER)]);
-  chat.deliver('al', OTHER, roster);
+  const realNow = Date.now;
+  const frozen = realNow();
+  Date.now = () => frozen;   // both lines in the same millisecond
+  try {
+    arm([EMPTY, box(OTHER)]);
+    assert.equal(chat.deliver('al', OTHER, roster).unsubmitted, true, 'PRECONDITION: the newer line stuck too');
+  } finally { Date.now = realNow; }
   const t3 = arm([box(OTHER), EMPTY]);
   olderRetries[1].fn();
   await flush();
   assert.equal(t3.enters(), 0, 'an older line\'s retry does not press a newer line');
+  // CONTROL: the newer line's own retry does press it.
+  scheduled[scheduled.length - 3].fn();
+  await flush();
+  assert.equal(t3.enters(), 1);
+}));
+
+test('kosmos#6436: a retry that fires while a delivery is typing to that pane presses nothing (that delivery presses it first)', () => withAgent(async (roster) => {
+  const scheduled = [];
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.deliver('al', MSG, roster);
+  // An async delivery held in its paste-to-Enter gap: the box shows the board's earlier line, which it presses first.
+  let open = () => {};
+  const t = arm([box(MSG), EMPTY, EMPTY, box('next'), EMPTY]);
+  chat.setPauser(() => new Promise((resolve) => { open = resolve; }));
+  const pending = chat.deliverAsync('al', 'next', roster);
+  await flush();
+  const before = t.enters();
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t.enters(), before, 'the retry stood down while the delivery held the pane');
+  chat.setPauser(() => {});
+  open();
+  await pending;
 }));
 
 test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, nor a pane that is no longer an agent\'s', () => withAgent(async (roster) => {
