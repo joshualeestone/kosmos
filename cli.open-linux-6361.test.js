@@ -42,7 +42,7 @@ fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'app', 'engine'))
 const BIN = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-xdg-6361-'));
 process.on('exit', () => { try { fs.rmSync(BIN, { recursive: true, force: true }); } catch { /* best effort */ } });
 const OPENED = path.join(BIN, 'opened');
-fs.writeFileSync(path.join(BIN, 'xdg-open'), '#!/bin/sh\necho "$1" >> ' + JSON.stringify(OPENED) + '\n', { mode: 0o755 });
+fs.writeFileSync(path.join(BIN, 'xdg-open'), '#!/bin/sh\necho "$1" >> ' + JSON.stringify(OPENED) + '\n[ -f ' + JSON.stringify(path.join(BIN, 'fail')) + ' ] && exit 4\nexit 0\n', { mode: 0o755 });
 
 function setToken(on) {
   const f = path.join(ROOT, 'board.token');
@@ -170,4 +170,16 @@ test('#6361: an agent at a terminal is not handed the one-time address (its term
   // CONTROL: the same terminal with no agent marking does print it (the arm above sees the agent, not a lost tty).
   const p = await open(port, { tty: true });
   assert.match(p.out, new RegExp('/\\?boot=' + NONCE), 'CONTROL: a person at the same terminal was not given the address');
+}));
+
+test('#6361: an opener that fails (a dead DISPLAY) still hands a person the one-time address, not just the plain one', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  fs.writeFileSync(path.join(BIN, 'fail'), '');
+  try {
+    const r = await open(port, { display: true, tty: true });
+    assert.ok(r.opened, 'CONTROL: xdg-open was tried');
+    assert.match(r.out, /Could not open a browser from here\./);
+    assert.match(r.out, new RegExp('/\\?boot=' + NONCE), 'a failed opener left the person with no way in');
+    assert.notEqual(r.code, 0, 'a failed open must still end non-zero (#1957)');
+  } finally { fs.rmSync(path.join(BIN, 'fail'), { force: true }); }
 }));
