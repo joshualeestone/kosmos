@@ -39,7 +39,7 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   still being typed then is said as unconfirmed ("may have been told") and is still typed after the answer.
 - Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
   operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
-  answer says nobody was told and why; told, the mark counts once against that valve, as one task message does. This
+  answer says nobody was told and why; told, each line tried counts once against that valve (review 14: one unit per line, so the cap counts lines here as it does for task messages). A line that then fails, or is kept for an agent out of usage, still spends its unit, as a task message does. This
   replaces review 5's cap-0-only switch.
 - Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate
   (deliverAutomaticAsync). A built line carries the marker's own note, sent on its behalf, exactly as a task message
@@ -76,7 +76,7 @@ so it is the same trust, and closing it is a change to how the route identifies 
 A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
-`server.builttell-6330.test.js` (20 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+`server.builttell-6330.test.js` (21 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
 (other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
 parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
 typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients
