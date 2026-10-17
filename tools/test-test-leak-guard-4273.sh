@@ -75,7 +75,16 @@ rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
 rm -f "$root/kts-Ab12Cd/.kts-owner"; printf 'engine/aside-6362.test.js\tpid 88\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner.new"
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/aside-6362.test.js (pid 88); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed); its owner rewrite did not finish; it holds: nothing' && ok "#6362: an unfinished owner rewrite still names the file" || bad "aside owner: rc=$rc out=$out"
+# The marked aside copy wins over an unmarked owner the sweep had not yet reached.
+printf 'engine/aside-6362.test.js\tpid 88\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/aside-6362.test.js (pid 88); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: a marked aside owner wins over an unmarked one" || bad "aside beside owner: rc=$rc out=$out"
+# An empty aside copy and no owner: the sweep ran, the rewrite was cut.
+rm -f "$root/kts-Ab12Cd/.kts-owner"; : > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: nothing' && ok "#6362: a cut aside copy says the sweep ran, not that the dir was remade" || bad "cut aside: rc=$rc out=$out"
 rm -f "$root/kts-Ab12Cd/.kts-owner.new"
+printf 'x\tpid 1\n' > "$root/kts-Ab12Cd/.kts-owner"
 # #6362: a dir with no owner lists what it holds (the names a left-running process wrote), never .kts-owner itself.
 rm -f "$root/kts-Zz99Yy/.kts-owner"
 mkdir "$root/kts-Zz99Yy/boardkeychain-4491-Ab" "$root/kts-Zz99Yy/kosmos-sendwhy-5435-Cd"
