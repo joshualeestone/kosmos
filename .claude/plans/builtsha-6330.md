@@ -16,8 +16,11 @@ This is that second part.
 ## Rules
 - Shape checked on the board: exactly `sha256:` and 64 lowercase hex; anything else is refused (400), never stored.
 - Only an agent's mark carries one; the person's mark from the screen sends none, and a clear drops it.
-- **Who sent it is recorded (builtFingerprintBy), and that decides what a later mark does.** Another agent's mark
-  without one (the checker's "1 met.") keeps it; the sender's own mark without one drops it; the line typed to the next
+- **Who sent it is recorded (builtFingerprintBy), and that decides what a later mark does.** Another named agent's
+  mark without one (the checker's "1 met.") keeps it, and so does the person's mark from the screen (they did not
+  change the file); the sender's own mark without one drops it, and so does an unnamed agent's (it cannot be told from
+  an unnamed sender: review 6 found null matched null, so the person's mark kept or dropped by whether the sender had
+  a name); the line typed to the next
   agents carries it only when that mark sent it, and the lists say "sent by <name>".
 - Agents learn it from the rules (doctrine v33, logged in engine/defaults.js with its weakest premise).
 - No board or agent-card UI: Josh's 11:16 ruling (no new visible lines until his clean-up ships). The Tasks page does
