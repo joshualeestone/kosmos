@@ -76126,8 +76126,12 @@ function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (rn) {
     rn.addEventListener('scroll', railPjMore, { passive: true });
+    let rnPressed = false;
+    rn.addEventListener('pointerdown', () => { rnPressed = true; }, true);
+    for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, () => { rnPressed = false; }, true);
     rn.addEventListener('focusin', (e) => requestAnimationFrame(() => {
-      if (!rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect) return;
+      // Not while a pointer is pressed on the box: a click's own focus moving the button from under it could drop the click.
+      if (rnPressed || !rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect) return;
       const under = e.target.getBoundingClientRect().bottom - (rn.getBoundingClientRect().bottom - 28);
       if (under > 0) rn.scrollTop += Math.ceil(under);
     }));
