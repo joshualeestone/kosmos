@@ -452,8 +452,14 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
 
 test('#6347: in the consolidated rail the notice is capped and scrolls in its own box, and leaves scrollbar-width unset', () => {
   // The rail head's height comes from the grid row, so an uncapped notice ran under the agents list.
-  const rule = PAGE.match(/body\.consolidated #rail-agents > \.alist-pjn:not\(:empty\) \{([^}]*)\}/);
+  const rule = PAGE.match(/html\[data-layout="consolidated"\] body\.consolidated #rail-agents > \.alist-pjn:not\(:empty\) \{([^}]*)\}/);
   assert.ok(rule, 'the consolidated rail notice has no cap rule');
+  // Inside the 960px+ block, so phones never get the cap: one brace deep from that block's opening.
+  const media = PAGE.lastIndexOf('@media (min-width: 960px) {', rule.index);
+  assert.ok(media > 0, 'the cap rule follows no 960px block');
+  let depth = 0;   // comments are stripped first: they quote braces
+  for (const ch of PAGE.slice(media, rule.index).replace(/\/\*[\s\S]*?\*\//g, '')) { if (ch === '{') depth += 1; else if (ch === '}') depth -= 1; }
+  assert.equal(depth, 1, 'the cap rule is not directly inside the 960px block');
   assert.match(rule[1], /max-height:\s*40vh/, 'the rail notice is not capped');
   assert.match(rule[1], /overflow-y:\s*auto/, 'the capped rail notice does not scroll');
   // Not none (#867 hides tracks on the long lists only; this is a needs-you surface), and not thin either: any

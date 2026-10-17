@@ -15,13 +15,15 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
   (more code; reversible later if the box proves too small).
 - Not done here: a "more below" cue. On macOS the overlay scrollbar hides at rest, so the box can clip a row with no
   bar showing. That is true of every scroll area in the app on macOS, and the clipped edge of a row usually shows;
-  a cue that does not depend on the platform is a design change, filed separately.
+  a cue that does not depend on the platform is a design change, filed as #6349.
 
 ## Checks
-- web.project-notice-3923.test.js: the arm asserts the cap, the scroll, and no scrollbar-width at all.
+- web.project-notice-3923.test.js: the arm asserts the full selector, that the rule sits directly inside the 960px
+  block (brace depth 1, comments stripped), the cap, the scroll, and no scrollbar-width at all.
 - docs/browser-checks/render-projects.js: a new #6347 arm grows the rail notice from copies of the row the page drew
-  (12 more), measures in one synchronous step, and restores. It asserts the box is at most 40vh, scrolls, and still
-  ends above the list. Earlier the commit cited render-project-done-4583, which only reads the notice's text and never
+  (12 more), measures in one synchronous step, and removes only the copies (the region is not live meanwhile). It
+  asserts the box is at most 40vh, scrolls, and still ends above the list. Its control lifts the cap on the same box,
+  which must then outgrow 40vh and run under the list, so a viewport too tall for the fixture fails instead of passing. Earlier the commit cited render-project-done-4583, which only reads the notice's text and never
   measured the layout (review round 1).
 
 ## Weakest premise
