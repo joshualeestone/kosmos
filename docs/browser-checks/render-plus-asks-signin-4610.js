@@ -151,6 +151,29 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       /* The same device asking again later (a newer first_seen) is a new request. */
       await serve(WITH_NEW.map((d) => (d.device_id === 'd-safari' ? Object.assign({}, d, { first_seen: now() + 5 }) : d)));
       chk((await shownNote()).shown, '[' + W + '] #6315 the same device asking again (newer first_seen) shows the notice');
+      /* kosmos#6417: a joining computer keeps ONE row (one first_seen) across every attempt. A new code is a new attempt
+         and brings the notice back; its code going empty (a code lapsing after ten minutes, or a wait the tunnel gives)
+         is not a new request and keeps it put away. */
+      const COMP = { device_id: 'computer:ab12', name: 'laptop', joining_computer: 'laptop', code: '135 246', first_seen: now() - 3600 };
+      const withComp = (c) => WITH_NEW.concat([Object.assign({}, COMP, c)]);
+      await serve(withComp({}));
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve(withComp({}));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 CONTROL: the same computer on the same code stays put away');
+      await serve(withComp({ code: '' }));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 the code lapsing (no new request) keeps it put away');
+      await serve(withComp({ code: '', code_wait: 'another_computer' }));
+      chk(!(await shownNote()).shown, '[' + W + '] #6417 a wait with no code keeps it put away');
+      // A different computer whose id starts with the dismissed one's, asking with no code yet: never put away, it shows
+      // (an empty code counts as put away only through the same row's own dismissed codes).
+      const OTHER = { device_id: 'computer:ab1', name: 'desktop', joining_computer: 'desktop', code: '', first_seen: now() - 60 };
+      await serve(withComp({ code: '', code_wait: 'another_computer' }).concat([OTHER]));
+      chk((await shownNote()).shown, '[' + W + '] #6417 another computer with no code yet, never put away, shows the notice');
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve(withComp({ code: '531 642' }));
+      chk((await shownNote()).shown, '[' + W + '] #6417 the same computer with a new code (asking again) brings the notice back');
       /* Kept across a reload, and another tab's dismissal applies here (read from storage each paint). */
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
