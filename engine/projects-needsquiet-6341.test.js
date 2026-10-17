@@ -131,6 +131,9 @@ test('#6341: a paused project raises nothing, a question included', () => {
   const r = one(roster, p.id);
   assert.equal(r.summary.needsYou, 0, 'a paused project counted a question');
   assert.deepEqual(member(r, 'qq61').needsYouQuiet, { reason: 'question', because: 'paused' });
+  // Review 2: the agents' project list (kosmos project list) agrees with the page.
+  const listed = require('./projectview').listOf(projects.list(roster)).find((x) => x.id === p.id);
+  assert.equal(listed.needsYou, 0, 'kosmos project list still counted the paused project\'s question');
 });
 
 test('#6341: a question about this project counts in a quiet room (it is about the project, not the agent)', () => {
@@ -234,17 +237,17 @@ test('#6341: the Recommender does not write a note its room already holds (a res
   const stuck = recommender.stuckRow(card);
   assert.ok(stuck, 'CONTROL: the fixture is a stuck agent the Recommender acts on');
   const run = (alreadyNoted, prev) => {
-    const notes = []; const sent = [];
+    const notes = []; const sent = []; const texts = {};
     // Past the grace period: the item is first seen long ago.
     const first = recommender.step({ prev, roster: [card, peer], setting, members, now: 0 });
     const out = recommender.runOnce({
       prev: first.next, roster: [card, peer], setting, members, now: recommender.GRACE_MS + 1,
       roomNote: (p, t) => { notes.push(t); return true; },
-      deliver: (s, t) => { sent.push(s); return { state: 'placed' }; },
+      deliver: (s, t) => { sent.push(s); texts[s] = t; return { state: 'placed' }; },
       DELIVERY: { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' },
       alreadyNoted,
     });
-    return { notes, sent, out };
+    return { notes, sent, texts, out };
   };
   const control = run(() => false);
   assert.equal(control.notes.length, 1, 'CONTROL: with no note in the room, the note is written');
@@ -256,6 +259,10 @@ test('#6341: the Recommender does not write a note its room already holds (a res
   // Review 1: only the room's repeat was the complaint; the stuck agent still gets its playbook, the peer is not asked again.
   assert.deepEqual(again.sent, ['st61'], 'the peer was asked again, or the stuck agent got no playbook');
   assert.equal(again.out.acted[0].alreadyNoted, true);
+  // Review 2: the playbook says where the earlier replies are, never that nobody could be reached.
+  assert.match(again.texts.st61, /noted this in the project room earlier and asked the others then/);
+  assert.doesNotMatch(again.texts.st61, /could be reached|No one else is on this project/);
+  assert.doesNotMatch(control.texts.st61, /noted this in the project room earlier/, 'CONTROL: a first convening says it as before');
   assert.equal(again.out.acted[0].verdict, 'placed');
   const rec = [...again.out.next.items.values()][0];
   assert.equal(rec.convened, true, 'a delivered playbook would be retried');

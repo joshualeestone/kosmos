@@ -204,7 +204,10 @@ function playbookText(item, setting) {
   const peers = asked.length ? asked.map((p) => p.name).join(' and ') : '';
   const lines = [
     'Recommender (Kosmos): you reported being stuck on "' + item.because + '".',
-    peers
+    item.alreadyNoted
+      // #6341 review 2: the room already holds this note from an earlier convening, so its replies, if any, are there.
+      ? 'Kosmos noted this in the project room earlier and asked the others then. Read the room for their replies, then decide.'
+      : peers
       ? 'I asked ' + peers + ' for one reply each in the project room. Give them a few minutes, then decide.'
       : (item.peers.length
         ? 'None of the other members of this project could be reached, so decide it yourself now.'
@@ -268,7 +271,7 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       const rec = { stuck: item.session, asked: asked.map((p) => p.session), because: item.because };
       try { noteLanded = roomNote(item.project, roomNoteText({ ...item, asked }), { recommender: rec }) !== false; } catch { noteLanded = false; }
     }
-    const verdict = send(item.session, playbookText({ ...item, asked }, setting));
+    const verdict = send(item.session, playbookText({ ...item, asked, alreadyNoted: noted }, setting));
     if (verdict !== DELIVERY.PLACED && verdict !== DELIVERY.UNCONFIRMED && typeof release === 'function') { try { release(slot); } catch { /* the slot lapses on its own */ } }
     markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);
     acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
