@@ -64,7 +64,7 @@ rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: made by engine/cut.test.js (pid unknown); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: an unterminated owner line with no tab is still named under set -e" || bad "unterminated owner under set -e: rc=$rc out=$out"
 : > "$root/kts-Zz99Yy/.kts-owner"
 rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
-[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: owner line cut (the test was killed while tmpscope wrote it)' && ok "#6061/#6362: an empty owner file reads as a cut owner line under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: owner file empty (most likely the test was killed while tmpscope wrote it)' && ok "#6061/#6362: an empty owner file reads as a cut owner line under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
 # #6362: the sweep ran but a process the file started was still writing: tmpscope marks the owner line, and it is said.
 printf 'engine/spawns-6362.test.js\tpid 77\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner"
 rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
