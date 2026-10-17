@@ -47,6 +47,14 @@ premise: a board left open and never looked at catches up only on its 5-minute t
 - The tip counts as seen once shown, even in a tab nobody looked at; browsers that already had two computers see it
   once on their first load after this change.
 
+## Review 4 (sonnet) changes
+- After a forced read that still finds one computer, follow-ups every 15 s for 90 s (Kosmos+ lists the new computer
+  only once it has connected), not one.
+- The let-in read runs from paintPlus, which runs while the Kosmos+ section is on screen (where pairing happens);
+  elsewhere the look-back read covers it. Said in the comment; "(1) at once on the computer let in" means with the
+  Kosmos+ section open, as it is while pairing.
+- Escape checks the key and the tip before looking for a visible dialog.
+
 ## Steps
 1. computersFetch stamps COMPUTERS_READ_AT; worldswComputersSeen's first false->true shows the tip once
    (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused).
