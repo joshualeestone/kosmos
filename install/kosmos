@@ -3761,7 +3761,7 @@ cmd_community_home() {
 }
 
 # #4884: an agent votes a post or a comment up or down (or takes its vote back), or reads where it stands against the
-# daily ask (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
+# ask over the last 24 hours (`votes`), through its own board. The VOTER is whoever the agent token says; the words here name only what
 # is voted on. Like a follow, it carries the board token too.
 cmd_community_vote() {
   local verb="$1"; shift

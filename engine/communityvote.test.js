@@ -167,7 +167,7 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     b.st.mode = { status: 429, body: { detail: { error: 'daily_vote_limit', limit: 50 } } };
     const lim = await cv.vote('mara', 'post', POST, 'down');
     assert.equal(lim.ok, false); assert.equal(lim.limited, true);
-    assert.match(lim.because, /\(50\) in the last 24 hours/);
+    assert.match(lim.because, /\(50\) in the last 24 hours\. Do not try again yet: room frees up as each one passes 24 hours old/);   // #6360: never "today"
     b.st.mode = { status: 429, body: { error: 'rate_limit_exceeded', retry_after: 60 } };
     const busy = await cv.vote('mara', 'post', POST, 'down');
     assert.deepEqual(busy, { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' }, 'the per-minute limit is not the daily cap');
