@@ -1151,11 +1151,15 @@ async function assistantChat(body) {
 /** Forget this Mac (#793): retire it at the coordinator while its key still
  * exists, THEN destroy the key. Order is the whole point: after the state
  * dir is gone the Mac cannot speak for itself and only a signed-in phone
- * can retire it (a dead sandbox, a wiped laptop). Retire is best-effort and
- * its outcome is reported, never hidden: a coordinator that could not be
- * reached still leaves the Mac forgotten HERE, and the answer says the
- * address may still show on the account page until it is removed there. */
-async function forget() {
+ * can retire it (a dead sandbox, a wiped laptop). Its outcome is reported,
+ * never hidden. kosmos#6389: a retire that got no answer (offline, timed out, a
+ * server error) KEEPS the key, as clearHalfIdentity does, and answers kept: the
+ * computer is not removed yet, and pressing Remove again retries. Wiping it
+ * there left the name held on the account with nothing here able to free it.
+ * Only `anyway` (the person chose to remove it from this computer only, told
+ * the cost) wipes after such a retire. A final refusal is wiped as before:
+ * keeping a key Kosmos+ will never accept would say "try again" forever. */
+async function forget({ anyway = false } = {}) {
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
   // must not turn the switch back on), and WAIT for a register already out, so what
   // is retired and wiped below includes it; otherwise it writes a fresh identity
@@ -1167,7 +1171,7 @@ async function forget() {
   // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
-  // gets the first one's answer instead of retiring the same Mac beside it.
+  // gets the first one's answer instead of retiring the same Mac beside it, whatever its `anyway`.
   if (forgetInFlight) return forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
@@ -1191,7 +1195,7 @@ async function forget() {
         await Promise.race([Promise.allSettled([...deviceIdInFlight]), new Promise((ok) => { timer = setTimeout(ok, keyCallWaitMs()); })]);
         clearTimeout(timer);
       }
-      return await forgetNow();
+      return await forgetNow(anyway);
     } finally {
       forgetting = false;
       forgetInFlight = null;
@@ -1201,7 +1205,7 @@ async function forget() {
 }
 let forgetInFlight = null;
 
-async function forgetNow() {
+async function forgetNow(anyway) {
   const was = { enrolled: enrolled(), address: address() };
   // A register killed mid-certificate (or any partial one) has registered the Mac
   // at the coordinator and left its key and id here, without the certificate
@@ -1221,6 +1225,18 @@ async function forgetNow() {
     const r = await retireHere();
     retired = r.ok === true;
     because = r.ok ? null : retireReason(r);
+    // kosmos#6389: no answer is "not now". The key stays, so a later Remove can still sign the retire. Plus stays off
+    // (written above): the person asked for this computer to go, so it does not come back online by itself.
+    if (!retired && !anyway && retireTransient(r)) {
+      stopChild();
+      return {
+        ok: false,
+        kept: true,
+        retired: false,
+        address: was.address,
+        because: 'this computer is not removed yet, because your Kosmos+ account could not be reached (' + because + ')',
+      };
+    }
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -3040,6 +3056,14 @@ function retireReason(r) {
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
 // 408 and 429 are "not now", not "no": retried like a server error.
 const RETIRE_TRANSIENT = /unreachable|did not answer in time|could not be started|\(HTTP (5\d\d|408|429) on |answered (5\d\d|408|429) for /i;
+/* The line of a failed retire that says it may work a moment later, or null. Named from what the tunnel prints
+   (crates/tunnel coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on", "Kosmos+ answered
+   <code> for") and from setupRun's own answers. The whole output, not only its last line: a gateway's HTML error
+   page is many lines, and its last one ("</html>") says nothing. */
+function retireTransient(r) {
+  if (!r || r.ok) return null;
+  return String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l)) || null;
+}
 /* Retires a half identity before a new register. Answers why the retire failed
    (the coordinator may still hold that earlier attempt), or null. */
 async function clearHalfIdentity() {
@@ -3054,12 +3078,8 @@ async function clearHalfIdentity() {
   // error) may work a moment later, and only this key can do it: keep it, and the
   // caller says try again. Anything else is final (Kosmos+ refused this Mac, a
   // key this computer cannot read), so it is wiped: keeping it would say "try
-  // again" forever. Named from what the tunnel prints (crates/tunnel
-  // coordinator.rs signed_request: "Kosmos+ unreachable for", "(HTTP <code> on",
-  // "Kosmos+ answered <code> for") and from setupRun's own answers.
-  // The whole output, not only its last line: a gateway's HTML error page is many
-  // lines, and its last one ("</html>") says nothing.
-  const transient = r.ok ? null : String((r.stderr || '') + '\n' + (r.because || '')).split('\n').find((l) => RETIRE_TRANSIENT.test(l));
+  // again" forever. Forget makes the same split (kosmos#6389).
+  const transient = retireTransient(r);
   if (transient) {
     process.stderr.write('remote: an unfinished earlier sign-in could not be retired at Kosmos+ yet (' + transient.trim() + '); kept, so a retry can\n');
     return { kept: retireReason(r) };

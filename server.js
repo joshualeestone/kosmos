@@ -10731,10 +10731,21 @@ const server = http.createServer(async (req, res) => {
   /* ---- Forget this Mac (#793): retire at the coordinator while the key
      exists, then destroy the key. The engine owns the order; this route only
      relays the outcome, including the case where the coordinator could not
-     be told, so the page can say the address may still show on the account. */
+     be told, so the page can say the address may still show on the account.
+     kosmos#6389: `kept` is a Remove that could not reach Kosmos+ and so removed
+     nothing; { anyway: true } is the person's choice to remove it from this
+     computer only after that. An empty body is a plain Remove. */
   if (pathname === '/api/remote/forget' && req.method === 'POST') {
-    remote.forget()
-      .then((got) => sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() }))
+    readBody(req, 4096)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return null; }
+        return remote.forget({ anyway: body.anyway === true }).then((got) => {
+          if (got.kept) { sendJson(res, 200, { ok: false, kept: true, retired: false, address: got.address, because: got.because, status: remote.status() }); return; }
+          sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() });
+        });
+      })
       .catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
     return;
   }

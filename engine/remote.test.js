@@ -2498,11 +2498,80 @@ test('#3827: a retire that hangs cannot hang Forget', async () => {
     const got = await remote.forget();
     assert.ok(Date.now() - t0 < 8000, 'Forget waited out a hung retire (' + (Date.now() - t0) + 'ms)');
     assert.equal(got.retired, false, 'a retire killed by its bound was reported as done');
-    assert.equal(remote.enrolled(), false, 'the Mac is still forgotten here');
+    // kosmos#6389: a retire with no answer removed nothing, so the key that can still sign it stays.
+    assert.equal(got.kept, true, 'a timed-out retire wiped the only key that can free the name: ' + JSON.stringify(got));
+    assert.equal(remote.enrolled(), true, 'the key went with a retire that got no answer');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
+    await remote.forget();
   }
+});
+
+test('#6389: Remove with no network keeps the key and says not removed yet, and Remove again retires and wipes it', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget();
+    assert.equal(got.ok, false, 'an unreachable retire was answered as done');
+    assert.equal(got.kept, true);
+    assert.equal(got.retired, false);
+    assert.match(got.because, /not removed yet/, got.because);
+    assert.match(got.because, /could not be reached/, got.because);
+    assert.doesNotMatch(got.because, /forgotten here|may still show/, 'a kept computer was described as forgotten: ' + got.because);
+    assert.equal(got.address, 'hers.kosmos.invalid', 'the kept answer did not say which address');
+    assert.equal(remote.enrolled(), true, 'the key was wiped although Kosmos+ never heard the retire');
+    assert.equal(remote.read().on, false, 'a computer the person asked to remove came back on');
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'fixture: one retire was tried');
+    // The network back: Remove again signs the retire with the kept key, and only then wipes it.
+    delete process.env.FAKE_TUNNEL_MODE;
+    fs.rmSync(RECORD, { force: true });
+    const again = await remote.forget();
+    assert.equal(again.ok, true);
+    assert.equal(again.retired, true, 'the retry did not retire: ' + again.because);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the retry did not sign a retire');
+    assert.equal(remote.enrolled(), false, 'the key survived a retire that worked');
+  } finally {
+    delete process.env.FAKE_TUNNEL_MODE;
+    await remote.forget();
+  }
+});
+
+test('#6389: Remove from this computer only (anyway) wipes the key after a retire with no answer, and says what is left', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-5xx';
+  try {
+    fs.rmSync(RECORD, { force: true });
+    const got = await remote.forget({ anyway: true });
+    assert.equal(got.ok, true);
+    assert.notEqual(got.kept, true, 'anyway was ignored');
+    assert.equal(got.retired, false);
+    assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'anyway skipped the retire; it is still tried first');
+    assert.match(got.because, /may still show on your account page/, got.because);
+    assert.equal(remote.enrolled(), false, 'anyway kept the key');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
+test('#6389: a retire Kosmos+ refused outright is final: Remove wipes the key, never "try again" forever', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-refused';
+  try {
+    const got = await remote.forget();
+    assert.equal(got.ok, true);
+    assert.notEqual(got.kept, true, 'a definite refusal was kept for a retry that can never work');
+    assert.equal(got.retired, false);
+    assert.equal(remote.enrolled(), false, 'a key Kosmos+ refused was kept');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#3827: the older Settings setup is refused while a register is in flight', async () => {
@@ -3181,9 +3250,10 @@ test('#3827: a Forget whose retire meets a gateway error page says why in one re
   try {
     const got = await remote.forget();
     assert.equal(got.retired, false);
+    assert.equal(got.kept, true, 'kosmos#6389: a gateway error is "not now", so the key is kept');
     assert.match(got.because, /Kosmos\+ answered 502 for \/v1\/mac\/retire/, got.because);
     assert.doesNotMatch(got.because, /<\/?html|Error:/, 'the answer carried the raw page: ' + got.because);
-  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  } finally { delete process.env.FAKE_TUNNEL_MODE; await remote.forget(); }
 });
 
 test('#3827: a Sign out during a register that then fails leaves a Mac that was on, on', async () => {

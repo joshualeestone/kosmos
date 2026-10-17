@@ -19646,6 +19646,15 @@ window.kosmosMeasureScrollbarWidth();
         </div>
       </div>
       <p class="dhint" id="plus-forget-msg" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+      <!-- kosmos#6389: a Remove that could not reach Kosmos+ removed nothing and kept the key. Try again retries the
+           retire, the only way to free the name. Remove from this computer only wipes the key anyway, said with its cost. -->
+      <div id="plus-forget-kept" hidden>
+        <p class="fhint" id="plus-forget-kept-msg" role="status" aria-live="polite"></p>
+        <div class="frow">
+          <button class="btn" type="button" id="plus-forget-retry">Try again</button>
+          <button class="btn danger-btn" type="button" id="plus-forget-anyway">Remove from this computer only</button>
+        </div>
+      </div>
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
 <!-- #4080: "Lost your phone?" opens this, in place of the essay that sat on the Kosmos Plus pane (Josh, 22:06:
@@ -51823,7 +51832,15 @@ const PLUS_FORGET_WORDS = {
   done: 'This computer is removed from Kosmos+. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
+  /* kosmos#6389: nothing was removed and the key is kept. The engine's own sentence names the reason. */
+  kept: (said) => said + '. Remote access is paused. Try again once this computer is online. Removing it from this computer only leaves its name on your Kosmos+ account until you remove it on your account page, and this computer cannot sign in again under that name until then.',
 };
+function plusForgetKept(on, said) {
+  const box = document.getElementById('plus-forget-kept');
+  const p = document.getElementById('plus-forget-kept-msg');
+  if (p) p.textContent = on ? PLUS_FORGET_WORDS.kept(said) : '';
+  if (box) box.hidden = !on;
+}
 function plusForgetArm(on) {
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
@@ -51833,23 +51850,42 @@ function plusForgetArm(on) {
 }
 document.getElementById('plus-forget-go').addEventListener('click', () => {
   const msg = document.getElementById('plus-forget-msg'); msg.hidden = true; msg.textContent = '';
+  plusForgetKept(false);
   plusForgetArm(true);
 });
 document.getElementById('plus-forget-no').addEventListener('click', () => {
   plusForgetArm(false);
   document.getElementById('plus-forget-go').focus();
 });
-document.getElementById('plus-forget-yes').addEventListener('click', async () => {
-  const yes = document.getElementById('plus-forget-yes'); const no = document.getElementById('plus-forget-no');
+/* kosmos#6389: one Remove, from the confirm (Remove), or after a kept answer (Try again, or anyway: Remove from this
+   computer only). `yes` is the button that was pressed and says Removing... while it runs. */
+async function plusForgetRun(yes, anyway) {
+  const buttons = ['plus-forget-yes', 'plus-forget-no', 'plus-forget-retry', 'plus-forget-anyway'].map((id) => document.getElementById(id)).filter(Boolean);
   const msg = document.getElementById('plus-forget-msg');
-  yes.disabled = true; no.disabled = true; yes.textContent = 'Removing...';
+  const label = yes.textContent;
+  buttons.forEach((b) => { b.disabled = true; });
+  yes.textContent = 'Removing...';
   let said = null; let ok = false;
   try {
-    const res = await fetch('/api/remote/forget', { method: 'POST' });
+    const res = await fetch('/api/remote/forget', anyway
+      ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ anyway: true }) }
+      : { method: 'POST' });
     said = await res.json().catch(() => null);
     ok = res.ok && !!(said && said.ok === true);
   } catch { said = { error: 'this computer could not reach its own engine' }; }
-  yes.disabled = false; no.disabled = false; yes.textContent = 'Remove';
+  buttons.forEach((b) => { b.disabled = false; });
+  yes.textContent = label;
+  if (!ok && said && said.kept === true) {
+    /* Not removed, and the key is still here: the pane stays connected, and says so with the two ways on. */
+    plusForgetArm(false);
+    msg.hidden = true; msg.textContent = '';
+    const because = String(said.because || 'this computer is not removed yet');
+    plusForgetKept(true, because.charAt(0).toUpperCase() + because.slice(1).replace(/[.!?]+$/, ''));
+    await paintPlus();
+    const retry = document.getElementById('plus-forget-retry'); if (retry) retry.focus();
+    return;
+  }
+  plusForgetKept(false);
   if (!ok) {
     plusForgetArm(false);
     const why = plusWords((said && said.error) || 'we could not disconnect it').replace(/^we could not forget this computer: /, '').replace(/[.!?]+$/, '');
@@ -51868,7 +51904,10 @@ document.getElementById('plus-forget-yes').addEventListener('click', async () =>
   plusForgetArm(false);
   await paintPlus();
   if (out && !out.hidden && typeof out.focus === 'function') { out.setAttribute('tabindex', '-1'); out.focus(); }
-});
+}
+document.getElementById('plus-forget-yes').addEventListener('click', (e) => plusForgetRun(e.currentTarget, false));
+document.getElementById('plus-forget-retry').addEventListener('click', (e) => plusForgetRun(e.currentTarget, false));
+document.getElementById('plus-forget-anyway').addEventListener('click', (e) => plusForgetRun(e.currentTarget, true));
 
 /* #3478: the in-app sign-in wizard (state 2). It drives engine/remote.js's stage
    machine through server.js's signin-* proxies. The engine holds the 30-day session
