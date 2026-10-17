@@ -60,6 +60,7 @@ const selfreport = require('./engine/selfreport');
 const phonenotify = require('./engine/phonenotify');
 const ping = require('./engine/ping');
 const projects = require('./engine/projects');
+const tasks = require('./engine/tasks');
 
 const WHO = 'leo';
 let base;
@@ -241,6 +242,137 @@ test('#6254: a kind whose sub-switch is off sends nothing of that kind, the mast
   const st = await call('GET', '/api/phone-notify');
   assert.equal(st.json.kinds.ready, true, 'ready lost its default');
   assert.equal(st.json.kinds.postedRoom, false, 'postedRoom default is off');
+});
+
+/* #6254: `ready` through the REAL built route. An agent marking a task built is work waiting for the person's
+   check, so it buzzes once; the person's own mark from the screen and a clear do not, and the `ready` sub-switch
+   silences it. leo is solo on each task, so tellBuiltMark (the #6330 seam this send-site sits beside) tells nobody
+   and the only thing to count is the ready buzz. sent is reset between arms, so each assertion stands alone. */
+test('#6254 ready: an agent built mark buzzes ready once; a screen mark, a clear, and the switch off do not', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  const roster = board.agents;
+  const tok = sendertoken.mint(WHO).token;
+  const h = { 'x-kosmos-agent-token': tok };
+  try {
+    const p = projects.create({ name: 'Delivery run' });
+    projects.addAgent(p.id, WHO, roster);
+    const newTask = (s) => tasks.create(p.id, { sentence: s, who: WHO }).number;
+    const built = (n, body = {}, headers = h) => call('POST', `/api/project/${p.id}/task/${n}/built`, { headers, body });
+
+    // 1) An agent's own mark buzzes ready once, with the payload the coordinator expects and no task words.
+    sent.length = 0;
+    const n1 = newTask('Draft the invoice');
+    const r1 = await built(n1);
+    assert.equal(r1.json.changed, true, r1.text);
+    assert.equal(sent.length, 1, 'an agent built mark did not buzz ready');
+    assert.equal(sent[0].body.kind, 'ready');
+    assert.equal(sent[0].body.session, WHO);
+    assert.equal(sent[0].body.project, 'Delivery run');
+    assert.match(sent[0].body.id, /^built:/, 'the ready event id does not start with its own unique part');
+    assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+    assert.equal(sent[0].body.text, undefined, 'the task words left the Mac');
+
+    // 2) The person's own mark from the screen does not buzz (viaScreen). Past any cooldown, so a zero is the gate.
+    fakeNow += phonenotify.READY_COOLDOWN_MS + 1;
+    sent.length = 0;
+    const n2 = newTask('Print the labels');
+    const r2 = await built(n2, {}, { 'sec-fetch-site': 'same-origin' });
+    assert.equal(r2.json.changed, true, 'control: the screen mark did change the task: ' + r2.text);
+    assert.equal(sent.length, 0, 'a built mark from the screen buzzed');
+
+    // 3) A clear does not buzz. The agent builds a fresh task (buzzes), then clears it; only the clear is counted.
+    fakeNow += phonenotify.READY_COOLDOWN_MS + 1;
+    const n3 = newTask('Weigh the parcel');
+    await built(n3);
+    fakeNow += phonenotify.READY_COOLDOWN_MS + 1;
+    sent.length = 0;
+    const cleared = await built(n3, { clear: true });
+    assert.equal(cleared.json.changed, true, 'control: the clear did change the task: ' + cleared.text);
+    assert.equal(sent.length, 0, 'a clear buzzed ready');
+
+    // 4) With the ready sub-switch off, an agent built mark does not buzz; the master stays on.
+    await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } });
+    fakeNow += phonenotify.READY_COOLDOWN_MS + 1;
+    sent.length = 0;
+    const n4 = newTask('File the receipt');
+    const r4 = await built(n4);
+    assert.equal(r4.json.changed, true, r4.text);
+    assert.equal(sent.length, 0, 'ready buzzed with its switch off');
+
+    // CONTROL: ready back on, a fresh mark buzzes again (the zero above was the switch, not a stuck cooldown).
+    await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: true } });
+    fakeNow += phonenotify.READY_COOLDOWN_MS + 1;
+    sent.length = 0;
+    await built(newTask('Post the parcel'));
+    assert.equal(sent.length, 1, 'ready did not buzz after its switch went back on');
+  } finally {
+    sendertoken.revoke(WHO); board.restore();
+  }
+});
+
+/* #6254: the `posted` kind's gating and coalescing, against phonenotify.happened directly (the /api/post room
+   fixture is heavy; the route's wiring to this seam is pinned in the next test, the convention this file's
+   siblings use for that route). A post that NAMES the person is postedMention (on by default); any other room
+   post is postedRoom (off by default, and per-ROOM capped so a busy opted-in room cannot flood the phone). No
+   post's words are ever passed: the payload has no text field at all. */
+test('#6254 posted: a names-you post buzzes by default; any other room post waits on postedRoom, then coalesces per room; the switches gate it; no words leave', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  const ev = (over) => ({ kind: 'posted', id: 'post:e', agent: 'leo', session: 'leo', project: 'Room A', ...over });
+
+  // A post that names the person: postedMention is on by default -> buzz, with the coordinator payload and no words.
+  sent.length = 0;
+  phonenotify.happened(ev({ namesPerson: true, id: 'post:m1' }));
+  assert.equal(sent.length, 1, 'a names-you post did not buzz under the default postedMention');
+  assert.equal(sent[0].body.kind, 'posted');
+  assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+  assert.equal(sent[0].body.text, undefined, 'a post\'s words left the Mac');
+
+  // postedMention off: a names-you post goes silent.
+  await call('PUT', '/api/phone-notify', { body: { kind: 'postedMention', on: false } });
+  sent.length = 0;
+  phonenotify.happened(ev({ namesPerson: true, id: 'post:m2' }));
+  assert.equal(sent.length, 0, 'a names-you post buzzed with postedMention off');
+  await call('PUT', '/api/phone-notify', { body: { kind: 'postedMention', on: true } });
+
+  // Any OTHER room post: postedRoom is off by default -> silent.
+  sent.length = 0;
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:m3' }));
+  assert.equal(sent.length, 0, 'an ordinary room post buzzed with postedRoom off');
+
+  // Turn postedRoom on: it buzzes, but at most once per room per window; a different room is its own count.
+  await call('PUT', '/api/phone-notify', { body: { kind: 'postedRoom', on: true } });
+  sent.length = 0;
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:m4', project: 'Room A' }));
+  assert.equal(sent.length, 1, 'postedRoom on did not buzz');
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:m5', project: 'Room A' }));   // same room, inside the window
+  assert.equal(sent.length, 1, 'a second post in the same room buzzed inside the coalesce window');
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:m6', project: 'Room B' }));   // a different room
+  assert.equal(sent.length, 2, 'a post in a different room did not buzz (the cap is per room, not global)');
+  fakeNow += phonenotify.POSTED_ROOM_COOLDOWN_MS + 1;
+  phonenotify.happened(ev({ namesPerson: false, id: 'post:m7', project: 'Room A' }));   // past the per-room window
+  assert.equal(sent.length, 3, 'Room A did not buzz again past the coalesce window');
+});
+
+/* #6254: the /api/post route's wiring to the posted seam (the behavioral gating is proven above; a full room
+   fixture that seeds an operator post to reply to is heavy, the same tradeoff server.agent-token-sender-570
+   records for this route). Pins that the route fires the notification AFTER the response, keyed on the delivery's
+   repliesToPerson, in a catch that can never fail the post -- and that messages.js sets that flag from whether the
+   answered post was the person's own. */
+test('#6254 posted wiring: /api/post fires posted after the response from delivery.repliesToPerson, never failing the post; messages.js sets repliesToPerson from answered.operator', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const route = src.slice(src.indexOf("pathname === '/api/post'"), src.indexOf("pathname === '/api/react'"));
+  assert.ok(route, 'the /api/post route moved; this pin reads nothing');
+  // The notification comes from the token-resolved sender and the delivery's own id/flag, after sendJson.
+  assert.match(route, /sendJson\(res, 200, \{ delivery \}\);/);
+  assert.match(route, /phonenotify\.happened\(\{ kind: 'posted', namesPerson: delivery\.repliesToPerson === true,/);
+  assert.match(route, /id: 'post:' \+ delivery\.id/);
+  assert.match(route, /catch \{ \/\* a notification is never a reason to fail the post/);
+  // The names-you signal is derived in messages.js from whether the answered post carried operator:true.
+  const msrc = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  assert.match(msrc, /repliesToPerson: answered\.operator === true/, 'messages.js no longer derives repliesToPerson from the answered post being the person\'s');
 });
 
 test('turning on always mints a fresh token, one turn-on at a time', async () => {
