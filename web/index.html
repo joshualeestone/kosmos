@@ -51124,8 +51124,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
-    // kosmos#6367: an open Remove confirm takes the new state's line.
-    { const ask = document.getElementById('plus-forget-ask'); if (ask && !ask.hidden && typeof plusForgetRequiredPaint === 'function') plusForgetRequiredPaint(true); }
+    if (typeof plusForgetRequiredOnRead === 'function') plusForgetRequiredOnRead();   // kosmos#6367
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
@@ -51761,6 +51760,11 @@ function plusForgetRequiredPaint(on) {
   if (!req) return;
   const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
   req.textContent = line; req.hidden = !line;
+}
+// A read of /api/org has landed: an open Remove confirm takes the new state's line, and a closed one is left alone.
+function plusForgetRequiredOnRead() {
+  const ask = document.getElementById('plus-forget-ask');
+  if (ask && !ask.hidden) plusForgetRequiredPaint(true);
 }
 function plusForgetArm(on) {
   plusForgetRequiredPaint(on);

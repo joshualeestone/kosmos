@@ -50,3 +50,8 @@ confirm. Accepted: it is a warning, and the policy itself reaches the board only
 - Declined: "after a join the state lacks reportingRequired for up to a minute". Both join paths set PLUS_ORG.at = 0
   and call plusOrgMaybe() at once (web/index.html, the enroll and family-accept handlers), so the full state is read
   straight away.
+
+## Round 3 (Opus)
+- The on-read guard is now a named function, `plusForgetRequiredOnRead()`, tested by behaviour: a read with the
+  confirm open fills the line, and one with it closed leaves the line empty. A loose pin checks that plusOrgMaybe calls
+  it after setting the state. Mutants: ignoring "closed", and dropping the call. Each fails.

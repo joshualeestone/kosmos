@@ -44,7 +44,8 @@ function page(state) {
     return m[0].replace(/^const/, 'var');
   });
   vm.runInContext([...consts, lift(PAGE, 'function plusOrgIn('), lift(PAGE, 'function plusForgetRequiredLine('),
-    lift(PAGE, 'function plusForgetRequiredPaint('), lift(PAGE, 'function plusForgetArm(')].join('\n'), ctx);
+    lift(PAGE, 'function plusForgetRequiredPaint('), lift(PAGE, 'function plusForgetRequiredOnRead('),
+    lift(PAGE, 'function plusForgetArm(')].join('\n'), ctx);
   return { ctx, el };
 }
 
@@ -87,14 +88,23 @@ test('#6367: a Kosmos that does not report yet is told only that it cannot repor
 });
 
 test('#6367: a read of /api/org that lands while the confirm is open fills the line; one that lands while it is closed does not', () => {
-  const p = page(null);
-  p.ctx.plusForgetArm(true);
-  assert.equal(p.el('plus-forget-required').hidden, true, 'pressed before the first read: no line yet');
-  p.ctx.PLUS_ORG.state = { enrolled: true, reporting: true, reportingRequired: true, org: { kind: 'company' } };
-  p.ctx.plusForgetRequiredPaint(true);
-  assert.match(p.el('plus-forget-required').textContent, /stops reporting/);
-  // The read's own call site: only while the confirm is open.
-  assert.match(PAGE, /PLUS_ORG\.state = j;\n\s*\/\/ kosmos#6367[^\n]*\n\s*\{ const ask = document\.getElementById\('plus-forget-ask'\); if \(ask && !ask\.hidden && typeof plusForgetRequiredPaint === 'function'\) plusForgetRequiredPaint\(true\); \}/);
+  const later = { enrolled: true, reporting: true, reportingRequired: true, org: { kind: 'company' } };
+  const open = page(null);
+  open.ctx.plusForgetArm(true);
+  assert.equal(open.el('plus-forget-required').hidden, true, 'pressed before the first read: no line yet');
+  open.el('plus-forget-ask').hidden = false;   // what plusForgetArm(true) does to the real confirm
+  open.ctx.PLUS_ORG.state = later;
+  open.ctx.plusForgetRequiredOnRead();
+  assert.equal(open.el('plus-forget-required').hidden, false);
+  assert.match(open.el('plus-forget-required').textContent, /stops reporting/);
+  const closed = page(null);
+  closed.el('plus-forget-ask').hidden = true;
+  closed.ctx.PLUS_ORG.state = later;
+  closed.ctx.plusForgetRequiredOnRead();
+  assert.equal(closed.el('plus-forget-required').hidden, true, 'a closed confirm is left alone');
+  assert.equal(closed.el('plus-forget-required').textContent, '');
+  // The read calls it once its state is set.
+  assert.match(lift(PAGE, 'function plusOrgMaybe('), /PLUS_ORG\.state = j;[\s\S]{0,120}plusForgetRequiredOnRead\(\)/);
 });
 
 test('#6367: the line sits in the confirm, after what Remove does, and is hidden until the confirm opens', () => {
