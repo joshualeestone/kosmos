@@ -93,3 +93,18 @@ test('#6176 review 1: the real line spelling (microseconds, +00:00) is read', ()
   assert.equal(r && r.windows[0].windowMinutes, 10080);
   assert.equal(r.windows[0].resetsAt, Date.parse('2026-10-19T21:28:35.312Z'));
 });
+
+test('#6176 review 2: an unchanged log is not read again; a changed one is', () => {
+  const h = home([billing(NOW - DAY, 33, NOW - 3 * DAY, NOW + 4 * DAY)]);
+  const file = path.join(h, 'logs', 'unified.jsonl');
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 33);
+  const realOpen = fs.openSync; let opens = 0;
+  fs.openSync = (...a) => { if (a[0] === file) opens++; return realOpen(...a); };
+  try {
+    assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 33);
+    assert.equal(opens, 0, 'an unchanged log was read again');
+    fs.appendFileSync(file, JSON.stringify(billing(NOW - 60e3, 44, NOW - 3 * DAY, NOW + 4 * DAY)) + '\n');
+    assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 44, 'a new reading was not seen');
+    assert.ok(opens >= 1, 'CONTROL: the changed log was read');
+  } finally { fs.openSync = realOpen; }
+});
