@@ -408,3 +408,16 @@ test('kosmos#6436 (round 9): a line whose watch could not read the box (the turn
   await flush();
   assert.equal(t2.enters(), 0);
 }));
+
+test('kosmos#6436 (round 11): a light record (an unread watch) lives only past its one retry: the same words later are not pressed', () => withAgent((roster) => {
+  arm([EMPTY, 'some output from the turn, no input box drawn\n']);
+  chat.deliver('al', MSG, roster);
+  const realNow = Date.now;
+  const later = realNow() + 2 * 60 * 1000;
+  Date.now = () => later;
+  try {
+    const t = arm([box(MSG)]);   // the person recalled the sent line from history
+    assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
+    assert.equal(t.enters(), 0, 'words that probably went are never pressed again minutes later');
+  } finally { Date.now = realNow; }
+}));

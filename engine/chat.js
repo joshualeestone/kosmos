@@ -226,6 +226,7 @@ let unsentIdNext = 0;
    agent sat idle 30 to 60 minutes behind one), and not forever: a memory that outlived its line could meet the same
    words put back in the box later (the person's own up-arrow history) and press them. */
 const UNSENT_KEEP_MS = 24 * 60 * 60 * 1000;
+const UNSENT_LIGHT_MS = 60 * 1000;   // the light record: just past its one retry (30 s)
 function loadUnsent() {
   if (unsentLoaded) return;
   unsentLoaded = true;
@@ -264,7 +265,10 @@ function saveUnsent() {
 function recallUnsent(target) {
   loadUnsent();
   const e = unsentWires.get(target) || null;
-  if (e && Date.now() - e.at > UNSENT_KEEP_MS) { forgetUnsent(target); return null; }
+  /* A light record (an unread watch: the line usually went, so it may sit in the agent's own history) lives only past its
+     one retry: a person recalling those words later must never have them pressed. */
+  const life = e && e.light ? UNSENT_LIGHT_MS : UNSENT_KEEP_MS;
+  if (e && Date.now() - e.at > life) { forgetUnsent(target); return null; }
   return e;
 }
 function rememberUnsent(target, entry) {
@@ -976,7 +980,8 @@ const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then he
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
  * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery.
- * Yields { wait: ms } for the driver (synchronous or not, as the gap is); returns { outcome, retried }: 'sent' (it
+ * Yields { wait: ms } for the driver (synchronous or not, as the gap is); returns { outcome, retried } (and `text`, the
+ * box as read, on 'unsent': settle records it as `seen`): 'sent' (it
  * emptied), 'unread' (no live box to read: a menu or the turn's own screen, so today's verdict stands), 'unsent'
  * (only ours still there after the settle, and after the one retry where there is one), 'other' (something besides ours:
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
@@ -2228,12 +2233,13 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         }
         /* #6256 item 4: a box slower than the short watch (or an Enter tmux refused) still holds exactly our earlier
            line: remember it again, with its own time and number, so the next delivery can still press it. This one is
-           refused below, as before. It keeps its first time and number, so its own retries (kosmos#6436) still know it.
+           refused below, as before. It keeps its id and number, so its own retries (kosmos#6436) still know it.
            Known gap (review 3): if the Enter did take and the box only emptied later, no follow-up row is written; an
            empty box later cannot say whether it was sent or cleared by hand. */
         if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept, false, box.rows)) {
-          rememberUnsent(target, { ...kept, at: Date.now() });   // still there: the day runs from now
-          scheduleUnsentRetries(target, allowed.card);   // its first ones may be long done
+          /* Still there: a full record's day runs from now; a light record keeps its time and its one retry. */
+          rememberUnsent(target, kept.light ? kept : { ...kept, at: Date.now() });
+          scheduleUnsentRetries(target, allowed.card, kept.light ? UNSENT_RETRY_MS.slice(0, 1) : UNSENT_RETRY_MS);
         }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */

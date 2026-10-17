@@ -75,6 +75,9 @@ from a delivery, which carries the card the pane check needs).
 - [x] Round 10 (sonnet): the unread memory is light (this process only, not on disk) with one retry, since unread is
   common on a busy pane; the state folder is created before the save; the earlier-line press looks at the box before
   the gate; the two reads are named as 60 ms apart. Declined: the four-row end rule (the stated limit, pinned).
+- [x] Round 11 (opus): a light record lives 60 s (UNSENT_LIGHT_MS), just past its one retry, since its line usually
+  went and sits in the agent's history (recalled, it must never be pressed again); re-remembering a light record keeps
+  its time and one retry; comments honest (id and number kept; submitConfirmSteps returns text). Test pins it.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
