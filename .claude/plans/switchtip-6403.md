@@ -9,7 +9,7 @@ has another computer); retarget to main once #6396 merges. Josh asked for the ti
 at once on the computer let in while its Kosmos+ section is open (where pairing happens); on any other open board the
 next time it is looked at (window focus or the tab shown) a minute or more after its last read. (2) The first time it
 appears where a person can see it, one line under it says "Switch between your computers here."; it goes on its close
-button, a click anywhere on it, Escape, or opening the menu, and never comes back in that browser. Screenshot both.
+button, a click anywhere on it, or opening the menu, and never comes back in that browser. Screenshot both.
 
 ## How it works (current behaviour; the review log below says how it got here)
 Reads (each is a signed call to Kosmos+):
@@ -25,9 +25,9 @@ The tip:
   hidden under it). Its close button returns focus to the switcher; it describes the switcher (aria-describedby).
 - Seen (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused) only when a person can see it:
   the tab showing and the tip laid out; checked after it shows, on the tab shown, on a resize, and when it is put away.
-- Escape (read in the capture phase, before other handlers) puts it away only while it is laid out, the switcher's
-  menu is closed, no aria-modal dialog is visible and no layer claimed the key (a non-modal popover's Escape also puts
-  it away; it then counts as seen).
+- No Escape handling (removed in review 12): on a page where Escape belongs to dialogs, menus and the composer, a
+  one-time tip competing for it either closed itself with a dialog or used itself up unread. The close button, a click
+  on it and opening the menu make it dismissible, which is what was asked.
 - Browser checks that serve two or more computers and are not about the tip (allagents, otheraccounts, mobilenav,
   federation-invite, dm-chatfirst's two-computer arm) and mobile-shots seed the seen flag, since the tip now takes clicks.
 
@@ -59,11 +59,12 @@ The tip:
 - 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
   tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
   whose handler runs first.
+- 12 sonnet: Escape handling removed (every Escape finding traced to it); a real hit test for clicks on the tip.
 
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks
-   in askAct and paintPlus, the listeners (visibilitychange, focus, resize, Escape, the tip's click), the tip markup + CSS.
-2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 148. render-connect-sheet-4637.js: the Allow and
+   in askAct and paintPlus, the listeners (visibilitychange, focus, resize, the tip's click), the tip markup + CSS.
+2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 140. render-connect-sheet-4637.js: the Allow and
    let-in reads (spy + real reads) with CONTROLs. The five checks + mobile-shots: seen flag seeded.
-3. Mutants red: no focus read, no seen memory, no close handler, no tab-shown read, no follow-up, old Escape guard,
+3. Mutants red: no focus read, no seen memory, no close handler, no tab-shown read, no follow-up
    seen-at-show, hidden-tab seen, no page write.
