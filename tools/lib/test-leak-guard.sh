@@ -182,9 +182,9 @@ leak_family() {
 # unterminated owner line (a kill during the write) still reports.
 # #6362: an owner line with a third field ("survived its sweep") means the sweep ran and the dir outlived it (a
 # process the file started was still writing there, or something in it could not be removed). A dir with NO owner is
-# what a process the test started and left running leaves when it makes the dir again after the test ended (the
-# sweep took .kts-owner with it; reproduced for #6362), so the report lists what the dir holds, whose names usually
-# say which test's process it was.
+# usually what a process the test started and left running leaves when it makes the dir again after the test ended
+# (the sweep took .kts-owner with it; reproduced for #6362); a tmpscope older than #6061 or a failed owner write leaves
+# the same. So the report lists what the dir holds, whose names usually say which test's process it was.
 leak_kts_owners() {
   local root="${1%/}" d owner rest pid why held n shown
   for d in "$root"/kts-*; do
@@ -204,10 +204,10 @@ leak_kts_owners() {
     elif [ -f "$d/.kts-owner" ]; then
       # An EMPTY owner file was cut while tmpscope wrote it (at creation, or its rewrite after a failed sweep);
       # a remade dir has none at all.
-      echo "  ${d##*/}: owner line cut (the test was killed while tmpscope wrote it)"
+      echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
       # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
-      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort) || held=""
+      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort) || held="(could not list)"
       n=$(printf '%s' "$held" | grep -c . || true)
       shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
       if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
