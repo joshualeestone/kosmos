@@ -62266,7 +62266,7 @@ const PJ_NEEDS_WHY = {
   gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
   crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
   stuck_auth: ['Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.', 'Open'],   // "has seen": read from its screen, as the agent page says it
-  // #6341: no longer counted on a project (out of usage is quiet there); kept as the words should an older engine send it.
+  // #6341: never counted on a project now (out of usage is quiet there), so never shown here; the words stay for reference.
   stuck_rate: ['Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.', 'Open'],
   own_bound: ['Kosmos tried to get it going (a nudge, or a resume after its quota reset) and gave up. Open it to see what it shows.', 'Open'],   // #5154 slice B
   other: ['Kosmos needs you to look at it.', 'Open'],
@@ -62323,7 +62323,7 @@ function pjNeedsNotice(roster, redHere) {
     + '<span class="pnacts"><button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button>'
     + '<button class="qopt pn-dismiss" type="button" data-pn-dismiss="' + esc(String(m.sessionName)) + '" data-pn-reason="' + esc(reason) + '" aria-label="' + esc('Dismiss ' + nameOf(m)) + '">Dismiss</button></span></div>';
   // The engine's needsYouKey (a question carries its words, so the next question is shown); the reason if absent.
-  // Review 9: built as the engine builds it when absent (an older engine), so the board never refuses the key.
+  // Review 9: built as the engine builds it when a member arrives without needsYouKey, so the board never refuses it.
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + String(m.because || '').slice(0, 300) : m.needsYouHere);
   const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
@@ -62457,8 +62457,8 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      Only ADDS red: a row the card already reads as needing the person stays red. */
   /* #6341 (Josh, 10-16 19:47: "should never show in the project, only on the agent"): a member the engine marked quiet
      here (out of usage, a paused project, an idle room, dismissed) is not drawn red on the project's Members card, so
-     a Dismiss visibly takes the row's red away there. The agents list (lrow, which the consolidated layout's rail also
-     uses for the open project's members) is the agent's own row and keeps its own state: that is "on the agent". */
+     a Dismiss visibly takes the row's red away there. The agents list row (also drawn for the open project's members in
+     the one-column layout's rail) is the agent's own row and keeps its own state: that is "on the agent". */
   const rowStRaw = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(liveM).st;
   const rowSt = rowStRaw === 'attn' && m && m.needsYouQuiet ? 'quiet' : rowStRaw;
   const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)

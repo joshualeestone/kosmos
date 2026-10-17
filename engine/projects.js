@@ -935,7 +935,8 @@ function roomLive(project, now) {
   try { last = require('./messages').lastPostAt(project.id); } catch { return true; }
   if (last === undefined) return true;
   const born = Date.parse(project.createdAt);
-  // Review 7: a member added in the last day counts as a new project does (it may be blocked before it can post).
+  // Review 7: a member added in the last day makes the room live for every member, as a new project does (the new one
+  // may be blocked before it can post).
   const added = (Array.isArray(project.memberChanges) ? project.memberChanges : [])
     .filter((ch) => ch && ch.act === 'add').map((ch) => Date.parse(ch.at));
   // A time after now (a skewed clock, an import) is not evidence of anything recent (review 2).

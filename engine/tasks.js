@@ -1777,8 +1777,8 @@ function cardsNeedingPerson(task, roster, members) {
 /**
  * #6157: WHO put this task in Needs your decision, and why: one `{ who, reason }` per card that makes waitingOnPerson
  * true (the same cards, so the hint and the red can never disagree), in roster order. `reason` is the project page's
- * code for the same thing (projects.needsYouReason: question, trust, gave_up, crash_loop, stuck_auth, stuck_rate,
- * own_bound, other), so the page words it as the project's Issue list does. A card is a roster row, not a member row:
+ * code for the same thing (projects.needsYouReasonPastUsage: question, trust, gave_up, crash_loop, stuck_auth,
+ * own_bound, other; never stuck_rate, which #6341 leaves out), so the page words it as the project's Issue list does. A card is a roster row, not a member row:
  * it is present by being on the roster and tied by isNamedOurs, which cardsNeedingPerson already required.
  */
 function waitingOnOf(task, roster, members) {
