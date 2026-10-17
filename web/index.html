@@ -525,7 +525,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askcodein { width: 8.2em; max-width: 100%; box-sizing: border-box; padding: 4px 10px; border-radius: 8px;
                        border: 1px solid #6f86c4; background: rgba(255,255,255,.06); color: #fff;
                        font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; }
-  .askreq .askcodein::placeholder { color: #6f7f9f; }
+  .askreq .askcodein::placeholder { color: #93a3c6; }
   .askreq .askcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
   /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
      sits on the page, so it takes the page's ink). */
@@ -50297,14 +50297,22 @@ function askWrite(el, html) {
   /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
      button that had focus is found again by what it does and for whom, and focus goes back to it. */
   const a = document.activeElement;
-  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '', code: a.dataset.askcode || '',
+    at: a.dataset.askcode ? [a.selectionStart, a.selectionEnd] : null } : null;
   setLive(el, html);
+  // #6404: a code field gets back what was typed for this code (kept out of the markup).
+  for (const f of el.querySelectorAll('.askcodein')) {
+    const d = ASK.devices.find((x) => x.device_id === f.dataset.askcode);
+    const v = d ? askTypedFor(d) : '';
+    if (f.value !== v) f.value = v;
+  }
   if (had && !el.contains(document.activeElement)) {
-    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    const back = had.code ? Array.from(el.querySelectorAll('.askcodein')).find((f) => f.dataset.askcode === had.code)
+      : Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
     if (back) {
       back.focus();
-      // #6404: a code field rebuilt by a repaint keeps the person's place at the end of what they typed.
-      if (back.classList.contains('askcodein')) back.setSelectionRange(back.value.length, back.value.length);
+      // #6404: a rebuilt code field keeps the person's place in what they typed.
+      if (had.at && back.value) back.setSelectionRange(Math.min(had.at[0], back.value.length), Math.min(had.at[1], back.value.length));
     }
   }
   for (const s of el.querySelectorAll('[data-ask-ago]')) {
@@ -50479,12 +50487,15 @@ function paintAsk() {
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
+      /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
+         never changes what the next poll compares and the live region is not rebuilt mid-entry (askWrite puts them back). */
       (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
-        '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-ask="code" data-id="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
-        ' autocomplete="one-time-code" spellcheck="false" maxlength="7" placeholder="000 000" value="' + askEsc(typed) + '"></p>' : '') +
+        '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
+        ' autocomplete="off" spellcheck="false" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        (e && e.state === 'error' && e.because === 'code_typed' && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
       (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow || (typing && askDigits(typed).length !== 6) ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
@@ -50556,6 +50567,8 @@ async function askAct(act, id, at) {
   }
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
+  // Only the two buttons act on a request; anything else (#6404: a click that reached here from elsewhere) does nothing.
+  if (act !== 'allow' && act !== 'deny') return;
   const verb = act === 'allow' ? 'allow' : 'deny';
   /* #6404: the typed code is compared here, digit for digit, with the code this computer worked out; a wrong one never
      reaches the tunnel (it would read as "the code changed"). A right one sends the code as the tunnel wrote it. */
@@ -50605,7 +50618,7 @@ for (const cid of ['askcard', 'plus-asks']) {
   host.addEventListener('input', (e) => {
     const f = e.target.closest('.askcodein');
     if (!f) return;
-    const id = f.dataset.id;
+    const id = f.dataset.askcode;
     askTyped(id, f.value);
     const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === id);
     const d = ASK.devices.find((x) => x.device_id === id);
@@ -50617,7 +50630,7 @@ for (const cid of ['askcard', 'plus-asks']) {
     const f = e.target.closest('.askcodein');
     if (!f || e.key !== 'Enter') return;
     e.preventDefault();
-    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.id);
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.askcode);
     if (allow && !allow.disabled) allow.click();
   });
 }
