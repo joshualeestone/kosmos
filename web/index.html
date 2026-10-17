@@ -51498,7 +51498,7 @@ function plusJoinLive(j) {
   return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
 }
 /* Allowed, but the code ran out before it was confirmed here. While held, a code that ran out says needs_retry instead
-   (#6353: no new attempt starts until the person presses Try again; pairing.rs owe_commitment), so this needs not held. It
+   (#6353: no new attempt starts until the person presses Try again; pairing.rs owe_commitment), so this is only when not held. It
    stays until this computer pairs again, so it is NOT live: said once, as the ending of a pairing this page watched
    (review 6), never polled for (each read is a signed round) and never claimed on a later load. */
 function plusJoinRanOut(j) {
@@ -51582,7 +51582,10 @@ function paintPlusJoin() {
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
      round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
   else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
-  else if (j.confirm_expired || stale) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
+     the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
+  else if (j.confirm_expired) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else if (stale) html = '<p class="plus-join-say">That code ran out.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
   if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
@@ -51595,16 +51598,21 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   let res = null;
   try { res = await fetch('/api/remote/join/retry', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); } catch { res = null; }
   PLUS_JOIN_GEN += 1;
-  if (res && res.ok) PLUS_JOIN_MSG = '';
+  /* The answer changes what the block says now, before any round: the button must not come back pressable. */
+  if (res && res.ok) { PLUS_JOIN_MSG = ''; if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = true; } }
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
-    PLUS_JOIN_MSG = why === 'attempts_used' ? 'Too many tries.'
-      : why === 'nothing_to_retry' ? 'A new code is already on its way.'
-        : plusWords(why || 'That did not go through. Try again.');
+    PLUS_JOIN_MSG = '';
+    if (why === 'attempts_used') { if (PLUS_JOIN) { PLUS_JOIN.failed = true; PLUS_JOIN.needs_retry = false; } }
+    /* nothing_to_retry: the pairing moved on since this screen was painted; the next round says what it is now. */
+    else if (why !== 'nothing_to_retry') PLUS_JOIN_MSG = plusWords(why || 'That did not go through. Try again.');
   }
   PLUS_JOIN_AT = 0;
   { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
-  paintPlusJoin(); plusJoinTick();
+  paintPlusJoin();
+  /* The button just pressed is gone with the repaint: keep the keyboard in the block (WCAG 2.4.3). */
+  { const nb = document.querySelector('#plus-join button'); if (nb) nb.focus(); }
+  plusJoinTick();
 });
 document.getElementById('plus-join').addEventListener('click', async (e) => {
   const b = e.target.closest('#plus-join-match');
@@ -51626,7 +51634,7 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
-    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. Press Try again for a new one.'
+    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out.'
       : why === 'code_changed' ? 'That is not the code on this screen any more. Check the new one, then press The codes match again.'
         : plusWords(why || 'That did not go through. Try again.');
   }
