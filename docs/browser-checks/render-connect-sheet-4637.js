@@ -157,7 +157,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
           headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
       /* Measured while the sheets are there (an empty list would pass every()). */
-      const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 2 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
+      // #6405: the phone's row carries its age; the computer's row has none (its first_seen is its first ask, not this one).
+      const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 1 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
         return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
@@ -212,6 +213,26 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
       chk(nowrap, `${tag} "a moment ago" stays on one line`);
+      /* #6405: a computer's request first seen a day ago (it asked again just now) shows no age and is not faded; CONTROL:
+         a phone first seen a day ago still says when and is faded. */
+      const dayOld = await page.evaluate(async () => {
+        const old = Math.floor(Date.now() / 1000) - 23 * 3600;
+        const keep = ASK.devices;
+        ASK.devices = [
+          { device_id: 'computer:day-old', name: 'oldbox', code: '135 246', first_seen: old, joining_computer: 'oldbox' },
+          { device_id: 'd-ph-old', name: 'iPhone', code: 'Q2-8R', first_seen: old, joining_computer: null },
+        ];
+        paintAsk();
+        await new Promise((r) => setTimeout(r, 50));
+        const card = (id) => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]'); return b && b.closest('.askreq'); };
+        const pc = card('computer:day-old'), ph = card('d-ph-old');
+        const out = { pcAge: pc ? pc.querySelectorAll('[data-ask-ago]').length : -1, pcStale: pc ? pc.classList.contains('stale') : null,
+          phAge: ph ? ph.querySelectorAll('[data-ask-ago]').length : -1, phStale: ph ? ph.classList.contains('stale') : null };
+        ASK.devices = keep; paintAsk();
+        return out;
+      });
+      chk(dayOld.pcAge === 0 && dayOld.pcStale === false, `${tag} #6405: a computer that first asked a day ago shows no age and is not faded`, JSON.stringify(dayOld));
+      chk(dayOld.phAge === 1 && dayOld.phStale === true, `${tag} #6405 CONTROL: a phone first seen a day ago still says when and is faded`, JSON.stringify(dayOld));
       /* #4794: a computer whose code is not worked out yet: a quiet line in the code's place, Allow disabled, Not me enabled. */
       const waitCase = async (code_wait) => {
         pending = [{ device_id: 'd-w', name: 'laptop3', code: '', first_seen: now() - 10, joining_computer: 'laptop3', code_wait }];

@@ -50437,7 +50437,10 @@ function paintAsk() {
     /* #3829 (Josh: "terribly worded"; Mona Lisa's sketch): one compact card per request. The device and
        how long ago, one sentence, then the code LARGE directly above Allow / Not me (it is what the person checks
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
-    const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+    /* kosmos#6405: a computer joining keeps one row across every attempt, so first_seen is its FIRST ask (Josh's laptop
+       read "23 hours ago" for a request seconds old): no age and no fading for it; its code or wait line says where it is. */
+    const joiningRow = !!d.joining_computer;
+    const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
@@ -50475,7 +50478,7 @@ function paintAsk() {
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
-      '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
+      '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
       '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
