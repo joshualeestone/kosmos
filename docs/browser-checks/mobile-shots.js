@@ -881,11 +881,11 @@ const SCREENS = [
   }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Check it shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Type this code there, then press Allow/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
-  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads, the code steps back. */
+  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads; #6404: the code stays large (it is typed there). */
   { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Now press Allow on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Now type this code on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
   /* kosmos#6353: the same waiting computer after its code ran out: nothing restarts by itself, so it offers Try again. */
   { name: 'plus-join-retry', owner: 'Angel', noServiceWorker: true, go: async (page) => { await joinWaiting(page, false, true); await at(page, '?tab=settings&sec=plus');

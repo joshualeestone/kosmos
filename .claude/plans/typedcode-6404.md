@@ -25,7 +25,13 @@ Screenshot the card (light and dark) and the joining computer's big code.
 - askAct compares digits with d.code before any request. A mismatch is ASK.done error 'code_typed', worded on the card
   and dropped like the other code refusals once the code changes.
 
+- The joining computer (#plus-join) says to TYPE its code on the other computer: held, the steps end "Type this code
+  there, then press Allow." and "Then press The codes match here."; matched while held, the code stays large ("Now type
+  this code on <name>..."); allowed, "If you typed this code on <name> to allow this computer, press The codes match."
+
 ## Calls (decided, with the weakest premise)
+- The joining computer keeps "The codes match" while held (removing it would reorder #4794's whole flow). It decides only
+  that computer's trust in the other key, which nothing reads yet; the protecting comparison is the typed code.
 - The field lives only on the Kosmos+ section's sheet: away from it the top card is the one-line notice (#3829), so
   #askcard never draws a computer's field; its listener is there for parity, not driven by a check.
 - A wrong-code sentence stays while the person retypes, until the next Allow or a new code (clearing it on input would
@@ -50,3 +56,6 @@ Screenshot the card (light and dark) and the joining computer's big code.
   aria-invalid + describedby; no maxlength; autocomplete off; placeholder contrast. The allagents/phone-offline trailer reason says "grid-area" where the token is the new display:grid rule (conclusion right; the pushed commit is left as is).
 - 2 sonnet: Enter arm (5 digits nothing, 6 wrong answered, 6 right Allow, never Not me); two computers at once keep
   their own typing; askDigits tied to the tunnel's six-digit code; #askcard and the kept wrong-code sentence stated.
+- 3 opus: the check's field selector had the device id's colon (`#askcode-computer:...`, invalid CSS: every arm after
+  it would have thrown); the joining computer still said "check it shows this same code" and shrank its code; Allow's
+  disabled state from the typed value does rebuild the region once (comment corrected); a code that changed between typing and the press says "has a new code" (code_new).
