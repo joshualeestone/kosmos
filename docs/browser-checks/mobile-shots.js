@@ -251,14 +251,15 @@ async function connectPending(page) {
   await page.route('**/api/remote/devices/allow', (r) => { devices = devices.filter((d) => d.device_id !== 'd-sample-pc'); return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); });
 }
 /* #4794: the computer WAITING to be allowed (Settings > Kosmos+), with the pairing code worked out. */
-async function joinWaiting(page, confirmed) {
+async function joinWaiting(page, confirmed, retry) {
   const remote = { configured: true, on: true, ok: true, enrolled: true, email: 'owner@example.com', status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
   await page.route('**/api/remote', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(r.request().method() === 'GET' ? remote : { ok: true }) }));
   /* The devices list reads its own answer; unfaked, the throwaway board says on:false and the shot showed "Plus is off"
      beside a switch that is on. A computer waiting to be allowed has its switch on and no devices yet. */
   await page.route('**/api/remote/devices', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ pending: [], allowed: [], email: 'owner@example.com', on: true }) }));
   await page.route('**/api/remote/join', (r) => r.fulfill({ status: 200, contentType: 'application/json',
-    body: JSON.stringify({ supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: !!confirmed, confirm_expired: false }) }));
+    body: JSON.stringify({ supported: true, held: true, join_code: retry ? '' : '482 915', on: 'homemac', asked_of: ['homemac'], failed: false, confirmed: !!confirmed,
+      confirm_expired: !!retry, needs_retry: !!retry }) }));
 }
 /* #5531: a connected computer, for Settings > Kosmos+ > Your company. The company's answers are stand-ins in the shape
    of #5530's contract; the consent words are the sample the contract carries. */
@@ -885,6 +886,10 @@ const SCREENS = [
   /* kosmos#6314: the same waiting computer after "The codes match": the next action leads, the code steps back. */
   { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
     await page.waitForFunction(() => /Now press Allow on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+  } },
+  /* kosmos#6353: the same waiting computer after its code ran out: nothing restarts by itself, so it offers Try again. */
+  { name: 'plus-join-retry', owner: 'Angel', noServiceWorker: true, go: async (page) => { await joinWaiting(page, false, true); await at(page, '?tab=settings&sec=plus');
+    await page.waitForFunction(() => /A new code is needed to finish pairing/.test((document.getElementById('plus-join') || {}).innerText || '') && !!document.getElementById('plus-join-retry'), null, { timeout: 10000 });
   } },
   /* kosmos#6314: signed in on an account whose one computer is in use: "Add this computer to your account", with the
      price as Stripe gives it. Reached with the page's own functions; the list is a stand-in with the route's shape. */
