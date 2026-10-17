@@ -21706,25 +21706,29 @@ const server = http.createServer(async (req, res) => {
       let summary = null;
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
          task-message valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off). The mark is recorded by now, so nothing in
-         here may fail it: any throw answers 200, delivered [], and says Kosmos could not work out who to tell. */
+         here may fail it: every step after the mark answers 200. */
       if (!viaScreen && body.clear !== true && out.changed === true) {
+        // tellBuiltMark can throw only before any line goes (each line's own step catches), so its throw alone is "nobody was told".
+        let told = null;
         try {
-          const told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => taskMessageRefusal());
+          told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => taskMessageRefusal());
+        } catch (err) {
+          process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
+          delivered = [];
+          summary = 'Kosmos could not work out who to tell about the mark, so nobody was told.';
+        }
+        if (told) {
           delivered = told.delivered;
           // The valve's sentence was written for a task message: its "send from the screen" has no built counterpart.
           if (told.refusal) summary = 'The task is marked built, but nobody was told, because these lines count as task messages and '
             + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
-            if (told.attempted) taskMessageValveRecord();
-            // Lines may be out by now, so a failure here never says nobody was told.
+            // Lines may be out by now, so nothing here may say nobody was told.
+            try { if (told.attempted) taskMessageValveRecord(); } catch { /* the mark and its lines stand */ }
             try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
             catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
-        } catch (err) {
-          process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
-          delivered = [];
-          summary = 'Kosmos could not work out who to tell about the mark, so nobody was told.';
         }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });

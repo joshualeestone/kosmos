@@ -31,6 +31,7 @@ function runawayRefusal(times, what, { now = Date.now(), limit: rawLimit = AGENT
   const because = 'agents have ' + what.did + ' ' + recent.length + ' ' + what.noun + ' in the last hour, which is at or over the limit of '
     + limit + ' an hour shared by all agents together (a safety stop for an agent stuck in a loop), so Kosmos is pausing '
     + what.pausing + '. Agents can ' + what.again + ' again in about ' + mins + ' minute' + (mins === 1 ? '' : 's')
+    // server.js's built mark (#6330) strips this '; the person can still ... from the screen' tail by its words.
     + '; the person can still ' + what.screen + ' from the screen';
   return { because, retryAfterSecs, count: recent.length };
 }
