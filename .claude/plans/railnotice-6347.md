@@ -25,12 +25,14 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
   (the region is not live meanwhile). It asserts the box is at most 40vh, scrolls, and still ends above the list. Its
   control lifts the cap on the same box, which must then outgrow 40vh and run under the list, so a viewport too tall
   for the fixture fails instead of passing. It reads at the context viewport and again at 560px tall.
-  NOT YET RUN as of this commit: the result goes in the trailers before the PR. (The first commit cited render-project-done-4583, which
+  RUN 2026-10-17 01:31 CDT (frozen 45554ebf18, light and dark): PASS at both heights, control and cap. With the
+  surface-gate checks render-shell-noscroll-4872, render-allagents-4812 and render-phone-offline-718, all PASS
+  (trailers on 018ac88814). The arm prints only on failure, so the run records the verdict, not the numbers. (The first commit cited render-project-done-4583, which
   only reads the notice text and never measured the layout; review round 1.)
 
 ## Weakest premise
 That 40vh leaves the agents list usable on a short window. The rule sits inside the 960px+ consolidated block, so
 phones are unaffected. Review round 3 named the risk exactly: the head height comes from a grid row, so if that row is
 shorter than the lead line plus 40vh, the capped box still runs under the list. The render-projects arm now reads a
-second time at 560px tall to measure it. If it fails there, the fix is a cap tied to the head (the notice filling
-the remaining head height), not a smaller vh.
+second time at 560px tall to measure it, and it passed there (01:31 run). Had it failed, the fix was a cap tied
+to the head (the notice filling the remaining head height), not a smaller vh. Heights below 560 remain unmeasured.
