@@ -29,5 +29,13 @@ That the next agent has the same file to hash. A fingerprint proves sameness onl
 a folder or a deployed thing, a file's hash does not cover it (folders are out of scope here).
 
 ## Tests
-(to be written) engine: stored, cleared, same-mark, refused shapes; route: passed through, refused shape 400, screen
-ignores; slice 1 line carries it; both CLIs: --file hashes and sends, missing file refused, list shows it.
+- server.builtsha-6330.test.js (6): engine stores, clears, same-mark vs a new fingerprint, refuses four bad shapes; route
+  400 on a bad shape (nothing stored), an agent's stored, the screen's ignored (control: the screen mark went through);
+  the typed line carries it, a mark without one carries none (control); Mac CLI --file end to end with a real file and
+  task list showing it; Mac refusals (missing file, --file with no path, --file with --clear) never mark the task.
+- tools.windows-kosmos-cli-570.test.js (+1): the Windows CLI sends the sha256, keeps the path out of the note, a mark
+  without --file sends none (control), and the three refusals never reach the board.
+- Red-capable: with engine/tasks.js, server.js and both CLIs reverted to origin/main, all 6 server tests fail and
+  exactly the new Windows test fails (46/47).
+- Not tested: Windows task list printing the fingerprint (the list view is the same two-line shape as the Mac's, which
+  is tested end to end).
