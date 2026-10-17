@@ -109,6 +109,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForTimeout(300);
       const one = await page.evaluate(() => (document.getElementById('askcard').innerText || '').replace(/\s+/g, ' ').trim());
       chk(/Your computer "windowsbox" wants to join\./.test(one), `${tag} one computer waiting: the notice says "Your computer "windowsbox" wants to join."`, one);
+      /* #6388: two of the person's computers and nothing else: computers, not devices (the computer-and-phone notice below is the control). */
+      const pcRow = both.find((d) => d.device_id === PC_ID);
+      pending = [pcRow, { ...pcRow, device_id: PC_ID + '-2', name: 'macmini', joining_computer: 'macmini' }];
+      await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
+      await page.waitForTimeout(300);
+      const twoPc = await page.evaluate(() => (document.getElementById('askcard').innerText || '').replace(/\s+/g, ' ').trim());
+      chk(/2 of your computers want to join\./.test(twoPc) && !/devices/.test(twoPc), `${tag} #6388: two computers waiting: "2 of your computers want to join."`, twoPc);
       pending = both;
       /* On another page: the compact notice, in the same words. */
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
