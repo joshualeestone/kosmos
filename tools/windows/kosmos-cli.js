@@ -2401,7 +2401,9 @@ async function main(argv, io) {
       };
   async function provenFor(headers, boundMs) {
     if (!prove) return { ok: true };
-    const t = require(path.join(engineDir(), 'boardproof.js')).tokenIn(headers);
+    let t;
+    try { t = require(path.join(engineDir(), 'boardproof.js')).tokenIn(headers); }
+    catch (e) { return { ok: false, why: 'the check could not run: ' + ((e && e.message) || e) }; }   // never send unproven
     if (t === '') return { ok: true };   // no token: nothing to protect
     if (t === null) return { ok: false, why: 'headers unreadable' };
     if (proved.get(t) === true) return { ok: true };

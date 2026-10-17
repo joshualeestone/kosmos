@@ -495,11 +495,14 @@ test('#1765: main() against a squatter opens no browser, prints no address, exit
   if (!stub) { await sq.close(); t.skip('no .NET Framework compiler on this machine'); return; }
   try {
     for (const extra of [[], ['--print-url']]) {
-      const r = await new Promise((resolve) => {
+      const r = await new Promise((resolve, reject) => {
         execFile(process.execPath,
           [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(sq.port), '--app', appDir, '--timeout-ms', String(BOARD_WAIT_MS), ...extra],
           { env: { ...process.env, KOSMOS_OPEN_BIN: stub } },
-          (err, so, se) => resolve({ code: err ? err.code : 0, stdout: so, stderr: se }));
+          (err, so, se) => {
+            if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + err.code + '). ' + se)); return; }
+            resolve({ code: err ? err.code : 0, stdout: so, stderr: se });
+          });
       });
       assert.equal(r.code, 1, extra.join(' ') + ': ' + r.stderr);
       assert.equal(r.stdout, '', 'an address was handed out for an unproven listener');
