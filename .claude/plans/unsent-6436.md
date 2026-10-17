@@ -49,6 +49,11 @@ from a delivery, which carries the card the pane check needs).
   dropped it, and the agent was refused again); one set of retries per line at a time (retriesUntil); a failed save of
   the record is said on stderr; the stated four-row limit is pinned by a test. Declined: two boards sharing one state
   folder (one board per account folder). Mutant: the two-read rule.
+- [x] Round 5 (opus) BLOCKER: the unattended retry skipped the delivery gates (a permission prompt would take its
+  Enter). deliverWithGap's gate block is extracted unchanged into typingGate (385/385 chat tests after the move), and
+  the retry passes it on the roster as it is then (chat.setRosterSource, set by server.js to safeRoster); no roster: no
+  press. Test: a permission prompt on screen takes no Enter, CONTROL with it gone; mutant caught. Round 5 WARNINGs still
+  open for round 6 to weigh: SCROLLED_ROWS is not a true scroll signal; forget on changed; 24 h from first `at`.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)

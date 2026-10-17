@@ -47,13 +47,14 @@ function box(text, keep) {
 const EMPTY = [RULE, '\x1b[39m❯\u00a0\x1b[2mTry "write a test"\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
 
 function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out || '', err: '' }; }
-function arm(boxes) {
+function arm(boxes, plain) {
   const calls = [];
   const queue = boxes.slice();
   const fn = (args) => {
     calls.push(args);
     if (args[0] === 'display-message') return ok('2.1.302\t\t0\n');
     if (args[0] === 'capture-pane' && args.includes('-e')) return ok(queue.length > 1 ? queue.shift() : queue[0]);
+    if (args[0] === 'capture-pane' && plain) return ok(plain);   // the plain screen read (the menu and prompt gate's)
     return ok();
   };
   fn.calls = calls;
@@ -146,7 +147,7 @@ test('kosmos#6436: the remembered line survives a board restart (kept on disk, p
 test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min, 5 min), with no later message', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   assert.deepEqual(scheduled.map((s) => s.ms), [30000, 120000, 300000]);
   // The first retry: the box still shows only our line, so Enter, and it empties.
@@ -166,7 +167,7 @@ test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min,
 test('kosmos#6436: a retry that leaves it still there keeps it for the next; a retry during a delivery, or after a newer line, presses nothing', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   chat.deliver('al', MSG, roster);
   const t = arm([box(MSG)]);   // pressed, and it does not empty
   scheduled[0].fn();
@@ -203,7 +204,7 @@ test('kosmos#6436: a retry that leaves it still there keeps it for the next; a r
 test('kosmos#6436: a retry that fires while a delivery is typing to that pane presses nothing (that delivery presses it first)', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   chat.deliver('al', MSG, roster);
   // An async delivery held in its paste-to-Enter gap: the box shows the board's earlier line, which it presses first.
   let open = () => {};
@@ -223,7 +224,7 @@ test('kosmos#6436: a retry that fires while a delivery is typing to that pane pr
 test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, nor a pane that is no longer an agent\'s', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   chat.deliver('al', MSG, roster);
   const t = arm([box('the person started typing ' + MSG)]);
   scheduled[0].fn();
@@ -250,7 +251,7 @@ test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, 
 test('kosmos#6436: a retry forgets the line only when two reads a look apart agree it is gone (one read mid-redraw does not)', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   chat.deliver('al', MSG, roster);
   const t = arm([EMPTY, box(MSG)]);   // an empty read, then the line is there after all
   scheduled[0].fn();
@@ -263,7 +264,7 @@ test('kosmos#6436: a retry forgets the line only when two reads a look apart agr
   // CONTROL: two empty reads do forget it.
   chat.resetForTests();
   scheduled.length = 0;
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
   arm([EMPTY]);
@@ -290,7 +291,7 @@ test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty
   const ghost = [RULE, '\x1b[39m❯\u00a0\x1b[2m' + MSG + '\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
   assert.equal(chat.composerText(ghost).text, '', 'PRECONDITION: dim text is not typed text');
   arm([EMPTY, ghost]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   const v = chat.deliver('al', MSG, roster);
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
   assert.equal(scheduled.length, 0, 'a box that only looks full is not a stranded line');
@@ -299,7 +300,7 @@ test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty
 test('kosmos#6436: an unattended retry takes only the exact match: a resized box is left to the next delivery (CONTROL: which presses it)', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(LONG, KEEP)]);
-  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   chat.deliver('al', LONG, roster);
   const resized = box(LONG, 12);
   const t = arm([resized]);
@@ -336,3 +337,37 @@ test('kosmos#6436: a line left more than a day ago is not loaded after a restart
   assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
   assert.equal(t.enters(), 0, 'a day-old memory is not trusted');
 }));
+
+test('kosmos#6436 (round 5 BLOCKER): a retry passes every delivery gate on the roster now: a permission prompt on screen takes no Enter', async () => {
+  const PERMISSION = 'Bash command\n\n  ls\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No, and tell Claude what to do differently (esc)\n\nEnter to select · ↑/↓ to navigate · Esc to cancel';
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const scheduled = [];
+    arm([EMPTY, box(MSG)]);
+    chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+    chat.deliver('al', MSG, board.agents);
+    // Minutes later the agent is working and asking permission; its input box still reads (a stale frame, say).
+    const now = fleet.install([fleet.agent('al', { state: 'working' })]);
+    try {
+      chat.setRosterSource(() => now.agents);
+      const t = arm([box(MSG), EMPTY], PERMISSION);
+      scheduled[0].fn();
+      await flush();
+      assert.equal(t.enters(), 0, 'an Enter here would approve the command');
+      // CONTROL: the same retry with the prompt gone presses the line.
+      const t2 = arm([box(MSG), EMPTY], '❯ ');
+      scheduled[1].fn();
+      await flush();
+      assert.equal(t2.enters(), 1);
+    } finally { now.restore(); }
+    // And with no roster to check against, a retry presses nothing at all.
+    arm([EMPTY, box(MSG)]);
+    scheduled.length = 0;
+    chat.deliver('al', MSG, board.agents);
+    chat.setRosterSource(null);
+    const t3 = arm([box(MSG), EMPTY]);
+    scheduled[0].fn();
+    await flush();
+    assert.equal(t3.enters(), 0);
+  } finally { board.restore(); }
+});

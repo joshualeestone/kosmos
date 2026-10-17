@@ -290,6 +290,10 @@ const UNSENT_RETRY_MS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
    that wants them sets it); unset in production, a real unref'd timer. */
 let unsentRetryScheduler = null;
 function setUnsentRetryScheduler(fn) { unsentRetryScheduler = typeof fn === 'function' ? fn : null; }
+/* kosmos#6436: the board's roster now (server.js sets it). A retry runs minutes after its delivery, so it passes every
+   gate (typingGate) on the roster as it is then, not the card it was scheduled with. Unset: no retry presses anything. */
+let rosterSource = null;
+function setRosterSource(fn) { rosterSource = typeof fn === 'function' ? fn : null; }
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -323,6 +327,7 @@ function resetForTests() {
   unsentLoaded = true;
   try { fs.rmSync(UNSENT_FILE(), { force: true }); } catch { /* the sandbox's own file */ }
   unsentRetryScheduler = null;
+  rosterSource = null;
   MOVED_TELL = null;   // #5400
 }
 
@@ -1021,6 +1026,16 @@ async function pressRememberedNow(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return 'gone';
   if (deliveryQueues.has(target)) return 'busy';
+  /* Every gate a delivery passes before a keystroke, on the roster now: a question being answered, the trust dialog,
+     a paused swarm, quiet hours, the usage cap, and Claude Code's menus and prompts read fresh (an Enter on a
+     permission prompt would approve it). The pane must still be this one. */
+  let roster = null;
+  try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
+  if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
+  const gate = typingGate(card.sessionName, kept.wire, roster, '', '', new Date().toISOString());
+  if (!gate.ok) return 'gate';
+  if (paneTarget(gate.allowed.card) !== target) return 'pane';
+  card = gate.allowed.card;
   const box = readComposer(target);
   if (!box.ok) return 'unread';
   /* Our line is gone from the box (it is empty, or holds nothing that ends ours): forgotten, so these words coming
@@ -1936,11 +1951,11 @@ function claudeMenuRefusal(card, sessionName, roster) {
  * for the one fact that separates them: whether anything of the person's text
  * could have reached the pane. None of them says the agent knows anything.
  */
-function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
-  const at = new Date().toISOString();
-  const problem = messageProblem(raw);
-  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
-
+/* kosmos#6436: the gates a line passes before anything is typed into an agent's pane, in their order: who it is, a
+   question being answered, the trust dialog, a paused swarm, quiet hours and the usage cap, the Codex hooks dialog, and
+   Claude Code's own menus and prompts (a fresh read). Answers a verdict (nothing typed) or { ok: true, allowed }; a
+   verdict never carries `ok`. deliverWithGap and pressRememberedNow both pass here, so they cannot drift apart. */
+function typingGate(sessionName, raw, roster, envelope, trailer, at) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
@@ -2033,6 +2048,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     try { menu = claudeMenuRefusal(allowed.card, sessionName, roster); } catch { menu = null; }   // deliver never throws
     if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null };
   }
+  return { ok: true, allowed };
+}
+
+function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
+  const at = new Date().toISOString();
+  const problem = messageProblem(raw);
+  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
+
+  /* kosmos#6436: every gate before the first keystroke, shared with the retry that presses a line left unsent. */
+  const gate = typingGate(sessionName, raw, roster, envelope, trailer, at);
+  if (!gate.ok) return gate;
+  const allowed = gate.allowed;
 
   /**
    * ⚠️ THE ENVELOPE IS PREPENDED AFTER THE LENGTH CHECK, NEVER BEFORE IT, and
@@ -4714,7 +4741,7 @@ module.exports = {
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
   composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS,   // #6249, kosmos#6436
-  setUnsentRetryScheduler, restartUnsentForTests,   // kosmos#6436
+  setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,
