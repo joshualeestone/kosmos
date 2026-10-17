@@ -45,6 +45,8 @@ the project notice empty (a control asserts it). The head's grid row is `auto` i
 map (measured 2026-10-16: 604px with the map closed and open at 1280x900), and it does not clip, so a map taller than
 the head would run down over the list rather than push it; the cap-removed controls show both. Below 1280 wide the agents column folds by default and
 the map goes with it; the 960x720 arms unfold it first, as a person would.
+NOT measured below 720 tall: the consolidated layout has a width floor (960) and no height floor, so on a shorter window
+the button, the capped map and the label line may run past the head and over the list.
 NOT covered: a long project notice plus the open map on a short window. The notice is uncapped, so that pair can run
 past the head and make the page scroll, as a long notice can by itself today. A notice that runs past the head is
 also drawn under the agents list on main (measured in the design shots' data: the head ends at 600px and the notice's

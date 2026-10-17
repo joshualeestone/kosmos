@@ -209,7 +209,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const uncapTall = await uncapped();
     say('CONTROL: at 1280x900, with the cap removed, the first agent row is pushed off or covered', uncapTall.firstRow === false, JSON.stringify(uncapTall));
     say('CONTROL: at 1280x900, with the cap removed, the page scrolls down', uncapTall.pageDown > 0, JSON.stringify(uncapTall));
-    // The narrowest, shortest window the consolidated layout keeps: 960x720. Below 1280 the agents column folds by
+    // The consolidated layout's narrowest width (960), at 720 tall; it has no height floor, and shorter is not measured. Below 1280 the agents column folds by
     // default (CONSOLIDATED_FOLD_WIDTH), and the map goes with it; a person who unfolds it gets the rail at its floor.
     await p.setViewportSize({ width: 960, height: 720 });
     await p.waitForFunction(() => window.innerWidth === 960 && window.innerHeight === 720 && document.body.classList.contains('fold-a'), null, { timeout: 5000 }).catch(() => {});
