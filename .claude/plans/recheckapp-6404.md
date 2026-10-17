@@ -18,8 +18,9 @@ check, everything reads as before.
 - engine/remote.js: `joinRecheck` (`join recheck`; refusals tagged); `joinStatus` passes `can_recheck`, `rechecking`,
   `recheck_with`; pending rows pass `recheck`.
 - server.js: `POST /api/remote/join/recheck`, screen-only like Try again.
-- web/index.html: `plusJoinLive` counts `rechecking`; `plusJoinTick` makes the ran-out ending when `can_recheck` (the
-  probe's one read on load covers a later load); `plusJoinRanOutHtml` words the ending with or without the button; the
+- web/index.html: `plusJoinLive` counts `rechecking` (not once confirmed); `plusJoinTick` makes the ran-out ending
+  when `can_recheck` (the probe's one read on load covers a later load) and keeps whether a check can be asked for ON
+  the ending (`PLUS_JOIN_NOTE.recheck`), because paintPlus forgets the last answer once the pairing is not live; `plusJoinRanOutHtml` words the ending with or without the button; the
   code branch words the check's steps; the Check the code handler. On the allowing side `askHead`, the sentence, the
   button label, the done row and the cancelled row say what a check is.
 
@@ -34,3 +35,9 @@ check, everything reads as before.
 2. Tests: server.test.js (the route is screen-only, with a control); web.allow-card.test.js re-anchored;
    render-connect-sheet-4637.js arms for both screens (CONTROL: the existing ran-out arm without `can_recheck` keeps
    the old words and no button). README row.
+
+## Review log
+- 1 opus: the button vanished on the next repaint (BLOCKER: kept on the note now; the arm reads twice and counts
+  rounds); no "you said no ... password" on a check; confirmed during a check is not live; a check's refusals say
+  Confirm and never show a tag; "Checking the code with"; several checks' notice wording; each check row has its own
+  time (tunnel), so a dismissed notice does not hide a later check.

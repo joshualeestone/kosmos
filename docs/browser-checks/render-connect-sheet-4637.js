@@ -546,6 +546,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         const rb = await page.evaluate(() => { const b = document.getElementById('plus-join-recheck'); return b ? b.textContent : null; });
         chk(jr.shown && /^homemac allowed this computer\. Its code ran out before The codes match was pressed here\.\s*To finish, check the code with homemac once\. You will need to be at both computers\./.test(jr.text) && rb === 'Check the code',
           `${tag} #6404: allowed, code ran out, a check can be asked for: the ending says so with Check the code (also on a later load)`, JSON.stringify({ jr, rb }));
+        /* Review 1: the ending is not polled and the page forgets its last answer on the next repaint; the button must
+           stay through repaints, with no more pairing rounds. */
+        const getsBefore = joinGets;
+        jr = await readJoin(); jr = await readJoin();
+        const rb2 = await page.evaluate(() => { const b = document.getElementById('plus-join-recheck'); return b ? b.textContent : null; });
+        chk(/To finish, check the code with homemac once\./.test(jr.text) && rb2 === 'Check the code' && joinGets === getsBefore,
+          `${tag} #6404: Check the code stays through repaints, and the ending runs no more pairing rounds`, JSON.stringify({ jr, rb2, joinGets, getsBefore }));
         await page.click('#plus-join-recheck');
         await page.waitForTimeout(400);
         jr = await readJoin();
