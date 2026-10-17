@@ -50241,10 +50241,9 @@ function paintAsk() {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
     // A request is its device and when it asked (and when it was last turned away), so the same device asking again
-    // later is a new request. A row the coordinator sends with no first_seen and no denied_at cannot come back.
+    // later is a new request. A row whose first_seen and denied_at both arrive as 0 cannot come back.
     const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '');
     const hereKey = here ? 'here:' + askHereKey(here) : '';
-    ASK.noteKeys = live.map(noteKey).concat(hereKey ? [hereKey] : []);
     // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
@@ -50255,6 +50254,9 @@ function paintAsk() {
     title.textContent = '';
     lead.hidden = true;
     const n = fresh.length;
+    // Dismiss and Review put away only what this line names: a connected-here browser behind waiting requests is not
+    // named, so it is not put away (its line is the way to its Undo).
+    ASK.noteKeys = n ? fresh.map(noteKey) : [hereKey];
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
     const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
@@ -50362,6 +50364,7 @@ function paintAsk() {
 async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { askNoteDismiss(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
+  // 'open' and 'note-dismiss' exist only on the compact notice, whose paint wrote ASK.noteKeys.
   if (act === 'note-dismiss') {
     askNoteDismiss(); paintAsk();
     // The button is gone with the notice; focus goes to the current view's tab, or on a phone (tabs in a closed menu)

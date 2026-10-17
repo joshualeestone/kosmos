@@ -167,10 +167,22 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
          about itself, not about the dismissed requests. */
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
-      await page.evaluate(() => { ASK.here = { device_id: 'd-here', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk(); });
-      const hn = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') }));
+      // Set, paint and read in one step: the page's own poll (which serves no connected_here) could clear ASK.here between.
+      const hn = await page.evaluate(() => { ASK.here = { device_id: 'd-here', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
+        return { shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') }; });
       chk(hn.shown && /on this computer is connected/.test(hn.text) && !/want/.test(hn.text), '[' + W + '] #6315 a new connected-here browser is what the returning notice names', JSON.stringify(hn));
       await page.evaluate(() => { ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk(); });
+      /* A connected-here browser behind a waiting request is not named, so a dismiss does not put it away: once the
+         request is gone, its line (the way to its Undo) shows. */
+      const hr = await page.evaluate(() => {
+        ASK.here = { device_id: 'd-here2', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
+        const x = document.querySelector('#askcard .asknote-x'); if (x) x.click();
+        const keep = ASK.devices; ASK.devices = []; paintAsk();
+        const r = { shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
+        ASK.devices = keep; ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk();
+        return r;
+      });
+      chk(hr.shown && /on this computer is connected/.test(hr.text), '[' + W + '] #6315 a connected-here browser not named when dismissed still shows once the request is gone', JSON.stringify(hr));
       /* Storage that throws: the dismissal still holds in this tab. */
       await page.evaluate(() => { Storage.prototype.__set = Storage.prototype.setItem; Storage.prototype.__get = Storage.prototype.getItem;
         Storage.prototype.setItem = () => { throw new Error('quota'); }; Storage.prototype.getItem = () => { throw new Error('denied'); }; });
