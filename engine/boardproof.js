@@ -15,7 +15,8 @@
    or a board started on a different port). The proof and the request that follows are two connections: a board
    that stops between them and a listener that takes the port in that gap is a window this does not close.
 
-   Shared by the board (answer) and every node client (check). The CLI fetches the proof with its own curl (the
+   Shared by the board (answer) and the node check (boardHoldsToken, for node clients such as the report
+   bridges). The CLI fetches the proof with its own curl (the
    same route and time limit as its request) and runs this file only for the arithmetic:
      printf '%s' "$token" | node boardproof.js --key                       prints the key id
      printf '%s\n%s\n%s' "$token" "$nonce" "$answer" | node boardproof.js --verify <base url>   exit 0 proven, 1 not
@@ -41,8 +42,9 @@ function proofMatches(token, nonce, answer, port) {
   return got.length === want.length && crypto.timingSafeEqual(got, want);
 }
 
-/* The board's side. `candidates` returns an iterable of the tokens this board holds, cheapest first (a generator,
-   so the agent-token files are read only when no board token matched). Called only for a well-formed request.
+/* The board's side. `candidates(k)` returns an iterable of the tokens this board holds, cheapest first (a generator,
+   so the agent tokens are looked up only when no board token matched; it is given the key id to look them up by).
+   Called only for a well-formed request.
    `port` is the port this board listens on. Returns { status, body }. */
 function answer(query, candidates, port) {
   const n = query && query.n, k = query && query.k;
@@ -50,7 +52,7 @@ function answer(query, candidates, port) {
     return { status: 400, body: { error: 'a board proof needs n (32 hex) and k (16 hex)' } };
   }
   try {
-    for (const t of candidates() || []) {
+    for (const t of candidates(k) || []) {
       if (typeof t === 'string' && t && keyId(t) === k) return { status: 200, body: { proof: proof(t, n, port) } };
     }
   } catch { /* an unreadable store proves nothing */ }
@@ -58,15 +60,16 @@ function answer(query, candidates, port) {
 }
 
 /* The client's side: does the listener at baseUrl hold `token`? Resolves true or false, never throws.
-   Loopback http only; anything else is false, because no client of this module talks to anything else. */
+   Loopback http only (127.0.0.1, localhost, ::1); anything else is false, since the board is only ever there. */
 function portOf(u) { return u.port || '80'; }
+function loopbackHttp(u) { return u.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname); }
 
 function boardHoldsToken(baseUrl, token, opts = {}) {
   const timeoutMs = opts.timeoutMs || 3000;
   return new Promise((resolve) => {
     let u;
     try { u = new URL(baseUrl); } catch { resolve(false); return; }
-    if (u.protocol !== 'http:' || !token) { resolve(false); return; }
+    if (!loopbackHttp(u) || !token) { resolve(false); return; }
     const n = newNonce();
     const path = PROOF_PATH + '?n=' + n + '&k=' + keyId(token);
     let done = false, req = null;

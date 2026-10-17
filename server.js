@@ -976,6 +976,22 @@ function snapshotWorlds() {
   KNOWN_WORLD_TOKENS = m;
 }
 function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
+/* #1765: the agent tokens for a board proof, by key id. Cached, because the route needs no token and any local
+   process can ask it for random key ids; a miss reads the token files again at most once a second, so a new agent's
+   first proof can miss for up to a second while something else is asking at the same moment. A cached token that
+   was since revoked is proved and then refused by the gate, which gives nothing away. */
+const PROOF_AGENT_KEYS = { at: 0, ids: new Map() };
+function* proofAgentTokens(k) {
+  const c = PROOF_AGENT_KEYS;
+  if (c.ids.has(k)) { yield c.ids.get(k); return; }
+  const now = Date.now();
+  if (now - c.at < 1000) return;
+  c.at = now;
+  const ids = new Map();
+  for (const t of sendertoken.heldValues()) ids.set(boardproof.keyId(t), t);
+  c.ids = ids;
+  if (ids.has(k)) yield ids.get(k);
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -5561,22 +5577,24 @@ const server = http.createServer(async (req, res) => {
      the nonce it returns is inert there: `bootstrap`'s redeem arm runs only inside
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
-  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, n) for the token whose key id
-     is k, among this board's world tokens and then its agents' tokens, or 404. Exempt from the gate above. */
+  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, port and n) for the token whose
+     key id is k, among this board's world tokens and then its agents' tokens, or 404. Exempt from the gate above,
+     and loopback only: every client that asks is on this computer. */
   if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
+    if (!isLoopbackPeer(req)) { sendJson(res, 403, { error: 'the board proof is for this computer only' }); return; }
     let q = {};
     try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
-    /* Cheapest first, and lazily: the agent-token files are read only when no board token matched. The world
+    /* Cheapest first, and lazily: the agent tokens are looked up only when no board token matched. The world
        tokens are the ones boardTokenOk accepts (known at start and still listed), so a proof is never given for a
        token the gate would then refuse. The port is the one this board listens on (see boardproof.js). */
-    const out = boardproof.answer(q, function* () {
+    const out = boardproof.answer(q, function* (k) {
       if (boardAuthState.token) yield boardAuthState.token;
       if (KNOWN_WORLD_TOKENS) {
         let listed = [];
         try { listed = worlds.listWorlds(worldBase()); } catch { listed = []; }
         for (const w of listed) { const t = KNOWN_WORLD_TOKENS.get(w.id); if (t) yield t; }
       }
-      yield* sendertoken.heldValues();
+      yield* proofAgentTokens(k);
     }, req.socket.localPort);
     sendJson(res, out.status, out.body);
     return;

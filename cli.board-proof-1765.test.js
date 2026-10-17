@@ -38,8 +38,10 @@ fs.mkdirSync(path.join(HOME, 'app'), { recursive: true });
 fs.symlinkSync(path.join(__dirname, 'engine'), path.join(HOME, 'app', 'engine'));
 
 /* A board stand-in. `prove` decides whether it can answer the proof (it holds TOK) or is a squatter that answers
-   every request, the proof route included, with something plausible. */
-function withStub({ prove }, fn) {
+   every request, the proof route included, with something plausible. `proofAnswer` 'notfound' answers the proof
+   with a 404 page instead, and 'silent' never answers it. */
+function withStub({ prove, proofAnswer }, fn) {
+  const held = [];
   const seen = [];
   const server = http.createServer((req, res) => {
     req.on('data', () => {});
@@ -47,6 +49,8 @@ function withStub({ prove }, fn) {
       seen.push({ method: req.method, url: req.url, headers: req.headers });
       const u = new URL(req.url, 'http://x');
       if (u.pathname === boardproof.PROOF_PATH) {
+        if (proofAnswer === 'silent') { held.push(res); return; }
+        if (proofAnswer === 'notfound') { res.writeHead(404, { 'content-type': 'text/html' }); return res.end('<h1>Not Found</h1>'); }
         const q = Object.fromEntries(u.searchParams);
         const out = prove ? boardproof.answer(q, () => [TOK], req.socket.localPort) : { status: 200, body: { proof: 'a'.repeat(64) } };
         res.writeHead(out.status, { 'content-type': 'application/json' });
@@ -64,6 +68,7 @@ function withStub({ prove }, fn) {
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
       try { await fn(server.address().port, seen); } catch (e) { failure = e; }
+      for (const r of held) { try { r.destroy(); } catch { /* gone */ } }
       server.close(() => (failure ? reject(failure) : resolve()));
     });
   });
@@ -102,6 +107,27 @@ test('#1765: installed CLI sends NOTHING with the token to a squatter, and says 
   assert.match(r.out, /Something other than your Kosmos is answering at http:\/\/127\.0\.0\.1:\d+, so we did not .* and sent it nothing/);
   assert.equal(tokenSent(seen), false, 'the token reached the squatter');
 }));
+
+test('#1765: a squatter answering the proof with a 404 page gets nothing either', () => withStub({ proofAnswer: 'notfound' }, async (port, seen) => {
+  const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /could not show it is your Kosmos/);
+  assert.equal(tokenSent(seen), false, 'the token reached the squatter');
+}));
+
+test('#1765: a listener that never answers the proof gets nothing, and the words say nothing was sent', () => withStub({ proofAnswer: 'silent' }, async (port, seen) => {
+  const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
+  assert.notEqual(r.code, 0);
+  assert.match(r.out, /did not answer in time, so we did not .* and nothing was sent/);
+  assert.equal(tokenSent(seen), false, 'the token reached the stalled listener');
+}));
+
+test('#1765: with nothing listening the CLI says it could not reach Kosmos, as before', async () => {
+  const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
+  const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
+  assert.notEqual(r.code, 0);
+  assert.doesNotMatch(r.out, /could not show it is your Kosmos|did not answer in time/, 'a down board is not a refused proof');
+});
 
 test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES receive the token, so the arm above can see it', () => withStub({ prove: false }, async (port, seen) => {
   await cli(port, ['accounts']);
