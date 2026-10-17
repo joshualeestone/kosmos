@@ -589,7 +589,7 @@ test('#6421: a parent whose subtasks are all built says they wait for the person
     const { calls } = pass(w);
     assert.equal(calls.length, 1);
     assert.match(calls[0].text, /Every subtask under it is closed or built \(2 are built, waiting for the person to check and close them\)/, calls[0].text);
-    assert.ok(calls[0].text.includes('kosmos task built ' + w.pid + ' ' + n + " '<how its checks went>'"), calls[0].text);
+    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + " '<how its checks went>')."), calls[0].text);
   } finally { w.restore(); }
 });
 
@@ -606,7 +606,7 @@ test('#6421: a parent with some subtasks built and some not says how many of eac
   } finally { w.restore(); }
 });
 
-test('#6421 control: a parent with no built subtask, and a task with none, say nothing about subtasks', () => {
+test('#6421 control: a parent with no built subtask says nothing about subtasks', () => {
   const w = world([{ name: 'parentnone' }]);
   try {
     const n = taskOn(w, w.key.parentnone, 'ship a third release');
@@ -615,4 +615,44 @@ test('#6421 control: a parent with no built subtask, and a task with none, say n
     assert.equal(calls.length, 1, 'CONTROL: the parent is still nudged');
     assert.ok(!/subtask/.test(calls[0].text), calls[0].text);
   } finally { w.restore(); }
+});
+
+test('#6421: one built subtask and one closed reads as every subtask closed or built, with "it" for one', () => {
+  const w = world([{ name: 'parentone' }]);
+  try {
+    const n = taskOn(w, w.key.parentone, 'ship a fourth release');
+    childOf(w, n, 'write the notes', true);
+    const c = childOf(w, n, 'cut the build', false);
+    assert.ok(tasks.close(w.pid, c).ok !== false, 'fixture: close refused');
+    const { calls } = pass(w);
+    assert.match(calls[0].text, /closed or built \(1 is built, waiting for the person to check and close it\), so if your own part/, calls[0].text);
+  } finally { w.restore(); }
+});
+
+test('#6421: another open part on the parent means it is not this agent\'s to mark built', () => {
+  const w = world([{ name: 'parentshared' }, { name: 'parentpeer' }]);
+  try {
+    const n = taskOn(w, w.key.parentshared, 'ship a shared release');
+    const r = tasks.addPart(w.pid, n, { sentence: 'the peer half', who: w.key.parentpeer });
+    assert.ok(r && r.ok !== false, 'fixture: addPart refused: ' + JSON.stringify(r));
+    childOf(w, n, 'write the notes', true);
+    const mine = pass(w).calls.find((c) => c.session === w.key.parentshared);
+    assert.ok(mine, 'fixture: the agent was not nudged');
+    assert.match(mine.text, /other parts of it are still open, so it is built when they are done too\./, mine.text);
+    assert.ok(!mine.text.includes('kosmos task built'), 'told to mark a shared task built: ' + mine.text);
+  } finally { w.restore(); }
+});
+
+test('#6421: a repeating parent is never told to mark itself built; CONTROL: the same parent not repeating is', () => {
+  const hourAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+  const child = { number: 4, sentence: 'gather the numbers', parent: 3, builtAt: hourAgo, builtBy: 'zed', builtWho: ['zed'], createdAt: hourAgo };
+  const proj = (t) => [{ id: 'rp6421', name: 'Repeats', agents: ['ag'], tasks: [t, child] }];
+  const parent = { number: 3, sentence: 'A weekly report', who: 'ag', createdAt: hourAgo };
+  const due = nudge.openParts('ag', proj({ ...parent, repeat: { every: 'hour', minute: 0 }, repeatSetAt: hourAgo }));
+  assert.equal(due.length, 1, 'fixture: the due repeating task is not open work');
+  assert.equal(due[0].subs, undefined, 'a repeating parent carried subtask counts');
+  assert.ok(!nudge.nudgeText(due[0]).includes('kosmos task built'), nudge.nudgeText(due[0]));
+  const plain = nudge.openParts('ag', proj(parent));
+  assert.ok(plain[0].subs && plain[0].subs.built === 1, 'CONTROL: the plain parent carries its built subtask');
+  assert.ok(nudge.nudgeText(plain[0]).includes('kosmos task built'), 'CONTROL: ' + nudge.nudgeText(plain[0]));
 });
