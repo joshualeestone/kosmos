@@ -507,7 +507,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { grid-area: dev; }
   .askreq .askwho { grid-area: who; }
   .askreq .asksay { grid-area: say; }
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-area: code; }
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { grid-area: code; }
   .askreq .acts { grid-area: acts; }
   /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
   .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
@@ -519,6 +519,14 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #6404: the joining computer's code, typed by the person, as large as the code it replaces. */
+  #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { margin: 6px 0 2px; display: grid; gap: 4px; }
+  .askreq .askcodetype label { color: #c3cde3; font-size: .85rem; }
+  .askreq .askcodein { width: 8.2em; max-width: 100%; box-sizing: border-box; padding: 4px 10px; border-radius: 8px;
+                       border: 1px solid #6f86c4; background: rgba(255,255,255,.06); color: #fff;
+                       font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; }
+  .askreq .askcodein::placeholder { color: #6f7f9f; }
+  .askreq .askcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
   /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
      sits on the page, so it takes the page's ink). */
   #plus-join .askcodebig { color: var(--k-ink); }
@@ -50272,6 +50280,18 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
    where one reads the card's region instead (role=status is atomic), the whole card is read once a
    minute, which is still far quieter than the old rewrite every 5 seconds. */
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
+/* #6404: what the person typed for a computer's code, kept across repaints and forgotten when the code changes. */
+function askDigits(v) { return String(v || '').replace(/\D/g, ''); }
+function askTypedFor(d) {
+  const t = ASK.typed && ASK.typed[d.device_id];
+  return t && t.code === d.code ? t.v : '';
+}
+function askTyped(id, v) {
+  const d = ASK.devices.find((x) => x.device_id === id);
+  if (!d) return;
+  ASK.typed = ASK.typed || {};
+  ASK.typed[id] = { code: d.code, v: v };
+}
 function askWrite(el, html) {
   if (!el) return;
   /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
@@ -50281,7 +50301,11 @@ function askWrite(el, html) {
   setLive(el, html);
   if (had && !el.contains(document.activeElement)) {
     const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
-    if (back) back.focus();
+    if (back) {
+      back.focus();
+      // #6404: a code field rebuilt by a repaint keeps the person's place at the end of what they typed.
+      if (back.classList.contains('askcodein')) back.setSelectionRange(back.value.length, back.value.length);
+    }
   }
   for (const s of el.querySelectorAll('[data-ask-ago]')) {
     const t = askAgo(Number(s.dataset.askAgo) || 0);
@@ -50422,7 +50446,7 @@ function paintAsk() {
       ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
-    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed');
     const staleTag = tagged && e.code !== d.code;
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
@@ -50434,12 +50458,17 @@ function paintAsk() {
        and browser words match: the asking device names itself, so free text never goes into this sentence. Anything else
        keeps "the device in your hand". */
     const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
-    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
+    /* #6404: for a computer the person TYPES the code shown on it; this computer's own code is not shown, so Allow
+       cannot be pressed without reading the other screen (one click used to send this computer's own code). */
+    const typing = !!(d.joining_computer && d.code && !waitLine);
+    const typed = typing ? askTypedFor(d) : '';
+    const say = d.joining_computer ? (d.code ? 'Type the code shown on ' + name + ', then press Allow.' : '')
       : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
+      : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
       : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
@@ -50447,14 +50476,17 @@ function paintAsk() {
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
-    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
       '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
+      (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
+        '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-ask="code" data-id="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
+        ' autocomplete="one-time-code" spellcheck="false" maxlength="7" placeholder="000 000" value="' + askEsc(typed) + '"></p>' : '') +
+      (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow || (typing && askDigits(typed).length !== 6) ? ' disabled' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -50525,6 +50557,16 @@ async function askAct(act, id, at) {
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
   const verb = act === 'allow' ? 'allow' : 'deny';
+  /* #6404: the typed code is compared here, digit for digit, with the code this computer worked out; a wrong one never
+     reaches the tunnel (it would read as "the code changed"). A right one sends the code as the tunnel wrote it. */
+  if (verb === 'allow' && d.joining_computer && d.code && askDigits(askTypedFor(d)) !== askDigits(d.code)) {
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because: 'code_typed' };
+    for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+    paintAsk();
+    const f = document.getElementById('askcode-' + id);
+    if (f) { f.focus(); f.select(); }
+    return;
+  }
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
@@ -50532,6 +50574,7 @@ async function askAct(act, id, at) {
       body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
+    if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
@@ -50556,6 +50599,28 @@ document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
+/* #6404: typing the joining computer's code. Allow wakes at six digits without a repaint; Enter presses it. */
+for (const cid of ['askcard', 'plus-asks']) {
+  const host = document.getElementById(cid);
+  host.addEventListener('input', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f) return;
+    const id = f.dataset.id;
+    askTyped(id, f.value);
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === id);
+    const d = ASK.devices.find((x) => x.device_id === id);
+    const e2 = ASK.done[id];
+    const held = !d || (e2 && e2.state === 'error' && e2.because === 'code_changed' && e2.code === d.code && Date.now() - e2.at < 60000);
+    if (allow) allow.disabled = held || askDigits(f.value).length !== 6;
+  });
+  host.addEventListener('keydown', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f || e.key !== 'Enter') return;
+    e.preventDefault();
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.id);
+    if (allow && !allow.disabled) allow.click();
+  });
+}
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
