@@ -503,6 +503,30 @@ for (const how of ['comes back could_not', 'rejects']) {
   });
 }
 
+test('a control character in the note (an escape sequence) never reaches another agent\'s pane', async () => {
+  const chat = require('./engine/chat');
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const n = tasks.create(projectId, { sentence: 'Colour the logs', who: 'mona' }).number;
+    tasks.addPart(projectId, n, { sentence: 'Check the colours', who: 'ivy' });
+    const r = await mark(n, asAgent('mona'), { note: 'done \u001b[2J\u001b]0;owned\u0007 \u0085 really' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const typed = pastedMessages(sends);
+    assert.equal(typed.length, 1, JSON.stringify(typed));
+    assert.doesNotMatch(typed[0], /[\u0000-\u001f\u007f-\u009f]/, 'a control character reached the pane: ' + JSON.stringify(typed[0]));
+    // CONTROL: the rest of the note did.
+    assert.match(typed[0], /done .*really/, JSON.stringify(typed[0]));
+  } finally {
+    chat.resetForTests();
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));

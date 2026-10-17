@@ -519,7 +519,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const attempted = everyone.filter((m) => !offHere.has(String(m)) && member(m)).length;
   const refusal = attempted && typeof admit === 'function' ? admit() : null;
   if (refusal) return { delivered: [], refusal };
-  const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
+  // Control characters (ESC and the rest, C0 and C1) and line breaks never reach another agent's pane; nor does a quote,
+  // which would end the note.
+  const clean = (s) => String(s == null ? '' : s).replace(/["\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ');
   const projName = clean(rec.name || projectId);
   const who = clean(by) || 'An agent';
   const note = clean(t.builtNote || '');
@@ -528,6 +530,8 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
+  // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
+  const deadline = Date.now() + BUILT_TELL_WAIT_MS;
   const tell = async (m) => {
     let outcome;
     try {
@@ -537,14 +541,14 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
         { projectId, task: t.number, person: false });
       if (!outcome) {
-        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: the wait for the typing is
-           bounded (the checks before it are not, and are quick); past it the line is still queued and typed, and is said
+        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: every line waits only until
+           the one deadline set before any recipient's checks ran; past it the line is still queued and typed, and is said
            as may have been told. A late failure is logged, since the answer has gone. */
         const sending = chat.deliverAsync(m, line, roster);
         let timer = null;
         let late = false;
         const waited = new Promise((resolve) => {
-          timer = setTimeout(() => { late = true; resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }); }, BUILT_TELL_WAIT_MS);
+          timer = setTimeout(() => { late = true; resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }); }, Math.max(0, deadline - Date.now()));
           if (timer.unref) timer.unref();
         });
         sending.then((end) => {

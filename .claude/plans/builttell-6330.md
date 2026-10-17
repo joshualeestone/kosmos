@@ -35,7 +35,7 @@ your task P)". A marker that identified itself (token or pane) is never told; an
 - Review 5: `AGENT_WORKFORCE_TASK_MSG_CAP=0` (agent task messages switched off on this computer) switches these lines
   off too, and the answer says so. A project list that cannot be read while working out who to tell answers "Kosmos
   could not work out who to tell", never "nobody else is assigned". Review 11 (raised in 5, 8 and 11, so fixed rather than
-  deferred again): the typing of each line holds the answer at most BUILT_TELL_WAIT_MS (10 s, under the Mac CLI's 15 s; the quick checks before it are not timed); a line
+  deferred again): the lines hold the answer at most BUILT_TELL_WAIT_MS (10 s, under the Mac CLI's 15 s), one deadline taken before any recipient's checks run (review 18); a line
   still being typed then is said as unconfirmed ("may have been told") and is still typed after the answer.
 - Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
   operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
@@ -86,7 +86,7 @@ so it is the same trust, and closing it is a change to how the route identifies 
 A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
-`server.builttell-6330.test.js` (24 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+`server.builttell-6330.test.js` (25 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
 (other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
 parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
 typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients
