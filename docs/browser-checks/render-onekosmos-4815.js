@@ -6,16 +6,16 @@
  *
  * On a board with TWO Kosmoses, rendered through the SHIPPED worldswRender and computersFetch (the computers read
  * is stubbed), in the real page, both engines, light and dark:
- *   - one computer on the account: the top-left says that computer's name, has no chevron and no border, does
- *     not open, and no "Kosmoses" or "New Kosmos" is visible anywhere on the page;
- *   - not signed in (the route's { ok: false }): it says "This computer", the same way;
+ *   - one computer on the account: the top-left shows nothing (#6396), nothing opens, and no "Kosmoses" or
+ *     "New Kosmos" is visible anywhere on the page;
+ *   - not signed in (the route's { ok: false }): nothing there either (#6396);
  *   - four computers: it names this one, opens, and the menu holds ONLY Your computers (no Kosmoses list, no New
  *     Kosmos, and no separator above the section, since nothing sits above it);
- *   - a screen reader hears the plain name as text (no expanded state, no Tab stop), the openable one as a menu;
+ *   - a screen reader hears the openable one as a menu; the hidden one is not in the accessibility tree;
  *   - after a good read, a FAILED read keeps the name and the menu and says it could not reach the computers, and a
  *     SLOW read shows "Checking your computers..." rather than an empty menu (review round 1);
- *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts as plain
- *     "This computer" and recovers on the page's own re-read (review round 2);
+ *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts with nothing
+ *     there and recovers on the page's own re-read (review round 2);
  *   - failed reads back off, and a hidden tab waits and reads when it is looked at again (review round 5);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
@@ -84,6 +84,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           const chev = btn.querySelector('.worldsw-chev');
           const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
           const out = {
+            shown: vis('worldsw'),
             name: document.getElementById('worldsw-name').textContent,
             chev: !!chev && getComputedStyle(chev).display !== 'none',
             border: getComputedStyle(btn).borderTopColor,
@@ -93,6 +94,9 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           btn.click();
           await new Promise((r) => setTimeout(r, 50));
           out.opened = vis('worldsw-menu');
+          // #6396: inside a hidden switcher nothing is visible, so the attributes say what the code did.
+          out.menuOpen = !document.getElementById('worldsw-menu').hidden;
+          out.listOn = !document.getElementById('worldsw-list').hidden; out.newOn = !document.getElementById('worldsw-new').hidden;
           out.listInMenu = vis('worldsw-list'); out.newInMenu = vis('worldsw-new'); out.computers = vis('worldsw-computers');
           out.sepAbove = getComputedStyle(document.getElementById('worldsw-computers')).borderTopWidth;
           // Every visible word on the page, menu open: "Kosmoses" (plural) and "New Kosmos" must be nowhere.
@@ -103,17 +107,49 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
 
         if (!multi) {
           const one = await read('one');
-          ok(`${t} one computer: the top-left says its name`, one.name === 'studio-laptop', one.name);
-          ok(`${t} one computer: no chevron, no border, nothing opens`, !one.chev && one.border === 'rgba(0, 0, 0, 0)' && !one.opened, JSON.stringify(one));
-          ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listShown && !one.newShown && !one.plural, JSON.stringify(one));
+          ok(`${t} #6396: one computer: nothing shows top-left and nothing opens`, !one.shown && !one.menuOpen, JSON.stringify(one));
+          ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listOn && !one.newOn && !one.plural, JSON.stringify(one));
           const none = await read('none');
-          ok(`${t} not signed in (the marked answer): it says This computer, and does not open`, none.name === 'This computer' && !none.chev && !none.opened && !none.plural, JSON.stringify(none));
+          ok(`${t} #6396: not signed in (the marked answer): nothing shows top-left, nothing opens`, !none.shown && !none.menuOpen && !none.plural, JSON.stringify(none));
+          /* #6396 reviews 1, 2: the open menu, focused, when a re-read says one computer: the menu and the At a glance sheet
+             go, and focus lands on a visible header control (the K mark), not the page; in both layouts. */
+          const hide = (layout) => page.evaluate(async ({ worlds, layout }) => {
+            const cons = layout === 'consolidated';
+            document.documentElement.setAttribute('data-layout', cons ? 'consolidated' : 'tabs');
+            document.body.classList.toggle('consolidated', cons);
+            // The K mark is the first of the fallbacks and shows in both layouts, so it is where focus must land.
+            const where = () => { const a = document.activeElement; return { onK: !!a && a.id === 'klink' && a.getClientRects().length > 0, tag: a && a.tagName + '#' + a.id }; };
+            window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
+            document.getElementById('worldsw-btn').click(); await new Promise((r) => setTimeout(r, 80));
+            const row = document.getElementById('worldsw-glance'); if (row) row.focus();   // a control in the open menu
+            const before = { open: !document.getElementById('worldsw-menu').hidden, inside: document.getElementById('worldsw').contains(document.activeElement) };
+            window.__which = 'one'; await computersFetch(); await new Promise((r) => setTimeout(r, 50));
+            const out = { before, menuOpen: !document.getElementById('worldsw-menu').hidden, focus: where() };
+            // The At a glance sheet open when it hides: it closes, and the scroll lock it holds lets go.
+            window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
+            wvOpen(); await new Promise((r) => setTimeout(r, 50));
+            out.wvBefore = !document.getElementById('wv-modal').hidden;
+            out.lockedBefore = getComputedStyle(document.documentElement).overflow === 'hidden';
+            window.__which = 'one'; await computersFetch(); await new Promise((r) => setTimeout(r, 50));
+            out.wvOpen = !document.getElementById('wv-modal').hidden;
+            out.locked = getComputedStyle(document.documentElement).overflow === 'hidden';
+            out.wvFocus = where();
+            document.documentElement.setAttribute('data-layout', 'tabs'); document.body.classList.remove('consolidated');
+            return out;
+          }, { worlds: WORLDS, layout });
+          for (const layout of ['tabs', 'consolidated']) {
+            const gone = await hide(layout);
+            ok(`${t} #6396 (${layout}): hiding with the menu open and focused closes it and moves focus to the K mark, not the page`,
+              gone.before.open && gone.before.inside && !gone.menuOpen && gone.focus.onK, JSON.stringify(gone));
+            ok(`${t} #6396 (${layout}): hiding with At a glance open closes the sheet and lets go of its scroll lock, focus on the K mark`,
+              gone.wvBefore && gone.lockedBefore && !gone.wvOpen && !gone.locked && gone.wvFocus.onK, JSON.stringify(gone));
+          }
           const four = await read('four');
-          ok(`${t} four computers: it names this one and opens`, four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
+          ok(`${t} four computers: it shows, names this one and opens (#6396 CONTROL: the hidden arms above can fail)`, four.shown && four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
           ok(`${t} four computers: the menu holds only Your computers, with no separator above it`,
             four.computers && !four.listInMenu && !four.newInMenu && four.sepAbove === '0px' && !four.plural, JSON.stringify(four));
-          ok(`${t} a screen reader: the plain-text name has no expanded state and is not a Tab stop; the openable one has one`,
-            one.expanded === null && one.tab === '-1' && four.expanded === 'false' && four.tab === null, JSON.stringify({ one: [one.expanded, one.tab], four: [four.expanded, four.tab] }));
+          ok(`${t} a screen reader: the openable one is a menu button and a Tab stop`,
+            four.expanded === 'false' && four.tab === null, JSON.stringify({ four: [four.expanded, four.tab] }));
           /* After a good read of four, a read that FAILS must not lock the menu or lose the name (review round 1). */
           const after = await page.evaluate(async () => {
             window.__which = 'down';   // what production sends when Kosmos+ does not answer (always a 200)
@@ -179,8 +215,8 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           await bf.evaluate(() => { window.__which = 'four'; });
           await bf.waitForTimeout(800);
           const bfAfter = await look(bf);
-          ok(`${t} at boot, Kosmos+ not answering: plain "This computer", then the page reads again and recovers on its own`,
-            bfBefore.name === 'This computer' && bfBefore.fixed && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
+          ok(`${t} at boot, Kosmos+ not answering: nothing top-left, then the page reads again and recovers on its own`,
+            !bfBefore.shown && bfAfter.shown && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
           await bf.close();
           /* The retries back off (review round 5): with a 200 ms first wait, Kosmos+ down for 1.1 s is read at boot, then
              at 200, 600 (and 1400) ms: about 3 reads. A flat 200 ms would make about 6. */
@@ -204,7 +240,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           await bh.waitForTimeout(300);
           const shownLook = await look(bh);
           ok(`${t} a hidden tab waits, and reads (and recovers) when it is looked at again`,
-            hiddenLook.fixed && hiddenLook.name === 'This computer' && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
+            !hiddenLook.shown && shownLook.shown && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
           await bh.close();
         } else {
           const c = await read('one');
@@ -218,6 +254,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (13 arms off + 1 control) = 56.
-  process.exit(problems.length || pass + problems.length < 56 ? 1 : 0);
+  // 2 engines x 2 themes x (16 arms off + 1 control) = 68 (#6396: two one-computer asserts became one; two hide arms, x2 layouts).
+  process.exit(problems.length || pass + problems.length < 68 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
