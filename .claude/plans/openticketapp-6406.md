@@ -44,6 +44,17 @@ plain address as before.
 - The page gives up on the ticket after 8 s and opens the plain address; the tunnel call may still finish and make a
   ticket nobody uses (it expires).
 
+- Windows, a computer whose mode is not chosen yet (review 2): the app sends every other address to the person's own
+  browser, so the other computer opens there WITH the ticket (and a failed hand-off shows the address in a box). It
+  is the person at this computer, the ticket is single use and good for two minutes, and the gate takes it out of the
+  address first thing. Accepted rather than asking the window its mode.
+- The click is now a script navigation, not a link click. Both apps keep a Kosmos+ address (the person's computers)
+  in the window either way (Mac isKosmosPlusURL; Windows ConnectLinkDecision's IsKosmosPlusAddress, once a mode is
+  chosen). With a coordinator the app does not count as Kosmos+ (a staging override) it is refused instead of opened
+  in the browser, and the Mac's log line names the address with the ticket. Development setups only.
+- While the ticket is made the link reads busy (aria-busy, a progress cursor); after 8 s the plain address opens
+  whatever the request does.
+
 ## Steps
 1. engine openTicket + engine/remote.openticket-6406.test.js.
 2. server route + server.test.js (every refusal, a control that reaches the engine).
@@ -53,3 +64,6 @@ plain address as before.
 ## Review log
 - 1 sonnet: the screen-only wording says what it guards (no agent token, not relayed) and the local-process limit;
   the relay header premise pinned in the relay branch's test; the history-entry and timeout limits stated.
+- 2 opus: the link says it is busy; a hard 8 s fallback (no AbortController needed); the webhook path's header stated
+  and its case tested; one at a time tested against the page's own declaration; the unchosen-Windows and
+  script-navigation limits stated.
