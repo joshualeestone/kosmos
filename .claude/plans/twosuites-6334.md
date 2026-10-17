@@ -41,7 +41,9 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   so whichever asks second sees the first and waits.
   A queued waiter is dropped from the count while marked, so a run that does not queue (KOSMOS_NO_WAIT, a --side
   turn) can pass in the moment the head waiter's first ask passes; the waiter then unmarks and asks again, sees it,
-  and goes back to waiting (that second ask is #4498's). The limit holds; the waiter loses its turn once. (Iteration 10 raised it; iteration 5 had shown it unreachable.)
+  and goes back to waiting (that second ask is #4498's). The limit holds; the waiter loses its turn once.
+  Reasoned from the code, not run: no test drives two real queued waiters through the wait at KOSMOS_SUITE_MAX=2
+  (every #6334 arm is one run against a probe). The post-merge watch is where a breach would show. (Iteration 10 raised it; iteration 5 had shown it unreachable.)
 - When every candidate is gone between the waiter filter and the roots walk, the list as it was is counted (refuses
   one 30 s poll). Kept: an empty roots walk is otherwise indistinguishable from a failed one, and failing closed is
   the rule here. The roots walk is O(n^2) ps walks for n candidates; n is a handful today.
