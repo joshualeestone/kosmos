@@ -28,7 +28,7 @@ function slice(start) {
 /* The page's own declarations of the join state, so the test runs with the page's starting values and minute. */
 function varsBlock() {
   const a = PAGE.indexOf('var PLUS_JOIN = null;');   // from PLUS_JOIN itself, so no rig leaks it onto the global object
-  const b = PAGE.indexOf('var PLUS_JOIN_WAITED = false;');
+  const b = PAGE.indexOf('var PLUS_JOIN_SLOW_MS = ');
   assert.ok(a > 0 && b > a, 'the join state declarations moved');
   return PAGE.slice(a, PAGE.indexOf('\n', b));
 }
@@ -85,7 +85,7 @@ test('#6385: working out the first code, the joiner says why it can take a while
   r.clock.now += 2 * 1000;
   r.api.paint();
   assert.match(r.el.innerHTML, SLOW, 'after a minute with no code the joiner still does not say why it waits');
-  assert.match(r.el.innerHTML, /Keep this open: the code shows here\./);
+  assert.match(r.el.innerHTML, /Keep this open\. If no code comes, Settings, then Kosmos\+, on your other computer says why it is waiting\./);
 });
 
 test('#6385: after a Try again, "a new one is on its way" says the same after a minute', () => {
