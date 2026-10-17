@@ -1177,33 +1177,49 @@ function describe(project, roster, all) {
   /* #6341: a dismissal lasts while its reason stands. Once the member's reason has been gone or different for
      NEEDS_GONE_MS (review 1: not on one flickering read), it is dropped, so the same reason coming back later (a new
      crash loop next week) is shown again. Only a member the board can read (present and tied) is judged: an agent we
-     cannot see now has not been shown to be over it. `needsDismissGone` records when each one was first seen gone. */
-  const goneNow = {};
-  const drop = [];
+     cannot see now has not been shown to be over it. `needsDismissGone` records when each one was first seen gone.
+     'elsewhere' stands while the member is still red here for a reason not counted here (review 3: not merely while
+     nothing is counted, which a recovered agent also is, so it never lapsed). */
+  const redElsewhere = (m) => m.restartFailed === true || m.state === 'needs_you' || m.state === 'needs_trust'
+    || m.state === 'connection_lost' || Boolean(m.ownBound && m.ownBound.raised === true);
+  const verdict = {};   // name -> 'drop' | 'stand' | ISO time first seen gone
   for (const name of Object.keys(quiet.dismissed)) {
     const m = members.find((x) => x.sessionName === name);
-    if (!m) { drop.push(name); continue; }   // no longer a member
-    if (!m.present || !m.tied) { if (quiet.gone[name]) goneNow[name] = quiet.gone[name]; continue; }
+    if (!m) { verdict[name] = 'drop'; continue; }   // no longer a member
+    if (!m.present || !m.tied) continue;   // not judged: whatever is stored stays as it is
     const why = needsYouReason(m, project.id);
-    // 'elsewhere' stands while nothing is counted here; a counted reason appearing is news.
-    const standing = quiet.dismissed[name] === 'elsewhere' ? why === null : why === quiet.dismissed[name];
-    if (standing) continue;
+    const standing = quiet.dismissed[name] === 'elsewhere' ? why === null && redElsewhere(m) : why === quiet.dismissed[name];
+    if (standing) { verdict[name] = 'stand'; continue; }
     const since = Date.parse(quiet.gone[name]);
-    if (Number.isFinite(since) && quiet.now - since >= NEEDS_GONE_MS) drop.push(name);
-    else goneNow[name] = Number.isFinite(since) ? quiet.gone[name] : new Date(quiet.now).toISOString();
+    if (Number.isFinite(since) && quiet.now - since >= NEEDS_GONE_MS) verdict[name] = 'drop';
+    else verdict[name] = Number.isFinite(since) ? quiet.gone[name] : new Date(quiet.now).toISOString();
   }
-  // Compared by entries, not by serialised order (review 2: a key order that differed would write on every read).
-  const goneChanged = Object.keys(goneNow).length !== Object.keys(quiet.gone).length
-    || Object.keys(goneNow).some((k) => goneNow[k] !== quiet.gone[k]);
-  if (drop.length || goneChanged) {
+  const changes = Object.keys(verdict).some((name) => {
+    const v = verdict[name];
+    if (v === 'drop') return true;
+    if (v === 'stand') return quiet.gone[name] !== undefined;
+    return quiet.gone[name] !== v;
+  });
+  if (changes) {
     try {
+      /* Review 3: merged per member against the store as it is NOW, and only for a dismissal still the one judged
+         here, so a Dismiss pressed between this read and this write (a fresh dismissal, its gone mark cleared) is not
+         overwritten with the older state. */
       const stored = readAll();
       const at = stored.findIndex((p) => p.id === project.id);
       if (at >= 0) {
-        const left = { ...(stored[at].needsDismissed || {}) };
-        for (const name of drop) delete left[name];
-        if (Object.keys(left).length) stored[at].needsDismissed = left; else delete stored[at].needsDismissed;
-        if (Object.keys(goneNow).length) stored[at].needsDismissGone = goneNow; else delete stored[at].needsDismissGone;
+        const dis = { ...(stored[at].needsDismissed || {}) };
+        const gone = { ...(stored[at].needsDismissGone || {}) };
+        for (const [name, v] of Object.entries(verdict)) {
+          // Changed since this read (a new dismissal, or the same one pressed again, which clears its gone mark): not
+          // ours to judge.
+          if (dis[name] !== quiet.dismissed[name] || gone[name] !== quiet.gone[name]) continue;
+          if (v === 'drop') { delete dis[name]; delete gone[name]; }
+          else if (v === 'stand') delete gone[name];
+          else if (!gone[name]) gone[name] = v;
+        }
+        if (Object.keys(dis).length) stored[at].needsDismissed = dis; else delete stored[at].needsDismissed;
+        if (Object.keys(gone).length) stored[at].needsDismissGone = gone; else delete stored[at].needsDismissGone;
         writeAll(stored);
       }
     } catch { /* a record we cannot update is not a reason to fail a read */ }

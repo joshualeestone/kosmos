@@ -75861,7 +75861,9 @@ async function pjNeedsDismissClick(e) {
     return;
   }
   box.__lastLive = null;
-  const landed = await loadProjects();
+  // A newer read that overtook this one started after the dismissal too; one more read gives this handler its own paint.
+  let landed = await loadProjects();
+  if (!landed) landed = await loadProjects();
   if (!landed || PJ_CURRENT !== project) return;
   if (PJ_READ_FAILED) paintOneProject();
   if (rail) paintRailPjNotice();

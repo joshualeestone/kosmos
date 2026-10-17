@@ -70,3 +70,15 @@ test('#6341: what the page cannot have shown is refused, and nothing is written'
   assert.equal((await dismiss('no-such-project', { agent: 'nr61', reason: 'question' })).status, 404, 'an unknown project');
   assert.equal(stored(p.id).needsDismissed, undefined, 'a refused dismissal wrote something');
 });
+
+test('#6341 review 3: a store that cannot be read is our fault, answered 500, not 400', async () => {
+  const p = projects.create({ name: 'Needs Damaged', agents: ['nx61'] });
+  const file = projects.file();
+  const kept = fs.readFileSync(file, 'utf8');
+  fs.writeFileSync(file, '{ not json');
+  try {
+    const r = await dismiss(p.id, { agent: 'nx61', reason: 'question' });
+    assert.equal(r.status, 500, await r.text());
+  } finally { fs.writeFileSync(file, kept); }
+  assert.equal((await dismiss(p.id, { agent: 'nx61', reason: 'question' })).status, 200, 'CONTROL: the same request with the store back');
+});

@@ -19479,8 +19479,9 @@ const server = http.createServer(async (req, res) => {
 
   /* #6341 (Josh, 10-16 19:43: "there's not really a way to really dismiss it"): the person dismisses one row of a
      project's "needs you" block. Body {agent, reason}: the reason is the one the page showed, so a dismissal stands only
-     while that member's reason is still the same (engine/projects.js dismissNeeds, describe). A screen act: no agent
-     token reaches it (it is not on the agent-token list). Answers the project as the page reads it. */
+     while that member's reason is still the same (engine/projects.js dismissNeeds, describe). Called by the page. It is
+     not on the agent-token list, so an agent token alone does not reach it; an agent holding the board token can, as with
+     every board-token route. Answers the project as the page reads it. */
   const needsDis = pathname.match(/^\/api\/project\/([^/]+)\/needs-dismiss$/);
   if (needsDis && req.method === 'POST') {
     const id = decodeSegment(needsDis[1]);
@@ -19491,7 +19492,9 @@ const server = http.createServer(async (req, res) => {
       try {
         projects.dismissNeeds(id, body.agent, body.reason);
       } catch (err) {
-        sendJson(res, /no such project/.test(String(err && err.message)) ? 404 : 400, { error: String((err && err.message) || 'that could not be dismissed') });
+        // An unreadable store is our fact, not a bad request (review 3), as the other project routes answer it.
+        const status = err && err.code === 'UNREADABLE' ? 500 : /no such project/.test(String(err && err.message)) ? 404 : 400;
+        sendJson(res, status, { error: String((err && err.message) || 'that could not be dismissed') });
         return;
       }
       let project = null;
@@ -23628,7 +23631,7 @@ function start(port = PORT) {
           const heldNow = new Set();
           for (const a of out.acted) {
             // #6341: the room already held this note (a restart forgot it had been written): no note, no asks; the playbook went.
-            if (a.alreadyNoted) { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: note already in the room (not repeated), playbook ${a.verdict}\n`); continue; }
+            if (a.alreadyNoted) { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: note already in the room (not repeated), playbook ${a.verdict || 'threw'}\n`); continue; }
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
