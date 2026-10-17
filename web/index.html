@@ -2193,6 +2193,9 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
   width: max-content; max-width: min(320px, calc(100vw - 88px)); padding: 6px 6px 6px 10px; font-size: 13px; color: var(--k-ink); background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
 .worldsw-tip[hidden] { display: none; }
+/* Clicks go through the tip to what is under it (it overlays the page below the header); only its close button takes one. */
+.worldsw-tip { pointer-events: none; }
+.worldsw-tip-x { pointer-events: auto; }
 .worldsw-tip-x { flex: none; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1;
   min-width: 24px; min-height: 24px; border-radius: 6px; }
 .worldsw-tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
@@ -30152,16 +30155,24 @@ let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
 let COMPUTERS_READ_AT = 0;   // #6403: when the last read started (computersFetch), so a look within a minute does not read
 let COMPUTERS_TIP_SHOWN = false;   // #6403: once per page even where localStorage is refused (a private window)
-let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: one quick follow-up
+let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: follow-ups for 90 s
+let COMPUTERS_STALE_FORCED = false;   // #6403: a forced read was owed while the tab was hidden; the read on return is one
 /* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered here); it goes
    on its close button or when the menu is opened. */
 function worldswTipOnce() {
   let seen = COMPUTERS_TIP_SHOWN;
-  COMPUTERS_TIP_SHOWN = true;
-  try { seen = seen || localStorage.getItem('kosmos.switcherTipSeen') === '1'; localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
+  try { seen = seen || localStorage.getItem('kosmos.switcherTipSeen') === '1'; } catch {}
   const tip = document.getElementById('worldsw-tip');
   if (!seen && tip) {
     tip.hidden = false;
+    /* Seen only once it can actually be seen (the switcher is shown just after this; on a phone over Kosmos+ it never
+       is), so a layout that hides the switcher does not use up the tip. */
+    setTimeout(() => {
+      if (!tip.hidden && tip.getClientRects().length > 0) {
+        COMPUTERS_TIP_SHOWN = true;
+        try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
+      }
+    }, 0);
     // The switcher's own description while the tip is up, so a screen reader hears it on the button (a region that
     // starts hidden is not announced reliably).
     const btn = document.getElementById('worldsw-btn'); if (btn) btn.setAttribute('aria-describedby', 'worldsw-tip-text');
@@ -30172,11 +30183,11 @@ function worldswTipHide() {
   const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
 }
 /* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
-   one is let in, or when the page is looked at again a minute or more after the last answer. */
+   one is let in, or when the page is looked at again a minute or more after the last read started. */
 function computersReadSoon(force) {
   if (MULTI_KOSMOS || COMPUTERS_OPENABLE) return;
   // A forced read in a tab nobody can see waits for it to be looked at (the visibilitychange listener reads then).
-  if (document.hidden) { if (force) COMPUTERS_STALE_WHILE_HIDDEN = true; return; }
+  if (document.hidden) { if (force) { COMPUTERS_STALE_WHILE_HIDDEN = true; COMPUTERS_STALE_FORCED = true; } return; }
   if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000;
   // A look back: at most once a minute after any read, and never while Kosmos+ is failing (the backoff is in charge).
   else if (COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
@@ -30216,8 +30227,6 @@ function worldswComputersSeen(rows, good) {
     /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
        computer) and each read is a signed call to Kosmos+ (review round 4). */
     const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
-    /* #6403: still one computer just after an Allow or being let in: Kosmos+ may not list the new one yet, so look again
-       soon rather than in five minutes. */
     /* Every 15 s for the 90 s after a forced read (Kosmos+ lists the new computer once it has connected, which can take a
        while): a handful of reads, once per pairing. */
     const expecting = good && !COMPUTERS_OPENABLE && Date.now() < COMPUTERS_EXPECT_UNTIL;
@@ -32025,7 +32034,11 @@ async function worldHideSubmit() {
     document.addEventListener('visibilitychange', () => {
       const menu = document.getElementById('worldsw-menu');
       // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
-      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) {
+        COMPUTERS_STALE_WHILE_HIDDEN = false;
+        if (COMPUTERS_STALE_FORCED) { COMPUTERS_STALE_FORCED = false; COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000; }   // #6403: its follow-ups too
+        computersFetch().catch(() => {});
+      }
       else if (!document.hidden) computersReadSoon(false);   // #6403
     });
     window.addEventListener('focus', () => computersReadSoon(false));   // #6403: the app window looked at again

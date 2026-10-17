@@ -2557,6 +2557,8 @@ async function run() {
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
+              // #6403: the switcher's one-time tip is not part of any screen here (a screen that wants it clears this).
+              await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
               const page = await ctx.newPage();
               const pageErrors = [];
               page.on('pageerror', (e) => pageErrors.push(String(e)));
