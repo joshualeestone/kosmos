@@ -752,13 +752,16 @@ async function uninstall(opts) {
       } else {
         /* #6391: deleteAllExcept is about to take `<dataDir>\remote` with the rest, including the
            Plus key. Retire this computer at the coordinator FIRST, while the key can still sign it,
-           and only when a key is actually here (the `mac_id` + `mac_key` pair, as remote.js's
-           holdsKey() tests) so a computer that was never paired to Kosmos+ says nothing about it.
-           `<dataDir>\remote` is the DEFAULT state dir (remote.js's STATE_DIR() when
-           AGENT_WORKFORCE_TUNNEL_STATE is unset); a custom state dir is out of scope and safe -- its
-           key lives outside dataDir, so this uninstall neither retires nor deletes it, and an
-           undeleted key is not a stranded one. Best-effort; the outcome is said either way, as the
-           Mac uninstall does (install/setup.sh, #793). */
+           and only when a key is actually here: the `mac_id` + `mac_key` pair, as remote.js's
+           holdsKey() tests (deliberately the stricter pair, not the Mac uninstall's `mac_key`-alone
+           guard at setup.sh #793), so a computer that was never paired to Kosmos+ says nothing.
+           SCOPE: this checks and retires `<dataDir>\remote`, the DEFAULT state dir (remote.js's
+           STATE_DIR() when AGENT_WORKFORCE_TUNNEL_STATE is unset, which it is on every installed
+           Windows PC). A custom AGENT_WORKFORCE_TUNNEL_STATE (a dev/self-host seam) is NOT honored
+           here: if it points outside dataDir the key is neither deleted nor stranded, but if it
+           points inside dataDir the key would be deleted without a retire. That unsupported config
+           is a known limitation, not a guarantee of safety. Best-effort; the outcome is said either
+           way, as the Mac uninstall does. */
         const remoteDir = path.join(dataDir, 'remote');
         const hadKey = ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(remoteDir, f)));
         if (hadKey) {
@@ -775,7 +778,9 @@ async function uninstall(opts) {
              pathological huge operator-set value would make this one call wait that long. */
           const envTimeout = Number(env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS);
           const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : undefined;
-          const told = retire({ remoteDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }).told === true;
+          // `|| {}`: the module retirePc always returns {told}, but this guards the call site from a
+          // misbehaving injected o.retirePc returning undefined, so the uninstall can never throw here.
+          const told = (retire({ remoteDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }) || {}).told === true;
           if (told) done.push('told the Kosmos+ service this computer is going away, so its Kosmos+ address is retired (the name is free again after a day)');
           else notes.push('Kosmos could not tell the Kosmos+ service this computer is going away, so its Kosmos+ address may still show on your account page until you remove it there.');
         }
