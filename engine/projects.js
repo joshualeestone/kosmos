@@ -3507,6 +3507,8 @@ function blockRules(sessionName, cliShown) {
          it applies to, and re-spliced on every membership change so existing agents learn it too. */
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
+      // #6330: the note now reaches people, so say who.
+      `The note is typed to the task's other assignees and to whoever holds the task it sits under.`,
     ],
     /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
        held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
