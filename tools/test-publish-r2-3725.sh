@@ -32,6 +32,12 @@ if [ -z "$PWSH" ]; then
   echo "SKIP test-publish-r2-3725: pwsh is not installed here (CI runs it)"; exit 0
 fi
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test-publish-r2-3725.XXXXXXXXXX")"; trap 'rm -rf "$TMP"' EXIT
+# #6352: pwsh replays a per-user startup profile (powershell/StartupProfileData-NonInteractive under the cache folder)
+# and rewrites it on every run. One damaged write made every later pwsh start crash (rc 134), and this file failed
+# 87 of 87 in every validation until the file was moved aside. This run gets a cache folder of its own, which pwsh
+# reads from XDG_CACHE_HOME on macOS and Linux, so a damaged shared profile cannot reach it and its own writes cannot
+# tear the shared one when validations run in parallel.
+export XDG_CACHE_HOME="$TMP/xdg-cache"
 
 # (pwsh -Command appends trailing words to the command text instead of binding $args, so each
 # PowerShell step is a small -File script.)
