@@ -38561,6 +38561,17 @@ function boardSigninHtml() {
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
       + '</div>';
   }
+  /* An app from before #6358 still running after the update (it has the kosmosBadge bridge, not kosmosSignin) cannot
+     sign its window in, and opening the app it is already in does nothing: quitting and opening it again does. */
+  let oldApp = false;
+  try { oldApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge); } catch { /* not the app */ }
+  if (oldApp) {
+    return '<div class="pj-empty boardfail">'
+      + '<p><b>This board is not signed in.</b><br>'
+      + 'Quit Kosmos with Command-Q, then open it again from your Applications folder.</p>'
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   return '<div class="pj-empty boardfail">'
     + '<p><b>This board is not signed in.</b><br>'
     + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '

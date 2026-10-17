@@ -146,6 +146,9 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   assert.ok(tab.indexOf('steps are just below') < tab.indexOf('Applications folder'), 'the app is the alternative, not the lead remedy');
   const kplus = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', 0, false, true);
   assert.doesNotMatch(kplus, /The app is signing this window in|Quit Kosmos with Command-Q/, 'a Kosmos+ board in the app window is not promised an app sign-in');
+  const oldApp = render({ webkit: { messageHandlers: { kosmosBadge: { postMessage() {} } } } });
+  assert.match(oldApp, /Quit Kosmos with Command-Q, then open it again from your Applications folder/, 'an app from before #6358, still running, is told the step that works');
+  assert.doesNotMatch(oldApp, /kosmos open|keep going in the Kosmos app/, 'not the tab copy: it is already in the app');
   const winKplus = (() => {
     const ctx = { window: {}, location: { search: '' }, URLSearchParams, Date, kplusRemote: () => true, onWindows: () => true, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
     vm.createContext(ctx);

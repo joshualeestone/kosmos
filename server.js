@@ -5658,6 +5658,15 @@ const server = http.createServer(async (req, res) => {
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
+    /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
+       a session cookie. Otherwise a session could mint its own successor and outlast SESSION_MAX_MS for as long as
+       the board stays up. Every minting caller (kosmos open, open-board.js, the staging check) sends the header. The
+       gate is judged on a copy of the request with no cookie, built field by field (headers can be a getter). */
+    const noCookie = { url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) };
+    if (boardAuthState.on && !boardTokenOk(noCookie)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
     return;
   }

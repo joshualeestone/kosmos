@@ -186,3 +186,10 @@ header. A sender that set the cookie to the token would now be refused, and its 
   double-click Kosmos.exe when read through Kosmos+. That is where the remedy is (the computer Kosmos runs on), worded
   as if local. Changing it means touching a load-time constant several tests evaluate. Revisit if a Windows Kosmos+
   403 is ever seen (the connector presents the token header, so it is rare).
+
+## Round 21 (Opus), applied 2026-10-17
+- `POST /api/board-nonce` takes a board token (header or query), judged with the cookie removed. A session cookie
+  alone is refused there, so a nonce (which redeems for a new session) only comes from a token holder, and the
+  7-day cap holds. Every minting caller already sends the header. Server test added, mutation-checked.
+- An app from before #6358 that is still running after the update (kosmosBadge bridge, no kosmosSignin) gets the
+  Command-Q line, not the tab copy.
