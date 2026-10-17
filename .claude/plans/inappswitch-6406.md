@@ -12,7 +12,7 @@ window, not a browser tab. In a browser it still opens a new tab. The link never
 ## Why this is enough for the window
 The native apps already keep a same-window navigation to https://<name>.kosmosplus.com inside the app (Mac
 decidePolicyFor / connectLinkDecision; Windows OnNavigationStarting / ConnectLinkDecision, once the computer's mode is
-chosen; an unchosen mode on Windows still sends it to the browser, as before); only target=_blank sent it to the
+chosen; an unchosen mode on Windows still sends it to the browser, as before: #6411); only target=_blank sent it to the
 browser (Mac createWebViewWith opens the system browser on a run/both computer). Every "open another computer" link
 the board renders follows the same rule: the switcher, its phone-menu copy, and the Agents view's Open links (#4812).
 
@@ -37,7 +37,8 @@ One helper, computersLinkTarget, decides the target for all four sites (a source
    another computer calls: the switcher row (computersRender), the Agents view's agent cards (oaCard) and its two
    Open <computer> links (oaGroup, aoGroup); the phone menu (pnavFill) copies the row's own target.
 2. web.computers-switcher-4648.test.js: Mac and Windows bridges open in the window, a browser keeps _blank (CONTROL);
-   a source scan: every href built from a computer's address is followed by the helper and no bare _blank.
+   a source scan: every href that names a computer's address is followed by the helper within six lines, with no
+   new-window target set there by itself (target = or setAttribute).
 3. web.allagents-4812.test.js: the agent card and Open <computer> in the app and in a browser (CONTROL).
 4. render-computers-4648.js arm 3 (Chromium + WebKit): the switcher row and the phone menu's copy in the real page.
 5. Mutants red: always _blank on the row; pnav always _blank; a stray _blank on the agent card (two tests).

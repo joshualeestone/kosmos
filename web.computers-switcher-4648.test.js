@@ -82,17 +82,18 @@ test('#6406: in the Kosmos app (Mac bridge, or Windows WebView2) an online compu
 });
 
 test('#6406: every link the page builds to another computer goes through computersLinkTarget', () => {
-  /* Every href built from a computer's Kosmos+ address ('https://' + c.address, oaAgentHref) must be followed by the
-     helper, and no '_blank' may be set near it except the helper's own fallback for a test that lifts one function. */
+  /* Any '_blank' set within six lines after a line that names a computer's address (c.address, or oaAgentHref) must be
+     the helper's own fallback for a test that lifts one function; and each such href is followed by the helper. */
   const lines = PAGE.split('\n');
+  const addressLine = (l) => /\.address\b|oaAgentHref\(/.test(l) && /href/.test(l);
   const sites = [];
-  lines.forEach((l, i) => { if (/(\.href = 'https:\/\/' \+ c\.address|\.href = oaAgentHref\()/.test(l)) sites.push(i); });
+  lines.forEach((l, i) => { if (addressLine(l)) sites.push(i); });
   assert.ok(sites.length >= 4, 'found ' + sites.length + ' address links');
   for (const i of sites) {
-    const near = lines.slice(i, i + 4).join('\n');
-    assert.ok(/computersLinkTarget\(/.test(near), 'line ' + (i + 1) + ' must use the helper: ' + lines[i].trim());
-    const bare = near.split('\n').filter((l) => /target = '_blank'/.test(l) && !/typeof computersLinkTarget === 'function'/.test(l));
-    assert.deepEqual(bare, [], 'line ' + (i + 1) + ' sets _blank by itself');
+    const near = lines.slice(i, i + 7);
+    assert.ok(near.some((l) => /computersLinkTarget\(/.test(l)), 'line ' + (i + 1) + ' must use the helper: ' + lines[i].trim());
+    const bare = near.filter((l) => /target\s*=\s*['"]_blank['"]|setAttribute\(\s*['"]target['"]/.test(l) && !/typeof computersLinkTarget === 'function'/.test(l));
+    assert.deepEqual(bare, [], 'line ' + (i + 1) + ' sets a new-window target by itself');
   }
 });
 
