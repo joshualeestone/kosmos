@@ -118,7 +118,9 @@ test('#6391 source order: the retire call precedes deleteAllExcept in uninstall(
   // heuristic, not a proof — it would not catch a retire planted inside a dead branch, or the same
   // text duplicated in a comment above the real call; the Windows wiring tests cover live behaviour.
   const src = fs.readFileSync(require.resolve('./win32uninstall.js'), 'utf8');
-  const retireAt = src.indexOf('const told = retire({ remoteDir');
+  // Anchor on the retire INVOCATION itself (robust to call-site wrapping like `(retire(...) || {})`),
+  // and on the delete call. If either is renamed, update both.
+  const retireAt = src.indexOf('retire({ remoteDir, coordinator, tunnelBin');
   const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs, rm)');
   assert.ok(retireAt !== -1, 'retire call site not found (renamed?) — update this guard');
   assert.ok(deleteAt !== -1, 'deleteAllExcept call site not found (renamed?) — update this guard');
