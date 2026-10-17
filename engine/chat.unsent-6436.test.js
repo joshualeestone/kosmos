@@ -201,7 +201,7 @@ test('kosmos#6436: a retry that leaves it still there keeps it for the next; a r
   assert.equal(t3.enters(), 1);
 }));
 
-test('kosmos#6436: a retry that fires while a delivery is typing to that pane presses nothing (that delivery presses it first)', () => withAgent(async (roster) => {
+test('kosmos#6436: a retry that fires while a delivery is typing to that pane presses nothing (the box read already stops it; the busy mark is a second guard this cannot isolate)', () => withAgent(async (roster) => {
   const scheduled = [];
   arm([EMPTY, box(MSG)]);
   chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
@@ -325,7 +325,7 @@ test('kosmos#6436: a long end of ours in a box that has not scrolled (a person c
   assert.equal(t.enters(), 0);
 }));
 
-test('kosmos#6436: a line left more than a day ago is not loaded after a restart (its words may come back as the person\'s own)', () => withAgent((roster) => {
+test('kosmos#6436: a line left more than a day ago is not trusted after a restart (the load bound and the use bound both say so)', () => withAgent((roster) => {
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
   const file = path.join(store.ROOT, 'unsent-lines.json');

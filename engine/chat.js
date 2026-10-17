@@ -221,7 +221,8 @@ const UNSENT_FILE = () => path.join(store.ROOT, 'unsent-lines.json');
 let unsentLoaded = false;
 /* Each remembered line gets its own id (a retry scheduled for one line never acts on another, whatever the clock says). */
 let unsentIdNext = 0;
-/* A line left longer ago than this is neither pressed nor loaded after a restart. Hours, not the old 10 minutes (an
+/* A line not seen in the box for longer than this (each delivery or retry that finds it there starts the day again) is
+   neither pressed nor loaded after a restart. Hours, not the old 10 minutes (an
    agent sat idle 30 to 60 minutes behind one), and not forever: a memory that outlived its line could meet the same
    words put back in the box later (the person's own up-arrow history) and press them. */
 const UNSENT_KEEP_MS = 24 * 60 * 60 * 1000;
@@ -239,7 +240,8 @@ function loadUnsent() {
     }
   }
 }
-/* At most this many lines are kept (the oldest go first), so a pane that never comes back cannot grow the file. */
+/* At most this many lines are kept (the oldest go first), so a pane that never comes back cannot grow the file. One
+   writer is assumed: the board, one per account folder. Another process writing the same file would drop its lines. */
 const UNSENT_KEEP = 100;
 function saveUnsent() {
   if (unsentWires.size > UNSENT_KEEP) {
@@ -922,8 +924,8 @@ function composerIsAll(text, wire) {
    line was left there, or any end of the line at least SCROLLED_MIN long (a pane resized since, by a person attaching,
    wraps the same end to a different length, and requiring the old length left the agent blocked for good).
    What this cannot see, stated: the rows above the visible end. A person who typed there (cursor moved to the start
-   and back) would be sent with it. Text added after ours, or other text on screen, is never pressed. A long end cut
-   shorter on screen is still all ours, so it is pressed: the words sent are the board's own. */
+   and back) would be sent with it, and a person who cut a long line of ours down on purpose would have the rest sent.
+   Text added after ours, or other text on screen, is never pressed. */
 const SCROLLED_MIN = 200;
 /* The rows a box draws once it has scrolled (measured: 7 at 80x24; fewer on a shorter pane). A box drawing fewer
    shows all it holds, so the wider end rule does not apply to it. */
@@ -1032,6 +1034,7 @@ async function pressRememberedNow(target, card) {
   let roster = null;
   try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
   if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
+  /* The wire (envelope included) is judged as the line: the gates that let some bare commands through look at it whole. */
   const gate = typingGate(card.sessionName, kept.wire, roster, '', '', new Date().toISOString());
   if (!gate.ok) return 'gate';
   if (paneTarget(gate.allowed.card) !== target) return 'pane';
@@ -1946,14 +1949,6 @@ function claudeMenuRefusal(card, sessionName, roster) {
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
-/**
- * Put one message into one agent's session.
- *
- * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
- * verdict a screen can render as-is. See `DELIVERY` for the three states and
- * for the one fact that separates them: whether anything of the person's text
- * could have reached the pane. None of them says the agent knows anything.
- */
 /* kosmos#6436: the gates a line passes before anything is typed into an agent's pane, in their order: who it is, a
    question being answered, the trust dialog, a paused swarm, quiet hours and the usage cap, the Codex hooks dialog, and
    Claude Code's own menus and prompts (a fresh read). Answers a verdict (nothing typed) or { ok: true, allowed }; a
@@ -2054,6 +2049,14 @@ function typingGate(sessionName, raw, roster, envelope, trailer, at) {
   return { ok: true, allowed };
 }
 
+/**
+ * Put one message into one agent's session.
+ *
+ * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
+ * verdict a screen can render as-is. See `DELIVERY` for the three states and
+ * for the one fact that separates them: whether anything of the person's text
+ * could have reached the pane. None of them says the agent knows anything.
+ */
 function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
   const at = new Date().toISOString();
   const problem = messageProblem(raw);

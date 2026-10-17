@@ -36,7 +36,7 @@ from a delivery, which carries the card the pane check needs).
   (still unsent, a newer line). Mutants: the 200 path, the newer-line guard.
 - [x] Round 2 (sonnet): a retry holds the pane busy (deliveryQueues) while it watches and forgets only its own line;
   lines carry ids (the newer-line guard compared milliseconds); unattended retries take only the exact match (all, or
-  `seen`), leaving the 200-character end to deliveries; lines older than 7 days are not loaded. Declined: "after an
+  `seen`), leaving the 200-character end to deliveries; lines older than 7 days are not loaded (round 3 made it 24 h). Declined: "after an
   Enter, other means it was sent": other means our end is still there with text added, so it was not. Measured: the
   busy guard is redundant with the box read (a mutant removing it survives: a delivery in flight leaves the box empty
   or holding its own line, and presses the earlier line itself), kept as a second guard; the id guard is tested.
@@ -54,6 +54,11 @@ from a delivery, which carries the card the pane check needs).
   the retry passes it on the roster as it is then (chat.setRosterSource, set by server.js to safeRoster); no roster: no
   press. Test: a permission prompt on screen takes no Enter, CONTROL with it gone; mutant caught. Round 5 WARNINGs still
   open for round 6 to weigh: SCROLLED_ROWS is not a true scroll signal; forget on changed; 24 h from first `at`.
+- [x] Round 6 (sonnet): comments (the day runs from the last time the line is seen; the single-writer assumption;
+  the stated limit names a deliberate cut; why the retry passes the wire whole); the deliver docblock back on
+  deliverWithGap; honest titles on the busy and load tests. Declined: settle forgetting on unread/other (a delivery only
+  pastes into an empty box, so any earlier line is already gone); three roster snapshots per stuck line (the cost of a
+  delivery).
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
