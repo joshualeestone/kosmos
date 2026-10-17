@@ -66,6 +66,7 @@ function loopbackHttp(u) { return u.protocol === 'http:' && ['127.0.0.1', 'local
 
 function boardHoldsToken(baseUrl, token, opts = {}) {
   const timeoutMs = opts.timeoutMs || 3000;
+  if (typeof opts.fetchImpl === 'function') return holdsViaFetch(baseUrl, token, opts.fetchImpl, timeoutMs);
   return new Promise((resolve) => {
     let u;
     try { u = new URL(baseUrl); } catch { resolve(false); return; }
@@ -91,7 +92,39 @@ function boardHoldsToken(baseUrl, token, opts = {}) {
   });
 }
 
-module.exports = { PROOF_PATH, keyId, proof, newNonce, proofMatches, answer, boardHoldsToken, portOf };
+/* The same check through a fetch-shaped function, for node senders that send with fetch (the report bridges; a
+   test passes its own), so the proof goes the way their request goes. One deadline covers the request and body. */
+async function holdsViaFetch(baseUrl, token, doFetch, timeoutMs) {
+  if (!token) return false;
+  let u;
+  try { u = new URL(baseUrl); } catch { return false; }
+  if (!loopbackHttp(u)) return false;
+  const n = newNonce();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await doFetch(u.origin + PROOF_PATH + '?n=' + n + '&k=' + keyId(token), { signal: controller.signal });
+    if (!res || res.status !== 200 || typeof res.json !== 'function') return false;
+    const j = await res.json();
+    return proofMatches(token, n, j && j.proof, portOf(u));
+  } catch { return false; } finally { clearTimeout(timer); }
+}
+
+/* The token a sender's headers carry (the board token first), or '' when they carry none. */
+function tokenIn(headers) {
+  const h = headers || {};
+  return String(h['x-kosmos-board-token'] || h['x-kosmos-agent-token'] || '');
+}
+
+/* A node sender's gate, called before every token-bearing send: true when `headers` carry no token (nothing to
+   protect) or the listener at baseUrl proved it holds the token they carry; false means send nothing. */
+async function mayCarryTokensTo(baseUrl, headers, opts = {}) {
+  const t = tokenIn(headers);
+  if (!t) return true;
+  return boardHoldsToken(baseUrl, t, opts);
+}
+
+module.exports = { PROOF_PATH, keyId, proof, newNonce, proofMatches, answer, boardHoldsToken, portOf, mayCarryTokensTo, tokenIn };
 
 if (require.main === module) {
   const [flag, base] = process.argv.slice(2);

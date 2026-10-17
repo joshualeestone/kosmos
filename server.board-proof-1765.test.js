@@ -86,6 +86,17 @@ test('boardHoldsToken: false for a squatter that answers every request with 200 
   } finally { squat.close(); }
 });
 
+test('boardHoldsToken through fetch (the node senders\' path): true for the real board, false for a squatter', async () => {
+  assert.equal(await boardproof.boardHoldsToken(base, TOK, { fetchImpl: fetch }), true);
+  assert.equal(await boardproof.mayCarryTokensTo(base, { 'x-kosmos-board-token': TOK }, { fetchImpl: fetch }), true);
+  assert.equal(await boardproof.mayCarryTokensTo(base, {}, { fetchImpl: fetch }), true, 'no token: nothing to protect');
+  const squat = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'application/json' }); r.end(JSON.stringify({ proof: 'a'.repeat(64) })); });
+  await new Promise((ok) => squat.listen(0, '127.0.0.1', ok));
+  try {
+    assert.equal(await boardproof.mayCarryTokensTo(`http://127.0.0.1:${squat.address().port}`, { 'x-kosmos-board-token': TOK }, { fetchImpl: fetch }), false);
+  } finally { squat.close(); }
+});
+
 test('boardHoldsToken: false when nothing listens', async () => {
   const s = http.createServer(); await new Promise((ok) => s.listen(0, '127.0.0.1', ok));
   const port = s.address().port; await new Promise((ok) => s.close(ok));
