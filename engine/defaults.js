@@ -458,7 +458,7 @@ const BLOCK = [
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
   'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
-  'to check their copy against (`shasum -a 256 <file>` on a Mac, `Get-FileHash <file>`',
+  'to check their copy against (`shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash`',
   'on Windows, which prints capitals: the case does not matter). If you change the file,',
   'mark it again with `--file`: your own mark without it drops the fingerprint.',
   '',

@@ -49,13 +49,14 @@ That the next agent has the same file to hash. A fingerprint proves sameness onl
 a folder or a deployed thing, a file's hash does not cover it (folders are out of scope here).
 
 ## Tests
-- server.builtsha-6330.test.js (6): engine stores, clears, same-mark vs a new fingerprint, refuses four bad shapes; route
-  400 on a bad shape (nothing stored), an agent's stored, the screen's ignored (control: the screen mark went through);
-  the typed line carries it, a mark without one carries none (control); Mac CLI --file end to end with a real file and
-  task list showing it; Mac refusals (missing file, --file with no path, --file with --clear) never mark the task.
-- tools.windows-kosmos-cli-570.test.js (+1): the Windows CLI sends the sha256, keeps the path out of the note, a mark
-  without --file sends none (control), and the three refusals never reach the board.
-- Red-capable: with engine/tasks.js, server.js and both CLIs reverted to origin/main, all 6 server tests fail and
-  exactly the new Windows test fails (46/47).
-- Not tested: Windows task list printing the fingerprint (the list view is the same two-line shape as the Mac's, which
-  is tested end to end).
+- server.builtsha-6330.test.js (7): engine stores, clears, refuses bad shapes ('' and non-strings included); the sender
+  rule (checker keeps, sender's own re-mark drops, an identical mark from another agent credits them); the person and
+  unnamed cases; route 400 on a bad shape or a non-string, the screen ignored (control: its mark went through); the
+  typed line carries it only when that mark sent it (control: a mark without one carries none); Mac --file end to end
+  with a name holding a backslash and a leading dash, list naming the sender; Mac refusals (missing, no path, empty,
+  with --clear, a hasher that fails) never mark the task.
+- tools.windows-kosmos-cli-570.test.js (+2): --file sends the sha256 and keeps the path out of the note (control: none
+  without it), four refusals with their own sentences never reach the board; task list prints a built task's
+  fingerprint and sender, and none for an unbuilt task or a bad value.
+- Red-capable: with the four changed source files reverted to origin/main, all the server tests and exactly the new
+  Windows test failed; each later rule change was checked by a one-line mutant that fails exactly its test.

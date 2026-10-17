@@ -5185,8 +5185,10 @@ cmd_task() {
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
         [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
         local _hasher="shasum -a 256"; command -v shasum >/dev/null 2>&1 || _hasher="sha256sum"   # one reader: a fallback after a partial read would hash the empty rest (review 4)
-        fingerprint=$($_hasher < "$file" 2>/dev/null | awk '{print $1}')   # from stdin: a name with \ or a leading - is not escaped or read as an option
-        case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos could not work out that file's fingerprint."; exit 1 ;; esac
+        # From stdin: a name with \ or a leading - is not escaped or read as an option. `|| fingerprint=""`: under set -e a
+        # failed read (a folder privacy controls block) ended the script silently (review 7).
+        fingerprint=$($_hasher < "$file" 2>/dev/null | awk '{print $1}') || fingerprint=""
+        case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2 ;; esac
       fi
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
