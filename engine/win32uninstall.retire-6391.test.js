@@ -30,6 +30,10 @@ const win32board = require('./win32board');
 const worlds = require('./worlds');
 const uninstaller = require('./win32uninstall');
 
+// Match the sibling win32uninstall.test.js hygiene: reset the stub runners after each test so a
+// set runner never leaks to the next (harmless under per-file isolation, but the directory pattern).
+test.afterEach(() => { win32job.setRunner(null); win32board.setRunner(null); });
+
 // ---- 1. retirePc() — portable, runs everywhere -----------------------------------------------
 
 test('#6391 retirePc: exit 0 means told, and the connector is asked with retire + state-dir + coordinator', () => {
@@ -198,7 +202,7 @@ test('#6391 a paired PC is retired at the coordinator BEFORE its key is deleted,
     assert.equal(seen[0].keyStillThere, true, 'ORDERING: retire ran after the key was already deleted');
     assert.ok(r.done.some((d) => /Kosmos\+ address is retired/.test(d)), JSON.stringify(r.done));
     assert.ok(!fs.existsSync(s.remoteDir), 'the Plus key was not deleted after the retire');
-    assert.ok(!r.notes.some((n) => /could not tell/.test(n)));
+    assert.ok(!r.notes.some((n) => /could not confirm/.test(n)), 'a could-not-confirm note appeared on a successful retire');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
