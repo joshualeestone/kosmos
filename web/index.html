@@ -21028,7 +21028,7 @@ const STATE_COPY = {
  *
  * ⚠️ The CARD treatment follows the pack, not STATE_COPY.attn: red border is
  * for the cards that need the person (needs_you, needs_trust, and via cardStOf a
- * connection Kosmos gave up reconnecting). Paused, stopped and unknown are attention-worthy in
+ * connection Kosmos gave up reconnecting). Rate Limit, stopped and unknown are attention-worthy in
  * STATE_COPY (the detail page and counts still treat them so) but the pack
  * renders them as their own quieter shapes (.off, .unk, dashed pill) so red
  * stays reserved for "somebody is waiting on you".
@@ -21334,7 +21334,7 @@ function stateReason(a, opts) {
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
      card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
-     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
@@ -41235,7 +41235,7 @@ async function paintTalk(sessionName, agentName) {
          from the board's SNAPSHOT (`cardStOf`), and this arm is a LIVE
          addressability check. When the live check says we cannot see the agent,
          the snapshot's state is a memory of an earlier moment being presented in
-         the present tense: "Paused, looks like a usage limit" beside "we could
+         the present tense: "Rate Limit, looks like a usage limit" beside "we could
          not see an agent by exactly this name right now".
          ⚠️ A LABEL IS A STATE SURFACE AND A SENTENCE IS NOT, so the label wins
          the reader every time and the correct sentence below it loses.
@@ -62694,7 +62694,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      status text in red, so it calls for attention, and it must stand out from THE REST -
      so this lights up ONLY needs_you, not the other cautions.
      🛑 cardStOf(m).st === 'attn', NOT stateCopyOf(m).attn: STATE_COPY.attn is true for MANY
-     states (needs_you, rate_limited/Paused, auth_failed, connection_lost/Connection lost,
+     states (needs_you, rate_limited/Rate Limit, auth_failed, connection_lost/Connection lost,
      blocked/Waiting, stopped, unknown, needs_trust - and the set grows as states are added,
      which is why this keys on CARD_ST instead of a count that goes stale),
      so keying on it would paint every paused/unreadable/stopped member as urgent too and
