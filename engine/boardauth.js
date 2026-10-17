@@ -470,7 +470,7 @@ function matches(presented, expected) {
  * HttpOnly so page JS cannot read it; SameSite=Strict so another site cannot cause it to be sent (defence in
  * depth alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the board is plain http on
  * loopback. It carries a session rather than the token, so what a browser holds is worth less and lasts less
- * long. Max-Age is the session cap: a cookie never outlives the session it names. */
+ * long: less, not nothing, since a session still opens this board until the board restarts or the cap. Max-Age is the session cap: a cookie never outlives the session it names. */
 function cookieHeader(value) {
   return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_MAX_MS / 1000)}`;
 }
@@ -575,7 +575,9 @@ function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresA
 function _resetSessions() { _sessions.clear(); }
 
 const SESSION_MAX_COUNT = 1000;   // a stated bound on memory: past it, the session minted longest ago ends first (by age, not by use)
-/** A new session for `token`: its id is its own random value and never encodes the token. */
+/** A new session for `token`: its id is its own random value and never encodes the token. Every sign-in mints one
+ * (each `?token=` / `?boot=` navigation without a live session), and only a holder of the token or of a nonce can
+ * sign in. */
 function mintSession(token) {
   const now = _nonceNow();
   _sweepSessions(now);

@@ -45,7 +45,7 @@ function page({ bridge = 'mac', throws = false } = {}) {
   vm.createContext(ctx);
   const retell = PAGE.match(/const SIGNED_OUT_RETELL_MS = (\d+);/);
   assert.ok(retell, 'SIGNED_OUT_RETELL_MS is gone');
-  vm.runInContext('var SIGNED_OUT_TOLD_AT = 0; var SIGNED_OUT_RETELL_MS = ' + retell[1] + ';\n'
+  vm.runInContext('var SIGNED_OUT_TOLD_AT = 0; var SIGNED_OUT_SINCE = 0; var SIGNED_OUT_RETELL_MS = ' + retell[1] + ';\n'
     + lift(PAGE, 'function signedOutTellApp('), ctx);
   return { ctx, posted, retell: Number(retell[1]) };
 }
@@ -112,8 +112,8 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
 });
 
 test('#6358: the signed-out panel tells the app window it is being signed in, and a tab what to do', () => {
-  const render = (window, search = '') => {
-    const ctx = { window, location: { search }, URLSearchParams, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
+  const render = (window, search = '', since = 0) => {
+    const ctx = { window, location: { search }, URLSearchParams, Date, SIGNED_OUT_SINCE: since, SIGNED_OUT_STUCK_MS: 70000, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
     vm.createContext(ctx);
     vm.runInContext(lift(PAGE, 'function boardSigninHtml('), ctx);
     return ctx.boardSigninHtml();
@@ -125,9 +125,14 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   assert.match(refused, /Kosmos could not sign this window in\. Quit Kosmos with Command-Q, then open it again/,
     'when the board refused the app\'s sign-in, the window says what to do, not "this takes a moment"');
   assert.doesNotMatch(refused, /This takes a moment/);
+  const stuck = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', Date.now() - 71000);
+  assert.match(stuck, /Kosmos could not sign this window in/, 'still signed out 70 s after telling the app: the panel stops promising a moment');
+  const soon = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', Date.now() - 5000);
+  assert.match(soon, /This takes a moment/, 'a few seconds in, it is still signing in');
   const tab = render({});
   assert.match(tab, /each time it restarts or updates, and after seven days/, 'a tab is told why it is signed out');
   assert.match(tab, /open Kosmos from your Applications folder/, 'a tab is told what to do');
+  assert.match(tab, /This tab stays signed out until it is signed in again/, 'and that opening the app does not sign this tab in');
   assert.match(tab, /~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal, then press Reload/, 'and how to bring this tab back');
   assert.doesNotMatch(tab, /fix(es)? itself the next time Kosmos updates/, 'no promise that an update signs it in');
 });
