@@ -1828,17 +1828,21 @@ function startVouch() {
 }
 /* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
    never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
-function vouchRows() {
+/* kosmos#6407: `signins` reads the snapshot's list of every phone or browser sign-in on the account (id and first_seen).
+   `devices` is only what knocked at this computer's gate, and the sign-in that arms the tab below usually happened on
+   the website, so it is in `signins` only. A tunnel that predates the field writes none: an empty list. */
+function vouchRows(field = 'devices') {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
   if (!raw || !Array.isArray(raw.devices)) return null;
+  const list = field === 'signins' ? (Array.isArray(raw.signins) ? raw.signins : []) : raw.devices;
   const settings = read();
   const selves = ownDeviceIds(settings);
   // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
   const denied = settings.denied || {};
   /* #6315: DEVICE_ID, not REQUEST_ID, on purpose: a minted computer: id never qualifies, so a computer is never
      allowed by a vouch even on a row that carries no joining_computer. */
-  return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+  return list.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
     && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
@@ -1860,7 +1864,8 @@ function vouchTick() {
   if (!rows) return;
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
-    if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
+    const recent = (d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S;
+    if (!rows.some(recent) && !(vouchRows('signins') || []).some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).

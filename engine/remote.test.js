@@ -4340,7 +4340,7 @@ async function vouchSignedIn(name) {
   assert.equal(reg.ok, true, reg.because);
   const secret = remote.vouchSecretForTests();
   assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
-  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  const plant = (devices, signins) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify(signins ? { devices, signins } : { devices }));
   return { secret, plant };
 }
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -4452,6 +4452,30 @@ test('#5786 (b): a secret ends on Sign out and on switching off, and an old requ
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = before;
   }
+  remote.setOn(false);
+});
+
+test('kosmos#6407: a recent sign-in that never knocked here (in signins only) still opens the connect tab; this computer\'s own and a Not me one do not', async () => {
+  let r = await vouchSignedIn('vouchsign1');
+  // This computer's own sign-in, fresh: never "the person, a moment ago" (an app-only sign-in opens no tab).
+  r.plant([], [{ device_id: remote.read().device_id, first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'this computer\'s own sign-in opened the browser');
+  // A device the person said Not me to, fresh: not either.
+  const denied = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')) };
+  denied.denied = { 'dev-refused': nowS() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(denied));
+  r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
+  // An old one (an hour ago): not either.
+  r.plant([], [{ device_id: 'dev-old', first_seen: nowS() - 3600 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old sign-in opened the browser');
+  // CONTROL: a browser signed in on the website a minute ago, which never knocked here (devices is empty).
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60 }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'a recent website sign-in did not open the connect tab');
   remote.setOn(false);
 });
 
