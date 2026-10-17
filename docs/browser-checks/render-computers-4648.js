@@ -78,8 +78,11 @@ const FOUR = {
       if (HARNESS.test(x)) return;
       problems.push(`[${engine} ${theme}] console: ${x}`);
     });
-    await page.goto(PAGE);
+    // kosmos#6406: arriving with a ticket in the fragment (a window already signed in here), the page takes it out.
+    await page.goto(PAGE + '?tab=agents#kpt=TkT_left_over_abcdefghijklmnop');
     const t = `[${engine} ${theme}]`;
+    const leftOver = await page.evaluate(() => location.hash + '|' + location.search);
+    ok(`${t} #6406: a ticket in the address on arrival is taken out of it`, !/kpt=/.test(leftOver), leftOver);
 
     const openAndRead = async () => page.evaluate(async () => {
       const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
