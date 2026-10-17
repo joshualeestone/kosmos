@@ -68,6 +68,10 @@ function engineDir(here) {
    the room-sized window install/kosmos gives it (-m 120); everything else -m 15. */
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
+/* #1765: the board check before a token goes gets half the request's bound, within these (install/kosmos's
+   KOSMOS_PROOF_MIN_S and KOSMOS_PROOF_MAX_S); the request then gets what is left. */
+const PROOF_MIN_MS = 500;
+const PROOF_MAX_MS = 15000;
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -2369,16 +2373,67 @@ async function main(argv, io) {
   // other request: the invariant this relies on.
   let lastTimedOut = false;
   let lastWasRead = false;   // a GET changes nothing, so its timeout needs no "it may have happened"
+  let lastNotProven = '';    // #1765: why the last call sent nothing (the listener could not prove itself), or ''
+
+  /* #1765: a token goes only to a listener that has proved it already holds that token (engine/boardproof.js: an
+     HMAC over a fresh random nonce, checked here with our own copy). Every account on a Windows computer uses the
+     same board port, so whatever answers there is not always this account's board. A proof that passed is kept for
+     the rest of this process, per token; one that failed is asked again next time, with a new nonce.
+     `o.proveBoard` is the test seam: a function (url, token, timeoutMs) resolving a boolean or { ok, why }. With no
+     seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
+     the board or its token, and production (the entry at the bottom of this file) passes neither. */
+  const proved = new Map();
+  const prove = typeof o.proveBoard === 'function'
+    ? async (u, t, ms) => {
+      try {
+        const r = await o.proveBoard(u, t, ms);
+        return (r && typeof r === 'object') ? { ok: r.ok === true, why: r.why || '' } : { ok: r === true, why: r === true ? '' : 'not proven' };
+      } catch (e) { return { ok: false, why: 'the check failed: ' + ((e && e.message) || e) }; }
+    }
+    : (o.fetch || o.hook) ? null
+      : async (u, t, ms) => {
+        let why = '';
+        let ok = false;
+        try {
+          ok = await require(path.join(engineDir(), 'boardproof.js')).boardHoldsToken(u, t, { timeoutMs: ms, onRefuse: (w) => { why = String(w || ''); } });
+        } catch (e) { ok = false; why = 'the check failed: ' + ((e && e.message) || e); }   // never send unproven
+        return { ok: ok === true, why: ok === true ? '' : (why || 'not proven') };
+      };
+  async function provenFor(headers, boundMs) {
+    if (!prove) return { ok: true };
+    const t = require(path.join(engineDir(), 'boardproof.js')).tokenIn(headers);
+    if (t === '') return { ok: true };   // no token: nothing to protect
+    if (t === null) return { ok: false, why: 'headers unreadable' };
+    if (proved.get(t) === true) return { ok: true };
+    const r = await prove(url, t, Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))));
+    if (r.ok) proved.set(t, true);
+    return r;
+  }
+
   async function call(method, route, body, opts) {
     const c = opts || {};
     lastTimedOut = false;
+    lastNotProven = '';
     lastWasRead = String(method).toUpperCase() === 'GET';
+    const headers = headersFor(c.agent !== false, c.person === true);
+    const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
+    const started = Date.now();
+    const p = await provenFor(headers, bound);
+    if (!p.ok) {
+      /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
+         retry). A board that is down still reads as down; anything else says the listener could not prove itself. */
+      const down = /^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)/.test(String(p.why || ''));
+      if (!down) lastNotProven = String(p.why || 'not proven');
+      return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: !down };
+    }
+    const left = bound - (Date.now() - started);
+    if (left <= 0) { lastNotProven = 'timed out'; return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true }; }
     try {
       const res = await doFetch(url + route, {
         method,
-        headers: headersFor(c.agent !== false, c.person === true),
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(c.timeoutMs || REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(left),
       });
       const text = await res.text();
       let json = null;
@@ -2459,7 +2514,10 @@ async function main(argv, io) {
          time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
-      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
+      /* #1765: the check before the send did not pass, so nothing was sent. */
+      if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');
+      else if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
       return 1;
     },

@@ -53,6 +53,19 @@ function startListener(opts) {
   });
 }
 
+/* For an existing stub that stands in for the board: answer GET /api/board-proof the way the real board does, for the
+   tokens that board would hold, and return true; anything else returns false and is the stub's own. Called before the
+   stub records a request, so its counts keep their meaning. */
+function answerProof(req, res, tokens) {
+  const u = new URL(req.url, 'http://127.0.0.1');
+  if (req.method !== 'GET' || u.pathname !== boardproof.PROOF_PATH) return false;
+  const held = (tokens || []).filter(Boolean);
+  const out = boardproof.answer(Object.fromEntries(u.searchParams), function* () { yield* held; }, req.socket.localPort, req.socket.localAddress);
+  res.writeHead(out.status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(out.body));
+  return true;
+}
+
 /* A port on 127.0.0.1 with nothing listening (taken and released at once). */
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -62,4 +75,4 @@ function freePort() {
   });
 }
 
-module.exports = { startListener, freePort, TOKEN_HEADERS };
+module.exports = { startListener, freePort, answerProof, TOKEN_HEADERS };
