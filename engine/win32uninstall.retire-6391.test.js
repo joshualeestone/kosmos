@@ -291,6 +291,33 @@ test('#6391 the REAL retirePc runs inside uninstall() when only spawnRetire/exis
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
+test('#6391 an absurd AGENT_WORKFORCE_RETIRE_TIMEOUT_MS is capped at RETIRE_TIMEOUT_MAX_MS', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks(); withKey(s);
+    s.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = String(999 * 60 * 1000);   // 999 minutes
+    let seen = null;
+    await run(s, { deleteData: true, retirePc: (o) => { seen = o.timeoutMs; return { told: true }; } });
+    assert.equal(seen, uninstaller.RETIRE_TIMEOUT_MAX_MS, 'the timeout override was not capped');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#6391 retire-then-partial-delete: the PC is retired AND the surviving key is named in left', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks(); withKey(s);
+    // removeFolder fails for the remote\ dir (a locked file), so deleteAllExcept leaves it behind.
+    const r = await run(s, {
+      deleteData: true,
+      retirePc: () => ({ told: true }),
+      removeFolder: (dir) => { if (/remote/.test(dir)) throw new Error('EBUSY'); fs.rmSync(dir, { recursive: true, force: true }); },
+    });
+    assert.ok(r.done.some((d) => /Kosmos\+ address is retired/.test(d)), 'the retire was not reported: ' + JSON.stringify(r.done));
+    assert.ok(r.left.some((l) => /chats and settings/.test(l)), 'the surviving data was not named in left: ' + JSON.stringify(r.left));
+    assert.ok(fs.existsSync(path.join(s.remoteDir, 'mac_key')), 'the key should have survived the partial delete in this scenario');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
 test('#6391 when the coordinator cannot be told, the summary says the Kosmos+ address may still show, and the data is STILL deleted', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
