@@ -469,9 +469,10 @@ async function main(io) {
   };
 
   /* #1765: every send below carries a token, so each first asks the listener to prove it holds that token. Proved
-     once per process (the first send's check, passed or failed, serves the rest), within half the first send's own bound; each send
-     then gets what is left of its bound, so the check never lengthens a hook. Not proven: nothing is sent, and the
-     hook still exits 0. The token proved is the one the board reads first (the board token, else the agent token). */
+     once per process: the first check's answer serves the rest, except a check that ran out of time, which the next
+     send asks again within its own bound. Each check gets half its send's bound and the send what is left, so the
+     check never lengthens a hook. Not proven: nothing is sent, and the hook still exits 0. The token proved is the
+     one the board reads first (the board token, else the agent token). */
   const prove = proverFor(o);
   let proof = null;
   const proven = async (c, boundMs) => {
@@ -480,6 +481,7 @@ async function main(io) {
     const t0 = Date.now();
     if (!proof) proof = prove(c.url, token, Math.max(1, Math.floor(boundMs / 2)));
     const r = await proof;
+    if (!r.ok && r.why === 'timed out') proof = null;   // a busy board may answer the next send's longer check
     return { ok: r.ok, why: r.why, nothingThere: r.nothingThere, leftMs: boundMs - (Date.now() - t0) };
   };
 

@@ -2553,6 +2553,9 @@ class KosmosLauncher
     // process.exitCode = OPENER_REFUSED_EXIT on those paths only; a code node itself never uses, so a crash is not
     // read as a refusal), and the answer that stands for it here.
     internal const int OpenerRefusedExit = 10;
+    // How long the browser fallback waits for the opener: its default 20 s board wait, its 7.5 s check and its 15 s
+    // mint (tools/kosmos-open-board.js), and some room.
+    const int OpenerBrowserWaitCapMs = 60000;
     internal const string NotConfirmed = "";
 
     // The board's own address (plain, or with a path such as ?boot=) on a line of what the opener printed, or null.
@@ -2586,7 +2589,15 @@ class KosmosLauncher
         string opened = null;
         bool refused = false;
         // #1765: wait for the opener, so a refusal (nothing opened) is said as one, not as "opened in your browser".
-        try { using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false))) { p.WaitForExit(); refused = p.ExitCode == OpenerRefusedExit; } }
+        try
+        {
+            using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false)))
+            {
+                // Bounded: past the opener's own worst case (its wait, check and mint), it is told as a refusal.
+                if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } refused = true; }
+                else refused = p.ExitCode == OpenerRefusedExit;
+            }
+        }
         catch (Exception e) { opened = e.Message; }
         string detail = "\n\n(" + why + ")";
         if (opened != null)

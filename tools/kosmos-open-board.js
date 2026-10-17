@@ -55,9 +55,11 @@
  * platform default is used (Windows: `cmd /c start "" <url>`).
  *
  * Any failure degrades to the plain url, so the worst case is the pre-fix
- * behavior, never a crash with no url. ONE EXCEPTION (#1765): on an enforcing
- * board, a listener that cannot prove it holds this account's token gets nothing
- * at all, no token and no browser (see boardProven below).
+ * behavior, never a crash with no url. EXCEPT ON AN ENFORCING BOARD (#1765, a
+ * token on disk), where nothing is opened and no address is printed (exit
+ * OPENER_REFUSED_EXIT) when: a listener cannot prove it holds this account's
+ * token (see boardProven below), nothing answers within the wait, or the helper
+ * fails before it could check (main's catch).
  */
 
 const path = require('path');

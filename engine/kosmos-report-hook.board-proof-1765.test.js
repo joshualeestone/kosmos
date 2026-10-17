@@ -130,6 +130,27 @@ test('#1765: the seam decides, and a refusal sends nothing even through an injec
   assert.ok(asked[0].timeoutMs > 0 && asked[0].timeoutMs <= hook.SHORT_TIMEOUT_MS / 2, 'the check gets at most half the send\'s bound');
 });
 
+test('#1765: a check that ran out of time is asked again by the next send; any other answer serves the process', async () => {
+  const sent = [];
+  const answers = [{ ok: false, why: 'timed out' }, true];
+  let asked = 0;
+  const edit = evt('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'C:\\w\\a.md' }, cwd: 'C:\\w', session_id: 's' });
+  const run = io('http://127.0.0.1:1', edit, {
+    fetchImpl: async (u) => { sent.push(new URL(u).pathname); return { ok: true, status: 200, text: async () => '{"recorded":true}' }; },
+    proveBoard: async () => answers[asked++],
+  });
+  await hook.main(run.io);
+  assert.equal(asked, 2, 'the report did not ask again after the keep\'s check ran out of time');
+  assert.deepEqual(sent, ['/api/report'], 'the keep went unproven, or the report did not go once proven');
+  // CONTROL: a refusal that is not a timeout is not asked again.
+  asked = 0;
+  answers.splice(0, 2, { ok: false, why: 'answer is not a proof' }, true);
+  sent.length = 0;
+  await hook.main(io('http://127.0.0.1:1', edit, { fetchImpl: run.io.fetchImpl, proveBoard: async () => answers[asked++] }).io);
+  assert.equal(asked, 1);
+  assert.deepEqual(sent, []);
+});
+
 test('#1765: with no token at all nothing is proved (there is nothing to protect)', async () => {
   let asked = 0, fetched = 0;
   const run = io('http://127.0.0.1:1', evt('Stop'), {

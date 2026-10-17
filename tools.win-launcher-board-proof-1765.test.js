@@ -243,7 +243,13 @@ test('#1765: a refusal from the opener is NotConfirmed in the window, which then
   const again = slice('internal void SignInAgain()', '\n    }\n');
   assert.match(again, /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)[\s\S]*?ResolveBoardAddressInBackground\(\);/, 'reopening Kosmos.exe does not ask again');
   const browser = slice('static int OpenInBrowserInstead(', '\n    }\n');
-  assert.match(browser, /p\.WaitForExit\(\); refused = p\.ExitCode == OpenerRefusedExit;/);
+  assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} refused = true; \}\s*else refused = p\.ExitCode == OpenerRefusedExit;/,
+    'the browser fallback waits for the opener without a bound, or reads a timeout as success');
+  const cap = Number((SOURCE.match(/const int OpenerBrowserWaitCapMs = (\d+);/) || [])[1]);
+  const openerSrc = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
+  const worst = Number(openerSrc.match(/Number\(argValue\('--timeout-ms', '(\d+)'\)\)/)[1]) + require('./tools/kosmos-open-board.js').PROOF_TIMEOUT_MS
+    + Number(openerSrc.match(/const MINT_TIMEOUT_MS = (\d+);/)[1]);
+  assert.ok(cap > worst, 'the cap (' + cap + ' ms) cuts off the opener before its own worst case (' + worst + ' ms)');
   assert.match(browser, /if \(refused\)\s*\{\s*ShowMessageBox\(BrowserNotConfirmedMessage/, 'a refusal is told as "opened in your browser"');
 });
 

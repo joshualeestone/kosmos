@@ -500,7 +500,7 @@ test('#1765: the seam is asked with the url, the token and a bound; false opens 
   } finally { server.close(); }
 });
 
-test('#1765: main() against a squatter opens no browser, prints no address, exits 1 and says why', async (t) => {
+test('#1765: main() against a squatter opens no browser, prints no address, exits with the refusal code and says why', async (t) => {
   const { execFile } = require('node:child_process');
   const sq = await startListener({ mode: 'squatter' });
   const { appDir } = makeAppDir({ withToken: true });
