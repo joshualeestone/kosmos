@@ -38,7 +38,13 @@ const conn = { state: 'connected', badge: 'working', checkedLive: true, because:
 const openai = (id, extra) => ({ provider: 'openai', providerName: 'OpenAI', email: id + '@example.com', label: id, dir: '/home/.codex-' + id,
   name: null, isDefault: false, authMode: 'chatgpt', keyTail: null, connection: conn, offerable: true, ...extra });
 const win = (pct, mins, resetsAt) => ({ usedPct: pct, windowMinutes: mins, resetsAt });
+// #6176 slice 3: a Grok (xai) row draws its subscription's usage the same way, from Grok's own billing log.
+const grok = (id, extra) => ({ provider: 'xai', providerName: 'Grok', email: id + '@example.com', label: id, dir: '/home/.grok-' + id,
+  name: null, isDefault: false, authMode: 'subscription', keyTail: null, connection: conn, offerable: true, ...extra });
 const ACCOUNTS = [
+  grok('gsub', { limits: { windows: [win(67, 10080, now + 50 * H)], plan: 'SuperGrok', at: now - 3 * H } }),
+  grok('gnone', { limits: null }),
+  grok('gkey', { authMode: 'apikey', email: null, keyTail: 'GKEY' }),
   openai('two', { limits: { windows: [win(64, 300, now + 2 * H), win(30, 10080, now + 50 * H)], plan: 'prolite', at: now - 2 * 60e3 } }),
   openai('day', { limits: { windows: [win(10, 1440, now + 5 * H)], plan: 'plus', at: now - 60e3 } }),
   openai('warn', { limits: { windows: [win(82, 300, now + H)], plan: 'plus', at: now - 60e3 } }),
@@ -103,6 +109,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.over && r.over.meters.length === 1 && /weekly/.test(r.over.meters[0].line), tag + ' a window whose reset has passed is not drawn', JSON.stringify(r.over && r.over.meters));
       say(r.none && r.none.meters.length === 0 && r.none.nones[0] === 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.', tag + ' no report: said plainly', JSON.stringify(r.none));
       say(r.key && !r.key.usage, tag + ' an API-key row draws nothing (a key has no plan limits)', JSON.stringify(r.key));
+      // #6176 slice 3: Grok rows.
+      say(r.gsub && r.gsub.meters.length === 1 && r.gsub.meters[0].fill === '67%' && /^67% of its weekly limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) .* · Grok last reported it 3 hours ago$/.test(r.gsub.meters[0].line || ''), tag + ' a Grok subscription: its weekly figure, its reset, and that Grok reported it', JSON.stringify(r.gsub && r.gsub.meters));
+      say(r.gnone && r.gnone.meters.length === 0 && r.gnone.nones[0] === 'No current usage reading for this sign-in. Grok reports it when it starts a session on this account.', tag + ' a Grok subscription with no reading: said plainly, naming Grok', JSON.stringify(r.gnone));
+      say(r.gkey && !r.gkey.usage, tag + ' a Grok API key draws nothing (Grok gives a key no billing reading)', JSON.stringify(r.gkey));
       say(r.old && !r.old.usage, tag + ' an older board (no limits field) draws nothing', JSON.stringify(r.old));
       if (w === 390) say(!r.sideways, tag + ' nothing scrolls sideways');
       say(errs.length === 0, tag + ' no page errors', errs.join(' | '));
