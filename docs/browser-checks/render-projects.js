@@ -1238,6 +1238,58 @@ async function main() {
     await page.evaluate(() => applyLayout('consolidated', true));
     await page.waitForFunction(() => /instructions for this project/.test((document.getElementById('alist-pj-notice') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
     const railOn = await railRead();
+    /* #6347: a LONG notice (April measured 1580px with ten failing members) ran under the list, because the head's
+       height comes from the grid row. Grown from copies of the first row the page drew (no invented markup); each read
+       adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the
+       copies are removed, so the original rows (and any focus in them) are untouched, and the region is not live while
+       they exist. The CONTROL is the same box with its cap lifted: it must outgrow 40vh and reach the list, or the
+       fixture shows nothing at this viewport and the arm fails rather than pass on a box that never needed the cap.
+       Read at this context's own viewport and again at a short window (560px tall), where a fixed 40vh is most likely
+       to be taller than the room the head's grid row leaves it. */
+    const longRead = () => page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice');
+      const list = document.getElementById('alist');
+      const row = box && box.querySelector('.pnotice');
+      if (!box || !list || !row) return { missing: true };
+      const live = box.getAttribute('aria-live');
+      box.setAttribute('aria-live', 'off');
+      const copies = [];
+      // Copies until the notice's content outruns the whole window (so it outruns 40vh whatever the row's height), at
+      // most 60: a fixed count could leave a short row's fixture too small for a tall window.
+      while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
+      const read = () => { const b = box.getBoundingClientRect(), l = list.getBoundingClientRect();
+        return { height: Math.round(b.height), gap: Math.round(l.top - b.bottom) }; };
+      const capped = read();
+      const out = { vh: innerHeight, copies: copies.length, cap: Math.round(innerHeight * 0.4), ...capped, content: box.scrollHeight,
+        scrolls: box.scrollHeight > box.clientHeight + 1, overflowY: getComputedStyle(box).overflowY };
+      box.style.maxHeight = 'none';
+      out.uncapped = read();
+      box.style.maxHeight = '';
+      for (const c of copies) c.remove();
+      if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
+      return out;
+    });
+    // Two verdicts, printed apart: a control that cannot show the defect (the geometry changed, or the fixture is too
+    // short for this window) is a different finding from a cap that broke.
+    const controlBad = (r) => r.missing || !(r.uncapped.height > r.cap + 1 && r.uncapped.gap < 0);
+    const capBad = (r) => r.missing || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
+    const vpWas = page.viewportSize() || { width: 1280, height: 720 };   // this context sets none: Playwright's default
+    const railLong = { full: await longRead() };
+    try {
+      await page.setViewportSize({ width: vpWas.width, height: 560 });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+      railLong.short = await longRead();
+    } finally {
+      await page.setViewportSize(vpWas);   // the #3948 reads below need the window this context opened with
+    }
+    if (controlBad(railLong.full) || controlBad(railLong.short)) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6347 CONTROL: the long rail notice, uncapped, should outgrow 40vh and run under the list at this viewport and at 560px tall; it did not, so the cap arm below shows nothing here (${scheme}), got ${JSON.stringify(railLong)}`);
+    }
+    if (capBad(railLong.full) || capBad(railLong.short)) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
+    }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
     const rail = { on: railOn, off: railOff };
