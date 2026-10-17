@@ -87,6 +87,17 @@ rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 printf 'engine/half-6362.test.js\tpid 5' > "$root/kts-Ab12Cd/.kts-owner.new"
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/half-6362.test.js (pid 5); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an unmarked aside copy still says the sweep ran, and names the file" || bad "unmarked aside: rc=$rc out=$out"
+# a copy cut before its first tab still reads as survived, with the pid unknown,
+printf 'engine/cut-6362.test.js' > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/cut-6362.test.js (pid unknown); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an aside copy cut before its tab reads as survived, pid unknown" || bad "tabless aside: rc=$rc out=$out"
+# an unreadable copy with no owner says it cannot be read (non-root only),
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$root/kts-Ab12Cd/.kts-owner.new"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362b" ) || rc=1
+  chmod 644 "$root/kts-Ab12Cd/.kts-owner.new"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362b" ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but its owner copy cannot be read here; it holds: nothing' && ok "#6362: an unreadable aside copy says it cannot be read" || bad "unreadable aside: rc=$rc out=$out"
+fi
 # and an empty aside copy beside a good owner takes the name from the owner, not "did not run".
 : > "$root/kts-Ab12Cd/.kts-owner.new"; printf 'engine/kept-6362.test.js\tpid 6\n' > "$root/kts-Ab12Cd/.kts-owner"
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
