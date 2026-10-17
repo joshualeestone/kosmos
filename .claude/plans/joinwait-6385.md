@@ -36,7 +36,7 @@ The card's own fix shape: a plain line on the joining computer after a minute wi
   What would change my mind: a measured wait on two real computers that does not match 600 s.
 
 ## Checks
-- `web.joinwait-6385.test.js` (6 tests, one that no rig leaks state onto the global object): the real paintPlusJoin and helpers, lifted from the page, with a clock the
+- `web.joinwait-6385.test.js` (7 tests, including one that no rig leaks state onto the global object and one that pins when a wait keeps its minute): the real paintPlusJoin and helpers, lifted from the page, with a clock the
   test moves. The line is absent before a minute and present after, in both waits; it goes when a code shows and the
   next wait starts its own minute; a pairing that ends clears it. Mutants: no line reds 3; no reset on a code reds 1;
   no reset when the pairing ends reds 1.
