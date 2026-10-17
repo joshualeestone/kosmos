@@ -30181,13 +30181,17 @@ function worldswTipMarkSeen(force) {
   try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
 }
 /* #6403: the switcher went away (back to one computer): the tip goes too, without counting as seen. */
+/* #6403: the Kosmos+ panel sees this computer on and enrolled, so a "not signed in" answer from before is stale. */
+function computersSignedInNow(r) {
+  if (r && r.on === true && r.enrolled === true) COMPUTERS_SIGNED_OUT = false;
+}
 function worldswTipDrop() {
   const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
   const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
 }
 function worldswTipHide() {
   const tip = document.getElementById('worldsw-tip');
-  if (tip && !tip.hidden) worldswTipMarkSeen(true);   // put away (close, Escape, the menu): seen
+  if (tip && !tip.hidden) worldswTipMarkSeen(true);   // put away (close button, a click on it, the menu): seen
   if (tip) tip.hidden = true;
   const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
 }
@@ -51326,6 +51330,8 @@ async function paintPlus() {
        (review 6) belongs to the pairing it ended: a new wait clears it too. */
     if (r.on !== true) plusJoinReset();
     else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    // #6403: signed in and on (an earlier read may have said "not signed in"): look-backs may read again.
+    if (typeof computersSignedInNow === 'function') computersSignedInNow(r);
     const wasWaiting = PLUS_JOIN_WAITING;
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
     // #6403: the wait ended (most often this computer was let in, so the account has another): read the computers now.
