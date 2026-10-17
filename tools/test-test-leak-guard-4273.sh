@@ -16,6 +16,8 @@ cleanup() {
   ps -Awwo pid=,command= 2>/dev/null | while read -r p rest; do
     case "$rest" in *"$work/"*) kill -KILL "$p" 2>/dev/null ;; esac
   done
+  # #6362: the permission cases lock fixtures (mode 000/300); unlock first, or an interrupt there leaves $work behind.
+  chmod -R u+rwx "$work" 2>/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
