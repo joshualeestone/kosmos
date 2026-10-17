@@ -470,9 +470,10 @@ function matches(presented, expected) {
  * HttpOnly so page JS cannot read it; SameSite=Strict so another site cannot cause it to be sent (defence in
  * depth alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the board is plain http on
  * loopback. It carries a session rather than the token, so what a browser holds is worth less and lasts less
- * long: less, not nothing, since a session still opens this board until the board restarts or the cap. Max-Age is the session cap: a cookie never outlives the session it names. */
-function cookieHeader(value) {
-  return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_MAX_MS / 1000)}`;
+ * long: less, not nothing, since a session still opens this board until the board restarts or the cap. Max-Age is
+ * what the session has left (the whole cap for a new one), so a cookie never outlives the session it names. */
+function cookieHeader(value, maxAgeMs = SESSION_MAX_MS) {
+  return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.max(0, Math.floor(maxAgeMs / 1000))}`;
 }
 
 /** The request path with one query param removed, other params kept. Used to
@@ -596,6 +597,12 @@ function sessionToken(id) {
   return s.token;
 }
 
+/** What a live session has left before its cap, in ms (0 for an unknown or ended one). */
+function sessionLeftMs(id) {
+  if (sessionToken(id) === null) return 0;
+  return Math.max(0, _sessions.get(id).expiresAt - _nonceNow());
+}
+
 /** The ids of the live sessions (expired ones swept first). For the board's own proof route (engine/boardproof.js,
  * #6358), which is to answer for a session as it does for a token once that part lands; nothing calls this yet.
  * In this process only: sessions are never stored. The ids are credentials: use them only as HMAC
@@ -635,7 +642,8 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
      signing-in token's is kept rather than a new one minted; a cookie whose session ended is no sign-in at all. */
   const liveId = cookieToken(req);
   const live = sessionToken(liveId);
-  const sessionFor = (t) => ((live !== null && matches(live, t)) ? liveId : mintSession(t));
+  // The cookie for the session that signs in: a kept one lasts only what its session has left (sessionLeftMs).
+  const cookieFor = (t) => ((live !== null && matches(live, t)) ? cookieHeader(liveId, sessionLeftMs(liveId)) : cookieHeader(mintSession(t)));
   /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
      redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
      durable token stays off the browser-open argv. Tried before `?token=` so the
@@ -651,11 +659,11 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
        set, still asserted by engine.boardauth-nonce-1979.test.js) in case a future
        caller needs to tell the two apart; nothing reads it to gate seeding any more.
        The caller writes the marker. */
-    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(sessionFor(token)), viaBootNonce: true };
+    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieFor(token), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
   if (!q || !ok(q)) return null;    // no/invalid query token -> not a bootstrap
-  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(sessionFor(q)) };   // the session is q's
+  return { location: pathWithoutToken(req, routingBase), setCookie: cookieFor(q) };   // the session is q's
 }
 
 /**
@@ -713,7 +721,7 @@ module.exports = {
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
   // #6358: browser sessions (the cookie's value).
-  mintSession, sessionToken, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
+  mintSession, sessionToken, sessionLeftMs, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
   reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };

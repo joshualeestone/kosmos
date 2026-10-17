@@ -24413,9 +24413,17 @@ let SIGNED_OUT_SINCE = 0;
 const SIGNED_OUT_RETELL_MS = 65000;
 // Well past the retell plus a slow poll, so the panel never says "could not" while the app is about to sign in.
 const SIGNED_OUT_STUCK_MS = 150000;
-/* The app loads ?signin=failed when the board refused its sign-in. Read here, at load: boot's syncUrl (showTab)
-   rewrites the address and keeps only its own parameters, so the marker is gone before the first poll paints. */
-const SIGNIN_FAILED_AT_LOAD = (() => { try { return new URLSearchParams(location.search).get('signin') === 'failed'; } catch { return false; } })();
+/* The app loads ?signin=failed when it gave up signing this window in. Read here, at load: boot's syncUrl (showTab)
+   rewrites the address and keeps only its own parameters, so the marker is gone before the first poll paints. Kept
+   in sessionStorage for this window (it holds no secret), so a reload after that still says what to do; a 200
+   clears both. */
+const SIGNIN_FAILED_KEY = 'kosmos-signin-failed';
+let SIGNIN_FAILED_AT_LOAD = (() => {
+  let failed = false;
+  try { failed = new URLSearchParams(location.search).get('signin') === 'failed'; } catch { /* no location */ }
+  try { if (failed) sessionStorage.setItem(SIGNIN_FAILED_KEY, '1'); else failed = sessionStorage.getItem(SIGNIN_FAILED_KEY) === '1'; } catch { /* no storage */ }
+  return failed;
+})();
 function signedOutTellApp(now = Date.now()) {
   if (SIGNED_OUT_TOLD_AT && now - SIGNED_OUT_TOLD_AT < SIGNED_OUT_RETELL_MS) return;
   try {
@@ -24792,6 +24800,7 @@ async function tick() {
     answered = true;
     BOARD_NEEDS_SIGNIN = false;   // a 200 means this browser is authed (#2023), whatever throws below
     SIGNED_OUT_TOLD_AT = 0; SIGNED_OUT_SINCE = 0;   // #6358: a later sign-out is told at once
+    if (typeof SIGNIN_FAILED_AT_LOAD !== 'undefined' && SIGNIN_FAILED_AT_LOAD) { SIGNIN_FAILED_AT_LOAD = false; try { sessionStorage.removeItem(SIGNIN_FAILED_KEY); } catch { /* no storage */ } }
     BOARD_SIGNED_OUT = false;
 
     const lim = new URLSearchParams(location.search).get('limit');

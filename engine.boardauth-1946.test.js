@@ -188,6 +188,19 @@ test('#6358: a live session plus a valid ?token= is still redirected to the clea
     'the clean address is no bootstrap: no redirect loop');
 });
 
+test('#6358: a kept session\'s cookie lasts only what the session has left, never longer', () => {
+  let t = 10000;
+  boardauth._setNonceClock(() => t);
+  try {
+    const sid = boardauth.mintSession('T');
+    t += 2 * 24 * 3600 * 1000;   // two days into its seven
+    const b = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    const want = Math.floor((boardauth.SESSION_MAX_MS - 2 * 24 * 3600 * 1000) / 1000);
+    assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';.*Max-Age=' + want + '$'), 'Max-Age is the session\'s remaining life: ' + b.setCookie);
+    assert.equal(boardauth.sessionLeftMs('0'.repeat(64)), 0, 'an unknown session has nothing left');
+  } finally { boardauth._setNonceClock(null); }
+});
+
 test('#6358: a cookie that is no live session (the old durable-token cookie, or one a restart forgot) re-bootstraps', () => {
   const base = 'http://localhost';
   // The cookie every browser held before #6358: the token itself. It is no session, so ?token= signs in again.

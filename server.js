@@ -5529,9 +5529,11 @@ const server = http.createServer(async (req, res) => {
     // cookie and redirects to the clean URL; runs on every route so the operator
     // can land tokenized on the shell and have later /api calls carry the cookie.
     // #6358: `accepts` is the gate's own test (boardTokenOk, #3055's other worlds included), so a `?token=` signs in
-    // exactly when the same token in a header would be let through.
+    // exactly when the same token in a header would be let through. Only a token this board holds in memory (the
+    // worlds known at start) reaches it, so a made-up `?token=` costs no disk read.
+    const inMemoryToken = (t) => [...(KNOWN_WORLD_TOKENS || new Map()).values()].some((k) => boardauth.matches(t, k));
     const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method,
-      accepts: (t) => boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
+      accepts: (t) => inMemoryToken(t) && boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
     if (boot) {
       /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a browser
          is actually signed in -- moved here from install/setup.sh, which could
@@ -5557,8 +5559,7 @@ const server = http.createServer(async (req, res) => {
     // request costs no disk read.
     const oldCookie = boardauth.cookieToken(req);
     if (oldCookie && boardauth.sessionToken(oldCookie) === null
-        && (boardauth.matches(oldCookie, boardAuthState.token)
-          || [...(KNOWN_WORLD_TOKENS || new Map()).values()].some((t) => boardauth.matches(oldCookie, t)))) {
+        && (boardauth.matches(oldCookie, boardAuthState.token) || inMemoryToken(oldCookie))) {
       res.setHeader('set-cookie', boardauth.clearedCookieHeader());
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);

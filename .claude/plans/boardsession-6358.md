@@ -134,3 +134,11 @@ header. A sender that set the cookie to the token would now be refused, and its 
   other-world cookie failed them too.
 - `boardproof.tokenIn` still reads the cookie value first, which is now a session id. It fails closed until Renet's
   part of #6358 has the proof route answer for sessions.
+- Two boards on different ports in ONE browser share one cookie (a cookie is per host), so signing in on one signs
+  the other out. Before sessions, one token cookie worked on every board of the account. Accepted. A port in the
+  cookie name is the possible next step.
+- An old app with a new board does not occur: the Mac app and the board ship in the same bundle and update together.
+- A kept session's cookie gets the session's remaining lifetime as its Max-Age (sessionLeftMs). The app also gives up
+  after 3 accepted sign-ins in a row with no good read (an accepted sign-in whose cookie is not kept).
+- The give-up marker is kept in sessionStorage for the window, so a reload after a give-up still says what to do. A
+  200 clears it.

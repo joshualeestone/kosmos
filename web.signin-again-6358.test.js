@@ -100,7 +100,8 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
     'a page from anywhere but this board cannot make the window load the board with its token');
   assert.ok(proxy.indexOf('isBoardOrigin') < proxy.indexOf('pageSaysSignedOut'), 'the origin is checked before acting');
   const handler = lift(APP, 'func pageSaysSignedOut(');
-  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue\(\) != nil, gaveUp: signInAgainGaveUp\)/, 'throttled, and gives up on the board\x27s own refusal');
+  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue\(\) != nil,\s+gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead\)/,
+    'throttled, and gives up on the board\'s refusal or after fruitless tries');
   const giveUp = handler.slice(handler.indexOf('case .giveUp:'), handler.indexOf('case .signIn:'));
   assert.ok(giveUp.length > 0, 'the give-up branch is gone');
   assert.doesNotMatch(giveUp, /tokenizedBoardURL/, 'giving up loads the could-not-sign-in page without the token');
@@ -151,7 +152,7 @@ test('#6358: the stuck switch waits well past the retell plus a poll, and the gi
   const retell = Number(PAGE.match(/const SIGNED_OUT_RETELL_MS = (\d+);/)[1]);
   const stuck = Number(PAGE.match(/const SIGNED_OUT_STUCK_MS = (\d+);/)[1]);
   assert.ok(stuck >= retell + 30000, 'stuck ' + stuck + ' ms vs retell ' + retell + ' ms: a slow poll must not show "could not" while the app is about to sign in');
-  const marker = PAGE.indexOf('const SIGNIN_FAILED_AT_LOAD =');
+  const marker = PAGE.indexOf('let SIGNIN_FAILED_AT_LOAD =');
   const boot = PAGE.lastIndexOf('showTab(BOOT_TAB);');
   assert.ok(marker > 0 && boot > 0 && marker < boot, 'SIGNIN_FAILED_AT_LOAD is read before boot\'s showTab (which runs syncUrl)');
 });
