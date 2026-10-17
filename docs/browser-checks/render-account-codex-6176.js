@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * kosmos#6176 slice 2: a ChatGPT sign-in (OpenAI) row in Settings > AI Models shows its plan limits as Codex last
- * reported them, one meter per window.
+ * kosmos#6176 slices 2 and 3: a ChatGPT sign-in (OpenAI) row in Settings > AI Models shows its plan limits as Codex last
+ * reported them, one meter per window; a Grok subscription (xai) row shows its weekly usage as Grok last logged it, drawn
+ * the same way (the Grok claims are listed below the Codex ones).
  *
  * Drives the real paintAccounts() against a stubbed /api/accounts (no board), in Chromium and WebKit, at desktop and
  * phone width, inside the real Settings panel, with the page clock pinned at noon. The claims, each one able to fail:
