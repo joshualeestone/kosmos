@@ -1172,8 +1172,9 @@ async function forget({ anyway = false } = {}) {
   // when something is already broken. kosmos#5422 adds a sixth, the wait on key-making calls (a minute, below).
   //
   // One forget at a time: a second (a double click, two tabs, a retried request)
-  // gets the first one's answer instead of retiring the same Mac beside it, whatever its `anyway`.
-  if (forgetInFlight) return forgetInFlight;
+  // gets the first one's answer instead of retiring the same Mac beside it. kosmos#6389: except that a second
+  // asking `anyway` does not settle for a first one's kept: it runs once the first has ended.
+  if (forgetInFlight) return anyway ? forgetInFlight.then((got) => (got && got.kept ? forget({ anyway: true }) : got)) : forgetInFlight;
   signinEpoch += 1;
   signinSession = null;
   companySetup = null;   // kosmos#5628 review 1: a forgotten Mac keeps no half-made company setup (nor its secret)
@@ -1212,11 +1213,11 @@ async function forgetNow(anyway) {
   // at the coordinator and left its key and id here, without the certificate
   // enrolled() needs. It can still sign a retire, so it is retired too.
   const canRetire = was.enrolled || halfRegistered();
-  const before = read();   // kosmos#6389: what a kept answer puts back
+  const wasOn = read().on === true;   // kosmos#6389: a kept answer tells the account about this switch-off
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
-  write({ on: false, vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  write({ on: false }, { repair: true });
   /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
      computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
      write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
@@ -1231,11 +1232,9 @@ async function forgetNow(anyway) {
     // (written above): the person asked for this computer to go, so it does not come back online by itself.
     if (!retired && !anyway && retireTransient(r)) {
       stopChild();
-      // Not forgotten, so the notes stay with the identity (kosmos#5786 (b) drops them only for a forgotten one). The
-      // snapshot is from before the retire wait. The switch-off is queued like any flip (kosmos#4743) and goes on the
-      // next poll: busy() stops this ask while forgetting.
-      write({ vouched: before.ok === true && before.vouched ? before.vouched : {} });
-      if (before.ok === true && before.on === true) { flipPending = true; askAfterFlip(); }
+      // The switch-off is queued like any flip (kosmos#4743) and goes on the next poll: busy() stops this ask while
+      // forgetting.
+      if (wasOn) { flipPending = true; askAfterFlip(); }
       return {
         ok: false,
         kept: true,
@@ -1253,7 +1252,7 @@ async function forgetNow(anyway) {
      federation UI) true for the NEXT account that has not signed in yet -- a leak
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
-  write({ ...r, on: false, standing: '' }, { repair: true });
+  write({ ...r, on: false, standing: '', vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
   // the old rows stay this computer's own), is what this process held let go.
   heldIdentity = null;

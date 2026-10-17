@@ -51882,7 +51882,9 @@ async function plusForgetRun(yes, anyway) {
     plusForgetArm(false);
     msg.hidden = true; msg.textContent = '';
     const because = String(said.because || 'this computer is not removed yet');
-    plusForgetKept(true, asSentence(plusWords(because)));
+    /* plusWords answers a whole sentence of its own for a connector that is not installed: it names the reason here. */
+    const why = plusWords(because);
+    plusForgetKept(true, asSentence(why === because ? because : 'this computer is not removed yet, because ' + why));
     await paintPlus();
     const retry = document.getElementById('plus-forget-retry'); if (retry) retry.focus();
     return;

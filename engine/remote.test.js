@@ -2565,6 +2565,23 @@ test('#6389: a kept Remove on a damaged remote.json repairs the file and still k
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
+test('#6389: Remove from this computer only from a second tab, during a plain Remove that is kept, still wipes', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'slow-retire,retire-down';
+  try {
+    const plain = remote.forget();
+    const anyway = remote.forget({ anyway: true });
+    const [a, b] = await Promise.all([plain, anyway]);
+    assert.equal(a.kept, true, 'fixture: the plain Remove was kept');
+    assert.notEqual(b.kept, true, 'the second tab\'s anyway was answered with the first tab\'s kept');
+    assert.equal(b.ok, true);
+    assert.equal(remote.enrolled(), false, 'anyway from a second tab left the key');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
 test('#6389: Remove from this computer only (anyway) wipes the key after a retire with no answer, and says what is left', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
