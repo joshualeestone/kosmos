@@ -1331,17 +1331,25 @@ async function main() {
         const rgb = /rgba?\([^)]*\)/g;
         const ends = { img: getComputedStyle(box, '::after').backgroundImage, rail: getComputedStyle(document.getElementById('rail-agents')).backgroundColor };
         ends.ok = /linear-gradient/.test(ends.img) && (ends.img.match(rgb) || []).pop() === ends.rail;
-        /* A control focused from the keyboard below the edge is scrolled in clear of the fade (WCAG 2.4.11). */
+        /* A control focused from the keyboard below the edge is scrolled in clear of the fade (WCAG 2.4.11): once as the
+           page ships, and once with the CSS scroll padding off, which only the page's own focusin nudge can then pass
+           (an engine that ignores the padding on a focus scroll). */
         const was = document.activeElement;
-        const btn = [...box.querySelectorAll('button')].find((b) => b.getBoundingClientRect().top >= box.getBoundingClientRect().bottom);
-        let focus = { button: !!btn };
-        if (btn) {
-          btn.focus(); await frames();
+        const tryFocus = async (noPad) => {
+          const btn = [...box.querySelectorAll('button')].find((b) => b.getBoundingClientRect().top >= box.getBoundingClientRect().bottom);
+          if (!btn) return { button: false };
+          if (noPad) box.style.scrollPaddingBottom = '0px';
+          btn.focus(); await frames(); await frames();
           const b = btn.getBoundingClientRect(), x = box.getBoundingClientRect();
-          focus = { button: true, gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - 27 && b.top >= x.top };
+          const out = { button: true, visible: btn.matches(':focus-visible'), gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - 27 && b.top >= x.top };
           if (was && was.focus) was.focus(); else btn.blur();
+          box.style.scrollPaddingBottom = '';
           box.scrollTop = 0; await frames();
-        }
+          return out;
+        };
+        const focus = { padded: await tryFocus(false), unpadded: await tryFocus(true) };
+        focus.button = focus.padded.button && focus.unpadded.button;
+        focus.clear = !!(focus.padded.clear && focus.unpadded.clear);
         /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only the
            box's own size change can bring the cue back. */
         const body = document.body, folded = body.classList.contains('fold-a');
