@@ -28,7 +28,8 @@ check, everything reads as before.
 - Whether a Not me noted a refusal comes from the tunnel's answer (`"check": true` from `devices deny`), never from the
   page, whose list can be a refresh behind.
 - Known gap: Not me on a check is not seen by the joining computer, which keeps the check's steps up until its code
-  runs out (ten minutes) and then offers Check the code again. Telling it needs a tunnel message; not in this change.
+  runs out (ten minutes) and then offers Check the code again. Telling it needs a tunnel message; not in this change
+  (follow-up card #6429).
 - The joining computer polls only while a check it asked for runs (each read is a signed round).
 - Not me on a check says the computer stays connected (computers are not in the Devices list, so no "remove it there").
 - Weakest premise: a board on an older tunnel never sends `can_recheck`, so it keeps the old ending; the button never
@@ -53,3 +54,5 @@ check, everything reads as before.
   has its own ending instead of a blank block; the deny note follows the tunnel's "check" answer (engine test); the
   later-check arm now covers Not me and Got it first; the name is kept while a check starts; the tries-used ending no
   longer says "nothing more is needed"; the cancel gap stated.
+- 4 sonnet: no new actionable findings (the cancel gap is stated and carded as #6429; a read-order race traced by the
+  reviewer as unreachable on a successful round). Converged.
