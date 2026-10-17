@@ -50378,7 +50378,9 @@ function paintAsk() {
     // named, so it is not put away (its line is the way to its Undo).
     ASK.noteKeys = n ? fresh.map(noteKey) : [hereKey];
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
-    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.' : n + ' devices want to connect to your Kosmos.';
+    // kosmos#6388: several of the person's own computers joining, and nothing else, are computers, not devices.
+    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.'
+      : fresh.every((d) => d.joining_computer) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
       '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss notice" title="Dismiss"><span aria-hidden="true">&times;</span></button></div>');
