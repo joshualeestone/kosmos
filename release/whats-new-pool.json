@@ -692,7 +692,7 @@
     },
     {
       "title": "An agent marking a task built tells the others",
-      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it, so nobody has to check.",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it.",
       "icon": "tasks",
       "rank": 3,
       "since": "0.7.56",
