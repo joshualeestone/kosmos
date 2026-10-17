@@ -100,9 +100,32 @@ test('engine: a new fingerprint is a new mark; the same one is the same mark (CO
   assert.equal(fixed.ok, true, fixed.because);
   assert.equal(stored(n).builtFingerprint, undefined, 'the sender\'s new mark kept a stale fingerprint');
   assert.equal(stored(n).builtFingerprintBy, undefined);
+  // An identical mark sent by another agent is a change: they hashed and sent it (review 6).
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'ok', fingerprint: A });
+  tasks.setBuilt(projectId, n, { by: 'zed', note: 'ok' });
+  const resent = tasks.setBuilt(projectId, n, { by: 'zed', note: 'ok', fingerprint: A });
+  assert.equal(resent.changed, true);
+  assert.equal(stored(n).builtFingerprintBy, 'zed');
   const n2 = tasks.create(projectId, { sentence: 'Build the other import', who: 'mona' }).number;
   tasks.setBuilt(projectId, n2, { by: 'mona', note: 'done' });
   assert.equal(stored(n2).builtFingerprint, undefined);
+});
+
+test('engine: the person\'s mark keeps an agent\'s fingerprint; an unnamed agent\'s mark drops it, whoever sent it (review 6)', () => {
+  const n = tasks.create(projectId, { sentence: 'Build the map', who: 'mona' }).number;
+  tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', fingerprint: A });
+  tasks.setBuilt(projectId, n, { person: true, note: 'looks right' });
+  assert.equal(stored(n).builtFingerprint, A, 'the person\'s mark dropped the agent\'s fingerprint');
+  assert.equal(stored(n).builtFingerprintBy, 'mona');
+  const n2 = tasks.create(projectId, { sentence: 'Build the key', who: 'mona' }).number;
+  tasks.setBuilt(projectId, n2, { by: null, note: 'done', fingerprint: A });
+  assert.equal(stored(n2).builtFingerprintBy, null, 'an unnamed sender was credited to someone');
+  tasks.setBuilt(projectId, n2, { person: true, note: 'seen' });
+  assert.equal(stored(n2).builtFingerprint, A, 'the person\'s mark kept or dropped by whether the sender had a name');
+  tasks.setBuilt(projectId, n2, { by: 'zed', note: '1 met.' });
+  assert.equal(stored(n2).builtFingerprint, A, 'CONTROL: a named checker keeps an unnamed sender\'s fingerprint');
+  tasks.setBuilt(projectId, n2, { by: null, note: 'again' });
+  assert.equal(stored(n2).builtFingerprint, undefined, 'an unnamed agent\'s mark kept a fingerprint it may have replaced');
 });
 
 test('route: an agent\'s fingerprint is stored; a bad shape is 400 and stores nothing; the screen sends none', async () => {

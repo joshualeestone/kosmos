@@ -4724,7 +4724,7 @@ cmd_task() {
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
-      say "      --file <path>                                            send the delivered file's fingerprint (sha256) with the mark; a mark without it keeps an earlier one"
+      say "      --file <path>                                            send the delivered file's fingerprint (sha256) with the mark; another agent's mark keeps it, your own mark without --file drops it"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
