@@ -511,6 +511,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .acts { grid-area: acts; }
   /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
   .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
+  /* #6404: Allow short of six digits is aria-disabled (still reachable); it stays blue on the card, dimmed like other ones. */
+  .askreq .acts .btn.uprime[aria-disabled="true"], .askreq .acts .btn.uprime[aria-disabled="true"]:hover { background: #2f57c4; opacity: .8; cursor: not-allowed; }
   .askreq .askwho b { color: #fff; font-size: 1.05rem; }
   .askreq .askwho span { color: #9fb0d4; white-space: nowrap; }   /* "a moment ago" stays on one line (review NIT) */
   .askreq .askdev { background: rgba(126,160,240,.14); }
@@ -50454,7 +50456,7 @@ function paintAsk() {
       ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
-    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed' || e.because === 'code_new');
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed' || e.because === 'code_new' || e.because === 'code_short');
     const staleTag = tagged && e.code !== d.code;
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
@@ -50476,9 +50478,11 @@ function paintAsk() {
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
+      : e.because === 'code_short' ? 'Type all six digits shown on ' + name + ', then press Allow.'
       : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
       : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press Allow.'
-      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+      : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed Allow. Type the new one from ' + name + ', then press Allow.'
+        : 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.')
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
             : askEsc(e.because);
@@ -50496,9 +50500,9 @@ function paintAsk() {
       (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
         '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
         ' autocomplete="off" spellcheck="false" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
-        (e && e.state === 'error' && e.because === 'code_typed' && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
+        (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
       (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow || (typing && askDigits(typed).length !== 6) ? ' disabled' : '') + '>Allow</button>' +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -50528,7 +50532,7 @@ function paintAsk() {
   ASK.shownKey = waiting.join(',');
 }
 async function askAct(act, id, at) {
-  const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
+  let d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { askNoteDismiss(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
   // 'open' and 'note-dismiss' exist only on the compact notice, whose paint wrote ASK.noteKeys.
   if (act === 'note-dismiss') {
@@ -50571,23 +50575,40 @@ async function askAct(act, id, at) {
   // Only the two buttons act on a request; anything else (#6404: a click that reached here from elsewhere) does nothing.
   if (act !== 'allow' && act !== 'deny') return;
   const verb = act === 'allow' ? 'allow' : 'deny';
-  /* #6404: the typed code is compared here, digit for digit, with the code this computer worked out; a wrong one never
-     reaches the tunnel (it would read as "the code changed"). A right one sends the code as the tunnel wrote it. */
-  if (verb === 'allow' && d.joining_computer && d.code && askDigits(askTypedFor(d)) !== askDigits(d.code)) {
-    // Typed for a code that has since changed (a poll landed before the press): say so, not "that is not the code".
+  /* #6404: for a computer, what the person typed is checked here, digit for digit, against the code this computer worked
+     out, and then it is what Allow sends (in the tunnel's "ddd ddd" form), so the tunnel checks the person's entry too.
+     A wrong one never reaches the tunnel (it would read as "the code changed"). Before calling it wrong, the list is read
+     once more: the other computer may have a new code this page has not seen yet, and the person typed that one. */
+  let typedCode;
+  if (verb === 'allow' && d.joining_computer && d.code) {
     const t = ASK.typed && ASK.typed[id];
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because: t && t.v && t.code !== d.code ? 'code_new' : 'code_typed' };
-    for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
-    paintAsk();
-    const f = document.getElementById('askcode-' + id);
-    if (f) { f.focus(); f.select(); }
-    return;
+    const v = askDigits(t && t.v);
+    const refuse = (because) => {
+      ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because };
+      for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+      paintAsk();
+      const f = document.getElementById('askcode-' + id);
+      if (f) { f.focus(); if (because !== 'code_short') f.select(); }
+    };
+    if (v.length !== 6) { refuse('code_short'); return; }
+    if (v !== askDigits(d.code)) {
+      if (typeof pollAsk === 'function') await pollAsk();
+      const now = ASK.devices.find((x) => x.device_id === id);
+      if (now && now.code && v === askDigits(now.code)) { d = now; t.code = now.code; }
+      else {
+        if (now) d = now;
+        // Typed for a code that has since changed: say so, not "that is not the code".
+        refuse(now && t.code !== now.code ? 'code_new' : 'code_typed');
+        return;
+      }
+    }
+    typedCode = v.slice(0, 3) + ' ' + v.slice(3);
   }
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
       /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
-      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
   } catch { res = null; }
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
@@ -50627,14 +50648,15 @@ for (const cid of ['askcard', 'plus-asks']) {
     const d = ASK.devices.find((x) => x.device_id === id);
     const e2 = ASK.done[id];
     const held = !d || (e2 && e2.state === 'error' && e2.because === 'code_changed' && e2.code === d.code && Date.now() - e2.at < 60000);
-    if (allow) allow.disabled = held || askDigits(f.value).length !== 6;
+    // Short of six digits Allow stays reachable (aria-disabled, so Tab from here lands on it, never on Not me); a press says why.
+    if (allow) { allow.disabled = !!held; if (!held && askDigits(f.value).length !== 6) allow.setAttribute('aria-disabled', 'true'); else allow.removeAttribute('aria-disabled'); }
   });
   host.addEventListener('keydown', (e) => {
     const f = e.target.closest('.askcodein');
     if (!f || e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
     const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.askcode);
-    if (allow && !allow.disabled) allow.click();
+    if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
   });
 }
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
@@ -51668,8 +51690,7 @@ function paintPlusJoin() {
     + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
     + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
-  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
-     the code steps back, small and grey. */
+  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads. */
   /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
     + '<p class="plus-join-next">Waiting for ' + name + other + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
