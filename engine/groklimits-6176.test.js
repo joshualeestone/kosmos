@@ -72,7 +72,8 @@ test('#6176 review 1: a reading from an earlier sign-in in the same folder is no
   const h = home([billing(NOW - 2 * DAY, 80, NOW - 3 * DAY, NOW + 4 * DAY)]);
   const rec = path.join(ROOT, 'signins-' + (n++) + '.json');
   const auth = path.join(h, 'auth.json');
-  const signIn = (uuid, at) => { fs.writeFileSync(auth, JSON.stringify({ ['https://auth.x.ai::' + uuid]: { user_id: uuid, refresh_token: 'r' } })); fs.utimesSync(auth, new Date(at), new Date(at)); };
+  // The real shape: the key's suffix is the app's sign-in client (the same for every login); user_id names the person.
+  const signIn = (uuid, at) => { fs.writeFileSync(auth, JSON.stringify({ 'https://auth.x.ai::client-1': { user_id: uuid, refresh_token: 'r' } })); fs.utimesSync(auth, new Date(at), new Date(at)); };
   signIn('first', NOW - 5 * DAY);
   const s1 = groklimits.signedInSince(h, rec);
   assert.equal(s1, NOW - 5 * DAY);
