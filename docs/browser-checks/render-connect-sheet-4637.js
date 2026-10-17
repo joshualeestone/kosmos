@@ -328,6 +328,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !jr.button,
         `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
+      // #6387: and the pill says it needs the person, as it does for a code that ran out below (it read Waiting to be allowed).
+      chk(jr.pill === 'Needs you', `${tag} #6387 waiting: too many tries is Needs you on the pill`, JSON.stringify(jr));
       /* #6353: still held, the code ran out, and no new attempt starts until the person presses Try again (a night with
          nobody here used to spend every try). The block says so and offers the button; pressing it posts the retry, and
          while the tunnel starts the new attempt the block says one is on its way. */
@@ -345,9 +347,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       joinDelayMs = 3000;   // no round answers in time: what shows is the page's own repaint of the refusal
       await page.click('#plus-join-retry');
       await page.waitForTimeout(500);
-      const usedSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
+      const usedSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry'),
+        pill: document.getElementById('plus-pill').textContent }));
       chk(usedSay.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !usedSay.btn,
         `${tag} #6353: a Try again refused for every try used says the recovery, with no Try again left`, JSON.stringify(usedSay));
+      // #6387 review 1: the page's own failed (set by that refusal) keeps the pill on Needs you, not Waiting to be allowed.
+      chk(usedSay.pill === 'Needs you', `${tag} #6387: a refused Try again with every try used keeps Needs you on the pill`, JSON.stringify(usedSay));
       await page.waitForTimeout(3500); joinDelayMs = 0;   // outlasts the held round, so the next read is not paced
       join = { ...join, failed: false, needs_retry: true };
       await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });   // an old code's clock, long run out
