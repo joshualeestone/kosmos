@@ -50460,7 +50460,7 @@ function paintAsk() {
     const joiningRow = askComputerRow(d);
     const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+    /* #4794 (Mona Lisa's words), #6404: a computer joining shows its code on its own screen; the person types it here. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
     const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
     /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
@@ -50469,7 +50469,7 @@ function paintAsk() {
       ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
-    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed');
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed' || e.because === 'code_new');
     const staleTag = tagged && e.code !== d.code;
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
@@ -50492,6 +50492,7 @@ function paintAsk() {
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
       : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
+      : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press Allow.'
       : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
@@ -50506,7 +50507,7 @@ function paintAsk() {
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
       /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
-         never changes what the next poll compares and the live region is not rebuilt mid-entry (askWrite puts them back). */
+         rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
       (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
         '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
         ' autocomplete="off" spellcheck="false" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
@@ -50588,7 +50589,9 @@ async function askAct(act, id, at) {
   /* #6404: the typed code is compared here, digit for digit, with the code this computer worked out; a wrong one never
      reaches the tunnel (it would read as "the code changed"). A right one sends the code as the tunnel wrote it. */
   if (verb === 'allow' && d.joining_computer && d.code && askDigits(askTypedFor(d)) !== askDigits(d.code)) {
-    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because: 'code_typed' };
+    // Typed for a code that has since changed (a poll landed before the press): say so, not "that is not the code".
+    const t = ASK.typed && ASK.typed[id];
+    ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because: t && t.v && t.code !== d.code ? 'code_new' : 'code_typed' };
     for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
     paintAsk();
     const f = document.getElementById('askcode-' + id);
@@ -51682,15 +51685,16 @@ function paintPlusJoin() {
     + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
      the code steps back, small and grey. */
+  /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Now press Allow on ' + name + other + '.</p>'
-    + '<p class="plus-join-code-small" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
+    + '<p class="plus-join-next">Now type this code on ' + name + other + ', and press Allow there.</p>'
+    + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
-      : '<p class="plus-join-say">If ' + name + (other ? other + ',' : '') + ' showed this same code when you allowed it, press The codes match.</p>') + plusJoinCode(code) +
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Then press The codes match here.</li></ol>'
+      : '<p class="plus-join-say">If you typed this code on ' + name + (other ? other + ',' : '') + ' to allow this computer, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held

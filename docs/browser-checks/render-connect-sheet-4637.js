@@ -28,7 +28,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
- *    codes match" (which posts that code), (#6314) "The codes match. Now press Allow on <name>, your other computer." with the code small, ran out, too many tries;
+ *    codes match" (which posts that code), (#6314, #6404) "The codes match. Now type this code on <name>, your other computer, and press Allow there." with the code
+ *    still large (it is typed there), ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -199,7 +200,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
       /* #6404 review 1: clicking the field's label, then the field, as a person would, sends nothing and turns nobody away. */
       await page.click('label[for="askcode-' + PC_ID + '"]');
-      await page.click('#askcode-' + PC_ID);
+      await page.click('[id="askcode-' + PC_ID + '"]');
       await page.waitForTimeout(300);
       const clicked = await page.evaluate((id) => ({ focused: document.activeElement === document.getElementById('askcode-' + id),
         still: !!document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]') }), PC_ID);
@@ -215,7 +216,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const inMarkup = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id); return !f || f.hasAttribute('value'); }, PC_ID);
       chk(!inMarkup, `${tag} #6404: the page never writes what is typed as the field's value attribute (the digits are put back after a rebuild)`);
       /* A wrong code: Allow wakes at six digits, but pressing it is answered here and nothing reaches the tunnel. */
-      await page.click('#askcode-' + PC_ID, { clickCount: 3 });
+      await page.click('[id="askcode-' + PC_ID + '"]', { clickCount: 3 });
       await page.keyboard.type('111 111');
       const wrongOn = await page.evaluate((id) => !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]').disabled, PC_ID);
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
@@ -227,7 +228,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         && wrong.invalid === 'true' && /That is not the code/.test(wrong.describedBy),
         `${tag} #6404: a wrong code is answered on the sheet (the field is marked invalid and described by it), sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID], denyIds }));
       /* The right digits, typed without the space: Allow sends the code as the tunnel wrote it. */
-      await page.click('#askcode-' + PC_ID, { clickCount: 3 });
+      await page.click('[id="askcode-' + PC_ID + '"]', { clickCount: 3 });
       await page.keyboard.type('482915');
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
@@ -357,6 +358,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /laptop5 is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       chk(enterShort && enterWrong && allowBodies['d-en'] && allowBodies['d-en'].code === '246 801' && !denyIds.includes('d-en'),
         `${tag} #6404: Enter in the field: five digits do nothing, six wrong ones are answered, six right ones Allow; never Not me`, JSON.stringify({ enterShort, enterWrong, sent: allowBodies['d-en'], denyIds }));
+      /* #6404 review 3: typed for a code that changed before the press: the sheet says the code is new, sends nothing. */
+      pending = [{ device_id: 'd-nw', name: 'laptop6', code: '102 938', first_seen: now() - 10, joining_computer: 'laptop6' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-nw', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-nw'); await page.keyboard.type('102938');
+      const nw = await page.evaluate(async () => { const d = ASK.devices.find((x) => x.device_id === 'd-nw'); d.code = '475 610';   // a poll landed, not yet painted
+        await askAct('allow', 'd-nw'); return (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '); });
+      chk(/laptop6 has a new code\. Type the new one from laptop6, then press Allow\./.test(nw) && !/That is not the code/.test(nw) && !allowBodies['d-nw'],
+        `${tag} #6404: typed for a code that changed before the press: "has a new code", nothing sent`, nw);
       /* #6404 review 2: two computers waiting at once keep their own typing; Allow on one sends only its code. */
       pending = [{ device_id: 'd-2a', name: 'boxa', code: '111 222', first_seen: now() - 10, joining_computer: 'boxa' },
         { device_id: 'd-2b', name: 'boxb', code: '333 444', first_seen: now() - 10, joining_computer: 'boxb' }];
@@ -403,7 +413,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "Working out the code with homemac, your other computer...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
-      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
+      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Type this code there, then press Allow\.\s*Then press The codes match here\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
         `${tag} #4794/#6314 waiting: the other computer named as the other one, where to look on it, the code large and "The codes match"`, JSON.stringify(jr));
       /* kosmos#6314 (Josh 11:37): while waiting, the pairing is the page's one job: the devices list and company block step aside. */
       const aside = await page.evaluate(() => ['plus-devices', 'plus-org'].map((id) => { const e = document.getElementById(id); return !e || getComputedStyle(e).display === 'none'; }));
@@ -430,7 +440,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();
       const small = await page.evaluate(() => { const c = document.querySelector('#plus-join .plus-join-code-small'); return c ? { text: c.textContent, px: parseFloat(getComputedStyle(c).fontSize) } : null; });
-      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now press Allow on homemac, your other computer\./.test(jr.text) && jr.code === '' && !jr.button && small && small.text === '482 915' && small.px < 20,
+      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now type this code on homemac, your other computer, and press Allow there\./.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button && !small,
         `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and the code steps back, small`, JSON.stringify({ confirmBody, jr, small }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
          held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
@@ -543,7 +553,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246 810', on: 'homemac' };
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.shown && /^If homemac, your other computer, showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
+      chk(jr.shown && /^If you typed this code on homemac, your other computer, to allow this computer, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
         `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
       /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
       await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; PLUS_JOIN.held = true; });   // review 7: paintPlusJoin reads the page's answer, not the route
