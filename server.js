@@ -4213,6 +4213,23 @@ const ROUTING_BASE = 'http://localhost';
 // while refusing `//localhost:4317/x` (us).
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+/* kosmos#6406 step 2: whether a request was made on THIS computer itself, for the one route that signs with its key to
+   open another of the account's computers. All three, positively: addressed to a loopback name (Host); sent by a page
+   on a loopback name (Origin, which a browser always sends on a POST); and forwarded by nothing that says so (Kosmos+
+   sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
+   board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
+   the phone's page is on the proxy's own name. */
+function madeOnThisComputer(headers) {
+  const h = headers || {};
+  if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
+  const nameOf = (v, withScheme) => {
+    try { return new URL(withScheme ? String(v) : 'http://' + String(v)).hostname.replace(/\.$/, '').toLowerCase(); } catch { return ''; }
+  };
+  if (typeof h.host !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.host, false))) return false;
+  if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
+  return true;
+}
+
 /**
  * Extra hostnames this server will answer to, comma-separated.
  *
@@ -10989,10 +11006,10 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
-     for a request made on THIS computer's own screen: never one that came through Kosmos+ (the tunnel always sets
-     x-forwarded-for on everything it forwards, and x-forwarded-host on everything but a webhook, replacing a visitor's;
-     pinned in kosmos-relay's proxy tests; either one refuses), so a phone let
-     in here cannot use this computer's key to reach the other computers; and with no agent token (isViaScreen). A local
+     for a request made on THIS computer's own screen (madeOnThisComputer: loopback Host and Origin, nothing forwarded;
+     the Kosmos+ headers are pinned in kosmos-relay's proxy tests), so a phone let in here, through Kosmos+ or a proxy
+     of the person's own, cannot use this computer's key to reach the other computers; and with no agent token
+     (isViaScreen). A local
      process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
      tunnel with this computer's key itself. The address must be one an account's computer can have. */
   if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
@@ -11001,8 +11018,7 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const relayed = req.headers['x-forwarded-host'] !== undefined || req.headers['x-forwarded-for'] !== undefined;
-        if (relayed || !isViaScreen(req, body)) {
+        if (!madeOnThisComputer(req.headers) || !isViaScreen(req, body)) {
           sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
           return;
         }
@@ -25041,6 +25057,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  madeOnThisComputer, // kosmos#6406: the ticket route's "on this computer" rule, for its test
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
