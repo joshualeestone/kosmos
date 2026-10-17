@@ -2090,8 +2090,62 @@ cmd_open() {
   # silence-plus-exit-0, indistinguishable from success. Name the URL (a person
   # with no browser can go there themselves) and name a real failure with a
   # non-zero exit instead of swallowing it. KOSMOS_OPEN_BIN is a test seam.
-  say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
-  "${KOSMOS_OPEN_BIN:-/usr/bin/open}" "$_open_url" || die "Could not open a browser. Go to the dashboard yourself: $URL"
+  # #6361: the opener is the platform's. /usr/bin/open is macOS's only: most Linux systems have no such file, and on
+  # Debian and Ubuntu that path can be openvt. Linux opens with xdg-open when there is a display to open on.
+  # KOSMOS_OPEN_BIN still wins (the test seam, or a person's own choice).
+  local _opener=""
+  if [ -n "${KOSMOS_OPEN_BIN:-}" ]; then
+    _opener="$KOSMOS_OPEN_BIN"
+  else
+    case "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" in
+      Darwin) _opener=/usr/bin/open ;;
+      Linux)
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+          _opener="$(command -v xdg-open 2>/dev/null || true)"
+        fi ;;
+    esac
+  fi
+  local _failed=0
+  if [ -n "$_opener" ]; then
+    say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
+    "$_opener" "$_open_url" && return 0
+    _failed=1
+    # #6361: an opener that fails (a dead or forwarded DISPLAY, xdg-open with nothing to hand it to) leaves the person
+    # where no opener does, so it takes the same path below rather than ending on the plain address.
+    # #1957: a failed open still ends non-zero and says so on stderr, whatever it hands over below.
+    printf '  %s\n' "Could not open a browser from here." >&2
+  else
+    say "No browser opens from here."
+  fi
+  # #6361: no opener (or it failed), so the person opens it. The refusals above have already run: this is reached only
+  # after the board proved itself and answered. On an enforcing board the address carries the one-time sign-in nonce,
+  # which signs a browser in once within 2 minutes (NONCE_TTL_MS, engine/boardauth.js). It is printed only to a person
+  # at a terminal: piped or logged it would sit in a file, and an agent's terminal is its transcript, so neither gets
+  # it. An agent with none of the supervisor's markers is not caught (the plan's weakest premise).
+  local _again="\"$KOSMOS_HOME/bin/kosmos\" open"   # quoted: a home with a space still pastes
+  if [ "$_open_url" = "$URL" ]; then
+    # #6361: an enforcing board (a token was read) that answered without a nonce: its plain page cannot sign in, so
+    # handing it over would be a dead end. Only a board with no token is a plain address that works.
+    if [ -n "$_bt" ]; then
+      die "Kosmos could not make a one-time sign-in address (the board answered without one), so its page would not sign you in. Try again: $_again"
+    fi
+    [ "$_failed" = 1 ] && die "Go to the dashboard yourself: $URL"   # the failure is already said, above
+    say "Go to the dashboard yourself: $URL"
+    return 0
+  fi
+  local _agent=0
+  _invoked_by_agent && _agent=1   # once: it may ask tmux, and both decisions below must agree
+  if [ -t 1 ] && [ "$_agent" = 0 ]; then
+    # A failed opener may have reached a browser that used the address before failing, so it is offered as a "maybe".
+    if [ "$_failed" = 1 ]; then say "If no browser opened, open this address in a browser on this computer within 2 minutes. It signs that browser in once, so do not share it:"
+    else say "Open this address in a browser on this computer within 2 minutes. It signs that browser in once, so do not share it:"; fi
+    say "$_open_url"
+    [ "$_failed" = 1 ] && exit 1
+    return 0
+  fi
+  local _who="In a terminal on this computer, run"
+  [ "$_agent" = 1 ] && _who="Tell the person who runs this computer to run, in a terminal on it"   # as _stop_advice does
+  die "This is not a person's terminal, so the one-time sign-in address is not printed (it would land in a file or a transcript). $_who: $_again"
 }
 
 # The direct look the board names when it cannot read the agents (#274).
