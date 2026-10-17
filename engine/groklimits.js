@@ -14,8 +14,10 @@
  *
  * Grok does not log a fetch every session (none here after 09-29, though Grok ran on 10-05, 10-07 and 10-10), so a
  * reading can be days old: `at` is the line's own time, for the page to say how old it is, and a reading whose period
- * has ended is dropped (its figure belongs to a period that is over). A line whose shape is not the one above is
- * skipped: no figure is better than a wrong one. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
+ * has ended is dropped (its figure belongs to a period that is over). A billing line without the figure or period is
+ * skipped and the newest line that has them answers (measured: Grok writes some billing lines with no percent at all,
+ * 2 of 43 here), so a changed shape shows the last good reading, with its age, until its period ends; never a figure
+ * read from a line it does not understand. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
  * while no reading is found (a busy day logs past 256 KB, measured: the last 09-29 reading sits about 355 KB from the
  * end of a 1.5 MB log; the 4 MB step is headroom, not a measurement). Never throws.
  *
@@ -61,35 +63,50 @@ function readingOfRow(row) {
   };
 }
 
+/* The newest valid reading per log file, kept while the file's size and time are unchanged (review 2: in the usual
+   state, no reading for days, every accounts read would otherwise scan up to 4 MB per account). */
+const newestCache = new Map();
+
+/** The newest valid billing line in the file, whatever its period, or null. Reads the tail in TAIL_STEPS. */
+function newestReading(file, size) {
+  for (const bytes of TAIL_STEPS) {
+    const text = tail(file, bytes);
+    if (!text) return null;
+    const lines = text.split('\n');
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i];
+      if (!line || line.indexOf(BILLING_MSG) === -1) continue;
+      let row; try { row = JSON.parse(line); } catch { continue; }
+      const r = readingOfRow(row);
+      if (r) return r;
+    }
+    if (bytes >= size) return null;   // the whole file was read
+  }
+  return null;
+}
+
 /**
- * The newest billing reading in `<home>/logs/unified.jsonl`, or null: no log, no reading, or its period is over.
+ * The newest billing reading in `<home>/logs/unified.jsonl`, or null: no log, no reading, a reading from before the
+ * folder's current sign-in, or its period is over.
  * @param {string} home  the account's Grok folder (~/.grok, or a named account's ~/.grok-<label>)
  * @param {number} [now] epoch ms
+ * @param {number|null} [since] epoch ms the folder's current sign-in began (signedInSince), or null when unknown
  */
 function read(home, now = Date.now(), since = null) {
   try {
     if (typeof home !== 'string' || !home) return null;
     const file = path.join(home, 'logs', 'unified.jsonl');
-    let size = 0; try { size = fs.statSync(file).size; } catch { return null; }
-    for (const bytes of TAIL_STEPS) {
-      const text = tail(file, bytes);
-      if (!text) return null;
-      const lines = text.split('\n');
-      for (let i = lines.length - 1; i >= 0; i--) {
-        const line = lines[i];
-        if (!line || line.indexOf(BILLING_MSG) === -1) continue;
-        let row; try { row = JSON.parse(line); } catch { continue; }
-        const r = readingOfRow(row);
-        if (!r) continue;
-        // A reading logged before this folder's current sign-in began is another login's (review 1): it says nothing.
-        if (Number.isFinite(since) && r.at < since) return null;
-        // The newest reading decides, even when its period is over: then there is no current figure.
-        const windows = r.windows.filter((w) => w.resetsAt > now);
-        return windows.length ? { ...r, windows } : null;
-      }
-      if (bytes >= size) return null;   // the whole file was read
-    }
-    return null;
+    let st; try { st = fs.statSync(file); } catch { return null; }
+    const hit = newestCache.get(file);
+    let r;
+    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) r = hit.reading;
+    else { r = newestReading(file, st.size); newestCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, reading: r }); }
+    if (!r) return null;
+    // A reading logged before this folder's current sign-in began is another login's (review 1): it says nothing.
+    if (Number.isFinite(since) && r.at < since) return null;
+    // The newest reading decides, even when its period is over: then there is no current figure.
+    const windows = r.windows.filter((w) => w.resetsAt > now);
+    return windows.length ? { ...r, windows } : null;
   } catch { return null; }
 }
 
