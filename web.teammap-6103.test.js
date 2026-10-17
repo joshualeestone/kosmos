@@ -137,7 +137,7 @@ test('#6103: the "!" marks every member the needs-you block lists, the red-but-u
   const html = pjTeamMap({ ...p, agents }, board, redHere);
   assert.match(html, /class="pjtm-node pjtm-need" type="button" data-agent="pixel"/, 'a red, uncounted member has no "!"');
   assert.doesNotMatch(html, /pjtm-need" type="button" data-agent="(roo|quill)"/, 'a member not drawn red was marked');
-  assert.match(textOf(html), /needs you: what each one is waiting for is listed above/, 'the hint is missing when only red members exist');
+  assert.match(textOf(html), /needs you: the needs-you list says what each one is waiting for/, 'the hint is missing when only red members exist');
   const absent = agents.map((m) => (m.sessionName === 'pixel' ? { ...m, present: false } : m));
   assert.doesNotMatch(pjTeamMap({ ...p, agents: absent }, board, redHere), /pjtm-need/, 'an absent member was marked (the block counts only present ones)');
   assert.doesNotMatch(pjTeamMap({ ...p, agents }, board), /pjtm-need/, 'CONTROL: with no predicate, nothing red is marked');
@@ -157,8 +157,8 @@ test('#6103: members nest under who they report to, and a member needing you is 
   assert.equal((flat.match(/<ul>/g) || []).length, 1, 'CONTROL: with no managers there is one level only');
   assert.match(html, /class="pjtm-node pjtm-need" type="button" data-agent="quill"/, 'the member needing you is not marked');
   assert.doesNotMatch(html, /pjtm-need" type="button" data-agent="(roo|pixel)"/, 'a member not needing you was marked');
-  assert.match(textOf(html), /needs you: what each one is waiting for is listed above/);
-  assert.doesNotMatch(textOf(flat), /waiting for is listed above/, 'CONTROL: nobody needs you, nothing pointed at');
+  assert.match(textOf(html), /needs you: the needs-you list says what each one is waiting for/);
+  assert.doesNotMatch(textOf(flat), /the needs-you list says what each one/, 'CONTROL: nobody needs you, nothing pointed at');
 });
 
 test('#6103: each member shows its model family, and a Qwen agent is never OpenAI', () => {
