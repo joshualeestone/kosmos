@@ -19,7 +19,7 @@
    bridges). The CLI fetches the proof with its own curl (the
    same route and time limit as its request) and runs this file only for the arithmetic:
      printf '%s' "$token" | node boardproof.js --key                       prints the key id
-     printf '%s\n%s\n%s' "$token" "$nonce" "$answer" | node boardproof.js --verify <base url>   exit 0 proven, 1 not
+     printf '%s\n%s\n%s' "$token" "$nonce" "$answer" | node boardproof.js --verify <base url>   exit 0 proven, 3 not
    The token comes on stdin, never argv, which `ps` shows to every account. */
 const crypto = require('crypto');
 const http = require('http');
@@ -103,8 +103,8 @@ if (require.main === module) {
     if (flag === '--verify' && base) {
       const [t, n, ...rest] = input.split('\n');
       let u, j;
-      try { u = new URL(base); j = JSON.parse(rest.join('\n')); } catch { process.exit(1); }
-      process.exit(t && proofMatches(t.trim(), String(n).trim(), j && j.proof, portOf(u)) ? 0 : 1);
+      try { u = new URL(base); j = JSON.parse(rest.join('\n')); } catch { process.exit(3); }   // an answer that is not JSON proves nothing
+      process.exit(t && proofMatches(t.trim(), String(n).trim(), j && j.proof, portOf(u)) ? 0 : 3);
     }
     process.stderr.write('usage: boardproof.js --key | --verify <base url> (input on stdin)\n');
     process.exit(2);

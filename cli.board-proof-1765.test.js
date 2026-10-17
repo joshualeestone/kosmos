@@ -76,8 +76,10 @@ function withStub({ prove, proofAnswer }, fn) {
 
 function cli(port, args, extraEnv = {}) {
   return new Promise((resolve, reject) => {
-    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), ...extraEnv };
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port) };
     delete env.KOSMOS_AGENT_TOKEN;
+    delete env.KOSMOS_HOME;   // the runner's own install must not decide the layout: each arm names its own
+    Object.assign(env, extraEnv);
     const child = spawn(CLI, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     child.stdout.on('data', (d) => { out += d; });
@@ -104,7 +106,7 @@ test('#1765: installed CLI sends the token to a listener that proves it holds it
 test('#1765: installed CLI sends NOTHING with the token to a squatter, and says so', () => withStub({ prove: false }, async (port, seen) => {
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0, 'a refused send must not exit 0');
-  assert.match(r.out, /Something other than your Kosmos is answering at http:\/\/127\.0\.0\.1:\d+, so we did not .* and sent it nothing/);
+  assert.match(r.out, /What answers at http:\/\/127\.0\.0\.1:\d+ could not show it is your Kosmos, so we did not .* and sent it nothing/);
   assert.equal(tokenSent(seen), false, 'the token reached the squatter');
 }));
 
@@ -122,12 +124,24 @@ test('#1765: a listener that never answers the proof gets nothing, and the words
   assert.equal(tokenSent(seen), false, 'the token reached the stalled listener');
 }));
 
-test('#1765: with nothing listening the CLI says it could not reach Kosmos, as before', async () => {
+test('#1765: with nothing listening the old words are unchanged (the CLI stops at its health check, before any proof)', async () => {
   const port = await new Promise((resolve) => { const sv = http.createServer(); sv.listen(0, '127.0.0.1', () => { const p = sv.address().port; sv.close(() => resolve(p)); }); });
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0);
   assert.doesNotMatch(r.out, /could not show it is your Kosmos|did not answer in time/, 'a down board is not a refused proof');
 });
+
+test('#1765: community comment counts a refused proof as NOT sent (exit 1, never the "may have been taken" exit 3)', () => withStub({ prove: false }, async (port, seen) => {
+  const AGENT = 'c'.repeat(64);
+  const r = await cli(port, ['community', 'comment', '1b2c3d4e-0000-4000-8000-000000000001', 'hi'],
+    { KOSMOS_HOME: HOME, TMUX_PANE: '%42', KOSMOS_AGENT_TOKEN: AGENT });
+  // Positive first: the refusal's own words, so this arm cannot pass by stopping before the send.
+  assert.match(r.out, /could not show it is your Kosmos, so we did not send that comment/);
+  assert.equal(r.code, 1, 'not sent is exit 1; exit 3 means "may have been taken"');
+  assert.doesNotMatch(r.out, /may have been taken/);
+  assert.equal(tokenSent(seen), false, 'the board token reached the squatter');
+  assert.ok(!seen.some((q) => q.headers['x-kosmos-agent-token'] === AGENT), 'the agent token reached the squatter');
+}));
 
 test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES receive the token, so the arm above can see it', () => withStub({ prove: false }, async (port, seen) => {
   await cli(port, ['accounts']);

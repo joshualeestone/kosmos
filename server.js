@@ -977,18 +977,28 @@ function snapshotWorlds() {
 }
 function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
 /* #1765: the agent tokens for a board proof, by key id. Cached, because the route needs no token and any local
-   process can ask it for random key ids; a miss reads the token files again at most once a second, so a new agent's
-   first proof can miss for up to a second while something else is asking at the same moment. A cached token that
-   was since revoked is proved and then refused by the gate, which gives nothing away. */
-const PROOF_AGENT_KEYS = { at: 0, ids: new Map() };
+   process can ask it for random key ids: the token files are read again only when one of them changed (a stat of
+   each, compared with the last read), so a token minted a moment ago is found at once and a stream of random key
+   ids costs stats, not reads. A cached token that was since revoked is proved and then refused by the gate, which
+   gives nothing away. */
+const PROOF_AGENT_KEYS = { sig: null, ids: new Map() };
+function proofTokenFilesSig() {
+  let names;
+  try { names = fs.readdirSync(sendertoken.DIR).filter((f) => f.endsWith('.json')).sort(); } catch { return ''; }
+  const parts = [];
+  for (const f of names) {
+    try { const st = fs.statSync(path.join(sendertoken.DIR, f)); parts.push(f + ':' + st.mtimeMs + ':' + st.size); } catch { parts.push(f); }
+  }
+  return parts.join('|');
+}
 function* proofAgentTokens(k) {
   const c = PROOF_AGENT_KEYS;
   if (c.ids.has(k)) { yield c.ids.get(k); return; }
-  const now = Date.now();
-  if (now - c.at < 1000) return;
-  c.at = now;
+  const sig = proofTokenFilesSig();
+  if (sig === c.sig) return;
   const ids = new Map();
   for (const t of sendertoken.heldValues()) ids.set(boardproof.keyId(t), t);
+  c.sig = sig;
   c.ids = ids;
   if (ids.has(k)) yield ids.get(k);
 }

@@ -7,16 +7,16 @@ Card: kosmos#1765 (security audit pass 3). Details are private; this file states
   token), the board's answer, and a node client check (`boardHoldsToken`, one deadline for the whole exchange).
   As a program it does only the arithmetic for the CLI: `--key` and `--verify <base url>`, input on stdin.
 - `server.js`: `GET /api/board-proof?n=<32 hex>&k=<16 hex>` is exempt from the token gate. It answers for the
-  board token, the world tokens the gate accepts, then the agents' tokens (by a cached key-id map; a miss rereads
-  the token files at most once a second), bound to the port the board listens on. Loopback peers only. 404 for
+  board token, the world tokens the gate accepts, then the agents' tokens (by a cached key-id map, read again only
+  when a token file changed, so a just-minted token is found at once), bound to the port the board listens on. Loopback peers only. 404 for
   any other key id, 400 when malformed.
 - `install/kosmos`: `kosmos_board_proven` runs before `kosmos_curl` sends any token. The proof goes by curl on the
-  same route (#4933) within half the caller's -m (at most 5 s); the request gets what is left, so both stay inside
-  the caller's limit. Every refusal sends nothing and has its own code: 5/6/7 could not connect (as before), 97 the
+  same route (#4933) within half the caller's -m (0.5 to 5 s); the request gets the caller's -m less the proof's
+  time. Outside both: two node starts, the #4933 route check and the 0.5 s floors. Every refusal sends nothing and has its own code: 5/6/7 could not connect (as before), 97 the
   proof timed out or was cut, 98 something answered but could not prove it, 96 the CLI could not run the check.
   97 and 96 are new codes because callers read curl's 18/28/52/56 as "may have landed". `say_unreached` words each;
   `kosmos community comment` counts all three as not sent; the task-run retry retries 97. A few verbs keep their
-  own failure words (whoami, connect) and say only that Kosmos did not answer. The Mac report hook goes through the
+  own failure words (whoami, connect, task ran) and say only that Kosmos did not answer or that nothing was recorded. The Mac report hook goes through the
   CLI, so it is covered.
 
 ## Not covered by this PR (stated, not missed)
@@ -40,5 +40,7 @@ Card: kosmos#1765 (security audit pass 3). Details are private; this file states
 - `server.board-proof-1765.test.js`: real board; answers for its token and an agent token, bound to its port; 404
   for another token; 400 when malformed; a squatter and a dead port read false; a POST is still refused by the
   token gate.
-- `cli.board-proof-1765.test.js`: installed layout. A proven board gets the token; a squatter gets nothing and the
-  CLI says so. CONTROL: the checkout layout sends the token to the same squatter.
+- `cli.board-proof-1765.test.js`: installed layout. A proven board gets the token; a squatter (a wrong proof, or a
+  404 page) and a listener that never answers get nothing, each with its own words; community comment refuses with
+  exit 1, not "may have been taken". CONTROL: the checkout layout sends the token to the same squatter.
+  Not tested: the -m arithmetic and rewrite, the 96 path, the per-shell memory, and the task-run retry on 97.
