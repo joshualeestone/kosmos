@@ -19640,6 +19640,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="plus-forget-ask" hidden>
         <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-required" hidden></p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -51740,7 +51741,19 @@ const PLUS_FORGET_WORDS = {
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
+/* kosmos#6367: when this is the work Kosmos and its company's policy requires reports, the confirm says what removing
+   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too. */
+const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
+function plusForgetRequiredLine(st) {
+  if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
+  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, PLUS_FORGET_REQUIRED) : PLUS_FORGET_REQUIRED;
+}
 function plusForgetArm(on) {
+  const req = document.getElementById('plus-forget-required');
+  if (req) {
+    const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
+    req.textContent = line; req.hidden = !line;
+  }
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
