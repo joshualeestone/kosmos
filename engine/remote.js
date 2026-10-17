@@ -192,7 +192,7 @@ function secureStateDir() {
 
 /* What read() answers when there is no file, or none it can use: every field at its empty value, in ONE place, so a
    field added to read() cannot be missing from one of the four early answers (kosmos#5995: computer_name was). */
-const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, ok });
+const blankSettings = (ok) => ({ on: false, relay: '', email: '', denied: {}, device_id: '', past_device_ids: [], vouched: {}, computer_name: null, forget_kept: '', ok });
 
 /** Off until somebody turns it on. `relay` may be stored here so a
     self-hoster can point at their own relay without an env var. */
@@ -257,6 +257,9 @@ function read() {
        showed or cleared it ('' is a choice: send no name of theirs). null when they never did, and then the name comes
        from the computer. Read by thisComputerDeviceName(), the one place every path that names this computer asks. */
     computer_name: typeof parsed.computer_name === 'string' ? parsed.computer_name : null,
+    /* kosmos#6389: why the last Remove was kept (it could not reach Kosmos+), so a reload still says it is not removed.
+       '' when there is none. Cleared by a Remove that finishes and by switching on. */
+    forget_kept: typeof parsed.forget_kept === 'string' ? parsed.forget_kept : '',
     ok: true,
   };
 }
@@ -651,7 +654,7 @@ function setOn(on) {
   // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
   const before = read();
   const was = before.ok === true ? before.on === true : !on;
-  const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
+  const wrote = write(on ? { on, forget_kept: '' } : { on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
@@ -1221,6 +1224,7 @@ async function forgetNow(anyway) {
   /* kosmos#5995: computer_name is NOT cleared here, on purpose. It is the person's own choice of what to call this
      computer, not a note about a sign-in, and the next sign-in's box is filled with it. (On a damaged file this
      write starts from the defaults, so the choice is lost with everything else.) Pinned in remote.test.js. */
+  const flipBefore = flipPending;   // kosmos#6389: put back if the identity is kept
   flipPending = false;   // kosmos#4743: a flip not yet told belonged to the identity being forgotten
   let retired = false;
   let because = null;
@@ -1234,14 +1238,10 @@ async function forgetNow(anyway) {
       stopChild();
       // The switch-off is queued like any flip (kosmos#4743) and goes on the next poll: busy() stops this ask while
       // forgetting.
-      if (wasOn) { flipPending = true; askAfterFlip(); }
-      return {
-        ok: false,
-        kept: true,
-        retired: false,
-        address: was.address,
-        because: 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (' + because + ')',
-      };
+      if (wasOn || flipBefore) { flipPending = true; askAfterFlip(); }
+      const keptBecause = 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (' + because + ')';
+      write({ forget_kept: keptBecause });
+      return { ok: false, kept: true, retired: false, address: was.address, because: keptBecause };
     }
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
@@ -1252,7 +1252,7 @@ async function forgetNow(anyway) {
      federation UI) true for the NEXT account that has not signed in yet -- a leak
      of a member-only feature to a non-member. A real sign-in re-caches the new
      account's standing; until then, unknown -> not a member. */
-  write({ ...r, on: false, standing: '', vouched: {} }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
+  write({ ...r, on: false, standing: '', vouched: {}, forget_kept: '' }, { repair: true });   // kosmos#5786 (b): a forgotten computer keeps no notes
   // kosmos#5422: only now, after the repairs above put this process's ids back into remote.json (which keeps them, so
   // the old rows stay this computer's own), is what this process held let go.
   heldIdentity = null;

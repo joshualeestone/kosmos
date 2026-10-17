@@ -459,19 +459,19 @@ const STATES = {
     const KEPT = 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (Kosmos+ unreachable for /v1/mac/retire: connection refused)';
     for (const mode of ['told', 'untold', 'fails', 'kept']) {
       const t = `[disconnect ${mode}]`;
-      let enrolled = true; let forgets = 0; const bodies = []; let onNow = true;
+      let enrolled = true; let forgets = 0; const bodies = []; let onNow = true; let keptNow = '';
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
       const errs = []; page.on('pageerror', (e) => errs.push(e.message));
       const json = (o, status) => ({ status: status || 200, contentType: 'application/json', body: JSON.stringify(o) });
       const base = STATES.connected.remote;
-      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (enrolled ? { ...base, on: onNow } : { configured: true, on: false, ok: true, enrolled: false, status: { state: 'off' } }) : { ok: true })));
+      await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (enrolled ? { ...base, on: onNow, forgetKept: keptNow } : { configured: true, on: false, ok: true, enrolled: false, status: { state: 'off' } }) : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
       await page.route('**/api/remote/forget', (route, req) => {
         forgets += 1;
         bodies.push(req.postData() || '');
         // The engine switches Plus off before it answers kept, so the next read says off.
-        if (mode === 'kept' && !/"anyway":true/.test(req.postData() || '')) { onNow = false; return route.fulfill(json({ ok: false, kept: true, retired: false, address: ADDR, because: KEPT })); }
+        if (mode === 'kept' && !/"anyway":true/.test(req.postData() || '')) { onNow = false; keptNow = KEPT; return route.fulfill(json({ ok: false, kept: true, retired: false, address: ADDR, because: KEPT })); }
         if (mode === 'fails') return route.fulfill(json({ error: 'we could not forget this computer: the tunnel program did not start' }, 500));
         enrolled = false;
         return route.fulfill(json(mode === 'told' ? { ok: true, retired: true, address: ADDR, because: null } : { ok: true, retired: false, address: ADDR, because: UNTOLD }));
@@ -515,9 +515,18 @@ const STATES = {
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, '6389-kept.png') });
         await page.waitForTimeout(5600);   // the 5-second repaint must not take the choice away
         chk(await vis('#plus-forget-kept'), `${t} the choice survives the 5-second repaint`);
+        /* A reload (or another tab) still says it: the engine keeps the reason. */
+        await page.reload({ waitUntil: 'networkidle' });
+        if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
+        await page.evaluate(() => showTab('settings'));
+        await page.click('#s-nav button[data-go="plus"]');
+        await page.waitForSelector('#plus-flow', { state: 'visible', timeout: 5000 });
+        await page.waitForTimeout(700);
+        chk(await vis('#plus-forget-kept') && /^This computer is not removed yet/.test(await page.textContent('#plus-forget-kept-msg')),
+          `${t} after a reload the pane still says not removed yet`);
         /* Control: switched back on (another tab, say), "Remote access is paused" is no longer true, so the note goes.
            Then Remove again, kept again, to reach the anyway choice. */
-        onNow = true;
+        onNow = true; keptNow = '';
         await page.waitForTimeout(5600);
         chk(!(await vis('#plus-forget-kept')), `${t} switched back on, the not-removed-yet note goes at the next repaint`);
         await page.click('#plus-forget-go');

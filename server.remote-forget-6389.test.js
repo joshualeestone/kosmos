@@ -69,6 +69,16 @@ test('#6389: { anyway: true } reaches the engine, and only a real true does', as
   assert.deepEqual(calls, [{ anyway: false }, { anyway: false }], 'something other than true was read as anyway');
 });
 
+test('#6389: GET /api/remote says a kept Remove after a reload, from remote.json', async () => {
+  fs.mkdirSync(path.dirname(remote.FILE), { recursive: true });
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: false, forget_kept: 'this computer is not removed yet, because z' }));
+  const kept = await (await fetch(base + '/api/remote')).json();
+  assert.equal(kept.forgetKept, 'this computer is not removed yet, because z');
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: false }));
+  const none = await (await fetch(base + '/api/remote')).json();
+  assert.equal(none.forgetKept, '', 'a computer with no kept Remove reported one');
+});
+
 test('#6389: an unreadable or oversized body is refused with 400 and forgets nothing', async () => {
   calls.length = 0;
   const bad = await post({ headers: { 'content-type': 'application/json' }, body: '{not json' });

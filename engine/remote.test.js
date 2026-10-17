@@ -2530,6 +2530,7 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
     assert.equal(remote.enrolled(), true, 'the key was wiped although Kosmos+ never heard the retire');
     assert.equal(remote.read().on, false, 'a computer the person asked to remove came back on');
     assert.ok(remote.read().vouched['dev-keep'], 'a kept identity lost its "on this computer" notes');
+    assert.equal(remote.read().forget_kept, got.because, 'a reload would not know this Remove was kept');
     // The off is a flip the account must hear about: the stamp is set back past the off cadence, so the next poll asks.
     assert.ok(Date.now() - remote.read().standing_at > 12 * 60 * 60 * 1000, 'the switch-off was never queued to be told: ' + remote.read().standing_at);
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'fixture: one retire was tried');
@@ -2541,9 +2542,25 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
     assert.equal(again.retired, true, 'the retry did not retire: ' + again.because);
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'the retry did not sign a retire');
     assert.equal(remote.enrolled(), false, 'the key survived a retire that worked');
+    assert.equal(remote.read().forget_kept, '', 'a Remove that finished still says it was kept');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
   }
+});
+
+test('#6389: switching back on clears the kept note, and switching off does not', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    assert.equal((await remote.forget()).kept, true, 'fixture: kept');
+    assert.equal(remote.setOn(false).ok, true);
+    assert.notEqual(remote.read().forget_kept, '', 'switching off (still paused) cleared the kept note');
+    assert.equal(remote.setOn(true).ok, true);
+    assert.equal(remote.read().forget_kept, '', 'switched back on, the kept note stayed');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; remote.setOn(false); }
 });
 
 test('#6389: a kept Remove on a damaged remote.json repairs the file and still keeps the key', async () => {

@@ -28,5 +28,15 @@ The relay half of the card (`recently_online`, approver ordering).
   Four mutants caught.
 - [x] Challenge loop round 2 (sonnet): a damaged remote.json under a kept Remove is pinned; a docstring claim
   that Remove retries (false for a half-registered computer, whose retry is the next sign-in) is removed.
+- [x] Round 3 (opus): the browser fixture is off after a kept answer, with a control that on takes the note away;
+  a tool test for the kept follow-up; the kept sentence says "could not be reached or did not answer"; the page tests
+  that lift paintPlus alone get a typeof guard (round 1 broke eight of them, found here).
+- [x] Round 4 (sonnet): anyway from a second tab is not swallowed by a kept Remove; notes are dropped only when
+  forgotten; a missing connector still says not removed yet.
+- [x] Round 5 (opus): the kept reason is kept in remote.json (forget_kept) and GET /api/remote returns it, so a reload
+  or another tab still says not removed yet; switching on, or a Remove that finishes, clears it; a flip pending
+  before Remove is put back.
 - [ ] Browser check (queued, reads the worktree at run time)
 - [ ] Loop convergence, final validation, proof, PR
+- HOLD: Josh 2026-10-17 11:16 (via Splinter): no new visible UI merges until his clean-up cards ship. This branch
+  adds a note and two buttons, so it merges only when Splinter says.

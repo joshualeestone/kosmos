@@ -10382,6 +10382,7 @@ const server = http.createServer(async (req, res) => {
         configured: remote.configured(),
         email: r.email || '',
         enrolled: remote.enrolled() === true,
+        forgetKept: r.forget_kept || '',   // kosmos#6389
       });
     } catch { sendJson(res, 500, { error: 'we could not read the Plus state' }); }
     return;
