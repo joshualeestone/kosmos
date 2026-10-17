@@ -80,9 +80,7 @@ function activate() {
        sweep waits for the exit: sweeping first would leave it running with its TMPDIR
        gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
     removeAtEnd(() => {
-      // #6362: the retry is what wins a race with a process still writing here (measured by hand, 0 of 30 left;
-      // the race cannot be made on demand, so test-support.tmpscope.test.js checks the option instead).
-      try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); } catch { /* checked below */ }
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* checked below */ }
       /* #6362: still here means the sweep failed part way (a process this file started was still
          writing into it, or something in it could not be removed), and it may already have taken
          .kts-owner (that depends on the order it met the entries). Put the owner back, marked,
