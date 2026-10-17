@@ -157,11 +157,22 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
       await page.reload({ waitUntil: 'networkidle' });
-      await page.evaluate(() => { showTab('agents'); paintAsk(); });
-      await page.waitForTimeout(200);
-      chk(!(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload');
+      await page.evaluate(async () => { showTab('agents'); await pollAsk(); paintAsk(); });
+      const loaded = await page.evaluate(() => ASK.polled && ASK.devices.length > 0);
+      chk(loaded && !(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload (the list loaded first)', String(loaded));
       await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
       chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with the stored record gone (another tab cleared it), the notice shows');
+      /* Storage that throws: the dismissal still holds in this tab. */
+      await page.evaluate(() => { Storage.prototype.__set = Storage.prototype.setItem; Storage.prototype.__get = Storage.prototype.getItem;
+        Storage.prototype.setItem = () => { throw new Error('quota'); }; Storage.prototype.getItem = () => { throw new Error('denied'); }; });
+      await serve(WITH_NEW.concat([{ device_id: 'd-tv', name: 'TV · Safari', code: 'Z3-Q1', first_seen: now() }]));
+      const nS = await shownNote();
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => paintAsk());
+      chk(nS.shown && !(await shownNote()).shown, '[' + W + '] #6315 with storage throwing, a dismissal still holds in this tab', JSON.stringify(nS));
+      await page.evaluate(() => { Storage.prototype.setItem = Storage.prototype.__set; Storage.prototype.getItem = Storage.prototype.__get; });
+      await serve(WITH_NEW.concat([{ device_id: 'd-car', name: 'Car · Safari', code: 'Y7-R2', first_seen: now() }]));
       await page.click('#askcard .asknote [data-ask="open"]');
       await page.waitForTimeout(200);
       await page.evaluate(() => { showTab('agents'); paintAsk(); });

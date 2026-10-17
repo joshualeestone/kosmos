@@ -50061,6 +50061,9 @@ paintStyles(true);
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
+  /* #6315: the compact notice's dismissal (askNote*): a poll has read the list, the keys it names now, this tab's own
+     record, and whether storage last failed. */
+  polled: false, noteKeys: [], noteDismissed: [], noteStoreFailed: false,
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
   here: null, hereGone: '', hereSaid: '', hereSaidFor: '', hereSaidAt: 0 };
@@ -50237,7 +50240,7 @@ function paintAsk() {
     ASK.noteKeys = live.map((d) => String(d.device_id) + '@' + (d.first_seen || '')).concat(here ? ['here:' + askHereKey(here)] : []);
     const put = askNoteDismissed();
     // With nothing waiting (once the list has been read) the record is dropped.
-    if (ASK.polled && !live.length && !here && put.length) askNoteSave([]);
+    if (ASK.polled && !ASK.devices.length && !here && put.length) askNoteSave([]);
     // Hidden while every request it would name was put away; only one not there then brings it back.
     if (!hide && ASK.noteKeys.length && ASK.noteKeys.every((k) => put.indexOf(k) !== -1)) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
@@ -50355,9 +50358,9 @@ async function askAct(act, id, at) {
     askNoteDismiss(); paintAsk();
     // The button is gone with the notice; focus goes to the current view's tab, or on a phone (tabs in a closed menu)
     // to the button that opens them, not to the page body.
-    const tab = document.querySelector('#tabs [aria-selected="true"]');
-    const t = tab && tab.offsetParent ? tab : document.querySelector('[aria-controls="tabs"]');
-    if (t && t.focus) t.focus();
+    const t = [document.querySelector('#tabs [aria-selected="true"]')].concat(Array.from(document.querySelectorAll('#tabs [data-tab], [aria-controls="tabs"]')))
+      .find((el) => el && el.offsetParent);
+    if (t) t.focus();
     return;
   }
   if (act === 'here-ok') { ASK.hereGone = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
