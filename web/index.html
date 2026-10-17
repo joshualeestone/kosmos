@@ -30589,6 +30589,10 @@ async function computersFetch() {
   if (gen !== COMPUTERS_GEN) return;
   computersRender(data);
 }
+/* kosmos#6406: the Kosmos app's own window (the Mac app's kosmosBadge bridge, the Windows app's WebView2), not a browser. */
+function computersInApp() {
+  try { return !!((window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge) || (window.chrome && window.chrome.webview)); } catch { return false; }
+}
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
@@ -30630,7 +30634,10 @@ function computersRender(data) {
       st.textContent = state;
       if (opens) {
         row.href = 'https://' + c.address + '/';
-        row.target = '_blank';
+        /* kosmos#6406 (Josh 12:04): in the Kosmos app the other computer opens in this window (the app keeps a
+           *.kosmosplus.com address in its window); in a browser, a new tab as before. noreferrer either way, so this
+           board's address never travels in the request. */
+        if (!(typeof computersInApp === 'function' && computersInApp())) row.target = '_blank';
         row.rel = 'noopener noreferrer';
         row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
       }
