@@ -220,8 +220,18 @@ function headersFor(env, readBoardToken) {
 }
 
 /* POST one body to the board, bounded; never throws (a missed call must never become a failed turn). */
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file) cannot check, and the send goes ahead as before. */
+async function mayCarry(port, headers, fetchImpl) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch });
+}
+
 async function post(port, route, headers, body, timeoutMs, fetchImpl) {
   const doFetch = fetchImpl || fetch;
+  if (!(await mayCarry(port, headers, doFetch))) return;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   await Promise.resolve().then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))

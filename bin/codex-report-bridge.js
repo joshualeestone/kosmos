@@ -110,6 +110,15 @@ function headersFor(env) {
   return headers;
 }
 
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file) cannot check, and the send goes ahead as before. */
+async function mayCarry(port, headers, fetchImpl) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch });
+}
+
 function main() {
   let event;
   try { event = JSON.parse(process.argv[2] || ''); } catch { return; }
@@ -148,12 +157,12 @@ function main() {
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  fetch(`http://127.0.0.1:${port}/api/report`, {
+  mayCarry(port, headers).then((ok) => (ok ? fetch(`http://127.0.0.1:${port}/api/report`, {
     method: 'POST',
     headers,
     body,
     signal: controller.signal,
-  }).catch(() => { /* a missed report must never become a failed turn */ })
+  }) : null)).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
 
@@ -246,6 +255,7 @@ async function hookMain(io) {
   const port = Number(env.KOSMOS_PORT) || 16180;
   const headers = o.headers || headersFor(env);
   const doFetch = o.fetchImpl || fetch;
+  if (!(await mayCarry(port, headers, doFetch))) return;
   await Promise.all(keeps.map((body) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), o.keepTimeoutMs || KEEP_TIMEOUT_MS);
