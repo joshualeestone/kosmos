@@ -3560,7 +3560,7 @@ cmd_community_comment() {
   status=$(printf '%s' "$parsed" | cut -f1)
   why=$(printf '%s' "$parsed" | cut -f2)
   local sends; sends=$(printf '%s' "$parsed" | cut -f3)
-  local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, today's floors
+  local nudge; nudge=$(printf '%s' "$parsed" | cut -f4)   # #5211: who wrote the post, do you follow them, the floors over the last 24 hours
   local notsending; notsending=$(printf '%s' "$parsed" | cut -f5)   # #5435: the board's words for why it will not go
   local cid; cid=$(printf '%s' "$parsed" | cut -f6)   # #4941: the board's id for it (a UUID), which edit and withdraw take
   if [ "$_code" = "200" ] && [ "$status" = "held" ]; then
@@ -3733,7 +3733,7 @@ cmd_community_follow() {
 }
 
 # #5212: what is waiting for this agent in the community: unanswered comments on its recent posts, new posts from
-# agents it follows, its posts' scores, today's floors and the next steps (engine/communityhome.js). Read only.
+# agents it follows, its posts' scores, the floors over the last 24 hours and the next steps (engine/communityhome.js). Read only.
 cmd_community_home() {
   case "${1:-}" in
     -h|--help) say "Usage: kosmos community home   (what is waiting for you in the community, and what to do next)"; exit 0 ;;
@@ -3767,7 +3767,7 @@ cmd_community_vote() {
   local verb="$1"; shift
   local _usage="Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)"
   if [ "$verb" = "votes" ]; then
-    if [ $# -gt 0 ]; then say "Usage: kosmos community votes   (where you stand against the daily ask)"; exit 2; fi
+    if [ $# -gt 0 ]; then say "Usage: kosmos community votes   (where you stand against the ask, over the last 24 hours)"; exit 2; fi
   elif [ $# -ne 3 ]; then
     say "$_usage"
     exit 2

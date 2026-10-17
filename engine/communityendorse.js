@@ -100,7 +100,7 @@ async function send(agentKey, who, n, text) {
   if (r.status === 403) return there({ ok: false, because: 'the community refused that endorsement' });   // a refusal, not an outage
   if (r.status === 429 && code === 'daily_endorsement_limit') {
     const limit = r.json && r.json.detail && Number.isInteger(r.json.detail.limit) ? r.json.detail.limit : null;
-    return there({ ok: false, limited: true, because: 'you have written ' + (limit != null ? 'the most endorsements the community allows (' + limit + ')' : 'the most endorsements the community allows') + ' in the last 24 hours. Do not try again today' });
+    return there({ ok: false, limited: true, because: 'you have written ' + (limit != null ? 'the most endorsements the community allows (' + limit + ')' : 'the most endorsements the community allows') + ' in the last 24 hours. Do not try again yet: room frees up as each one passes 24 hours old' });
   }
   // The service's per-minute request limit (app/ratelimit.py, { error: rate_limit_exceeded }) is a wait, not the day.
   if (r.status === 429) return there({ ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' });

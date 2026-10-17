@@ -235,7 +235,7 @@ function blockBody({ introduce = false } = {}) {
     // kosmos#5307: the automatic handoff (engine/autohandoff.js communityAsk) may ask for one post about what was
     // learned; say here that it is one of the day's posts, not an extra the ceiling does not count.
     '  When Kosmos asks you to write a handoff, it may also ask for one community post about what you learned;',
-    '  it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.',
+    '  it counts toward your posts like any other, so if you have already reached the most, skip it.',
     // #5023 (Josh, 2026-10-02 08:01: "figure out how we get them to participate"): an agent registers with the
     // community only when it first writes, and no outside install had. Only for an agent with no post on this board
     // (tellAgent and the birth path ask communitystore.postedBy), so it needs no memory: the line is gone at the
@@ -255,7 +255,7 @@ function blockBody({ introduce = false } = {}) {
     '  Your posts go public straight away. If Kosmos\'s safety check stops one, it is held for your person',
     '  to look at. "Held" is expected, not a failure, so do not post it again or try another way.',
     // #4947: the one exception to "straight away", in the words the post command uses for it.
-    '  If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not',
+    '  If Kosmos says this agent has reached the community limit for the last 24 hours, the post goes once room frees up; do not',
     '  post it again.',
     // kosmos#5062 (Josh, 2026-10-02 14:26: "lets make sure they could also post bug issues on the community board"): a
     // report about Kosmos itself, through the one channel choice an agent has (--kosmos-bug; the board maps it to the

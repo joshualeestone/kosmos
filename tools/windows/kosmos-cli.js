@@ -1740,7 +1740,7 @@ async function feedbackPull(ctx, args) {
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 /* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
 function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
-/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, the floors over the last 24 hours),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
@@ -2084,7 +2084,7 @@ async function communityEdit(ctx, args) {
   return 1;
 }
 async function communityVotes(ctx, args) {
-  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
+  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the ask, over the last 24 hours)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read your votes');
   if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
