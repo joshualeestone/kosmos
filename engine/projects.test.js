@@ -92,6 +92,14 @@ function folder(name) {
 // #763: a pane whose SCREEN says working while its REPORT says needs_you, so a
 // needs_you card can only have come from the report.
 const WORKING_SCREEN = 'Reading the lease\n· Working (esc to interrupt)\n';
+/* #6341: a post in a project's room just now, so an agent's own condition counts there (a room silent for a day is not
+   live). Written as the board writes a room post, into the sandboxed log. */
+function roomPost(projectId, from = 'tove', at = new Date().toISOString()) {
+  const log = path.join(require('./store').ROOT, 'messages.jsonl');
+  fs.appendFileSync(log, JSON.stringify({ kind: 'post', id: 'pq' + Math.random().toString(36).slice(2), from, project: projectId,
+    to: [], text: 'working on it', outcomes: {}, at }) + '\n');
+}
+
 function cards(specs) {
   const board = fleet.install(specs);
   try {
@@ -3007,6 +3015,7 @@ test('#3726: the project Issue count is the board\'s "needs the person" rule, no
      set, since that row is built offline by the route and the fixture cannot produce it. */
   const pj = projects.create({ name: 'Conn', folder: folder('conn-3726'), agents: ['nika', 'tove', 'ines'] });
   const other = projects.create({ name: 'Also', folder: folder('also-3726'), agents: ['nika'] });
+  roomPost(pj.id); roomPost(other.id);   // #6341: both rooms are live, so an agent's own condition counts in each
   const base = cards([fleet.agent('nika', { state: 'connection_lost' }), fleet.agent('tove', { state: 'idle' }), fleet.agent('ines', { state: 'connection_lost' })]);
   const withPhase = (name, phase) => Object.assign({}, base.find((c) => c.sessionName === name), { reconnect: phase ? { phase } : null });
   const roster = [withPhase('nika', 'gave_up'), Object.assign({}, base.find((c) => c.sessionName === 'tove'), { state: 'needs_trust' }), withPhase('ines', 'retried')];
@@ -3080,6 +3089,7 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
   const selfreport = require('./selfreport');
   const p = projects.create({ name: 'Why', folder: folder('why'), agents: ['wk88', 'qq88', 'rl88', 'cl88'] });
   const elsewhere = projects.create({ name: 'Elsewhere', folder: folder('elsewhere'), agents: ['qq88'] });
+  roomPost(p.id);   // #6341: a live room, so the crash loop (the agent's own condition) counts here
   assert.equal(selfreport.record('qq88', { state: 'needs_you', because: 'Which domain?', project: p.id }).recorded, true);
   // The real cards, with the fields server.js attaches to /api/status rows (stuckterminal.peek, crashloop) set the way
   // it sets them: a rate limit that has stood past its threshold, and a crash loop on a working agent.
@@ -3089,8 +3099,10 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
       : c.sessionName === 'cl88' ? { ...c, crashLoop: { looping: true, count: 4 } } : c));
   const row = projects.list(roster).find((x) => x.id === p.id);
   const why = Object.fromEntries(row.agents.map((m) => [m.sessionName, m.needsYouHere]));
-  assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: 'stuck_rate', cl88: 'crash_loop' });
-  assert.equal(row.summary.needsYou, 3, 'the pill counts exactly the members with a reason');
+  // #6341 (Josh 19:47): out of usage shows on the agent only, so the rate-limited member is quiet here, with its reason kept.
+  assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: null, cl88: 'crash_loop' });
+  assert.deepEqual(row.agents.find((m) => m.sessionName === 'rl88').needsYouQuiet, { reason: 'stuck_rate', because: 'usage' });
+  assert.equal(row.summary.needsYou, 2, 'the pill counts exactly the members with a reason');
   // The same question names Why, not Elsewhere (#763): no reason there, and nothing counted.
   const other = projects.list(roster).find((x) => x.id === elsewhere.id);
   assert.equal(other.agents[0].needsYouHere, null);
