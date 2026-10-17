@@ -94,6 +94,9 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           btn.click();
           await new Promise((r) => setTimeout(r, 50));
           out.opened = vis('worldsw-menu');
+          // #6396: inside a hidden switcher nothing is visible, so the attributes say what the code did.
+          out.menuOpen = !document.getElementById('worldsw-menu').hidden;
+          out.listOn = !document.getElementById('worldsw-list').hidden; out.newOn = !document.getElementById('worldsw-new').hidden;
           out.listInMenu = vis('worldsw-list'); out.newInMenu = vis('worldsw-new'); out.computers = vis('worldsw-computers');
           out.sepAbove = getComputedStyle(document.getElementById('worldsw-computers')).borderTopWidth;
           // Every visible word on the page, menu open: "Kosmoses" (plural) and "New Kosmos" must be nowhere.
@@ -104,10 +107,32 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
 
         if (!multi) {
           const one = await read('one');
-          ok(`${t} #6396: one computer: nothing shows top-left and nothing opens`, !one.shown && !one.opened, JSON.stringify(one));
-          ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listShown && !one.newShown && !one.plural, JSON.stringify(one));
+          ok(`${t} #6396: one computer: nothing shows top-left and nothing opens`, !one.shown && !one.menuOpen, JSON.stringify(one));
+          ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listOn && !one.newOn && !one.plural, JSON.stringify(one));
           const none = await read('none');
-          ok(`${t} #6396: not signed in (the marked answer): nothing shows top-left, nothing opens`, !none.shown && !none.opened && !none.plural, JSON.stringify(none));
+          ok(`${t} #6396: not signed in (the marked answer): nothing shows top-left, nothing opens`, !none.shown && !none.menuOpen && !none.plural, JSON.stringify(none));
+          /* #6396 review 1: the open menu, focused, when a re-read says one computer: the menu and the At a glance sheet go,
+             and focus lands on the header's fallback, not the page. */
+          const gone = await page.evaluate(async ({ worlds }) => {
+            window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
+            const btn = document.getElementById('worldsw-btn'); btn.click(); await new Promise((r) => setTimeout(r, 80));
+            const row = document.getElementById('worldsw-glance'); if (row) row.focus();   // a control in the open menu
+            const before = { open: !document.getElementById('worldsw-menu').hidden, inside: document.getElementById('worldsw').contains(document.activeElement) };
+            window.__which = 'one'; await computersFetch(); await new Promise((r) => setTimeout(r, 50));
+            const a = document.activeElement;
+            const out1 = { before, menuOpen: !document.getElementById('worldsw-menu').hidden, focus: a && a.tagName + '.' + a.className };
+            // The At a glance sheet open when it hides: it closes, and the page is not scroll-locked.
+            window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
+            wvOpen(); await new Promise((r) => setTimeout(r, 50));
+            const wvBefore = !document.getElementById('wv-modal').hidden;
+            window.__which = 'one'; await computersFetch(); await new Promise((r) => setTimeout(r, 50));
+            const b = document.activeElement;
+            return { ...out1, wvBefore, wvOpen: !document.getElementById('wv-modal').hidden, locked: getComputedStyle(document.documentElement).overflow === 'hidden', wvFocus: b && b.tagName + '.' + b.className };
+          }, { worlds: WORLDS });
+          ok(`${t} #6396: hiding with the menu open and focused closes it and moves focus to the header, not the page`,
+            gone.before.open && gone.before.inside && !gone.menuOpen && gone.focus === 'H1.vh', JSON.stringify(gone));
+          ok(`${t} #6396: hiding with At a glance open closes the sheet, the page scrolls, focus on the header`,
+            gone.wvBefore && !gone.wvOpen && !gone.locked && gone.wvFocus === 'H1.vh', JSON.stringify(gone));
           const four = await read('four');
           ok(`${t} four computers: it shows, names this one and opens (#6396 CONTROL: the hidden arms above can fail)`, four.shown && four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
           ok(`${t} four computers: the menu holds only Your computers, with no separator above it`,
@@ -218,6 +243,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (13 arms off + 1 control) = 56.
-  process.exit(problems.length || pass + problems.length < 52 ? 1 : 0);   // #6396: two one-computer asserts became one (x4 runs)
+  // 2 engines x 2 themes x (14 arms off + 1 control) = 60 (#6396: two one-computer asserts became one, two hide arms added).
+  process.exit(problems.length || pass + problems.length < 60 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
