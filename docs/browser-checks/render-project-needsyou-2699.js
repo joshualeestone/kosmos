@@ -101,10 +101,19 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const also = typeof pjNeedsNotice === 'function' && typeof pjRedHere === 'function'
       ? pjNeedsNotice([Object.assign(mk('needs_you'), { name: 'Sam', stateProject: 'elsewhere', needsYouHere: null }), Object.assign(mk('idle'), { name: 'Ida', needsYouHere: null })], pjRedHere) : '';
     const also5692 = { another: /Sam[\s\S]*Waiting for your answer about another project\./.test(also), idleListed: /Ida/.test(also) };
+    /* #6341 (Josh, 10-16): every row has a visible Dismiss, in the same row as Open; a member the engine marked quiet
+       (out of usage, dismissed) is not listed again among the uncounted red rows. */
+    const db = host2.querySelector('.ny-host-5688 [data-pn-dismiss]');
+    const sameRow = !!(db && ob && db.closest('.pnrow') && db.closest('.pnrow') === ob.closest('.pnrow'));
+    const quietHtml = typeof pjNeedsNotice === 'function' && typeof pjRedHere === 'function'
+      ? pjNeedsNotice([Object.assign(mk('needs_you'), { name: 'Quinn', stateProject: 'elsewhere', needsYouHere: null, needsYouQuiet: { reason: 'elsewhere', because: 'dismissed' } })], pjRedHere) : 'no pjNeedsNotice';
+    const dismiss6341 = { shown: vis(db), label: db ? db.getAttribute('aria-label') : '', reason: db ? db.getAttribute('data-pn-reason') : '',
+      sameRow, height: db ? db.getBoundingClientRect().height : 0, quietListed: quietHtml !== '' };
     const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
       uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
     return {
       also5692,
+      dismiss6341,
       counted5688,
       needsWarnPresent: !!needsWarn,
       needsWarnDisplay: disp(needsWarn),
@@ -162,6 +171,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const a5692 = r.also5692 || {};
   if (!a5692.another) fail.push('#5692: a red row about another project is not named in the needs-you block');
   if (a5692.idleListed) fail.push('#5692 CONTROL: an idle member was named in the needs-you block');
+  const d6341 = r.dismiss6341 || {};
+  if (!d6341.shown || d6341.label !== 'Dismiss Elon') fail.push('#6341: the needs-you row has no visible Dismiss for the member (' + JSON.stringify(d6341.label) + ')');
+  if (d6341.reason !== 'stuck_rate') fail.push('#6341: Dismiss does not carry the reason the row shows (' + JSON.stringify(d6341.reason) + ')');
+  if (!d6341.sameRow) fail.push('#6341: Dismiss is not in the same row as Open');
+  if (d6341.height < 24) fail.push('#6341: Dismiss is under 24px tall (' + d6341.height + ')');
+  if (d6341.quietListed) fail.push('#6341: a member the engine marked quiet (dismissed) was listed again in the block');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
