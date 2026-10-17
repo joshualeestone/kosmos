@@ -492,6 +492,12 @@ function stillOpen(extraLeft, notes) {
    remote.js honours (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS), resolved at the call site where env is in
    scope. (The Mac uninstall, install/setup.sh #793, runs retire with no explicit timeout at all.) */
 const RETIRE_TIMEOUT_MS = 60 * 1000;
+/* A ceiling on the AGENT_WORKFORCE_RETIRE_TIMEOUT_MS override: spawnSync blocks the uninstall
+   synchronously for the timeout, and the Windows launcher waits on the helper with no deadline of
+   its own (NoHelperTimeout = 0), so an absurd operator-set value would hang the uninstall UI. 5 min
+   is far above any real retire yet bounds a pathological value. (remote.js similarly caps its
+   retireTimeoutMs, against its register bound.) */
+const RETIRE_TIMEOUT_MAX_MS = 5 * 60 * 1000;
 
 /* #6391: the Plus coordinator default and the Windows connector filename, kept as THIS file's own
    constants on purpose. Convention 5 (one derivation of a fact) is honoured not by requiring
@@ -763,7 +769,12 @@ async function uninstall(opts) {
            here, so it is not stranded and must not be retired (retiring a surviving key would let a
            later board re-register it). Best-effort; the outcome is said either way, as the Mac does. */
         const stateDir = env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(dataDir, 'remote');
-        const keyInDeleteScope = isSameOrInside(stateDir, dataDir, platform) && !keptHolding(stateDir, keptDirs);
+        /* "In the delete scope" uses onDiskInside (realpathSync.native), the SAME on-disk comparison
+           keptHolding and deleteAllExcept use -- not a textual one -- so a junction or 8.3 short-name
+           state dir is judged by where it REALLY resolves, matching exactly what the delete will and
+           will not remove. (A junction pointing outside dataDir thus resolves outside and is not
+           retired; its target is not deleted here either, so not stranded.) */
+        const keyInDeleteScope = onDiskInside(stateDir, dataDir) && !keptHolding(stateDir, keptDirs);
         const hadKey = keyInDeleteScope && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(stateDir, f)));
         if (hadKey) {
           const retire = o.retirePc || retirePc;
@@ -774,11 +785,10 @@ async function uninstall(opts) {
           const coordinator = o.coordinator || env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || DEFAULT_COORDINATOR;
           const tunnelBin = o.tunnelBin || env.AGENT_WORKFORCE_TUNNEL_BIN || defaultTunnelBin();
           /* Retire timeout: the SAME env seam remote.js honours (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS),
-             else the generous RETIRE_TIMEOUT_MS default. No upper cap (remote.js's retireTimeoutMs
-             caps against its register bound): inconsequential for a one-shot uninstaller, though a
-             pathological huge operator-set value would make this one call wait that long. */
+             else the generous RETIRE_TIMEOUT_MS default, and capped at RETIRE_TIMEOUT_MAX_MS so an
+             absurd operator value cannot hang the uninstall (see that const's note). */
           const envTimeout = Number(env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS);
-          const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : undefined;
+          const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? Math.min(envTimeout, RETIRE_TIMEOUT_MAX_MS) : undefined;
           // `|| {}`: the module retirePc always returns {told}, but this guards the call site from a
           // misbehaving injected o.retirePc returning undefined, so the uninstall can never throw here.
           const told = (retire({ remoteDir: stateDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }) || {}).told === true;
