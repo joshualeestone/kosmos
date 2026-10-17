@@ -2,7 +2,7 @@
 
 /**
  * #6330 slice 1: an agent's built mark (POST /api/project/:id/task/:n/built) tells the people the work is handed to, so
- * nobody polls for it: the task's other assignees and its parent task's assignees. Never the marker itself; never for a
+ * nobody polls for it: the task's other assignees and the holders of the nearest held task above it. Never the marker itself; never for a
  * clear, the same mark again, or the person's own mark from the screen. An assignee who left the project, or a swarm
  * switched off here, is not told, and the answer says so. The answer's `delivered` lists one outcome per agent.
  *
@@ -75,6 +75,7 @@ test('the other assignees are told; the marker is not', async () => {
      zed was ATTEMPTED (no filter's reason), as the #768 task-message test proves it. */
   const zed = r.json.delivered.find((d) => d.agent === 'zed');
   assert.doesNotMatch(String(zed.because), /not on this project|switched off/, 'zed was filtered: ' + JSON.stringify(zed));
+  assert.match(r.json.summary, /zed/, 'the summary the CLI prints does not name zed: ' + r.json.summary);
 });
 
 test('the parent task holder is told too, once even when also on the task', async () => {
@@ -108,9 +109,11 @@ test('nobody is told for the same mark again, a clear, or the person\'s own mark
   assert.equal(again.json.delivered, undefined, 'the same mark again told someone: ' + JSON.stringify(again.json));
   const cleared = await mark(n, asAgent('mona'), { clear: true });
   assert.equal(cleared.status, 200, JSON.stringify(cleared.json));
+  assert.equal(cleared.json.changed, true, 'control: the clear did change the task');
   assert.equal(cleared.json.delivered, undefined, 'a clear told someone: ' + JSON.stringify(cleared.json));
   const screen = await mark(n, { 'sec-fetch-site': 'same-origin' });
   assert.equal(screen.status, 200, JSON.stringify(screen.json));
+  assert.equal(screen.json.changed, true, 'control: the screen mark did change the task');
   assert.equal(screen.json.delivered, undefined, 'the person\'s mark told someone: ' + JSON.stringify(screen.json));
 });
 
@@ -176,7 +179,7 @@ test('the typed line says who marked which task built, the note, how to reply, a
   }
 });
 
-test('a parent nobody holds directly hands to whoever holds it through its own parents (tasks.ownerIn)', async () => {
+test('a parent nobody holds directly hands to the nearest held task above it', async () => {
   const top = tasks.create(projectId, { sentence: 'Open the store', who: 'ivy' }).number;
   const middle = tasks.create(projectId, { sentence: 'Set up payments', parent: top }).number;
   const leaf = tasks.create(projectId, { sentence: 'Add the card form', who: 'mona', parent: middle }).number;
@@ -323,4 +326,28 @@ test('alone on a task with no parent: an empty list, nothing sent', async () => 
   const r = await mark(n, asAgent('mona'));
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(r.json.delivered, [], JSON.stringify(r.json));
+});
+
+/* The Mac CLI end to end, as server.task-built-3951.test.js runs it: it prints the board's sentence about who was told. */
+const { execFile } = require('node:child_process');
+const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
+fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
+fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
+function mac(args, extra = {}) {
+  const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '', ...extra };
+  return new Promise((resolve, reject) => {
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
+      resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || '') });
+    });
+  });
+}
+
+test('Mac `kosmos task built` prints who was told of the mark', async () => {
+  const n = tasks.create(projectId, { sentence: 'Write the release notes', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Proofread them', who: 'zed' });
+  const m = sendertoken.mint('mona');
+  const r = await mac(['task', 'built', projectId, String(n), 'drafted'], { KOSMOS_AGENT_TOKEN: m.token });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /built, waiting to be released or checked\. Closing it clears the mark\. .*zed/, r.out);
 });

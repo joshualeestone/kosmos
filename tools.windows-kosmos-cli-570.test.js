@@ -435,6 +435,14 @@ test('no verb, or an unknown one, is a usage error', async () => {
   assert.equal((await run(['start'])).code, 2, 'the board is Kosmos.exe; this command has no start');
 });
 
+test('#6330: task built prints the board\'s sentence about who was told; an older board sends none and nothing is claimed', async () => {
+  const older = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
+  assert.equal(older.code, 0);
+  assert.equal(older.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.');
+  const said = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true, delivered: [], summary: 'Told zed.' } }));
+  assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.');
+});
+
 // ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────
 
 test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent token; ok -> 0; refusal -> 1; timeout -> 3', async () => {

@@ -518,22 +518,22 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
-  const out = [];
-  for (const m of everyone) {
-    if (offHere.has(String(m))) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) }); continue; }
-    if (!member(m)) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' }); continue; }
+  // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
+  const tell = async (m) => {
+    if (offHere.has(String(m))) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) };
+    if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
     const line = lineFor(m, note);
-    let outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
-      { projectId, task: t.number, person: false });
-    if (!outcome) {
-      try { outcome = await chat.deliverAsync(m, line, roster); }
-      catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
-    }
-    out.push({ agent: m, state: outcome && outcome.state, because: (outcome && outcome.because) || null,
+    let outcome;
+    try {
+      outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
+        { projectId, task: t.number, person: false });
+      if (!outcome) outcome = await chat.deliverAsync(m, line, roster);
+    } catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
+    return { agent: m, state: outcome && outcome.state, because: (outcome && outcome.because) || null,
       ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
-      ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
-  }
-  return out;
+      ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
+  };
+  return Promise.all(everyone.map(tell));
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -21685,14 +21685,16 @@ const server = http.createServer(async (req, res) => {
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
       if (!viaScreen && body.clear !== true && out.changed === true) {
-        /* The mark is recorded by now, so nothing here may fail it: a throw answers 200 with nobody told. */
+        /* The mark is recorded by now, so nothing here may fail it: a throw before any line went answers 200, delivered []. */
         try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
         catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
         }
       }
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered } : {}) });
+      /* The same sentence a task message answers with (who was told, kept, or not), for the CLI to print. */
+      const summary = delivered ? taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)) : null;
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, summary } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
