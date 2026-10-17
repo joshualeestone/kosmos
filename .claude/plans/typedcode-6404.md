@@ -29,7 +29,7 @@ Screenshot the card (light and dark) and the joining computer's big code.
   press says what is missing. The wait-state holds keep a real disabled.
 
 - The joining computer (#plus-join) says to TYPE its code on the other computer: held, the steps end "Type this code
-  there, then press Allow." and "Then press The codes match here."; matched while held, the code stays large ("Waiting
+  there, then press Allow." and "Once <name> says this computer is connected, press The codes match here."; matched while held, the code stays large ("Waiting
   for <name> to allow this computer. If you have not yet, type this code there and press Allow."); allowed, "If you typed this code on <name> to allow this computer, press The codes match."
 
 ## Calls (decided, with the weakest premise)
@@ -43,6 +43,8 @@ Screenshot the card (light and dark) and the joining computer's big code.
   and no field, as before this change; the tunnel then refuses its Allow (no code sent). Unchanged on purpose.
 - Contrast: the field's label is measured with the sheet's other small text; the dimmed Allow (white on #2f57c4 at .8 over
   the navy) and the placeholder are not measured by the check (estimated about 5:1).
+- No in-flight guard on Allow: a second press during the re-read can send a second allow (as before this change, now a
+  read longer). The tunnel takes one Allow per code; the second gets a refusal that the card words.
 - Out-of-date open tabs (opened before this release) keep the one-click Allow until reloaded; the engine cannot tell the
   pages apart. Accepted: a release reloads the board's page, and a server marker would break every older page at once.
 - Compare in the page, not only in the tunnel: the tunnel's refusal reads as "the code changed", which would be wrong
@@ -74,3 +76,6 @@ Screenshot the card (light and dark) and the joining computer's big code.
   the list again first; computer code_changed wording; stale comment and a check label; a dead !small assert.
 - 6 sonnet: the d-nw arm never reached code_new (the page had not read the new code: it now polls first); the press
   reads only what the field shows (a blank field after a code change says "has a new code"); label contrast measured.
+- 7 opus: a missing comma in the matched-while-held line (the check and the shot would never match); step 3 waits for
+  "<name> says this computer is connected"; the re-read arm runs in one page step and counts the re-read; field capped
+  at 9 characters and the short wording fits too many; stale comments.

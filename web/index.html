@@ -534,7 +534,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-join .askcodebig { color: var(--k-ink); }
   #plus-join .plus-join-say { margin: 8px 0 0; }
   #plus-join .acts { margin-top: 6px; }
-  /* kosmos#6314: the two steps on the waiting computer; after a match, the next action leads and the code steps back. */
+  /* kosmos#6314: the steps on the waiting computer; after a match, the next action leads (#6404: the code stays large). */
   #plus-join .plus-join-steps { margin: 6px 0 0; padding-left: 1.25rem; color: var(--k-ink-2); }
   #plus-join .plus-join-steps li { margin: 3px 0; }
   #plus-join .plus-join-done::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2fa36b; margin-right: 8px; vertical-align: 1px; }
@@ -50492,7 +50492,7 @@ function paintAsk() {
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
-      : e.because === 'code_short' ? 'Type all six digits shown on ' + name + ', then press Allow.'
+      : e.because === 'code_short' ? 'Type the six digits shown on ' + name + ', then press Allow.'
       : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
       : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press Allow.'
       : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed Allow. Type the new one from ' + name + ', then press Allow.'
@@ -50513,7 +50513,7 @@ function paintAsk() {
          rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
       (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
         '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
-        ' autocomplete="off" spellcheck="false" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
         (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
       (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>Allow</button>' +
@@ -50624,7 +50624,7 @@ async function askAct(act, id, at) {
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
+      /* #4794, #6404: Allow for a joining computer carries the code the person TYPED; the tunnel refuses any other. */
       body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
   } catch { res = null; }
   if (res && res.ok) {
@@ -51710,13 +51710,13 @@ function paintPlusJoin() {
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads. */
   /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Waiting for ' + name + other + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
+    + '<p class="plus-join-next">Waiting for ' + name + (other ? other + ',' : '') + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
     + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Then press The codes match here.</li></ol>'
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Once ' + name + ' says this computer is connected, press The codes match here.</li></ol>'
       : '<p class="plus-join-say">If you typed this code on ' + name + (other ? other + ',' : '') + ' to allow this computer, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
