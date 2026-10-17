@@ -51491,14 +51491,14 @@ function plusJoinReset() {
   PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = '';
   paintPlusJoin();
 }
-/* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
-   up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
-   the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
-   page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
 /* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
 function plusJoinPillWord() {
   return PLUS_JOIN_WAITING && PLUS_JOIN && PLUS_JOIN.needs_retry === true && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
 }
+/* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
+   up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
+   the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
+   page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
 function plusJoinLive(j) {
   if (!j || j.supported !== true) return false;
   return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);

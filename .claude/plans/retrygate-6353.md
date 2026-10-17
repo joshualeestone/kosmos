@@ -19,6 +19,8 @@ and pressing it starts exactly one new attempt. A test proves an overnight with 
 - The first attempt still starts by itself; only restarts after an ANSWERED attempt need a press.
 - A confirmed-on-this-side code that lapses (the other computer never pressed Allow) also waits for Try again.
 - Mixed versions: an old page never sees needs_retry; a new page on an old tunnel never gets it. Both ship together.
+  Known gap: an old page left open on a new tunnel promises "a new one is on its way" and has no Try again. So the
+  relay PR merges only together with this one (held on purpose), and a cut carries both.
 
 ## Weakest premise
 A headless joining computer needs a reachable Try again. Today that is `kosmos-tunnel join retry --state-dir <dir>`
