@@ -262,10 +262,11 @@ function cleanConsent(c) {
    rollup sends only report lines found here for the hash on the enrollment record; no file, or another hash, sends
    nothing. Written before the enroll is sent, from the words the screen showed (the server's ticket). */
 const CONSENT_FILE = 'org-consent.json';
-/* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words do
-   (CONSENT_NAMES_USAGE, pinned on token/usage/cost), so the board keys on the same words: no line naming them, no
-   usage leaves, whatever a reader could read.
-   It is whole words, deliberately NARROWER than the coordinator's substring match, so a disagreement only withholds; it
+/* Whether the accepted words name token usage. The coordinator refuses usage rows until its own words for the org's
+   kind do (kosmos-relay org.rs consent_names_usage, written to the same whole-word rule as here; per kosmos#5532 a
+   company's words name usage and a family's do not),
+   so the board keys on the same words: no line naming them, no usage leaves, whatever a reader could read.
+   It is whole words, so a disagreement with any looser reading only withholds; it
    cannot see negation ("never your token usage"), since report lines describe what IS sent and the coordinator's own
    rule decides what it takes. */
 const NAMES_USAGE = /\b(tokens?|usage|costs?)\b/i;
@@ -315,7 +316,12 @@ function acceptedConsent(opts) {
   if (!j || !Array.isArray(j.reports)) return null;
   const reports = j.reports.filter((l) => typeof l === 'string' && l);
   return { reports, usageConsented: j.usageConsented === true, policyConsented: reports.some((l) => NAMES_POLICY.test(l)),
-    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)) };
+    everyKosmosConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l)),
+    /* kosmos#5532: another Kosmos's usage goes only when ONE line names both every Kosmos on this computer and usage (the
+       coordinator's "the agent, project, activity and token use lines above from every Kosmos on this computer"): a
+       usage line alone covers this Kosmos's own. The coordinator's words are pinned by kosmos-relay
+       coordinator/tests/api.rs (the company consent hash) and tools/family-e2e-6239.js here. */
+    everyKosmosUsageConsented: reports.some((l) => NAMES_EVERY_KOSMOS.test(l) && NAMES_USAGE.test(l)), capConsented: reports.some((l) => NAMES_CAP.test(l)) };
 }
 /* #5791 (Josh 10-10: the company decided; no member consent step): the board takes the company's current words and
    re-accepts them itself, with no screen: the same codeless enroll a person's Accept used to send (review: true),
