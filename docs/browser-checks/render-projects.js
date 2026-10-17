@@ -1291,7 +1291,8 @@ async function main() {
       console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
     /* #6349: with more of the notice below the box's edge, the box carries data-more and its bottom fades (a cue a Mac's
-       hidden scrollbar does not give); scrolled to the end, none (the notice may already be taller than the cap here, so its starting and short-again states are read, not assumed). Set by the page's
+       hidden scrollbar does not give); scrolled to the end, none. The notice may already be taller than the cap here,
+       so its starting and short-again states are read, not assumed. Set by the page's
        own observer (railPjMore), so each step waits two frames for it rather than calling it. Copies as above, removed
        in finally. */
     const cue = await page.evaluate(async () => {
@@ -1345,7 +1346,6 @@ async function main() {
       } finally {
         for (const c of copies) c.remove();
         body.classList.toggle('fold-a', folded);
-        box.style.scrollPaddingBottom = '';
         box.scrollTop = st0;
         if (document.activeElement && box.contains(document.activeElement)) document.activeElement.blur();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
