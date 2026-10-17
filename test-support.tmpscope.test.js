@@ -322,7 +322,7 @@ const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'
   assert.deepEqual(entries(base).filter((n) => n.startsWith('kts-')), []);
 });
 
-test('#6362: a process left running that makes the dir again after its test ended is listed by what it wrote', { timeout: 15000 }, async (t) => {
+test('#6362: a process left running that makes the dir again after its test ended is listed by what it wrote', { timeout: 30000 }, async (t) => {
   const base = freshBase(t);
   const done = path.join(base, 'child-done');
   const victim = path.join(base, 'leaves-a-child-6362.test.js');
@@ -339,7 +339,8 @@ require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();
     const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
     try { childPid = Number(fs.readFileSync(pidFile, 'utf8')); } catch { /* checked by the status below */ }
     assert.equal(r.status, 0, String(r.stderr));
-    // Up to 12 s of the 15 s budget: a cold node start on a loaded machine can take seconds.
+    // Up to 12 s for the child (a cold node start on a loaded machine can take seconds), inside a 30 s test budget
+    // that also covers the victim's own spawn.
     for (const end = Date.now() + 12000; Date.now() < end && !fs.existsSync(done);) await new Promise((res) => setTimeout(res, 20));
     assert.ok(fs.existsSync(done), 'the left-running child never wrote, so this cannot test what it is for');
     const left = entries(base).filter((n) => n.startsWith('kts-'));
