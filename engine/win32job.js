@@ -486,7 +486,9 @@ function install(spec) {
    the two forms cannot diverge on the pre-work or the parse. Clears PRESENCE_MEMO before the mutating spawn
    exactly as `run()` does on a non-`/Query` call (the step bypasses `run()`), and only on the spawn path -- an
    early refuse from installPlan never reaches `run()` in the sync form either. The `finally` unlinks the
-   transient xml on every path past the write, as install()'s own finally does. */
+   transient xml on every path past the write, as install()'s own finally does -- including a driver
+   `.return()` abandon at the cap, where it may unlink while the `/Create` schtasks is still reading it; that is
+   safe, because an abandoned put-back's outcome is already worded as unconfirmed (remove.js `capped: true`). */
 function* installSteps(spec) {
   const plan = installPlan(spec);
   if (!plan.ok) return plan;

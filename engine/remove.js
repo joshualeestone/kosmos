@@ -2610,6 +2610,9 @@ async function putBackAsync(name, dir) {
     if (ctl.abandoned) return await capped;
     return { outcome: create.OUTCOME.REFUSED, because: `putting ${clean || name} back did not return a result` };
   } catch (err) {
+    /* Clear the timer and rethrow. RESTARTING is deliberately NOT cleared here: the `driven.then(release, release)`
+       above owns the hold's release, so it ends when the drive really ends (a rejection runs its reject arm) --
+       clearing it here too would risk a double-release and read as the right place to manage the hold. */
     clearTimeout(timer);
     throw err;
   }

@@ -245,6 +245,17 @@ step-form tests for installSteps/taskEnabledSteps/restoreAccountSteps.
 - Box is contended: full-suite 6j queues ~1h. Targeted per-iteration set: win32job, win32stop,
   remove.win32-restart-3431, remove, accountmove-stop-6214, create.win32-job-read.
 
+## Known tradeoff (DELIBERATE, per Splinter's #6183 ruling) -- not a bug
+
+The async conversion means an unreached agent is put back LATER than the old synchronous stop did it: no
+put-back starts until the in-flight forward restart settles (up to agentCap), then the rest run one at a
+time (each up to the async cap). So an agent can read as still on the new account, and stay held, for
+minutes after Stop. This is the ruling's explicit shape ("the put-backs run after the stop answers, and
+each agent stays held until its own put-back settles"), chosen so the STOP itself answers at once and the
+board's event loop is not frozen. Each put-back is cap-bounded and realistic times are seconds, so the
+minutes case is a worst-case upper bound. A UI hint about how long the put-backs may take is a possible UX
+follow-up, not part of item 7. Recorded here so a later review dedups it rather than re-filing it as a bug.
+
 ## Done-when
 
 1. On Windows a stopped large move answers promptly and the board stays responsive during the put-backs

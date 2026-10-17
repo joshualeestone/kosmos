@@ -547,7 +547,7 @@ test('on darwin readJob still reads the plist, and setModel rewrites it without 
 
 /* ── #6231 item 7: the win32 put-back as an ASYNC step generator ──────────────
  * restoreAccountSteps mirrors the sync restoreAccount command-for-command but YIELDS
- * the staleness /Query (win32job.taskEnabledSteps) and the /Create (win32job.installSteps)
+ * the keep-its-switch /Query (win32job.taskEnabledSteps) and the /Create (win32job.installSteps)
  * as steps, so a stopped move's Windows put-backs run off the board's thread under
  * remove.js's async driver. The re-read in restoreAccountPrep stays SYNC (through the
  * scheduler's runner) and completes before the first yield (#6231 contract 3); only the
@@ -600,7 +600,7 @@ test('#6231 item 7: restoreAccountSteps drives a codex put-back off the thread -
   const made = [];
   const d = driveSteps(create.restoreAccountSteps('cx', CODEX_WORK), answerSteps(tasks, made));
   assert.equal(d.ret.outcome, create.OUTCOME.CREATED, 'the async put-back was refused: ' + (d.ret && d.ret.because));
-  assert.deepEqual(d.verbs, ['/Query', '/Create'], 'the step form yields the staleness /Query then the /Create, in order');
+  assert.deepEqual(d.verbs, ['/Query', '/Create'], 'the step form yields the keep-its-switch /Query (taskEnabledSteps) then the /Create, in order');
   assert.equal(made.length, 1, 'exactly one re-register');
   const spec = registeredSpec(made[0]);
   assert.equal(spec.runner, 'codex');
@@ -635,8 +635,8 @@ test('#6231 item 7: a Qwen put-back ABANDONED mid-drive (the async cap) rolls th
   const made = [];
   const answer = answerSteps(tasks, made);
   const gen = create.restoreAccountSteps('qw', '/old-qwen-acct');
-  let res = gen.next();                                   // -> the staleness /Query (taskEnabledSteps)
-  assert.equal(res.value.exec[1][0], '/Query', 'the first step is the staleness read');
+  let res = gen.next();                                   // -> the keep-its-switch /Query (taskEnabledSteps); the staleness re-read is the SYNC readAccount/readJobVerdict in prep
+  assert.equal(res.value.exec[1][0], '/Query', 'the first step is the keep-its-switch read');
   assert.equal(store.readProfile('qw').qwenAccount, '/old-qwen-acct', 'prep wrote the put-back (old) account before the job');
   res = gen.next(answer(res.value.exec));                 // answer /Query -> yields the /Create
   assert.equal(res.value.exec[1][0], '/Create', 'the second step is the job write');
@@ -646,7 +646,7 @@ test('#6231 item 7: a Qwen put-back ABANDONED mid-drive (the async cap) rolls th
 });
 
 test('#6231 item 7: restoreAccountSteps on a task no longer registered refuses BEFORE any /Create (the keep-its-switch safety)', () => {
-  /* The job is readable at prep time (the sync read finds it), but the staleness /Query the step form issues
+  /* The job is readable at prep time (the sync read finds it), but the keep-its-switch /Query the step form issues
      comes back "no such task": the shared win32RewriteGate must refuse without re-registering. */
   const tasks = { 'Kosmos\\agent-cx': taskFor('cx', { runner: 'codex' }) };
   scheduler(tasks);
