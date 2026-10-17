@@ -186,10 +186,13 @@ leak_family() {
 # (the sweep took .kts-owner with it; reproduced for #6362); a tmpscope older than #6061 or a failed owner write leaves
 # the same. So the report lists what the dir holds, whose names usually say which test's process it was.
 leak_kts_owners() {
-  local root="${1%/}" d owner rest pid why held n shown
+  local root="${1%/}" d owner rest pid why held n shown part
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
+    # A dir the guard cannot search hides whether it has an owner, so it says only that.
+    if [ ! -x "$d" ]; then echo "  ${d##*/}: cannot be read here, so its owner is unknown"; continue; fi
     owner=""
+    if [ -f "$d/.kts-owner" ] && [ ! -r "$d/.kts-owner" ]; then echo "  ${d##*/}: its owner file cannot be read here"; continue; fi
     if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
     if [ -n "$owner" ]; then
       pid="pid unknown"
@@ -207,15 +210,16 @@ leak_kts_owners() {
       echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
       # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
-      # find's own status, not the pipeline's (whose status is the last stage's): a dir it cannot read is said so.
-      if held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null); then
-        held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
-      else
-        held="(could not list)"
-      fi
+      # find's own status, not the pipeline's (whose status is the last stage's). A walk that failed part way (an
+      # entry removed under it by a process still writing) keeps what it did print, marked incomplete.
+      part=""
+      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null) || part=" (listing incomplete)"
+      held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
       n=$(printf '%s' "$held" | grep -c . || true)
       shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
       if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
+      if [ -n "$part" ] && [ -z "$shown" ]; then shown="(could not list)"; part=""; fi
+      shown="${shown}${part}"
       echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: ${shown:-nothing}"
     fi
   done
