@@ -478,8 +478,8 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
   return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
 /* #6330 slice 1: an agent's built mark tells the people the work is handed to, so nobody has to poll for it: the task's
-   other assignees, and the parent task's open holders who are still on the project (or, with none, whoever holds the
-   parent through its own parents, tasks.ownerIn). An identified marker is not told about its own mark. Recipients go
+   other assignees, and the open holders still on the project of the nearest task above it that has any (its parent,
+   else that task's parent, and so on; a closed task ends the walk). An identified marker is not told about its own mark. Recipients go
    through what a task message's do (#768): a swarm switched off in this project is not told, an assignee who left the
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
    reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The route's built-mark valve limits how
@@ -493,15 +493,18 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
   const notMe = (m) => !(by && sameAgentName(m, by, byKey));
   const member = (m) => projectHasAgent(rec, String(m), false);
   const others = tasks.whoOf(t).filter(notMe);
-  const parentNum = tasks.parentOf(rec, t);
-  const parent = parentNum === null ? null : tasks.byNumber(rec, parentNum);
+  // Up the parent chain only: the nearest ancestor with an open holder still on the project. A closed task ends the walk.
   let parentWho = [];
-  if (parent && !tasks.progressOf(parent).closed) {
-    parentWho = [...new Set(tasks.partsOf(parent).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))].filter(member);
-    if (!parentWho.length) {
-      const owned = tasks.ownerIn(tasks.treeOf(rec), parent, new Set((rec.agents || []).map(String)));
-      parentWho = owned ? owned.who : [];
-    }
+  let heldAt = null;
+  const seen = new Set([t.number]);
+  for (let up = t; ;) {
+    const num = tasks.parentOf(rec, up);
+    const a = num === null || seen.has(num) ? null : tasks.byNumber(rec, num);
+    if (!a || tasks.progressOf(a).closed) break;
+    seen.add(a.number);
+    const who = [...new Set(tasks.partsOf(a).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))].filter(member);
+    if (who.length) { parentWho = who; heldAt = a; break; }
+    up = a;
   }
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
   const everyone = others.concat(forParent);
@@ -513,7 +516,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
   const note = clean(t.builtNote || '');
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
-    + (forParent.includes(m) ? ' (it is under your task ' + parent.number + ')' : '')
+    + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   const out = [];
   for (const m of everyone) {

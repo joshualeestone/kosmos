@@ -184,6 +184,34 @@ test('a parent nobody holds directly hands to whoever holds it through its own p
   assert.deepEqual(told(r), ['ivy'], 'the holder up the tree was not told: ' + JSON.stringify(r.json));
 });
 
+test('only the parent chain is asked: a held sibling is not told the work is under its task', async () => {
+  const top = tasks.create(projectId, { sentence: 'Plan the retreat' }).number;   // nobody on it
+  const sibling = tasks.create(projectId, { sentence: 'Book the venue', who: 'zed', parent: top }).number;
+  const n = tasks.create(projectId, { sentence: 'Book the travel', who: 'mona', parent: top }).number;
+  const r = await mark(n, asAgent('mona'));
+  assert.deepEqual(told(r), [], 'a sibling holder was told: ' + JSON.stringify(r.json));
+  // CONTROL: with the top task held, its holder is told.
+  tasks.addPart(projectId, top, { sentence: 'Own the retreat', who: 'ivy' });
+  const n2 = tasks.create(projectId, { sentence: 'Book the meals', who: 'mona', parent: top }).number;
+  const r2 = await mark(n2, asAgent('mona'));
+  assert.deepEqual(told(r2), ['ivy'], JSON.stringify(r2.json));
+  assert.ok(sibling > 0);
+});
+
+test('when every holder of the parent has left, the next task up is asked', async () => {
+  const roster = fleet.install([
+    fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('ivy', { state: 'idle' }),
+    fleet.agent('left', { state: 'idle' }),
+  ]).agents;
+  projects.addAgent(projectId, 'left', roster);
+  const top = tasks.create(projectId, { sentence: 'Run the conference', who: 'ivy' }).number;
+  const middle = tasks.create(projectId, { sentence: 'Speakers', who: 'left', parent: top }).number;
+  const n = tasks.create(projectId, { sentence: 'Invite the keynote', who: 'mona', parent: middle }).number;
+  projects.removeAgent(projectId, 'left');
+  const r = await mark(n, asAgent('mona'));
+  assert.deepEqual(told(r), ['ivy'], 'the walk stopped at a parent whose holders left: ' + JSON.stringify(r.json));
+});
+
 test('a swarm switched off in this project is not told, and the answer says why', async () => {
   const n = tasks.create(projectId, { sentence: 'Update the docs', who: 'mona' }).number;
   tasks.addPart(projectId, n, { sentence: 'Proofread', who: 'zed' });
