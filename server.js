@@ -484,7 +484,11 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
    reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
    governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
-   agent; [] when nobody else is on it), with `refusal` when the valve said no. */
+   agent; [] when nobody else is on it) and `attempted` (how many lines were tried, which spends the valve), with
+   `refusal` when the valve said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed. */
+// #6330: how long one built line may hold the mark's answer (under the Mac CLI's 15 s).
+let BUILT_TELL_WAIT_MS = 10000;
+function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
 async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   if (!t || typeof t.number !== 'number') return { delivered: [] };
   // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
@@ -532,7 +536,18 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       const line = lineFor(m, note);
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
         { projectId, task: t.number, person: false });
-      if (!outcome) outcome = await chat.deliverAsync(m, line, roster);
+      if (!outcome) {
+        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: past the wait the line is
+           still queued and typed, and is said as may have been told. */
+        const sending = chat.deliverAsync(m, line, roster);
+        let timer = null;
+        const waited = new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }), BUILT_TELL_WAIT_MS);
+          if (timer.unref) timer.unref();
+        });
+        sending.catch(() => {});
+        try { outcome = await Promise.race([sending, waited]); } finally { clearTimeout(timer); }
+      }
     } catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
     return { agent: m, state: outcome && outcome.state, because: (outcome && outcome.because) || null,
       ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
@@ -24864,6 +24879,7 @@ module.exports = {
   AGENT_RUNAWAY_PER_HOUR, agentRunawayRefusal, setAgentRunawayLimitForTests, // #3959: the agent task/project breaker, for its tests
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
+  setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   autoretellTick, // #3932: one pass of the re-tell-after-a-fix sweep
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
