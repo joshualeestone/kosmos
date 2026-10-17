@@ -520,11 +520,11 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   const tell = async (m) => {
-    if (offHere.has(String(m))) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) };
-    if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
-    const line = lineFor(m, note);
     let outcome;
     try {
+      if (offHere.has(String(m))) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) };
+      if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
+      const line = lineFor(m, note);
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
         { projectId, task: t.number, person: false });
       if (!outcome) outcome = await chat.deliverAsync(m, line, roster);
