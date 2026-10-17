@@ -36,10 +36,11 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   would be handed the address; it works once, within 2 minutes, and such an agent can already read `board.token`.
 - On the no-terminal enforcing path a nonce is minted and thrown away each time (a launcher retrying would mint
   several); each expires in 2 minutes.
-- `DISPLAY`/`WAYLAND_DISPLAY` as "there is a display". A headless box with a forwarded `DISPLAY` that is dead makes
-  xdg-open fail; that path dies with "Could not open a browser. Go to the dashboard yourself: <plain URL>", which,
-  on an enforcing board, gives no way in. Not handled here: the fallback could print the nonce address on a
-  terminal there too. What would change my mind: a report from a Linux person who hits it.
+- `DISPLAY`/`WAYLAND_DISPLAY` as "there is a display". A forwarded `DISPLAY` that is dead makes xdg-open fail, so a
+  failed opener takes the no-opener path: at a person's terminal it hands over the one-time address, and it still
+  ends non-zero with "Could not open a browser from here." on stderr (#1957: a failed open never exits 0).
+- Platforms other than Darwin and Linux (a BSD, Cygwin) get no opener now. Before, they ran a `/usr/bin/open` they
+  do not have and failed; now they hand over the address, which is the better of the two.
 - `xdg-open` can exit 0 while nothing opens (no handler); as on macOS (#1957), the words name the address.
 - Not measured on a real Linux desktop: the arms run the CLI as Linux on macOS through `KOSMOS_PLATFORM`, with a stub
   xdg-open on PATH.
