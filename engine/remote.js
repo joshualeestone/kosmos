@@ -1154,7 +1154,7 @@ async function assistantChat(body) {
  * can retire it (a dead sandbox, a wiped laptop). Its outcome is reported,
  * never hidden. kosmos#6389: a retire that got no answer (offline, timed out, a
  * server error) KEEPS the key, as clearHalfIdentity does, and answers kept: the
- * computer is not removed yet, and pressing Remove again retries. Wiping it
+ * computer is not removed yet. Wiping it
  * there left the name held on the account with nothing here able to free it.
  * Only `anyway` (the person chose to remove it from this computer only, told
  * the cost) wipes after such a retire. A final refusal is wiped as before:

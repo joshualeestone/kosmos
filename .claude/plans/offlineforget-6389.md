@@ -22,6 +22,11 @@ The relay half of the card (`recently_online`, approver ordering).
 ## Status
 - [x] Engine, route, page, tests (remote.test.js 230/230; two mutants caught)
 - [x] Static guards 165/165
-- [ ] Browser check (queued)
-- [ ] Challenge loop
-- [ ] Final validation, proof, PR
+- [x] Challenge loop round 1 (opus): kept path keeps the notes and tells the switch-off; route test
+  (server.remote-forget-6389.test.js); the sign-in tool removes its throwaway identity from the board after a kept
+  answer; Remove this computer is disabled while a Remove runs; the kept note goes when the switch is back on.
+  Four mutants caught.
+- [x] Challenge loop round 2 (sonnet): a damaged remote.json under a kept Remove is pinned; a docstring claim
+  that Remove retries (false for a half-registered computer, whose retry is the next sign-in) is removed.
+- [ ] Browser check (queued, reads the worktree at run time)
+- [ ] Loop convergence, final validation, proof, PR

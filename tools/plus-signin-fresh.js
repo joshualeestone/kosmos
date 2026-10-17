@@ -263,7 +263,7 @@ async function finish(a) {
       : nothing ? { id: 'forget', result: 'pass', detail: 'the register wrote nothing, so there was nothing to retire' }
       : f.status === 0 ? { id: 'forget', result: 'fail', detail: 'no answer from the board to the forget; the retire may still complete: check the seed account' }
       : { id: 'forget', result: 'fail', detail: 'the throwaway registration was not retired: ' + String((f.json && (f.json.because || f.json.error)) || f.status)
-        + (kept ? ' (Kosmos+ did not answer, so it was then removed from the board only: check the seed account)' : '') });
+        + (kept && f.status === 200 ? ' (Kosmos+ did not answer, so it was then removed from the board only: check the seed account)' : '') });
   } else {
     await b.post('/api/remote/signin-cancel', {}, CLEANUP_MS);
   }

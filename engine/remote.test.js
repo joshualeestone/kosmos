@@ -2546,6 +2546,25 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
   }
 });
 
+test('#6389: a kept Remove on a damaged remote.json repairs the file and still keeps the key', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  fs.writeFileSync(remote.FILE, '{"on": true, "relay": "rel');
+  assert.equal(remote.read().ok, false, 'fixture: the file is damaged');
+  process.env.FAKE_TUNNEL_MODE = 'retire-down';
+  try {
+    const got = await remote.forget();
+    assert.equal(got.kept, true, 'a damaged file turned a kept Remove into something else: ' + JSON.stringify(got));
+    assert.equal(remote.enrolled(), true, 'the key went with a retire that got no answer');
+    const after = remote.read();
+    assert.notEqual(after.ok, false, 'the kept path left remote.json damaged');
+    assert.equal(after.on, false);
+    assert.deepEqual(after.vouched, {});
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+});
+
 test('#6389: Remove from this computer only (anyway) wipes the key after a retire with no answer, and says what is left', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
