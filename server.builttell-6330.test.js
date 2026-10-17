@@ -403,6 +403,32 @@ test('a failure in one recipient\'s own step is that recipient\'s could_not, nev
   }
 });
 
+test('a pane that has not taken its line by the wait does not hold the answer: it is said as may have been told', async () => {
+  const srv = require('./server');
+  const chat = require('./engine/chat');
+  const n = tasks.create(projectId, { sentence: 'Write the release note', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Proofread it', who: 'zed' });
+  tasks.addPart(projectId, n, { sentence: 'Post it', who: 'ivy' });
+  const real = chat.deliverAsync;
+  chat.deliverAsync = (m, ...rest) => (m === 'ivy' ? new Promise(() => {}) : real(m, ...rest));
+  srv.setBuiltTellWaitForTests(300);
+  try {
+    const started = Date.now();
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.ok(Date.now() - started < 5000, 'the answer waited on the stuck pane: ' + (Date.now() - started) + ' ms');
+    const ivy = r.json.delivered.find((d) => d.agent === 'ivy');
+    assert.equal(ivy && ivy.state, 'unconfirmed', JSON.stringify(r.json));
+    // CONTROL: the other line was not cut short by the wait.
+    const zed = r.json.delivered.find((d) => d.agent === 'zed');
+    assert.ok(zed && zed.state !== 'unconfirmed', JSON.stringify(r.json));
+    assert.doesNotMatch(r.json.summary, /\bNot told\b[^.]*ivy/i, 'a line still being typed was said as not told: ' + r.json.summary);
+  } finally {
+    chat.deliverAsync = real;
+    srv.setBuiltTellWaitForTests();
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));

@@ -16,6 +16,9 @@ your task P)". A marker that identified itself (token or pane) is never told; an
 ## Rules
 - Only an agent's NEW mark: not a clear, not the same mark again (`changed: false`), not the person's mark from the
   screen (the person knows they did it).
+- The task's own assignees come from tasks.whoOf, as a task message's do (#768), so one whose own part is already
+  closed is still told: the task they worked on is now built. Above the task only OPEN holders count, because a
+  closed part there is not the work this task hands to.
 - The same filters as a task message (#768): a swarm switched off in this project is not told, an assignee who left
   the project is not told, and both are said in `delivered`.
 - A closed parent hands nothing on (that branch's work is finished).
@@ -31,9 +34,9 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   already the coordinator). Both deliberate.
 - Review 5: `AGENT_WORKFORCE_TASK_MSG_CAP=0` (agent task messages switched off on this computer) switches these lines
   off too, and the answer says so. A project list that cannot be read while working out who to tell answers "Kosmos
-  could not work out who to tell", never "nobody else is assigned". Deferred from review 5: the answer still waits
-  for the slowest line, so one pane with a backlog can hold it past the Mac CLI's 15 s (the CLI then says it may
-  still have happened, and a retry is a no-op). A task message has exactly the same exposure through the same CLI.
+  could not work out who to tell", never "nobody else is assigned". Review 11 (raised in 5, 8 and 11, so fixed rather than
+  deferred again): each line holds the answer at most BUILT_TELL_WAIT_MS (10 s, under the Mac CLI's 15 s); a line
+  still being typed then is said as unconfirmed ("may have been told") and is still typed after the answer.
 - Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
   operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
   answer says nobody was told and why; told, the mark counts once against that valve, as one task message does. This
@@ -54,7 +57,7 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   first version's "cut a long note to 140" could never run, and it was removed rather than tested.
 
 ## Decided
-- **Through chat.deliver, like a task message.** Rejected: a new notification channel or a dependency field ("after
+- **Through chat.deliverAsync, like a task message.** Rejected: a new notification channel or a dependency field ("after
   task X"). The first needs a design; the second is a bigger change (Angel's 10-16 recommendation) and can come later.
 - **Parent holders included.** The card's "next agent" is usually whoever is coordinating the parent; without a
   dependency field the parent is the only handoff the data records.
