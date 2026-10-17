@@ -105,3 +105,11 @@ test('#5805: an assignee kept behind earlier kept messages is said as kept, with
   assert.equal(taskMessageSummary([{ agent: 'casey', state: 'held', heldUntil: null, because: 'held: casey still has messages kept from while it was out of usage; Kosmos types this one after them' }], 1),
     'Kept, not typed yet: casey still has messages kept from while it was out of usage; Kosmos types this one after them. Do not send it again.');
 });
+
+test('#6359: a built mark\'s answer for a kept notice does not tell the marker not to send it again', () => {
+  const held = { agent: 'casey', state: require('./engine/messages').HELD_STATE, because: 'held: casey is out of usage; Kosmos types it after the reset' };
+  const built = taskMessageSummary([held], 1, 'built');
+  assert.equal(built, 'Kept, not typed yet: casey is out of usage; Kosmos types it after the reset.');
+  // CONTROL: a task message's answer still says it, so the absence above is the kind.
+  assert.match(taskMessageSummary([held], 1), /Do not send it again\.$/);
+});

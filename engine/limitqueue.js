@@ -76,6 +76,8 @@ function addOrWhy(name, entry) {
       ...(entry.kind === TASK_KIND ? { kind: TASK_KIND, about: String(entry.about || ''),
         // Whether the person sent it from the screen: an empty `from` alone is not that (an unnamed agent has none too).
         ...(entry.person === true ? { person: true } : {}),
+        // #6359: a built notice (`kosmos task built`) rather than a task message, so its later notices say so.
+        ...(entry.built === true ? { built: true } : {}),
         ...(typeof entry.projectId === 'string' && entry.projectId && Number.isSafeInteger(entry.task) && entry.task > 0
           ? { projectId: entry.projectId, task: entry.task } : {}) } : {}) });
     return write(name, now) ? '' : 'store';

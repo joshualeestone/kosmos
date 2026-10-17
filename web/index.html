@@ -65361,8 +65361,12 @@ function tkActPhrase(ev, p) {
       /* Whose: "Your" only when the person sent it from the screen (`person`); an agent by name; and an empty `from`
          without `person` is an agent the route could not name, never the person. No possessive, so a name ending in
          s reads cleanly and is never re-cased. */
-      const subject = ev.person === true ? 'your message' : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
-      const Subject = ev.person === true ? 'Your message' : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      /* #6359: a built notice (`built`) is the built mark's note, typed to an agent kept out of usage, never a message
+         the conversation showed, so it is named as the notice. */
+      const subject = ev.built === true ? (ev.from ? 'the built notice from ' + nameOf(ev.from) : 'a built notice')
+        : ev.person === true ? 'your message' : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.built === true ? (ev.from ? 'The built notice from ' + nameOf(ev.from) : 'A built notice')
+        : ev.person === true ? 'Your message' : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
       const behind = ev.behind === true;
       if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
         + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';

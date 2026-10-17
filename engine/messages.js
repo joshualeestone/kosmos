@@ -1736,8 +1736,9 @@ async function tellHeldDropped(entry, roster) {
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
    `from` is the sending agent's name, or '' for the person (or an agent the route could not name). `where` (#5842,
-   optional): { projectId, task, person }, the task the line belongs to and whether the person sent it from the screen,
-   kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
+   optional): { projectId, task, person, kind }, the task the line belongs to and whether the person sent it from the
+   screen, kept with it so its outcome is recorded in that task's conversation. #6359: kind 'built' is the built
+   notice of `kosmos task built`, not a task message, and its later notices say so. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
@@ -1768,9 +1769,22 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
+    /* #6359 review 1: a new built notice for the same task, from the same sender, replaces one still kept (a new note
+       marks it again), once it is decided this one is kept: the stale note is not typed ahead of the current one, and
+       one mark takes one place in the queue. One the sweep is typing now (or has typed) is left to finish. Removed
+       before the add, so it frees its place for the new one; if the add then fails, the sender is told this one was not
+       kept, and the old one is gone without a drop notice (the write that just succeeded makes that rare). */
+    if (where && where.kind === 'built') {
+      const prior = limitqueue.readEntries(qName);
+      if (prior.ok) for (const e of prior.entries) {
+        if (e.built === true && e.projectId === where.projectId && e.task === where.task && e.from === String(from || '')
+          && !limitqueue.isTyping(e.id) && !limitqueue.isDone(e.id)) limitqueue.remove(qName, e.id);
+      }
+    }
     const id = 'k' + crypto.randomBytes(6).toString('hex');
     const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
-      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
+      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true),
+      built: !!(where && where.kind === 'built') });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
@@ -1793,7 +1807,9 @@ function recordTaskLineOutcome(entry, v, dropped) {
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
   // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
   // also arrives with none.
-  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
+  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}),
+    // #6359: a built notice, which the conversation shows as the built mark, not as a message.
+    ...(entry.built === true ? { built: true } : {}) };
   return require('./taskchat').record(entry.projectId, entry.task, dropped
     ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...flags }
     : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...flags });
@@ -1807,9 +1823,16 @@ async function tellTaskLineDropped(entry, roster) {
   let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
     // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
-    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
-      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'))
-      + ' and could not send it within a day. Send it again if it still matters.';
+    const kept = (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'));
+    /* #6359: a built notice is not a message to send again (the same mark again tells nobody), so its sender is
+       pointed at `kosmos msg`, which reaches this agent whether it was told as an assignee or as a parent task's holder
+       (a task message reaches only the task's own assignees). Nothing is said about the mark itself: a day on, it may
+       have been cleared or the task closed. */
+    const line = entry.built === true
+      ? '[from Kosmos] Your built notice in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. To tell ' + entry.to + ' now, use kosmos msg ' + entry.to + '.'
+      : '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
