@@ -62,7 +62,7 @@ function openParts(session, projects) {
   for (const p of Array.isArray(projects) ? projects : []) {
     /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
     if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
-    let tree = null;   // #6421: built once per project, only when a task with parts is found
+    let tree = null;   // #6421: built once per project, only when one of this agent's open parts is found
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (tasks.isOnHold(t)) continue;
       if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
@@ -93,9 +93,13 @@ function openParts(session, projects) {
         }
         /* #6421 (10-17 feedback: a delivered parent whose subtasks were built, not closed, was nudged with no reason): the
            subtasks' counts, so the line says built ones wait for the person and what is left. */
-        if (!tree) tree = tasks.treeOf(p);
-        const k = tree.progress(t.number);
-        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total } } : {};
+        /* Not for a repeating task: it is never marked built (setBuilt refuses it; review 1). */
+        if (!tree && !t.repeat) tree = tasks.treeOf(p);
+        const k = t.repeat ? { total: 0 } : tree.progress(t.number);
+        /* Another open part (someone else's, or nobody's) means the task is not this agent's alone to mark (review 1:
+           setBuilt marks the whole task, so "mark it built" would declare a colleague's unfinished part built). */
+        const others = prog.parts.some((y) => y !== x && !y.closedAt);
+        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
       }
     }
@@ -133,15 +137,17 @@ function nudgeText(part) {
   /* #6421: a parent whose subtasks are built says why it is still open. Built is waiting for the person to check and
      close, not unfinished; with nothing below left unfinished, the next step is the parent's own mark. */
   const s = part.subs;
-  const sub = s && s.built > 0 && s.total >= s.built + s.done
+  const sub = s && s.built > 0
     ? (() => {
-      const left = s.total - s.done - s.built;
+      const left = s.total - s.done - s.built;   // built never counts a closed subtask (tasks.treeOf isBuilt)
       const are = (c) => (c === 1 ? ' is' : ' are');
-      return left === 0
-        ? ' Every subtask under it is closed or built (' + s.built + are(s.built) + ' built, waiting for the person to check and close them),'
-          + ' so if your own part of it is done too, mark it built: kosmos task built '
-          + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' \'<how its checks went>\'.'
-        : ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
+      const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
+      if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
+      const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
+      if (s.others === true) return all + ', and other parts of it are still open, so it is built when they are done too.';
+      /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
+      return all + ', so if your own part of it is done too, mark it built (kosmos task built '
+        + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' \'<how its checks went>\').';
     })()
     : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
