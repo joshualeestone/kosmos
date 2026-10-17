@@ -27,5 +27,10 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
   Mona Lisa's #6341 project notices are server-side because they last; same rule (a new thing comes back), two
   stores, agreed with her 19:4x.
 - The cards on Kosmos+ keep no dismiss: they are the place the decision is made.
+- With waiting requests AND a connected-here browser, the line names the requests. Closing it puts only those away,
+  so the notice moves on at once to "Safari on this computer is connected." Decided: that line is the only way to
+  the browser's Undo (a security control), so it must be seen before it can be put away; a close that hid it unseen
+  was iteration 6's finding. The role=status region announces the new line.
+- A request whose first_seen and denied_at both arrive as 0 cannot come back once put away (the key cannot change).
 - Review puts the notice away before anything is decided (Josh's ruling): a request left unanswered after Review
   is marked only by the Kosmos+ nav dot and the cards there, until a new request comes.
