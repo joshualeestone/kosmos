@@ -1222,7 +1222,6 @@ const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few
 const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
-const communitystore = require('./engine/communitystore'); // #5314: agent card shows time since last community post
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
@@ -4466,28 +4465,14 @@ function attachPluginReach(agents, opts) {
 
 function withAgentSortFields(list, supplied) {
   let direct = null; let roomRows = null; let births = null;
-  let communityOn = false;
-  let communityTimes = null;
   if (supplied) {
     direct = supplied.direct !== undefined ? supplied.direct : null;
     roomRows = supplied.roomRows !== undefined ? supplied.roomRows : null;
     births = supplied.births !== undefined ? supplied.births : null;
-    communityOn = supplied.communityOn !== undefined
-      ? Boolean(supplied.communityOn)
-      : (supplied.communityPosts !== undefined);
-    communityTimes = supplied.communityPosts !== undefined
-      ? supplied.communityPosts
-      : (communityOn ? new Map() : null);
   } else {
     try { direct = chat.dmSummaryAll(); } catch { direct = null; }
     try { const rec = messages.record(); roomRows = rec && rec.ok === true && Array.isArray(rec.rows) ? rec.rows : null; } catch { roomRows = null; }
     try { births = create.createdLog(); } catch { births = null; }
-    try { communityOn = communitysend.switchOn(); } catch { communityOn = false; }
-    if (communityOn) {
-      // #5314: PUBLISHED posts only (the card counts posts published on the board, not held/quarantined ones);
-      // the community nudge keeps postTimesAll (all statuses). See communitystore.
-      try { communityTimes = communitystore.publishedPostTimesAll(); } catch { communityTimes = null; }
-    }
   }
   const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
   const latest = (values) => {
@@ -4532,34 +4517,6 @@ function withAgentSortFields(list, supplied) {
         .map((b) => at(b.at)).filter(Number.isFinite);
       if (matches.length) createdAt = new Date(Math.min(...matches)).toISOString();
     }
-    let lastCommunityPost = null;
-    let lastCommunityPostAt = null;
-    if (communityOn) {
-      if (communityTimes === null) {
-        lastCommunityPost = null;
-      } else {
-        let times = [];
-        for (const name of [a && a.sessionName, a && a.name].filter(Boolean)) {
-          const k = String(name).trim().toLowerCase();
-          const list = communityTimes instanceof Map ? communityTimes.get(k) : communityTimes[k];
-          if (Array.isArray(list) && list.length > 0) {
-            times = times.concat(list);
-          }
-        }
-        const parsedTimes = times.map(at).filter(Number.isFinite);
-        if (parsedTimes.length > 0) {
-          const latestTime = Math.max(...parsedTimes);
-          lastCommunityPostAt = new Date(latestTime).toISOString();
-          const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-          const now = (supplied && supplied.now) ? new Date(supplied.now) : new Date();
-          const days = Math.round((midnight(now) - midnight(new Date(latestTime))) / communitynudge.DAY_MS);
-          const age = days <= 0 ? 'today' : (days === 1 ? 'yesterday' : `${days} days ago`);
-          lastCommunityPost = `Last community post: ${age}`;
-        } else {
-          lastCommunityPost = 'No community posts yet';
-        }
-      }
-    }
     const readableTalk = dm !== null && roomRows !== null;
     const readableActive = dm !== null && roomRows !== null && workReadable;
     return {
@@ -4568,9 +4525,6 @@ function withAgentSortFields(list, supplied) {
       lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
       lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
       createdAt,
-      communityOn,
-      lastCommunityPost,
-      lastCommunityPostAt,
     };
   });
 }
