@@ -41,6 +41,12 @@ plain address as before.
 - The address is not checked against the last list of the account's computers: the ticket is bound to the origin it
   names, so a ticket for an address that is not one of the computers opens nothing.
 
+- The board-cookie rule (boardCookieHere) is unit-tested and tied to the route by its source; no route-level test runs
+  on a board that enforces its token (the test board is sandboxed, so it enforces nothing). Stated.
+- The ticket's shape (base64url, 20 to 2048 characters) matches what kosmos-relay's openticket::make prints: base64url
+  of its JSON with no padding, about 340 characters.
+- The Mac app's reload log line prints the window's address; a reload before the page takes `#kpt=` out would log a
+  live ticket (single use, two minutes).
 - A local port forward (ssh -L, an editor's remote forward) looks exactly like this computer; as with a local process,
   whoever set it up already has a shell here.
 - A local process sending a browser's header (no agent token) can get a ticket, as it can use the other screen-only
@@ -92,3 +98,6 @@ plain address as before.
   strips; unit arms and the route tie); the local port-forward limit stated.
   The board page now takes a #kpt= out of its address on load (the view router keeps a fragment when the query is
   unchanged); browser-checked.
+- 9 sonnet: no bypass found. The load-time strip removes only the kpt key; the ticket call has its own 15 s limit;
+  the comments read in order; the enforcing-board test gap, the ticket shape check against the relay and the Mac
+  reload log stated.

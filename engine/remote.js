@@ -2281,7 +2281,8 @@ async function joinRetry() {
    only for a request made on this computer's own screen. `address` is the other computer's host, already checked. */
 async function openTicket(address) {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
-  const r = await tracked(setupRun(['open-ticket', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, retireTimeoutMs()));
+  // Its own short limit: the page opens the plain address after 8 s anyway (a ticket is local work, no network).
+  const r = await tracked(setupRun(['open-ticket', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, 15000));
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
   if (!r.ok && r.code === 2 && /unrecognized subcommand '?open-ticket'?/.test(said)) {
     return { ok: false, because: 'this version of Kosmos cannot open another computer directly yet' };

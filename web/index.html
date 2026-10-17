@@ -30702,7 +30702,9 @@ if (typeof document !== 'undefined' && document.addEventListener) document.addEv
    computer sent along (#kpt=) is taken out of the address here, unused, as the gate page would. */
 try {
   if (typeof location !== 'undefined' && /(^#|&)kpt=/.test(location.hash || '')) {
-    history.replaceState(history.state, '', location.pathname + location.search);
+    // Only the kpt key goes; anything else in the fragment stays.
+    const rest = String(location.hash).replace(/^#/, '').split('&').filter((p) => p && !/^kpt=/.test(p)).join('&');
+    history.replaceState(history.state, '', location.pathname + location.search + (rest ? '#' + rest : ''));
   }
 } catch {}
 function computersRender(data) {
