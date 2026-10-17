@@ -202,7 +202,7 @@ _kts_held() {
 # failed owner write leaves the same. So the report lists what the dir holds, whose names often say which test's
 # process it was.
 leak_kts_owners() {
-  local root="${1%/}" d owner rest pid why shown
+  local root="${1%/}" d owner rest pid why shown unfinished
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
     # A dir the guard cannot search hides whether it has an owner, so it says only that.
@@ -210,6 +210,13 @@ leak_kts_owners() {
     owner=""
     if [ -f "$d/.kts-owner" ] && [ ! -r "$d/.kts-owner" ]; then echo "  ${d##*/}: its owner file cannot be read here"; continue; fi
     if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
+    # tmpscope rewrites a survived dir's owner aside (.kts-owner.new) and renames it in; a kill between the two leaves
+    # only the aside copy, which still names the file.
+    unfinished=""
+    if [ -z "$owner" ] && [ ! -e "$d/.kts-owner" ] && [ -r "$d/.kts-owner.new" ]; then
+      IFS= read -r owner < "$d/.kts-owner.new" || true
+      [ -n "$owner" ] && unfinished="; its owner rewrite did not finish"
+    fi
     if [ -n "$owner" ]; then
       pid="pid unknown"
       why="its exit sweep did not run (killed, still running, or the sweep failed)"
@@ -220,12 +227,12 @@ leak_kts_owners() {
           case "$rest" in *$'\t'"survived its sweep") why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
       esac
       case "$why" in
-        *survived*) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why; it holds: $(_kts_held "$d")" ;;
+        *survived*) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why$unfinished; it holds: $(_kts_held "$d")" ;;
         *) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why" ;;
       esac
     elif [ -f "$d/.kts-owner" ]; then
-      # An EMPTY owner file was cut while tmpscope wrote it (at creation, or its rewrite after a failed sweep);
-      # a remade dir has none at all.
+      # An EMPTY owner file was cut while tmpscope wrote it at creation (its later rewrite goes aside and is renamed
+      # in, so it cannot empty one); a remade dir has none at all.
       echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
       shown=$(_kts_held "$d")

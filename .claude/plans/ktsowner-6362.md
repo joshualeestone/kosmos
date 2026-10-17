@@ -31,6 +31,9 @@ Mona's two dirs are gone (the run's temp root is removed), so which arm they wer
   started and left running, or by a tmpscope older than #6061"), not a frequency: how often each arm happens in real
   runs is not measured.
 
+- Review 11: a kill between the aside write and the rename leaves only `.kts-owner.new`; the guard names the file from
+  it and says the rewrite did not finish.
+
 ## Weakest premise
 That the leaked folders' names identify their test. Many fixture prefixes carry a card number or a test name, but a
 generic one (`tmp-`, a bare mkdtemp) would not; then the report says what is there and a person still has to look.
@@ -54,7 +57,7 @@ marked owner line, the owner-less listing under set -e and pipefail, and the fiv
 the owner rewrite reds the survive-sweep test. NOT guarded by a test: the sweep's retry (`maxRetries`). Node retries
 ENOTEMPTY, EBUSY and EPERM but not the EACCES the locked-folder test makes, and a real ENOTEMPTY race is not
 deterministic; arm A's "0 of 30" is the scratch measurement, not a suite check.
-- Review 1 and 5: what the guard cannot see, it says it cannot see. An EMPTY `.kts-owner` reads "owner file empty
+- Review 1 and 5: what the guard cannot see, it says it cannot see. An EMPTY `.kts-owner` (cut at creation) reads "owner file empty
   (most likely the test was killed while tmpscope wrote it)"; an unreadable one, "its owner file cannot be read
   here"; a dir it cannot search, "cannot be read here, so its owner is unknown"; a listing that failed part way
   keeps what it printed, marked incomplete (that branch is untested: a walk that fails part way cannot be made on

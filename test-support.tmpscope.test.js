@@ -332,7 +332,7 @@ test('#6362: a process left running that makes the dir again after its test ende
   // The child waits for its parent to end (and sweep), then makes a folder under the parent's TMPDIR, as a left
   // running helper would.
   const child = `const fs=require('fs'),os=require('os'),p=require('path');const parent=+process.argv[1];
-const t=setInterval(()=>{try{process.kill(parent,0)}catch{clearInterval(t);fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true});fs.writeFileSync(${JSON.stringify(done)},'');}},20);`;
+const t=setInterval(()=>{try{process.kill(parent,0)}catch{clearInterval(t);try{fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true})}finally{fs.writeFileSync(${JSON.stringify(done)},'')}}},20);`;
   const pidFile = path.join(base, 'child-pid');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const {spawn}=require('child_process');
 const c=spawn(process.execPath,['-e',${JSON.stringify(child)},String(process.pid)],{detached:true,stdio:'ignore'});
@@ -352,7 +352,8 @@ require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();
     assert.match(guardSays(base), /: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 \(or its write failed\); it holds: helper-cache-6362\n$/);
   } finally {
     // On a failure above, end the child before freshBase removes the base, or its recursive mkdir would make it again.
-    // Only while it has not finished: once it wrote child-done it has exited, and its pid may be someone else's.
+    // Only while it has not finished: it writes child-done however its mkdir went, so a missing child-done means it
+    // is still waiting, and a present one means its pid may be someone else's.
     if (childPid && !fs.existsSync(done)) { try { process.kill(childPid, 'SIGKILL'); } catch { /* it has ended */ } }
   }
 });
