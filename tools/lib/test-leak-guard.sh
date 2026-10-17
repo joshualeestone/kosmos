@@ -213,15 +213,16 @@ leak_kts_owners() {
     # tmpscope rewrites a survived dir's owner aside (.kts-owner.new) and renames it in; a kill between the two leaves
     # only the aside copy, which still names the file.
     unfinished=""
-    if [ -r "$d/.kts-owner.new" ]; then
-      aside=""; IFS= read -r aside < "$d/.kts-owner.new" || true
-      case "$aside" in
-        *$'\t'"survived its sweep") owner=$aside; unfinished="; its owner rewrite did not finish" ;;
-        "") if [ -z "$owner" ]; then
-              echo "  ${d##*/}: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: $(_kts_held "$d")"
-              continue
-            fi ;;
-      esac
+    if [ -e "$d/.kts-owner.new" ]; then
+      # Only the rewrite after a survived sweep writes .kts-owner.new, so its presence alone says the sweep ran.
+      aside=""; [ -r "$d/.kts-owner.new" ] && { IFS= read -r aside < "$d/.kts-owner.new" || true; }
+      unfinished="; its owner rewrite did not finish"
+      if [ -n "$aside" ]; then owner="${aside%%$'\t'survived its sweep}"$'\t'"survived its sweep"
+      elif [ -n "$owner" ]; then owner="${owner%%$'\t'survived its sweep}"$'\t'"survived its sweep"
+      else
+        echo "  ${d##*/}: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: $(_kts_held "$d")"
+        continue
+      fi
     fi
     if [ -n "$owner" ]; then
       pid="pid unknown"

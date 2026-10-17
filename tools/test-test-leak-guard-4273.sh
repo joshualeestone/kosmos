@@ -83,6 +83,14 @@ rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 rm -f "$root/kts-Ab12Cd/.kts-owner"; : > "$root/kts-Ab12Cd/.kts-owner.new"
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: nothing' && ok "#6362: a cut aside copy says the sweep ran, not that the dir was remade" || bad "cut aside: rc=$rc out=$out"
+# Any aside copy proves the sweep ran: an unmarked one (cut mid-line) with no owner still names the file,
+printf 'engine/half-6362.test.js\tpid 5' > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/half-6362.test.js (pid 5); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an unmarked aside copy still says the sweep ran, and names the file" || bad "unmarked aside: rc=$rc out=$out"
+# and an empty aside copy beside a good owner takes the name from the owner, not "did not run".
+: > "$root/kts-Ab12Cd/.kts-owner.new"; printf 'engine/kept-6362.test.js\tpid 6\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/kept-6362.test.js (pid 6); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an empty aside copy beside an owner says the sweep ran" || bad "empty aside with owner: rc=$rc out=$out"
 rm -f "$root/kts-Ab12Cd/.kts-owner.new"
 printf 'x\tpid 1\n' > "$root/kts-Ab12Cd/.kts-owner"
 # #6362: a dir with no owner lists what it holds (the names a left-running process wrote), never .kts-owner itself.
