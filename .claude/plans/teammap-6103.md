@@ -38,3 +38,14 @@ That people want the map per project, not per company.
   written to the board's projects.json as moved by tmada shows "tmada handed tmben 1 open part" after a
   reload, after a CONTROL showing a screen-given task is no hand-off. Mutant: partsOf without its movedBy
   carry reds it.
+
+## Review round 4
+- Fixed: the unit test's "holds" assertions matched greedily across nodes, so a later member's words met an earlier
+  member's claim and the progress.closed skip had no guard (the reviewer's mutant stayed green). They now read one
+  member's own button (`held()`); the progress.closed arm also asserts no hand-off. Mutant now red.
+- Fixed: the needs-you set is computed once per map (pjRedHere builds a member's row); the button uses the map's own
+  roster filter; the absent / restarting status words are tested.
+- Deferred: the movedBy arm edits projects.json while the board runs. projects.readAll reads the file on every call
+  (engine/projects.js) and mutate is read-modify-write with no cache, measured in the arm's own diagnostics (disk
+  holds movedBy before and after the route read); the edit and the reload are milliseconds apart. If it ever races,
+  the failure prints the disk reading after write and after the route, so the race names itself.

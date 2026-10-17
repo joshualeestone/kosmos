@@ -3,9 +3,11 @@
  *
  * Drives the SHIPPED page against a real server (sandboxed roots, fixture panes, never a live agent): a project with
  * three fixture members. Asserts the map starts closed, the button opens it with aria-expanded true, every member is
- * on it as a button, a second click closes it, a member on the map opens that agent's page, and at phone width the
- * open map does not widen the page. Which part counts as held or handed is the unit suite's (web.teammap-6103.test.js,
- * on the real tasks engine); this is what only a browser can see.
+ * on it as a button, a second click closes it, a forced rebuild keeps a focused member focused, a member on the map
+ * opens that agent's page, and at phone width the open map does not widen the page. One hand-off arm proves movedBy
+ * reaches the page through the real GET /api/projects route (a part written to the store as moved by an agent shows
+ * as handed; a screen-given task first shows none). The counting rules themselves are the unit suite's
+ * (web.teammap-6103.test.js, on the real tasks engine).
  *
  * Every arm reds on the pre-#6103 page: there is no #pj-teammap-btn and no #pj-teammap.
  *

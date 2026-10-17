@@ -59,6 +59,13 @@ function build(name, setup) {
   } finally { board.restore(); }
 }
 const textOf = (html) => html.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+/* One member's own words on the map, from its button to that button's end, so a claim about one member can never be
+   met by a later member's words (review round 4: a match greedy across nodes could not fail). */
+const held = (html, name) => {
+  const at = html.indexOf('data-agent="' + name + '"');
+  assert.notEqual(at, -1, name + ' is not on the map');
+  return textOf(html.slice(at, html.indexOf('</button>', at)));
+};
 
 test('#6103: a hand-off is said only where a part records who moved it', () => {
   const { p, board } = build('Handoffs', (proj, tasks) => {
@@ -73,12 +80,13 @@ test('#6103: a hand-off is said only where a part records who moved it', () => {
   assert.ok(p && p.agents.length === 3, 'CONTROL: the real project has its three members');
   const parts = p.tasks.flatMap((t) => t.parts);
   assert.equal(parts.filter((x) => x.movedBy === 'roo').length, 2, 'CONTROL: the engine recorded two named moves');
-  const out = textOf(pjTeamMap(p, board));
+  const html = pjTeamMap(p, board);
+  const out = textOf(html);
   assert.match(out, /roo handed pixel 2 open parts/, 'the named hand-offs are not said');
   assert.doesNotMatch(out, /handed quill/, 'a move from the screen was drawn as a hand-off between agents');
-  assert.match(out, /pixel\b[^]*holds 2 open parts/, 'pixel does not show the two parts it holds');
-  assert.match(out, /quill\b[^]*holds 1 open part\b/, 'quill does not show the part it holds');
-  assert.match(out, /roo\b[^]*holds no open parts/, 'roo does not say it holds nothing');
+  assert.match(held(html, 'pixel'), /holds 2 open parts/, 'pixel does not show the two parts it holds');
+  assert.match(held(html, 'quill'), /holds 1 open part\b/, 'quill does not show the part it holds');
+  assert.match(held(html, 'roo'), /holds no open parts/, 'roo does not say it holds nothing');
 });
 
 test('#6103: with no recorded hand-off, the map says none rather than guessing the lead gave it out', () => {
@@ -86,10 +94,11 @@ test('#6103: with no recorded hand-off, the map says none rather than guessing t
     const a = tasks.create(proj.id, { sentence: 'Write it' });
     assert.equal(tasks.assignPart(proj.id, a.number, 1, 'pixel', { via: 'process' }).changed, true);   // nobody named
   });
-  const out = textOf(pjTeamMap(p, board));
+  const html = pjTeamMap(p, board);
+  const out = textOf(html);
   assert.match(out, /No hand-offs between agents on open work yet/);
   assert.doesNotMatch(out, /\w+ handed \w+ \d/, 'a hand-off was invented');
-  assert.match(out, /pixel\b[^]*holds 1 open part\b/, 'CONTROL: the held part still counts');
+  assert.match(held(html, 'pixel'), /holds 1 open part\b/, 'CONTROL: the held part still counts');
 });
 
 test('#6103: a closed part is neither held nor handed', () => {
@@ -100,17 +109,22 @@ test('#6103: a closed part is neither held nor handed', () => {
   const open = textOf(pjTeamMap(p, board));
   assert.match(open, /roo handed pixel 1 open part\b/, 'CONTROL: while open, the hand-off is said');
   const closed = { ...p, tasks: p.tasks.map((t) => ({ ...t, parts: t.parts.map((x) => ({ ...x, closedAt: '2026-10-16T16:00:00Z' })) })) };
-  const out = textOf(pjTeamMap(closed, board));
-  assert.doesNotMatch(out, /\w+ handed \w+ \d/, 'a closed part was drawn as a hand-off');
-  assert.match(out, /pixel\b[^]*holds no open parts/, 'a closed part still counts as held');
+  assert.match(held(pjTeamMap(p, board), 'pixel'), /holds 1 open part\b/, 'CONTROL: while open, pixel holds it');
+  const closedHtml = pjTeamMap(closed, board);
+  assert.doesNotMatch(textOf(closedHtml), /\w+ handed \w+ \d/, 'a closed part was drawn as a hand-off');
+  assert.match(held(closedHtml, 'pixel'), /holds no open parts/, 'a closed part still counts as held');
   // A closed TASK whose parts are still open: the task-level skip alone keeps them out.
   const closedTask = { ...p, tasks: p.tasks.map((t) => ({ ...t, closedAt: '2026-10-16T16:00:00Z' })) };
   assert.ok(closedTask.tasks.every((t) => t.parts.some((x) => !x.closedAt)), 'CONTROL: the parts are still open');
-  const outTask = textOf(pjTeamMap(closedTask, board));
-  assert.doesNotMatch(outTask, /\w+ handed \w+ \d/, 'a closed task\'s open part was drawn as a hand-off');
-  assert.match(outTask, /pixel\b[^]*holds no open parts/, 'a closed task\'s open part still counts as held');
-  const doneTask = { ...p, tasks: p.tasks.map((t) => ({ ...t, progress: { ...(t.progress || {}), closed: true } })) };
-  assert.match(textOf(pjTeamMap(doneTask, board)), /pixel\b[^]*holds no open parts/, 'a task whose progress says closed still counts');
+  const taskHtml = pjTeamMap(closedTask, board);
+  assert.doesNotMatch(textOf(taskHtml), /\w+ handed \w+ \d/, 'a closed task\'s open part was drawn as a hand-off');
+  assert.match(held(taskHtml, 'pixel'), /holds no open parts/, 'a closed task\'s open part still counts as held');
+  // progress.closed alone (a task its parts closed, as the engine reports it), with closedAt unset on the task.
+  const doneTask = { ...p, tasks: p.tasks.map((t) => ({ ...t, closedAt: null, progress: { ...(t.progress || {}), closed: true } })) };
+  assert.ok(doneTask.tasks.every((t) => !t.closedAt && t.parts.some((x) => !x.closedAt)), 'CONTROL: only progress says closed');
+  const doneHtml = pjTeamMap(doneTask, board);
+  assert.doesNotMatch(textOf(doneHtml), /\w+ handed \w+ \d/, 'a task whose progress says closed was drawn as a hand-off');
+  assert.match(held(doneHtml, 'pixel'), /holds no open parts/, 'a task whose progress says closed still counts');
 });
 
 test('#6103: the "!" marks every member the needs-you block lists, the red-but-uncounted ones too', () => {
@@ -155,6 +169,13 @@ test('#6103: each member shows its model family, and a Qwen agent is never OpenA
   assert.match(out, /roo Claude ·/);
   assert.match(out, /pixel OpenAI Codex ·/);
   assert.match(out, /quill Qwen ·/, 'a Qwen agent read as OpenAI');
+  // The status word: a member the board cannot see says so; a restarting one keeps its restart words.
+  const seen = p.agents.map((m) => (m.sessionName === 'roo' ? { ...m, present: false, state: 'idle' }
+    : m.sessionName === 'pixel' ? { ...m, present: false, state: 'restarting' } : m));
+  const words = pjTeamMap({ ...p, agents: seen }, board);
+  assert.match(held(words, 'roo'), /Kosmos cannot see it/, 'an absent member did not say Kosmos cannot see it');
+  assert.match(held(words, 'pixel'), /Restarting agent/, 'a restarting member lost its restart words');
+  assert.doesNotMatch(held(words, 'quill'), /cannot see it/, 'CONTROL: a present member reads as present');
 });
 
 test('#6103: names are escaped and an empty project says so', () => {

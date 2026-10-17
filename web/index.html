@@ -62118,8 +62118,10 @@ function pjTeamMap(p, board, redHere) {
     const c = stateCopyOf(m);
     return c && c.label ? c.label : '';
   };
-  const needs = (m) => (typeof m.needsYouHere === 'string' && !!m.needsYouHere)
-    || (typeof redHere === 'function' && m.present === true && !!redHere(m));
+  // Once per member: pjRedHere builds the member's whole row to answer, and the map asks several times per node.
+  const needSet = new Set([...byName.values()].filter((m) => (typeof m.needsYouHere === 'string' && !!m.needsYouHere)
+    || (typeof redHere === 'function' && m.present === true && !!redHere(m))).map((m) => m.sessionName));
+  const needs = (m) => needSet.has(m.sessionName);
   const node = (m) => {
     const n = holds.get(m.sessionName) || 0;
     const held = n === 0 ? 'holds no open parts' : n === 1 ? 'holds 1 open part' : 'holds ' + n + ' open parts';
@@ -67292,8 +67294,10 @@ function paintOneProject() {
   { const btn = document.getElementById('pj-teammap-btn');
     const box = document.getElementById('pj-teammap');
     if (btn && box) {
-      const open = roster.length > 0 && PJ_TEAMMAP_OPEN.has(String(p.id));
-      btn.hidden = roster.length === 0;
+      // The map's own filter (members with a session name), so the button never opens an empty map.
+      const mapped = roster.filter((m) => m && typeof m.sessionName === 'string' && m.sessionName).length;
+      const open = mapped > 0 && PJ_TEAMMAP_OPEN.has(String(p.id));
+      btn.hidden = mapped === 0;
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       box.hidden = !open;
       if (open) {
