@@ -50071,8 +50071,8 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 /* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk).
-   Storage is read each time, so another tab's dismissal applies here too; this tab's own record is used only when
-   storage cannot be read or its last write failed. */
+   While storage works it is read on every paint, so another tab's dismissal applies here too. Once a read or write
+   fails, this tab uses its own record until a write succeeds again. */
 function askNoteDismissed() {
   if (!ASK.noteStoreFailed) {
     try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* below */ }
@@ -50086,7 +50086,12 @@ function askNoteSave(keys) {
     ASK.noteStoreFailed = false;
   } catch (e) { ASK.noteStoreFailed = true; }
 }
-function askNoteDismiss() { askNoteSave((ASK.noteKeys || []).slice()); }
+/* Added to what was put away before (the newest 200 kept), so a request dismissed earlier and missing from one list
+   is not forgotten when another is dismissed. */
+function askNoteDismiss() {
+  const all = askNoteDismissed().filter((k) => (ASK.noteKeys || []).indexOf(k) === -1).concat(ASK.noteKeys || []);
+  askNoteSave(all.slice(-200));
+}
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
 function askBrowserWord(name) {
   const n = String(name || '');
@@ -50235,19 +50240,23 @@ function paintAsk() {
   if (!onPlus) {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
-    // A request is its device and when it asked, so the same device asking again later is a new request.
-    ASK.noteKeys = live.map((d) => String(d.device_id) + '@' + (d.first_seen || '')).concat(here ? ['here:' + askHereKey(here)] : []);
-    // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind): a
-    // request asking again has a new first_seen, so it is not in the record.
+    // A request is its device and when it asked (and when it was last turned away), so the same device asking again
+    // later is a new request. A row the coordinator sends with no first_seen and no denied_at cannot come back.
+    const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '');
+    const hereKey = here ? 'here:' + askHereKey(here) : '';
+    ASK.noteKeys = live.map(noteKey).concat(hereKey ? [hereKey] : []);
+    // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
-    // Hidden while every request it would name was put away; only one not there then brings it back.
-    if (!hide && ASK.noteKeys.length && ASK.noteKeys.every((k) => put.indexOf(k) !== -1)) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
+    // The notice names only what was not put away; with nothing left it is hidden.
+    const fresh = live.filter((d) => put.indexOf(noteKey(d)) === -1);
+    const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
+    if (!fresh.length && !hereNew) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
-    const n = live.length;
+    const n = fresh.length;
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
-    const line = !n && here ? askEsc(askBrowserWord(here.name)) + ' on this computer is connected.' : n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.';
+    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
       '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss notice" title="Dismiss">&times;</button></div>');

@@ -160,6 +160,17 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       chk(loaded && !(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload (the list loaded first)', String(loaded));
       await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
       chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with the stored record gone (another tab cleared it), the notice shows');
+      await page.evaluate(() => { localStorage.setItem('kosmos.asknote.dismissed', ASK.noteKeys.join('\n')); paintAsk(); });
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 another tab\'s dismissal (written to storage) hides the notice here');
+      await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
+      /* A browser this computer just connected, arriving after the requests were put away, brings the notice back
+         about itself, not about the dismissed requests. */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await page.evaluate(() => { ASK.here = { device_id: 'd-here', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk(); });
+      const hn = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') }));
+      chk(hn.shown && /on this computer is connected/.test(hn.text) && !/want/.test(hn.text), '[' + W + '] #6315 a new connected-here browser is what the returning notice names', JSON.stringify(hn));
+      await page.evaluate(() => { ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk(); });
       /* Storage that throws: the dismissal still holds in this tab. */
       await page.evaluate(() => { Storage.prototype.__set = Storage.prototype.setItem; Storage.prototype.__get = Storage.prototype.getItem;
         Storage.prototype.setItem = () => { throw new Error('quota'); }; Storage.prototype.getItem = () => { throw new Error('denied'); }; });
