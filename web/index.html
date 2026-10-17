@@ -20676,7 +20676,8 @@ function pnavFill(name) {
       const nm = row.querySelector('.worldsw-rowname'), st = row.querySelector('.worldsw-state');
       const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
       it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
-      if (row.tagName === 'A') { it.href = row.href; it.target = '_blank'; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
+      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -30589,6 +30590,17 @@ async function computersFetch() {
   if (gen !== COMPUTERS_GEN) return;
   computersRender(data);
 }
+/* kosmos#6406: the Kosmos app's own window (the Mac app's kosmosBadge bridge, the Windows app's WebView2), not a browser. */
+function computersInApp() {
+  try { return !!((window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge) || (window.chrome && window.chrome.webview)); } catch { return false; }
+}
+/* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
+   a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
+   is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+function computersLinkTarget(a) {
+  if (!computersInApp()) a.target = '_blank';
+}
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
@@ -30630,7 +30642,9 @@ function computersRender(data) {
       st.textContent = state;
       if (opens) {
         row.href = 'https://' + c.address + '/';
-        row.target = '_blank';
+        /* kosmos#6406: in the Kosmos app this window, in a browser a new tab (computersLinkTarget); noreferrer either
+           way, so this board's address never travels in the request. */
+        if (typeof computersLinkTarget === 'function') computersLinkTarget(row); else row.target = '_blank';
         row.rel = 'noopener noreferrer';
         row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
       }
@@ -30787,7 +30801,7 @@ function oaCard(a, c, off) {
   const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
   if (!off) {
     el.href = oaAgentHref(c.address, a.sessionName);
-    el.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(el); else el.target = '_blank';   // #6406
     el.rel = 'noopener noreferrer';
     el.setAttribute('aria-label', 'Open ' + name + ' on ' + c.name);
   }
@@ -30819,7 +30833,7 @@ function oaGroup(c, seen, now) {
     const open = document.createElement('a');
     open.className = 'oa-open';
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(open); else open.target = '_blank';   // #6406
     open.rel = 'noopener noreferrer';
     open.textContent = 'Open ' + c.name;
     head.appendChild(open);
@@ -31117,7 +31131,7 @@ function aoGroup(c, seen, ao, now) {
   if (st !== 'out') {   // as the Agents view's group (#4812): where to sign in, or to see it there
     const open = aoEl('a', 'oa-open', 'Open ' + c.name);
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(open); else open.target = '_blank';   // #6406
     open.rel = 'noopener noreferrer';
     g.appendChild(open);
   }

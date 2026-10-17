@@ -12,7 +12,9 @@
  *     row says its state in words;
  *   - nothing is clipped: every row fits the menu, and each state word is fully inside it;
  *   - the control that can return the dangerous answer: a board that is not signed in
- *     (the route's { ok: false }) shows NO section at all.
+ *     (the route's { ok: false }) shows NO section at all;
+ *   - #6406: in the Kosmos app (its bridge present) an online computer is a same-window link,
+ *     still noreferrer, and the phone menu's copy of it too (the app keeps it in its window).
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-computers-4648.js
  *      (HEADED=0 on a machine with no console session)
@@ -142,6 +144,43 @@ const FOUR = {
     });
     ok(`${t} not signed in: the read was really served before this was checked`, b.served === true, JSON.stringify(b));
     ok(`${t} not signed in: the section is gone`, b.hidden === true && b.display === 'none' && b.rows === 0, JSON.stringify(b));
+
+    // ---- #6406 CONTROL, in a browser (no bridge): the phone menu's copy keeps the row's new tab ----
+    const pnavBrowser = await page.evaluate(async (four) => {
+      window.__computers = four;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+      if (!document.getElementById('pnav-computer-list')) { const ul = document.createElement('ul'); ul.id = 'pnav-computer-list'; document.body.appendChild(ul); }
+      pnavFill('computers');
+      const p = document.querySelector('#pnav-computer-list a');
+      worldswClose();
+      return p ? p.getAttribute('target') : 'missing';
+    }, FOUR);
+    ok(`${t} #6406 CONTROL: in a browser the phone menu's copy of an online computer opens a new tab`, pnavBrowser === '_blank', String(pnavBrowser));
+
+    // ---- Arm 3, #6406: in the Kosmos app (its bridge present) an online computer opens in THIS window ----
+    const inApp = await page.evaluate(async (four) => {
+      try { Object.defineProperty(window, 'webkit', { value: { messageHandlers: { kosmosBadge: { postMessage() {} } } }, configurable: true, writable: true }); } catch {}   // the Mac app's bridge
+      window.__computers = four;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+      const a = document.querySelector('#worldsw-computers-list a.worldsw-row');
+      const out = a ? { inApp: computersInApp(), href: a.getAttribute('href'), target: a.getAttribute('target'), rel: a.getAttribute('rel') } : null;
+      // The phone menu's copy of the list (#4823) keeps the row's own target, so it stays in the window too.
+      if (typeof pnavFill === 'function') {
+        if (!document.getElementById('pnav-computer-list')) { const ul = document.createElement('ul'); ul.id = 'pnav-computer-list'; document.body.appendChild(ul); }   // built only on a phone over Kosmos+
+        pnavFill('computers'); const p = document.querySelector('#pnav-computer-list a'); if (out) out.pnavTarget = p ? p.getAttribute('target') : 'missing'; }
+      delete window.webkit;
+      worldswClose();
+      return out;
+    }, FOUR);
+    ok(`${t} #6406: in the app, an online computer is a same-window link (no new tab), still noreferrer`,
+      !!inApp && inApp.inApp === true && /^https:\/\//.test(inApp.href) && inApp.target === null && inApp.rel === 'noopener noreferrer', JSON.stringify(inApp));
+    ok(`${t} #6406: the phone menu's copy of an online computer also opens in the window`, !!inApp && inApp.pnavTarget === null, JSON.stringify(inApp));
 
     await page.close();
   }

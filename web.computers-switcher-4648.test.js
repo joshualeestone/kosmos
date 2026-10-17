@@ -29,6 +29,7 @@ function constLine(name) {
 const RENDER = slice('computersRender');
 const FETCH = slice('computersFetch');
 const RE = slice('computerAddressOk');
+const INAPP = slice('computersInApp') + slice('computersLinkTarget');   // #6406
 
 function dom() {
   const d = makeDom();
@@ -36,7 +37,7 @@ function dom() {
   const list = d.add('worldsw-computers-list', 'div');
   return { d, box, list };
 }
-function render(data, visibleBefore) {
+function render(data, visibleBefore, win) {
   const t = dom();
   if (visibleBefore) {
     // As a previous render left it: visible, holding a row, so both the hide AND the emptying are tested.
@@ -44,7 +45,7 @@ function render(data, visibleBefore) {
     t.list.appendChild(t.d.document.createElement('div'));
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', '_d', `${RE}${RENDER}\ncomputersRender(_d);`)(t.d.document, data);
+  new Function('document', '_d', 'window', `${RE}${INAPP}${RENDER}\ncomputersRender(_d);`)(t.d.document, data, win || {});
   return t;
 }
 const LIST = {
@@ -66,6 +67,33 @@ test('hidden when there is no list: not signed in ({ ok: false }), a failed read
     const { box, list } = render(data, true);
     assert.equal(box.hidden, true, JSON.stringify(data));
     assert.equal(list.children.length, 0, JSON.stringify(data));
+  }
+});
+
+test('#6406: in the Kosmos app (Mac bridge, or Windows WebView2) an online computer opens in this window; in a browser, a new tab', () => {
+  for (const [win, label] of [[{ webkit: { messageHandlers: { kosmosBadge: {} } } }, 'Mac app'], [{ chrome: { webview: {} } }, 'Windows app']]) {
+    const a = render(LIST, false, win).list.children[1];
+    assert.equal(a.href, 'https://agent1s.kosmosplus.com/', label);
+    assert.ok(!a.target, label + ': no new window, so the app keeps it in its own window');
+    assert.equal(a.rel, 'noopener noreferrer', label + ': this board\'s address never travels');
+  }
+  // CONTROL: a browser (no bridge) keeps the new tab.
+  assert.equal(render(LIST, false, {}).list.children[1].target, '_blank');
+});
+
+test('#6406: every link the page builds to another computer goes through computersLinkTarget', () => {
+  /* Any '_blank' set within six lines after a line that names a computer's address (c.address, or oaAgentHref) must be
+     the helper's own fallback for a test that lifts one function; and each such href is followed by the helper. */
+  const lines = PAGE.split('\n');
+  const addressLine = (l) => /\.address\b|oaAgentHref\(/.test(l) && /href/.test(l);
+  const sites = [];
+  lines.forEach((l, i) => { if (addressLine(l)) sites.push(i); });
+  assert.ok(sites.length >= 4, 'found ' + sites.length + ' address links');
+  for (const i of sites) {
+    const near = lines.slice(i, i + 7);
+    assert.ok(near.some((l) => /computersLinkTarget\(/.test(l)), 'line ' + (i + 1) + ' must use the helper: ' + lines[i].trim());
+    const bare = near.filter((l) => /target\s*=\s*['"]_blank['"]|setAttribute\(\s*['"]target['"]/.test(l) && !/typeof computersLinkTarget === 'function'/.test(l));
+    assert.deepEqual(bare, [], 'line ' + (i + 1) + ' sets a new-window target by itself');
   }
 });
 
