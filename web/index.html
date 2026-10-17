@@ -51605,15 +51605,17 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     PLUS_JOIN_MSG = '';
     if (why === 'attempts_used') { if (PLUS_JOIN) { PLUS_JOIN.failed = true; PLUS_JOIN.needs_retry = false; } }
-    /* nothing_to_retry: the pairing moved on since this screen was painted; the next round says what it is now. */
-    else if (why !== 'nothing_to_retry') PLUS_JOIN_MSG = plusWords(why || 'That did not go through. Try again.');
+    /* nothing_to_retry: the pairing moved on since this screen was painted, so the button goes until a round says. */
+    else if (why === 'nothing_to_retry') { if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = false; } PLUS_JOIN_CODE_AT = 0; }
+    else PLUS_JOIN_MSG = plusWords(why || 'That did not go through. Try again.');
   }
   PLUS_JOIN_AT = 0;
+  const focusHere = !document.activeElement || document.activeElement === b || document.activeElement === document.body;
   { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
   paintPlusJoin();
   /* The button just pressed is gone with the repaint: focus moves to the block's next control, or to the block itself
-     (tabindex -1) when it has none, rather than falling to the page (WCAG 2.4.3). */
-  { const el = document.getElementById('plus-join'); const nb = el && el.querySelector('button'); if (nb) nb.focus(); else if (el && !el.hidden) el.focus(); }
+     (tabindex -1) when it has none, rather than falling to the page (WCAG 2.4.3). Not if the person moved on. */
+  if (focusHere) { const el = document.getElementById('plus-join'); const nb = el && el.querySelector('button'); if (nb) nb.focus(); else if (el && !el.hidden) el.focus(); }
   plusJoinTick();
 });
 document.getElementById('plus-join').addEventListener('click', async (e) => {

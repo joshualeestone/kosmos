@@ -350,8 +350,12 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #6353: a Try again refused for every try used says the recovery, with no Try again left`, JSON.stringify(usedSay));
       await page.waitForTimeout(3500); joinDelayMs = 0;   // outlasts the held round, so the next read is not paced
       join = { ...join, failed: false, needs_retry: true };
+      await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });   // an old code's clock, long run out
       jr = await readJoin();
+      const clockAtRetry = await page.evaluate(() => PLUS_JOIN_CODE_AT);
+      chk(clockAtRetry === 0, `${tag} #6353: a round saying Try again is owed stops the page's code clock`, String(clockAtRetry));
       /* Accepted: the button goes at once, before any round answers (a second press would only be refused). */
+      await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; });   // so only the press's own reset keeps the next arm off "ran out"
       const postsBefore = retryPosts;
       joinDelayMs = 3000;
       await page.click('#plus-join-retry');
@@ -374,6 +378,27 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       const failSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
       chk(/could not be reached/.test(failSay.text) && failSay.btn, `${tag} #6353: a Try again that did not go through says why and leaves Try again`, JSON.stringify(failSay));
+      /* Refused because the pairing moved on: the button does not come back pressable before a round says what is next. */
+      await page.waitForTimeout(4100);   // the failed press's own read, paced, is done
+      join = { ...join, needs_retry: true, confirm_expired: true };
+      jr = await readJoin();
+      retryRefuse = 'nothing_to_retry';
+      joinDelayMs = 3000;
+      await page.click('#plus-join-retry');
+      await page.waitForTimeout(500);
+      const movedOn = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
+      await page.waitForTimeout(3500); joinDelayMs = 0;
+      chk(movedOn.text === 'Working out the code with homemac, your other computer...' && !movedOn.btn,
+        `${tag} #6353: a Try again refused as nothing to retry takes the button away, promising nothing`, JSON.stringify(movedOn));
+      /* Focus is moved only when it was still on the pressed button: a person who tabbed away keeps their place. */
+      join = { ...join, needs_retry: true, confirm_expired: true };
+      jr = await readJoin();
+      joinDelayMs = 3000;
+      await page.evaluate(() => { const b = document.getElementById('plus-join-retry'); b.click(); document.getElementById('plus-pill').setAttribute('tabindex', '-1'); document.getElementById('plus-pill').focus(); });
+      await page.waitForTimeout(3600); joinDelayMs = 0;
+      const kept = await page.evaluate(() => document.activeElement && document.activeElement.id);
+      chk(kept === 'plus-pill', `${tag} #6353: a person who moved focus while Try again was out keeps it`, String(kept));
+      await page.evaluate(() => document.getElementById('plus-pill').removeAttribute('tabindex'));
       join = { ...join, needs_retry: false, confirm_expired: false };
       /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
          held, but the code stays until it is confirmed here. The block must still show it, with the button. */
