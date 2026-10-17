@@ -359,7 +359,7 @@ KOSMOS_QUEUE_CLASS=heavy
 # this suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite.
 # KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits for no other suite; another
 # agent's run still reads its own). Unset or empty is 2. A value must be 1 to 3 digits and not 0; anything else
-# reads as 1 (so 0003 is 1). 999 lets this run start beside up to 998 others; the file below still caps it.
+# reads as 1 (so 0003 is 1). 999 lets this run start beside up to 998 others; the file below, when present, still caps it.
 # The Mac-wide cap is a file, suite-max in the run-marker dir (~/.cache/kosmos-run-markers/suite-max), read by every
 # run that has this code, whatever its own tree: `echo 1 > ~/.cache/kosmos-run-markers/suite-max` puts them all back to
 # one at a time without a rebase. It can only lower the limit; unreadable or junk reads as 1.

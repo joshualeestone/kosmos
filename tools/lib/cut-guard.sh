@@ -513,7 +513,9 @@ _kosmos_suite_roots() {
       [ "$other" != "$pid" ] || continue
       _kosmos_pid_is_self_or_descendant "$pid" "$other" && { is_child=1; break; }
     done
-    [ "$is_child" = 1 ] || printf '%s\n' "$line"
+    [ "$is_child" = 1 ] && continue
+    _kosmos_pid_gone "$pid" && continue   # exited during the walk (its parent read as empty): not a suite of its own
+    printf '%s\n' "$line"
   done
 }
 
