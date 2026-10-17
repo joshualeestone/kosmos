@@ -162,3 +162,16 @@ header. A sender that set the cookie to the token would now be refused, and its 
   replaced rather than handed back about to expire.
 - A `?token=` / `?boot=` open made while the board is down now gets the browser's own error page rather than the
   cached offline shell (the worker skips sign-in navigations, by design). Ordinary opens are unchanged.
+
+## Round 14 (Sonnet), applied 2026-10-17
+- The tab panel's first remedy now signs THAT tab in (the steps just below); the Mac app is the alternative. Before,
+  the lead step (open the app) left the tab signed out, which the copy admitted but led with anyway.
+- A Kosmos+ page in the app window (a connect computer) is not told to the app and starts no stuck clock, and its
+  panel does not promise an app sign-in. The app ignores the post there (`guard computerMode != .connect`), so after
+  150 s the panel used to say "Quit Kosmos with Command-Q", which was wrong for that case. Both guards mutation-checked.
+- Static set found two exports reachable from nowhere (on fb73d19f8a already): `_resetSessions` is now a listed test
+  seam, and `liveSessionIds` is excused as pending until the proof route (Renet's half of #6358) calls it.
+- Stated, not changed: a refused `?token=` navigation sits in the app webview's committed URL and back-forward history
+  until the give-up page loads (the board's own token, in the app's own webview, stripped by syncUrl; not in logs).
+  Session eviction at the 1000 cap is oldest first, not by use: a local process that already holds the token can
+  push the app's session out, and the app signs in again within a minute.
