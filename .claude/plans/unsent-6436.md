@@ -30,4 +30,13 @@ from a delivery, which carries the card the pane check needs).
 - [x] Code; engine/chat.unsent-6436.test.js (scrolled, cut/added control, restart and file mode, retries, retry
   controls, ghost); two older tests updated (expiry reversed, sentence). Three mutants caught.
 - [x] chat, messages, roomhold, status composer tests and engine.reachable: 729 + reachable 8 green
-- [ ] Challenge loop, validation, proof, PR, merge
+- [x] Round 1 (opus): a resized pane (a person attaching) re-wraps the visible end, so any end of the line 200
+  characters or longer also counts (SCROLLED_MIN), with the seen match kept for shorter ends; retries are async (they
+  no longer hold the board, #4468); the file keeps at most 100 lines; stale comments fixed; retry arms tested
+  (still unsent, a newer line). Mutants: the 200 path, the newer-line guard.
+- [ ] Challenge loop convergence, validation, proof, PR, merge
+
+## Stated limit (round 1)
+The rows above a scrolled box's visible end cannot be seen. A person who typed there (cursor moved to the start and
+back) would be sent with it. Text added after ours, or other text on screen, is never pressed. A long end cut shorter
+on screen is all ours, so it is pressed: the words sent are the board's own.
