@@ -11715,14 +11715,15 @@ const server = http.createServer(async (req, res) => {
           const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
           if (agyLast && agyLast.signedIn) {
             /* #6176 slice 4: the Gemini usage Antigravity last reported (engine/agyusage.js), and a new reading asked
-               for at most every few minutes, never waited on here: while one runs the row says so, and the page reads
-               the list again (the same follow-up Codex limits use). */
+               for at most every few minutes, never waited on here. While one runs, liveCheckPending makes the page read
+               the list again (the same follow-up Codex limits use) and the row says a reading is on its way;
+               usageStopped says a run failed and asking waits for the sign-in to be confirmed (review 4). */
             let usage = null;
             try {
               const au = require('./engine/agyusage');
               if (au.supported()) {
                 if (wantAgents) au.refresh();   // asked only when Settings lists the accounts (?agents=1), not the create picker
-                usage = { limits: au.lastReading(), pending: au.isRunning() };
+                usage = { limits: au.lastReading(), pending: au.isRunning(), stopped: au.isStopped() };
               }
             } catch { usage = null; }
             const pending = !!(usage && usage.pending);
@@ -11732,7 +11733,7 @@ const server = http.createServer(async (req, res) => {
               connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified',
                 ...(pending ? { liveCheckPending: true } : {}) },
               // No limits field where no reading can be asked for (Windows): the page then draws nothing, never a promise.
-              ...(usage ? { limits: usage.limits } : {}),
+              ...(usage ? { limits: usage.limits, ...(usage.stopped ? { usageStopped: true } : {}) } : {}),
             }];
           }
         } catch { agySub = []; }
