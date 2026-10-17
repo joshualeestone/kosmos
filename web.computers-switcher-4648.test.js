@@ -29,7 +29,7 @@ function constLine(name) {
 const RENDER = slice('computersRender');
 const FETCH = slice('computersFetch');
 const RE = slice('computerAddressOk');
-const INAPP = slice('computersInApp');   // #6406
+const INAPP = slice('computersInApp') + slice('computersLinkTarget');   // #6406
 
 function dom() {
   const d = makeDom();
@@ -79,6 +79,16 @@ test('#6406: in the Kosmos app (Mac bridge, or Windows WebView2) an online compu
   }
   // CONTROL: a browser (no bridge) keeps the new tab.
   assert.equal(render(LIST, false, {}).list.children[1].target, '_blank');
+});
+
+test('#6406: every link to another computer goes through computersLinkTarget, none sets _blank by itself', () => {
+  // The switcher row, the Agents view's agent cards and its two Open <computer> links (and the phone menu copies the row).
+  const uses = PAGE.match(/computersLinkTarget\((row|el|open)\)/g) || [];
+  assert.equal(uses.length, 4, 'four call sites: ' + uses.join(', '));
+  for (const fn of ['computersRender', 'oaCard']) assert.ok(slice(fn).includes('computersLinkTarget('), fn + ' must use the helper');
+  // CONTROL for the source scan: the helper itself is the only place the rule lives.
+  const helper = slice('computersLinkTarget');
+  assert.ok(/computersInApp\(\)/.test(helper) && /_blank/.test(helper));
 });
 
 test('this computer is marked and not a link; an ONLINE computer is a new-window link to its own address; offline and updating ones are plain rows that say so', () => {
