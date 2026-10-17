@@ -109,7 +109,7 @@ test('#6176 slice 4 review 3: a failed run stops the asking until the sign-in is
 
 test('#6176 slice 4 review 3: an answer that cannot be read waits the full interval, not less', async () => {
   let runs = 0, finish;
-  const undo = rig((bin, done) => { runs++; finish = () => done(null, '{"num_turns":0,"command":{"name":"usage","data":{"groups":[]}}}'); });
+  const undo = rig((bin, done) => { runs++; finish = () => done(null, '{"status":"SUCCESS","num_turns":0,"command":{"name":"usage","data":{"groups":[]}}}'); });
   try {
     const p1 = agyusage.refresh(NOW); finish(); await p1;
     assert.equal(agyusage.refresh(NOW + 60e3), null, 'an unreadable answer was asked again within the interval');
@@ -225,4 +225,15 @@ test('#6176 slice 4 review 4: a failure from a run started before a sign-in chan
     await p1;
     assert.equal(agyusage.isStopped(), false, 'the old sign-in failure stopped the new one');
   } finally { undo(); }
+});
+
+test('#6176 slice 4 review 6: an error printed with a clean exit stops the asking, as a failure does', async () => {
+  for (const out of ['{"status":"ERROR","error":"not signed in"}', 'Please sign in: https://accounts.google.com/...', '']) {
+    let finish;
+    const undo = rig((bin, done) => { finish = () => done(null, out); });
+    try {
+      const p1 = agyusage.refresh(NOW); finish(); await p1;
+      assert.equal(agyusage.isStopped(), true, 'an exit-0 error did not stop the asking: ' + JSON.stringify(out));
+    } finally { undo(); }
+  }
 });

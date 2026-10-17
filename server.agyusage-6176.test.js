@@ -47,7 +47,7 @@ test.after(async () => {
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-const payload = (weeklyLeft) => JSON.stringify({ num_turns: 0, command: { name: 'usage', data: { groups: [
+const payload = (weeklyLeft) => JSON.stringify({ status: 'SUCCESS', num_turns: 0, command: { name: 'usage', data: { groups: [
   { name: 'Gemini Models', buckets: [
     { id: 'b-1', name: 'Weekly Limit Remaining', window: 'weekly', remaining_fraction: weeklyLeft, reset_time: new Date(Date.now() + 5 * 864e5).toISOString() },
     { id: 'b-2', name: 'Five Hour Limit Remaining', window: '5h', remaining_fraction: 1, reset_time: new Date(Date.now() + 3 * 3600e3).toISOString() } ] } ] } } });
@@ -87,6 +87,16 @@ test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, th
   assert.equal(r3.limits.windows[1].windowMinutes, 10080);
   assert.equal('liveCheckPending' in r3.connection, false, 'still said a reading is coming after it came');
   assert.ok(r2);
+  // A failed run: the row says the asking stopped (usageStopped), and no further run starts.
+  agyusage.resetForTests();
+  agyusage.setTokenFileForTests(bin);
+  let fails = 0;
+  agyusage.setRunnerForTests((b, done) => { fails++; done(new Error('offline'), ''); });
+  await row();
+  await new Promise((r) => setImmediate(r));
+  const rs = await row();
+  assert.equal(fails, 1, 'a stopped reading asked agy again');
+  assert.equal(rs.usageStopped, true, 'the row did not say the asking stopped');
   // Where no reading can be asked for (agystatus says Windows), the row carries no limits field: nothing is promised.
   agystatus.setPlatformForTests('win32');
   try {

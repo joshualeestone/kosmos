@@ -60,6 +60,14 @@ function parse(payload, at) {
   return windows.length ? { windows, plan: null, at } : null;
 }
 
+/** Whether agy's output is a successful /usage reply at all (JSON, status SUCCESS, the usage command with its groups),
+    whatever groups it names. Anything else (an error printed with exit 0, a sign-in prompt) is a failed run. */
+function isUsageReply(out) {
+  let j; try { j = JSON.parse(out); } catch { return false; }
+  return !!(j && typeof j === 'object' && j.status === 'SUCCESS' && j.command && j.command.name === 'usage'
+    && j.command.data && Array.isArray(j.command.data.groups));
+}
+
 /* The seam a test replaces: run agy's /usage once and hand back (err, stdout). */
 const defaultRunAgy = (bin, done) => {
   let dir = null;
@@ -132,7 +140,7 @@ function refresh(now = Date.now()) {
           /* A run that failed (offline, or agy signed out since Kosmos last checked) stops the asking until agy's sign-in is
              next confirmed (review 3): a signed-out print run may open a browser, so it must not repeat unprompted. An
              answer that came back but cannot be read (a renamed group) waits the full interval like any other. */
-          if (err) { stop(); resolve(null); return; }
+          if (err || !isUsageReply(out)) { stop(); resolve(null); return; }   // review 6: an exit-0 error stops too
           const r = parse(out, Date.now());
           if (r) last = r;
           resolve(r);
