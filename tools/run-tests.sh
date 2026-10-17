@@ -358,8 +358,8 @@ KOSMOS_QUEUE_CLASS=heavy
 # about 34 minutes each against 30 alone; the port fights behind the one-suite rule did not come back. Only this
 # suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite at all.
 # KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits for no other suite; another
-# agent's run still reads its own). One at a time for everyone is the default below. Unset or empty is 2; anything else that is not one to three digits, or is
-# 0, reads as 1.
+# agent's run still reads its own). Unset or empty is 2; anything else that is not one to three digits, or is 0,
+# reads as 1.
 _rt_suite_max="${KOSMOS_SUITE_MAX:-2}"
 case "$_rt_suite_max" in ''|*[!0-9]*|????*) _rt_suite_max=1 ;; esac
 _rt_suite_max=$((10#$_rt_suite_max)); [ "$_rt_suite_max" -ge 1 ] || _rt_suite_max=1   # "08" is not octal; 0 reads as 1
