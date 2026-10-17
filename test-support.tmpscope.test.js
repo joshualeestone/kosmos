@@ -349,9 +349,11 @@ test('#6362: a process left running that makes the dir again after its test ende
   const done = path.join(base, 'child-done');
   const victim = path.join(base, 'leaves-a-child-6362.test.js');
   // The child waits for its parent to end (and sweep), then makes a folder under the parent's TMPDIR, as a left
-  // running helper would.
+  // running helper would. It acts only while this test's base exists and gives up after 20 s, so an interrupted run
+  // cannot leave it to remake the tree after cleanup.
   const child = `const fs=require('fs'),os=require('os'),p=require('path');const parent=+process.argv[1];
-const t=setInterval(()=>{try{process.kill(parent,0)}catch{clearInterval(t);try{fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true})}finally{fs.writeFileSync(${JSON.stringify(done)},'')}}},20);`;
+const stop=Date.now()+20000;const t=setInterval(()=>{if(Date.now()>stop){clearInterval(t);return}try{process.kill(parent,0)}catch{clearInterval(t);
+if(!fs.existsSync(${JSON.stringify(base)}))return;try{fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true})}finally{fs.writeFileSync(${JSON.stringify(done)},'')}}},20);`;
   const pidFile = path.join(base, 'child-pid');
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const {spawn}=require('child_process');
 const c=spawn(process.execPath,['-e',${JSON.stringify(child)},String(process.pid)],{detached:true,stdio:'ignore'});

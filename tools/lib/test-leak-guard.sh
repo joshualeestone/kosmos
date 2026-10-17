@@ -202,7 +202,7 @@ _kts_held() {
 # failed owner write leaves the same. So the report lists what the dir holds, whose names often say which test's
 # process it was.
 leak_kts_owners() {
-  local root="${1%/}" d owner rest pid why shown unfinished
+  local root="${1%/}" d owner rest pid why shown unfinished aside
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
     # A dir the guard cannot search hides whether it has an owner, so it says only that.
@@ -213,9 +213,15 @@ leak_kts_owners() {
     # tmpscope rewrites a survived dir's owner aside (.kts-owner.new) and renames it in; a kill between the two leaves
     # only the aside copy, which still names the file.
     unfinished=""
-    if [ -z "$owner" ] && [ ! -e "$d/.kts-owner" ] && [ -r "$d/.kts-owner.new" ]; then
-      IFS= read -r owner < "$d/.kts-owner.new" || true
-      [ -n "$owner" ] && unfinished="; its owner rewrite did not finish"
+    if [ -r "$d/.kts-owner.new" ]; then
+      aside=""; IFS= read -r aside < "$d/.kts-owner.new" || true
+      case "$aside" in
+        *$'\t'"survived its sweep") owner=$aside; unfinished="; its owner rewrite did not finish" ;;
+        "") if [ -z "$owner" ]; then
+              echo "  ${d##*/}: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: $(_kts_held "$d")"
+              continue
+            fi ;;
+      esac
     fi
     if [ -n "$owner" ]; then
       pid="pid unknown"
