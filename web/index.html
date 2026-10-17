@@ -30151,7 +30151,9 @@ function worldswTipHide() {
 /* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
    one is let in, or when the page is looked at again a minute or more after the last answer. */
 function computersReadSoon(force) {
-  if (MULTI_KOSMOS || COMPUTERS_OPENABLE || document.hidden) return;
+  if (MULTI_KOSMOS || COMPUTERS_OPENABLE) return;
+  // A forced read in a tab nobody can see waits for it to be looked at (the visibilitychange listener reads then).
+  if (document.hidden) { if (force) COMPUTERS_STALE_WHILE_HIDDEN = true; return; }
   if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 60 * 1000;
   // A look back: at most once a minute after any read, and never while Kosmos+ is failing (the backoff is in charge).
   else if (COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
@@ -31995,7 +31997,9 @@ async function worldHideSubmit() {
     // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.
     document.addEventListener('keydown', (e) => {
       const tip = document.getElementById('worldsw-tip');
-      if (e.key === 'Escape' && tip && !tip.hidden && document.getElementById('worldsw-menu').hidden && !document.querySelector('[aria-modal="true"]:not([hidden])')) worldswTipHide();
+      // A dialog box keeps aria-modal while its wrapper is hidden, so "open" is a box the person can see (as the / shortcut checks).
+      const dialogOpen = [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0);
+      if (e.key === 'Escape' && tip && !tip.hidden && document.getElementById('worldsw-menu').hidden && !dialogOpen) worldswTipHide();
     });
   }
 })();

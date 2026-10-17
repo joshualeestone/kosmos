@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: MULTI_KOSMOS worldsw-onekosmos worldsw-fixed worldswOneKosmos
+// Browser-check-surface: MULTI_KOSMOS worldsw-onekosmos worldsw-fixed worldswOneKosmos worldsw-tip worldsw-tip-x computersReadSoon
 // (#2518) the distinctive web/index.html tokens this check asserts: one Kosmos per computer (kosmos#4815).
 /* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... I just want it commented out
  * so that it's not visible on anything." The structure stays behind one switch (MULTI_KOSMOS, default off).
@@ -17,6 +17,10 @@
  *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts with nothing
  *     there and recovers on the page's own re-read (review round 2);
  *   - failed reads back off, and a hidden tab waits and reads when it is looked at again (review round 5);
+ *   - #6403: another computer arriving shows the switcher without a reload (window focus or the tab shown again, a
+ *     minute after the last read; CONTROL within the minute), with a one-line tip the first time; the menu, the close
+ *     button and Escape (not while a dialog is open, the CONTROL) put it away; once only across a reload; a forced
+ *     read that finds one computer looks again soon (CONTROL: an ordinary read waits);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
  *
@@ -200,6 +204,22 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             closeAndShow.shown && closeAndShow.described === 'worldsw-tip-text', JSON.stringify(closeAndShow));
           ok(`${t} #6403: the tip's close button puts it away and focus stays on the switcher`,
             !closeAndShow.tipAfter && closeAndShow.focus === 'worldsw-btn' && closeAndShow.describedAfter === null, JSON.stringify(closeAndShow));
+          /* #6403 review 3: Escape puts the tip away, but not while a dialog the person can see is open (Escape is its). */
+          const esc = await page.evaluate(async ({ worlds }) => {
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__which = 'four'; await computersFetch();
+            const tip = () => !document.getElementById('worldsw-tip').hidden;
+            const shownFirst = tip();
+            const box = document.createElement('div'); box.setAttribute('aria-modal', 'true'); box.textContent = 'a dialog'; document.body.appendChild(box);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            const withDialog = tip();
+            box.remove();
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            return { shownFirst, withDialog, after: tip() };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403 CONTROL: Escape with a dialog open leaves the tip`, esc.shownFirst && esc.withDialog, JSON.stringify(esc));
+          ok(`${t} #6403: Escape puts the tip away`, esc.shownFirst && !esc.after, JSON.stringify(esc));
           /* #6403 review 2: a forced read (after an Allow, or let in) that still finds one computer looks again soon, not in
              five minutes; CONTROL: an ordinary read that finds one computer does not. */
           const soon = await page.evaluate(async ({ worlds }) => {
@@ -333,6 +353,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 26 asserts = 104 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: nine, two of them CONTROLs).
-  process.exit(problems.length || pass + problems.length < 104 ? 1 : 0);
+  // 2 engines x 2 themes x 28 asserts = 112 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: eleven, three of them CONTROLs).
+  process.exit(problems.length || pass + problems.length < 112 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
