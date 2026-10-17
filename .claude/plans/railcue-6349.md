@@ -48,3 +48,7 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
 - 16 sonnet (after rebasing onto main with #6324's team-map cap): the arm now shows the real Team map button, checks the
   box's cap really drops and the fade follows (more below), then hides it again (cue off at the end). The comment says the
   fade's last pixels are fully covered. Not changed: the sticky strip's 2px padding offset (cosmetic).
+- 17 opus: the fixture's project already shows Team map, so the step now hides it first, reads the full-cap height,
+  then shows it (the box must shrink and more be below); the page's Team map repaint is held during the step and the
+  button restored in finally. Still owed before merge: a green render-projects on this head (queued, else PR CI) and the
+  rail-notice-more shots retaken on the rebased page.
