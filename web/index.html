@@ -5379,9 +5379,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
   /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
      the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
-     does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the
-     cap's size; drawn over the rows (the box has no background of its own) and never takes a click. */
+     does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
+     over the rows; it never takes a click. The scroll padding keeps a control focused from the keyboard above the fade
+     (WCAG 2.4.11). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { scroll-padding-bottom: 28px; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -76125,8 +76127,8 @@ document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenCl
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 /* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read from the box
-   itself on scroll, on any change to what it holds (every painter, the retry handlers included), and on resize, so it
-   holds whatever sets the cap. */
+   itself on scroll, on any change to what it holds (every painter, the retry handlers included), and on any change to
+   its own size (the rail unfolding, a column width, the window). */
 function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
@@ -76138,6 +76140,7 @@ function railPjMore() {
   if (rn) {
     rn.addEventListener('scroll', railPjMore, { passive: true });
     if (typeof MutationObserver === 'function') new MutationObserver(railPjMore).observe(rn, { childList: true, subtree: true, characterData: true });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(railPjMore).observe(rn);
     window.addEventListener('resize', railPjMore);
   }
 }
