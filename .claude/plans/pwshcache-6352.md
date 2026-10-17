@@ -33,4 +33,6 @@ moved aside (Renet Tilley's fix on the card).
 
 ## Tests
 - `tools.pwsh-cache-6352.test.js`: 2/2. Mutants, each red: the export removed (the shared-cache message); the export
-  moved below the first pwsh start (names line 66, the first start).
+  moved below the first pwsh start (names line 66, the first start); the export indented, as inside an if (review 1).
+  The start pattern takes "$PWSH", $PWSH and "${PWSH}" with a flag, and pwsh by name; `[ -z "$PWSH" ]` is not a start.
+- Review 1 NIT, documented rather than built: a script that finds pwsh other than by `command -v pwsh` is not swept.

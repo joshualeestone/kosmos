@@ -11,6 +11,9 @@
  * script failed 87 (rc 134); with it, all passed and the damaged file was untouched. That run is not repeated here
  * (it needs the damaged file); this pins that the export stays ahead of every pwsh start.
  *
+ * Found by `command -v pwsh` only: a script that finds pwsh another way (`which`, `type -P`, a fixed path) or holds it
+ * in a variable not named PWSH is not checked. The first test pins that the sweep finds the one script known today.
+ *
  * Not covered: a node test that spawns pwsh off Windows (none today; tools.win-setup-ps1.test.js runs pwsh only on
  * Windows, where the profile lives under LOCALAPPDATA).
  *   node --test tools.pwsh-cache-6352.test.js */
@@ -20,12 +23,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const TOOLS = path.join(__dirname, 'tools');
-const EXPORT = /^\s*export XDG_CACHE_HOME="\$TMP\/[^"]+"\s*$/m;
+// At column 0, so it is not inside an if or a function body, where it might not run.
+const EXPORT = /^export XDG_CACHE_HOME="\$TMP\/[^"]+"\s*$/;
 
 /* The line index of the first line that starts pwsh: the script's own "$PWSH" variable or pwsh by name, followed by
    a flag (a test of the variable, such as [ -z "$PWSH" ], is not a start). */
 function firstPwshRun(lines) {
-  return lines.findIndex((l) => !/^\s*#/.test(l) && !/command -v pwsh/.test(l) && /"\$PWSH"\s+-|(^|[\s;&|(])pwsh\s+-/.test(l));
+  return lines.findIndex((l) => !/^\s*#/.test(l) && !/command -v pwsh/.test(l) && /"?\$\{?PWSH\}?"?\s+-|(^|[\s;&|(])pwsh\s+-/.test(l));
 }
 
 const realPwshTests = fs.readdirSync(TOOLS)
