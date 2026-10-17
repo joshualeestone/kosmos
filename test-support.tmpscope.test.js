@@ -292,6 +292,7 @@ const guardSays = (base) => {
 };
 
 test('#6362: a dir that survives its sweep gets its owner back, marked, and the guard names the file', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permissions and bash; this file is not in the Windows selection');
   // root can delete through a read-only folder, so nothing would survive the sweep and the case cannot be made.
   if (process.getuid && process.getuid() === 0) return t.skip('running as root: a 0o500 folder does not stop root');
   const base = freshBase(t);
@@ -315,6 +316,23 @@ const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'
   }
 });
 
+test('#6362: the exit sweep asks rmSync to retry (the race with a still-writing process is won by the retry)', (t) => {
+  const base = freshBase(t);
+  const seen = path.join(base, 'sweep-opts.json');
+  // The victim records what tmpscope's sweep passes to fs.rmSync for its own dir: a real race cannot be made on demand,
+  // but the option that wins it can be checked.
+  const victim = path.join(base, 'opts-6362.test.js');
+  fs.writeFileSync(victim, `const fs=require('fs');const real=fs.rmSync;
+fs.rmSync=(p,o)=>{if(String(p).includes('kts-'))fs.writeFileSync(${JSON.stringify(seen)},JSON.stringify(o||{}));return real(p,o)};
+require(${JSON.stringify(SCOPE)});\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+  assert.equal(r.status, 0, String(r.stderr));
+  const o = JSON.parse(fs.readFileSync(seen, 'utf8'));
+  assert.equal(o.recursive, true);
+  assert.ok(o.maxRetries >= 1, 'the sweep no longer retries, so a process still writing wins the race again: ' + JSON.stringify(o));
+  assert.deepEqual(entries(base).filter((x) => x.startsWith('kts-')), [], 'the sweep did not remove the dir');
+});
+
 test('#6362 control: the same file with nothing locked leaves nothing (so the arm above can fail)', (t) => {
   const base = freshBase(t);
   const victim = path.join(base, 'free-6362.test.js');
@@ -326,6 +344,7 @@ const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'
 });
 
 test('#6362: a process left running that makes the dir again after its test ended is listed by what it wrote', { timeout: 30000 }, async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permissions and bash; this file is not in the Windows selection');
   const base = freshBase(t);
   const done = path.join(base, 'child-done');
   const victim = path.join(base, 'leaves-a-child-6362.test.js');
