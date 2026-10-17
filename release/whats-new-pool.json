@@ -603,7 +603,7 @@
     },
     {
       "title": "Add a computer one step at a time",
-      "line": "Adding a computer to Kosmos+ now asks only for your email, shows the monthly price before you pay, and notices your payment by itself.",
+      "line": "Adding a computer to Kosmos+ no longer asks you to name it, shows the monthly price before you pay, and notices your payment by itself.",
       "icon": "shield",
       "rank": 1.1,
       "since": "0.7.54",
@@ -611,7 +611,7 @@
     },
     {
       "title": "Undo covers Codex and Antigravity agents",
-      "line": "With undo on, file edits by Codex and Antigravity agents now keep a copy, and the Files page shows which agent made them.",
+      "line": "With undo on, Codex and Antigravity agents' file edits now keep a copy, and a project's Files page usually names the agent that made them.",
       "icon": "tasks",
       "platforms": [
         "mac"
@@ -644,7 +644,7 @@
     },
     {
       "title": "Old project summaries say why",
-      "line": "A project member summary marked as old now says what kept it old: hours of work, or turns ended, since it was written.",
+      "line": "A project member summary marked as old now says what kept it old: time working or waiting, or turns ended, since it was written.",
       "icon": "tasks",
       "rank": 16.8,
       "since": "0.7.54",
