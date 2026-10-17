@@ -44,4 +44,8 @@ one full run is one data point, not a rate.
 the real guard names the file (control: the same file with nothing locked leaves nothing); a real left-running child
 that remakes the dir after its parent ended is reported by what it wrote. `tools/test-test-leak-guard-4273.sh`: the
 marked owner line, the owner-less listing under set -e and pipefail, and the five-then-count trim. Mutant: dropping
-the owner rewrite reds the survive-sweep test.
+the owner rewrite reds the survive-sweep test. NOT guarded by a test: the sweep's retry (`maxRetries`). Node retries
+ENOTEMPTY, EBUSY and EPERM but not the EACCES the locked-folder test makes, and a real ENOTEMPTY race is not
+deterministic; arm A's "0 of 30" is the scratch measurement, not a suite check.
+- Review 1: an EMPTY `.kts-owner` (a kill while tmpscope wrote it at creation) has its own sentence ("owner line
+  cut"); only a dir with NO owner file gets the "made again" explanation, which now keeps "or its write failed".
