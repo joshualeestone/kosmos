@@ -5363,9 +5363,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      scrolls in its own box. No scrollbar-width here, unlike #867's hidden tracks on the long lists: this is a
      needs-you surface, and the #3443 win32 bar needs scrollbar-width left unset. render-projects.js measures the cap. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { max-height: 40vh; overflow-y: auto; }
-  /* kosmos#6324: with the Team map button showing, its line (36px and the head's 6px gap) sits above the notice, so the
-     cap gives that line back; at 560px tall the full 40vh ran 32px under the list (render-projects' #6347 arm, PR CI). */
-  html[data-layout="consolidated"] body.consolidated #rail-agents:has(> .alist-tmbtn:not([hidden])) > .alist-pjn:not(:empty) { max-height: calc(40vh - 44px); }
+  /* kosmos#6324: with the Team map button showing, its line sits above the notice, so the cap gives that line back: the
+     button's 8px margin-top (.pj-tmbtn) + its 36.4px box + the head's 6px gap = 50.4px, rounded up to 52. At 560px tall
+     the full 40vh ran 32px under the list; render-projects' #6347 arm (560 and 720 tall) is the guard. A change to the
+     button's size or margin must move this number. */
+  html[data-layout="consolidated"] body.consolidated #rail-agents:has(> .alist-tmbtn:not([hidden])) > .alist-pjn:not(:empty) { max-height: calc(40vh - 52px); }
   /* kosmos#6324: the team map's button and box take a line each in the wrapping head, and fold away with the column. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { flex: 0 0 100%; min-width: 0; }
   /* kosmos#6324: above the agents list's own reach. On touch a name's 44px hit area (#5218, an absolute ::after) runs up
