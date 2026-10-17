@@ -39,6 +39,10 @@ Screenshot the card (light and dark) and the joining computer's big code.
   #askcard never draws a computer's field; its listener is there for parity, not driven by a check.
 - A wrong-code sentence stays while the person retypes, until the next Allow or a new code (clearing it on input would
   repaint mid-typing); Allow checks again either way.
+- A computer row with no joining_computer name (the engine refuses a name that breaks its rule) keeps the old big code
+  and no field, as before this change; the tunnel then refuses its Allow (no code sent). Unchanged on purpose.
+- Contrast: the field's label is measured with the sheet's other small text; the dimmed Allow (white on #2f57c4 at .8 over
+  the navy) and the placeholder are not measured by the check (estimated about 5:1).
 - Out-of-date open tabs (opened before this release) keep the one-click Allow until reloaded; the engine cannot tell the
   pages apart. Accepted: a release reloads the board's page, and a server marker would break every older page at once.
 - Compare in the page, not only in the tunnel: the tunnel's refusal reads as "the code changed", which would be wrong
@@ -68,3 +72,5 @@ Screenshot the card (light and dark) and the joining computer's big code.
   ignores an IME composition; the unused small-code CSS removed.
 - 5 opus: Allow aria-disabled short of six digits (Tab reached Not me); Allow sends the typed digits; a mismatch reads
   the list again first; computer code_changed wording; stale comment and a check label; a dead !small assert.
+- 6 sonnet: the d-nw arm never reached code_new (the page had not read the new code: it now polls first); the press
+  reads only what the field shows (a blank field after a code change says "has a new code"); label contrast measured.

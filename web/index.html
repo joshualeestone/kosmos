@@ -50631,7 +50631,8 @@ async function askAct(act, id, at) {
   let typedCode;
   if (verb === 'allow' && d.joining_computer && d.code) {
     const t = ASK.typed && ASK.typed[id];
-    const v = askDigits(t && t.v);
+    // What the field shows (typing for an earlier code is not shown, so it does not count).
+    const v = askDigits(askTypedFor(d));
     const refuse = (because) => {
       ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because };
       for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
@@ -50639,6 +50640,8 @@ async function askAct(act, id, at) {
       const f = document.getElementById('askcode-' + id);
       if (f) { f.focus(); if (because !== 'code_short') f.select(); }
     };
+    // The field went blank because the code changed after the person typed: say so, not "type all six".
+    if (!v && t && askDigits(t.v) && t.code !== d.code) { refuse('code_new'); return; }
     if (v.length !== 6) { refuse('code_short'); return; }
     if (v !== askDigits(d.code)) {
       if (typeof pollAsk === 'function') await pollAsk();
