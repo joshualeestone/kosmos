@@ -540,7 +540,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
       const line = lineFor(m, note);
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
-        { projectId, task: t.number, person: false });
+        { projectId, task: t.number, person: false, kind: 'built' });   // #6359: said as the built notice when kept
       if (!outcome) {
         /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: every line waits only until
            the one deadline set before any recipient's checks ran; past it the line is still queued and typed, and is said
@@ -5116,7 +5116,10 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
-function taskMessageSummary(delivered, assigned) {
+/* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
+   message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
+   not told not to send it again. */
+function taskMessageSummary(delivered, assigned, kind) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
@@ -5147,7 +5150,8 @@ function taskMessageSummary(delivered, assigned) {
   for (const d of kept) {
     const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
     // It was accepted: a sender that read it as a failure would only add a second copy to the same queue.
-    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '. Do not send it again.');
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset'))
+      + (kind === 'built' ? '.' : '. Do not send it again.'));
   }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {
@@ -21773,7 +21777,7 @@ const server = http.createServer(async (req, res) => {
             + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
             // Lines may be out by now, so nothing here may say nobody was told.
-            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
+            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length), 'built'); }
             catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.

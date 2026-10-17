@@ -57,6 +57,11 @@ const EVENTS = [
   { kind: 'kept-dropped', to: 'mara-discord', from: '', person: true },
   { kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', behind: true },
   { kind: 'kept-dropped', to: '', from: '' },
+  // #6359: a kept built notice, sent and dropped, named or not.
+  { kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed', built: true },
+  { kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'unconfirmed', built: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', built: true },
+  { kind: 'kept-dropped', to: 'mara-discord', from: '', built: true },
   { kind: 'something-added-later' },
 ];
 
@@ -100,4 +105,16 @@ test('#5874 review 2: worded for an agent, every free text a person or agent wro
   assert.equal(a({ kind: 'repeat-set', words: 'daily at 09:00' }), 'Set to repeat daily at 09:00');
   // CONTROL: the page's words for the same events are unquoted (the parity test above holds them).
   assert.equal(pagePhrase({ kind: 'part-added', sentence: 'x. Marked done' }), 'A part added: x. Marked done');
+});
+
+test('#6359: a kept built notice is named as the notice, never as a message the conversation did not show', () => {
+  const p = (ev) => phrase(ev, (sn) => NAMES[sn] || null);
+  assert.equal(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed', built: true }),
+    'The built notice from Leo to Mara, kept while Mara was out of usage, was sent once Mara was back');
+  assert.equal(p({ kind: 'kept-dropped', to: 'mara-discord', from: 'leo-discord', built: true }),
+    'The built notice from Leo to Mara was never sent: Kosmos kept it while Mara was out of usage and could not send it within a day');
+  assert.equal(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'unconfirmed', built: true }),
+    'Kosmos tried to send the built notice from Leo to Mara once Mara was back, but could not confirm Mara got it');
+  // CONTROL: the same entry without the mark is still a message.
+  assert.match(p({ kind: 'kept-sent', to: 'mara-discord', from: 'leo-discord', state: 'placed' }), /^A message from Leo to Mara/);
 });
