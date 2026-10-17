@@ -56,7 +56,7 @@ printf 'engine/killed-6061.test.js\tpid 4242\n' > "$root/kts-Ab12Cd/.kts-owner"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'temp: 2 x kts (not on the allowlist' && ok "a kts- leak fails the check like any family" || bad "kts leak: rc=$rc out=$out"
 printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/killed-6061.test.js (pid 4242); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: a kts- dir with an owner names the killed test file and pid" || bad "kts owner not named: $out"
-printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: a kts- dir without an owner says so rather than naming nothing" || bad "ownerless kts not reported: $out"
+printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061; it holds: nothing' && ok "#6061: a kts- dir without an owner says so rather than naming nothing" || bad "ownerless kts not reported: $out"
 [ "$(printf '%s\n' "$out" | grep -c ': made by \|: no owner recorded')" -eq 2 ] && ok "#6061: one owner line per kts- dir, none for the other leaked family (brand-new)" || bad "owner lines wrong count: $out"
 # review 1: an owner line cut by a kill mid-write (no newline, or empty) still reports, even under set -e.
 printf 'engine/cut.test.js' > "$root/kts-Zz99Yy/.kts-owner"
@@ -64,7 +64,19 @@ rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: made by engine/cut.test.js (pid unknown); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: an unterminated owner line with no tab is still named under set -e" || bad "unterminated owner under set -e: rc=$rc out=$out"
 : > "$root/kts-Zz99Yy/.kts-owner"
 rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
-[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: an empty owner file reads as no owner under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061; it holds: nothing' && ok "#6061: an empty owner file reads as no owner under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+# #6362: the sweep ran but a process the file started was still writing: tmpscope marks the owner line, and it is said.
+printf 'engine/spawns-6362.test.js\tpid 77\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/spawns-6362.test.js (pid 77); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)' && ok "#6362: a marked owner line says a process the file started was still writing" || bad "marked owner: rc=$rc out=$out"
+# #6362: a dir with no owner lists what it holds (the names a left-running process wrote), never .kts-owner itself.
+rm -f "$root/kts-Zz99Yy/.kts-owner"; : > "$root/kts-Zz99Yy/.kts-owner"
+mkdir "$root/kts-Zz99Yy/boardkeychain-4491-Ab" "$root/kts-Zz99Yy/kosmos-sendwhy-5435-Cd"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061; it holds: boardkeychain-4491-Ab kosmos-sendwhy-5435-Cd' && ok "#6362: an owner-less dir names what it holds, under set -e and pipefail" || bad "owner-less contents: rc=$rc out=$out"
+for i in 1 2 3 4 5 6 7; do : > "$root/kts-Zz99Yy/f$i"; done
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'it holds: boardkeychain-4491-Ab f1 f2 f3 f4 (and 4 more)$' && ok "#6362: a long listing shows five and counts the rest" || bad "long listing: rc=$rc out=$out"
 rm -rf "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok
