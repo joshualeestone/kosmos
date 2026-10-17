@@ -98,7 +98,7 @@ function openParts(session, projects) {
         const k = t.repeat ? { total: 0 } : tree.progress(t.number);
         /* Another open part (someone else's, or nobody's) means the task is not this agent's alone to mark (review 1:
            setBuilt marks the whole task, so "mark it built" would declare a colleague's unfinished part built). */
-        const others = prog.parts.some((y) => y !== x && !y.closedAt);
+        const others = prog.parts.some((y) => y.who !== session && !y.closedAt);   // its own second part is not another's (review 2)
         const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others } } : {};
         out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
       }
@@ -146,7 +146,8 @@ function nudgeText(part) {
       const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
       if (s.others === true) return all + ', and other parts of it are still open, so it is built when they are done too.';
       /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
-      return all + ', so if your own part of it is done too, mark it built (kosmos task built '
+      /* "When", not "if": the fixed "Pick it up" follows, so the two read as one order of work (review 2). */
+      return all + ', so when your own part of it is done, mark it built (kosmos task built '
         + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' \'<how its checks went>\').';
     })()
     : '';
