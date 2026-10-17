@@ -5566,13 +5566,18 @@ const server = http.createServer(async (req, res) => {
   if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
     let q = {};
     try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
-    const out = boardproof.answer(q, () => {
-      const list = [];
-      if (boardAuthState.token) list.push(boardAuthState.token);
-      if (KNOWN_WORLD_TOKENS) for (const t of KNOWN_WORLD_TOKENS.values()) if (t) list.push(t);
-      for (const t of sendertoken.heldValues()) list.push(t);
-      return list;
-    });
+    /* Cheapest first, and lazily: the agent-token files are read only when no board token matched. The world
+       tokens are the ones boardTokenOk accepts (known at start and still listed), so a proof is never given for a
+       token the gate would then refuse. The port is the one this board listens on (see boardproof.js). */
+    const out = boardproof.answer(q, function* () {
+      if (boardAuthState.token) yield boardAuthState.token;
+      if (KNOWN_WORLD_TOKENS) {
+        let listed = [];
+        try { listed = worlds.listWorlds(worldBase()); } catch { listed = []; }
+        for (const w of listed) { const t = KNOWN_WORLD_TOKENS.get(w.id); if (t) yield t; }
+      }
+      yield* sendertoken.heldValues();
+    }, req.socket.localPort);
     sendJson(res, out.status, out.body);
     return;
   }

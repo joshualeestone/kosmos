@@ -48,7 +48,7 @@ function withStub({ prove }, fn) {
       const u = new URL(req.url, 'http://x');
       if (u.pathname === boardproof.PROOF_PATH) {
         const q = Object.fromEntries(u.searchParams);
-        const out = prove ? boardproof.answer(q, () => [TOK]) : { status: 200, body: { proof: 'a'.repeat(64) } };
+        const out = prove ? boardproof.answer(q, () => [TOK], req.socket.localPort) : { status: 200, body: { proof: 'a'.repeat(64) } };
         res.writeHead(out.status, { 'content-type': 'application/json' });
         return res.end(JSON.stringify(out.body));
       }
@@ -96,10 +96,10 @@ test('#1765: installed CLI sends the token to a listener that proves it holds it
   assert.ok(tokenSent(seen), 'the token did not reach the proven board');
 }));
 
-test('#1765: installed CLI sends NOTHING with the token to a squatter, and says why', () => withStub({ prove: false }, async (port, seen) => {
+test('#1765: installed CLI sends NOTHING with the token to a squatter, and says so', () => withStub({ prove: false }, async (port, seen) => {
   const r = await cli(port, ['accounts'], { KOSMOS_HOME: HOME });
   assert.notEqual(r.code, 0, 'a refused send must not exit 0');
-  assert.match(r.out, /is not this account's Kosmos board, so nothing was sent to it/);
+  assert.match(r.out, /Something other than your Kosmos is answering at http:\/\/127\.0\.0\.1:\d+, so we did not .* and sent it nothing/);
   assert.equal(tokenSent(seen), false, 'the token reached the squatter');
 }));
 

@@ -48,7 +48,8 @@ test('the proof route needs no token, and answers the HMAC for the board token',
   const n = boardproof.newNonce();
   const r = await get(`${boardproof.PROOF_PATH}?n=${n}&k=${boardproof.keyId(TOK)}`);
   assert.equal(r.code, 200);
-  assert.ok(boardproof.proofMatches(TOK, n, r.body.proof), 'the answer must verify with the client\'s own copy');
+  assert.ok(boardproof.proofMatches(TOK, n, r.body.proof, server.address().port), 'the answer must verify with the client\'s own copy');
+  assert.equal(boardproof.proofMatches(TOK, n, r.body.proof, server.address().port + 1), false, 'the proof must be bound to the port');
 });
 
 test('a key id for a token the board does not hold gets 404 and no proof', async () => {
@@ -93,8 +94,9 @@ test('boardHoldsToken: false when nothing listens', async () => {
 
 test('CONTROL: a POST to the proof route is not exempt from the token gate', async () => {
   const res = await fetch(`${base}${boardproof.PROOF_PATH}?n=${boardproof.newNonce()}&k=${boardproof.keyId(TOK)}`, { method: 'POST', redirect: 'manual' });
-  await res.text().catch(() => {});
+  const body = await res.json().catch(() => ({}));
   assert.equal(res.status, 403);
+  assert.match(String(body.error || ''), /board token/, 'refused by the token gate, not by another 403');
 });
 
 test.after(() => {

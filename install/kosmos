@@ -695,6 +695,8 @@ say_unreached() {   # <what could not happen, e.g. "record that"> <curl exit> [w
       else
         say "Kosmos is running but did not answer in time, so we could not $1. Wait a minute and try again; it does not need a restart."
       fi ;;
+    # #1765: kosmos_curl's refusal: what answers at $URL could not show it is this account's Kosmos, so nothing went.
+    98) say "Something other than your Kosmos is answering at $URL, so we did not $1 and sent it nothing. Quit Kosmos and start it again; if this keeps happening, another program or another account on this computer is using that address." ;;
     *) say "We could not reach Kosmos to $1. Is it running at $URL?" ;;
   esac
 }
@@ -987,20 +989,37 @@ token_refused_hint() {   # <token-sent> <board-answer>
   } >&2
 }
 
-# #1765: before a token leaves this shell, the listener on $URL must prove it already holds that token (an HMAC over a
-# fresh nonce, engine/boardproof.js). Another account can listen on this account's port while the board is down, and
-# a token sent to it is a token handed over. The token reaches node on stdin, never argv. Proven once per shell.
-# Runs only in the installed layout (runtime/bin/node and app/engine/boardproof.js both present), which every
-# installed CLI has; a checkout run (the tests) has neither and skips it. cli.board-proof-1765.test.js runs the
-# installed layout. Returns 0 when proven or when there is no token to protect, 1 when the listener could not prove it.
+# #1765: before a token leaves this shell, the listener on $URL must prove it already holds that token: an HMAC over
+# a fresh nonce and the port, engine/boardproof.js. Another account can listen on this account's port while the board
+# is down, and a token sent to it is a token handed over. The proof goes by curl on the same route and within the same
+# time limit as the request it guards (the caller's -m, else 15 s); node only computes the key id and checks the
+# answer, with the token on stdin, never argv.
+#   0   proven, or there is no token to protect
+#   98  a listener answered but could not prove it holds the token: nothing is sent
+#   any other code: curl's own, when the proof could not reach anything (down, slow), so a caller reads it exactly
+#       as it read that failure before this check
+# Remembered for the rest of this shell; most callers run kosmos_curl in a $(...) subshell, so in practice it runs
+# per call. Runs only in the installed layout (runtime/bin/node and app/engine/boardproof.js). NOT covered: a
+# checkout run (the tests, and a source checkout the report hook prefers when the bundle is stale, #2644) and an
+# installed bundle older than this check; those send as before. cli.board-proof-1765.test.js runs the installed
+# layout, and its control runs the checkout layout.
 _KOSMOS_PROVEN_URL=""
-kosmos_board_proven() {   # <token>
-  [ -n "$1" ] || return 0
+kosmos_board_proven() {   # <token> <the caller's curl arguments>
+  local _t="$1"; shift
+  [ -n "$_t" ] || return 0
   [ "$_KOSMOS_PROVEN_URL" = "$URL" ] && return 0
   local _bp="$KOSMOS_HOME/app/engine/boardproof.js"
-  { [ -x "$NODE" ] && [ -f "$_bp" ]; } || return 0
-  if printf '%s' "$1" | "$NODE" "$_bp" --check "$URL" 2>/dev/null; then _KOSMOS_PROVEN_URL="$URL"; return 0; fi
-  return 1
+  { [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$_bp" ]; } || return 0
+  local _m=15 _prev="" _a _n _k _ans _rc
+  for _a in "$@"; do [ "$_prev" = "-m" ] && _m="$_a"; _prev="$_a"; done
+  _n="$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')"
+  [ "${#_n}" -eq 32 ] || return 98
+  _k="$(printf '%s' "$_t" | "$NODE" "$_bp" --key 2>/dev/null)" || return 98
+  kosmos_loopback_route   # #4933: the same route the request takes
+  if _ans="$(curl ${KOSMOS_NP[@]+"${KOSMOS_NP[@]}"} -sS -m "$_m" "$URL/api/board-proof?n=$_n&k=$_k" 2>/dev/null)"; then _rc=0; else _rc=$?; fi
+  [ "$_rc" -eq 0 ] || return "$_rc"
+  if printf '%s\n%s\n%s' "$_t" "$_n" "$_ans" | "$NODE" "$_bp" --verify "$URL" 2>/dev/null; then _KOSMOS_PROVEN_URL="$URL"; return 0; fi
+  return 98
 }
 
 # #1970: run curl with the board/agent auth tokens delivered OFF the command
@@ -1021,7 +1040,8 @@ kosmos_board_proven() {   # <token>
 # removed before returning (the curl runs in an `if` so its failure does not
 # skip the cleanup under `set -e`). Returns 99 if the temp file cannot be made,
 # which fails closed: an enforcing request is not sent without its token.
-# Returns 98, sending nothing, when the listener cannot prove it holds the token (#1765, above).
+# Returns kosmos_board_proven's non-zero code, sending nothing, when the proof fails (#1765, above): 98 for a
+# listener that is not this board, curl's own code when nothing could be reached.
 #
 # #1704 PR2: every call ALSO names this agent's Kosmos (`x-kosmos-world`, the
 # name engine/launchidentity.js WORLD_HEADER holds; a test pins the two equal),
@@ -1035,10 +1055,11 @@ kosmos_board_proven() {   # <token>
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
   local _hf _rc _world
-  if ! kosmos_board_proven "${_bt:-$_tok}"; then
-    printf '%s\n' "kosmos: the program answering at $URL is not this account's Kosmos board, so nothing was sent to it." >&2
-    return 98
-  fi
+  kosmos_board_proven "${_bt:-$_tok}" "$@" || {
+    _rc=$?
+    [ "$_rc" -eq 98 ] && printf '%s\n' "kosmos: the program answering at $URL is not this account's Kosmos board, so nothing was sent to it." >&2
+    return "$_rc"
+  }
   _world="$(printf '%s' "${KOSMOS_WORLD:-}" | tr -cd 'A-Za-z0-9_-')"
   [ -n "$_world" ] || _world=default
   _hf="$(mktemp "${TMPDIR:-/tmp}/kosmos-auth.XXXXXX")" || return 99
@@ -3569,6 +3590,9 @@ cmd_community_comment() {
     0) ;;
     5|6|7|99)
       say "We could not reach Kosmos to send that comment. Is it running at $URL?"
+      exit 1 ;;
+    98)   # #1765: nothing was sent (the listener could not prove it is this board)
+      say_unreached "send that comment" 98
       exit 1 ;;
     *)
       say "Kosmos did not finish answering. The comment may have been taken, so do not send it again."
