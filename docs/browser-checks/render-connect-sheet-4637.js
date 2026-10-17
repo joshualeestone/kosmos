@@ -11,7 +11,7 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *
  * What this pins, and why each line can fail:
  *  - another of the person's computers joining (#4773's joining_computer) reads "Your computer "windowsbox" wants to
- *    join", with "Allow it if windowsbox shows this same code." (#4794); a phone beside it (the CONTROL) keeps its
+ *    join", with "Type the code shown on windowsbox, then press Allow." (#6404); a phone beside it (the CONTROL) keeps its
  *    own name and the device-in-your-hand line;
  *  - each sheet carries the Kosmos+ brand, the code once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
@@ -22,7 +22,9 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
  *  - #6405: a computer's request (joining, or was a computer) shows no age and never fades, and turning it away keeps the
  *    password sentence (its first_seen is its first ask); CONTROL: a day-old phone still says when and fades;
- *  - #4794 slice 1: the computer's sheet says "Allow it if windowsbox shows this same code." and Allow sends that code (a
+ *  - #6404: the computer's sheet asks the person to type the code shown on windowsbox (this computer's own is never shown),
+ *    a wrong one is answered on the sheet and sends nothing, the right one is sent as the tunnel wrote it;
+ *  - #4794 slice 1 (superseded on the sheet by #6404): Allow sends the code (a
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
@@ -148,13 +150,17 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
       await page.waitForSelector('#plus-ask-rows .askreq', { timeout: 5000 }).catch(() => {});
       const sheets = await page.evaluate(() => [...document.querySelectorAll('#plus-ask-rows .askreq')].map((r) => {
-        const code = r.querySelector('.askcodebig');
+        const code = r.querySelector('.askcodebig'), field = r.querySelector('.askcodein'), place = code || r.querySelector('.askcodetype');
         const acts = [...r.querySelectorAll('.acts button')].map((b) => b.textContent.trim());
         return { brand: (r.querySelector('.askbrand') || {}).textContent || '', head: (r.querySelector('.askwho b') || {}).textContent || '',
           say: (r.querySelector('.asksay') || {}).textContent || '', code: code ? code.textContent : '', label: code ? code.getAttribute('aria-label') : '',
-          size: code ? parseFloat(getComputedStyle(code).fontSize) : 0, boxes: r.querySelectorAll('.devcode-cell').length,
-          aboveActs: !!(code && code.nextElementSibling && code.nextElementSibling.classList.contains('acts')), acts,
-          inside: !code || code.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
+          size: (code || field) ? parseFloat(getComputedStyle(code || field).fontSize) : 0, boxes: r.querySelectorAll('.devcode-cell').length,
+          aboveActs: !!(place && place.nextElementSibling && place.nextElementSibling.classList.contains('acts')), acts,
+          inside: !place || place.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
+          /* #6404: a computer's sheet asks for the code on the joining computer and never shows this one's own. */
+          field: field ? { label: (r.querySelector('.askcodetype label') || {}).textContent || '', value: field.value, labelled: !!(field.labels && field.labels.length) } : null,
+          ownCode: r.innerHTML.indexOf('482 915') > -1 || r.innerHTML.indexOf('4 8 2, 9 1 5') > -1,
+          allowOff: !!(r.querySelector('[data-ask="allow"]') || {}).disabled,
           /* The headline gets the sheet's width, not the icon's 40px column (a grid slip read one word per line). */
           headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
@@ -180,13 +186,33 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       else chk(scroll.hidden && scroll.shown && scroll.stayed, `${tag} #6314: a new request scrolls into view on Kosmos+, once (scrolled away first: off screen; new: on screen; same again: not moved)`, JSON.stringify(scroll));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
-      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if windowsbox shows this same code.',
+      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Type the code shown on windowsbox, then press Allow.',
         `${tag} a computer joining reads as one of your own computers`, JSON.stringify(pc));
       chk(ph.head === 'iPhone wants to connect to your Kosmos' && /Allow only if this code is showing on the device in your hand\./.test(ph.say) && !/signed it in/.test(ph.say),
         `${tag} CONTROL: a phone keeps its own name and the device-in-your-hand line`, JSON.stringify(ph));
       chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
         `${tag} each sheet: the Kosmos+ brand, a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
-      chk(pc.code === '482 915' && pc.label === '4 8 2, 9 1 5', `${tag} the code is read out a character at a time`, JSON.stringify([pc.code, pc.label]));
+      chk(ph.code === 'K7-4M' && ph.label === 'K 7, 4 M', `${tag} the code is read out a character at a time`, JSON.stringify([ph.code, ph.label]));
+      chk(pc.field && pc.field.label === 'Code on windowsbox' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
+        `${tag} #6404: a computer's sheet has one labelled field for the code on windowsbox, never shows (or speaks) this computer's code, and Allow waits`, JSON.stringify(pc));
+      chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
+      /* #6404: typed digits survive a repaint, with focus and the place at the end; Allow wakes only at six digits. */
+      await page.fill('#askcode-' + PC_ID, '48');
+      const partial = await page.evaluate((id) => { for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+        paintAsk(); const f = document.getElementById('askcode-' + id), a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]');
+        return { value: f && f.value, focused: document.activeElement === f, caret: f && f.selectionStart, allowOff: !!(a && a.disabled) }; }, PC_ID);
+      chk(partial.value === '48' && partial.focused && partial.caret === 2 && partial.allowOff,
+        `${tag} #6404: two digits typed survive a repaint (value, focus, place) and Allow still waits`, JSON.stringify(partial));
+      /* A wrong code: Allow wakes at six digits, but pressing it is answered here and nothing reaches the tunnel. */
+      await page.fill('#askcode-' + PC_ID, '111 111');
+      const wrongOn = await page.evaluate((id) => !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]').disabled, PC_ID);
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
+      await page.waitForFunction(() => /That is not the code/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const wrong = await page.evaluate((id) => ({ text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '), focused: document.activeElement === document.getElementById('askcode-' + id) }), PC_ID);
+      chk(wrongOn && /That is not the code windowsbox shows\. Check it on windowsbox and type it again\./.test(wrong.text) && !allowBodies[PC_ID] && wrong.focused,
+        `${tag} #6404: a wrong code is answered on the sheet, sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID] }));
+      /* The right digits, typed without the space: Allow sends the code as the tunnel wrote it. */
+      await page.fill('#askcode-' + PC_ID, '482915');
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
       /* Allow the computer: its sheet says it is connected. */
@@ -196,7 +222,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(/windowsbox is connected\. You can remove it any time under Devices\./.test(done) && !/trust each other/.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
-      chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #4794: Allow on the computer sends the code it showed`, JSON.stringify(allowBodies[PC_ID]));
+      chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #6404: Allow on the computer sends the code typed from it, in the tunnel's own form`, JSON.stringify(allowBodies[PC_ID]));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
@@ -284,6 +310,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]', { timeout: 5000 }).catch(() => {});
       codeChangedOnce = true;
+      await page.fill('#askcode-d-cc', '135792');
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]');
       await page.waitForFunction(() => /code changed/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const cc = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
@@ -295,8 +322,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForTimeout(400);
       const fresh = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
-        return r ? { allowOn: !!(a && !a.disabled), say: (r.querySelector('.asksay') || {}).textContent || '', code: (r.querySelector('.askcodebig') || {}).textContent || '' } : null; });
-      chk(fresh && fresh.allowOn && fresh.code === '864 201' && !/code changed/.test(fresh.say), `${tag} #4794: a new code clears the refusal and Allow is back (review 3)`, JSON.stringify(fresh));
+        return r ? { allowOff: !!(a && a.disabled), say: (r.querySelector('.asksay') || {}).textContent || '', value: (r.querySelector('.askcodein') || {}).value } : null; });
+      await page.fill('#askcode-d-cc', '864 201');
+      const freshOn = await page.evaluate(() => !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]').disabled);
+      chk(fresh && fresh.value === '' && fresh.allowOff && !/code changed/.test(fresh.say) && freshOn,
+        `${tag} #4794/#6404: a new code clears the refusal and what was typed for the old one; typing the new one brings Allow back`, JSON.stringify({ fresh, freshOn }));
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
