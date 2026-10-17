@@ -76140,11 +76140,11 @@ function railPjMore() {
   if (rn) {
     rn.addEventListener('scroll', railPjMore, { passive: true });
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(railPjMore) : null;
-    if (ro) { ro.observe(rn); for (const c of rn.children) ro.observe(c); }
+    if (ro) { ro.observe(rn); for (const c of rn.children) ro.observe(c, { box: 'border-box' }); }   // a row's padding or border counts too
     if (typeof MutationObserver === 'function') new MutationObserver((recs) => {
       if (ro) for (const r of recs) if (r.target === rn) {
         for (const n of r.removedNodes) if (n.nodeType === 1) ro.unobserve(n);
-        for (const n of r.addedNodes) if (n.nodeType === 1) ro.observe(n);
+        for (const n of r.addedNodes) if (n.nodeType === 1) ro.observe(n, { box: 'border-box' });
       }
       railPjMore();
     }).observe(rn, { childList: true, subtree: true, characterData: true });
