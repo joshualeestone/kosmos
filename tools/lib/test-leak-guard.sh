@@ -202,7 +202,8 @@ leak_kts_owners() {
       esac
       echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why"
     elif [ -f "$d/.kts-owner" ]; then
-      # An EMPTY owner file was cut while tmpscope wrote it (a kill at creation); a remade dir has none at all.
+      # An EMPTY owner file was cut while tmpscope wrote it (at creation, or its rewrite after a failed sweep);
+      # a remade dir has none at all.
       echo "  ${d##*/}: owner line cut (the test was killed while tmpscope wrote it)"
     else
       # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
