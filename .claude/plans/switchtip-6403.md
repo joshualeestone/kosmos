@@ -26,6 +26,14 @@ premise: a board left open and never looked at catches up only on its 5-minute t
 - Tests: the Allow and let-in reads (connect-sheet, spying the forced reads, with a phone Allow and the wait as
   CONTROLs), the tab-shown read, the close button (focus stays on the switcher).
 
+## Review 2 (sonnet) changes
+- The read time is stamped in computersFetch itself, so every read (boot, timers, the menu, a stale tab) counts for the
+  minute a look back waits; a tab return no longer reads twice.
+- A page-level flag keeps the tip to once per page where localStorage is refused (a private window).
+- Escape puts the tip away (unless the menu or a dialog owns Escape). A row that was a computer cannot be allowed, so it
+  does not force a read (comment).
+- The 15 s follow-up after a forced read is tested, with an ordinary read as the CONTROL.
+
 ## Steps
 1. worldswComputersSeen: COMPUTERS_READ_AT; first false->true shows the tip once (localStorage kosmos.switcherTipSeen).
 2. computersReadSoon(force): after this computer allows a computer (paintAsk Allow), when this computer stops waiting

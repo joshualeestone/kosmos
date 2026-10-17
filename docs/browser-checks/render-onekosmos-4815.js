@@ -153,7 +153,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           /* #6403: the switcher appears without a reload once another computer is there, with a one-line tip the first time. */
           const tip = await page.evaluate(async ({ worlds }) => {
             const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
-            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {}
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             const before = { shown: vis('worldsw'), tip: vis('worldsw-tip') };
             // The page looked at again a minute or more after the last answer reads again (the window's focus).
@@ -183,7 +183,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           /* #6403 review 1: the close button puts the tip away and leaves focus on the switcher; the tab shown again a minute
              after the last look reads too (visibilitychange, not only focus). */
           const closeAndShow = await page.evaluate(async ({ worlds }) => {
-            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {}
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             COMPUTERS_READ_AT = Date.now() - 61 * 1000;
             window.__which = 'four';
@@ -200,6 +200,26 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             closeAndShow.shown && closeAndShow.described === 'worldsw-tip-text', JSON.stringify(closeAndShow));
           ok(`${t} #6403: the tip's close button puts it away and focus stays on the switcher`,
             !closeAndShow.tipAfter && closeAndShow.focus === 'worldsw-btn' && closeAndShow.describedAfter === null, JSON.stringify(closeAndShow));
+          /* #6403 review 2: a forced read (after an Allow, or let in) that still finds one computer looks again soon, not in
+             five minutes; CONTROL: an ordinary read that finds one computer does not. */
+          const soon = await page.evaluate(async ({ worlds }) => {
+            window.__kosmosComputersRetryMs = 200;   // the follow-up is min(15 s, the first retry), shortened here
+            const run = async (force) => {
+              window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+              COMPUTERS_READ_AT = 0; COMPUTERS_EXPECT_UNTIL = 0;
+              if (force) computersReadSoon(true); else await computersFetch();
+              await new Promise((r) => setTimeout(r, 100));
+              window.__which = 'four';
+              await new Promise((r) => setTimeout(r, 500));
+              return !document.getElementById('worldsw').hidden;
+            };
+            const forced = await run(true);
+            const plain = await run(false);
+            delete window.__kosmosComputersRetryMs;
+            return { forced, plain };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: a forced read that finds one computer looks again soon and then shows the switcher`, soon.forced === true, JSON.stringify(soon));
+          ok(`${t} #6403 CONTROL: an ordinary read that finds one computer waits (no switcher half a second later)`, soon.plain === false, JSON.stringify(soon));
           /* Shown once: after a reload with two computers from the start, no tip. */
           await page.reload();
           const again = await page.evaluate(async ({ worlds }) => {
@@ -313,6 +333,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 24 asserts = 96 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: seven, one a CONTROL).
-  process.exit(problems.length || pass + problems.length < 96 ? 1 : 0);
+  // 2 engines x 2 themes x 26 asserts = 104 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: nine, two of them CONTROLs).
+  process.exit(problems.length || pass + problems.length < 104 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
