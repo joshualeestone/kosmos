@@ -1300,29 +1300,42 @@ async function main() {
       const row = box && box.querySelector('.pnotice');
       if (!box || !row) return { missing: true };
       const fade = () => { const a = getComputedStyle(box, '::after'); return a.content !== 'none' && a.content !== 'normal' && parseFloat(a.height) > 0; };
+      /* Whether more is below, measured with the cue taken off (so the cue cannot hold itself on), and the box's sizes.
+         The attribute is not observed, so taking it off for the read does not re-run the page's own reader. */
+      const truth = () => {
+        const had = box.hasAttribute('data-more');
+        if (had) box.removeAttribute('data-more');
+        const t = { below: box.scrollHeight - box.scrollTop - box.clientHeight > 2, sh: box.scrollHeight, ch: box.clientHeight, st: Math.round(box.scrollTop) };
+        if (had) box.setAttribute('data-more', '');
+        return t;
+      };
+      const step = () => ({ more: box.hasAttribute('data-more'), fade: fade(), ...truth() });
       const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
       const copies = [];
       try {
-        const before = { more: box.hasAttribute('data-more'), fade: fade() };
+        const before = step();
         while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
         await frames();
-        const grown = { more: box.hasAttribute('data-more'), fade: fade(), scrolls: box.scrollHeight > box.clientHeight + 1 };
+        const grown = { ...step(), scrolls: box.scrollHeight > box.clientHeight + 1 };
         box.scrollTop = box.scrollHeight; await frames();
-        const atEnd = { more: box.hasAttribute('data-more'), fade: fade() };
+        const atEnd = step();
         box.scrollTop = 0; await frames();
-        const backUp = { more: box.hasAttribute('data-more') };
+        const backUp = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
-        const shortAgain = { more: box.hasAttribute('data-more'), fade: fade() };
+        const shortAgain = step();
         return { before, grown, atEnd, backUp, shortAgain };
       } finally {
         for (const c of copies) c.remove();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
       }
     });
-    if (cue.missing || cue.before.more || !cue.grown.scrolls || !cue.grown.more || !cue.grown.fade || cue.atEnd.more || cue.atEnd.fade
-        || !cue.backUp.more || cue.shortAgain.more || cue.shortAgain.fade) {
+    /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
+       scrolls, with more below at the top and none at the end, so both answers are exercised. */
+    const cueRight = (s) => s.more === s.below && s.fade === s.below;
+    if (cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below
+        || ![cue.before, cue.grown, cue.atEnd, cue.backUp, cue.shortAgain].every(cueRight)) {
       contrastFails += 1;
-      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected no cue when short, the fade while more is below, none at the end, back when scrolled up, none once short again (${scheme}), got ${JSON.stringify(cue)}`);
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge, measured with the cue off, at the start, grown, at the end, scrolled back up and short again (${scheme}), got ${JSON.stringify(cue)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
