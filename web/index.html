@@ -51491,9 +51491,12 @@ function plusJoinReset() {
   PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0;
   paintPlusJoin();
 }
-/* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
+/* #6353 (Mona Lisa's review): while a Try again is owed, or (#6387) every try is used, nothing is being waited on, so
+   the pill asks for the person. */
 function plusJoinPillWord() {
-  return PLUS_JOIN_WAITING && PLUS_JOIN && PLUS_JOIN.needs_retry === true && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
+  /* #6387: "Too many tries" (failed) needs the person as much as a code that ran out (needs_retry): both are still held
+     and neither moves until someone acts, so the pill says so for both. */
+  return PLUS_JOIN_WAITING && PLUS_JOIN && (PLUS_JOIN.needs_retry === true || PLUS_JOIN.failed === true) && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
 }
 /* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
    up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
