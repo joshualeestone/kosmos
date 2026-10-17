@@ -27789,8 +27789,9 @@ function acctMoveNote(cards) {
 async function stopAccountMove() {
   try {
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    /* As long as the move request's own limit: the board puts every unreached agent back inside this request, and on
-       Windows each put-back is a few Task Scheduler calls. */
+    /* #6231 item 7: the stop route now ANSWERS AT ONCE -- it only flags the move; the put-backs run in the move's
+       async tail, no longer inside this request. So this is a generous ceiling on the board acking the stop, not on
+       the put-backs. Left at 60s (not tightened) because an over-generous abort is harmless. */
     const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
     let res;
     try { res = await fetch('/api/agents/account-moves/stop', { method: 'POST', ...(ctl ? { signal: ctl.signal } : {}) }); }
@@ -27804,8 +27805,9 @@ async function stopAccountMove() {
     }
     return { ok: false, said: (out && (out.because || out.error)) || 'The move could not be stopped. Try again in a moment.' };
   } catch (e) {
-    /* A request that ran out of time may well have stopped the move (the board answers after the put-backs): say so,
-       never that it failed. */
+    /* A request that ran out of time may well have stopped the move: the board flags the stop before it answers (the
+       put-backs then run in the move's async tail), so an abort does not mean the stop did not take. Say so, never
+       that it failed. */
     if (e && e.name === 'AbortError') return { ok: false, said: 'Kosmos took too long to answer, so the move may already be stopping. Check Settings, AI Models in a moment.' };
     return { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' };
   }
