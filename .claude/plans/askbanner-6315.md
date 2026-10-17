@@ -35,8 +35,9 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
 - A device turned away from another tab, or from the Devices list, gets a new denied_at; until the tunnel's list
   drops it (a poll or two), this tab sees a new key and the notice can come back for it briefly. Not excluded: a
   device that is turned away and then asks again is shown on purpose (the cards say so), and it looks the same.
-- Premise, not measured: the coordinator keeps a waiting request's first_seen the same from poll to poll (it is when
-  the coordinator first saw that device). If it changed, a dismissed notice would come back with nothing new.
+- first_seen is stable while a request waits, checked in the coordinator (kosmos-relay coordinator/src/db.rs
+  4156-4177): set on insert, and refreshed only when a DENIED device asks again, which is a new request here too.
+  Read from the code, not measured against a live coordinator.
 - Storage and this tab's own record are read together, so another tab's dismissals and this tab's survive a storage
   failure and its recovery; two tabs saving at the same instant can lose one (a notice shown again).
 - With N requests the line says "N devices want to connect"; a dismiss puts away the N waiting at that moment, even
