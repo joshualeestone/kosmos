@@ -407,6 +407,18 @@ test('alone on a task with no parent: an empty list, nothing sent', async () => 
   const r = await mark(n, asAgent('mona'));
   assert.equal(r.status, 200, JSON.stringify(r.json));
   assert.deepEqual(r.json.delivered, [], JSON.stringify(r.json));
+  assert.equal(r.json.summary, undefined, 'a solo mark gets a sentence the CLI would print for nothing: ' + r.json.summary);
+  // Even with agent task messages switched off, a solo mark is not told it was refused: nobody would have been told.
+  const srv = require('./server');
+  const n2 = tasks.create(projectId, { sentence: 'Rename another file', who: 'mona' }).number;
+  srv.setTaskMsgCapForTests(0);
+  try {
+    const r2 = await mark(n2, asAgent('mona'));
+    assert.deepEqual(r2.json.delivered, []);
+    assert.equal(r2.json.summary, undefined, 'a solo mark was told the valve refused it: ' + r2.json.summary);
+  } finally {
+    srv.setTaskMsgCapForTests();
+  }
 });
 
 /* The Mac CLI end to end, as server.task-built-3951.test.js runs it: it prints the board's sentence about who was told. */

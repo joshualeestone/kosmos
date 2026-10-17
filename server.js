@@ -482,14 +482,14 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    else that task's parent, and so on; a closed task ends the walk). An identified marker is not told about its own mark. Recipients go
    through what a task message's do (#768): a swarm switched off in this project is not told, an assignee who left the
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
-   reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The route's built-mark valve limits how
-   many marks an agent makes, not how many lines one mark sends. Returns the per-agent outcomes ([] when nobody else is
-   on it). */
-async function tellBuiltMark(projectId, t, by, byKey, roster) {
-  if (!t || typeof t.number !== 'number') return [];
+   reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
+   governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
+   agent; [] when nobody else is on it), with `refusal` when the valve said no. */
+async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
+  if (!t || typeof t.number !== 'number') return { delivered: [] };
   // A read that fails throws to the route (which then says it could not work out who to tell); a missing project is [].
   const rec = projects.readAll().find((x) => x && x.id === projectId) || null;
-  if (!rec) return [];
+  if (!rec) return { delivered: [] };
   const notMe = (m) => !(by && sameAgentName(m, by, byKey));
   const member = (m) => projectHasAgent(rec, String(m), false);
   const others = tasks.whoOf(t).filter(notMe);
@@ -508,7 +508,10 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
   }
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
   const everyone = others.concat(forParent);
-  if (!everyone.length) return [];
+  if (!everyone.length) return { delivered: [] };
+  // The task-message valve, asked only when somebody would be told (a solo mark is never refused for nothing).
+  const refusal = typeof admit === 'function' ? admit() : null;
+  if (refusal) return { delivered: [], refusal };
   const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
   const projName = clean(rec.name || projectId);
   const who = clean(by) || 'An agent';
@@ -533,7 +536,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster) {
       ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
       ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
   };
-  return Promise.all(everyone.map(tell));
+  return { delivered: await Promise.all(everyone.map(tell)) };
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -21684,32 +21687,27 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
-      let untold = false;
-      /* #6330 review 7: a built line is an agent's note typed into other agents' panes, so it goes through the task-message
-         valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off): refused, the mark stands and nobody is told; told, the
-         mark counts once against the valve, as one task message does. */
-      const tells = !viaScreen && body.clear !== true && out.changed === true;
-      const refusal = tells ? taskMessageRefusal() : null;
-      if (refusal) delivered = [];
-      else if (tells) {
-        /* The mark is recorded by now, so nothing here may fail it: a throw before any line went answers 200, delivered []. */
-        try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
-        catch (err) {
+      let summary = null;
+      /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
+         task-message valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off). The mark is recorded by now, so nothing in
+         here may fail it: any throw answers 200, delivered [], and says Kosmos could not work out who to tell. */
+      if (!viaScreen && body.clear !== true && out.changed === true) {
+        try {
+          const told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => taskMessageRefusal());
+          delivered = told.delivered;
+          if (told.refusal) summary = 'Nobody was told of the mark: ' + String(told.refusal.because).replace(/\.$/, '') + '.';
+          else if (delivered.length) {
+            taskMessageValveRecord();
+            summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
+          }
+          // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
+        } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
-          untold = true;
+          summary = 'Kosmos could not work out who to tell about the mark, so nobody was told.';
         }
-        if (delivered && delivered.length) taskMessageValveRecord();
       }
-      let summary = null;
-      if (delivered) {
-        try {
-          summary = refusal ? 'Nobody was told of the mark: ' + String(refusal.because).replace(/\.$/, '') + '.'
-            : untold ? 'Kosmos could not work out who to tell about the mark, so nobody was told.'
-            : taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
-        } catch { summary = null; }
-      }
-      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, summary } : {}) });
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
