@@ -2261,7 +2261,7 @@ async function joinRetry() {
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = await tracked(setupRun(['join', 'retry', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
   if (joinUnsupported(r)) {
-    const noRetry = /unrecognized subcommand '?retry'?/.test(String(r.stderr || '') + '\n' + String(r.because || ''));
+    const noRetry = /unrecognized subcommand '?retry'?/.test((String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, ''));
     return { ok: false, because: noRetry ? 'this version of Kosmos cannot ask for a new code yet' : 'this version of Kosmos cannot pair computers yet' };
   }
   if (!r.ok) {

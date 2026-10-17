@@ -51402,6 +51402,8 @@ var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pair
 /* The tunnel withdraws an unconfirmed code REVEAL_TIMEOUT_SECS (600 s) after it appeared, but only during a round that
    succeeds; by the page's own clock a code that old is treated as run out, even if rounds keep failing (review 3). */
 var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
+var PLUS_JOIN_MSG_AT = 0;      // #6353: when a Try again refusal was said (it goes after PLUS_JOIN_CODE_MS)
+var PLUS_JOIN_RETRY_AT = 0;    // #6353: when a Try again was accepted (its promise goes after PLUS_JOIN_CODE_MS)
 /* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
    flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
 function plusJoinReset() {
@@ -51444,6 +51446,7 @@ async function plusJoinTick() {
     const was = PLUS_JOIN && PLUS_JOIN.join_code, now = got.join_code;
     if (now && now !== was) PLUS_JOIN_CODE_AT = Date.now();   // a new code: its own clock starts
     if (got.needs_retry === true) PLUS_JOIN_CODE_AT = 0;       // #6353: no code is up, so the page's clock has nothing to time
+    if (got.confirm_expired !== true) PLUS_JOIN_RETRY_AT = 0;   // the attempt started (or nothing was promised)
     if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || '' };
     PLUS_JOIN = got;
   }
@@ -51493,7 +51496,7 @@ function paintPlusJoin() {
   else if (j.needs_retry === true) html = '<p class="plus-join-say">A new code is needed to finish pairing.</p>'
     + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
-    + (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
+    + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
      the code steps back, small and grey. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
@@ -51512,7 +51515,9 @@ function paintPlusJoin() {
   else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
-  else if (j.confirm_expired) html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
+    ? '<p class="plus-join-say">That code ran out.</p>'   // the tunnel no longer owes the attempt (its Try again lapses too)
+    : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
   else if (stale) html = '<p class="plus-join-say">That code ran out.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
@@ -51527,14 +51532,14 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   try { res = await fetch('/api/remote/join/retry', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); } catch { res = null; }
   PLUS_JOIN_GEN += 1;
   /* The answer changes what the block says now, before any round: the button must not come back pressable. */
-  if (res && res.ok) { PLUS_JOIN_MSG = ''; PLUS_JOIN_CODE_AT = 0; if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = true; } }
+  if (res && res.ok) { PLUS_JOIN_MSG = ''; PLUS_JOIN_CODE_AT = 0; PLUS_JOIN_RETRY_AT = Date.now(); if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = true; } }
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     PLUS_JOIN_MSG = '';
     if (why === 'attempts_used') { if (PLUS_JOIN) { PLUS_JOIN.failed = true; PLUS_JOIN.needs_retry = false; } }
     /* nothing_to_retry: the pairing moved on since this screen was painted, so the button goes until a round says. */
     else if (why === 'nothing_to_retry') { if (PLUS_JOIN) { PLUS_JOIN.needs_retry = false; PLUS_JOIN.confirm_expired = false; } PLUS_JOIN_CODE_AT = 0; }
-    else PLUS_JOIN_MSG = plusWords(why || 'That did not go through. Try again.');
+    else { PLUS_JOIN_MSG = plusWords(why || 'That did not go through. Try again.'); PLUS_JOIN_MSG_AT = Date.now(); }
   }
   PLUS_JOIN_AT = 0;
   const focusHere = !document.activeElement || document.activeElement === b || document.activeElement === document.body;
