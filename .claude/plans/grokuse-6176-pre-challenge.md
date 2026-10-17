@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: grokuse-6176
 diff_hash: 2c75d31e1fa411d5743b9fecf46b962ba3f1c0922956ba3e7167bc9a860072b7
-validation: failed (environment, not this change: pwsh crashes at startup on this Mac, so tools/test-publish-r2-3725.sh fails 87/87 on any branch; every other suite passed, node fail 0, leak gate clean)
+validation: passed (rerun 2026-10-17 02:07-02:47 CDT after pwsh was repaired, kosmos#6352; hash 2c75d31e1fa4. The earlier run failed only on tools/test-publish-r2-3725.sh because pwsh crashed on this Mac)
 subdir_audit: passed
 timestamp: 2026-10-17T07:00:36Z
 iterations: 6
@@ -21,6 +21,7 @@ Disclosed against my own run:
 - No 6.0 baseline validation was run before iteration 1; the first full validation ran after convergence.
 - Full validation 1 failed on the #4273 leak gate: my own server test left temp folders. Fixed with tmpscope (measured: 0 new folders per run, was 3).
 - Full validation 2 failed only on tools/test-publish-r2-3725.sh, which this branch does not touch: a bare `pwsh -NoProfile -Command '1'` crashes on this Mac ("The given assembly name was invalid", System.Runtime.Numerics). Reported to Splinter. CI is the gate for that file.
+- pwsh was repaired at 02:06 (kosmos#6352, a damaged startup profile). Full validation 3 on the same diff hash PASSED, and PR CI (all eight jobs) passed after one rerun of a node-suite job that failed only on a stray `kts-` temp folder whose owner the log does not name.
 - Iteration 3 changed a no-percent line to read 0%; iteration 5 reversed it to "no figure" (one sample could not tell 0% from a plan with no percent). My iteration-3 comment had also claimed evidence that iteration 4 measured to be false.
 
 ### Per-Iteration Breakdown
@@ -113,4 +114,4 @@ Repo-wide text lints checked by this reviewer: none trip.
 | 10 | 4 | WARNING | engine/groklimits-6176.test.js | SELF | overlap untested | FIXED | 66a8cb7360 |
 | 11 | 5 | WARNING | engine/groklimits.js | SELF | confident wrong 0% | FIXED | d54fa66da5 |
 | 12 | post | BLOCKER | server.groklimits-6176.test.js | BRANCH | final-validation: #4273 leak | FIXED | 09f0ab84cf |
-| 13 | post | BLOCKER | tools/test-publish-r2-3725.sh | ENVIRONMENT | final-validation: pwsh crashes on this Mac | DEFERRED | not this change; reported; CI gates it |
+| 13 | post | BLOCKER | tools/test-publish-r2-3725.sh | ENVIRONMENT | final-validation: pwsh crashes on this Mac | FIXED | environment repaired (#6352); validation 3 passed |
