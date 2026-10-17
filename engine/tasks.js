@@ -801,15 +801,17 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`; a later mark
+ *                          without one keeps it, and only a clear or a new one replaces it
+ * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
   const print = fingerprint == null ? '' : fingerprint;
-  // Only a string of the shape: String() would make ['sha256:...'] one (review 1).
-  if (print !== '' && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is sha256: and 64 lowercase hex characters' };
+  // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
+  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is sha256: and 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -834,10 +836,13 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
       if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
-      /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
+      /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
+      /* #6330 slice 2 review 3: the fingerprint describes the deliverable, not the last marker, so a mark without one
+         (the checker's, say) keeps the earlier one; only --clear or a new one replaces it. */
+      const kept = print || (t.builtAt && t.builtFingerprint) || '';
       if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
-        && (t.builtFingerprint || '') === print) {
+        && (t.builtFingerprint || '') === kept) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -847,7 +852,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
-        ...(print ? { builtFingerprint: print } : {}),
+        ...(kept ? { builtFingerprint: kept } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });
