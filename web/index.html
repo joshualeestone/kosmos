@@ -28071,7 +28071,7 @@ async function paintAccounts(opts) {
         + 'title="' + esc('Signs in to Google again through Antigravity, the same way as adding it.') + '">Sign in again</button>'
         + '<button class="acct-reauth acct-remove" type="button" data-agy-forget="1" aria-label="Remove the Google subscription from Kosmos" '
         + 'title="' + esc('Kosmos stops listing it here. Antigravity stays signed in on this computer and its agents keep working, so it comes back the next time Kosmos checks Antigravity.') + '">Remove</button>'
-        + '</div></div>';
+        + '</div>' + acctUsageHtml(a, list) + '</div>';   // #6176 slice 4: Gemini usage as Antigravity reported it
     }
     /* #3939 slice 3c-2: Meta Muse, signed in through Muse Code's own sign-in (on a Mac, the Keychain).
        Like the Gemini subscription row above: no folder, no key, none of a Claude row's actions. Only
