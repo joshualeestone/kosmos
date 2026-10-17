@@ -22,4 +22,10 @@ web.plus-route.test.js 5/5; browser checks render-plus-signin-3478 (182 PASS), r
 render-plus-blue-1615 (passed) run on this branch.
 
 ## Weakest premise
-That nothing reads the old /plus path from the app (only one KOSMOS_SITE + '/plus' site in the page, grepped).
+That the site keeps its `/+` redirect. `/plus` was a page served directly; `/+?from=app` is a 308 owned by another
+repo, and nothing in this repo would notice it going away (the suite is offline). Deferred in review round 2, reasoning
+on the card (#1615 comment 6230156284): if the site drops or repoints `/+`, `/plus` is the safer target.
+
+Also: that nothing else reads the old /plus path from the app. Grepped (one KOSMOS_SITE + '/plus' site), and the
+wizard's "Create an account" copies `site.href` at runtime, which render-plus-signin-3478.js asserts
+(`join.href === site.href`), so it moves with the change.

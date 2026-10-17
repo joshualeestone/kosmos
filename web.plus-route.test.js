@@ -67,6 +67,7 @@ test('the link is actually pointed somewhere at paint time', () => {
      must not stay "#", a route to nowhere that looks exactly like a route. */
   assert.match(paint, /KOSMOS_SITE \+ '\/\+\?from=app'/,
     'the link is not pointed at the designed /+?from=app');
+  assert.doesNotMatch(paint, /KOSMOS_SITE \+ '\/plus'/, 'paintPlus still points a link at the old /plus');
   assert.doesNotMatch(paint, /site\.href = '#'/, 'the link was left pointing at nothing');
 });
 
