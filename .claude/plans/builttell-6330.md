@@ -65,7 +65,13 @@ the rate, and every line is one the parent holder would otherwise poll for, but 
 one branch to drop.
 
 ## Tests
-`server.builttell-6330.test.js` (route level, real sandboxed board): other assignees told and the marker not; the parent
-holder told, once even when also on the task; a closed parent tells nobody; nothing for the same mark again, a clear or
-the screen (each with the first mark as control); a departed assignee not told and said (a member on the same task as
-control); alone with no parent, an empty list; and the typed lines themselves (placed, the wording, exactly two lines).
+`server.builttell-6330.test.js` (19 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+(other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
+parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
+typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients
+(each with a member control); the task-message valve at cap 0 and past a low cap (the mark stands); a solo mark (no
+summary, not refused at cap 0); failures (a throw, an unreadable project list, one recipient's own step) never fail
+the mark or claim nobody was told wrongly. `tools.windows-kosmos-cli-570.test.js`: the Windows CLI prints the summary,
+and nothing from an older board. Review 9: the valve is asked only when a line would be attempted (not for a list of
+only switched-off or departed recipients), and a valve count is spent only then; concurrent marks can overrun the cap by
+the number in flight, as task messages can.
