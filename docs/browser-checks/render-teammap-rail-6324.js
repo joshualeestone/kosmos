@@ -53,7 +53,12 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       AGENT_WORKFORCE_FAKE_SESSIONS: roots.DATA + '/fake-sessions' },
     stdio: 'ignore',
   });
-  await new Promise((r) => setTimeout(r, 1200));
+  // Until the board answers, not a fixed sleep: a cold start right after another run took longer than 1.2s
+  // (2026-10-16, both mutant runs refused), and a refusal there is no answer about the map.
+  for (let i = 0; i < 60; i++) {
+    try { await new Promise((ok, no) => require('node:http').get('http://127.0.0.1:' + PORT + '/', (res) => { res.resume(); ok(); }).on('error', no)); break; }
+    catch { await new Promise((r) => setTimeout(r, 250)); }
+  }
 
   const b = await chromium.launch({ headless: process.env.HEADED === '0' });
   const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
@@ -95,6 +100,17 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     await p.waitForFunction((names) => names.every((n) => document.querySelector('#alist .lrow[data-agent="' + n + '"]')), NAMES, { timeout: 15000 });
     await p.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => {});
 
+    // The first agent row of the list, wholly inside the window AND below the open map's box. The head's grid row has a
+    // set height and does not clip, so a map taller than the head runs down OVER the list rather than pushing it
+    // (measured 2026-10-16: the cap-removed controls read the row as in view, page scrolled 100px). Both are the harm.
+    await p.evaluate(() => {
+      window.rowClear = () => {
+        const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
+        const box = document.getElementById('alist-teammap');
+        const b = box && !box.hidden && box.getClientRects().length > 0 ? box.getBoundingClientRect() : null;
+        return r.top >= 0 && r.bottom <= window.innerHeight && (!b || b.bottom <= r.top);
+      };
+    });
     const state = () => p.evaluate(() => {
       const vis = (el) => !!el && !el.hidden && el.getClientRects().length > 0;
       const btn = document.getElementById('alist-teammap-btn');
@@ -108,10 +124,8 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
         // The page scrolling down: the body is the scroller in this layout (height 100vh, overflow-y auto), so read both.
         pageDown: Math.max(document.documentElement.scrollHeight - document.documentElement.clientHeight,
           document.body.scrollHeight - document.body.clientHeight),
-        // The first agent row of the list, wholly inside the window: the list was not pushed off.
         fold: document.body.classList.contains('fold-a'),
-        firstRow: (() => { const r0 = document.querySelector('#alist .lrow'); if (!r0) return null; const r = r0.getBoundingClientRect();
-          return r.top >= 0 && r.bottom <= window.innerHeight; })() };
+        firstRow: rowClear() };
     });
     const before = await state();
     say('CONTROL: the consolidated layout is on with the project open', before.cons && before.open === made.id, JSON.stringify(before));
@@ -168,16 +182,14 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const uncapped = () => p.evaluate(() => {
       const box = document.getElementById('alist-teammap');
       box.style.maxHeight = 'none';
-      const r0 = document.querySelector('#alist .lrow');
-      const r = r0 ? r0.getBoundingClientRect() : null;
       const out = { pageDown: Math.max(document.documentElement.scrollHeight - document.documentElement.clientHeight,
-          document.body.scrollHeight - document.body.clientHeight), firstRow: r ? (r.top >= 0 && r.bottom <= window.innerHeight) : null };
+          document.body.scrollHeight - document.body.clientHeight), firstRow: rowClear() };
       box.style.maxHeight = '';
       return out;
     });
     // CONTROL for the arm above: without the cap the same instrument must see the row leave, or it cannot see a push.
     const uncapTall = await uncapped();
-    say('CONTROL: at 1280x900, with the cap removed, the first agent row leaves the view', uncapTall.firstRow === false, JSON.stringify(uncapTall));
+    say('CONTROL: at 1280x900, with the cap removed, the first agent row is pushed off or covered', uncapTall.firstRow === false, JSON.stringify(uncapTall));
     say('CONTROL: at 1280x900, with the cap removed, the page scrolls down', uncapTall.pageDown > 0, JSON.stringify(uncapTall));
     // The narrowest, shortest window the consolidated layout keeps: 960x720. Below 1280 the agents column folds by
     // default (CONSOLIDATED_FOLD_WIDTH), and the map goes with it; a person who unfolds it gets the rail at its floor.
@@ -196,7 +208,7 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     say('at 960x720 the page does not scroll down', short.pageDown <= 0, 'page ' + short.pageDown + 'px');
     // CONTROL for the two arms above: without the cap the same instruments must go red, or they cannot see a push.
     const uncapShort = await uncapped();
-    say('CONTROL: at 960x720, with the cap removed, the first agent row leaves the view', uncapShort.firstRow === false, JSON.stringify(uncapShort));
+    say('CONTROL: at 960x720, with the cap removed, the first agent row is pushed off or covered', uncapShort.firstRow === false, JSON.stringify(uncapShort));
     say('CONTROL: at 960x720, with the cap removed, the page scrolls down', uncapShort.pageDown > 0, JSON.stringify(uncapShort));
     await p.setViewportSize({ width: 1280, height: 900 });
     await p.waitForFunction(() => window.innerWidth === 1280 && !document.body.classList.contains('fold-a') && !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
