@@ -8,8 +8,8 @@ not in this change.
 ## What a person sees
 Nothing on the screen. An agent that marks a task built (`kosmos task built`) now has a one-line note typed to:
 - the task's other assignees (its parts' holders), and
-- the parent task's assignees, or, if nobody is on the parent directly, whoever holds it through its own parents
-  (`tasks.ownerIn`, the task list's own derivation),
+- the open holders, still on the project, of the nearest task above it that has any: its parent, else that task's
+  parent, and so on, up the parent chain only (a closed task ends the walk),
 saying "<agent> marked task N built: "<note>"" with how to reply in the task, and for a parent holder "(it is under
 your task P)". The marker is never told. The answer gains `delivered`, one outcome per agent, as a task message's has.
 
@@ -18,7 +18,10 @@ your task P)". The marker is never told. The answer gains `delivered`, one outco
   screen (the person knows they did it).
 - The same filters as a task message (#768): a swarm switched off in this project is not told, an assignee who left
   the project is not told, and both are said in `delivered`.
-- A closed parent hands nothing on (nobody's work now, as ownerIn reads it).
+- A closed parent hands nothing on (that branch's work is finished).
+- Review 2: the first version fell back to `tasks.ownerIn`, which, when no ancestor is held, picks the lowest-numbered
+  held task anywhere in the tree (a sibling), whose holder would be told "it is under your task" falsely; and parent
+  holders who had left were dropped with no fallback. The walk up the chain replaces both.
 - How often: the built-mark valve the route already applies (builtMarkRefusal) limits how many marks an agent makes;
   one mark sends one line to each recipient.
 - An agent out of usage is not typed into: its line is kept and typed after its reset (messages.keepTaskLine, #5805),
