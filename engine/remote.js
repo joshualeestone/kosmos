@@ -2004,6 +2004,9 @@ function pendingDevices() {
       /* kosmos#4794: why a joining computer's code is still "" (the tunnel's wait_reason, or was_a_computer), from a
          fixed list so the page words each one; null while the code is shown or being worked out. */
       code_wait: CODE_WAITS.has(d.code_wait) ? d.code_wait : null,
+      /* kosmos#6404: an allowed computer asking to finish its code check here (the tunnel's recheck row): Allow only
+         confirms the typed code, Not me only drops the check. */
+      recheck: d.recheck === true,
     }))
     /* #6315: a minted computer: id is a computer whatever else the row says. Without a usable joining_computer name
        (the coordinator stops naming it once its lineage is no longer waiting, or the name fails NAME_RULE) it would be
@@ -2238,6 +2241,11 @@ async function joinStatus() {
     confirm_expired: d.confirm_expired === true,
     /* #6353: the last code ran out and no new one comes until the person presses Try again here. */
     needs_retry: d.needs_retry === true,
+    /* kosmos#6404: allowed, but its code ran out before The codes match was pressed here: the person can ask for one
+       fresh code check (joinRecheck); and while that check runs. */
+    can_recheck: d.can_recheck === true,
+    rechecking: d.rechecking === true,
+    recheck_with: computerName(d.recheck_with) || null,
   } };
 }
 /** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
@@ -2301,6 +2309,27 @@ async function openTicket(address) {
   const t = got.data && got.data.ticket;
   if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
   return { ok: true, because: null, data: { ticket: t } };
+}
+
+/** kosmos#6404, "Check the code": this computer was allowed, but its code ran out before The codes match was pressed
+    here, so it does not trust the other computer yet. Asks for ONE fresh code check with it (the next round starts it).
+    Local only. The tunnel refuses when there is nothing to check or every try is used; both are tagged. */
+async function joinRecheck() {
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'recheck', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?(join|recheck)'?/.test(said)) {
+    return { ok: false, because: 'this version of Kosmos cannot check the code again yet' };
+  }
+  if (!r.ok) {
+    if (/\bnothing_to_recheck:/.test(said)) return { ok: false, because: 'nothing_to_recheck' };
+    if (/\battempts_used:/.test(said)) return { ok: false, because: 'attempts_used' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (!got.data || got.data.recheck !== true) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { recheck: true } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -3394,6 +3423,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   joinConfirm,
   joinRetry,
   openTicket,
+  joinRecheck,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
