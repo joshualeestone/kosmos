@@ -30630,7 +30630,46 @@ function computersInApp() {
    page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
+  // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
+  // not a listener, so a copied row (the phone menu's) keeps it.
+  try { a.setAttribute('data-computer-open', '1'); } catch {}
 }
+/* kosmos#6406 step 2 (Josh 11:32: "i want to access your machine kosmos in my kosmos app"): in the Kosmos app, a plain
+   click on a link to another of the person's computers asks this computer for a ticket (POST /api/remote/open-ticket,
+   only for a request made on this computer's own screen) and opens the other computer with it in the address's
+   fragment (#kpt=). That computer lets the window in with no sign-in when it trusts this computer's key (they were
+   paired with the codes compared there); otherwise, or when anything here fails, the plain address opens and asks for
+   a sign-in as before. A modified click (new tab, new window) and a browser keep the plain link. */
+let computersOpening = false;
+function computersOpenClick(e) {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target && e.target.closest ? e.target.closest('a[data-computer-open]') : null;
+  if (!a || !computersInApp()) return;
+  let url;
+  try { url = new URL(a.href); } catch { return; }
+  if (url.protocol !== 'https:') return;
+  e.preventDefault();
+  if (computersOpening) return;   // one at a time: a second click waits for the first
+  computersOpening = true;
+  const plain = url.origin + url.pathname + url.search;
+  const go = (to) => { computersOpening = false; window.location.assign(to); };
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const cut = ctl ? setTimeout(() => ctl.abort(), 8000) : null;
+  fetch('/api/remote/open-ticket', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ address: url.host }),
+    signal: ctl ? ctl.signal : undefined,
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => {
+      if (cut) clearTimeout(cut);
+      const t = b && typeof b.ticket === 'string' && /^[A-Za-z0-9_-]{20,2048}$/.test(b.ticket) ? b.ticket : '';
+      go(t ? plain + '#kpt=' + t : plain);
+    })
+    .catch(() => { if (cut) clearTimeout(cut); go(plain); });
+}
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('click', computersOpenClick);
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');

@@ -2275,6 +2275,24 @@ async function joinRetry() {
   return { ok: true, because: null, data: { retry: true } };
 }
 
+/* kosmos#6406 step 2: a ticket that opens another of this account's computers in this computer's app window with no
+   sign-in (kosmos-tunnel open-ticket: signed with this computer's key, for that computer's origin only, good for two
+   minutes, once). The other computer takes it only if it trusts this computer's key; the server route asks for one
+   only for a request made on this computer's own screen. `address` is the other computer's host, already checked. */
+async function openTicket(address) {
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['open-ticket', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, retireTimeoutMs()));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?open-ticket'?/.test(said)) {
+    return { ok: false, because: 'this version of Kosmos cannot open another computer directly yet' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  const t = got.data && got.data.ticket;
+  if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { ticket: t } };
+}
+
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
    old jump-to-the-web: email code -> phone code -> "you're signed in". Unlike
    `setup` (create-or-join enrolment), these verbs never create an account -- a
@@ -3365,6 +3383,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   joinStatus,
   joinConfirm,
   joinRetry,
+  openTicket,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment

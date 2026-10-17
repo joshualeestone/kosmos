@@ -10986,6 +10986,34 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not ask for a new code' }));
     return;
   }
+  /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
+     for a request made on THIS computer's own screen: never one that came through Kosmos+ (the tunnel always sets
+     x-forwarded-host), so a phone let in here cannot use this computer's key to reach the other computers, and never
+     an agent's token (isViaScreen). The address must be one an account's computer can have. */
+  if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const relayed = req.headers['x-forwarded-host'] !== undefined || req.headers['x-forwarded-for'] !== undefined;
+        if (relayed || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
+          return;
+        }
+        const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+        const domain = accountComputers.computerDomain(remote.COORDINATOR());
+        if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+          sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+          return;
+        }
+        const got = await remote.openTicket(address);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ticket: got.data.ticket });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
+    return;
+  }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
     remote.devicesList()
       .then((list) => {

@@ -11685,6 +11685,33 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
   }
 });
 
+test('kosmos#6406: a ticket to open another computer is only for this computer\'s own screen, never through Kosmos+', async () => {
+  const page = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+  const body = JSON.stringify({ address: 'tmnt.kosmosplus.com' });
+  for (const [what, headers, extra] of [
+    ['a process', { 'content-type': 'application/json' }, {}],
+    ['an agent token', { ...page, 'x-kosmos-agent-token': 'f'.repeat(64) }, {}],
+    ['an agent token in the body', page, { token: 'f'.repeat(64) }],
+    ['a phone through Kosmos+', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, {}],
+    ['through Kosmos+, host only', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com' }, {}],
+  ]) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers, body: JSON.stringify({ address: 'tmnt.kosmosplus.com', ...extra }) });
+    assert.equal(r.status, 403, what + ' got a ticket: ' + r.body);
+    assert.match(JSON.parse(r.body).error, /Only the Kosmos app on this computer can open another computer directly/, what);
+  }
+  /* An address no computer of the account can have is refused before the tunnel. */
+  for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
+    assert.equal(r.status, 400, address + ': ' + r.body);
+    assert.match(JSON.parse(r.body).error, /not the address of one of your computers/, address);
+  }
+  /* CONTROL: the page on this computer reaches openTicket's own gate (this board is not enrolled), so the refusals above
+     are the guards and not the whole route. */
+  const ok = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body });
+  assert.equal(ok.status, 400, ok.body);
+  assert.match(JSON.parse(ok.body).error, /finish the Plus sign-up first/);
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');
