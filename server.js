@@ -477,6 +477,56 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
   catch (err2) { return failed(err2); }
   return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
+/* #6330 slice 1: an agent's built mark tells the people the work is handed to, so nobody has to poll for it: the task's
+   other assignees, and its parent task's assignees (or, with none, whoever holds the parent through its own parents,
+   tasks.ownerIn). The marker is never told about its own mark. Recipients pass the same filters a task message uses:
+   a swarm switched off in this project is not told (projects.swarmOffSet), and an assignee who has left the project is
+   not told either, and both are said in the answer. One line each, through chat.deliver; the built-mark valve the route
+   already applies bounds how often. Returns the per-agent outcomes, or an empty list when nobody else is on it. */
+function tellBuiltMark(projectId, t, by, byKey, roster) {
+  if (!t || typeof t.number !== 'number') return [];
+  let rec = null;
+  try { rec = projects.readAll().find((x) => x && x.id === projectId) || null; } catch { rec = null; }
+  if (!rec) return [];
+  const notMe = (m) => !(by && sameAgentName(m, by, byKey));
+  const others = tasks.whoOf(t).filter(notMe);
+  const parentNum = tasks.parentOf(rec, t);
+  const parent = parentNum === null ? null : tasks.byNumber(rec, parentNum);
+  let parentWho = [];
+  if (parent && !tasks.progressOf(parent).closed) {
+    parentWho = tasks.whoOf(parent);
+    if (!parentWho.length) {
+      const members = new Set((rec.agents || []).map(String));
+      const owned = tasks.ownerIn(tasks.treeOf(rec), parent, members);
+      parentWho = owned ? owned.who : [];
+    }
+  }
+  const forParent = parentWho.filter(notMe).filter((m) => !others.includes(m));
+  const everyone = others.concat(forParent);
+  if (!everyone.length) return [];
+  const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
+  const projName = clean(rec.name || projectId);
+  const who = clean(by) || 'An agent';
+  const offHere = projects.swarmOffSet(projectId);
+  const departed = (m) => !projectHasAgent(rec, String(m), false);
+  const note = clean(t.builtNote || '');
+  const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
+    + (n ? ': "' + n + '"' : '')
+    + (forParent.includes(m) ? ' (it is under your task ' + parent.number + ')' : '')
+    + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
+  const fits = (m) => lineFor(m, note).length <= messages.spillLimit();
+  const out = [];
+  for (const m of everyone) {
+    if (offHere.has(String(m))) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) }); continue; }
+    if (departed(m)) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' }); continue; }
+    const line = lineFor(m, fits(m) ? note : note.slice(0, 140) + '...');
+    let sent;
+    try { sent = chat.deliver(m, line, roster); }
+    catch (err) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
+    out.push({ agent: m, state: sent && sent.state, because: (sent && sent.because) || null });
+  }
+  return out;
+}
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
    writes so a malformed or hostile body cannot close a whole store in one go. */
@@ -21624,7 +21674,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
-      sendJson(res, 200, { task: out.task, changed: out.changed === true });
+      /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
+      const delivered = !viaScreen && body.clear !== true && out.changed === true
+        ? tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster) : null;
+      sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
     });
