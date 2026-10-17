@@ -21696,7 +21696,9 @@ const server = http.createServer(async (req, res) => {
         try {
           const told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => taskMessageRefusal());
           delivered = told.delivered;
-          if (told.refusal) summary = 'Nobody was told of the mark: ' + String(told.refusal.because).replace(/\.$/, '') + '.';
+          // The valve's sentence was written for a task message: its "send from the screen" has no built counterpart.
+          if (told.refusal) summary = 'The task is marked built, but nobody was told, because these lines count as task messages and '
+            + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
             if (told.attempted) taskMessageValveRecord();
             // Lines may be out by now, so a failure here never says nobody was told.
