@@ -23,8 +23,9 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
 - docs/browser-checks/render-projects.js: a new #6347 arm grows the rail notice from copies of the row the page drew
   (12 more), measures in one synchronous step, and removes only the copies (the region is not live meanwhile). It
   asserts the box is at most 40vh, scrolls, and still ends above the list. Its control lifts the cap on the same box,
-  which must then outgrow 40vh and run under the list, so a viewport too tall for the fixture fails instead of passing. Earlier the commit cited render-project-done-4583, which only reads the notice's text and never
-  measured the layout (review round 1).
+  which must then outgrow 40vh and run under the list, so a viewport too tall for the fixture fails instead of passing.
+  It reads at the context viewport and again at 560px tall. (The first commit cited render-project-done-4583, which
+  only reads the notice text and never measured the layout; review round 1.)
 
 ## Weakest premise
 That 40vh leaves the agents list usable on a short window. The rule sits inside the 960px+ consolidated block, so

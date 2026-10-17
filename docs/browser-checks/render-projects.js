@@ -1239,8 +1239,8 @@ async function main() {
     await page.waitForFunction(() => /instructions for this project/.test((document.getElementById('alist-pj-notice') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
     const railOn = await railRead();
     /* #6347: a LONG notice (April measured 1580px with ten failing members) ran under the list, because the head's
-       height comes from the grid row. Grown from copies of the row the page itself drew (no invented markup), measured
-       and undone in one synchronous step, so no poll repaints it in between. Only the copies are removed, so the
+       height comes from the grid row. Grown from copies of the row the page itself drew (no invented markup); each read
+       adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the copies are removed, so the
        original rows (and any focus in them) are untouched, and the region is not live while they exist. The CONTROL is
        the same box with its cap lifted: it must outgrow 40vh and reach the list, or the fixture is too short to show
        anything at this viewport and the arm fails rather than pass on a box that never needed the cap. Read at this
@@ -1271,10 +1271,13 @@ async function main() {
       || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
     const vpWas = page.viewportSize();
     const railLong = { full: await longRead() };
-    await page.setViewportSize({ width: vpWas.width, height: 560 });
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
-    railLong.short = await longRead();
-    await page.setViewportSize(vpWas);
+    try {
+      await page.setViewportSize({ width: vpWas.width, height: 560 });
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())));
+      railLong.short = await longRead();
+    } finally {
+      await page.setViewportSize(vpWas);   // the #3948 reads below need the window this context opened with
+    }
     if (longBad(railLong.full) || longBad(railLong.short)) {
       contrastFails += 1;
       console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, while the same box uncapped runs under it (the control), at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
