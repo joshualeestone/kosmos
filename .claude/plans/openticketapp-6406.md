@@ -67,3 +67,5 @@ plain address as before.
 - 2 opus: the link says it is busy; a hard 8 s fallback (no AbortController needed); the webhook path's header stated
   and its case tested; one at a time tested against the page's own declaration; the unchosen-Windows and
   script-navigation limits stated.
+- 3 sonnet: the 8 s fallback tested (a request that never answers: one plain navigation, busy cleared, a late
+  answer ignored). Not taken: a spoken busy state (the wait is short and ends in a navigation either way).

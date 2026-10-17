@@ -172,7 +172,7 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
    the other computer with it in the fragment; anything else keeps the plain address. */
 const OPEN = slice('computersInApp') + slice('computersOpenClick');
 const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
-function clickWith({ win, answer, ev, href, twice }) {
+function clickWith({ win, answer, ev, href, twice, timers }) {
   const went = [];
   const posted = [];
   const attrs = {};
@@ -185,7 +185,7 @@ function clickWith({ win, answer, ev, href, twice }) {
   const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
   const run = new Function('window', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
     `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
-  run(w, fetchFn, e, second, !!twice, URL, AbortController, setTimeout, clearTimeout);
+  run(w, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
   return { went, posted, e, attrs };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
@@ -244,5 +244,22 @@ test('#6406 step 2: one ticket at a time (a second click while the first is out 
   await settle();
   assert.equal(t.went.length, 1);
   assert.equal(t.attrs['aria-busy'], undefined, 'busy is cleared');
+});
+
+test('#6406 step 2: a ticket request that never answers opens the plain address after 8 s, once, and clears busy', async () => {
+  const pending = [];
+  const timers = { set: (fn, ms) => { pending.push({ fn, ms }); return pending.length; }, clear: () => {} };
+  let resolve;
+  const t = clickWith({ win: APP, timers, answer: () => new Promise((r) => { resolve = r; }) });
+  assert.equal(t.went.length, 0, 'nothing yet');
+  const cut = pending.find((p) => p.ms === 8000);
+  assert.ok(cut, 'an 8 s fallback is set: ' + JSON.stringify(pending.map((p) => p.ms)));
+  cut.fn();
+  assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x']);
+  assert.equal(t.attrs['aria-busy'], undefined);
+  // The answer arriving late changes nothing (one navigation only).
+  resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) });
+  await settle();
+  assert.equal(t.went.length, 1);
 });
 
