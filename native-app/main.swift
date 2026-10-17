@@ -4527,7 +4527,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .giveUp:
             signInAgainGaveUp = true
             logLine(refused ? "#6358: the board refused the window's sign-in; showing the could-not-sign-in page"
-                            : "#6358: there is no board token to sign in with; showing the could-not-sign-in page")
+                    : signInsWithoutRead >= signInAgainTries
+                        ? "#6358: \(signInAgainTries) sign-ins brought no board read; showing the could-not-sign-in page"
+                        : "#6358: there is no board token to sign in with; showing the could-not-sign-in page")
             if let url = URL(string: "http://\(board.host):\(board.port)/?signin=failed") { webView.load(URLRequest(url: url)) }
             return
         case .signIn:

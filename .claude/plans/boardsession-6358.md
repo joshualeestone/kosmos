@@ -68,8 +68,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     asserts it is absent. That check saves a screenshot when KOSMOS_SIGNIN_SHOT names a file.
 - **A browser tab on a Linux board:** run `kosmos open` on the computer running Kosmos, then Reload. A Linux board has
   no app and no Applications folder.
-- **The one sentence (agents box, projects, org note):** "The Kosmos app signs itself in again. In a browser tab,
-  open Kosmos from your Applications folder." That is true in both places. Linux has its own sentence.
+- **The one sentence (agents box, projects, org note):** "The Kosmos app signs itself in again. A browser tab stays
+  signed out until it is signed in again." (The tab panel carries the Applications-folder advice.) That is true in both places. Linux has its own sentence.
 - **Kosmos+ remote access through the relay:** NOT signed out by a restart on the board's side. Read in kosmos-relay
   origin/main, `crates/tunnel/src/proxy.rs`:
   - the connector drops the visitor's `kosmos_board` cookie;
