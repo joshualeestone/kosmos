@@ -11651,6 +11651,16 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
     assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
     assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
   }
+  /* #6353: Try again is screen-only too (a new attempt is a try; the press means a person is back). */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const t = await req('/api/remote/join/retry', { method: 'POST', headers, body: JSON.stringify({ ...extra }) });
+    assert.equal(t.status, 403, 'join/retry let a process through: ' + t.body);
+    assert.match(JSON.parse(t.body).error, /Only a person at the Kosmos screen can ask for a new code/);
+  }
+  /* Control: from the page it reaches joinRetry's own gate (this board is not enrolled), so the 403 is the guard. */
+  const viaPage = await req('/api/remote/join/retry', { method: 'POST', headers: pageHeader, body: '{}' });
+  assert.equal(viaPage.status, 400, viaPage.body);
+  assert.match(JSON.parse(viaPage.body).error, /finish the Plus sign-up first/);
   /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
      The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
   for (const verb of ['deny', 'remove']) {

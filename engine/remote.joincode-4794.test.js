@@ -51,10 +51,15 @@ if (args[0] === 'join') {
     /* The real tunnel logs to stdout before its JSON line (main.rs tracing, step()'s warnings). */
     console.log('2026-10-03T05:00:00Z  WARN kosmos_tunnel::pairing: a round met a busy lock { "noise": true }');
     if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482 915', join_codes: [{ on: 'HomeMac', code: '482 915' }, { on: '<b>x</b>', code: '1' }],
-      asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, secret: 'not for the page' }));
+      asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, needs_retry: true, secret: 'not for the page' }));
     else if (mode === 'badcode') console.log(JSON.stringify({ held: true, join_code: 'AB-12', join_codes: [], asked_of: [] }));
     else console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false, confirm_expired: false }));
     process.exit(0);
+  }
+  if (args[1] === 'retry') {   // #6353
+    if (mode === 'retry-none') { process.stderr.write('Error: nothing_to_retry: there is no code that ran out here\\n'); process.exit(1); }
+    if (mode === 'retry-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
+    console.log(JSON.stringify({ retry: true })); process.exit(0);
   }
   if (args[1] === 'confirm') {
     if (flag('--code') === '482 915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
@@ -126,7 +131,7 @@ test('#4794: join status hands the page only checked fields', async () => {
   const got = await remote.joinStatus();
   assert.equal(got.ok, true, got.because);
   assert.deepEqual(got.data, { supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac', 'ok-name'],
-    failed: false, confirmed: false, confirm_expired: true });
+    failed: false, confirmed: false, confirm_expired: true, needs_retry: true });
   const call = recorded().find((a) => a[0] === 'join' && a[1] === 'status');
   assert.ok(call && call.includes('--coordinator') && call.includes('--state-dir'), JSON.stringify(call));
 });
@@ -162,6 +167,27 @@ test('#4794: The codes match passes the code to join confirm and answers the oth
   assert.deepEqual([wrong.ok, wrong.because], [false, 'code_changed'], 'a mismatch is tagged for the page, not relayed raw');
   const expired = await remote.joinConfirm('000 001');
   assert.deepEqual([expired.ok, expired.because], [false, 'code_expired'], 'an expired code is tagged for the page');
+});
+
+test('#6353: Try again runs join retry locally and tags the tunnel refusals for the page', async () => {
+  enrol();
+  const ok = await remote.joinRetry();
+  assert.deepEqual(ok, { ok: true, because: null, data: { retry: true } });
+  const call = recorded().find((a) => a[0] === 'join' && a[1] === 'retry');
+  assert.ok(call && call.includes('--state-dir'), JSON.stringify(call));
+  assert.ok(!call.includes('--coordinator'), 'join retry is local only');
+  process.env.FAKE_JOIN = 'retry-none';
+  assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'nothing_to_retry' });
+  process.env.FAKE_JOIN = 'retry-used';
+  assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'attempts_used' });
+  process.env.FAKE_JOIN = 'unsupported';
+  assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
+});
+
+test('#6353: Try again before the sign-up is finished does not reach the binary', async () => {
+  const r = await remote.joinRetry();
+  assert.deepEqual(r, { ok: false, because: 'finish the Plus sign-up first' });
+  assert.equal(recorded().length, 0);
 });
 
 test('#4794: join confirm on a tunnel with no join verb says so in words', async () => {

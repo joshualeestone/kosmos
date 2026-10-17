@@ -2228,6 +2228,8 @@ async function joinStatus() {
     failed: d.failed === true,
     confirmed: d.confirmed === true,
     confirm_expired: d.confirm_expired === true,
+    /* #6353: the last code ran out and no new one comes until the person presses Try again here. */
+    needs_retry: d.needs_retry === true,
   } };
 }
 /** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
@@ -2250,6 +2252,24 @@ async function joinConfirm(code) {
   const d = got.data || {};
   if (d.confirmed !== true) return { ok: false, because: 'the code was not confirmed' };
   return { ok: true, because: null, data: { confirmed: true, with: computerName(d.with) } };
+}
+
+/** #6353, "Try again": the last code ran out, so allow ONE new attempt (the next round starts it). Local only. The
+    tunnel refuses when no code ran out or every try is used; both are tagged for the page to word. */
+async function joinRetry() {
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'retry', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) return { ok: false, because: 'this version of Kosmos cannot pair computers yet' };
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bnothing_to_retry:/.test(said)) return { ok: false, because: 'nothing_to_retry' };
+    if (/\battempts_used:/.test(said)) return { ok: false, because: 'attempts_used' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (!got.data || got.data.retry !== true) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { retry: true } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -3328,6 +3348,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   deviceAllow,
   joinStatus,
   joinConfirm,
+  joinRetry,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
