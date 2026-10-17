@@ -429,6 +429,26 @@ test('a pane that has not taken its line by the wait does not hold the answer: i
   }
 });
 
+test('a mark spends one task-message unit per line it tries, none for a switched-off recipient', async () => {
+  const srv = require('./server');
+  const n = tasks.create(projectId, { sentence: 'Tag the release', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Check the tag', who: 'zed' });
+  tasks.addPart(projectId, n, { sentence: 'Announce it', who: 'ivy' });
+  const before = srv.taskMessageSendCount;
+  const r = await mark(n, asAgent('mona'));
+  assert.deepEqual(told(r), ['ivy', 'zed'], JSON.stringify(r.json));
+  assert.equal(srv.taskMessageSendCount - before, 2, 'two lines tried, so two units');
+  // CONTROL: with zed switched off only ivy's line is tried, so one unit.
+  projects.setSwarmOn(projectId, 'zed', false);
+  try {
+    const before2 = srv.taskMessageSendCount;
+    await mark(n, asAgent('mona'), { note: 'tag pushed' });
+    assert.equal(srv.taskMessageSendCount - before2, 1, 'a switched-off recipient spent a unit');
+  } finally {
+    projects.setSwarmOn(projectId, 'zed', true);
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));

@@ -484,7 +484,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
    reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
    governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
-   agent; [] when nobody else is on it) and `attempted` (how many lines were tried, which spends the valve), with
+   agent; [] when nobody else is on it) and `attempted` (how many lines would be tried: recipients past the swarm-off and membership filters, one valve unit each), with
    `refusal` when the valve said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed. */
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
@@ -21727,7 +21727,8 @@ const server = http.createServer(async (req, res) => {
             + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
             // Lines may be out by now, so nothing here may say nobody was told.
-            try { if (told.attempted) taskMessageValveRecord(); } catch { /* the mark and its lines stand */ }
+            // One valve unit per line tried, so AGENT_WORKFORCE_TASK_MSG_CAP counts lines here as it does for task messages.
+            try { for (let i = 0; i < told.attempted; i++) taskMessageValveRecord(); } catch { /* the mark and its lines stand */ }
             try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
             catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
@@ -24887,6 +24888,7 @@ module.exports = {
   get TASK_MSG_CAP_PER_HOUR() { return TASK_MSG_CAP_PER_HOUR; }, // #3959: the task-message limit (default: the shared breaker); read it when needed, a destructured copy goes stale after setTaskMsgCapForTests
   taskMsgCapFrom, setTaskMsgCapForTests, // #3959: how the operator's value is read, and the test seam
   setBuiltTellWaitForTests, // #6330: how long one built line may hold the answer (test seam)
+  get taskMessageSendCount() { return taskMessageSends.length; }, // #6330: lines on the task-message valve (tests read the change)
   resetRetellForTests: () => { RETELL_RECENT.length = 0; }, // #3923: the agent-made retry bound, emptied between tests
   autoretellTick, // #3932: one pass of the re-tell-after-a-fix sweep
   CONNLOST_BOOK, connlostHealEnabled, // #3410: exported so a test can pin the route's reconnect field to the sweep's own book
