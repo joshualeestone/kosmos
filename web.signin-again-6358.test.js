@@ -100,7 +100,10 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
     'a page from anywhere but this board cannot make the window load the board with its token');
   assert.ok(proxy.indexOf('isBoardOrigin') < proxy.indexOf('pageSaysSignedOut'), 'the origin is checked before acting');
   const handler = lift(APP, 'func pageSaysSignedOut(');
-  assert.match(handler, /shouldSignInAgain\(now: now, last: lastSignInAgainAt\)/, 'throttled');
+  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, answeredSince: boardAnsweredSinceSignIn, gaveUp: signInAgainGaveUp\)/, 'throttled, and gives up on a refused token');
+  const giveUp = handler.slice(handler.indexOf('case .giveUp:'), handler.indexOf('case .signIn:'));
+  assert.ok(giveUp.length > 0, 'the give-up branch is gone');
+  assert.doesNotMatch(giveUp, /tokenizedBoardURL/, 'giving up loads the could-not-sign-in page without the token');
   assert.match(handler, /guard computerMode != \.connect/, 'not on a connect computer');
   // Today's shape only: a log line that names the URL by these spellings. Not general coverage of every spelling.
   for (const line of handler.split('\n').filter((l) => /logLine\(/.test(l))) {
@@ -109,8 +112,8 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
 });
 
 test('#6358: the signed-out panel tells the app window it is being signed in, and a tab what to do', () => {
-  const render = (window) => {
-    const ctx = { window, onWindows: () => false, windowsCopy: () => 'WINDOWS' };
+  const render = (window, search = '') => {
+    const ctx = { window, location: { search }, URLSearchParams, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
     vm.createContext(ctx);
     vm.runInContext(lift(PAGE, 'function boardSigninHtml('), ctx);
     return ctx.boardSigninHtml();
@@ -118,6 +121,10 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   const app = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } });
   assert.match(app, /the app is signing this window in again/, 'the app window is told it is being signed in');
   assert.doesNotMatch(app, /Applications folder|kosmos open/, 'the app window is not sent to open the app it is in');
+  const refused = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '?signin=failed');
+  assert.match(refused, /Kosmos could not sign this window in\. Quit Kosmos with Command-Q, then open it again/,
+    'when the board refused the app\'s sign-in, the window says what to do, not "this takes a moment"');
+  assert.doesNotMatch(refused, /This takes a moment/);
   const tab = render({});
   assert.match(tab, /each time it restarts or updates, and after seven days/, 'a tab is told why it is signed out');
   assert.match(tab, /open Kosmos from your Applications folder/, 'a tab is told what to do');

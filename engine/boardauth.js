@@ -594,8 +594,9 @@ function sessionToken(id) {
   return s.token;
 }
 
-/** The ids of the live sessions (expired ones swept first), for the board's own proof route (engine/boardproof.js,
- * #6358), which answers for a session as it does for a token. In this process only: sessions are never stored. */
+/** The ids of the live sessions (expired ones swept first). For the board's own proof route (engine/boardproof.js,
+ * #6358), which is to answer for a session as it does for a token once that part lands; nothing calls this yet.
+ * In this process only: sessions are never stored. */
 function liveSessionIds() {
   _sweepSessions(_nonceNow());
   return [..._sessions.keys()];

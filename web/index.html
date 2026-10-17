@@ -20091,6 +20091,12 @@ function linuxCopyTable() {
     // Settings can be read from a phone through Kosmos+, so "the computer it is installed on", not "this computer".
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
+    // #6358: a Linux board has no app and no Applications folder, so a signed-out tab is signed in with kosmos open.
+    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. Run kosmos open on the '
+      + 'computer running Kosmos, then press Reload.',
+    signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects. Kosmos signs a '
+      + 'browser tab out each time it restarts or updates, and after seven days. To sign this tab back in, run '
+      + '<b>kosmos open</b> in a terminal on the computer running Kosmos, then press Reload here.</p>',
   };
 }
 function linuxCopy(key) {
@@ -20216,7 +20222,10 @@ function windowsCopy(key) {
   return table[key];
 }
 function platformCopy(key, macCopy, platform) {
-  return onWindows(platform) ? windowsCopy(key) : macCopy;
+  if (onWindows(platform)) return windowsCopy(key);
+  // #6358: a Linux entry, where the table has one, replaces the Mac words; every other key keeps them as before.
+  if (onLinux(platform) && Object.prototype.hasOwnProperty.call(linuxCopyTable(), key)) return linuxCopy(key);
+  return macCopy;
 }
 /* Whether an element is one this platform hides, for code that reads the DOM rather
    than looking at it (the first-run gate poll must not wait on a hidden Mac gate). */
@@ -38498,12 +38507,23 @@ function boardSigninHtml() {
   }
   /* #6358: a board restart (an update included) ends every browser sign-in. The Mac app signs its own window in
      again (signedOutTellApp), so there this panel shows only for a moment; a browser tab cannot, so it says how. */
+  if (onLinux()) {
+    return '<div class="pj-empty boardfail">' + linuxCopy('signinPanel')
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   let inApp = false;
   try { inApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin); } catch { /* not the app */ }
   if (inApp) {
+    // The app loads ?signin=failed when the board refused its sign-in (it does not try again until the board answers).
+    let failed = false;
+    try { failed = new URLSearchParams(location.search).get('signin') === 'failed'; } catch { /* no location (a test) */ }
     return '<div class="pj-empty boardfail">'
       + '<p><b>This board is not signed in.</b><br>'
-      + 'Kosmos restarted, so the app is signing this window in again. This takes a moment.</p>'
+      + (failed
+        ? 'Kosmos could not sign this window in. Quit Kosmos with Command-Q, then open it again from your Applications folder.'
+        : 'Kosmos restarted, so the app is signing this window in again. This takes a moment.')
+      + '</p>'
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
       + '</div>';
   }

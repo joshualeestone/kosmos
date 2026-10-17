@@ -849,3 +849,15 @@ test('#5865: an unreadable daily-report setting on Linux does not send the perso
   assert.equal(msg('linux'), 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.');
   assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
 });
+
+test('#6358: on Linux the not-signed-in panel and sentence say kosmos open, never the Mac app or Kosmos.exe', () => {
+  const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
+  assert.match(html, /run <b>kosmos open<\/b> in a terminal on the computer running Kosmos, then press Reload here/);
+  assert.match(html, /data-board-retry/, 'the panel lost its Reload');
+  assert.doesNotMatch(html, /Applications folder|Kosmos\.exe|the app signs itself in/, 'a Linux board has no app');
+  const sentence = runPage('linux', [], page.liftConst(SCRIPT, 'SIGNIN_SENTENCE').replace(/^const SIGNIN_SENTENCE = /, '').replace(/;$/, ''));
+  assert.match(sentence, /Run kosmos open on the computer running Kosmos, then press Reload\./);
+  assert.doesNotMatch(sentence, /Applications folder/);
+  // A key the Linux table does not have keeps the Mac words on Linux, as before.
+  assert.equal(runPage('linux', [], "platformCopy('no-such-key-6358', 'MAC WORDS')"), 'MAC WORDS');
+});

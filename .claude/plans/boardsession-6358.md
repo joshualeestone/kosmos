@@ -22,7 +22,7 @@ Stacked on boardproof-1765 (merge order: boardproof-1765, bpbridges-1765, then t
     never logged.
   - Not `loadBoard()`, which runs `kosmos start`.
   - The throttle is pure, with three `--kosmos-app-mode-selftest` rows (123 rows in all now; see below).
-- `web/index.html`: on the poll's 403, inside the Mac app, tell the app once per sign-out (`signedOutTellApp`); a 200
+- `web/index.html`: on the poll's 403, inside the Mac app (or the Windows app, `{ kosmosSignin: true }`), tell the app (`signedOutTellApp`); a 200
   resets it. A browser tab has no bridge.
 
 ## Decided
