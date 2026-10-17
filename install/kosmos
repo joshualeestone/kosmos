@@ -987,6 +987,22 @@ token_refused_hint() {   # <token-sent> <board-answer>
   } >&2
 }
 
+# #1765: before a token leaves this shell, the listener on $URL must prove it already holds that token (an HMAC over a
+# fresh nonce, engine/boardproof.js). Another account can listen on this account's port while the board is down, and
+# a token sent to it is a token handed over. The token reaches node on stdin, never argv. Proven once per shell.
+# Runs only in the installed layout (runtime/bin/node and app/engine/boardproof.js both present), which every
+# installed CLI has; a checkout run (the tests) has neither and skips it. cli.board-proof-1765.test.js runs the
+# installed layout. Returns 0 when proven or when there is no token to protect, 1 when the listener could not prove it.
+_KOSMOS_PROVEN_URL=""
+kosmos_board_proven() {   # <token>
+  [ -n "$1" ] || return 0
+  [ "$_KOSMOS_PROVEN_URL" = "$URL" ] && return 0
+  local _bp="$KOSMOS_HOME/app/engine/boardproof.js"
+  { [ -x "$NODE" ] && [ -f "$_bp" ]; } || return 0
+  if printf '%s' "$1" | "$NODE" "$_bp" --check "$URL" 2>/dev/null; then _KOSMOS_PROVEN_URL="$URL"; return 0; fi
+  return 1
+}
+
 # #1970: run curl with the board/agent auth tokens delivered OFF the command
 # line. macOS `ps -ww -o args` lets any local account read every process's full
 # argv, so a token passed as `-H "name: value"` is readable cross-account for the
@@ -1005,6 +1021,7 @@ token_refused_hint() {   # <token-sent> <board-answer>
 # removed before returning (the curl runs in an `if` so its failure does not
 # skip the cleanup under `set -e`). Returns 99 if the temp file cannot be made,
 # which fails closed: an enforcing request is not sent without its token.
+# Returns 98, sending nothing, when the listener cannot prove it holds the token (#1765, above).
 #
 # #1704 PR2: every call ALSO names this agent's Kosmos (`x-kosmos-world`, the
 # name engine/launchidentity.js WORLD_HEADER holds; a test pins the two equal),
@@ -1018,6 +1035,10 @@ token_refused_hint() {   # <token-sent> <board-answer>
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
   local _hf _rc _world
+  if ! kosmos_board_proven "${_bt:-$_tok}"; then
+    printf '%s\n' "kosmos: the program answering at $URL is not this account's Kosmos board, so nothing was sent to it." >&2
+    return 98
+  fi
   _world="$(printf '%s' "${KOSMOS_WORLD:-}" | tr -cd 'A-Za-z0-9_-')"
   [ -n "$_world" ] || _world=default
   _hf="$(mktemp "${TMPDIR:-/tmp}/kosmos-auth.XXXXXX")" || return 99

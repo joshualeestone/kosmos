@@ -888,6 +888,7 @@ const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on c
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
+const boardproof = require('./engine/boardproof'); // #1765: prove this board holds a client's token before the client sends it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
    bare `require('./server')` in a unit test must not touch the real store. The
@@ -5534,13 +5535,16 @@ const server = http.createServer(async (req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    // #1765: the board proof is asked BEFORE a client sends any token, so it cannot need one. It answers only
+    // with an HMAC over the client's own nonce, keyed on a token the client already holds.
+    const exemptProof = req.method === 'GET' && pathname === boardproof.PROOF_PATH;
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
@@ -5557,6 +5561,22 @@ const server = http.createServer(async (req, res) => {
      the nonce it returns is inert there: `bootstrap`'s redeem arm runs only inside
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
+  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, n) for the token whose key id
+     is k, among this board's world tokens and then its agents' tokens, or 404. Exempt from the gate above. */
+  if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
+    let q = {};
+    try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
+    const out = boardproof.answer(q, () => {
+      const list = [];
+      if (boardAuthState.token) list.push(boardAuthState.token);
+      if (KNOWN_WORLD_TOKENS) for (const t of KNOWN_WORLD_TOKENS.values()) if (t) list.push(t);
+      for (const t of sendertoken.heldValues()) list.push(t);
+      return list;
+    });
+    sendJson(res, out.status, out.body);
+    return;
+  }
+
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
     return;
