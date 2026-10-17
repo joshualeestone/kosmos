@@ -25,6 +25,8 @@
  *    script this test runs must pass an explicit template to be contained.
  *  - A path computed BEFORE this module runs (another require that already
  *    called os.tmpdir()). That is why it goes first.
+ *  - A process this file started that makes the directory again AFTER this one has ended
+ *    (#6362): the sweep has already run, so the leak guard can only list what it holds.
  *  - A hard kill (SIGKILL) cannot be caught; one directory is left, named `kts-`,
  *    instead of one per fixture. SIGINT, SIGTERM and SIGHUP are swept when nothing
  *    else in the file listens for them (otherwise the file's handler decides, and
@@ -88,7 +90,10 @@ function activate() {
          has ended cannot be caught here; the guard lists what such a folder holds instead.) */
       try {
         if (ownerLine && fs.existsSync(dir)) {
-          fs.writeFileSync(path.join(dir, '.kts-owner'), ownerLine + '\tsurvived its sweep\n');
+          // Written aside and renamed in, so a kill mid-write never leaves an empty owner where a good one was.
+          const tmp = path.join(dir, '.kts-owner.new');
+          fs.writeFileSync(tmp, ownerLine + '\tsurvived its sweep\n');
+          fs.renameSync(tmp, path.join(dir, '.kts-owner'));
         }
       } catch { /* the leak is still reported, without its owner */ }
     });
