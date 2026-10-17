@@ -327,12 +327,13 @@ const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'
 });
 
 test('#6362: a process left running that makes the dir again after its test ended is listed by what it wrote', { timeout: 30000 }, async (t) => {
-  if (process.platform === 'win32') return t.skip('POSIX permissions and bash; this file is not in the Windows selection');
+  if (process.platform === 'win32') return t.skip('bash and POSIX process signals; this file is not in the Windows selection');
   const base = freshBase(t);
   const done = path.join(base, 'child-done');
   // Written by the child on EVERY exit (done, gave up, base gone): only while it is missing is the pid still the child's.
-  const ended = path.join(os.tmpdir(), `tmpscope-6362-ended-${process.pid}-${Date.now()}`);
-  t.after(() => { try { fs.rmSync(ended, { force: true }); } catch { /* gone */ } });
+  // Inside base: once the test's cleanup removed base, the child's write fails (it never makes a dir), so nothing lands
+  // in the run's temp root.
+  const ended = path.join(base, 'child-ended');
   const victim = path.join(base, 'leaves-a-child-6362.test.js');
   // The child waits for its parent to end (and sweep), then makes a folder under the parent's TMPDIR, as a left
   // running helper would. It acts only while this test's base exists and gives up after 20 s, so an interrupted run
