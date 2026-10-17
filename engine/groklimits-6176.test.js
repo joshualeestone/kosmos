@@ -1,4 +1,5 @@
 'use strict';
+require('../test-support/tmpscope');   // first: every temp folder this file makes is removed when it exits (#4273)
 /**
  * #6176 slice 3: engine/groklimits.js reads a Grok subscription's usage from Grok's own log. The lines are written in
  * the shape measured on a real Grok log (2026-09-29): msg "billing: fetched credits config" with ctx.config's
