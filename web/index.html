@@ -50874,8 +50874,8 @@ async function paintPlus() {
   /* Set before the fetch below, so the route is there whether or not the
      machine is configured and whichever way that call goes. */
   const site = document.getElementById('plus-site-link');
-  /* #1615, design/plus-flow.html: "The app links to /+?from=app" (one page, one parameter, so the site can tell an
-     arrival from the app apart). web.plus-route.test.js pins this target. */
+  /* #1615, design/plus-flow.html: "The app links to /+?from=app". web.plus-route.test.js pins
+     this target. */
   if (site) site.href = KOSMOS_SITE + '/+?from=app';
   /* #3478: the two sign-in links no longer bounce to the web. #2625/#2626 pinned
      them to the served /plus page "until login.kosmosplus.com is live and branded",

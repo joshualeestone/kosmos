@@ -63,9 +63,7 @@ test('the link is actually pointed somewhere at paint time', () => {
      which is a route to nowhere that looks exactly like a route. */
   const paint = page.lift(SCRIPT, 'paintPlus');
   assert.match(paint, /plus-site-link/, 'paintPlus never reaches for the link');
-  /* #1615: the design's target, `/+?from=app` ("one page, one parameter"). The site's `/+` rewrite has served since
-     09-13 (it redirects to the Kosmos+ page with from=app kept), so the link points at the design rather than at the
-     old `/plus` it was pinned to while `/+` did not exist. The rule underneath: the href is built from KOSMOS_SITE and
+  /* #1615: the design's target, `/+?from=app`. The rule underneath: the href is built from KOSMOS_SITE and
      must not stay "#", a route to nowhere that looks exactly like a route. */
   assert.match(paint, /KOSMOS_SITE \+ '\/\+\?from=app'/,
     'the link is not pointed at the designed /+?from=app');

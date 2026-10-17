@@ -6,6 +6,11 @@
   the page /plus also reaches). The "Create an account" link in the sign-in wizard copies this href at runtime, so it
   moves with it.
 - web.plus-route.test.js: the assertion and its comment follow.
+- Measured 2026-10-17 00:23 CDT: `curl -sI 'https://installkosmos.com/+?from=app'` returned `HTTP/2 308` with
+  `location: https://kosmosplus.com/?from=app`, so the parameter survives the redirect. Nothing on the site reads
+  from=app yet (the copy swap is dropped, below), so the code comments no longer say what the parameter is for.
+- Challenge-loop iteration 1 NITs acted on: the comments' claim that the site tells an app arrival apart is deleted
+  (nothing reads it), and so is the test comment's unmeasured redirect description.
 
 ## Decided on the card
 - The from=app copy swap on kosmosplus.com is dropped: the page is a pricing page whose Kosmos+ tier links to
