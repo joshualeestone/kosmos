@@ -38,7 +38,10 @@ test('tokenOkAny(): the DANGEROUS answer -- nothing presented is NOT ok', () => 
 test('tokenOkAny(): a presented token matching ANY list member is ok (header + cookie + query)', () => {
   // matches the SECOND member (the "other world" case: not the first/active token)
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ header: 'OTHER' }), routingBase: B }), true);
-  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=OTHER' }), routingBase: B }), true);
+  // #6358: a cookie is a session; one minted for OTHER is OTHER's, and the raw token as a cookie is refused.
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('OTHER') }), routingBase: B }), true);
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=OTHER' }), routingBase: B }), false);
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('FOREIGN') }), routingBase: B }), false);
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: { url: '/api/x?token=OTHER', headers: {} }, routingBase: B }), true);
   // matches the FIRST member too
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ header: 'ACTIVE' }), routingBase: B }), true);

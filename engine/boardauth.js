@@ -117,7 +117,7 @@ function reauthMarkerPath() {
  * the redeemer) and never re-opens.
  *
  * Idempotent, BEST-EFFORT and NON-GATING: by the time this runs the browser has
- * already been handed the durable cookie, so a failed marker write must never fail
+ * already been handed its cookie, so a failed marker write must never fail
  * the redemption -- its only cost is one more harmless tab on a later update.
  * Returns true if the marker exists after the call, false if the write failed.
  */
@@ -458,20 +458,13 @@ function matches(presented, expected) {
   return crypto.timingSafeEqual(a, b);
 }
 
-/** `Set-Cookie` value for the board token. HttpOnly so page JS cannot read it;
- * SameSite=Strict so another site cannot cause it to be sent (defence in depth
- * alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the
- * board is plain http on loopback.
- *
- * Max-Age makes it PERSISTENT rather than a session cookie, so a browser-only
- * operator who reopens a bookmarked bare URL after quitting the browser is not met
- * by a 403 shell until they re-run `kosmos open`. This costs nothing in security:
- * the token already persists in the mode-600 file (the cookie only caches it), the
- * cookie lives in this account's own browser profile (unreadable by another
- * account), and if the token is ever rotated a stale cookie simply re-bootstraps.
- * 34560000s (400 days) is the ceiling browsers actually honour. */
-function cookieHeader(token) {
-  return `${COOKIE_NAME}=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=34560000`;
+/** `Set-Cookie` value for a browser session (#6358: `value` is a mintSession id, never the board token).
+ * HttpOnly so page JS cannot read it; SameSite=Strict so another site cannot cause it to be sent (defence in
+ * depth alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the board is plain http on
+ * loopback. A cookie is scoped by host, not port, so it reaches whatever listens on 127.0.0.1, which is why
+ * it carries a session. Max-Age is the session cap: a cookie never outlives the session it names. */
+function cookieHeader(value) {
+  return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_MAX_MS / 1000)}`;
 }
 
 /** The request path with one query param removed, other params kept. Used to
@@ -510,10 +503,9 @@ function pathWithoutToken(req, routingBase) { return pathWithoutParam(req, routi
 // rides the `open`/`sh`/browser argv -- you cannot hand a browser a URL without
 // putting a redeemable value on argv -- so the exact #1946 hostile-second-account
 // (`ps -ww -o args` in a tight loop) can, WITHIN the TTL, `curl .../?boot=<nonce>`
-// and redeem it before the victim's browser does. The 302 sets `cookieHeader(token)`
-// = `kosmos_board=<durable-token>`, so a race-winner recovers the DURABLE TOKEN
-// ITSELF (in the Set-Cookie), not merely a session-scoped cookie -- winning the
-// race is as good as the old leak. What #1979 changes is the SIZE of that exposure,
+// and redeem it before the victim's browser does. Since #6358 the 302 sets a
+// session (mintSession), not the durable token, so a race-winner gets one session
+// that the next board restart ends. What #1979 changes is the SIZE of that exposure,
 // not its existence: instead of reading the durable token off argv at leisure,
 // forever, an attacker must now WIN a bounded (~2 min), single-use race -- the
 // window is ~2 min not forever, one use not unlimited, and, BECAUSE it is
@@ -562,6 +554,43 @@ function bootNonce(req, routingBase) {
   try { return new URL(req.url, routingBase).searchParams.get('boot') || null; } catch { return null; }
 }
 
+// --- Browser sessions (#6358) -------------------------------------------------
+// The cookie carries a SESSION the board mints at bootstrap, never the board token itself. Sessions live in
+// this process's memory only, so every board restart ends every one. A board can only be impersonated on its
+// port while it is down, and whatever a page sends during that gap is a session the restarted board no longer
+// knows. The durable token stays in the mode-600 file and the CLI's header. Each session remembers the token
+// it was minted from, so the multi-world gate keeps working and a rotated token ends its sessions. The same
+// clock seam as the nonces (_setNonceClock) drives the cap in tests.
+const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;   // 7 days, a bound on a session taken while the board is up
+const _sessions = new Map();   // session id -> { token, expiresAt }
+function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresAt <= now) _sessions.delete(id); } }
+function _resetSessions() { _sessions.clear(); }
+
+/** A new session for `token`: its id is its own random value and never encodes the token. */
+function mintSession(token) {
+  const now = _nonceNow();
+  _sweepSessions(now);
+  const id = crypto.randomBytes(32).toString('hex');
+  _sessions.set(id, { token, expiresAt: now + SESSION_MAX_MS });
+  return id;
+}
+
+/** The token a live session was minted from, or null (unknown, expired, or not a string). */
+function sessionToken(id) {
+  if (typeof id !== 'string' || !id) return null;
+  const s = _sessions.get(id);
+  if (!s) return null;
+  if (s.expiresAt <= _nonceNow()) { _sessions.delete(id); return null; }
+  return s.token;
+}
+
+/** The board-token header, then the `?token=` query: what a request presents besides its cookie. */
+function nonCookieToken(req, routingBase) {
+  const h = req && req.headers && req.headers[HEADER_NAME];
+  if (h) return String(h);
+  return queryToken(req, routingBase);
+}
+
 /**
  * The bootstrap decision, PURE. A valid `?token=` on a GET/HEAD navigation, when
  * no cookie is set yet, is the browser / native-app first load: return the
@@ -574,7 +603,10 @@ function bootNonce(req, routingBase) {
 function bootstrap({ token, req, routingBase, method }) {
   const isNav = method === 'GET' || method === 'HEAD';
   if (!isNav) return null;
-  if (cookieToken(req)) return null;            // already have the cookie -> no redirect loop
+  // #6358: a LIVE session for this token needs no bootstrap (and none means no redirect loop). A cookie whose
+  // session ended (a restart, the cap, another token) is no sign-in at all, so `?boot=` / `?token=` still work.
+  const live = sessionToken(cookieToken(req));
+  if (live !== null && matches(live, token)) return null;
   /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
      redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
      durable token stays off the browser-open argv. Tried before `?token=` so the
@@ -585,16 +617,16 @@ function bootstrap({ token, req, routingBase, method }) {
     /* #2030: `viaBootNonce` flags a real `?boot=` nonce redemption vs a `?token=`
        bootstrap. #2073 NOTE: it is now VESTIGIAL for seeding -- the caller
        (server.js) seeds the #2023 reauth marker on BOTH paths (the app-only install
-       authenticates via `?token=`, and both paths take the durable cookie in the
+       authenticates via `?token=`, and both paths set the cookie in the
        same 302, so both are a redemption to mark). The flag is left in place (still
        set, still asserted by engine.boardauth-nonce-1979.test.js) in case a future
        caller needs to tell the two apart; nothing reads it to gate seeding any more.
        `bootstrap` stays PURE; the caller does the write. */
-    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(token), viaBootNonce: true };
+    return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(mintSession(token)), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
   if (!q || !matches(q, token)) return null;    // no/invalid query token -> not a bootstrap
-  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(token) };
+  return { location: pathWithoutToken(req, routingBase), setCookie: cookieHeader(mintSession(token)) };
 }
 
 /**
@@ -603,7 +635,10 @@ function bootstrap({ token, req, routingBase, method }) {
  * are sensitive; this only answers "is a good token here".
  */
 function tokenOk({ token, req, routingBase }) {
-  const presented = presentedToken(req, routingBase);
+  // #6358: a cookie is a session and is looked up, never compared to the token. A header or query token is the token.
+  const s = sessionToken(cookieToken(req));
+  if (s !== null && matches(s, token)) return true;
+  const presented = nonCookieToken(req, routingBase);
   return !!presented && matches(presented, token);
 }
 
@@ -627,8 +662,11 @@ function tokenOk({ token, req, routingBase }) {
  * a valid candidate to time against).
  */
 function tokenOkAny({ tokens, req, routingBase }) {
-  const presented = presentedToken(req, routingBase);
-  if (!presented || !Array.isArray(tokens)) return false;
+  if (!Array.isArray(tokens)) return false;
+  const s = sessionToken(cookieToken(req));   // #6358: as in tokenOk
+  if (s !== null && tokens.some((t) => matches(s, t))) return true;
+  const presented = nonCookieToken(req, routingBase);
+  if (!presented) return false;
   return tokens.some((t) => matches(presented, t));
 }
 
@@ -644,6 +682,8 @@ module.exports = {
   ownerOnlyModeIsEnforced,
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
+  // #6358: browser sessions (the cookie's value).
+  mintSession, sessionToken, SESSION_MAX_MS, _resetSessions,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
   reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };
