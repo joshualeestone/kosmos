@@ -483,10 +483,15 @@ function stillOpen(extraLeft, notes) {
   return { ok: false, refused: true, stillOpen: true, done: [], left: [KOSMOS_STILL_OPEN].concat(extraLeft || []).map(oneLine), notes: (notes || []).map(oneLine) };
 }
 
-/* #6391: how long to wait for the Plus coordinator to be told this computer is going away, before
-   the key is deleted. Short and best-effort, like the Mac uninstall (install/setup.sh, #793): an
-   uninstall must never hang on a coordinator that is slow or unreachable. */
-const RETIRE_TIMEOUT_MS = 8000;
+/* #6391: how long to wait for the connector to retire this PC at the coordinator before the key is
+   deleted. Matches engine/remote.js's own retire bound (RETIRE_TIMEOUT_MS = 60s, retireHere()),
+   which runs the IDENTICAL `retire --coordinator --state-dir` verb: a shorter bound would kill the
+   retire mid-flight on a slow or first-connect link, delete the key anyway, and strand the address
+   on the account -- the exact failure #6391 exists to prevent. Best-effort still: the uninstall
+   must not hang forever, but the ceiling is generous, not 8s. Overridable by the same env seam
+   remote.js honours (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS), resolved at the call site where env is in
+   scope. (The Mac uninstall, install/setup.sh #793, runs retire with no explicit timeout at all.) */
+const RETIRE_TIMEOUT_MS = 60 * 1000;
 
 /**
  * #6391: tell the Plus coordinator this computer is going away, WHILE its key can still sign the
@@ -494,11 +499,15 @@ const RETIRE_TIMEOUT_MS = 8000;
  * `holdsKey()` reads); deleting the data folder takes it, after which the address stays on the
  * account and only the account page (its one-day `recently_online` rule) or a signed-in phone can
  * remove it. So, like the Mac uninstall (install/setup.sh, "RETIRE THIS MAC ... #793"), run the
- * connector's `retire` verb first, best-effort with a short timeout; the caller says the outcome
- * either way. The connector is `app\bin\kosmos-tunnel.exe` (#583, #4597), beside this engine dir
- * (`app\engine`), and the bundle it lives in is never deleted from here. `windowsHide`: the board
- * that spawns this runs as a hidden task, so a console child would flash a black window (#4597). No
- * `shell`: argv goes straight to CreateProcess, never re-parsed by cmd.exe.
+ * connector's `retire` verb first, best-effort with a generous timeout (RETIRE_TIMEOUT_MS; see its
+ * note); the caller says the outcome either way. The caller resolves the connector path and passes
+ * it as `tunnelBin`: the `AGENT_WORKFORCE_TUNNEL_BIN` override remote.js documents, else
+ * `app\bin\kosmos-tunnel.exe` (#583, #4597) beside this engine dir (`app\engine`) -- the SAME
+ * default remote.js's own `bundledConnector` derives from its `__dirname`, so a layout that would
+ * break this default already breaks the board's connector, and the env override is the escape hatch
+ * for a non-standard layout. The bundle the connector lives in is never deleted from here.
+ * `windowsHide`: the board that spawns this runs as a hidden task, so a console child would flash a
+ * black window (#4597). No `shell`: argv goes straight to CreateProcess, never re-parsed by cmd.exe.
  *
  * Returns `{told: boolean}` and NEVER throws: a retire we could not even attempt (no connector, a
  * spawn error) is just "could not be told", the same as a timeout or a non-zero exit. Seams
@@ -532,6 +541,11 @@ function retirePc(o) {
  *   liveExecutionAllowed  () => boolean; without it this refuses and changes nothing
  *   platform, env, home, projectsRoot, removeFolder, probe, sleep, pathGone   seams, with real defaults
  *                         (pathGone: whether a hook's script is certainly not on disk, #5999)
+ *   retirePc, coordinator, tunnelBin, spawnRetire, existsSync   #6391 Plus-retire seams, all with
+ *                         real defaults: retirePc (the retire fn; default the module retirePc),
+ *                         coordinator/tunnelBin (resolved from env with the documented defaults when
+ *                         absent), spawnRetire/existsSync (passed through to retirePc as its
+ *                         spawnSync/existsSync seams). Tests inject these; production passes none.
  * @returns {Promise<{ok: boolean, refused?: boolean, stillOpen?: boolean, done: string[], left: string[], notes: string[]}>}
  *   `left` names everything still on the computer that the removal was meant to take away.
  */
@@ -732,7 +746,15 @@ async function uninstall(opts) {
              pulling the whole tunnel-supervisor module (remote.js) into a short-lived uninstaller for
              one string; a test can pin it via o.coordinator. */
           const coordinator = o.coordinator || env.AGENT_WORKFORCE_TUNNEL_COORDINATOR || 'https://login.kosmosplus.com';
-          const told = retire({ remoteDir, coordinator, tunnelBin: o.tunnelBin, existsSync: o.existsSync, spawnSync: o.spawnRetire }).told === true;
+          /* The connector path: the AGENT_WORKFORCE_TUNNEL_BIN override remote.js documents, else
+             the bundled default retirePc derives from __dirname. Resolved here where env is in
+             scope. */
+          const tunnelBin = o.tunnelBin || env.AGENT_WORKFORCE_TUNNEL_BIN || undefined;
+          /* The retire timeout, env-overridable by the SAME seam remote.js honours
+             (AGENT_WORKFORCE_RETIRE_TIMEOUT_MS); the generous RETIRE_TIMEOUT_MS default otherwise. */
+          const envTimeout = Number(env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS);
+          const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : undefined;
+          const told = retire({ remoteDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }).told === true;
           if (told) done.push('told the Kosmos+ service this computer is going away, so its Kosmos+ address is retired (the name is free again after a day)');
           else notes.push('Kosmos could not tell the Kosmos+ service this computer is going away, so its Kosmos+ address may still show on your account page until you remove it there.');
         }

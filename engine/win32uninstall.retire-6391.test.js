@@ -48,8 +48,20 @@ test('#6391 retirePc: exit 0 means told, and the connector is asked with retire 
   assert.ok(Number.isFinite(calls[0].opts.timeout) && calls[0].opts.timeout > 0, 'a short timeout must be set');
 });
 
-test('#6391 retirePc: a timeout (ETIMEDOUT + a kill signal) is NOT told', () => {
-  const spawnSync = () => ({ status: null, signal: 'SIGTERM', error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) });
+// The told:false condition ORs r.error / r.signal / r.status!==0, so each branch is isolated
+// here: a fixture that set all three at once could pass even if the code checked only one.
+test('#6391 retirePc: a spawn error alone (r.error, no signal, no status) is NOT told', () => {
+  const spawnSync = () => ({ status: null, signal: null, error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }) });
+  assert.deepEqual(uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', existsSync: () => true, spawnSync }), { told: false });
+});
+
+test('#6391 retirePc: a kill signal alone (r.signal, no error, no status) is NOT told', () => {
+  const spawnSync = () => ({ status: null, signal: 'SIGTERM', error: null });
+  assert.deepEqual(uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', existsSync: () => true, spawnSync }), { told: false });
+});
+
+test('#6391 retirePc: a null status with neither error nor signal is NOT told (status !== 0)', () => {
+  const spawnSync = () => ({ status: null, signal: null, error: null });
   assert.deepEqual(uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', existsSync: () => true, spawnSync }), { told: false });
 });
 
@@ -68,6 +80,31 @@ test('#6391 retirePc: with no connector on disk, nothing is spawned and it is NO
 test('#6391 retirePc: a spawn that throws is swallowed into NOT told (never propagates out of an uninstall)', () => {
   const spawnSync = () => { throw new Error('EACCES'); };
   assert.deepEqual(uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', existsSync: () => true, spawnSync }), { told: false });
+});
+
+test('#6391 retirePc: the default timeout is the generous RETIRE_TIMEOUT_MS, and o.timeoutMs overrides it', () => {
+  // Regression guard for the 8s-too-short finding: the bound must stay in the product's range
+  // (remote.js retires the same verb at 60s), never back down near 8s.
+  assert.ok(uninstaller.RETIRE_TIMEOUT_MS >= 30000, 'RETIRE_TIMEOUT_MS regressed below 30s: ' + uninstaller.RETIRE_TIMEOUT_MS);
+  let seenTimeout;
+  const spawnSync = (_bin, _args, opts) => { seenTimeout = opts.timeout; return { status: 0 }; };
+  uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', existsSync: () => true, spawnSync });
+  assert.equal(seenTimeout, uninstaller.RETIRE_TIMEOUT_MS, 'default timeout not wired to RETIRE_TIMEOUT_MS');
+  uninstaller.retirePc({ remoteDir: 'r', coordinator: 'c', tunnelBin: 't', timeoutMs: 1234, existsSync: () => true, spawnSync });
+  assert.equal(seenTimeout, 1234, 'o.timeoutMs did not override the default');
+});
+
+test('#6391 source order: the retire call precedes deleteAllExcept in uninstall() (portable backstop)', () => {
+  // The Windows-only wiring tests below prove ordering by execution, but they skip on Mac CI, so a
+  // mistaken move of the retire block BELOW the delete would stay green everywhere else. This static
+  // guard catches exactly that regression on every platform: the key must be retired before it is
+  // deleted. Anchored on two distinctive call-site strings; if either is renamed, update both.
+  const src = fs.readFileSync(require.resolve('./win32uninstall.js'), 'utf8');
+  const retireAt = src.indexOf('const told = retire({ remoteDir');
+  const deleteAt = src.indexOf('const failures = deleteAllExcept(dataDir, keptDirs, rm)');
+  assert.ok(retireAt !== -1, 'retire call site not found (renamed?) — update this guard');
+  assert.ok(deleteAt !== -1, 'deleteAllExcept call site not found (renamed?) — update this guard');
+  assert.ok(retireAt < deleteAt, 'the retire call moved BELOW deleteAllExcept — the key would be deleted before it is retired');
 });
 
 // ---- 2. uninstall() wiring — Windows-only (folder arms), like win32uninstall.test.js ----------
@@ -142,6 +179,20 @@ test('#6391 a paired PC is retired at the coordinator BEFORE its key is deleted,
     assert.ok(r.done.some((d) => /Kosmos\+ address is retired/.test(d)), JSON.stringify(r.done));
     assert.ok(!fs.existsSync(s.remoteDir), 'the Plus key was not deleted after the retire');
     assert.ok(!r.notes.some((n) => /could not tell/.test(n)));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('#6391 the env overrides (TUNNEL_BIN, RETIRE_TIMEOUT_MS) reach the retire', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    noTasks(); withKey(s);
+    s.env.AGENT_WORKFORCE_TUNNEL_BIN = 'C:\\custom\\kosmos-tunnel.exe';
+    s.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS = '45000';
+    let seen = null;
+    const r = await run(s, { deleteData: true, retirePc: (o) => { seen = { tunnelBin: o.tunnelBin, timeoutMs: o.timeoutMs }; return { told: true }; } });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.equal(seen.tunnelBin, 'C:\\custom\\kosmos-tunnel.exe', 'AGENT_WORKFORCE_TUNNEL_BIN was ignored');
+    assert.equal(seen.timeoutMs, 45000, 'AGENT_WORKFORCE_RETIRE_TIMEOUT_MS was ignored');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
