@@ -1,4 +1,5 @@
 'use strict';
+require('./test-support/tmpscope');   // first: every temp folder this file makes is removed when it exits (#4273)
 /**
  * #6176 slice 3: a Grok subscription row in GET /api/accounts carries its usage as Grok last logged it in the account's
  * own folder (engine/groklimits.js); a subscription with no reading carries limits: null; an API-key row carries none.
