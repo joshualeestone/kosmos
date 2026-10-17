@@ -5772,7 +5772,7 @@ PLIST
     else printf '  note: Kosmos could not be opened automatically; open the Kosmos app from your Applications folder.\n\n'; fi
   fi
   # #2030: the repair marker is NOT seeded here (setup.sh could only see the launch
-  # DISPATCHED, never REDEEMED); it is written server-side when a durable cookie is
+  # DISPATCHED, never REDEEMED); it is written server-side when a sign-in cookie is
   # truly taken (engine/boardauth.js seedReauthMarker, from server.js's bootstrap
   # handler) -- #2073: on the app's `?token=` redemption, and still on a `?boot=`.
   # #2073: this block LAUNCHES THE NATIVE APP (no mint, no `?boot=` browser dashboard)

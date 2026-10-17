@@ -380,7 +380,8 @@ const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + 'restarts or updates, and after seven days. This tab stays signed out until it is signed in again, and the '
   + 'steps are just below. Or keep going in the Kosmos app from your Applications folder, which signs itself in.</p>'
   + '<details class="fr-hatch"><summary>Sign this tab in again</summary>'
-  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here. '
+  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here, or use the tab it opens '
+  + '(it opens in your default browser, so a tab in another browser stays signed out). '
   + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
@@ -861,6 +862,6 @@ test('#6358: on Linux the not-signed-in panel points to Kosmos+ and the sentence
   assert.doesNotMatch(sentence, /stays signed in/, 'false to a person reading this board through Kosmos+ while signed out');
   assert.doesNotMatch(sentence + html, /kosmos open/, 'kosmos open cannot open a browser on Linux today');
   assert.doesNotMatch(sentence, /Applications folder/);
-  // A key the Linux table does not have keeps the Mac words on Linux, as before.
+  // platformCopy has no Linux branch: on Linux every key keeps the Mac words (the Linux panel reads linuxCopy itself).
   assert.equal(runPage('linux', [], "platformCopy('no-such-key-6358', 'MAC WORDS')"), 'MAC WORDS');
 });

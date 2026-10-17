@@ -47,8 +47,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - On the poll's 403, inside the Mac app (or the Windows app, `{ kosmosSignin: true }`), tell the app
     (`signedOutTellApp`). Not on every poll: again after 65 s, a little over the app's own limit, and at once after a
     200. A browser tab has no bridge.
-  - `platformCopy` takes a Linux entry where the Linux table has one; every other key keeps the Mac words on Linux,
-    as before.
+  - `platformCopy` has no Linux branch (round 19 removed one that nothing read): the Linux panel reads linuxCopy
+    itself, and every platformCopy key keeps the Mac words on Linux, as before.
 
 ## What a person sees after a restart (Splinter 05:12, both checked)
 - **The Mac app:**

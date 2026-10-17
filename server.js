@@ -23364,7 +23364,7 @@ function start(port = PORT) {
          link() and RETURNS THE TOKEN ON DISK, so every process -- winner or loser
          of the race -- ends up serving the same token clients read. A prod board
          (nothing sandboxed) enforces and gets a persisted mode-600 token, reused
-         across restarts so the operator's cookie survives one; a fully-sandboxed
+         across restarts for the CLI and the app (browser sessions do NOT survive one, #6358); a fully-sandboxed
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */
