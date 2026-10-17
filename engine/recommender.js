@@ -241,11 +241,20 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
        held on the quota is left out of this convening's asks (nothing typed into it), as any unreachable peer is; the
        item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
     const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
+    const held = isHeld(item.session);
+    if (held) {
+      if (!item.retry) {
+        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
+        if (i !== -1) out.next.log.splice(i, 1);
+      }
+      acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
+      continue;
+    }
     /* #6341 (Josh, 10-16: the same "X is stuck" line twice in a room, hours apart): this step's memory lives only while
        the board runs, so a restart forgot a note it had written and wrote it again. The room itself is on disk: when it
        already holds this note (same stuck agent, same words), the note is not written again and nobody is asked again;
        the stuck agent still gets its playbook (review 1: only the room's repeat was the complaint). Optional, as
-       heldUntil is. */
+       heldUntil is. After the held check (review 7), so a held item does not read the log every tick. */
     // A retry keeps what the first attempt learned (review 3: its playbook must not say nobody could be reached).
     let noted = item.retry ? item.alreadyNoted === true : false;
     // Review 5: whether that earlier note asked anyone; null when the caller only says it exists.
@@ -256,15 +265,6 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
       noted = got === true || Boolean(got && typeof got === 'object');
       askedBefore = got && typeof got === 'object' && Array.isArray(got.asked) ? got.asked.length > 0 : null;
       if (noted) { const rec = out.next.items.get(item.key); if (rec) { rec.alreadyNoted = true; rec.alreadyNotedAsked = askedBefore; } }
-    }
-    const held = isHeld(item.session);
-    if (held) {
-      if (!item.retry) {
-        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
-        if (i !== -1) out.next.log.splice(i, 1);
-      }
-      acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry, noteLanded: null, asked: [], verdict: 'held' });
-      continue;
     }
     /* #4588 ask 3 review 9: the stuck agent's Gemini cap slot is reserved BEFORE the peer asks, so a peer's ask cannot
        take the only slot and leave the agent that needs help held, with an attempt spent. Given back if its playbook

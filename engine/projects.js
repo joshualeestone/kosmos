@@ -926,7 +926,8 @@ function needsQuietContext(project, now = Date.now()) {
     get live() { if (live === undefined) live = roomLive(project, now); return live; },
   };
 }
-/* #6341: a room is live when something was posted in it in the last day, or the project itself is that new (review 1:
+/* #6341: a room is live when something was posted in it in the last day, or the project or a member's joining is that
+   new (review 1, and review 7 for a member:
    a new project's room is often silent BECAUSE its only agent is blocked, waiting on trust or a sign-in). A log that
    cannot be read says nothing about the room, so it counts as live: the quiet rule fails toward showing a condition. */
 function roomLive(project, now) {
@@ -934,8 +935,11 @@ function roomLive(project, now) {
   try { last = require('./messages').lastPostAt(project.id); } catch { return true; }
   if (last === undefined) return true;
   const born = Date.parse(project.createdAt);
+  // Review 7: a member added in the last day counts as a new project does (it may be blocked before it can post).
+  const added = (Array.isArray(project.memberChanges) ? project.memberChanges : [])
+    .filter((ch) => ch && ch.act === 'add').map((ch) => Date.parse(ch.at));
   // A time after now (a skewed clock, an import) is not evidence of anything recent (review 2).
-  return [last, born].some((t) => Number.isFinite(t) && t <= now && now - t < NEEDS_LIVE_MS);
+  return [last, born, ...added].some((t) => Number.isFinite(t) && t <= now && now - t < NEEDS_LIVE_MS);
 }
 /* #6341: why a reason is quiet ('usage' | 'paused' | 'dismissed' | 'inactive'), or null when it counts. Josh 19:47:
    "a couple agents were out of usage but that should never show in the project, only on the agent", so a rate limit

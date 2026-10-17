@@ -982,8 +982,13 @@ function lastPostAt(projectId) {
 function recommenderNoted(projectId, session, because, sinceMs) {
   const got = record();
   if (!got.ok) return false;
-  const hit = got.rows.find((r) => r && r.kind === 'note' && r.project === String(projectId) && r.rec
-    && r.rec.stuck === session && r.rec.because === because && Date.parse(r.at) >= sinceMs);
+  // The latest matching note (review 7): it is the room's current word on who was asked.
+  let hit = null;
+  for (let i = got.rows.length - 1; i >= 0 && !hit; i--) {
+    const r = got.rows[i];
+    if (r && r.kind === 'note' && r.project === String(projectId) && r.rec
+      && r.rec.stuck === session && r.rec.because === because && Date.parse(r.at) >= sinceMs) hit = r;
+  }
   // Review 5: who that note asked, so the playbook can say whether replies may be waiting (an empty list asked nobody).
   return hit ? { asked: Array.isArray(hit.rec.asked) ? hit.rec.asked.slice() : [] } : false;
 }

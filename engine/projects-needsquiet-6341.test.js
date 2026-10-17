@@ -95,6 +95,17 @@ test('#6341 review 1: a project made in the last day is live though its room is 
   assert.equal(one(roster, p.id).summary.needsYou, 0, 'CONTROL: the same project two days old and silent is quiet');
 });
 
+test('#6341 review 7: a member added in the last day makes an old, silent room live', () => {
+  reset();
+  const p = projects.create({ name: 'Joined', folder: folder('joined'), agents: [] });
+  setStored(p.id, { createdAt: OLD() });
+  projects.addAgent(p.id, 'jn61');
+  const roster = looping('jn61');
+  assert.equal(one(roster, p.id).summary.needsYou, 1, 'a member added today was hidden in an old, silent room');
+  setStored(p.id, { memberChanges: [{ agent: 'jn61', act: 'add', at: OLD() }] });
+  assert.equal(one(roster, p.id).summary.needsYou, 0, 'CONTROL: the same member added two days ago, silent room: quiet');
+});
+
 test('#6341 review 1: a message log that cannot be read counts the room as live (fail toward showing)', () => {
   reset();
   const p = projects.create({ name: 'Unread', folder: folder('unread'), agents: ['ur61'] });
@@ -149,6 +160,11 @@ test('#6341: a paused project raises nothing, a question included', () => {
   // Review 2: the agents' project list (kosmos project list) agrees with the page.
   const listed = require('./projectview').listOf(projects.list(roster)).find((x) => x.id === p.id);
   assert.equal(listed.needsYou, 0, 'kosmos project list still counted the paused project\'s question');
+  // Review 7: a question about ANOTHER project still waits on the person, paused or not.
+  const elsewhere = projects.create({ name: 'Live One', folder: folder('live-one'), agents: ['qq61'] });
+  selfreport.record('qq61', { state: 'needs_you', because: 'Which logo?', project: elsewhere.id });
+  const row = require('./projectview').listOf(projects.list(cards([fleet.agent('qq61', { state: 'needs_you' })]))).find((x) => x.id === p.id);
+  assert.equal(row.needsYou, 1, 'a paused project dropped a question about another project from kosmos project list');
 });
 
 test('#6341 review 4: an archived project raises nothing, as a paused one', () => {
@@ -414,6 +430,9 @@ test('#6341: recommenderNoted reads the room on disk, by agent, words, project a
   messages.roomNote('rp', 'Recommender: Stu is stuck.', { recommender: { stuck: 'st61', asked: [], because: 'Need the brief' } });
   const week = Date.now() - 7 * 24 * HOUR;
   assert.deepEqual(messages.recommenderNoted('rp', 'st61', 'Need the brief', week), { asked: [] }, 'the note and who it asked');
+  // Review 7: the latest matching note is the room's word on who was asked.
+  messages.roomNote('rp', 'Recommender: Stu is stuck again.', { recommender: { stuck: 'st61', asked: ['pe61'], because: 'Need the brief' } });
+  assert.deepEqual(messages.recommenderNoted('rp', 'st61', 'Need the brief', week), { asked: ['pe61'] }, 'the oldest note answered');
   assert.equal(messages.recommenderNoted('rp', 'st61', 'Need the logo', week), false, 'other words matched');
   assert.equal(messages.recommenderNoted('rp', 'other', 'Need the brief', week), false, 'another agent matched');
   assert.equal(messages.recommenderNoted('zz', 'st61', 'Need the brief', week), false, 'another room matched');
