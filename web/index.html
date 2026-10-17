@@ -20689,7 +20689,9 @@ function pnavFill(name) {
       const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
       it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
       // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
-      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || '');
+        // kosmos#6406 step 2: and its mark, so in the app it opens with a ticket as the row does.
+        if (row.hasAttribute('data-computer-open')) it.setAttribute('data-computer-open', '1'); }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -30632,7 +30634,7 @@ function computersInApp() {
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
   // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
-  // not a listener, so a copied row (the phone menu's) keeps it.
+  // not a listener (one document listener reads it); the phone menu's copy of a row copies it (pnavFill).
   try { a.setAttribute('data-computer-open', '1'); } catch {}
 }
 /* kosmos#6406 step 2 (Josh 11:32: "i want to access your machine kosmos in my kosmos app"): in the Kosmos app, a plain

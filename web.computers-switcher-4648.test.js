@@ -224,7 +224,7 @@ test('#6406 step 2: a browser, or a modified click, keeps the plain link and ask
   assert.ok(!t.e.defaultPrevented);
 });
 
-test('#6406 step 2: every link to another computer is marked for the click (and a copied row keeps the mark)', () => {
+test('#6406 step 2: every link to another computer is marked for the click', () => {
   const attrs = {};
   const a = { setAttribute: (k, v) => { attrs[k] = v; } };
   new Function('window', 'a', `${INAPP}\ncomputersLinkTarget(a);`)(APP, a);
