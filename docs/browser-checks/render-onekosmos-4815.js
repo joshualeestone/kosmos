@@ -259,6 +259,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const expectAfter = COMPUTERS_EXPECT_UNTIL > Date.now();
             delete document.hidden;
             await new Promise((r) => setTimeout(r, 50));
+            COMPUTERS_EXPECT_UNTIL = 0;   // leave no follow-up window armed for the next arm
             return { pe, seenVisible, seenHidden, owedWhileHidden, expectAfter };
           }, { worlds: WORLDS });
           ok(`${t} #6403: a click at the tip's centre lands on the tip, never on a control hidden under it`, r5.pe.onTip === true, JSON.stringify(r5));
