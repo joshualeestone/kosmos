@@ -41,3 +41,7 @@ check, everything reads as before.
   rounds); no "you said no ... password" on a check; confirmed during a check is not live; a check's refusals say
   Confirm and never show a tag; "Checking the code with"; several checks' notice wording; each check row has its own
   time (tunnel), so a dismissed notice does not hide a later check.
+- 2 sonnet: Not me on a check no longer notes the computer as refused (the page says recheck; deviceDeny skips the
+  note); an answer to an earlier check is forgotten when a check with another time arrives under that id; engine tests
+  for joinRecheck and the status fields; the check-ended and tries-used arms; only lapsed/key refusals get the check
+  sentence; the stale branch skips while a check runs; the allow-card regex anchored to the button.

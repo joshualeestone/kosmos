@@ -104,8 +104,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
         pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
       });
-      const denyIds = [];          // #6404: every Not me sent (a click in the code field must never send one)
-      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; denyIds.push(id); pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
+      const denyIds = [], denyBodies = {};   // #6404: every Not me sent (a click in the code field must never send one)
+      await page.route('**/api/remote/devices/deny', (route, req) => { const sent = JSON.parse(req.postData() || '{}'); const id = sent.device_id; denyIds.push(id); denyBodies[id] = sent; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       let computerReads = 0;   // #6403: real reads of Your computers, beside the call spy below
       await page.route('**/api/remote/computers', (route) => { computerReads += 1; return route.fulfill(json({ ok: true, domain: 'kosmosplus.example', computers: [] })); });
@@ -435,13 +435,20 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const rkDone = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(allowBodies['d-rk'] && allowBodies['d-rk'].code === '135 246' && /The code check with boxc is done here\. Now press The codes match on boxc\./.test(rkDone) && !/boxc is connected/.test(rkDone),
         `${tag} #6404: Confirm sends the typed code and says to finish on that computer`, JSON.stringify({ sent: allowBodies['d-rk'], rkDone }));
+      /* Review 2: a later check from the same computer reuses its id; with its own time it is a new request, not the
+         answer to the old one. */
+      pending = [{ device_id: 'd-rk', name: 'boxc', code: '975 310', first_seen: 99, joining_computer: 'boxc', recheck: true }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-rk', { timeout: 5000 }).catch(() => {});
+      const rkAgain = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); return r ? (r.querySelector('.askwho b') || {}).textContent || '' : ''; });
+      chk(rkAgain === 'Your computer "boxc" wants to finish its code check', `${tag} #6404: a later check under the same id is a new request, not the old answer`, rkAgain);
       pending = [{ device_id: 'd-rk2', name: 'boxd', code: '864 975', first_seen: 0, joining_computer: 'boxd', recheck: true }];
       await page.evaluate(() => pollAsk());
       await page.waitForSelector('#plus-ask-rows [data-ask="deny"][data-id="d-rk2"]', { timeout: 5000 }).catch(() => {});
       await page.click('#plus-ask-rows [data-ask="deny"][data-id="d-rk2"]');
       await page.waitForFunction(() => /code check with boxd was cancelled/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const rkNo = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(denyIds.includes('d-rk2') && /The code check with boxd was cancelled\. It stays connected\./.test(rkNo) && !/password/.test(rkNo),
+      chk(denyIds.includes('d-rk2') && denyBodies['d-rk2'].recheck === true && /The code check with boxd was cancelled\. It stays connected\./.test(rkNo) && !/password/.test(rkNo),
         `${tag} #6404: Not me on a code check cancels only the check and says the computer stays connected`, rkNo);
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
@@ -559,6 +566,21 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         chk(recheckPosts === 1 && /^Finish the code check with homemac\.\s*On homemac, go to Settings, then Kosmos\+\.\s*Type this code there, then press Confirm\.\s*Once homemac says the check is done, press The codes match here\./.test(jr.text)
           && jr.code === '246 810' && jr.size >= 28 && !!jr.button,
           `${tag} #6404: Check the code asks once, then the check's steps show with the code large and The codes match`, JSON.stringify({ recheckPosts, jr }));
+        /* Review 2: the check ends with no code confirmed (the tunnel offers it again): the button comes back. */
+        join = { ...join, rechecking: false, can_recheck: true, join_code: '', on: null, confirm_expired: true };
+        jr = await readJoin(); jr = await readJoin();
+        const back = await page.evaluate(() => !!document.getElementById('plus-join-recheck'));
+        chk(back && /To finish, check the code with homemac once\./.test(jr.text), `${tag} #6404: a check that ended offers Check the code again`, JSON.stringify(jr));
+        /* A press refused because every try is used: it says so and the button goes. */
+        await page.unroute('**/api/remote/join/recheck');
+        // The tunnel with every try used also stops offering the check (can_recheck needs tries left).
+        await page.route('**/api/remote/join/recheck', (route) => { join = { ...join, can_recheck: false };
+          return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'attempts_used' }) }); });
+        await page.click('#plus-join-recheck');
+        await page.waitForTimeout(500);
+        const used = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' '), button: !!document.getElementById('plus-join-recheck') }));
+        chk(!used.button && /Every try for this computer and homemac is used, so the code cannot be checked again\./.test(used.text),
+          `${tag} #6404: a press refused for tries used says so and the button goes`, JSON.stringify(used));
         await page.unroute('**/api/remote/join/recheck');
         join = joinBefore; remoteNow = outage;
         await page.evaluate(() => plusJoinReset());
