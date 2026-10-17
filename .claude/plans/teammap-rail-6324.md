@@ -49,7 +49,10 @@ NOT measured below 720 tall: the consolidated layout has a width floor (960) and
 the button, the capped map and the label line may run past the head and over the list. There the button and the map are drawn over the
 list and take the clicks of the rows under them: they are raised above the list for the touch reach (#5218), so the
 list no longer paints over what runs past. Reasoned from the CSS, not measured.
-NOT covered: a long project notice plus the open map on a short window. The notice is uncapped, so that pair can run
+The rail notice is capped at 40vh (#6347); while the Team map button shows, the cap gives back the button's line
+(calc(40vh - 44px)), measured by render-projects' #6347 arm at 720 and 560 tall (it went red without it).
+NOT covered: a long project notice plus the open map on a short window. With the map open, the map (up to 35vh) and the capped notice
+together can be taller than the head, and the notice then runs under the list. The notice is uncapped, so that pair can run
 past the head and make the page scroll, as a long notice can by itself today. A notice that runs past the head is
 also drawn under the agents list on main (measured in the design shots' data: the head ends at 600px and the notice's
 text runs on under the list; its one Try again button was inside the head and clickable). That predates this card and
