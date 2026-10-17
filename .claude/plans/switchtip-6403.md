@@ -25,8 +25,9 @@ The tip:
   hidden under it). Its close button returns focus to the switcher; it describes the switcher (aria-describedby).
 - Seen (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused) only when a person can see it:
   the tab showing and the tip laid out; checked after it shows, on the tab shown, on a resize, and when it is put away.
-- Escape puts it away only while it is laid out, the switcher's menu is closed and no aria-modal dialog is visible
-  (a non-modal popover's Escape also puts it away; it then counts as seen).
+- Escape (read in the capture phase, before other handlers) puts it away only while it is laid out, the switcher's
+  menu is closed, no aria-modal dialog is visible and no layer claimed the key (a non-modal popover's Escape also puts
+  it away; it then counts as seen).
 - Browser checks that serve two or more computers and are not about the tip (allagents, otheraccounts, mobilenav,
   federation-invite, dm-chatfirst's two-computer arm) and mobile-shots seed the seen flag, since the tip now takes clicks.
 
@@ -55,6 +56,9 @@ The tip:
 - 8 sonnet: the five checks seeded; no look-back reads while not signed in; tab-shown arm isolated.
 - 9 opus: the tip goes when the switcher goes; existing users and phones stated.
 - 10 sonnet: signed-out limit and Escape wording stated; plan floor; comments split.
+- 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
+  tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
+  whose handler runs first.
 
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks
