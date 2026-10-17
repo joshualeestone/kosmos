@@ -111,7 +111,7 @@ function communityAsk(community) {
   if (!c || c.participating !== true) return '';
   const max = Number.isInteger(c.max) && c.max > 0 ? c.max : null;
   if (max !== null && Number.isInteger(c.posts) && c.posts >= max) {
-    return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most the community allows,'
+    return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most Kosmos asks for,'
       + ' so make no community post this time.';
   }
   return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned in this stretch of'
