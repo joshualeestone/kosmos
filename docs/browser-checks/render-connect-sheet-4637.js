@@ -338,7 +338,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: true, failed: false, needs_retry: true, confirm_expired: true, confirmed: false, join_code: '', on: null };
       jr = await readJoin();
       const retryBtn = await page.evaluate(() => { const b = document.getElementById('plus-join-retry'); return b ? { text: b.textContent, enabled: !b.disabled } : null; });
-      chk(jr.shown && jr.text === 'That code ran out before it was matched. When you are at both computers, press Try again for a new code. Try again' && !jr.button && retryBtn && retryBtn.enabled,
+      chk(jr.shown && jr.text === 'A new code is needed to finish pairing. When you are at both computers, press Try again for one. Try again' && !jr.button && retryBtn && retryBtn.enabled,
         `${tag} #6353 waiting: a code that ran out waits for Try again, and says so`, JSON.stringify({ jr, retryBtn }));
       /* Every try used: the refusal paints the failed recovery at once, never Try again beside "Too many tries". */
       retryRefuse = 'attempts_used';
@@ -348,7 +348,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const usedSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
       chk(usedSay.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !usedSay.btn,
         `${tag} #6353: a Try again refused for every try used says the recovery, with no Try again left`, JSON.stringify(usedSay));
-      await page.waitForTimeout(3000); joinDelayMs = 0;
+      await page.waitForTimeout(3500); joinDelayMs = 0;   // outlasts the held round, so the next read is not paced
       join = { ...join, failed: false, needs_retry: true };
       jr = await readJoin();
       /* Accepted: the button goes at once, before any round answers (a second press would only be refused). */
@@ -356,10 +356,24 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       joinDelayMs = 3000;
       await page.click('#plus-join-retry');
       await page.waitForTimeout(500);
-      const rightAfter = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
-      await page.waitForTimeout(3000); joinDelayMs = 0;
-      chk(retryPosts === postsBefore + 1 && rightAfter.text === 'That code ran out. A new one is on its way.' && !rightAfter.btn,
-        `${tag} #6353: Try again posts once, and at once the block says a new code is on its way (no button, before any round)`, JSON.stringify({ posts: retryPosts - postsBefore, rightAfter }));
+      const rightAfter = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry'),
+        focus: document.activeElement && document.activeElement.id }));
+      await page.waitForTimeout(3500); joinDelayMs = 0;
+      chk(retryPosts === postsBefore + 1 && rightAfter.text === 'That code ran out. A new one is on its way.' && !rightAfter.btn && rightAfter.focus === 'plus-join',
+        `${tag} #6353: Try again posts once, and at once the block says a new code is on its way (no button, before any round; focus stays in the block)`, JSON.stringify({ posts: retryPosts - postsBefore, rightAfter }));
+      /* The tunnel then starts the attempt (its ran-out flag clears) before the new code is worked out. The old code's
+         clock must not make that read as "ran out" with nothing to press. */
+      join = { ...join, needs_retry: false, confirm_expired: false, join_code: '' };
+      jr = await readJoin();
+      chk(jr.text === 'Working out the code with homemac, your other computer...', `${tag} #6353: after Try again, the old code's clock does not read the new attempt as run out`, JSON.stringify(jr));
+      /* A Try again the tunnel cannot take for another reason is said under the button, which stays. */
+      join = { ...join, needs_retry: true, confirm_expired: true };
+      jr = await readJoin();
+      retryRefuse = 'the Plus connector could not be reached';
+      await page.click('#plus-join-retry');
+      await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      const failSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
+      chk(/could not be reached/.test(failSay.text) && failSay.btn, `${tag} #6353: a Try again that did not go through says why and leaves Try again`, JSON.stringify(failSay));
       join = { ...join, needs_retry: false, confirm_expired: false };
       /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
          held, but the code stays until it is confirmed here. The block must still show it, with the button. */
