@@ -129,3 +129,28 @@ test('#6385: a pairing that ends clears the wait, so a later one starts its own 
   r.api.paint();
   assert.doesNotMatch(r.el.innerHTML, SLOW, 'a fresh pairing showed the line at once');
 });
+
+test('#6385: one continuous wait keeps one minute; a Try-again-owed screen between two waits starts a new one', () => {
+  // Straight from "Working out" to "A new one is on its way" is the same wait for a code, to the person: one minute.
+  const r = rig();
+  r.api.set({ ...HELD });
+  r.api.paint();
+  r.clock.now += 61 * 1000;
+  r.api.set({ ...HELD, confirm_expired: true });
+  r.api.retried(r.clock.now);
+  r.api.paint();
+  assert.match(r.el.innerHTML, /A new one is on its way/, 'CONTROL: the second wait is on screen');
+  assert.match(r.el.innerHTML, SLOW, 'a continuous wait for a code lost its minute');
+  // With the Try again screen between them (no wait: the person must act), the next wait starts a new minute.
+  const s = rig();
+  s.api.set({ ...HELD });
+  s.api.paint();
+  s.clock.now += 61 * 1000;
+  s.api.set({ ...HELD, needs_retry: true });
+  s.api.paint();
+  assert.match(s.el.innerHTML, /press Try again/, 'CONTROL: the Try again screen is on screen');
+  s.api.set({ ...HELD, confirm_expired: true });
+  s.api.retried(s.clock.now);
+  s.api.paint();
+  assert.doesNotMatch(s.el.innerHTML, SLOW, 'the wait after Try again kept the earlier wait\'s minute');
+});
