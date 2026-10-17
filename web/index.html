@@ -51483,12 +51483,15 @@ var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pair
 var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
 var PLUS_JOIN_MSG_AT = 0;      // #6353: when a Try again refusal was said (it goes after PLUS_JOIN_CODE_MS)
 var PLUS_JOIN_RETRY_AT = 0;    // #6353: when a Try again was accepted (its promise goes after PLUS_JOIN_CODE_MS)
+var PLUS_JOIN_NOCODE_AT = 0;   // #6385: when this wait for a code began (0: not waiting for one)
+var PLUS_JOIN_SLOW_MS = 60 * 1000;   // #6385: a wait this long with no code says why it can take a while
+var PLUS_JOIN_WAITED = false;  // #6385: this paint drew a wait for a code (set by plusJoinSlowLine)
 /* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
    flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
 function plusJoinReset() {
   if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
   PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
-  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0;
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0; PLUS_JOIN_NOCODE_AT = 0;
   paintPlusJoin();
 }
 /* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
@@ -51551,7 +51554,9 @@ function paintPlusJoin() {
      pairing is the page's only job, so the devices list (empty until it is allowed) and the company block step aside. */
   { const flow = document.getElementById('plus-flow'); if (flow && flow.classList) flow.classList.toggle('plus-joining', !!live && j.held === true); }
   let html;
+  PLUS_JOIN_WAITED = false;
   if (!live) {
+    PLUS_JOIN_NOCODE_AT = 0;   // #6385: no pairing, no wait
     if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
     /* An ending, said once under the status: it does not take the coordinator's sentence (review 6: an outage after it
        must still be said). */
@@ -51596,9 +51601,11 @@ function paintPlusJoin() {
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
     ? '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>'   // the tunnel no longer owes the attempt (its Try again lapses too)
-    : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+    : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>' + plusJoinSlowLine();
   else if (stale) html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';
-  else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
+  else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>' + plusJoinSlowLine();
+  /* #6385: any other state is not a wait for a code, so the next wait starts its own minute. */
+  if (!PLUS_JOIN_WAITED) PLUS_JOIN_NOCODE_AT = 0;
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. A write that
      does happen keeps keyboard focus on the same control (a refusal line timing out rebuilds the block). */
   if (el.__lastJoin !== html) {
@@ -51606,6 +51613,15 @@ function paintPlusJoin() {
     el.innerHTML = html; el.__lastJoin = html;
     if (fid) { const n = document.getElementById(fid); if (n && n.focus) n.focus(); }
   }
+}
+/* #6385: the computer that allows answers one new computer at a time, one about every 10 minutes (the tunnel's
+   ANSWER_EVERY_SECS, 600), and this computer is not told when it is waiting its turn. So after a minute with no code
+   this says so. It cannot tell that is the reason, so it says it as the likely one, and that the code shows here. */
+function plusJoinSlowLine() {
+  PLUS_JOIN_WAITED = true;
+  if (!PLUS_JOIN_NOCODE_AT) PLUS_JOIN_NOCODE_AT = Date.now();
+  if (Date.now() - PLUS_JOIN_NOCODE_AT < PLUS_JOIN_SLOW_MS) return '';
+  return '<p class="plus-join-next plus-join-slow">Your other computer adds one computer at a time, about one every 10 minutes, so if you are adding more than one, this one may be waiting its turn. Keep this open: the code shows here.</p>';
 }
 /* #6353: Try again. The tunnel starts one new attempt on its next round, so the page reads the pairing straight after. */
 document.getElementById('plus-join').addEventListener('click', async (e) => {
