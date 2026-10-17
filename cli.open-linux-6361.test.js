@@ -79,7 +79,7 @@ function withStub({ prove }, fn) {
 }
 
 /* Runs `kosmos open` as Linux. `tty` gives it a terminal through script(1), whose arguments differ by system. */
-function open(port, { display = false, tty = false } = {}) {
+function open(port, { display = false, tty = false, agent = false } = {}) {
   return new Promise((resolve, reject) => {
     fs.rmSync(OPENED, { force: true });
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_HOME: HOME,
@@ -88,6 +88,7 @@ function open(port, { display = false, tty = false } = {}) {
       'KOSMOS_AGENT_SESSION', 'KOSMOS_WORLD', 'TMUX', 'TMUX_PANE', 'http_proxy', 'https_proxy', 'all_proxy',
       'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']) delete env[v];
     if (display) env.DISPLAY = ':0';
+    if (agent) env.KOSMOS_AGENT_SESSION = 'fixture-agent-6361';   // how the supervisor marks an agent's pane
     const [cmd, args] = !tty ? [CLI, ['open']]
       : process.platform === 'darwin' ? ['script', ['-q', '/dev/null', CLI, 'open']]
         : ['script', ['-q', '-e', '-c', JSON.stringify(CLI) + ' open', '/dev/null']];
@@ -118,7 +119,10 @@ test('#6361: on Linux with no display and no terminal, the one-time address is n
   const r = await open(port);
   assert.equal(r.opened, null, 'an opener ran with no display');
   assert.doesNotMatch(r.out, new RegExp(NONCE), 'the one-time sign-in address went into a pipe');
-  assert.match(r.out, /not a terminal, so the one-time sign-in address is not printed/);
+  assert.match(r.out, /not a person's terminal, so the one-time sign-in address is not printed/);
+  // The full path, not the bare name, which is not always on PATH.
+  assert.match(r.out, new RegExp('In a terminal on this computer, run: ' + HOME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/bin/kosmos open'));
+  assert.doesNotMatch(r.out, /sign in there/, 'it sends the person to a page with no way to sign in');
   assert.equal(r.code, 1, 'no way in was given, so it is not a success');
 }));
 
@@ -156,3 +160,14 @@ test('#6361: the macOS opener is unchanged, and the script never runs /usr/bin/o
   assert.match(body, /Darwin\) _opener=\/usr\/bin\/open ;;/);
   assert.doesNotMatch(body, /\$\{KOSMOS_OPEN_BIN:-\/usr\/bin\/open\}/, 'the old macOS-only default is back');
 });
+
+test('#6361: an agent at a terminal is not handed the one-time address (its terminal is a transcript)', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  const r = await open(port, { tty: true, agent: true });
+  assert.doesNotMatch(r.out, new RegExp(NONCE), 'an agent was handed the one-time sign-in address');
+  assert.match(r.out, /not a person's terminal/);
+  assert.notEqual(r.code, 0);
+  // CONTROL: the same terminal with no agent marking does print it (the arm above sees the agent, not a lost tty).
+  const p = await open(port, { tty: true });
+  assert.match(p.out, new RegExp('/\\?boot=' + NONCE), 'CONTROL: a person at the same terminal was not given the address');
+}));
