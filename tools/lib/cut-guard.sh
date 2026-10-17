@@ -551,7 +551,7 @@ kosmos_refuse_if_suite_live() {
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$allowed" -gt 0 ]; then
-    local roots; roots="$(printf '%s\n' "$out" | _kosmos_suite_roots)"
+    local roots; roots="$(printf '%s\n' "$out" | _kosmos_suite_roots || true)"
     if [ -n "$roots" ]; then out="$roots"; fi   # empty roots: count the list as it was
     n="$(printf '%s\n' "$out" | grep -c . || true)"
     [ "$n" -le "$allowed" ] && return 0
@@ -711,8 +711,8 @@ kosmos_mark_suite_waiting() {
 kosmos_unmark_suite_waiting() { rm -f "$(_kosmos_suite_waiter_file "$$")" "$(_kosmos_suite_waiter_file "$$").tmp.$$" 2>/dev/null; return 0; }
 
 # #4609 light lane: a run declared light (KOSMOS_QUEUE_CLASS=light: one browser check, one focused test file) goes ahead
-# of heavy waiters (full suites, cargo runs, pushes): the class changes the order, never how many hold the box (one
-# turn, or since #6334 up to KOSMOS_SUITE_MAX suites started directly). A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead
+# of heavy waiters (full suites, cargo runs, pushes): the class changes the order, never how many hold the box
+# (one turn, or since #6334 up to KOSMOS_SUITE_MAX suites started directly). A heavy waiter that has waited KOSMOS_QUEUE_STARVE_S (default 2700 s, 45 minutes) goes ahead
 # of the light ones, so a stream of light runs cannot hold a suite back for ever. Measured before this (2026-09-30
 # 10:07): 22 waiters, 19 of them one-offs that hold the box 7 to 200 s, queued behind suites that hold it 15 to 20 min.
 # #5272: KOSMOS_QUEUE_CLASS=canary is the main canary (a full suite on origin/main's tip, the backstop for merges that
