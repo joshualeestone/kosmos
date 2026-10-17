@@ -107,10 +107,11 @@ test('a 403 renders as NOT SIGNED IN, not as an unreadable board (#2023)', () =>
      branch wins even though a 403 also sets BOARD_LOOK_FAILED. */
   const html = boardEmpty(NEEDS_SIGNIN);
   assert.match(html, /not signed in/i, 'a not-signed-in board did not say so');
-  /* #6358: a restart (an update included) ends a tab's sign-in, so the lead remedy is the Mac app, which signs
-     itself in, and waiting for an update must not be promised: it no longer heals a tab. */
-  assert.match(html, /open Kosmos from your Applications folder/i,
-    'the app remedy is missing, so the box names no way out that works');
+  /* #6358: a restart (an update included) ends a tab's sign-in, so the box says how to sign THIS tab in, offers the
+     Mac app (which signs itself in) as the other way on, and must not promise that waiting for an update heals a tab. */
+  assert.match(html, /kosmos open<\/code> in a terminal, then press Reload/i,
+    'the tab remedy is missing, so the box names no way out that works for this tab');
+  assert.match(html, /Kosmos app from your Applications folder/i, 'the app remedy is missing');
   assert.ok(!/fix(es)? itself the next time Kosmos updates/i.test(html),
     'the box promises an update will sign the tab in, which a restart now undoes');
   assert.ok(!/We cannot read your agents right now/.test(html),

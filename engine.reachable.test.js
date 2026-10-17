@@ -197,6 +197,7 @@ const EXCUSED = {
   // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
   // already reachable via server.js's failed-store cleanup.)
   _spillHead: 'test seam (#5706): engine/messages.js\'s summary of a long message (its first sentence or opening, and its word count), so the head rule can be pinned without a board. Production reaches it through spillLine at both spill sites (send and sendPost).',
+  liveSessionIds: '#6358, pending: the board proof route (boardproof-1765) answers for browser sessions through it, which is the other half of #6358. Remove this excuse when server.js calls it.',
   setSoonWaitMs: 'test seam (#5636 F4): engine/readjobs.js shortens the few-second wait a soon=1 read answers within, so a test can see "still reading" without waiting four seconds. Production keeps SOON_WAIT_MS.',
   _reset: 'test seam (#5636 F4): engine/readjobs.js forgets every read in flight or kept, so each test starts clean. Production never clears them; they go when handed out or after KEEP_MS.',
   _size: 'test seam (#5636 F4): engine/readjobs.js says how many reads it is tracking, so a test can see a delivered answer was not kept. Production never asks.',
@@ -236,6 +237,7 @@ const SEAMS_5548 = {
   setLastFileForTests: 'engine/agystatus.js',
   _lock: 'engine/agytrust.js',
   _setNonceClock: 'engine/boardauth.js',
+  _resetSessions: 'engine/boardauth.js',
   setInstalledCli: 'engine/boardrestart.js',
   setBoardOps: 'engine/boardrestart.js',
   setUid: 'engine/boardrestart.js',

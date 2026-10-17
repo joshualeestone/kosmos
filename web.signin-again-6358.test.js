@@ -34,14 +34,14 @@ function lift(src, name, open = '{') {
   assert.fail(name + ' never closes');
 }
 
-function page({ bridge = 'mac', throws = false } = {}) {
+function page({ bridge = 'mac', throws = false, remote = false } = {}) {
   const posted = [];
   const post = (m) => { if (throws) throw new Error('no app'); posted.push(m); };
   const window = bridge === 'mac' ? { webkit: { messageHandlers: { kosmosSignin: { postMessage: post } } } }
     : bridge === 'windows' ? { chrome: { webview: { postMessage: post } } }
     : bridge === 'chrome' ? { chrome: {} }
     : {};
-  const ctx = { window, Date };
+  const ctx = { window, Date, kplusRemote: () => remote };
   vm.createContext(ctx);
   const retell = PAGE.match(/const SIGNED_OUT_RETELL_MS = (\d+);/);
   assert.ok(retell, 'SIGNED_OUT_RETELL_MS is gone');
@@ -81,6 +81,13 @@ test('#6358: the Windows app is told { kosmosSignin: true }; a browser tab or pl
   assert.doesNotThrow(() => broken.ctx.signedOutTellApp(1000));
 });
 
+test('#6358: a Kosmos+ page in the app window is not told and starts no stuck clock (the app signs in only its own board)', () => {
+  const p = page({ remote: true });
+  p.ctx.signedOutTellApp(1000);
+  assert.deepEqual(p.posted, []);
+  assert.equal(vm.runInContext('SIGNED_OUT_SINCE', p.ctx), 0, 'no clock, so the panel never says the app could not sign in');
+});
+
 test('#6358: the poll tells the app on a 403, and a 200 lets a later sign-out be told at once', () => {
   const at403 = PAGE.indexOf('BOARD_NEEDS_SIGNIN = (res.status === 403);');
   assert.notEqual(at403, -1, 'the poll\'s 403 line is gone');
@@ -114,8 +121,8 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
 
 test('#6358: the signed-out panel tells the app window it is being signed in, and a tab what to do', () => {
   const stuckMs = Number(PAGE.match(/const SIGNED_OUT_STUCK_MS = (\d+);/)[1]);
-  const render = (window, search = '', since = 0, failedAtLoad = false) => {
-    const ctx = { window, location: { search }, URLSearchParams, Date, SIGNED_OUT_SINCE: since, SIGNED_OUT_STUCK_MS: stuckMs, SIGNIN_FAILED_AT_LOAD: failedAtLoad, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
+  const render = (window, search = '', since = 0, failedAtLoad = false, remote = false) => {
+    const ctx = { window, location: { search }, URLSearchParams, Date, kplusRemote: () => remote, SIGNED_OUT_SINCE: since, SIGNED_OUT_STUCK_MS: stuckMs, SIGNIN_FAILED_AT_LOAD: failedAtLoad, onWindows: () => false, onLinux: () => false, windowsCopy: () => 'WINDOWS', linuxCopy: () => 'LINUX' };
     vm.createContext(ctx);
     vm.runInContext(lift(PAGE, 'function boardSigninHtml('), ctx);
     return ctx.boardSigninHtml();
@@ -135,8 +142,10 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   assert.match(soon, /This takes a moment/, 'a few seconds in, it is still signing in');
   const tab = render({});
   assert.match(tab, /each time it restarts or updates, and after seven days/, 'a tab is told why it is signed out');
-  assert.match(tab, /open Kosmos from your Applications folder/, 'a tab is told what to do');
-  assert.match(tab, /This tab stays signed out until it is signed in again/, 'and that opening the app does not sign this tab in');
+  assert.match(tab, /This tab stays signed out until it is signed in again, and the steps are just below/, 'a tab is told first how to sign IT in');
+  assert.ok(tab.indexOf('steps are just below') < tab.indexOf('Applications folder'), 'the app is the alternative, not the lead remedy');
+  const kplus = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', 0, false, true);
+  assert.doesNotMatch(kplus, /The app is signing this window in|Quit Kosmos with Command-Q/, 'a Kosmos+ board in the app window is not promised an app sign-in');
   assert.match(tab, /~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal, then press Reload/, 'and how to bring this tab back');
   assert.doesNotMatch(tab, /fix(es)? itself the next time Kosmos updates/, 'no promise that an update signs it in');
 });
