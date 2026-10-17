@@ -50390,14 +50390,22 @@ function paintAsk() {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
     // A request is its device and when it asked (and when it was last turned away), so the same device asking again
-    // later is a new request. A row whose first_seen and denied_at both arrive as 0 cannot come back.
-    const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '');
+    // later is a new request. A phone's or browser's row whose first_seen and denied_at both arrive as 0 cannot come back.
+    // kosmos#6417: a computer keeps ONE row across every attempt (one first_seen), so its key also carries its code:
+    // a new code is a new attempt (kosmos-relay crates/tunnel/src/pairing.rs: one code per attempt, each withdrawn after
+    // REVEAL_TIMEOUT_SECS, 600 s), and brings the notice back. Its code goes empty while an attempt starts, waits or
+    // lapses; none of those is a new request, so a computer row with no code counts as put away when any of its codes
+    // was (noteAway; safe as a prefix because that key ends in '@'), and its wait state is not part of the key.
+    const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '')
+      + (askComputerRow(d) ? '@' + (d.code || '') : '');
+    const noteAway = (d, put) => put.indexOf(noteKey(d)) !== -1
+      || (askComputerRow(d) && !d.code && put.some((k) => k.indexOf(noteKey(d)) === 0));
     const hereKey = here ? 'here:' + askHereKey(here) : '';
     if (hide) { ASK.noteKeys = []; askWrite(document.getElementById('ask-rows'), ''); return; }
     // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
     // The notice names only what was not put away; with nothing left it is hidden.
-    const fresh = live.filter((d) => put.indexOf(noteKey(d)) === -1);
+    const fresh = live.filter((d) => !noteAway(d, put));
     const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
     if (!fresh.length && !hereNew) { ASK.noteKeys = []; card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
