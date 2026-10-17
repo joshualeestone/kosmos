@@ -1240,8 +1240,9 @@ async function main() {
     const railOn = await railRead();
     /* #6347: a LONG notice (April measured 1580px with ten failing members) ran under the list, because the head's
        height comes from the grid row. Grown from copies of the row the page itself drew (no invented markup); each read
-       adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the copies are removed, so the
-       original rows (and any focus in them) are untouched, and the region is not live while they exist. The CONTROL is
+       adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the
+       copies are removed, so the original rows (and any focus in them) are untouched, and the region is not live while
+       they exist. The CONTROL is
        the same box with its cap lifted: it must outgrow 40vh and reach the list, or the fixture is too short to show
        anything at this viewport and the arm fails rather than pass on a box that never needed the cap. Read at this
        context's own viewport and again at a short window (560px tall), where a fixed 40vh is most likely to be taller
@@ -1267,8 +1268,10 @@ async function main() {
       if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
       return out;
     });
-    const longBad = (r) => r.missing || !(r.uncapped.height > r.cap + 1 && r.uncapped.gap < 0)
-      || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
+    // Two verdicts, printed apart: a control that cannot show the defect (the geometry changed, or the fixture is too
+    // short for this window) is a different finding from a cap that broke.
+    const controlBad = (r) => r.missing || !(r.uncapped.height > r.cap + 1 && r.uncapped.gap < 0);
+    const capBad = (r) => r.missing || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
     const vpWas = page.viewportSize();
     const railLong = { full: await longRead() };
     try {
@@ -1278,9 +1281,13 @@ async function main() {
     } finally {
       await page.setViewportSize(vpWas);   // the #3948 reads below need the window this context opened with
     }
-    if (longBad(railLong.full) || longBad(railLong.short)) {
+    if (controlBad(railLong.full) || controlBad(railLong.short)) {
       contrastFails += 1;
-      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, while the same box uncapped runs under it (the control), at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
+      console.log(`  FAIL  #6347 CONTROL: the long rail notice, uncapped, should outgrow 40vh and run under the list at this viewport and at 560px tall; it did not, so the cap arm below shows nothing here (${scheme}), got ${JSON.stringify(railLong)}`);
+    }
+    if (capBad(railLong.full) || capBad(railLong.short)) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
