@@ -5638,8 +5638,9 @@ printf '  To remove it later:  curl -fsSL https://installkosmos.com/setup | sh -
 # token and appends ?token= itself, the board sets the cookie, and server.js seeds the reauth
 # marker on that redemption -- so a normal update, WHEN THE APP WAS NOT ALREADY RUNNING, launches
 # once and then _open_gate stops. Gated on a marker beside board.token so it fires on the FIRST
-# update carrying this fix and never again (Max-Age 400 days; one seed carries every later update
-# forward -- the "no launch per update" property). Enforcing-only: `-s board.token` present and
+# update carrying this fix and never again (one seed carries every later update forward -- the "no launch per
+# update" property). The marker only stops the extra launch: since #6358 a restart (an update included) ends the
+# browser session, and the running app signs its own window in again. Enforcing-only: `-s board.token` present and
 # non-empty is setup.sh's reading of enforced().
 # ⚠️ RUNNING-APP EDGE, ACCEPTED: if the app is ALREADY running at update time, `open Kosmos.app`
 # is an AppKit REOPEN that only re-shows the window -- no ?token= bootstrap, no seed, so the gate
