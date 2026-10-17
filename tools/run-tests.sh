@@ -353,12 +353,20 @@ KOSMOS_QUEUE_CLASS=heavy
 # nothing else is passed through), so it has no --no-wait flag.
 # Whether this run asks about other suites at all is decided once: the override and the inside-a-test rule skip the
 # suite check AND the queue (review 1), so neither can wait behind a waiting suite either.
+# #6334: up to KOSMOS_SUITE_MAX suites at once (default 2), so this run starts beside one other. Measured 2026-10-16 on
+# the 12-core Mac: two full suites side by side on one commit both passed (21287 tests, 0 failures, shell stages too),
+# about 34 minutes each against 30 alone; the port fights behind the one-suite rule did not come back. Only this
+# suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite at all.
+# KOSMOS_SUITE_MAX=1 restores one at a time; anything that is not a whole number of at least 1 reads as 1.
+_rt_suite_max="${KOSMOS_SUITE_MAX:-2}"
+case "$_rt_suite_max" in ''|*[!0-9]*) _rt_suite_max=1 ;; esac
+_rt_suite_max=$((10#$_rt_suite_max)); [ "$_rt_suite_max" -ge 1 ] || _rt_suite_max=1   # "08" is not octal; 0 reads as 1
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
-    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" || return 1
+    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$((_rt_suite_max - 1))" || return 1
   fi
   if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
     kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1

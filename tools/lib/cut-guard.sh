@@ -496,8 +496,34 @@ _kosmos_suite_candidates() {
   kosmos_running_lines tools/run-tests.sh   # #5470: the shared anchored match (0 lines, 1 none, 2 could not tell)
 }
 
+# #6334: one suite is ONE run, however many processes carry its command line (a bash subshell keeps its parent's), so
+# a count of live suites keeps only the candidates with no other candidate above them. Reads and prints `pid command`.
+_kosmos_suite_roots() {
+  local lines line pid other is_child
+  lines="$(cat)"
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    pid="${line%% *}"; is_child=0
+    while IFS= read -r other; do
+      other="${other%% *}"
+      { [ -n "$other" ] && [ "$other" != "$pid" ]; } || continue
+      _kosmos_pid_is_self_or_descendant "$pid" "$other" && { is_child=1; break; }
+    done <<EOF
+$lines
+EOF
+    [ "$is_child" = 1 ] || printf '%s\n' "$line"
+  done <<EOF
+$lines
+EOF
+}
+
+# kosmos_refuse_if_suite_live <what> [override] [others-allowed]: refuses while a suite runs. The third argument (#6334,
+# default 0) is how many OTHER live suites this run may start beside; only tools/run-tests.sh passes one (from
+# KOSMOS_SUITE_MAX), so an install harness, a queued-heavy turn and a cut still wait for no suite at all.
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" out rc self
+  local allowed="${3:-0}" n
+  case "$allowed" in ''|*[!0-9]*) allowed=0 ;; esac
   self="${KOSMOS_SUITE_SELF_PID:-$$}"
   # The source differs (the seam or the real name arm); everything after it is shared, so the
   # probe arms in tools/test-cut-guard.sh exercise the same code a live read does, and the real
@@ -522,6 +548,14 @@ kosmos_refuse_if_suite_live() {
   fi
   if [ "$rc" -ge 2 ]; then
     echo "could not tell whether a test suite is running (the probe exited $rc); refusing to guess for $what. $override." >&2
+    return 1
+  fi
+  if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$allowed" -gt 0 ]; then
+    out="$(printf '%s\n' "$out" | _kosmos_suite_roots)"
+    n="$(printf '%s\n' "$out" | grep -c . || true)"
+    [ "$n" -le "$allowed" ] && return 0
+    local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
+    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (KOSMOS_SUITE_MAX=$((allowed + 1)), #6334). Wait for one to finish, or $override." >&2
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then
@@ -577,7 +611,7 @@ kosmos_refuse_if_suite_live() {
 # pass explicitly), plus #5332's KOSMOS_WAIT_KEEP_MARK, which is queued-heavy's alone and listed so no child
 # inherits it. run-tests.sh unsets them once its wait has read them, and test-cut-guard.sh starts without them, so
 # no test inherits a caller's (one list, used by both).
-KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK"
+KOSMOS_WAIT_CONTROL_VARS="KOSMOS_TESTS_IGNORE_SUITE KOSMOS_TESTS_IGNORE_HARNESS KOSMOS_IGNORE_MACHINE_CLAIM KOSMOS_NO_WAIT KOSMOS_WAIT_MAX_S KOSMOS_WAIT_EVERY_S KOSMOS_WAIT_QUEUE_CEIL_S KOSMOS_WAIT_NOW KOSMOS_WAIT_SLEEP KOSMOS_QUEUE_CLASS KOSMOS_WAIT_KEEP_MARK KOSMOS_SUITE_MAX"
 _kosmos_suite_waiter_file() { printf '%s/suitewait.%s' "$(_kosmos_marker_dir)" "$1"; }
 
 # _kosmos_suite_waiter_live <pid>: 0 when <pid> holds a verified waiting marker (alive, same command, and a matching
