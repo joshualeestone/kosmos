@@ -15,7 +15,7 @@ const STATE_COPY = Object.freeze({
   needs_you: 'Issue',
   question: 'Question',
   approval: 'Waiting for you',   // #6091
-  rate_limited: 'Paused',
+  rate_limited: 'Rate Limit',   // #6398: was 'Paused'; kept equal to the page's STATE_COPY by cardlabel-5959.test.js
   auth_failed: "Sign-in isn't working",
   connection_lost: 'Connection lost',
   blocked: 'Waiting',

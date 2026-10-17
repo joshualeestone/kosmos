@@ -50,6 +50,9 @@ const { chromium } = require('playwright');
       } catch (e) { return { error: 'card() threw: ' + e.message }; }
       return {
         authText: cardHtml.auth, rateText: cardHtml.rate, briefText: cardHtml.brief, mismatchText: cardHtml.mismatch,
+        // #6398: the rate-limit detail lives BEHIND the pill. The CARD (opts.card) drops the paragraph and the pill
+        // reads "Rate Limit"; the detail panel derives its line from taskLine WITHOUT opts.card, so it keeps it.
+        rateDetailText: taskLine(stuckRate),
         // agentNeedsAttention is the Issue filter; a stuck agent counts, a brief/healthy one does not.
         attnStuckAuth: agentNeedsAttention(stuckAuth), attnStuckRate: agentNeedsAttention(stuckRate),
         attnBrief: agentNeedsAttention(briefAuth), attnHealthy: agentNeedsAttention(healthy),
@@ -59,13 +62,31 @@ const { chromium } = require('playwright');
     else {
       say(/unable to sign in for about\s+20\s+minutes/i.test(out.authText), 'a stuck auth_failed card names the expired sign-in and the minutes');
       say(/reconnect its account/i.test(out.authText), 'a stuck auth_failed card says to reconnect the account');
-      say(/paused by a rate limit for about\s+40\s+minutes/i.test(out.rateText), 'a stuck rate_limited card names the rate limit and the minutes');
+      // #6398: the rate-limit paragraph is no longer on the CARD face -- the pill reads "Rate Limit" and the detail
+      // (minutes + "switch its model") lives behind the pill (the detail panel's taskLine, with no opts.card).
+      say(!/paused by a rate limit for about/i.test(out.rateText), 'a stuck rate_limited CARD does NOT carry the rate-limit paragraph (#6398: it moved behind the pill)');
+      say(/<b>Rate Limit<\/b>/.test(out.rateText), 'a stuck rate_limited card pill reads "Rate Limit"');
+      say(!/<b>Paused<\/b>/.test(out.rateText), 'a stuck rate_limited card pill no longer reads "Paused"');
+      say(/paused by a rate limit for about\s+40\s+minutes/i.test(out.rateDetailText) && /switch its model/i.test(out.rateDetailText), 'the detail BEHIND the pill (taskLine, no opts.card) still names the minutes and "switch its model"');
       say(!/unable to sign in for about/i.test(out.briefText), 'a BRIEF auth_failed card does NOT show the stuck escalation sentence (falls through to the ordinary card)');
       say(!/unable to sign in for about/i.test(out.mismatchText) && !/paused by a rate limit for about/i.test(out.mismatchText), 'a stuckError whose state does NOT match the agent\'s current state shows NEITHER escalation sentence (the stateReason state-match guard, W2)');
       say(out.attnStuckAuth === true, 'a stuck auth_failed agent counts as an Issue (agentNeedsAttention)');
       say(out.attnStuckRate === true, 'a stuck rate_limited agent counts as an Issue');
       say(out.attnBrief === false, 'a brief (not-stuck) terminal error is NOT an Issue');
       say(out.attnHealthy === false, 'a healthy agent is not an Issue');
+      // #6398: capture a VISUAL of the rate-limited card (its "Rate Limit" pill, no paragraph) beside a stuck
+      // auth_failed card (which keeps its sentence) for the card's done-requirement screenshot. SHOT=<path> opts in.
+      if (process.env.SHOT && !out.error) {
+        await pg.evaluate(({ rate, auth }) => {
+          for (const id of ['firstrun', 'tiplayer']) { const o = document.getElementById(id); if (o) o.style.display = 'none'; }   // hide the onboarding/tour overlay
+          const g = document.getElementById('grid');
+          if (g) { g.hidden = false; g.innerHTML = rate + auth; }
+        }, { rate: out.rateText, auth: out.authText });
+        await pg.waitForTimeout(200);
+        const el = await pg.$('#grid');
+        await (el || pg).screenshot({ path: process.env.SHOT });
+        console.log('screenshot  ' + process.env.SHOT);
+      }
     }
   } catch (e) { say(false, 'threw: ' + e.message); }
   await b.close();
