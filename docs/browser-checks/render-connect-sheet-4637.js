@@ -11,20 +11,24 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *
  * What this pins, and why each line can fail:
  *  - another of the person's computers joining (#4773's joining_computer) reads "Your computer "windowsbox" wants to
- *    join", with "Allow it if windowsbox shows this same code." (#4794); a phone beside it (the CONTROL) keeps its
+ *    join", with "Type the code shown on windowsbox, then press Allow." (#6404); a phone beside it (the CONTROL) keeps its
  *    own name and the device-in-your-hand line;
- *  - each sheet carries the Kosmos+ brand, the code once as one large line read out a character at a time, then
+ *  - each sheet carries the Kosmos+ brand, the code (for a computer, the field for it) once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
  *  - Allow on the computer turns its sheet into "windowsbox is connected." with where to remove it;
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
  *    to connect to your Kosmos." for a computer and a phone, #6388: "2 of your computers want to join." for two
  *    computers) with Review;
  *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
- *  - #4794 slice 1: the computer's sheet says "Allow it if windowsbox shows this same code." and Allow sends that code (a
+ *  - #6404: the computer's sheet asks the person to type the code shown on windowsbox (this computer's own is never shown),
+ *    a wrong one is answered on the sheet and sends nothing, the right one is sent as the tunnel wrote it;
+ *  - #4794 slice 1 (superseded on the sheet by #6404): Allow sends the code (a
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
- *    codes match" (which posts that code), (#6314) "The codes match. Now press Allow on <name>, your other computer." with the code small, ran out, too many tries;
+ *    codes match" (which posts that code), (#6314, #6404) "The codes match. Waiting for <name>, your other computer, to allow this computer. If you have not yet, type this
+ *    code there and press Allow." with the code
+ *    still large (it is typed there), ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
  * Not part of `npm test` -- it needs a browser. See README.md in this directory.
@@ -98,7 +102,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
         pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
       });
-      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
+      const denyIds = [];          // #6404: every Not me sent (a click in the code field must never send one)
+      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; denyIds.push(id); pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -146,20 +151,24 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => { if (typeof pollAsk === 'function') return pollAsk(); });
       await page.waitForSelector('#plus-ask-rows .askreq', { timeout: 5000 }).catch(() => {});
       const sheets = await page.evaluate(() => [...document.querySelectorAll('#plus-ask-rows .askreq')].map((r) => {
-        const code = r.querySelector('.askcodebig');
+        const code = r.querySelector('.askcodebig'), field = r.querySelector('.askcodein'), place = code || r.querySelector('.askcodetype');
         const acts = [...r.querySelectorAll('.acts button')].map((b) => b.textContent.trim());
         return { brand: (r.querySelector('.askbrand') || {}).textContent || '', head: (r.querySelector('.askwho b') || {}).textContent || '',
           say: (r.querySelector('.asksay') || {}).textContent || '', code: code ? code.textContent : '', label: code ? code.getAttribute('aria-label') : '',
-          size: code ? parseFloat(getComputedStyle(code).fontSize) : 0, boxes: r.querySelectorAll('.devcode-cell').length,
-          aboveActs: !!(code && code.nextElementSibling && code.nextElementSibling.classList.contains('acts')), acts,
-          inside: !code || code.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
+          size: (code || field) ? parseFloat(getComputedStyle(code || field).fontSize) : 0, boxes: r.querySelectorAll('.devcode-cell').length,
+          aboveActs: !!(place && place.nextElementSibling && place.nextElementSibling.classList.contains('acts')), acts,
+          inside: !place || place.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
+          /* #6404: a computer's sheet asks for the code on the joining computer and never shows this one's own. */
+          field: field ? { label: (r.querySelector('.askcodetype label') || {}).textContent || '', value: field.value, labelled: !!(field.labels && field.labels.length) } : null,
+          ownCode: r.innerHTML.indexOf('482 915') > -1 || r.innerHTML.indexOf('4 8 2, 9 1 5') > -1,
+          allowOff: ((a) => !!(a && (a.disabled || a.getAttribute('aria-disabled') === 'true')))(r.querySelector('[data-ask="allow"]')),
           /* The headline gets the sheet's width, not the icon's 40px column (a grid slip read one word per line). */
           headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
       /* Measured while the sheets are there (an empty list would pass every()). */
       const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 2 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
-        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
+        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay'], ['codelabel', '.askcodetype label']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
       /* kosmos#6314 (Josh 11:30): a NEW request scrolls the Kosmos+ section's requests into view; the same requests
          repainting never move the page again. Precondition first, so this cannot pass on a page too short to scroll. */
@@ -177,13 +186,57 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       else chk(scroll.hidden && scroll.shown && scroll.stayed, `${tag} #6314: a new request scrolls into view on Kosmos+, once (scrolled away first: off screen; new: on screen; same again: not moved)`, JSON.stringify(scroll));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
-      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Allow it if windowsbox shows this same code.',
+      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Type the code shown on windowsbox, then press Allow.',
         `${tag} a computer joining reads as one of your own computers`, JSON.stringify(pc));
       chk(ph.head === 'iPhone wants to connect to your Kosmos' && /Allow only if this code is showing on the device in your hand\./.test(ph.say) && !/signed it in/.test(ph.say),
         `${tag} CONTROL: a phone keeps its own name and the device-in-your-hand line`, JSON.stringify(ph));
       chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
         `${tag} each sheet: the Kosmos+ brand, a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
-      chk(pc.code === '482 915' && pc.label === '4 8 2, 9 1 5', `${tag} the code is read out a character at a time`, JSON.stringify([pc.code, pc.label]));
+      chk(ph.code === 'K7-4M' && ph.label === 'K 7, 4 M', `${tag} the code is read out a character at a time`, JSON.stringify([ph.code, ph.label]));
+      chk(pc.field && pc.field.label === 'Code on windowsbox' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
+        `${tag} #6404: a computer's sheet has one labelled field for the code on windowsbox, never shows (or speaks) this computer's code, and Allow waits`, JSON.stringify(pc));
+      chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
+      /* #6404 review 1: clicking the field's label, then the field, as a person would, sends nothing and turns nobody away. */
+      await page.click('label[for="askcode-' + PC_ID + '"]');
+      await page.click('[id="askcode-' + PC_ID + '"]');
+      await page.waitForTimeout(300);
+      const clicked = await page.evaluate((id) => ({ focused: document.activeElement === document.getElementById('askcode-' + id),
+        still: !!document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]') }), PC_ID);
+      chk(clicked.focused && clicked.still && denyIds.length === 0 && !allowBodies[PC_ID],
+        `${tag} #6404: clicking the label and the field puts the person in it and sends nothing (no Not me, no Allow)`, JSON.stringify({ clicked, denyIds }));
+      /* #6404: typed digits survive a repaint, with focus and the place kept; Allow wakes only at six digits. */
+      await page.keyboard.type('48');
+      const partial = await page.evaluate((id) => { for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+        paintAsk(); const f = document.getElementById('askcode-' + id), a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]');
+        return { value: f && f.value, focused: document.activeElement === f, caret: f && f.selectionStart, allowOff: !!(a && (a.disabled || a.getAttribute('aria-disabled') === 'true')) }; }, PC_ID);
+      chk(partial.value === '48' && partial.focused && partial.caret === 2 && partial.allowOff,
+        `${tag} #6404: two digits typed survive a repaint (value, focus, place) and Allow still waits`, JSON.stringify(partial));
+      const inMarkup = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id); return !f || f.hasAttribute('value'); }, PC_ID);
+      /* #6404 review 5: short of six digits Allow stays reachable: Tab from the field lands on Allow (never Not me), and a
+         press says what is missing and sends nothing. */
+      await page.keyboard.press('Tab');
+      const tabTo = await page.evaluate(() => (document.activeElement && document.activeElement.dataset && document.activeElement.dataset.ask) || '');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /Type the six digits/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const shortSaid = await page.evaluate(() => /Type the six digits shown on windowsbox, then press Allow\./.test(document.getElementById('plus-ask-rows').innerText));
+      chk(tabTo === 'allow' && shortSaid && !allowBodies[PC_ID] && denyIds.length === 0,
+        `${tag} #6404: with two digits, Tab lands on Allow (not Not me) and pressing it says to type all six; nothing sent`, JSON.stringify({ tabTo, shortSaid, denyIds }));
+      chk(!inMarkup, `${tag} #6404: the page never writes what is typed as the field's value attribute (the digits are put back after a rebuild)`);
+      /* A wrong code: Allow wakes at six digits, but pressing it is answered here and nothing reaches the tunnel. */
+      await page.click('[id="askcode-' + PC_ID + '"]', { clickCount: 3 });
+      await page.keyboard.type('111 111');
+      const wrongOn = await page.evaluate((id) => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]'); return !a.disabled && a.getAttribute('aria-disabled') !== 'true'; }, PC_ID);
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
+      await page.waitForFunction(() => /That is not the code/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const wrong = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id), said = f && document.getElementById(f.getAttribute('aria-describedby'));
+        return { text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '), focused: document.activeElement === f,
+          invalid: f && f.getAttribute('aria-invalid'), describedBy: said ? said.textContent : '' }; }, PC_ID);
+      chk(wrongOn && /That is not the code windowsbox shows\. Check it on windowsbox and type it again\./.test(wrong.text) && !allowBodies[PC_ID] && denyIds.length === 0 && wrong.focused
+        && wrong.invalid === 'true' && /That is not the code/.test(wrong.describedBy),
+        `${tag} #6404: a wrong code is answered on the sheet (the field is marked invalid and described by it), sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID], denyIds }));
+      /* The right digits, typed without the space: Allow sends the code as the tunnel wrote it. */
+      await page.click('[id="askcode-' + PC_ID + '"]', { clickCount: 3 });
+      await page.keyboard.type('482915');
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
       /* Allow the computer: its sheet says it is connected. */
@@ -193,7 +246,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(/windowsbox is connected\. You can remove it any time under Devices\./.test(done) && !/trust each other/.test(done),
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
-      chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #4794: Allow on the computer sends the code it showed`, JSON.stringify(allowBodies[PC_ID]));
+      chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #6404: Allow on the computer sends the code typed from it, in the tunnel's own form`, JSON.stringify(allowBodies[PC_ID]));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
@@ -245,10 +298,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]', { timeout: 5000 }).catch(() => {});
       codeChangedOnce = true;
+      await page.fill('#askcode-d-cc', '135792');
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]');
       await page.waitForFunction(() => /code changed/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const cc = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
-      chk(/The code changed before you pressed Allow\. Check the new one on laptop4, then press Allow again\./.test(cc) && !/code_changed/.test(cc),
+      chk(/The code changed before you pressed Allow\. Type the new one from laptop4, then press Allow\./.test(cc) && !/code_changed/.test(cc),
         `${tag} #4794: a refused code is worded ("The code changed..."), never the raw tag`, cc);
       const heldOff = await page.evaluate(() => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]'); return !!(a && a.disabled); });
       chk(heldOff, `${tag} #4794: after "code changed", Allow waits while the same code shows (review 3)`);
@@ -256,8 +310,64 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForTimeout(400);
       const fresh = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
-        return r ? { allowOn: !!(a && !a.disabled), say: (r.querySelector('.asksay') || {}).textContent || '', code: (r.querySelector('.askcodebig') || {}).textContent || '' } : null; });
-      chk(fresh && fresh.allowOn && fresh.code === '864 201' && !/code changed/.test(fresh.say), `${tag} #4794: a new code clears the refusal and Allow is back (review 3)`, JSON.stringify(fresh));
+        return r ? { allowOff: !!(a && (a.disabled || a.getAttribute('aria-disabled') === 'true')), say: (r.querySelector('.asksay') || {}).textContent || '', value: (r.querySelector('.askcodein') || {}).value } : null; });
+      await page.fill('#askcode-d-cc', '864 201');
+      const freshOn = await page.evaluate(() => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]'); return !a.disabled && a.getAttribute('aria-disabled') !== 'true'; });
+      chk(fresh && fresh.value === '' && fresh.allowOff && !/code changed/.test(fresh.say) && freshOn,
+        `${tag} #4794/#6404: a new code clears the refusal and what was typed for the old one; typing the new one brings Allow back`, JSON.stringify({ fresh, freshOn }));
+      /* #6404 review 2: Enter in the field. Five digits: nothing. Six wrong: answered on the sheet. Six right: sent. Never Not me. */
+      pending = [{ device_id: 'd-en', name: 'laptop5', code: '246 801', first_seen: now() - 10, joining_computer: 'laptop5' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-en', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-en');
+      await page.keyboard.type('24680'); await page.keyboard.press('Enter'); await page.waitForTimeout(300);
+      const enterShort = !allowBodies['d-en'] && /Type the six digits shown on laptop5/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
+      await page.keyboard.type('9'); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /That is not the code laptop5 shows/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const enterWrong = !allowBodies['d-en'] && /That is not the code laptop5 shows/.test(await page.evaluate(() => document.getElementById('plus-ask-rows').innerText));
+      await page.click('#askcode-d-en', { clickCount: 3 }); await page.keyboard.type('246801'); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => /laptop5 is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      chk(enterShort && enterWrong && allowBodies['d-en'] && allowBodies['d-en'].code === '246 801' && !denyIds.includes('d-en'),
+        `${tag} #6404: Enter in the field: five digits say to type all six, six wrong ones are answered, six right ones Allow; never Not me`, JSON.stringify({ enterShort, enterWrong, sent: allowBodies['d-en'], denyIds }));
+      /* #6404 review 3: typed for a code that changed before the press: the sheet says the code is new, sends nothing. */
+      pending = [{ device_id: 'd-nw', name: 'laptop6', code: '102 938', first_seen: now() - 10, joining_computer: 'laptop6' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-nw', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-nw'); await page.keyboard.type('102938');
+      pending = [{ ...pending[0], code: '475 610' }];   // laptop6 has a new code, and this page reads it before the press
+      const nw = await page.evaluate(async () => { await pollAsk(); await askAct('allow', 'd-nw'); return (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '); });
+      chk(/laptop6 has a new code\. Type the new one from laptop6, then press Allow\./.test(nw) && !/That is not the code/.test(nw) && !allowBodies['d-nw'],
+        `${tag} #6404: typed for a code that changed before the press: "has a new code", nothing sent`, nw);
+      /* #6404 review 5: the person typed the NEW code from the other screen before this page read it: Allow reads the list
+         again and lets it in with what was typed, rather than calling it wrong. */
+      pending = [{ device_id: 'd-rc', name: 'laptop7', code: '111 333', first_seen: now() - 10, joining_computer: 'laptop7' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-rc', { timeout: 5000 }).catch(() => {});
+      pending = [{ ...pending[0], code: '222 444' }];
+      // One step in the page, so the page's own 5 s poll cannot read the new code first and skip the re-read under test.
+      const rc = await page.evaluate(async () => {
+        const before = (ASK.devices.find((x) => x.device_id === 'd-rc') || {}).code;
+        askTyped('d-rc', '222444');
+        let reads = 0; const real = window.pollAsk; window.pollAsk = async () => { reads += 1; return real(); };
+        try { await askAct('allow', 'd-rc'); } finally { window.pollAsk = real; }
+        return { before, reads, text: document.getElementById('plus-ask-rows').innerText };
+      });
+      chk(rc.before === '111 333' && rc.reads >= 1 && allowBodies['d-rc'] && allowBodies['d-rc'].code === '222 444' && /laptop7 is connected\./.test(rc.text),
+        `${tag} #6404: a code typed from the other screen before this page saw it is read again and let in, sending what was typed`, JSON.stringify({ rc: { ...rc, text: undefined }, sent: allowBodies['d-rc'] }));
+      /* #6404 review 2: two computers waiting at once keep their own typing; Allow on one sends only its code. */
+      pending = [{ device_id: 'd-2a', name: 'boxa', code: '111 222', first_seen: now() - 10, joining_computer: 'boxa' },
+        { device_id: 'd-2b', name: 'boxb', code: '333 444', first_seen: now() - 10, joining_computer: 'boxb' }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-2b', { timeout: 5000 }).catch(() => {});
+      await page.click('#askcode-d-2a'); await page.keyboard.type('111222');
+      const two = await page.evaluate(() => { for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; } paintAsk();
+        const off = (x) => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + x + '"]'); return a.disabled || a.getAttribute('aria-disabled') === 'true'; };
+        const b = document.getElementById('askcode-d-2b'), aOn = !off('d-2a'), bOff = off('d-2b');
+        return { a: document.getElementById('askcode-d-2a').value, b: b && b.value, aOn, bOff }; });
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-2a"]');
+      await page.waitForFunction(() => /boxa is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      chk(two.a === '111222' && two.b === '' && two.aOn && two.bOff && allowBodies['d-2a'] && allowBodies['d-2a'].code === '111 222' && !allowBodies['d-2b'],
+        `${tag} #6404: two computers waiting keep their own typing; Allow on one sends only its code`, JSON.stringify({ two, a: allowBodies['d-2a'], b: allowBodies['d-2b'] }));
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
@@ -290,7 +400,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} #4794 waiting: "Working out the code with homemac, your other computer...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
-      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
+      chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Type this code there, then press Allow\.\s*Once homemac says this computer is connected, press The codes match here\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',
         `${tag} #4794/#6314 waiting: the other computer named as the other one, where to look on it, the code large and "The codes match"`, JSON.stringify(jr));
       /* kosmos#6314 (Josh 11:37): while waiting, the pairing is the page's one job: the devices list and company block step aside. */
       const aside = await page.evaluate(() => ['plus-devices', 'plus-org'].map((id) => { const e = document.getElementById(id); return !e || getComputedStyle(e).display === 'none'; }));
@@ -316,9 +426,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();
-      const small = await page.evaluate(() => { const c = document.querySelector('#plus-join .plus-join-code-small'); return c ? { text: c.textContent, px: parseFloat(getComputedStyle(c).fontSize) } : null; });
-      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now press Allow on homemac, your other computer\./.test(jr.text) && jr.code === '' && !jr.button && small && small.text === '482 915' && small.px < 20,
-        `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and the code steps back, small`, JSON.stringify({ confirmBody, jr, small }));
+      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Waiting for homemac, your other computer, to allow this computer\. If you have not yet, type this code there and press Allow\./.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button,
+        `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and (#6404) the code stays large`, JSON.stringify({ confirmBody, jr }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
          held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
       join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
@@ -430,7 +539,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246 810', on: 'homemac' };
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.shown && /^If homemac, your other computer, showed this same code when you allowed it, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
+      chk(jr.shown && /^If you typed this code on homemac, your other computer, to allow this computer, press The codes match\./.test(jr.text) && jr.code === '246 810' && jr.button && jr.pill === 'Connected' && jr.status === '',
         `${tag} #4794: allowed but not yet confirmed: the code and The codes match stay (the pill says Connected, the sentence stays away)`, JSON.stringify(jr));
       /* By the page's clock a code older than the tunnel's 10 minutes is shown as run out, even if rounds keep failing. */
       await page.evaluate(() => { PLUS_JOIN_CODE_AT = Date.now() - 601 * 1000; PLUS_JOIN.held = true; });   // review 7: paintPlusJoin reads the page's answer, not the route

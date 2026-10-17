@@ -1988,7 +1988,7 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
-      // 🛑 It softens the page's prompt ("Allow it if <name> shows this same code"), so the coordinator must set it from its OWN
+      // 🛑 It changes the page's prompt (#6404: "Type the code shown on <name>"), so the coordinator must set it from its OWN
       // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
@@ -2101,7 +2101,7 @@ async function deviceAllow(id, name, code) {
   }
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person typed here (#6404); the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
   if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
   const r = await tracked(setupRun(args, null, retireTimeoutMs()));
