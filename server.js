@@ -11016,7 +11016,9 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (!madeOnThisComputer(req.headers) || !isViaScreen(req, body)) {
+        // And the socket itself is this computer's (review 5): headers alone can be written by a caller elsewhere on the
+        // network. Kosmos+ reaches the board over loopback too, which is why the header rule stays.
+        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !isViaScreen(req, body)) {
           sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
           return;
         }
