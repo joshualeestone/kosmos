@@ -184,6 +184,8 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   const missing = await mac(['task', 'built', projectId, String(n), '--file', path.join(SANDBOX, 'no-such-file')], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(missing.code, 2, missing.out);
   assert.match(missing.out, /cannot read that file/);
+  const blank = await mac(['task', 'built', projectId, String(n), 'note', '--file', ''], { KOSMOS_AGENT_TOKEN: tok });
+  assert.equal(blank.code, 2, 'an empty --file marked the task with no fingerprint: ' + blank.out);
   const empty = await mac(['task', 'built', projectId, String(n), '--file'], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(empty.code, 2, empty.out);
   assert.match(empty.out, /--file needs the path of the delivered file/);   // not the old unknown-option refusal
