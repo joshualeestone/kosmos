@@ -8423,6 +8423,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .pnotice .qopt { font: inherit; font-size: .8125rem; font-weight: 600; color: var(--k-ink); background: var(--k-surface);
   border: 1px solid var(--k-rule); border-radius: 8px; padding: .4em .9em; cursor: pointer; white-space: nowrap; flex: 0 0 auto; }
 .pnotice .qopt:disabled { cursor: default; opacity: .6; }
+/* #6341: Open (or Answer) and Dismiss sit together; Dismiss is the quieter of the two, a plain word with no box. */
+.pnacts { display: flex; gap: 6px; align-items: center; flex: 0 0 auto; }
+.pnotice .qopt.pn-dismiss { background: none; border-color: transparent; color: var(--k-ink-2); font-weight: 500; }
+.pnotice .qopt.pn-dismiss:hover { color: var(--k-ink); text-decoration: underline; }
 .pj-member.unseen { border-style: dashed; }
 /* --- the thread --------------------------------------------------------- */
 /* Same as #pj-one-add above: dressed by the shared `select` rule, widthed by
@@ -62199,8 +62203,8 @@ function pjNoticeStill(r, projectId) {
 /* #5688 (Josh, 10-09 08:45: "There's some issue and I don't know what an issue would be"): the project's Issue
    count, said member by member. Each reason is the engine's needsYouHere (projects.js needsYouReason), so the block's
    first group is exactly the members the red pill counts (#5692 adds red rows it does not count, after them). One Open per row: the agent's own page holds the fix (the answer box,
-   Restart, the reconnect steps), and its Back returns here. No Dismiss: each reason is live and clears itself once
-   it is resolved, so hiding one would hide something still true. */
+   Restart, the reconnect steps), and its Back returns here. #6341 (Josh, 10-16 19:43) adds Dismiss to every row: the
+   board keeps it per member and reason (engine/projects.js dismissNeeds), and a changed reason brings the row back. */
 const PJ_NEEDS_WHY = {
   question: ['Waiting for your answer.', 'Answer'],   // not "about this project": the project can be inferred from membership
   trust: ['Waiting for you to approve it before it can start.', 'Open'],
@@ -62221,11 +62225,13 @@ function pjRedHere(m) { return /\bpjm-attn\b/.test(pjMember(m, true, false)); }
    first Open left, so a keyboard user is not sent back to the top. */
 function pjKeepOpenFocus(box, paint) {
   const a = document.activeElement;
-  const had = box && a && box.contains(a) && a.dataset && a.dataset.pnOpen ? a.dataset.pnOpen : null;
+  // #6341: Dismiss is kept in its place too, by the same agent's Dismiss.
+  const attr = a && a.dataset && a.dataset.pnDismiss ? 'pnDismiss' : 'pnOpen';
+  const had = box && a && box.contains(a) && a.dataset && a.dataset[attr] ? a.dataset[attr] : null;
   paint();
   if (!had || box.contains(document.activeElement)) return;
-  const btns = [...box.querySelectorAll('[data-pn-open]')];
-  const back = btns.find((b) => b.dataset.pnOpen === had) || btns[0];
+  const btns = [...box.querySelectorAll(attr === 'pnDismiss' ? '[data-pn-dismiss]' : '[data-pn-open]')];
+  const back = btns.find((b) => b.dataset[attr] === had) || btns[0];
   if (back) back.focus();
 }
 /* #5692: a member whose row is red here but whose need is not about this project (so the Issue pill does not count it,
@@ -62252,13 +62258,16 @@ function pjAlsoWhy(m) {
 function pjNeedsNotice(roster, redHere) {
   const all = (roster || []).filter(Boolean);
   const rows = all.filter((m) => typeof m.needsYouHere === 'string' && m.needsYouHere);
-  const also = typeof redHere === 'function' ? all.filter((m) => !m.needsYouHere && m.present === true && redHere(m)) : [];
+  // #6341: a member the engine marked quiet (paused project, out of usage, an idle room, dismissed) is not listed again here.
+  const also = typeof redHere === 'function' ? all.filter((m) => !m.needsYouHere && !m.needsYouQuiet && m.present === true && redHere(m)) : [];
   if (!rows.length && !also.length) return '';
   const nameOf = (m) => String(m.name || m.sessionName || 'An agent');
-  const line = (m, why, act) => '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
-    + '<button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button></div>';
-  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act); }).join('');
-  const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act); }).join('');
+  // #6341: Dismiss carries the reason the row shows, so the board keeps it only while that reason stands.
+  const line = (m, why, act, reason) => '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
+    + '<span class="pnacts"><button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button>'
+    + '<button class="qopt pn-dismiss" type="button" data-pn-dismiss="' + esc(String(m.sessionName)) + '" data-pn-reason="' + esc(reason) + '" aria-label="' + esc('Dismiss ' + nameOf(m)) + '">Dismiss</button></span></div>';
+  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, m.needsYouHere); }).join('');
+  const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
   // Review 1: the uncounted rows are not known to be about another project, so the words never claim they are.
@@ -75760,6 +75769,58 @@ function pjNeedsOpenClick(e) {
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
+/* #6341: Dismiss on a "needs you" row. The board keeps it (per member and reason), so it holds across windows and a
+   reload, and the project's Issue count drops with the row. Focus goes to the next row's Dismiss, else the notice's
+   first button, else the Members heading, so a keyboard user is not sent to the top. A dismissal the board refused
+   leaves the row as it was and says so in the notice's own line. */
+async function pjNeedsDismissClick(e) {
+  const btn = e.target && e.target.closest ? e.target.closest('[data-pn-dismiss]') : null;
+  if (!btn || !PJ_CURRENT) return;
+  const project = PJ_CURRENT;
+  const box = e.currentTarget;
+  const rail = box.id === 'alist-pj-notice';
+  const who = btn.dataset.pnDismiss;
+  const order = [...box.querySelectorAll('[data-pn-dismiss]')].map((b) => b.dataset.pnDismiss);
+  btn.disabled = true;
+  let ok = false;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(project) + '/needs-dismiss', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent: who, reason: btn.dataset.pnReason }),
+    });
+    ok = !!(res && res.ok);
+  } catch { ok = false; }
+  btn.disabled = false;
+  const said = document.getElementById(rail ? 'alist-pj-notice-said' : 'pj-one-notice-said');
+  if (!ok) {
+    // Seen as well as heard: the button says it did not go through (the next repaint redraws it as Dismiss).
+    btn.textContent = 'Try again';
+    if (said) { said.textContent = ''; said.dataset.pj = String(project); requestAnimationFrame(() => { if (said.dataset.pj === String(project)) said.textContent = 'Kosmos could not dismiss that. Try again in a moment.'; }); }
+    return;
+  }
+  box.__lastLive = null;
+  const landed = await loadProjects();
+  if (!landed || PJ_CURRENT !== project) return;
+  if (PJ_READ_FAILED) paintOneProject();
+  if (rail) paintRailPjNotice();
+  if (said) { said.textContent = ''; said.dataset.pj = String(project); requestAnimationFrame(() => { if (said.dataset.pj === String(project)) said.textContent = 'Dismissed. It comes back if something changes.'; }); }
+  const now = document.activeElement;
+  if (now && now !== document.body && !box.contains(now)) return;
+  const left = [...box.querySelectorAll('[data-pn-dismiss]')];
+  const after = order.slice(order.indexOf(who) + 1).map((n) => left.find((b) => b.dataset.pnDismiss === n)).find(Boolean);
+  const next = after || left[left.length - 1] || box.querySelector('button');
+  const heading = rail ? document.querySelector('#rail-agents .railname') : document.querySelector('.pjcard-members > .dlab');
+  if (next) next.focus();
+  else if (heading) {
+    if (!heading.hasAttribute('tabindex')) {
+      heading.setAttribute('tabindex', '-1');
+      heading.addEventListener('blur', () => heading.removeAttribute('tabindex'), { once: true });
+    }
+    heading.focus();
+  }
+}
+document.getElementById('pj-one-notice').addEventListener('click', pjNeedsDismissClick);
+{ const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsDismissClick); }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
   // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
   // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's

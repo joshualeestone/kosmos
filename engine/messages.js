@@ -950,6 +950,39 @@ function record() {
   return { ok: true, rows: cache.rows.concat(fragRows), parsed: cache.parsed.concat(fragParsed) };
 }
 
+/* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms, or null.
+   Kosmos's own notes do not count: a Recommender note repeated in a quiet room must not make the room look live.
+   Kept incrementally against the reader's memory, so a projects read does not walk the whole log per project. */
+let LAST_POST = null; // { rows, n, map }
+function lastPostAt(projectId) {
+  const got = record();
+  if (!got.ok) return null;
+  const rows = READ_CACHE ? READ_CACHE.rows : [];
+  if (!LAST_POST || LAST_POST.rows !== rows || LAST_POST.n > rows.length) LAST_POST = { rows, n: 0, map: new Map() };
+  const bump = (map, r) => {
+    if (!r || (r.kind !== 'post' && r.kind !== 'external') || typeof r.project !== 'string') return;
+    const t = Date.parse(r.at);
+    if (Number.isFinite(t) && t > (map.get(r.project) || 0)) map.set(r.project, t);
+  };
+  for (; LAST_POST.n < rows.length; LAST_POST.n++) bump(LAST_POST.map, rows[LAST_POST.n]);
+  let best = LAST_POST.map.get(String(projectId)) || null;
+  // A half-appended last line is read for this answer only, as record() itself does.
+  const tail = new Map();
+  for (const r of got.rows.slice(rows.length)) bump(tail, r);
+  const t = tail.get(String(projectId));
+  if (t && (!best || t > best)) best = t;
+  return best;
+}
+
+/* #6341: does this project's room already hold a Recommender note about this agent with these words, written since
+   `sinceMs`? Read from the log on disk, so it survives a board restart, which the Recommender's own memory does not. */
+function recommenderNoted(projectId, session, because, sinceMs) {
+  const got = record();
+  if (!got.ok) return false;
+  return got.rows.some((r) => r && r.kind === 'note' && r.project === String(projectId) && r.rec
+    && r.rec.stuck === session && r.rec.because === because && Date.parse(r.at) >= sinceMs);
+}
+
 /** The fields each kind demands. An unknown kind is KEPT -- dropping what
     this version does not yet understand is the same lie by subtraction. */
 function rowShaped(m) {
@@ -3739,6 +3772,7 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 module.exports = {
+  lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
   spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)
   HELD_STATE, heldAccepted, logHeldDelivered, logHeldDropped, tellHeldDropped,   // kosmos#5805 slice 2a

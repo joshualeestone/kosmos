@@ -911,6 +911,27 @@ function needsYouReason(m, projectId) {
   return 'other';   // needsPerson learned a condition this list has not: still counted, worded generally
 }
 
+/* #6341: how long a room may be silent and still count as live for an agent's own condition. */
+const NEEDS_LIVE_MS = 24 * 60 * 60 * 1000;
+/* #6341: what describe() needs to decide whether a reason is quiet on this project, read once per project. */
+function needsQuietContext(project, now = Date.now()) {
+  let last = null;
+  try { last = require('./messages').lastPostAt(project.id); } catch { last = null; }
+  const dismissed = project.needsDismissed && typeof project.needsDismissed === 'object' && !Array.isArray(project.needsDismissed)
+    ? project.needsDismissed : {};
+  return { paused: project.paused === true, live: last !== null && now - last < NEEDS_LIVE_MS, dismissed };
+}
+/* #6341: why a reason is quiet ('usage' | 'paused' | 'dismissed' | 'inactive'), or null when it counts. Josh 19:47:
+   "a couple agents were out of usage but that should never show in the project, only on the agent", so a rate limit
+   is never a project's reason, live or not; the agent's own page and the Agents count still say it. */
+function needsQuietBecause(reason, sessionName, ctx) {
+  if (reason === 'stuck_rate') return 'usage';
+  if (ctx.paused) return 'paused';
+  if (ctx.dismissed[sessionName] === reason) return 'dismissed';
+  if (reason !== 'question' && !ctx.live) return 'inactive';
+  return null;
+}
+
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
   // ⚠️ Seeing an agent is remembered. `everSeen` was written once, at add time,
@@ -1118,7 +1139,45 @@ function describe(project, roster, all) {
   /* #5688 (Josh, 10-09 08:45: a red Issue on a project whose page never said what it was): WHY each member is counted
      in summary.needsYou, so the project page can name the member, say why, and open the fix. The count below is the
      number of members with a reason, so the pill and the page cannot disagree. */
-  for (const m of members) m.needsYouHere = needsYouReason(m, project.id);
+  /* #6341 (Josh, 10-16 19:43: "I don't think we should be flagging users ... when the project's already paused or the
+     project's been inactive ... there's not really a way to dismiss it"). A reason is QUIET here, so not counted and not
+     in the page's block, when the project is paused, when it is the agent's own condition (anything but its question
+     about this project) in a project with no post in its room for a day, or when the person dismissed this exact
+     reason for this agent here. `needsYouQuiet` keeps the reason it hid, so the page does not list that member again
+     among the red rows the count skips, and a changed reason comes back. */
+  const quiet = needsQuietContext(project);
+  for (const m of members) {
+    const why = needsYouReason(m, project.id);
+    const hidden = why === null ? null : needsQuietBecause(why, m.sessionName, quiet);
+    m.needsYouHere = hidden ? null : why;
+    m.needsYouQuiet = hidden ? { reason: why, because: hidden }
+      // A dismissed 'elsewhere' row (no counted reason here), or any member of a paused project: the page lists neither.
+      : why === null && quiet.dismissed[m.sessionName] === 'elsewhere' ? { reason: 'elsewhere', because: 'dismissed' }
+        : why === null && quiet.paused ? { reason: 'elsewhere', because: 'paused' } : null;
+  }
+  /* #6341: a dismissal lasts while its reason stands. Once the member's reason is gone or different, it is dropped, so
+     the same reason coming back later (a new rate limit next week) is shown again. Only a member the board can read
+     (present and tied) is judged: an agent we cannot see now has not been shown to be over it. */
+  const stale = Object.keys(quiet.dismissed).filter((name) => {
+    const m = members.find((x) => x.sessionName === name);
+    if (!m) return !(project.agents || []).includes(name);   // no longer a member
+    if (!m.present || !m.tied) return false;
+    const now = needsYouReason(m, project.id);
+    // 'elsewhere' stands while nothing is counted here; a counted reason appearing is news, so it is shown.
+    return quiet.dismissed[name] === 'elsewhere' ? now !== null : now !== quiet.dismissed[name];
+  });
+  if (stale.length) {
+    try {
+      const stored = readAll();
+      const at = stored.findIndex((p) => p.id === project.id);
+      if (at >= 0 && stored[at].needsDismissed) {
+        const left = { ...stored[at].needsDismissed };
+        for (const name of stale) delete left[name];
+        if (Object.keys(left).length) stored[at].needsDismissed = left; else delete stored[at].needsDismissed;
+        writeAll(stored);
+      }
+    } catch { /* a record we cannot update is not a reason to fail a read */ }
+  }
 
   // #1994: the parent id (or null), derived once and used both as the `parent`
   // field and to resolve parentName/parentArchived below.
@@ -2725,6 +2784,27 @@ function cleanParent(value, childId) {
   return parentId;
 }
 
+/* #6341: the person dismissed a "needs you" row on a project's page. Kept on the project (the board, not the browser:
+   it can stand for weeks), per member and reason; describe() honours it only while that member's reason is still the
+   same one, and drops it once the reason changes. Refuses a project it does not know, a name that is not a member,
+   and a reason the page does not show. Returns the project's dismissals after the write. */
+/* 'elsewhere' is a row the page lists after the counted ones (#5692: red here, but its need is not about this project);
+   it is dismissed as a whole, and stands while the member has no counted reason here. */
+const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'own_bound', 'other', 'elsewhere'];
+function dismissNeeds(projectId, sessionName, reason) {
+  if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
+  if (!NEEDS_REASONS.includes(reason)) throw new Error('that is not a reason a project shows');
+  const stored = readAll();
+  const at = stored.findIndex((p) => p.id === projectId);
+  if (at < 0) throw new Error('no such project');
+  if (!(stored[at].agents || []).includes(sessionName)) throw new Error('that agent is not on this project');
+  const prev = stored[at].needsDismissed && typeof stored[at].needsDismissed === 'object' && !Array.isArray(stored[at].needsDismissed)
+    ? stored[at].needsDismissed : {};
+  stored[at].needsDismissed = { ...prev, [sessionName]: reason };
+  writeAll(stored);
+  return { ...stored[at].needsDismissed };
+}
+
 /**
  * Every writable field, applied in ONE mutate.
  *
@@ -3750,7 +3830,7 @@ module.exports = {
   offWriteIsQuiet, WROTE_WHY,
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, teamBlockState, ALL_MARKERS, neutralise,
-  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, andList, setRoleHere, ROLE_HERE_MAX,
+  file, readAll, writeAll, idFor, folderState, describe, needsYouReason, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX,
   list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,

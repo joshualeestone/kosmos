@@ -222,7 +222,7 @@ function playbookText(item, setting) {
  * the playbook naming the peers who were reached. On a retry: the playbook only.
  * @returns {{next: object, acted: Array<object>}}
  */
-function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil, reserve, release }) {
+function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIVERY, heldUntil, reserve, release, alreadyNoted }) {
   const out = step({ prev, roster, setting, members, now });
   const acted = [];
   const send = (session, text) => {
@@ -234,6 +234,22 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
        held on the quota is left out of this convening's asks (nothing typed into it), as any unreachable peer is; the
        item is not held for it, so a stuck agent on another runner is not kept waiting for a Google pause. */
     const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
+    /* #6341 (Josh, 10-16: the same "X is stuck" line twice in a room, hours apart): this step's memory lives only while
+       the board runs, so a restart forgot a note it had written and wrote it again. The room itself is on disk: when it
+       already holds this note (same stuck agent, same words), nothing is said again, nobody is asked again, and the
+       hour's budget is given back. The item is marked convened so it is not retried. Optional, as heldUntil is. */
+    if (!item.retry && typeof alreadyNoted === 'function') {
+      let said = false;
+      try { said = alreadyNoted(item.project, item.session, item.because) === true; } catch { said = false; }
+      if (said) {
+        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
+        if (i !== -1) out.next.log.splice(i, 1);
+        const rec = out.next.items.get(item.key);
+        if (rec) { rec.noted = true; rec.convened = true; if (!rec.notedAt) rec.notedAt = now; }
+        acted.push({ session: item.session, name: item.name, project: item.project, retry: false, noteLanded: null, asked: [], verdict: 'already-noted' });
+        continue;
+      }
+    }
     const held = isHeld(item.session);
     if (held) {
       if (!item.retry) {
