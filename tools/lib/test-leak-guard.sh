@@ -175,16 +175,6 @@ leak_family() {
     }'
 }
 
-# leak_kts_owners <root>: one line per `kts-` dir left in <root>, naming the test file that made it. A `kts-` dir
-# is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means its
-# sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
-# `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
-# unterminated owner line (a kill during the write) still reports.
-# #6362: an owner line with a third field ("survived its sweep") means the sweep ran and the dir outlived it (a
-# process the file started was still writing there, or something in it could not be removed). A dir with NO owner is
-# usually what a process the test started and left running leaves when it makes the dir again after the test ended
-# (the sweep took .kts-owner with it; reproduced for #6362); a tmpscope older than #6061 or a failed owner write leaves
-# the same. So the report lists what the dir holds, whose names usually say which test's process it was.
 # _kts_held <dir>: what a kts- dir holds besides .kts-owner, five names then a count, for leak_kts_owners (#6362).
 _kts_held() {
   local d="$1" held n shown part=""
@@ -200,6 +190,17 @@ _kts_held() {
   printf '%s\n' "${shown:-nothing}${part}"
 }
 
+# leak_kts_owners <root>: one line per `kts-` dir left in <root>, naming the test file that made it. A `kts-` dir
+# is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means its
+# sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
+# `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
+# unterminated owner line (a kill during the write) still reports.
+# #6362: an owner line with a third field ("survived its sweep") means the sweep ran and the dir outlived it (a
+# process the file started was still writing there, or something in it could not be removed). A dir with NO owner can
+# be what a process the test started and left running leaves when it makes the dir again after the test ended (the
+# sweep took .kts-owner with it; reproduced for #6362, how often is not measured); a tmpscope older than #6061 or a
+# failed owner write leaves the same. So the report lists what the dir holds, whose names often say which test's
+# process it was.
 leak_kts_owners() {
   local root="${1%/}" d owner rest pid why shown
   for d in "$root"/kts-*; do

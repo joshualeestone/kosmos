@@ -339,7 +339,8 @@ require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();
     const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
     try { childPid = Number(fs.readFileSync(pidFile, 'utf8')); } catch { /* checked by the status below */ }
     assert.equal(r.status, 0, String(r.stderr));
-    for (let i = 0; i < 250 && !fs.existsSync(done); i++) await new Promise((res) => setTimeout(res, 20));
+    // Up to 12 s of the 15 s budget: a cold node start on a loaded machine can take seconds.
+    for (const end = Date.now() + 12000; Date.now() < end && !fs.existsSync(done);) await new Promise((res) => setTimeout(res, 20));
     assert.ok(fs.existsSync(done), 'the left-running child never wrote, so this cannot test what it is for');
     const left = entries(base).filter((n) => n.startsWith('kts-'));
     assert.equal(left.length, 1, String(entries(base)));

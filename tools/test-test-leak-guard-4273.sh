@@ -94,9 +94,9 @@ if [ "$(id -u)" != 0 ]; then
   [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: cannot be read here, so its owner is unknown' && ok "#6362: an unsearchable dir says its owner is unknown, not that it has none" || bad "unsearchable dir: rc=$rc out=$out"
   # An owner file it cannot read is not called empty.
   chmod 000 "$root/kts-Zz99Yy/.kts-owner"
-  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root" 2>/dev/null) ) || rc=1
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362" ) || rc=1
   chmod 644 "$root/kts-Zz99Yy/.kts-owner"
-  [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: its owner file cannot be read here' && ok "#6362: an unreadable owner file is said so, not called empty" || bad "unreadable owner: rc=$rc out=$out"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362" ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: its owner file cannot be read here' && ok "#6362: an unreadable owner file is said so, not called empty" || bad "unreadable owner: rc=$rc out=$out"
 fi
 rm -rf "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 rm -rf "$root/brand-new-Qw12Er"
