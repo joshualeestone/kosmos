@@ -142,3 +142,25 @@ test('#6176 review 3: a growing log has only its new bytes read; a replaced log 
   fs.renameSync(tmp, file);
   assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 77, 'a replaced log was served from the cache');
 });
+
+test('#6176 review 4: a line half written at one read is found whole at the next (the overlap)', () => {
+  const h = home([billing(NOW - 2 * DAY, 20, NOW - 3 * DAY, NOW + 4 * DAY)]);
+  const file = path.join(h, 'logs', 'unified.jsonl');
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 20);
+  const line = JSON.stringify(billing(NOW - 20e3, 25, NOW - 3 * DAY, NOW + 4 * DAY));
+  fs.appendFileSync(file, line.slice(0, 60));
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 20, 'CONTROL: the half line is not a reading yet');
+  fs.appendFileSync(file, line.slice(60) + '\n');
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 25, 'a line split across two reads was never seen');
+});
+
+test('#6176 review 4: a log cut shorter is read again; a log with no reading that gains one is seen', () => {
+  const h = home([billing(NOW - 2 * DAY, 20, NOW - 3 * DAY, NOW + 4 * DAY), other(NOW - DAY), other(NOW - DAY + 1)]);
+  const file = path.join(h, 'logs', 'unified.jsonl');
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 20);
+  fs.truncateSync(file, 0);
+  fs.appendFileSync(file, JSON.stringify(other(NOW)) + '\n');
+  assert.equal(groklimits.read(h, NOW), null, 'a cut log still answered from the cache');
+  fs.appendFileSync(file, JSON.stringify(billing(NOW - 10e3, 3, NOW - DAY, NOW + 6 * DAY)) + '\n');
+  assert.equal(groklimits.read(h, NOW) && groklimits.read(h, NOW).windows[0].usedPct, 3, 'a cached no-reading hid a new one');
+});

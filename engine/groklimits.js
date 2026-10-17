@@ -30,7 +30,7 @@ const path = require('node:path');
 const TAIL_STEPS = [256 * 1024, 1024 * 1024, 4 * 1024 * 1024];   // read further back only when no reading is found
 const BILLING_MSG = 'billing: fetched credits config';
 
-/** The last `bytes` of a file as text, or '' when it cannot be read. A first line cut in half fails to parse. */
+/** The last `bytes` of a file as text, or null when it cannot be read. A first line cut in half fails to parse. */
 function tail(file, bytes) {
   let fd = null;
   try {
@@ -40,7 +40,7 @@ function tail(file, bytes) {
     const buf = Buffer.alloc(len);
     fs.readSync(fd, buf, 0, len, size - len);
     return buf.toString('utf8');
-  } catch { return ''; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 
 /** One log line's billing reading, validated, or null. */
@@ -50,9 +50,10 @@ function readingOfRow(row) {
   const ctx = row.ctx && typeof row.ctx === 'object' ? row.ctx : null;
   const c = ctx && ctx.config && typeof ctx.config === 'object' ? ctx.config : null;
   if (!c || !Number.isFinite(at)) return null;
-  /* An absent percent is 0 (review 3): Grok's log is protobuf JSON, which leaves out a field whose value is zero. Measured:
-     the only two lines without it are the first of a fresh period, and the next lines in that period read 1.0. A percent
-     that is present but not a number is still refused. */
+  /* An absent percent is 0 (review 3): Grok's log is protobuf JSON, which leaves out a field whose value is zero. An
+     ASSUMPTION from one sample (review 4): the only two lines here without it come late in a period before this
+     account's first use, and the next period's first line read 1.0. A percent that is present but not a number is
+     still refused. */
   const pct = c.creditUsagePercent === undefined ? 0 : c.creditUsagePercent;
   const p = c.currentPeriod && typeof c.currentPeriod === 'object' ? c.currentPeriod : null;
   const start = p ? Date.parse(p.start) : NaN;
@@ -86,10 +87,12 @@ function newestIn(text) {
   return null;
 }
 
-/** The newest valid billing line in the file, whatever its period, or null. Reads the tail in TAIL_STEPS. */
+/** The newest valid billing line in the file, whatever its period, or null; undefined when the file could not be read
+    (review 4: a failed read is not an answer, so it is not kept). Reads the tail in TAIL_STEPS. */
 function newestReading(file, size) {
   for (const bytes of TAIL_STEPS) {
     const text = tail(file, bytes);
+    if (text === null) return undefined;
     if (!text) return null;
     const r = newestIn(text);
     if (r) return r;
@@ -118,7 +121,10 @@ function cachedNewest(file, st) {
     const text = slice(file, Math.max(0, hit.size - OVERLAP), st.size);
     if (text === null) return null;
     r = newestIn(text) || hit.reading;
-  } else r = newestReading(file, st.size);
+  } else {
+    r = newestReading(file, st.size);
+    if (r === undefined) { newestCache.delete(file); return null; }
+  }
   newestCache.set(file, { ino: st.ino, dev: st.dev, size: st.size, mtimeMs: st.mtimeMs, reading: r });
   return r;
 }
