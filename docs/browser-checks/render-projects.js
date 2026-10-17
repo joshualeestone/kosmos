@@ -1317,7 +1317,7 @@ async function main() {
       try {
         await frames();   // the arm above put the window back; the page's own readers answer on the next frame
         const before = step();
-        while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
+        do copies.push(box.appendChild(row.cloneNode(true))); while (box.scrollHeight <= innerHeight && copies.length < 60);   // at least one, so the row-grew step has a copy to grow
         await frames();
         const grown = { ...step(), scrolls: box.scrollHeight > box.clientHeight + 1 };
         box.scrollTop = box.scrollHeight; await frames();
@@ -1368,6 +1368,7 @@ async function main() {
         box.scrollTop = st0;
         if (document.activeElement && box.contains(document.activeElement)) document.activeElement.blur();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
+        await frames();   // the page's own readers settle the cue before the next arm reads the page
       }
     });
     /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
