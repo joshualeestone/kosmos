@@ -11049,6 +11049,22 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
     return;
   }
+  /* kosmos#6404: the joining computer's "Check the code" once allowed: one fresh code check is a try, so the same
+     screen check as Try again. */
+  if (pathname === '/api/remote/join/recheck' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can ask to check the code.' }); return; }
+        const got = await remote.joinRecheck();
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not ask to check the code' }));
+    return;
+  }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
     remote.devicesList()
       .then((list) => {

@@ -45,7 +45,8 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.match(card, /askHead\(d\)/);
   assert.match(card, /\(joiningRow \? '' : askAgoSpan\(d\.first_seen\)\)/);   // #3978: the time is a span filled in place; #6405: not for a computer
   assert.match(card, /askEsc\(d\.code\)/);
-  assert.match(card, /data-ask="allow"[^>]*>Allow<\/button>/);
+  // kosmos#6404: the button reads Allow, or Confirm on a code check.
+  assert.match(card, /data-ask="allow"[\s\S]*?\(d\.recheck \? 'Confirm' : 'Allow'\) \+ '<\/button>/);
   assert.match(card, /data-ask="deny"[^>]*>Not me<\/button>/);
 });
 
@@ -63,7 +64,8 @@ test('the change-your-password sentence appears on the Deny branch and the re-as
   const plain = JS.slice(at, JS.indexOf(';', at));   // #4637: the plain ask spans two lines now (the computer variant)
   assert.ok(at > -1, 'the plain sentence moved; re-anchor');
   assert.doesNotMatch(plain, /password/, 'the plain ask carries the intruder sentence, which the wrong person reads every time');
-  const d0 = JS.indexOf("e.state === 'denied'");
+  // kosmos#6404: anchored on the old-request branch itself (a code check's own Not me row comes first and has a Got it).
+  const d0 = JS.indexOf('const oldAsk', JS.indexOf("e.state === 'denied'"));
   // Comments stripped: a sentence ABOUT the password line is not the line.
   const oldBranch = JS.slice(d0, JS.indexOf('Got it', d0)).replace(/\/\*[\s\S]*?\*\//g, '');
   const freshBranch = JS.slice(JS.indexOf('Got it', d0) + 1, JS.indexOf('Got it', JS.indexOf('Got it', d0) + 1));

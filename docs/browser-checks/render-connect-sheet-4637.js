@@ -417,6 +417,32 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /boxa is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       chk(two.a === '111222' && two.b === '' && two.aOn && two.bOff && allowBodies['d-2a'] && allowBodies['d-2a'].code === '111 222' && !allowBodies['d-2b'],
         `${tag} #6404: two computers waiting keep their own typing; Allow on one sends only its code`, JSON.stringify({ two, a: allowBodies['d-2a'], b: allowBodies['d-2b'] }));
+      /* kosmos#6404: a computer already allowed here finishing its code check (the tunnel's recheck row): it says so, the
+         button is Confirm, Confirm sends the typed code, and the card then says to finish on that computer. Not me only
+         cancels the check and says the computer stays connected. */
+      pending = [{ device_id: 'd-rk', name: 'boxc', code: '135 246', first_seen: 0, joining_computer: 'boxc', recheck: true }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#askcode-d-rk', { timeout: 5000 }).catch(() => {});
+      const rk = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
+        return r ? { head: (r.querySelector('.askwho b') || {}).textContent || '', say: (r.querySelector('.asksay') || {}).textContent || '', button: a ? a.textContent : '',
+          label: a ? a.getAttribute('aria-label') : '', field: !!r.querySelector('.askcodein'), own: r.innerHTML.indexOf('135 246') > -1 } : null; });
+      chk(rk && rk.head === 'Your computer "boxc" wants to finish its code check' && rk.say === 'Type the code shown on boxc, then press Confirm.' && rk.button === 'Confirm'
+        && /^Confirm the code check for computer boxc$/.test(rk.label) && rk.field && !rk.own,
+        `${tag} #6404: a code check reads as finishing one, with the field and Confirm, and never shows this computer's code`, JSON.stringify(rk));
+      await page.click('#askcode-d-rk'); await page.keyboard.type('135246');
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-rk"]');
+      await page.waitForFunction(() => /The code check with boxc is done here\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const rkDone = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(allowBodies['d-rk'] && allowBodies['d-rk'].code === '135 246' && /The code check with boxc is done here\. Now press The codes match on boxc\./.test(rkDone) && !/boxc is connected/.test(rkDone),
+        `${tag} #6404: Confirm sends the typed code and says to finish on that computer`, JSON.stringify({ sent: allowBodies['d-rk'], rkDone }));
+      pending = [{ device_id: 'd-rk2', name: 'boxd', code: '864 975', first_seen: 0, joining_computer: 'boxd', recheck: true }];
+      await page.evaluate(() => pollAsk());
+      await page.waitForSelector('#plus-ask-rows [data-ask="deny"][data-id="d-rk2"]', { timeout: 5000 }).catch(() => {});
+      await page.click('#plus-ask-rows [data-ask="deny"][data-id="d-rk2"]');
+      await page.waitForFunction(() => /code check with boxd was cancelled/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
+      const rkNo = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
+      chk(denyIds.includes('d-rk2') && /The code check with boxd was cancelled\. It stays connected\./.test(rkNo) && !/password/.test(rkNo),
+        `${tag} #6404: Not me on a code check cancels only the check and says the computer stays connected`, rkNo);
 
       /* #4794: this computer WAITING to be allowed. The pill says so; #plus-join replaces the coordinator's sentence. */
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
@@ -504,6 +530,32 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       remoteNow = { ...REMOTE, status: { state: 'down', because: 'the relay cannot be reached' } };
       jr = await readJoin();
       chk(jr.shown && /relay cannot be reached/.test(jr.status), `${tag} #4794: an outage after the ending is still said (review 6)`, JSON.stringify(jr));
+      /* kosmos#6404: a page loaded later, with a tunnel that can offer one fresh code check: the ending carries Check the
+         code (the probe's one read on load), the press asks for it, and the check's steps show with its code large. The
+         arm puts back everything it changes, so the arms after it start where they did. */
+      {
+        const outage = remoteNow, joinBefore = join;
+        remoteNow = REMOTE;
+        join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true, can_recheck: true, rechecking: false, recheck_with: 'homemac' };
+        let recheckPosts = 0;
+        await page.route('**/api/remote/join/recheck', (route) => { recheckPosts += 1;
+          join = { ...join, can_recheck: false, rechecking: true, confirm_expired: false, join_code: '246 810', on: 'homemac' };
+          return route.fulfill(json({ ok: true })); });
+        await page.evaluate(() => plusJoinReset());
+        jr = await readJoin();
+        const rb = await page.evaluate(() => { const b = document.getElementById('plus-join-recheck'); return b ? b.textContent : null; });
+        chk(jr.shown && /^homemac allowed this computer\. Its code ran out before The codes match was pressed here\.\s*To finish, check the code with homemac once\. You will need to be at both computers\./.test(jr.text) && rb === 'Check the code',
+          `${tag} #6404: allowed, code ran out, a check can be asked for: the ending says so with Check the code (also on a later load)`, JSON.stringify({ jr, rb }));
+        await page.click('#plus-join-recheck');
+        await page.waitForTimeout(400);
+        jr = await readJoin();
+        chk(recheckPosts === 1 && /^Finish the code check with homemac\.\s*On homemac, go to Settings, then Kosmos\+\.\s*Type this code there, then press Confirm\.\s*Once homemac says the check is done, press The codes match here\./.test(jr.text)
+          && jr.code === '246 810' && jr.size >= 28 && !!jr.button,
+          `${tag} #6404: Check the code asks once, then the check's steps show with the code large and The codes match`, JSON.stringify({ recheckPosts, jr }));
+        await page.unroute('**/api/remote/join/recheck');
+        join = joinBefore; remoteNow = outage;
+        await page.evaluate(() => plusJoinReset());
+      }
       /* Too many tries: still held, every attempt used, no code (the tunnel's failed). */
       join = { ...join, held: true, failed: true, on: null };
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
