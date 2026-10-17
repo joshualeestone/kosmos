@@ -240,6 +240,41 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           }, { worlds: WORLDS });
           ok(`${t} #6403: a forced read that finds one computer looks again soon and then shows the switcher`, soon.forced === true, JSON.stringify(soon));
           ok(`${t} #6403 CONTROL: an ordinary read that finds one computer waits (no switcher half a second later)`, soon.plain === false, JSON.stringify(soon));
+          /* #6403 review 5: the tip lets clicks through (only its close button takes one); it is marked seen only once it can
+             be seen (CONTROL: shown, it is); a forced read owed while hidden brings its follow-ups when the tab is shown. */
+          const r5 = await page.evaluate(async ({ worlds }) => {
+            const reset = () => { try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false; };
+            const key = () => { try { return localStorage.getItem('kosmos.switcherTipSeen'); } catch { return 'n/a'; } };
+            // Visible: marked seen.
+            reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
+            const tip = document.getElementById('worldsw-tip');
+            const pe = { tip: getComputedStyle(tip).pointerEvents, x: getComputedStyle(document.getElementById('worldsw-tip-x')).pointerEvents };
+            const seenVisible = key();
+            // The switcher hidden by the layout (a phone over Kosmos+): not marked.
+            reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            const sw = document.getElementById('worldsw'); sw.style.setProperty('display', 'none', 'important');
+            window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
+            const seenHidden = key();
+            sw.style.removeProperty('display');
+            // Forced while hidden: shown again, the read carries the follow-up window.
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__hid5 = true;
+            Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__hid5 });
+            COMPUTERS_EXPECT_UNTIL = 0;
+            computersReadSoon(true);
+            const owedWhileHidden = COMPUTERS_EXPECT_UNTIL === 0 && COMPUTERS_STALE_WHILE_HIDDEN === true;
+            window.__hid5 = false; document.dispatchEvent(new Event('visibilitychange'));
+            const expectAfter = COMPUTERS_EXPECT_UNTIL > Date.now();
+            delete document.hidden;
+            await new Promise((r) => setTimeout(r, 50));
+            try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}   // as the earlier arms left it: seen here
+            return { pe, seenVisible, seenHidden, owedWhileHidden, expectAfter };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: the tip lets clicks through, its close button takes them`, r5.pe.tip === 'none' && r5.pe.x === 'auto', JSON.stringify(r5));
+          ok(`${t} #6403 CONTROL: a tip that was shown is marked seen`, r5.seenVisible === '1', JSON.stringify(r5));
+          ok(`${t} #6403: a tip the layout hides is not marked seen`, r5.seenHidden === null, JSON.stringify(r5));
+          ok(`${t} #6403: a forced read owed while hidden brings its follow-ups when the tab is shown`, r5.owedWhileHidden && r5.expectAfter, JSON.stringify(r5));
           /* Shown once: after a reload with two computers from the start, no tip. */
           await page.reload();
           const again = await page.evaluate(async ({ worlds }) => {
@@ -353,6 +388,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 28 asserts = 112 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: eleven, three of them CONTROLs).
-  process.exit(problems.length || pass + problems.length < 112 ? 1 : 0);
+  // 2 engines x 2 themes x 32 asserts = 128 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: fifteen, four of them CONTROLs).
+  process.exit(problems.length || pass + problems.length < 128 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

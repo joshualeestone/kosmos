@@ -55,6 +55,13 @@ premise: a board left open and never looked at catches up only on its 5-minute t
   Kosmos+ section open, as it is while pairing.
 - Escape checks the key and the tip before looking for a visible dialog.
 
+## Review 5 (opus) changes
+- The tip lets clicks through to the page below (only its close button takes a click), so a check or a person clicking
+  near the switcher is not blocked; mobile-shots marks the tip seen so no screen carries it uninvited.
+- The tip is marked seen only once it can be seen (the switcher shows just after; on a phone over Kosmos+ it never
+  does), so a layout that hides the switcher does not use it up.
+- A forced read owed while the tab was hidden brings its 90 s of follow-ups when the tab is shown.
+
 ## Steps
 1. computersFetch stamps COMPUTERS_READ_AT; worldswComputersSeen's first false->true shows the tip once
    (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused).
