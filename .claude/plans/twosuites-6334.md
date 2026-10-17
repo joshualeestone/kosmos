@@ -37,6 +37,11 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   not, so no new suite starts while it waits and the running ones drain to zero. Reasoned from the code, not run.
 - A candidate that exits between the waiter filter and the roots walk can make one poll refuse with no suite left.
   That is the refusing side and clears on the next poll; accepted.
+- Two runs starting together beside one live suite cannot both start: each is a live run-tests.sh before it asks,
+  so whichever asks second sees the first and waits. (Iteration 10 raised it; iteration 5 had shown it unreachable.)
+- When every candidate is gone between the waiter filter and the roots walk, the list as it was is counted (refuses
+  one 30 s poll). Kept: an empty roots walk is otherwise indistinguishable from a failed one, and failing closed is
+  the rule here. The roots walk is O(n^2) ps walks for n candidates; n is a handful today.
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.

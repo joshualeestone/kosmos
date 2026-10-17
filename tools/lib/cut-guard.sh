@@ -576,7 +576,8 @@ kosmos_refuse_if_suite_live() {
 #
 # 🔑 THE SUITE QUEUE, because a waiting run-tests.sh is still a run-tests.sh process. Without it:
 #   1. two suites waiting on a third would each see the other as live, and both give up at the bound;
-#   2. two suites freed by the same finish would start together, past the limit this exists to keep (#6334: KOSMOS_SUITE_MAX).
+#   2. two suites freed by the same finish would start together, past the limit this exists to keep
+#      (#6334: KOSMOS_SUITE_MAX).
 # So a waiting suite writes suitewait.<pid> (line 1 "<epoch> <pid>", line 2 its command, line 3 its start time in
 # the writer's local form and, since #4574, line 4 the same in UTC and the C locale; the same recycled-pid check as the
 # run markers), the suite check skips a waiter (and its direct subshells),
