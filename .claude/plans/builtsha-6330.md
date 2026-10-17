@@ -16,6 +16,10 @@ This is that second part.
 ## Rules
 - Shape checked on the board: exactly `sha256:` and 64 lowercase hex; anything else is refused (400), never stored.
 - Only an agent's mark carries one; the person's mark from the screen sends none, and a clear drops it.
+- **Who sent it is recorded (builtFingerprintBy), and that decides what a later mark does.** Another agent's mark
+  without one (the checker's "1 met.") keeps it; the sender's own mark without one drops it; the line typed to the next
+  agents carries it only when that mark sent it, and the lists say "sent by <name>".
+- Agents learn it from the rules (doctrine v33, logged in engine/defaults.js with its weakest premise).
 - No board or agent-card UI: Josh's 11:16 ruling (no new visible lines until his clean-up ships). The Tasks page does
   not render it.
 
@@ -23,6 +27,19 @@ This is that second part.
 - **The CLI hashes, the board never reads the file.** Rejected: the board hashing a path it is given (it would read any
   file an agent names, a path is not the deliverable once moved, and agents and the board may not share a folder).
 - **sha256 only**, named in the value, so a later algorithm can be added without a format change.
+
+- **This rule moved twice in review, so it is decided here, not per round.** Round 2 shipped "any mark without one
+  drops it", and round 3 found the checker's own mark wiped the deliverable's fingerprint. Round 3 shipped "any mark
+  without one keeps it", and round 5 found that the sender's re-mark after a fix presented the OLD fingerprint as current
+  and the checker's line read as if the checker had hashed it. Both rules were one boolean for two different people.
+  Keyed on the sender, each case is right: the checker never touched the file, the sender may have replaced it. What
+  would change this: an agent legitimately re-marking its own unchanged file without --file and losing the
+  fingerprint; that costs one re-send, while the alternative costs a false match.
+- Deferred: a bad fingerprint shape is refused before the task is looked up (400 where a missing task would be 404).
+  The CLIs never send a bad shape; only a hand-made request sees the order.
+- Deferred: the CLI does not confirm the board kept the fingerprint. The CLI and the board ship in one release.
+- Deferred: the task history does not record the fingerprint. History is drawn on the Tasks page, which is new UI
+  under Josh's 11:16 ruling.
 
 ## Weakest premise
 That the next agent has the same file to hash. A fingerprint proves sameness only against a copy; if the deliverable is
