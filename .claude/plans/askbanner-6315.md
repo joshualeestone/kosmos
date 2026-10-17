@@ -32,6 +32,10 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
   the browser's Undo (a security control), so it must be seen before it can be put away; a close that hid it unseen
   was iteration 6's finding. The role=status region announces the new line.
 - A request whose first_seen and denied_at both arrive as 0 cannot come back once put away (the key cannot change).
+- Premise, not measured: the coordinator keeps a waiting request's first_seen the same from poll to poll (it is when
+  the coordinator first saw that device). If it changed, a dismissed notice would come back with nothing new.
+- Storage and this tab's own record are read together, so another tab's dismissals and this tab's survive a storage
+  failure and its recovery; two tabs saving at the same instant can lose one (a notice shown again).
 - With N requests the line says "N devices want to connect"; a dismiss puts away the N waiting at that moment, even
   if one replaced another without the count changing. Accepted: the line names a count, not devices.
 - Review puts the notice away before anything is decided (Josh's ruling): a request left unanswered after Review

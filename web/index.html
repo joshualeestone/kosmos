@@ -50061,40 +50061,35 @@ paintStyles(true);
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
-  /* #6315: the compact notice's dismissal (askNote*): the keys it names now, this tab's own record, and whether
-     storage last failed. */
-  noteKeys: [], noteDismissed: [], noteStoreFailed: false,
+  /* #6315: the compact notice's dismissal (askNote*): the keys it names now, and this tab's own record. */
+  noteKeys: [], noteDismissed: [],
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
   here: null, hereGone: '', hereSaid: '', hereSaidFor: '', hereSaidAt: 0 };
 /* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
-/* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk).
-   While storage works it is read on every paint, so another tab's dismissal applies here at this tab's next paint.
-   Once a read or write fails, this tab uses its own record until a write succeeds again. */
+/* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk):
+   what storage holds (read on every paint, so another tab's dismissal applies here at this tab's next paint) together
+   with this tab's own record (which holds when storage cannot be read or written). */
+function askNoteStored() {
+  try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { return []; }
+}
 function askNoteDismissed() {
-  if (!ASK.noteStoreFailed) {
-    try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* below */ }
-  }
-  return ASK.noteDismissed || [];
+  const stored = askNoteStored();
+  return stored.concat((ASK.noteDismissed || []).filter((k) => stored.indexOf(k) === -1));
 }
 function askNoteSave(keys) {
   ASK.noteDismissed = keys;
-  try {
-    if (keys.length) localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); else localStorage.removeItem('kosmos.asknote.dismissed');
-    ASK.noteStoreFailed = false;
-  } catch (e) { ASK.noteStoreFailed = true; }
+  try { localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
 }
 /* Added to what was put away before (the newest 200 kept), so a request dismissed earlier and missing from one list
    is not forgotten when another is dismissed. */
 function askNoteDismiss() {
-  // Storage is read here even after a failure, so a save that works again does not drop other tabs' dismissals.
-  let stored = [];
-  try { stored = (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* none */ }
+  // Merged with what storage holds now, so other tabs' dismissals are kept (two tabs saving at the same instant can
+  // still lose one; the cost is a notice shown again).
   const keys = ASK.noteKeys || [];
-  const before = stored.concat((ASK.noteDismissed || []).filter((k) => stored.indexOf(k) === -1));
-  askNoteSave(before.filter((k) => keys.indexOf(k) === -1).concat(keys).slice(-200));
+  askNoteSave(askNoteDismissed().filter((k) => keys.indexOf(k) === -1).concat(keys).slice(-200));
 }
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
 function askBrowserWord(name) {
@@ -50250,11 +50245,11 @@ function paintAsk() {
     const hereKey = here ? 'here:' + askHereKey(here) : '';
     // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
-    if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
+    if (hide) { ASK.noteKeys = []; askWrite(document.getElementById('ask-rows'), ''); return; }
     // The notice names only what was not put away; with nothing left it is hidden.
     const fresh = live.filter((d) => put.indexOf(noteKey(d)) === -1);
     const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
-    if (!fresh.length && !hereNew) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
+    if (!fresh.length && !hereNew) { ASK.noteKeys = []; card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
     const n = fresh.length;
