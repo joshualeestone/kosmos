@@ -1238,6 +1238,27 @@ async function main() {
     await page.evaluate(() => applyLayout('consolidated', true));
     await page.waitForFunction(() => /instructions for this project/.test((document.getElementById('alist-pj-notice') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
     const railOn = await railRead();
+    /* #6347: a LONG notice (April measured 1580px with ten failing members) ran under the list, because the head's
+       height comes from the grid row. Grown from copies of the row the page itself drew (no invented markup), measured
+       and put back in one synchronous step, so no poll repaints it in between: the box stops at 40vh, scrolls, and
+       still ends above the list. */
+    const railLong = await page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice');
+      const list = document.getElementById('alist');
+      const row = box && box.querySelector('.pnotice');
+      if (!box || !list || !row) return { missing: true };
+      const saved = box.innerHTML;
+      for (let i = 0; i < 12; i += 1) box.appendChild(row.cloneNode(true));
+      const b = box.getBoundingClientRect(), l = list.getBoundingClientRect();
+      const out = { cap: Math.round(innerHeight * 0.4), height: Math.round(b.height), content: box.scrollHeight,
+        scrolls: box.scrollHeight > box.clientHeight + 1, overflowY: getComputedStyle(box).overflowY, gap: Math.round(l.top - b.bottom) };
+      box.innerHTML = saved;
+      return out;
+    });
+    if (railLong.missing || !railLong.scrolls || railLong.overflowY !== 'auto' || railLong.height > railLong.cap + 1 || railLong.gap < 0) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list (${scheme}), got ${JSON.stringify(railLong)}`);
+    }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
     const rail = { on: railOn, off: railOff };
