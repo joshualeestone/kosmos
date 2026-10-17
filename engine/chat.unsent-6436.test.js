@@ -390,7 +390,9 @@ test('kosmos#6436 (round 9): a line whose watch could not read the box (the turn
   chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
   const v = chat.deliver('al', MSG, roster);
   assert.equal(v.state, chat.DELIVERY.PLACED, 'PRECONDITION: unread keeps the verdict');
-  assert.equal(scheduled.length, 3, 'retries scheduled even so');
+  assert.equal(scheduled.length, 1, 'one retry even so');
+  const file = path.join(store.ROOT, 'unsent-lines.json');
+  assert.ok(!fs.existsSync(file) || !fs.readFileSync(file, 'utf8').includes('Kosmos here'), 'a light memory is not written to disk');
   const t = arm([box(MSG), box(MSG), EMPTY]);
   scheduled[0].fn();
   await flush();

@@ -249,9 +249,10 @@ function saveUnsent() {
     for (const [target] of oldest) unsentWires.delete(target);
   }
   const out = {};
-  for (const [target, e] of unsentWires) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '' };
+  for (const [target, e] of unsentWires) if (!e.light) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '' };
   try {
     const file = UNSENT_FILE();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out), { mode: 0o600 });
     try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
@@ -1034,7 +1035,7 @@ async function pressRememberedNow(target, card) {
   const box = readComposer(target);
   if (!box.ok) return 'unread';
   /* The box is empty: our line went (sent, or cleared by hand), so it is forgotten. Only on two reads that agree a look
-     apart: one read caught mid-redraw must not drop a line that is still there, which would leave the agent refused
+     (SUBMIT_LOOK_MS, 60 ms) apart: one read caught mid-redraw must not drop a line that is still there, which would leave the agent refused
      behind it again. A box holding other text keeps the memory (a person who adds to our line and then deletes the
      addition leaves our line there), and is never pressed; the day bound ends it. */
   if (!box.text) {
@@ -1104,12 +1105,12 @@ async function pressRememberedNow(target, card) {
 }
 /* kosmos#6436: the retries after an unsent verdict. Each one that finds the line gone (sent, emptied, or replaced by a
    newer one) does nothing; one that finds a newer line remembered leaves it to that line's own retries. */
-function scheduleUnsentRetries(target, card) {
+function scheduleUnsentRetries(target, card, delays = UNSENT_RETRY_MS) {
   const kept = recallUnsent(target);
   if (!kept) return;
   /* One set at a time per line: a delivery that remembers the line again only adds a set once the last is done.
      retriesUntil lives in memory only (saveUnsent keeps wire, at and seen): a restart schedules none anyway. */
-  const lastMs = UNSENT_RETRY_MS[UNSENT_RETRY_MS.length - 1];
+  const lastMs = delays[delays.length - 1];
   if (kept.retriesUntil && Date.now() < kept.retriesUntil) return;
   kept.retriesUntil = Date.now() + lastMs;
   const id = kept.id;
@@ -1118,7 +1119,7 @@ function scheduleUnsentRetries(target, card) {
     if (t && typeof t.unref === 'function') t.unref();
   });
   if (!schedule) return;
-  for (const ms of UNSENT_RETRY_MS) {
+  for (const ms of delays) {
     schedule(ms, () => {
       const now = recallUnsent(target);
       if (!now || now.id !== id) return;   // gone, or a newer line with retries of its own
@@ -2210,9 +2211,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       const earlier = kept ? kept.wire : null;
       /* kosmos#6436: the earlier line passes the gates as a line of its own: a bare command let through in quiet hours or
          on a paused swarm must not carry a work line in ahead of it. */
+      const shows = !!earlier && rememberedShows(box.text, kept, false, box.rows);   // the cheap look first
       let earlierGated = false;
-      if (earlier) { try { earlierGated = typingGate(sessionName, earlier, roster, '', '', at).ok === true; } catch { earlierGated = false; } }
-      if (earlier && earlierGated && rememberedShows(box.text, kept, false, box.rows) && verifyAtSend(allowed.card).ok) {
+      if (shows) { try { earlierGated = typingGate(sessionName, earlier, roster, '', '', at).ok === true; } catch { earlierGated = false; } }
+      if (shows && earlierGated && verifyAtSend(allowed.card).ok) {
         forgetUnsent(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
@@ -2397,10 +2399,11 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       scheduleUnsentRetries(target, allowed.card);
     } else if (result && result.outcome === 'unread') {
       /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
-         went; if it did not, nothing would know it is ours. Remembered with no `seen` and no message row: the retries
-         forget it on two empty reads and press it only when the box shows all of it. */
-      rememberUnsent(target, { wire, at: Date.now(), seq: null, seen: '' });
-      scheduleUnsentRetries(target, allowed.card);
+         went; if it did not, nothing would know it is ours. Remembered lightly (in this process only, never written to
+         disk, no `seen`, no message row) with one retry: it forgets it on two empty reads and presses it only when
+         the box shows all of it; a later delivery that finds it there presses it first, as for any remembered line. */
+      rememberUnsent(target, { wire, at: Date.now(), seq: null, seen: '', light: true });
+      scheduleUnsentRetries(target, allowed.card, UNSENT_RETRY_MS.slice(0, 1));
     } else forgetUnsent(target);
     const out = confirmedVerdict(v, result);
     const told = seq == null ? out : { ...out, unsentSeq: seq };

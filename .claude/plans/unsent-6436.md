@@ -72,6 +72,9 @@ from a delivery, which carries the card the pane check needs).
   unread watch remembers the line with no seen and schedules retries (test with control); seen recorded only when it is
   an end of ours; docblock and messages.js comment honest. Stated cost: while a retry watches (about 1.5 s) a person's
   line to that pane is refused as busy, nothing typed.
+- [x] Round 10 (sonnet): the unread memory is light (this process only, not on disk) with one retry, since unread is
+  common on a busy pane; the state folder is created before the save; the earlier-line press looks at the box before
+  the gate; the two reads are named as 60 ms apart. Declined: the four-row end rule (the stated limit, pinned).
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
