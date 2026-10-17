@@ -51892,8 +51892,8 @@ async function plusForgetRun(yes, anyway) {
     /* Not removed, and the key is still here: the pane stays connected, and says so with the two ways on. */
     plusForgetArm(false);
     msg.hidden = true; msg.textContent = '';
-    plusForgetKeptSay(said.because);
     await paintPlus();
+    plusForgetKeptSay(said.because);   // after the paint, so a read that raced it cannot take this answer away
     const retry = document.getElementById('plus-forget-retry'); if (retry) retry.focus();
     return;
   }

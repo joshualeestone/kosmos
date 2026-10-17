@@ -2560,6 +2560,11 @@ test('#6389: switching back on clears the kept note, and switching off does not'
     assert.notEqual(remote.read().forget_kept, '', 'switching off (still paused) cleared the kept note');
     assert.equal(remote.setOn(true).ok, true);
     assert.equal(remote.read().forget_kept, '', 'switched back on, the kept note stayed');
+    // The note is cleared where the file is written (any { on: true }), so only a write that switches on clears it.
+    const f = JSON.parse(fs.readFileSync(remote.FILE, 'utf8'));
+    fs.writeFileSync(remote.FILE, JSON.stringify({ ...f, on: false, forget_kept: 'kept earlier' }));
+    remote.setRelay('127.0.0.1:9444');   // a write that does not switch on
+    assert.equal(remote.read().forget_kept, 'kept earlier', 'a write that does not switch on cleared the note');
   } finally { delete process.env.FAKE_TUNNEL_MODE; remote.setOn(false); }
 });
 

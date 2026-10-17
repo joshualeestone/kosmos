@@ -561,6 +561,7 @@ function write(patch, opts) {
   if (current.ok === false && !(opts && opts.repair === true)) return { ok: false, because: UNREADABLE, unreadable: true };
   const next = { ...current, ...patch };
   delete next.ok;
+  if (patch.on === true) next.forget_kept = '';   // kosmos#6389: whatever switches Plus on, a kept Remove's note goes
   /* A repair starts from the defaults (the damaged file could not be read), so it would drop this computer's sign-in
      device id. If this process already minted one (signinDeviceId holds it in memory when its own write is refused
      on the damaged file), keep it: otherwise a sign-in on a damaged file repairs the file with no id, and the next
@@ -654,7 +655,7 @@ function setOn(on) {
   // An unreadable file (#4308) says nothing about the old value, so a save over it counts as a flip.
   const before = read();
   const was = before.ok === true ? before.on === true : !on;
-  const wrote = write(on ? { on, forget_kept: '' } : { on }, { repair: true });   // #4308: the person's switch repairs a damaged file
+  const wrote = write({ on }, { repair: true });   // #4308: the person's switch repairs a damaged file
   if (!wrote.ok) return wrote;
   if (!on) offEpoch += 1;   // only an off that was saved counts
   ensure(localPort);
