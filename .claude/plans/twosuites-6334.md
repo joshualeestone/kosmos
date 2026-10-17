@@ -18,19 +18,21 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
 1. [x] tools/lib/cut-guard.sh: kosmos_refuse_if_suite_live takes an optional third argument, how many OTHER live
    suites are allowed (default 0, so every existing caller is unchanged). New _kosmos_suite_roots keeps one line per
    suite tree. KOSMOS_SUITE_MAX joins KOSMOS_WAIT_CONTROL_VARS so no test inherits it.
-2. [x] tools/run-tests.sh: reads KOSMOS_SUITE_MAX (default 2, also when set empty; junk or 0 reads as 1; "03" is 3,
-   not octal) and passes max - 1 to the suite check.
+2. [x] tools/run-tests.sh: reads KOSMOS_SUITE_MAX (default 2, also when set empty; anything not one to three digits, or 0, reads as 1, so 1000 and 0003 are 1;
+   "08" is 8, not an octal error) and passes max - 1 to the suite check.
 3. [x] tools/test-cut-guard.sh: unit arms (one allowed beside one; default still refuses; a third waits for two;
    a parent and its child count once; roots keep the parent; two separate suites stay two; junk allowance is 0),
    end-to-end arms through run-tests.sh (beside one it reaches the harness check; beside two it refuses; 1, 0, x
-   read as one at a time; 03 allows two others). The #4498 one-at-a-time arms now pin KOSMOS_SUITE_MAX=1.
+   1000 and 0003 read as one at a time; 08 allows two others). The #4498 one-at-a-time arms now pin KOSMOS_SUITE_MAX=1.
 
 ## Decided, not missed
 - queued-heavy.sh is NOT changed. Its turns hold the machine claim, which stays exclusive: a browser-check proof, a
   relay cargo build or a suite run through queued-heavy still runs alone. Only suites started directly
   (yarn test, bash tools/run-tests.sh) gain the second slot. Widening the machine claim touches release cuts.
 - Queue order is unchanged (FIFO): a queued-heavy waiter ahead of a second suite still goes first, so pairs of
-  suites cannot starve heavy turns.
+  suites cannot starve heavy turns. A directly started install harness is not in that queue, but it marks itself
+  before it waits (test-install.sh, kosmos_mark_run harness) and every suite refuses beside a live harness, waiting or
+  not, so no new suite starts while it waits and the running ones drain to zero. Reasoned from the code, not run.
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.
