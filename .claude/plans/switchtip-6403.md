@@ -34,9 +34,23 @@ premise: a board left open and never looked at catches up only on its 5-minute t
   does not force a read (comment).
 - The 15 s follow-up after a forced read is tested, with an ordinary read as the CONTROL.
 
+## Review 3 (opus) changes and calls
+- Escape's "a dialog is open" test now asks whether a dialog box is visible (the page's dialog boxes keep aria-modal
+  while their wrapper is hidden, so the old test never let Escape through); an Escape arm with a dialog CONTROL.
+- A forced read in a hidden tab marks the tab stale, so it reads when looked at.
+- The hook tests also count real reads of /api/remote/computers, not only calls.
+- DECIDED, not built: a board that stays visible and focused the whole time (a second monitor) catches up on its own
+  5-minute timer, not at once. Reading every minute from every one-computer board to cover it costs Kosmos+ a signed
+  call per board per minute. Rejected for that cost. Weakest premise: that such a board is rare while pairing (the
+  person is at the two computers being paired, which both update at once). What would change it: Kosmos+ telling
+  boards a computer was added (a push), which would make it free.
+- The tip counts as seen once shown, even in a tab nobody looked at; browsers that already had two computers see it
+  once on their first load after this change.
+
 ## Steps
-1. worldswComputersSeen: COMPUTERS_READ_AT; first false->true shows the tip once (localStorage kosmos.switcherTipSeen).
-2. computersReadSoon(force): after this computer allows a computer (paintAsk Allow), when this computer stops waiting
+1. computersFetch stamps COMPUTERS_READ_AT; worldswComputersSeen's first false->true shows the tip once
+   (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused).
+2. computersReadSoon(force): after this computer allows a computer (askAct, Allow), when this computer stops waiting
    to be allowed (paintPlus), and on window focus / visibilitychange when the last read is over a minute old.
 3. Tip markup and CSS inside #worldsw (hidden with it); worldswOpen hides it; its close button focuses the switcher.
 4. render-onekosmos-4815.js: tip, menu puts it away, focus and tab-shown re-reads with a within-a-minute CONTROL, the

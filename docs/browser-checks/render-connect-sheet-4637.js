@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS
+// Browser-check-surface: plus-asks plus-ask-rows plus-asks-title askcard ask-rows plus-join plus-join-match askwait JOIN_WAIT_WORDS computersReadSoon
 'use strict';
 /* #6315: the coordinator names a joining computer's request computer:<its 32-hex id> (kosmos#4681). This check
    mocks the board's routes, so it proves the PAGE carries that id (data-id, the selector, the Allow body); the
@@ -107,6 +107,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const denyIds = [];          // #6404: every Not me sent (a click in the code field must never send one)
       await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; denyIds.push(id); pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
+      let computerReads = 0;   // #6403: real reads of Your computers, beside the call spy below
+      await page.route('**/api/remote/computers', (route) => { computerReads += 1; return route.fulfill(json({ ok: true, domain: 'kosmosplus.example', computers: [] })); });
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
 
@@ -244,6 +246,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
 
       /* #6403: count the forced reads of Your computers (after an Allow of a computer, and when this computer is let in). */
       await page.evaluate(() => { window.__forced = 0; const real = computersReadSoon; window.computersReadSoon = (f) => { if (f) window.__forced += 1; return real(f); }; });
+      const readsBeforeAllow = computerReads;
       /* Allow the computer: its sheet says it is connected. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
       await page.waitForFunction(() => /windowsbox is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
@@ -253,7 +256,9 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
       chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #6404: Allow on the computer sends the code typed from it, in the tunnel's own form`, JSON.stringify(allowBodies[PC_ID]));
       const forcedAfterPc = await page.evaluate(() => window.__forced);
-      chk(forcedAfterPc === 1, `${tag} #6403: allowing a computer reads Your computers at once`, String(forcedAfterPc));
+      chk(forcedAfterPc === 1, `${tag} #6403: allowing a computer asks for a read of Your computers at once`, String(forcedAfterPc));
+      await page.waitForTimeout(300);
+      chk(computerReads > readsBeforeAllow, `${tag} #6403: and the read reaches /api/remote/computers`, JSON.stringify({ readsBeforeAllow, computerReads }));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
@@ -488,7 +493,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(forcedBeforeIn === forcedAtWait, `${tag} #6403 CONTROL: no forced read while this computer waits to be allowed`, JSON.stringify({ forcedAtWait, forcedBeforeIn }));
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(await page.evaluate(() => window.__forced) === forcedBeforeIn + 1, `${tag} #6403: when this computer is let in, it reads Your computers at once`);
+      chk(await page.evaluate(() => window.__forced) === forcedBeforeIn + 1, `${tag} #6403: when this computer is let in, it asks for a read of Your computers at once`);
       chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button && !jr.code && jr.pill === 'Connected',
         `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
       /* Review 6: that ending lasts until this computer pairs again, so it is said once and never polled for, and it does
