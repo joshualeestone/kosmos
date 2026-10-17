@@ -1,0 +1,114 @@
+'use strict';
+/**
+ * kosmos#6176 slice 4: a Google subscription's Gemini usage, as Antigravity reports it.
+ *
+ * `agy -p "/usage" --output-format json` answers from agy's own record of the plan without starting an agent turn
+ * (measured 2026-10-17 on this computer, agy 1.4.0: num_turns 0, total_tokens 0, about a second). The payload:
+ *   { status, num_turns, usage: {...}, command: { name: "usage", data: { description, groups: [
+ *     { name: "Gemini Models", description, buckets: [
+ *       { id, name: "Weekly Limit Remaining", window: "weekly", remaining_fraction: 0.9947, reset_time: "<RFC 3339>" },
+ *       { id, name: "Five Hour Limit Remaining", window: "5h", remaining_fraction: 1, reset_time: "<RFC 3339>" } ] },
+ *     { name: "Claude and GPT models", ... }, { name: "Gemini 4 Argon", ... } ] } } }
+ * Only the "Gemini Models" group is read: those are the models Kosmos runs Gemini agents on. It is matched by name, so
+ * a renamed or split group shows nothing rather than another group's figure.
+ *
+ * It is a network call (agy asks Google), so it is never run per repaint: the accounts route shows the last reading
+ * and asks for a new one at most every REFRESH_MS, one run at a time (agy's sign-in covers the whole computer, so one
+ * reading covers the row). A failed run keeps the last good reading; the page shows its age, and a window whose reset
+ * has passed is not drawn. macOS only: on Windows a signed-out print run can open a browser, and /usage there is
+ * unmeasured. Never runs agy in a test process unless the test supplies the runner.
+ *
+ * The reading has codexlimits.read's shape, { windows: [{ usedPct, windowMinutes, resetsAt }], plan, at }, so the
+ * page draws it the same way.
+ */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFile } = require('node:child_process');
+
+const GROUP = 'Gemini Models';
+const WINDOW_MINUTES = { weekly: 7 * 1440, '5h': 300 };
+const REFRESH_MS = 5 * 60e3;   // the route asks for a new reading at most this often
+const KILL_MS = 45000;
+
+/** The Gemini group's reading from agy's /usage JSON (an object or its text), or null. `at` is epoch ms. */
+function parse(payload, at) {
+  let j = payload;
+  if (typeof j === 'string') { try { j = JSON.parse(j); } catch { return null; } }
+  if (!j || typeof j !== 'object') return null;
+  // A run that started a turn is not this command's answer (the measured run starts none).
+  if (j.num_turns !== undefined && j.num_turns !== 0) return null;
+  const cmd = j.command && typeof j.command === 'object' ? j.command : null;
+  if (!cmd || cmd.name !== 'usage' || !cmd.data || !Array.isArray(cmd.data.groups)) return null;
+  const g = cmd.data.groups.find((x) => x && x.name === GROUP);
+  if (!g || !Array.isArray(g.buckets)) return null;
+  const windows = [];
+  for (const b of g.buckets) {
+    if (!b || typeof b !== 'object') continue;
+    const mins = WINDOW_MINUTES[b.window];
+    const f = b.remaining_fraction;
+    const resetsAt = Date.parse(b.reset_time);
+    if (!mins || typeof f !== 'number' || !Number.isFinite(f) || f < 0 || f > 1 || !Number.isFinite(resetsAt)) continue;
+    windows.push({ usedPct: Math.round((1 - f) * 1000) / 10, windowMinutes: mins, resetsAt });
+  }
+  windows.sort((a, b) => a.windowMinutes - b.windowMinutes);   // five-hour first, as Codex reports them
+  return windows.length ? { windows, plan: null, at } : null;
+}
+
+/* The seam a test replaces: run agy's /usage once and hand back (err, stdout). */
+const defaultRunAgy = (bin, done) => {
+  let dir = null;
+  try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-usage-')); } catch { dir = os.tmpdir(); }
+  execFile(bin, ['-p', '/usage', '--output-format', 'json'], { cwd: dir, timeout: KILL_MS, killSignal: 'SIGKILL', maxBuffer: 256 * 1024 },
+    (err, stdout) => {
+      if (dir && dir !== os.tmpdir()) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+      done(err, String(stdout || ''));
+    });
+};
+let runAgy = defaultRunAgy;
+let runnerSetByTest = false;
+/** null puts agy's own run back (and with it the test-process refusal). */
+function setRunnerForTests(fn) { runAgy = fn || defaultRunAgy; runnerSetByTest = !!fn; }
+
+let last = null;        // the last good reading
+let askedAt = 0;        // when a run was last started
+let running = null;     // the run in flight, shared
+
+/** The last good reading, or null. Never runs anything. */
+function lastReading() { return last; }
+
+/**
+ * Start a new reading when the last one is older than REFRESH_MS and none is running. Returns the run's promise
+ * (resolving to the reading or null), or null when nothing was started. Never throws.
+ */
+function refresh(now = Date.now()) {
+  try {
+    if (running) return null;
+    if (now - askedAt < REFRESH_MS) return null;
+    if (!runnerSetByTest) {
+      if (process.platform !== 'darwin') return null;
+      if (require('./live-execution').inTestRun()) return null;
+    }
+    const inst = require('./runners').resolveBin('antigravity');
+    if (!inst || !inst.present || !inst.bin) return null;
+    askedAt = now;
+    running = new Promise((resolve) => {
+      let done = false;
+      const cap = setTimeout(() => { if (!done) { done = true; resolve(null); } }, KILL_MS + 5000);
+      try {
+        runAgy(inst.bin, (err, out) => {
+          if (done) return;
+          done = true; clearTimeout(cap);
+          const r = err ? null : parse(out, Date.now());
+          if (r) last = r;
+          resolve(r);
+        });
+      } catch { done = true; clearTimeout(cap); resolve(null); }
+    }).finally(() => { running = null; });
+    return running;
+  } catch { return null; }
+}
+function isRunning() { return !!running; }
+function resetForTests() { last = null; askedAt = 0; running = null; }
+
+module.exports = { parse, refresh, lastReading, isRunning, setRunnerForTests, resetForTests, GROUP, REFRESH_MS };
