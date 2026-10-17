@@ -191,8 +191,9 @@ const newLook = async (page) => {
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
-   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
-async function openConsAgents(page) {
+   with it) to say consolidated (stubConsolidatedStyle), and openConsAgents reloads the page. Screens that stub it set
+   noServiceWorker. */
+async function stubConsolidatedStyle(page) {
   /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
      its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
@@ -205,6 +206,9 @@ async function openConsAgents(page) {
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
     } catch { await r.abort().catch(() => {}); }
   });
+}
+async function openConsAgents(page) {
+  await stubConsolidatedStyle(page);
   // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (a run with
   // MSHOTS_TABLET_LAYOUT=tabs would otherwise keep these screens on tabs).
   await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
@@ -1040,8 +1044,9 @@ const SCREENS = [
   } },
   /* kosmos#6349: the consolidated rail's project notice, capped and with more below, so its bottom fades. Grown from
      copies of the notice's own row (no invented markup) until it outruns the cap; the layout is applied, not saved, and
-     every screen starts on a freshly loaded board. Desktop only: the consolidated view exists at >= 960px. */
-  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, go: async (page, data) => {
+     every screen starts on a freshly loaded board; the style read is stubbed (stubConsolidatedStyle). Desktop only: the consolidated view exists at >= 960px. */
+  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await stubConsolidatedStyle(page);   // a later style read says consolidated too, so it cannot undo the layout mid-shot
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.evaluate(() => applyLayout('consolidated', true));
@@ -1052,7 +1057,7 @@ const SCREENS = [
       for (let n = 0; n < 30 && box.scrollHeight <= box.clientHeight * 1.6; n++) box.appendChild(row.cloneNode(true));
     });
     await page.waitForFunction(() => document.getElementById('alist-pj-notice').hasAttribute('data-more'), null, { timeout: 5000 });
-  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded (a late style read could undo the layout)
+  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded
     const ok = await page.evaluate(() => document.documentElement.getAttribute('data-layout') === 'consolidated'
       && document.getElementById('alist-pj-notice').hasAttribute('data-more'));
     if (!ok) throw new Error('rail-notice-more: the shot is not of a faded rail notice in the consolidated layout');
