@@ -26,6 +26,10 @@ Screenshot the card (light and dark) and the joining computer's big code.
   and dropped like the other code refusals once the code changes.
 
 ## Calls (decided, with the weakest premise)
+- The field lives only on the Kosmos+ section's sheet: away from it the top card is the one-line notice (#3829), so
+  #askcard never draws a computer's field; its listener is there for parity, not driven by a check.
+- A wrong-code sentence stays while the person retypes, until the next Allow or a new code (clearing it on input would
+  repaint mid-typing); Allow checks again either way.
 - Compare in the page, not only in the tunnel: the tunnel's refusal reads as "the code changed", which would be wrong
   for a typo. The tunnel still refuses any code that is not its own (sas_mismatch), so nothing is weaker.
   Weakest premise: the page holds this computer's code (d.code) to compare against; anyone reading the page source could
@@ -44,3 +48,5 @@ Screenshot the card (light and dark) and the joining computer's big code.
 - 1 opus: a click on the field or its label sent Not me (BLOCKER, fixed: own marker + askAct guard); the test used
   fill() and recorded no denies (fixed: clicks and keyboard typing, deny log, label arm); digits out of the markup;
   aria-invalid + describedby; no maxlength; autocomplete off; placeholder contrast. The allagents/phone-offline trailer reason says "grid-area" where the token is the new display:grid rule (conclusion right; the pushed commit is left as is).
+- 2 sonnet: Enter arm (5 digits nothing, 6 wrong answered, 6 right Allow, never Not me); two computers at once keep
+  their own typing; askDigits tied to the tunnel's six-digit code; #askcard and the kept wrong-code sentence stated.
