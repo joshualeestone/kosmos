@@ -20,7 +20,14 @@ covers what matters (why no code yet). It removes text, so it fits Josh's 10-17 
   says nothing about when it asked, so the "old request, no accusation" branch cannot apply.
 - Follow-up #6417 for the compact notice's dismissal key, which uses first_seen too (same root cause, older code).
 
+## Review 2 (sonnet) changes
+- web.allow-card.test.js pinned the old stale expression by its text: it now pins the new one, askComputerRow and the
+  conditional age span (it failed after round 1; I had not run it).
+- A CONTROL: a day-old phone turned away keeps the old-request wording, no password sentence.
+- The old-request wording no longer has a computer branch (it can no longer be reached).
+
 ## Steps
 1. web/index.html paintAsk card: joiningRow = !!d.joining_computer; no askAgoSpan and no stale class for it.
-2. render-connect-sheet-4637.js: the one-line age check now expects one age (the phone's); a day-old computer row has
+2. web.allow-card.test.js: pins the new stale expression, askComputerRow and the conditional age span.
+3. render-connect-sheet-4637.js: the one-line age check now expects one age (the phone's); a day-old computer row has
    no age and is not faded; CONTROL: a day-old phone row has its age and is faded.

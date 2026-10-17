@@ -233,9 +233,15 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         paintAsk();
         const deniedText = (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ');
         delete ASK.done['computer:day-old'];
+        // CONTROL: a day-old phone turned away gets the old-request wording, no password sentence.
+        ASK.done['d-ph-old'] = { state: 'denied', at: Date.now(), device: ASK.devices[1] };
+        paintAsk();
+        const phoneDenied = (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ');
+        delete ASK.done['d-ph-old'];
         const out = { pcAge: pc ? pc.querySelectorAll('[data-ask-ago]').length : -1, pcStale: pc ? pc.classList.contains('stale') : null,
           wacAge: wac ? wac.querySelectorAll('[data-ask-ago]').length : -1, wacStale: wac ? wac.classList.contains('stale') : null,
           deniedPassword: /change that email's password/.test(deniedText),
+          phoneOldWording: /can ask again by signing in/.test(phoneDenied) && !/change that email's password/.test(phoneDenied),
           phAge: ph ? ph.querySelectorAll('[data-ask-ago]').length : -1, phStale: ph ? ph.classList.contains('stale') : null };
         ASK.devices = keep; paintAsk();
         return out;
@@ -243,6 +249,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(dayOld.pcAge === 0 && dayOld.pcStale === false, `${tag} #6405: a computer that first asked a day ago shows no age and is not faded`, JSON.stringify(dayOld));
       chk(dayOld.wacAge === 0 && dayOld.wacStale === false, `${tag} #6405: a row that was a computer likewise shows no age and is not faded`, JSON.stringify(dayOld));
       chk(dayOld.deniedPassword === true, `${tag} #6405: turning away a day-old computer row keeps the password sentence (it may have just asked)`, JSON.stringify(dayOld));
+      chk(dayOld.phoneOldWording === true, `${tag} #6405 CONTROL: turning away a day-old phone keeps the old-request wording, no password sentence`, JSON.stringify(dayOld));
       chk(dayOld.phAge === 1 && dayOld.phStale === true, `${tag} #6405 CONTROL: a phone first seen a day ago still says when and is faded`, JSON.stringify(dayOld));
       /* #4794: a computer whose code is not worked out yet: a quiet line in the code's place, Allow disabled, Not me enabled. */
       const waitCase = async (code_wait) => {
