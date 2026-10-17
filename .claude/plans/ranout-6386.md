@@ -23,4 +23,6 @@ That "nothing more is needed" stays true until a slice reads peers. That slice w
 open this page, so the card (kept open, "Addresses" not "Closes") carries the warning as well as the comment here.
 
 ## Tests
-`docs/browser-checks/render-connect-sheet-4637.js`: its four #4794 assertions pin the new sentence (run on this branch).
+`docs/browser-checks/render-connect-sheet-4637.js`: its four #4794 assertions pin the new sentence (run on this branch). Untested: the
+unnamed case ("Your other computer allowed this computer."), whose capital is set by hand; the fixtures always name
+the other computer.

@@ -51561,7 +51561,7 @@ function paintPlusJoin() {
          (peers.json has no reader outside pairing.rs), so the sentence says so rather than promising a step. It says the
          other computer allowed this one, which stays true through a later outage (it is said once and not polled). The
          slice that first reads peers (kosmos-relay) must change this sentence, or give this state a way to pair again. */
-      : '<p class="plus-join-say">' + nn + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';
+      : '<p class="plus-join-say">' + (note.name ? nn : 'Your other computer') + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';
     if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
     return;
   }
@@ -51595,7 +51595,7 @@ function paintPlusJoin() {
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
      round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
-  else if (j.held !== true && stale) html = '<p class="plus-join-say">' + name + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';   // kosmos#6386, as the ending above
+  else if (j.held !== true && stale) html = '<p class="plus-join-say">' + (named ? name : 'Your other computer') + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';   // kosmos#6386, as the ending above
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
