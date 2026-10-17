@@ -449,3 +449,13 @@ test('#3948: the rail notice paints only in the consolidated layout with a proje
   assert.equal(none.rn.html, '');
   assert.equal(none.rs.textContent, '');
 });
+
+test('#6347: in the consolidated rail the notice is capped and scrolls in its own box, with a VISIBLE scrollbar', () => {
+  // The rail head's height comes from the grid row, so an uncapped notice ran under the agents list.
+  const rule = PAGE.match(/body\.consolidated #rail-agents > \.alist-pjn:not\(:empty\) \{([^}]*)\}/);
+  assert.ok(rule, 'the consolidated rail notice has no cap rule');
+  assert.match(rule[1], /max-height:\s*40vh/, 'the rail notice is not capped');
+  assert.match(rule[1], /overflow-y:\s*auto/, 'the capped rail notice does not scroll');
+  // A needs-you surface must not hide its track (#867 hides tracks on the long lists only).
+  assert.doesNotMatch(rule[1], /scrollbar-width:\s*none/, 'the rail notice hides its scrollbar');
+});

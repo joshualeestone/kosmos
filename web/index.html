@@ -5359,6 +5359,10 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated:not(.fold-a) .railhead#rail-agents > .lead { flex: 1 1 0; }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { flex: 0 0 100%; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-pjn { display: none; }
+  /* #6347: the rail head's height comes from the grid row, so a long notice ran under the agents list. Capped, it
+     scrolls in its own box. Its scrollbar stays VISIBLE (thin), unlike #867's hidden tracks on the long lists: this is
+     a needs-you surface, and a hidden track could hide a row that needs the person. */
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
