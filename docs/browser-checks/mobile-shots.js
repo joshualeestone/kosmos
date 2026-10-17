@@ -837,7 +837,7 @@ const SCREENS = [
   } },
   /* kosmos#6314: the same waiting computer after "The codes match": the next action leads; #6404: the code stays large (it is typed there). */
   { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Now type this code on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Waiting for homemac, your other computer, to allow this computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
   /* kosmos#6353: the same waiting computer after its code ran out: nothing restarts by itself, so it offers Try again. */
   { name: 'plus-join-retry', owner: 'Angel', noServiceWorker: true, go: async (page) => { await joinWaiting(page, false, true); await at(page, '?tab=settings&sec=plus');
