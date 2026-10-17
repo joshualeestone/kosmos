@@ -13,6 +13,9 @@
  *  - a window whose reset has passed is not drawn; a row with no report says so plainly;
  *  - an API-key row (no limits field) and an older board's row draw nothing;
  *  - at 390 px nothing scrolls sideways.
+ * #6176 slice 3: a Grok (xai) subscription row draws its weekly window the same way ("Grok last reported it ..."); one
+ * with no reading says so naming Grok; a Grok API-key row draws nothing; a Grok window past its reset on a list left
+ * open is read again and goes.
  * Then the timer that takes a window's meter away at its reset on a list left open (Chromium, page clock installed,
  * read counts asserted): the read at a reset; a reset passed in another section; a weekly window alone (no six-hourly
  * read); a window more than six hours out (a wake timer, no read before its reset); a stray five-hour reading on an
@@ -141,6 +144,23 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const after = await page.evaluate(() => ({ lines: [...document.querySelectorAll('#set-accounts .acct-usage-codex .acct-usage-line')].map((x) => x.textContent.trim().slice(0, 30)), reads: window.__reads }));
     say(before.length === 2 && before.every(Boolean) && after.reads === 2 && after.lines.length === 1 && /weekly/.test(after.lines[0]),
       '[chromium open] a Codex window past its reset on a list left open is read again and goes; the weekly one stays', JSON.stringify({ before, after }));
+    // #6176 slice 3 (review 1): a Grok window arms the same timer; past its reset on a list left open, it is read again and goes.
+    const pg = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
+    await pg.clock.install({ time: new Date(now) });
+    await pg.goto('file://' + PAGE);
+    const gBefore = await pg.evaluate(async (accounts) => {
+      window.__reads = 0;
+      const realFetch = window.fetch;
+      window.fetch = (u, o) => (String(u).indexOf('/api/accounts') !== -1 ? (window.__reads++, Promise.resolve({ ok: true, json: async () => ({ accounts }) })) : realFetch(u, o));
+      const l = document.getElementById('set-accounts');
+      for (let el = l; el && el !== document.body; el = el.parentElement) { if (el.hidden) el.hidden = false; if (getComputedStyle(el).display === 'none') el.style.display = 'block'; }
+      await paintAccounts();
+      return document.querySelectorAll('#set-accounts .acct-usage-codex').length;
+    }, [grok('gsoon', { limits: { windows: [win(67, 10080, now + 10 * 60e3)], plan: 'SuperGrok', at: now - H } })]);
+    await pg.clock.runFor(11 * 60e3); await pg.waitForTimeout(300);
+    const gAfter = await pg.evaluate(() => ({ meters: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
+    say(gBefore === 1 && gAfter.reads === 2 && gAfter.meters === 0, '[chromium open] a Grok window past its reset on a list left open is read again and goes', JSON.stringify({ gBefore, gAfter }));
+    await pg.close();
     // The reset passes while another Settings section is open (the list hidden): back on AI Models, the meter goes.
     const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });
     await p2.clock.install({ time: new Date(now) });
