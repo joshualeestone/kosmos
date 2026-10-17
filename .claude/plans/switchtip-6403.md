@@ -6,7 +6,7 @@ has another computer); retarget to main once #6396 merges. Josh asked for the ti
 
 ## Finished looks like
 (1) Once a second computer is allowed, the switcher shows on the boards without a reload: on the computer that pressed
-Allow at once, on the computer let in at once, and on any other open board the next time it is looked at (window focus
+Allow at once, on the computer let in at once (with its Kosmos+ section open, where pairing happens), and on any other open board the next time it is looked at (window focus
 or the tab shown) a minute or more after its last read. (2) The first time it appears in a browser, one line under it
 says "Switch between your computers here." with a close button; it goes on close or when the menu opens, and never
 comes back in that browser. Screenshot both.
@@ -44,8 +44,8 @@ premise: a board left open and never looked at catches up only on its 5-minute t
   call per board per minute. Rejected for that cost. Weakest premise: that such a board is rare while pairing (the
   person is at the two computers being paired, which both update at once). What would change it: Kosmos+ telling
   boards a computer was added (a push), which would make it free.
-- The tip counts as seen once shown, even in a tab nobody looked at; browsers that already had two computers see it
-  once on their first load after this change.
+- (Superseded by reviews 5 and 6: the tip counts as seen only when a person can see it.) Browsers that already had two
+  computers see it once on their first load after this change.
 
 ## Review 4 (sonnet) changes
 - After a forced read that still finds one computer, follow-ups every 15 s for 90 s (Kosmos+ lists the new computer
@@ -56,8 +56,8 @@ premise: a board left open and never looked at catches up only on its 5-minute t
 - Escape checks the key and the tip before looking for a visible dialog.
 
 ## Review 5 (opus) changes
-- The tip lets clicks through to the page below (only its close button takes a click), so a check or a person clicking
-  near the switcher is not blocked; mobile-shots marks the tip seen so no screen carries it uninvited.
+- (Reversed in review 7: the tip takes clicks, and a click on it puts it away, so a person clicking it never presses a
+  control hidden under it.) mobile-shots marks the tip seen so no screen carries it uninvited.
 - The tip is marked seen only once it can be seen (the switcher shows just after; on a phone over Kosmos+ it never
   does), so a layout that hides the switcher does not use it up.
 - A forced read owed while the tab was hidden brings its 90 s of follow-ups when the tab is shown.
@@ -69,6 +69,12 @@ premise: a board left open and never looked at catches up only on its 5-minute t
 - DECIDED: the other browser checks that serve two or more computers are not seeded with the seen flag. The tip is
   absolutely positioned and lets clicks through, so it cannot move their layout or take their clicks; PR CI runs them
   all, and mobile-shots (the screenshots) is seeded. What would change it: one of them going red on the tip.
+
+## Review 7 (opus) changes
+- The tip takes clicks: a click anywhere on it puts it away (a person clicking a popover to dismiss it must not press a
+  hidden control). A browser check that clicks under it would need the seen flag seeded, as mobile-shots does; CI says.
+- The "once" arm now proves the page writes the seen flag (no hand seeding before the reload).
+- Escape puts the tip away only while it is laid out.
 
 ## Steps
 1. computersFetch stamps COMPUTERS_READ_AT; worldswComputersSeen's first false->true shows the tip once
