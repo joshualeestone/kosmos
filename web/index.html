@@ -11712,6 +11712,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
+/* #6402: the company block starts its own section, ruled off like the foot (.plus-foot), so the devices block's last
+   line (Lost your phone?) does not read as a heading over Join Corporate Account. A rule, not a label: no new words
+   (Josh 10-08: one quiet line for a person with no company; Josh 10-17: no new lines). */
+#s-sec-plus #plus-org { padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
