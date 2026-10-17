@@ -510,6 +510,7 @@ function measure() {
       for (const [sww, swh] of [[375, 667], [320, 568]]) {
         const page = await browser.newPage({ viewport: { width: sww, height: swh } });
         const serrs = []; page.on('pageerror', (e) => serrs.push(e.message));
+        await page.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
         await page.addInitScript(() => {
           const enc = (o) => new Response(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } });
           window.setInterval = () => 0;

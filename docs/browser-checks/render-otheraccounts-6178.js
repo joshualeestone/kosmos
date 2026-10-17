@@ -91,6 +91,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
     const chk = (ok, label, extra) => chkAll(ok, ENGINE + ' ' + label, extra);
     const fresh = async (opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
+      await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
       await ctx.route('https://laptop.kosmosplus.com/**', async (route) => {
         try {
           const u = new URL(route.request().url());
@@ -197,6 +198,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       // CONTROL A: the Mac's own window. Nothing is read from another computer, and no computer is listed.
       {
         const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' });
+        await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
         await ctx.route('**/api/first-run', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ done: true }) }));
         await ctx.route('https://*.kosmosplus.com/**', (route) => { elsewhere.push(route.request().url()); return route.abort(); });
         const page = await ctx.newPage();

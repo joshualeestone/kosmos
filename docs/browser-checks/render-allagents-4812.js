@@ -83,6 +83,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
     /* serviceWorkers: 'block', as six sibling checks: after a reload WebKit's page service worker fetched the other
        computers past ctx.route, so they read as unreachable and no request was seen (S2, S4 in WebKit). */
     const ctx = await browser.newContext(Object.assign({ viewport: { width: 1280, height: 900 }, serviceWorkers: 'block' }, opts || {}));
+    await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
     /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
        (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
     await ctx.route('https://laptop.kosmosplus.com/**', async (route) => {
