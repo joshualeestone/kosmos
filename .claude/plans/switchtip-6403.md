@@ -16,10 +16,21 @@ Re-read on look-back, not a faster poll: every read is a signed call to Kosmos+,
 poll; reading when someone looks is enough to show it "at once" to a person. Rejected: polling each minute. Weakest
 premise: a board left open and never looked at catches up only on its 5-minute timer, which nobody sees anyway.
 
+## Review 1 (opus) changes
+- A look-back read is stamped when it STARTS and skipped while Kosmos+ is failing (the backoff stays in charge), so a
+  tab return (visibilitychange and focus together) makes one call, and a down Kosmos+ is not read on every look.
+- A forced read (after an Allow, when let in) that still finds one computer looks once more in 15 s, since Kosmos+ may
+  not list the new computer yet; before, the next read was the 5-minute timer.
+- The tip uses the page's ink tokens, wraps on a narrow screen (max-width), and describes the switcher button
+  (aria-describedby) instead of a status region that starts hidden.
+- Tests: the Allow and let-in reads (connect-sheet, spying the forced reads, with a phone Allow and the wait as
+  CONTROLs), the tab-shown read, the close button (focus stays on the switcher).
+
 ## Steps
 1. worldswComputersSeen: COMPUTERS_READ_AT; first false->true shows the tip once (localStorage kosmos.switcherTipSeen).
 2. computersReadSoon(force): after this computer allows a computer (paintAsk Allow), when this computer stops waiting
    to be allowed (paintPlus), and on window focus / visibilitychange when the last read is over a minute old.
 3. Tip markup and CSS inside #worldsw (hidden with it); worldswOpen hides it; its close button focuses the switcher.
-4. render-onekosmos-4815.js: tip, menu puts it away, focus re-read with its within-a-minute CONTROL, once only after a
-   reload. Mutants: no focus read (12 red), no "seen" memory (4 red).
+4. render-onekosmos-4815.js: tip, menu puts it away, focus and tab-shown re-reads with a within-a-minute CONTROL, the
+   close button, once only after a reload. render-connect-sheet-4637.js: the Allow and let-in reads. Mutants: no focus
+   read, no "seen" memory, no close handler, no tab-shown read: each red.
