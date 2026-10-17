@@ -30105,9 +30105,9 @@ function worldswSetStale(stale) {
 /* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... we don't have to remove the
    structure. I just want it commented out so that it's not visible on anything." One switch, not a deletion: with
    it false, the Kosmoses list, New Kosmos (and its dialog), each Kosmos's settings cog (rename, add agents from
-   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then names THIS computer
-   (from Your computers, #4648, else "This computer") and opens only when the account has another computer, the
-   menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
+   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then shows only when the
+   account has another computer (#6396), names THIS computer (from Your computers, #4648) and opens onto a menu
+   holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
    nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
 /* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
    screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
