@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.53",
+  "lastProd": "0.7.54",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -100,7 +100,8 @@
       "icon": "tasks",
       "rank": 11,
       "since": "0.7.34",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.54"
     },
     {
       "title": "The home row counts waiting agents",
@@ -607,7 +608,8 @@
       "icon": "shield",
       "rank": 1.1,
       "since": "0.7.54",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.54"
     },
     {
       "title": "Undo covers Codex and Antigravity agents",
@@ -618,7 +620,8 @@
       ],
       "rank": 2,
       "since": "0.7.54",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.54"
     },
     {
       "title": "The restart check says what it could not check",
@@ -629,7 +632,8 @@
       ],
       "rank": 9,
       "since": "0.7.54",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.54"
     },
     {
       "title": "A long Meta Muse answer says it was cut",
@@ -656,6 +660,42 @@
       "icon": "shield",
       "rank": 3,
       "since": "0.7.54",
+      "status": "shown",
+      "shownIn": "0.7.54"
+    },
+    {
+      "title": "Add several computers in one sitting",
+      "line": "Pairing to Kosmos+ now allows 10 code tries per computer and 20 answers a day; one stuck at the old limits can finish once both update.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 1,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "Close the join notice",
+      "line": "The notice that a computer wants to join your Kosmos+ account now has a close button, and stays away until a new request comes in.",
+      "icon": "shield",
+      "rank": 1.6,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "Quiet projects stop flagging you",
+      "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed.",
+      "icon": "tasks",
+      "rank": 2.5,
+      "since": "0.7.55",
+      "status": "pending"
+    },
+    {
+      "title": "A team map for each project",
+      "line": "A project's Members card now opens a team map: who reports to whom, what each member holds, and who handed work to whom.",
+      "icon": "swarm",
+      "rank": 4,
+      "since": "0.7.55",
       "status": "pending"
     }
   ]
