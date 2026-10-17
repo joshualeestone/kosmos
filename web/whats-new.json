@@ -4,7 +4,7 @@
     {
       "icon": "shield",
       "title": "Add a computer one step at a time",
-      "line": "Adding a computer to Kosmos+ no longer asks you to name it, shows the price before you pay, and notices your payment by itself."
+      "line": "Adding a computer to Kosmos+ now shows what it costs before you pay and notices your payment by itself, and no longer asks you to name it."
     },
     {
       "icon": "tasks",
@@ -17,7 +17,7 @@
     {
       "icon": "shield",
       "title": "The restart check says what it could not check",
-      "line": "When the Agents tab cannot tell whether some agents come back after a restart, it now says how many, instead of leaving them out.",
+      "line": "When the Agents tab cannot tell whether some agents come back after a restart, it now says which ones, instead of leaving them out.",
       "platforms": [
         "mac"
       ]
