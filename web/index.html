@@ -30595,7 +30595,7 @@ function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
   const btn = document.getElementById('worldsw-btn');
   if (!menu || !btn || !menu.hidden) return;
-  worldswTipHide();   // #6403: they found it
+  if (typeof worldswTipHide === 'function') worldswTipHide();   // #6403: they found it (typeof: lifted alone by a test)
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   computersFetch().catch(() => {});   // kosmos#4648: the other computers, read fresh on each open
