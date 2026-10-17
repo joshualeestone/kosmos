@@ -79,15 +79,17 @@ function withStub({ prove }, fn) {
 }
 
 /* Runs `kosmos open` as Linux. `tty` gives it a terminal through script(1), whose arguments differ by system. */
-function open(port, { display = false, tty = false, agent = false } = {}) {
+function open(port, { display = false, tty = false, agent = false, wayland = false, platform = 'Linux', openBin = '' } = {}) {
   return new Promise((resolve, reject) => {
     fs.rmSync(OPENED, { force: true });
     const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), KOSMOS_HOME: HOME,
-      KOSMOS_PLATFORM: 'Linux', PATH: BIN + path.delimiter + process.env.PATH };
+      KOSMOS_PLATFORM: platform, PATH: BIN + path.delimiter + process.env.PATH };
     for (const v of ['KOSMOS_OPEN_BIN', 'DISPLAY', 'WAYLAND_DISPLAY', 'KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_TOKEN_ONLY',
       'KOSMOS_AGENT_SESSION', 'KOSMOS_WORLD', 'TMUX', 'TMUX_PANE', 'http_proxy', 'https_proxy', 'all_proxy',
       'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']) delete env[v];
     if (display) env.DISPLAY = ':0';
+    if (wayland) env.WAYLAND_DISPLAY = 'wayland-0';
+    if (openBin) env.KOSMOS_OPEN_BIN = openBin;
     if (agent) env.KOSMOS_AGENT_SESSION = 'fixture-agent-6361';   // how the supervisor marks an agent's pane
     const [cmd, args] = !tty ? [CLI, ['open']]
       : process.platform === 'darwin' ? ['script', ['-q', '/dev/null', CLI, 'open']]
@@ -154,7 +156,7 @@ test('#6361: a board that fails the proof is neither opened nor printed, even at
   assert.notEqual(r.code, 0);
 }));
 
-test('#6361: the macOS opener is unchanged, and the script never runs /usr/bin/open off macOS', () => {
+test('#6361: in the source, Darwin keeps /usr/bin/open and the old macOS-only default is gone (a source check)', () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const body = src.slice(src.indexOf('cmd_open() {'), src.indexOf('\ncmd_agents() {'));
   assert.match(body, /Darwin\) _opener=\/usr\/bin\/open ;;/);
@@ -182,4 +184,39 @@ test('#6361: an opener that fails (a dead DISPLAY) still hands a person the one-
     assert.match(r.out, new RegExp('/\\?boot=' + NONCE), 'a failed opener left the person with no way in');
     assert.notEqual(r.code, 0, 'a failed open must still end non-zero (#1957)');
   } finally { fs.rmSync(path.join(BIN, 'fail'), { force: true }); }
+}));
+
+test('#6361: Wayland alone (no DISPLAY) counts as a display, so xdg-open opens the address', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  const r = await open(port, { wayland: true });
+  assert.match(r.opened || '', new RegExp('/\\?boot=' + NONCE), 'a Wayland-only desktop got no opener');
+  assert.equal(r.code, 0, r.out);
+}));
+
+test('#6361: a platform that is neither macOS nor Linux runs no opener, and is handed the address the safe way', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  const r = await open(port, { platform: 'FreeBSD', display: true });
+  assert.equal(r.opened, null, 'an opener ran on a platform with none');
+  assert.match(r.out, /No browser opens from here\./);
+  assert.doesNotMatch(r.out, new RegExp(NONCE), 'the one-time address went into a pipe');
+  assert.notEqual(r.code, 0);
+}));
+
+test('#6361: an opener that fails on an enforcing board, not at a terminal, ends non-zero and prints no one-time address', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  const failing = path.join(BIN, 'fail-open.sh');
+  fs.writeFileSync(failing, '#!/bin/sh\nexit 5\n', { mode: 0o755 });
+  // As macOS: the shared failure path is the Darwin one too.
+  const r = await open(port, { platform: 'Darwin', openBin: failing });
+  assert.match(r.out, /Could not open a browser from here\./);
+  assert.doesNotMatch(r.out, new RegExp(NONCE), 'a failed open put the one-time address in a pipe');
+  assert.match(r.out, /not a person's terminal/);
+  assert.notEqual(r.code, 0, 'a failed open must end non-zero (#1957)');
+}));
+
+test('#6361: an agent is told to ask the person, not given a step to take itself', () => withStub({ prove: true }, async (port) => {
+  setToken(true);
+  const r = await open(port, { agent: true });
+  assert.match(r.out, /Tell the person who runs this computer to run, in a terminal on it: /);
+  assert.doesNotMatch(r.out, new RegExp(NONCE));
 }));
