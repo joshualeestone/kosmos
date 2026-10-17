@@ -299,16 +299,19 @@ test('#6362: a dir that survives its sweep gets its owner back, marked, and the 
   // A subfolder with no write permission cannot be emptied, so the sweep fails and the dir survives it.
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const fs=require('fs'),os=require('os'),p=require('path');
 const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');fs.chmodSync(d,0o500);\n`);
+  const unlock = () => { for (const n of entries(base)) { try { fs.chmodSync(path.join(base, n, 'locked'), 0o700); } catch { /* none */ } } };
   try {
     const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+    // The lock only had to hold through the victim's sweep: undo it now, so an interrupt below leaves nothing locked.
+    unlock();
     assert.equal(r.status, 0, String(r.stderr));
     const left = entries(base).filter((n) => n.startsWith('kts-'));
     assert.equal(left.length, 1, 'the locked subfolder did not keep the dir, so this cannot test what it is for: ' + entries(base));
     assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), `stuck-6362.test.js\tpid ${r.pid}\tsurvived its sweep\n`);
     assert.match(guardSays(base), /: made by stuck-6362\.test\.js \(pid \d+\); its exit sweep ran but the dir survived it \(.*\); it holds: locked\n$/);
   } finally {
-    // Unlock before freshBase's own cleanup runs, or it cannot remove the base.
-    for (const n of entries(base)) { try { fs.chmodSync(path.join(base, n, 'locked'), 0o700); } catch { /* none */ } }
+    // Unlock before freshBase's own cleanup runs, or it cannot remove the base (a failure before the unlock above).
+    unlock();
   }
 });
 
