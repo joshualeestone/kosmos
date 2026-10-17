@@ -478,6 +478,18 @@ test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the pa
   }
 });
 
+test('#6330 slice 2: task list prints a built task\'s fingerprint and who sent it; an unbuilt task or a bad value prints none', async () => {
+  const fp = 'sha256:' + 'a'.repeat(64);
+  const r = await run(['task', 'list', 'proj'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'Ship it', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: fp, builtFingerprintBy: 'mona' },
+    { number: 2, sentence: 'Not built', builtFingerprint: fp },
+    { number: 3, sentence: 'Odd value', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: 'sha256:xyz' },
+  ] } }));
+  assert.equal(r.code, 0, r.err);
+  const lines = r.out.split('\n').filter((l) => l.includes('fingerprint'));
+  assert.deepEqual(lines, ['    fingerprint ' + fp + ', sent by mona'], r.out);
+});
+
 // ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────
 
 test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent token; ok -> 0; refusal -> 1; timeout -> 3', async () => {

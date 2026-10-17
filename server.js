@@ -529,8 +529,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
-    // #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
-    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') ? ' - fingerprint ' + t.builtFingerprint : '')
+    /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.

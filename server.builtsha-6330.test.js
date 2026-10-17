@@ -41,9 +41,9 @@ let projectId;
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  const roster = fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' })]).agents;
+  const roster = fleet.install(['mona', 'zed', 'ivy'].map((a) => fleet.agent(a, { state: 'idle' }))).agents;
   const p = projects.create({ name: 'Alpha' });
-  for (const a of ['mona', 'zed']) projects.addAgent(p.id, a, roster);
+  for (const a of ['mona', 'zed', 'ivy']) projects.addAgent(p.id, a, roster);
   projectId = p.id;
 });
 test.after(() => {
@@ -87,13 +87,19 @@ test('engine: a new fingerprint is a new mark; the same one is the same mark (CO
   const moved = tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', fingerprint: B });
   assert.equal(moved.changed, true, 'a different deliverable was taken as the same mark');
   assert.equal(stored(n).builtFingerprint, B);
-  // The checker's mark carries no fingerprint and keeps the deliverable's (review 3); a mark without one on a task
-  // that had none stores none (CONTROL).
+  assert.equal(stored(n).builtFingerprintBy, 'mona');
+  // The checker's mark carries none and keeps the deliverable's, still credited to its sender (review 3, 5).
   const checked = tasks.setBuilt(projectId, n, { by: 'zed', note: '1 met.' });
   assert.equal(checked.ok, true, checked.because);
-  assert.equal(stored(n).builtFingerprint, B, 'a mark without a fingerprint dropped the deliverable\'s');
+  assert.equal(stored(n).builtFingerprint, B, 'the checker\'s mark dropped the deliverable\'s fingerprint');
+  assert.equal(stored(n).builtFingerprintBy, 'mona', 'the kept fingerprint was credited to the checker');
   const again = tasks.setBuilt(projectId, n, { by: 'zed', note: '1 met.' });
   assert.equal(again.changed, false, 'the same mark again, with the kept fingerprint, counted as a change');
+  // The sender re-marking without one sent a new version without its fingerprint: the old one is dropped (review 5).
+  const fixed = tasks.setBuilt(projectId, n, { by: 'mona', note: 'fixed' });
+  assert.equal(fixed.ok, true, fixed.because);
+  assert.equal(stored(n).builtFingerprint, undefined, 'the sender\'s new mark kept a stale fingerprint');
+  assert.equal(stored(n).builtFingerprintBy, undefined);
   const n2 = tasks.create(projectId, { sentence: 'Build the other import', who: 'mona' }).number;
   tasks.setBuilt(projectId, n2, { by: 'mona', note: 'done' });
   assert.equal(stored(n2).builtFingerprint, undefined);
@@ -142,13 +148,19 @@ test('the line typed to the next agent carries the fingerprint, and a mark witho
     chat.setDryRun(false);
     const n = tasks.create(projectId, { sentence: 'Build the chart', who: 'mona' }).number;
     tasks.addPart(projectId, n, { sentence: 'Check the chart', who: 'zed' });
+    tasks.addPart(projectId, n, { sentence: 'Read the chart', who: 'ivy' });   // someone for the checker's mark to tell
     const r = await mark(n, asAgent('mona'), { note: 'chart ready', fingerprint: A });
     assert.equal(r.status, 200, JSON.stringify(r.json));
     const n2 = tasks.create(projectId, { sentence: 'Build the table', who: 'mona' }).number;
     tasks.addPart(projectId, n2, { sentence: 'Check the table', who: 'zed' });
     await mark(n2, asAgent('mona'), { note: 'table ready' });
+    // The checker's own mark keeps the fingerprint but does not type it under the checker's name (review 5).
+    await mark(n, asAgent('zed'), { note: '1 met.' });
     const typed = pastedMessages(sends);
-    const withPrint = typed.find((t) => t.includes('marked task ' + n + ' built'));
+    const byChecker = typed.find((t) => t.includes('zed marked task ' + n + ' built'));
+    assert.ok(byChecker && !byChecker.includes('fingerprint'), 'the checker\'s line typed a fingerprint it did not send: ' + JSON.stringify(typed));
+    assert.equal(stored(n).builtFingerprint, A, 'CONTROL: the fingerprint was kept');
+    const withPrint = typed.find((t) => t.includes('mona marked task ' + n + ' built'));
     const without = typed.find((t) => t.includes('marked task ' + n2 + ' built'));
     assert.ok(withPrint && withPrint.includes(' - fingerprint ' + A + ' - reply in the task'), JSON.stringify(typed));
     assert.ok(without && !without.includes('fingerprint'), JSON.stringify(typed));
@@ -161,10 +173,10 @@ const { execFile } = require('node:child_process');
 const MAC_HOME = path.join(SANDBOX, 'kosmos-home');
 fs.mkdirSync(path.join(MAC_HOME, 'runtime', 'bin'), { recursive: true });
 fs.symlinkSync(process.execPath, path.join(MAC_HOME, 'runtime', 'bin', 'node'));
-function mac(args, extra = {}) {
+function mac(args, extra = {}, cwd = undefined) {
   const env = { ...process.env, KOSMOS_HOME: MAC_HOME, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '', KOSMOS_NO_LEGACY_MIGRATION: '1', KOSMOS_AGENT_TOKEN: '', ...extra };
   return new Promise((resolve, reject) => {
-    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000 }, (err, stdout, stderr) => {
+    execFile(path.join(__dirname, 'install', 'kosmos'), args, { env, timeout: 20000, cwd }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code: ' + (stderr || err.signal))); return; }
       resolve({ code: err ? err.code : 0, out: (stdout || '') + (stderr || '') });
     });
@@ -180,12 +192,13 @@ test('Mac `kosmos task built --file` sends the file\'s sha256, and task list sho
   const want = sha('the delivered thing\n');
   const n = tasks.create(projectId, { sentence: 'Deliver the file', who: 'mona' }).number;
   const tok = sendertoken.mint('mona').token;
-  const r = await mac(['task', 'built', projectId, String(n), 'delivered', '--file', file], { KOSMOS_AGENT_TOKEN: tok });
+  // Named relative to the folder it runs in, so the leading dash reaches the hasher as written (review 5).
+  const r = await mac(['task', 'built', projectId, String(n), 'delivered', '--file', path.basename(file)], { KOSMOS_AGENT_TOKEN: tok }, dir);
   assert.equal(r.code, 0, r.out);
   assert.equal(stored(n).builtFingerprint, want, 'the CLI sent another fingerprint: ' + r.out);
   assert.equal(stored(n).builtNote, 'delivered', 'the file path leaked into the note');
   const list = await mac(['task', 'list', projectId], { KOSMOS_AGENT_TOKEN: tok });
-  assert.match(list.out, new RegExp('    fingerprint ' + want), list.out);
+  assert.match(list.out, new RegExp('    fingerprint ' + want + ', sent by mona'), list.out);
 });
 
 test('Mac: a missing file, --file with no path, and --file with --clear are refused before the board', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
