@@ -231,8 +231,8 @@ async function open(browser, opts) {
 
     const wide = await open(browser, { viewport: { width: 1200, height: 900 } });
     const a2 = await ans(wide);
-    chk(!a2.error && (a2.content === 'none' || a2.content === 'normal'), '[answer/mouse] no extended hit area with a mouse', JSON.stringify(a2));
-    chk(!a2.error && a2.hitAbove === false, '[answer/mouse] with a mouse, 5px above the text is not Answer', JSON.stringify(a2));
+    // #6400: with a mouse too, the pill carries no Answer link and a click on it reaches the card's answer route.
+    chk(!a2.error && a2.link === false && a2.route === 'april' && a2.pillTap === true, '[answer/mouse] no Answer link, and a click on the pill answers', JSON.stringify(a2));
     const l2 = await land(wide);
     chk(!l2.error && l2.asked === 0 && l2.after === l2.before, '[landing/wide] in a wide window the reveal does not scroll at all', JSON.stringify(l2));
     await wide.close();
