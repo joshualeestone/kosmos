@@ -1542,14 +1542,15 @@ func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> Str
 }
 
 /// #6358: PURE, for --kosmos-app-mode-selftest. What the app does with the page's "signed out": sign in again; wait
-/// (inside the once-a-minute limit); or give up, once. A sign-in followed by "signed out" with no good board read in
-/// between (the page posts its badge only after a read that worked) means the board refused the token, so another
-/// one would only reload the window for nothing: the app shows the window a "could not sign in" page instead, and
-/// stays out of it until the board answers again.
+/// (inside the once-a-minute limit); or give up, once. A sign-in followed, a full minute later, by "signed out" with no
+/// good board read in between (the page posts its badge only after a read that worked) means the board refused the
+/// token, so another would only reload the window for nothing. Inside that minute it waits instead: a second restart
+/// can land before a good sign-in's first read. Giving up loads a page that says to quit and reopen Kosmos, and the
+/// app stays out of it until a read works again, which in practice means Kosmos is reopened.
 enum SignInAgain { case signIn, wait, giveUp, stay }
 func signInAgainDecision(now: TimeInterval, last: TimeInterval?, answeredSince: Bool, gaveUp: Bool) -> SignInAgain {
     if gaveUp { return .stay }
-    if last != nil && !answeredSince { return .giveUp }
+    if let last = last, !answeredSince { return now - last >= signInAgainMinGap ? .giveUp : .wait }
     return shouldSignInAgain(now: now, last: last) ? .signIn : .wait
 }
 
@@ -6903,6 +6904,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     decide(1000 - signInAgainMinGap, false, false, .giveUp, "SIGNED OUT AGAIN WITH NO GOOD READ: the token was refused, give up once")
     decide(1000 - signInAgainMinGap, false, true, .stay, "after giving up: stay out of it")
     decide(1000 - 1, true, false, .wait, "a sign-out right after a good read within the minute: wait")
+    decide(1000 - 1, false, false, .wait, "no read yet, but the sign-in was seconds ago (a second restart): wait, do not give up")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -7104,7 +7106,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 130   // #6358: +18 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 131   // #6358: +19 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

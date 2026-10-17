@@ -574,8 +574,8 @@ const _sessions = new Map();   // session id -> { token, expiresAt }
 function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresAt <= now) _sessions.delete(id); } }
 function _resetSessions() { _sessions.clear(); }
 
-/** A new session for `token`: its id is its own random value and never encodes the token. */
 const SESSION_MAX_COUNT = 1000;   // a stated bound on memory: past it, the session minted longest ago ends first (by age, not by use)
+/** A new session for `token`: its id is its own random value and never encodes the token. */
 function mintSession(token) {
   const now = _nonceNow();
   _sweepSessions(now);
@@ -644,7 +644,7 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
        same 302, so both are a redemption to mark). The flag is left in place (still
        set, still asserted by engine.boardauth-nonce-1979.test.js) in case a future
        caller needs to tell the two apart; nothing reads it to gate seeding any more.
-       `bootstrap` stays PURE; the caller does the write. */
+       The caller writes the marker. */
     return { location: pathWithoutParam(req, routingBase, 'boot'), setCookie: cookieHeader(mintSession(token)), viaBootNonce: true };
   }
   const q = queryToken(req, routingBase);
