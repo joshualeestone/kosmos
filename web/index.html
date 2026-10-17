@@ -24643,11 +24643,13 @@ function paintRailTeamMap(op) {
   const btn = document.getElementById('alist-teammap-btn');
   const box = document.getElementById('alist-teammap');
   if (!btn || !box) return;
-  const roster = op ? (op.agents || []) : [];   // the tab layout's own test for "has members" (paintOneProject)
-  const open = roster.length > 0 && PJ_TEAMMAP_OPEN.has(String(op.id));
+  // The map's own filter (members with a session name), as the tab layout's button uses (paintOneProject), so the
+  // button never opens an empty map.
+  const mapped = op ? (op.agents || []).filter((m) => m && typeof m.sessionName === 'string' && m.sessionName).length : 0;
+  const open = mapped > 0 && PJ_TEAMMAP_OPEN.has(String(op.id));
   const ae = document.activeElement;
   const had = ae && box.contains(ae) && ae.dataset ? ae.dataset.agent : null;
-  btn.hidden = roster.length === 0;
+  btn.hidden = mapped === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
   // Another project's map starts at the top (the browser would keep the last project's offset); the same project's

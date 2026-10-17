@@ -115,6 +115,8 @@ test('#6324: outside the consolidated layout, with no project open, or with no m
     ['the tab layout', { consolidated: false, current: p.id, projects: [p] }],
     ['no project open', { consolidated: true, current: null, projects: [p] }],
     ['a project with no members', { consolidated: true, current: p.id, projects: [{ ...p, agents: [] }] }],
+    // The map's own filter: a member with no session name is not drawn, so the button would open an empty map.
+    ['a project whose only member has no session name', { consolidated: true, current: p.id, projects: [{ ...p, agents: [{ name: 'Nameless' }] }] }],
   ];
   for (const [what, opts] of cases) {
     const r = rig({ ...opts, board });
