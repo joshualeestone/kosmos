@@ -22,12 +22,20 @@ No subtask built: the line is unchanged.
   in its built note. Naming the checks would lengthen every nudge for a guess.
 - Held subtasks count as not finished (isBuilt excludes a held task, as the screen does).
 
+## Cases the sentence leaves alone (review 1)
+- **Another open part on the task** (someone else's, or nobody's): "mark it built" would mark the WHOLE task, declaring
+  the colleague's unfinished part built. The sentence then says the other parts are still open and names no command.
+  The first version of this plan claimed the sentence could not reach the wrong agent; that held only for a one-part
+  task, and review 1 showed it.
+- **A repeating parent**: never marked built (setBuilt refuses it), so it carries no subtask sentence at all.
+
 ## Weakest premise
-That the nudged agent holds the parent's own part, so marking it built is its move. If the parent's part belongs to
-someone else, this agent is not nudged about it at all (openParts takes only its own parts), so the sentence cannot
-reach the wrong agent.
+That an agent holding the only open part may mark the parent built when its subtasks are built. If the parent's own
+done-when checks are unmet, the built note says so (setBuilt asks for it), so the person sees it rather than a clean
+mark.
 
 ## Tests
-engine/agentnudge.test.js (+3, through the real sweep): all subtasks built names the mark; some built gives the counts
-and does not name the mark; control: no built subtask, no subtask sentence. Against main's agentnudge.js the two
-behaviour tests fail and the control passes.
+engine/agentnudge.test.js (+6): all subtasks built names the mark; one built plus one closed says "it"; some built gives
+the counts and names no mark; another open part names no mark; a repeating parent carries no counts (control: the same
+parent not repeating does); control: no built subtask, no sentence. Against main's agentnudge.js the behaviour tests
+fail; one-line mutants of the repeat and other-parts guards each fail exactly their test.
