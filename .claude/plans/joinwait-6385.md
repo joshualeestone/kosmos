@@ -11,7 +11,8 @@ The card's own fix shape: a plain line on the joining computer after a minute wi
 - It shows in both waits the card names: "Working out the code with ..." and, after Try again, "That code ran out.
   A new one is on its way."
 - `PLUS_JOIN_NOCODE_AT` records when the wait began; any other state (a code, a failure, Try again owed, a ran-out
-  ending, no pairing, Forget or Off) clears it, so each wait has its own minute.
+  ending, no pairing, Forget or Off) clears it. One continuous wait ("Working out" straight into "on its way")
+  keeps one minute; a screen between them that is not a wait (Try again owed) starts the next one afresh. A test pins both.
 
 ## Design
 - One grey hint line (`fhint`, the block's own hint style, not the bold `plus-join-next` action line) inside the
