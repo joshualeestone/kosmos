@@ -34,7 +34,9 @@ test('#5957: never on a working card (the update restarts it), in the slot a nee
 test('#5957: anything more urgent wins', () => {
   assert.match(reasonOf({ state: 'idle', rulesBehind: 13, crashLoop: { looping: true, count: 4 } }, CARD), /restarted it 4 times/);
   assert.match(reasonOf({ state: 'working', rulesBehind: 13, waiting: { n: 2 } }, CARD), /2 messages waiting/);
-  const limited = reasonOf({ state: 'rate_limited', rulesBehind: 13, stateConfidence: 'reported' }, CARD);
+  // #6398: a rate-limited card says only its pill; its own page keeps the usage sentence, never the rules one.
+  assert.equal(reasonOf({ state: 'rate_limited', rulesBehind: 13, stateConfidence: 'reported' }, CARD), '');
+  const limited = reasonOf({ state: 'rate_limited', rulesBehind: 13, stateConfidence: 'reported' });
   assert.doesNotMatch(limited, /working rules/);
   assert.match(limited, /[Uu]sage limit/);
 });

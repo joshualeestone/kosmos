@@ -3140,32 +3140,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    only the near-full number badge remains, so the plain `.membadge` selector is
    exact now. */
 .agauge:has(.dmbadge) .membadge { top: 24px; }
-.ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
-         border: 0; background: none;
-         /* One padding declaration only: a second one in this same rule was
-            silently clobbering the pack's 1px baseline nudge (#179). */
-         padding: 0 0 1px; font-family: inherit; cursor: pointer;
-         /* ⚠️ 24px minimum (WCAG 2.2 SC 2.5.8), the floor the retired
-            .card-answer carried and .linkish duplicates: this is the one
-            control on the card whose function nothing else duplicates
-            (the card body opens DETAIL, not the thread), so the
-            undersized-target exceptions do not apply. The underline moves
-            to a span so the stretched hit area does not drag a bar across
-            its full height. */
-         min-height: 24px; display: inline-flex; align-items: center; }
-.ansgo > u { text-decoration: none; border-bottom: 1px solid currentColor; padding-bottom: 1px; }
-.ansgo:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
-/* #718 mobile: on a touchscreen "Answer" is the thumb's main target on a card that needs you,
-   and its box is one short line of text. A larger invisible hit area around it (the layout of
-   the pill does not change): about 40px tall, kept small enough not to reach the next row.
-   Not 44px like the Allow buttons: those grow the button itself in a card with room to spare,
-   while this area floats over its neighbours (a positioned box paints above them) in a list
-   row with 12px padding, so 44px would start taking taps meant for the row around it. */
-@media (hover: none) {
-  .ansgo { position: relative; }
-  .ansgo::after { content: ""; position: absolute; inset: -8px -6px; }
-}
-.acard:hover .ansgo, .lrow:hover .ansgo { color: var(--k-ink); }
 /* ---- the settings screen: the pack's view K (pack-pass, scrappy) ----
    Ported from CURRENT-FREEZE (17c) with the 17c full-width ruling
    (.stack > .dbox stretches). Cards ride k-surface and k-ink, which flip
@@ -4045,7 +4019,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lavtint { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 50%; }
 .lname b { display: block; font-size: 1rem; }
 .lstate { display: flex; align-items: center; gap: 8px; font-size: .9375rem; font-weight: 600; }
-.lstate .ansgo { margin-left: 10px; }
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
 /* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
@@ -5469,16 +5442,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      a FLOOR as well as a ceiling: collapsing the lines onto each other would
      satisfy "tighter" and be worse than what it replaced. */
   html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* ⚠️ .lstate hides EXCEPT when it carries the inline Answer button
-     (challenge-loop iteration 1): the state chatter goes, per Josh, but
-     the needs-you row's one ACTION lived in the same element, and hiding
-     it left clicking the row as the only way to answer. :has() has
-     precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
-     sits on its own third line; its state word takes the quiet size while
-     .ansgo keeps its own larger .8125rem (it is the action, and its
-     SC 2.5.3 name contract wants it legible). The quoted said-line no longer
-     renders in a list row at all (kosmos#986), so there is nothing here to
-     hide -- see the note on the clip below. */
+  /* The rail row's quiet third line. The quoted said-line no longer renders in a list row (kosmos#986). */
   /* `font-weight: 400` is kosmos#1303 A item 4, Josh: "Let's unbold the agent
      status." MEASURED at 600 in this view: the base `.lstate` rule sets
      `font-weight: 600` and this override changed only the SIZE, so the quiet
@@ -5540,7 +5504,6 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the glyph does not, exactly as the state line itself does. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork > .act { display: none; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork { font-size: inherit; }
-  html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   /* #2863: the unread-DM bubble is exempt from this catch-all hide, so it shows in
      the consolidated list too (an agent DMing you must signal in every list view, not
      just the default one). It is a direct .lrow child like .lav, absolute, so it does
@@ -20981,7 +20944,8 @@ const STATE_COPY = {
      not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
      prompt red on purpose, as the fallback when nothing answers it. Only the word changes. */
   approval:     { label: 'Waiting for you', attn: true },
-  rate_limited: { label: 'Paused',        attn: true  },
+  /* #6398 (Josh 2026-10-17 11:09): "Lets reduce all that to a \"Rate Limit\" and put it where the \"Paused\" status is." */
+  rate_limited: { label: 'Rate Limit',    attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
      the wrong reassurance (it implies "will resume on its own"), so this
@@ -21318,6 +21282,9 @@ function offlineNote(a) {
   return [rulesBehindLine(a, true), idleLine(a)].filter(Boolean).join(' ');
 }
 function stateReason(a, opts) {
+  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
+     to do) is the pill's hover text (rateLimitTitle) and stays on the agent's own page, which calls this without card. */
+  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #4569 fix 4: placed first, like #2019 below, because every later rule returns '' for a plain working agent. */
   if (a && a.state === 'working' && a.waiting) { const w = waitingLine(a.waiting); if (w) return w; }
   /* #5154 slice A: Kosmos keeps restarting this agent and it keeps stopping within minutes (engine/crashloop.js).
@@ -21334,7 +21301,7 @@ function stateReason(a, opts) {
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
      card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
-     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
@@ -22087,17 +22054,34 @@ function boardMods(a, m) {
        with the red is fine." */
   ].filter(Boolean).join(' ');
 }
-function answerBtn(a) {
-  /* ⚠️ Same tie gate as before the redesign (defence-in-depth: upstream
-     forces untied panes to unknown today; the gate is for the day that
-     changes). The accessible name CONTAINS the visible word "Answer"
-     verbatim (SC 2.5.3). */
-  /* #4006: a restart that did not come back has no question to answer. */
+function answerAttrs(a) {
+  /* #6400 (Josh 2026-10-17 11:14): the pill says only "Issue", with no "Answer ->" link in it. An agent with a question
+     to answer carries the answer target on its card or row itself, so a click anywhere on it (or Enter on its name
+     button) opens its page with the reply box focused, as the link did (pjAnswerFrom). Same gate as the link had:
+     tied to its own session, and not a restart that did not come back (#4006), which has nothing to answer.
+     ⚠️ The board's click handler checks [data-answer] FIRST, so on an answerable card EVERY click inside it answers.
+     A control added to a card later needs its own branch in that handler, above the answer one. */
   return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
-    ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
-      + ` data-answer-name="${esc(a.name)}"`
-      + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`
+    ? ` data-answer="${esc(a.sessionName)}" data-answer-name="${esc(a.name)}"`
     : '';
+}
+/* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
+   so it says so; the visible name is in it (SC 2.5.3). */
+function nameGoLabel(a) {
+  return answerAttrs(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
+}
+/* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
+   reliably, and the list pill is aria-hidden). Nothing is drawn. */
+function rateLimitVh(a) {
+  if (!a || a.state !== 'rate_limited') return '';
+  const why = stateReason(a);
+  return why ? `<span class="vh">. ${esc(why)}</span>` : '';
+}
+/* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
+function rateLimitTitle(a) {
+  if (!a || a.state !== 'rate_limited') return '';
+  const why = stateReason(a);
+  return why ? ` title="${esc(why)}"` : '';
 }
 
 /**
@@ -22427,7 +22411,6 @@ function card(a) {
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
-  const answer = answerBtn(a);
 
   /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
      one, so we are not telling you it is fine.") is gone with the conflict line. It was an
@@ -22446,11 +22429,11 @@ function card(a) {
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
   const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
-    <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
+    <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
+    <div class="astate st-${m.st}"${rateLimitTitle(a)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${rateLimitVh(a)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
@@ -22461,7 +22444,7 @@ function card(a) {
 /**
  * The pack's list row (stage 4): the same agent, one readable line.
  * Both renderers read the same derivations (cardStOf/taskLine/modelLine/
- * roleLine/answerBtn), so grid and list cannot disagree about an agent.
+ * roleLine/answerAttrs), so grid and list cannot disagree about an agent.
  * Memory here is a BAR (the row has no room for a ring); unknown memory is
  * the dashed bar with no number, never a guessed figure.
  */
@@ -22664,9 +22647,9 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
-    <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
+    <div class="lname"><b><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
@@ -22681,10 +22664,10 @@ function lrow(a) {
          COLOUR (working=green, needs-you=red, everything else=grey), not a
          waiting/idle/busy WORD. The state glyph + word are kept in the row for
          screen readers (.vh) but not shown; the red-! triangle (LROW_WARN, on
-         .lav above) still marks needs-you visually, and answerBtn/alsowork stay
-         because they are actions, not status text. This supersedes the #1191
+         .lav above) still marks needs-you visually, and alsowork stays because
+         it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
@@ -44811,9 +44794,8 @@ function setWritesOffered(a, tied) {
 
 for (const boardEl of [document.getElementById('grid'), document.getElementById('alist')]) {
   boardEl.addEventListener('click', (e) => {
-    // ⚠️ FIRST, because it is INSIDE the card. Checked after the card it
-    // would never fire at all: the card's own handler matches the same click
-    // and opens the detail panel instead, the screen this button skips.
+    // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
+    // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     const answer = e.target.closest('[data-answer]');
     if (answer) { pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return; }
     // .acard in the grid, .lrow in the list: one contract (data-agent).
