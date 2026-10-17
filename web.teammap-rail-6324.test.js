@@ -156,6 +156,23 @@ test('#6324: the page wires the rail map: a closed button in the rail head, and 
   assert.match(PAGE, /body\.consolidated\.fold-a #rail-agents > \.alist-tmbtn, [^{]*#rail-agents > \.alist-tm \{ display: none; \}/, 'folding the agents column does not hide the map');
 });
 
+test('#6324: the rail button, the tab button and the map pick members with the one filter', () => {
+  // The two painters each decide "has members" for themselves (paintOneProject is lifted alone by other tests, so a
+  // shared helper would break them). This holds the three copies to one text, so a change to one reds here.
+  const filterIn = (src, what) => {
+    const m = /\.filter\(\(m\) => (m && typeof m\.sessionName[^)]*)\)/.exec(src);
+    assert.ok(m, `no member filter found in ${what}`);
+    return m[1];
+  };
+  const tab = slice('function paintOneProject(');
+  const fromBtn = tab.slice(tab.indexOf("getElementById('pj-teammap-btn')"));
+  const want = filterIn(slice('function pjTeamMap('), 'pjTeamMap');
+  assert.equal(filterIn(fromBtn, "the tab layout's Team map button"), want, "the tab button's filter is not the map's");
+  assert.equal(filterIn(slice('function paintRailTeamMap('), 'paintRailTeamMap'), want, "the rail button's filter is not the map's");
+  // CONTROL: the instrument tells two different filters apart.
+  assert.notEqual(filterIn('.filter((m) => m && typeof m.sessionName === \'string\')', 'a control'), want, 'CONTROL: the comparison cannot see a difference');
+});
+
 test('#6324: the rail passes the needs-you predicate, so a member drawn red gets the "!" as in the tab layout', () => {
   const { p, board } = build('RailRed');
   const present = { ...p, agents: p.agents.map((m) => ({ ...m, present: true })) };
