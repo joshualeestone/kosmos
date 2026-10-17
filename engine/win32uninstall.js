@@ -750,20 +750,21 @@ async function uninstall(opts) {
       } else if (!fs.existsSync(dataDir)) {
         done.push(label + ' (' + dataDir + ') were already gone');
       } else {
-        /* #6391: deleteAllExcept is about to take `<dataDir>\remote` with the rest, including the
-           Plus key. Retire this computer at the coordinator FIRST, while the key can still sign it,
-           and only when a key is actually here: the `mac_id` + `mac_key` pair, as remote.js's
-           holdsKey() tests (deliberately the stricter pair, not the Mac uninstall's `mac_key`-alone
-           guard at setup.sh #793), so a computer that was never paired to Kosmos+ says nothing.
-           SCOPE: this checks and retires `<dataDir>\remote`, the DEFAULT state dir (remote.js's
-           STATE_DIR() when AGENT_WORKFORCE_TUNNEL_STATE is unset, which it is on every installed
-           Windows PC). A custom AGENT_WORKFORCE_TUNNEL_STATE (a dev/self-host seam) is NOT honored
-           here: if it points outside dataDir the key is neither deleted nor stranded, but if it
-           points inside dataDir the key would be deleted without a retire. That unsupported config
-           is a known limitation, not a guarantee of safety. Best-effort; the outcome is said either
-           way, as the Mac uninstall does. */
-        const remoteDir = path.join(dataDir, 'remote');
-        const hadKey = ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(remoteDir, f)));
+        /* #6391: deleteAllExcept is about to take the Plus key with the rest of the data. Retire this
+           computer at the coordinator FIRST, while the key can still sign it, and only when a key is
+           actually here: the `mac_id` + `mac_key` pair, as remote.js's holdsKey() tests (deliberately
+           the stricter pair, not the Mac uninstall's `mac_key`-alone guard at setup.sh #793), so a
+           computer that was never paired to Kosmos+ says nothing.
+           The key dir is remote.js's STATE_DIR(): AGENT_WORKFORCE_TUNNEL_STATE if set (honoured, like
+           the other three tunnel env seams below), else the default `<dataDir>\remote` (the case on
+           every installed Windows PC). We retire a key ONLY when it is within the delete scope -- the
+           state dir sits inside dataDir and is not one of the kept project/working roots -- so it is a
+           key this uninstall is actually about to delete. A state dir OUTSIDE dataDir is not deleted
+           here, so it is not stranded and must not be retired (retiring a surviving key would let a
+           later board re-register it). Best-effort; the outcome is said either way, as the Mac does. */
+        const stateDir = env.AGENT_WORKFORCE_TUNNEL_STATE || path.join(dataDir, 'remote');
+        const keyInDeleteScope = isSameOrInside(stateDir, dataDir, platform) && !keptHolding(stateDir, keptDirs);
+        const hadKey = keyInDeleteScope && ['mac_id', 'mac_key'].every((f) => fs.existsSync(path.join(stateDir, f)));
         if (hadKey) {
           const retire = o.retirePc || retirePc;
           /* Coordinator + connector: the env overrides remote.js documents (honoured here, where the
@@ -780,10 +781,17 @@ async function uninstall(opts) {
           const timeoutMs = Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : undefined;
           // `|| {}`: the module retirePc always returns {told}, but this guards the call site from a
           // misbehaving injected o.retirePc returning undefined, so the uninstall can never throw here.
-          const told = (retire({ remoteDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }) || {}).told === true;
+          const told = (retire({ remoteDir: stateDir, coordinator, tunnelBin, timeoutMs, existsSync: o.existsSync, spawnSync: o.spawnRetire }) || {}).told === true;
           if (told) done.push('told the Kosmos+ service this computer is going away, so its Kosmos+ address is retired (the name is free again after a day)');
-          else notes.push('Kosmos could not tell the Kosmos+ service this computer is going away, so its Kosmos+ address may still show on your account page until you remove it there.');
+          /* "could not confirm", not "could not tell": a non-zero exit can also be the coordinator
+             saying it is ALREADY retired, so do not assert it is still listed -- only that we could
+             not confirm, and what to do if it is. (#6391, iter-5 review.) */
+          else notes.push('Kosmos could not confirm with the Kosmos+ service that this computer was removed; its Kosmos+ address may still show on your account page, and if it does you can remove it there.');
         }
+        /* Accepted edge of retire-before-delete: if deleteAllExcept then partly fails and the key
+           survives in a locked `remote\`, the PC is retired yet its key is still on disk. That is
+           strictly better than the old delete-without-retiring, and the surviving data is already
+           named in `left` (keeping the uninstall entry so the person removes Kosmos again). */
         const failures = deleteAllExcept(dataDir, keptDirs, rm);
         if (failures.length) left.push(label + ' in ' + dataDir + ', ' + failures.length + ' of which could not be deleted: ' + leftoverList(failures));
         else done.push('deleted ' + label + ' (' + dataDir + '), keeping your projects and working folders');
