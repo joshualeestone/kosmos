@@ -1526,8 +1526,9 @@ func shouldSignInAgain(now: TimeInterval, last: TimeInterval?) -> Bool {
 /// #6358: PURE, for --kosmos-app-mode-selftest. The page the window signs in again on, as the address the board
 /// token is then added to. Only this board's OWN origin (plain http, its host and port, no user) keeps the page the
 /// person was on; anything else, a Kosmos+ page included (isBoardPage counts those as board pages), becomes the board's
-/// front page, so the token is never added to an address that is not this board. A `token` or `signin` item already
-/// in the kept page is dropped, so the token added next is the one in board.token now, not one the address carried.
+/// front page, so the token is never added to an address that is not this board. A `token`, `signin` or `boot` item
+/// already in the kept page is dropped, so the token added next is the one in board.token now, not one the address
+/// carried.
 func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> String {
     let front = "http://\(board.host):\(board.port)/"
     guard let u = committed, u.user == nil, u.password == nil, u.scheme?.lowercased() == "http",
