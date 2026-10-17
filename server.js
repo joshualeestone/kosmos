@@ -11714,10 +11714,22 @@ const server = http.createServer(async (req, res) => {
           const agyInst = agy.offered() ? agy.installed() : null;
           const agyLast = agyInst && agyInst.installed ? agy.lastKnown() : null;
           if (agyLast && agyLast.signedIn) {
+            /* #6176 slice 4: the Gemini usage Antigravity last reported (engine/agyusage.js), and a new reading asked
+               for at most every few minutes, never waited on here: while one runs the row says so, and the page reads
+               the list again (the same follow-up Codex limits use). */
+            let limits = null, pending = false;
+            try {
+              const au = require('./engine/agyusage');
+              au.refresh();
+              limits = au.lastReading();
+              pending = au.isRunning();
+            } catch { limits = null; pending = false; }
             agySub = [{
               provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
               email: null, authMode: 'antigravity', keyTail: null,
-              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified' },
+              connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified',
+                ...(pending ? { liveCheckPending: true } : {}) },
+              limits,
             }];
           }
         } catch { agySub = []; }
