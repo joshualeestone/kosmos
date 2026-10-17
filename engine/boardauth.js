@@ -648,7 +648,9 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
   const liveId = cookieToken(req);
   const live = sessionToken(liveId);
   // The cookie for the session that signs in: a kept one lasts only what its session has left (sessionLeftMs).
-  const cookieFor = (t) => ((live !== null && matches(live, t)) ? cookieHeader(liveId, sessionLeftMs(liveId)) : cookieHeader(mintSession(t)));
+  // A kept session with under a minute left is replaced, so a sign-in never hands back a cookie about to expire.
+  const cookieFor = (t) => ((live !== null && matches(live, t) && sessionLeftMs(liveId) >= 60000)
+    ? cookieHeader(liveId, sessionLeftMs(liveId)) : cookieHeader(mintSession(t)));
   /* #1979: a `?boot=<nonce>` from `kosmos open` / the install open-once handoff
      redeems (single-use) for the SAME cookie the `?token=` path sets -- so the
      durable token stays off the browser-open argv. Tried before `?token=` so the

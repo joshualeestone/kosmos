@@ -52,7 +52,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
 
 ## What a person sees after a restart (Splinter 05:12, both checked)
 - **The Mac app:**
-  - The panel reads "Kosmos restarted, so the app is signing this window in again", and the app reloads the page it
+  - The panel reads "The app is signing this window in again" (true whatever ended the session: a restart, the cap, a refused first load), and the app reloads the page it
     was on.
   - Accepted cost: the reload drops text typed and not yet sent. Off a board page it falls back to the front page
     without `?mode=`.
@@ -66,8 +66,9 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     the old tab works after Reload.
   - The old "it fixes itself the next time Kosmos updates" is gone. It is now false, and render-board-signin-403-2023
     asserts it is absent. That check saves a screenshot when KOSMOS_SIGNIN_SHOT names a file.
-- **A browser tab on a Linux board:** run `kosmos open` on the computer running Kosmos, then Reload. A Linux board has
-  no app and no Applications folder.
+- **A browser tab on a Linux board:** reach the board through Kosmos+, which stays signed in. Signing a local tab back
+  in is NOT available on Linux yet: `kosmos open` uses `/usr/bin/open`, which most Linux systems lack (install/kosmos,
+  Renet's file; routed). The copy says so rather than promising a remedy that fails.
 - **The one sentence (agents box, projects, org note):** "The Kosmos app signs itself in again. A browser tab stays
   signed out until it is signed in again." (The tab panel carries the Applications-folder advice.) That is true in both places. Linux has its own sentence.
 - **Kosmos+ remote access through the relay:** NOT signed out by a restart on the board's side. Read in kosmos-relay
@@ -154,3 +155,8 @@ header. A sender that set the cookie to the token would now be refused, and its 
 - The server tests passed on 2a189624c8: 79/79, 0 skipped (7 files, real in-process boards).
 - One race, once, during the move to sessions: a request already in flight with the old token cookie can come back
   ending the cookie after the sign-in set the new one. The window then signs in again (one extra round).
+- Linux local tabs: no working sign-back-in yet (see above). Routed to Renet for `cmd_open` on Linux (an opener, or
+  print a one-time sign-in address the person opens themselves).
+- A sign-in with a different token than the live session mints a new session and leaves the old one valid until a
+  restart or the cap. That is harmless: its holder had it already. A kept session with under a minute left is
+  replaced rather than handed back about to expire.

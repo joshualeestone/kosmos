@@ -20092,11 +20092,12 @@ function linuxCopyTable() {
     settingsOpenKosmos: 'If Kosmos stops, run <b>kosmos restart</b> in a terminal on the computer it is installed on '
       + '(over SSH on a headless server).',
     // #6358: a Linux board has no app and no Applications folder, so a signed-out tab is signed in with kosmos open.
-    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. Run kosmos open on the '
-      + 'computer running Kosmos, then press Reload.',
+    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. Through Kosmos+ it stays '
+      + 'signed in.',
     signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects. Kosmos signs a '
-      + 'browser tab out each time it restarts or updates, and after seven days. To sign this tab back in, run '
-      + '<b>kosmos open</b> in a terminal on the computer running Kosmos, then press Reload here.</p>',
+      + 'browser tab out each time it restarts or updates, and after seven days. To use this board from a browser, '
+      + 'reach it through Kosmos+, which stays signed in. Signing a local browser tab back in is not available on '
+      + 'Linux yet.</p>',
   };
 }
 function linuxCopy(key) {
@@ -38542,7 +38543,7 @@ function boardSigninHtml() {
       + '<p><b>This board is not signed in.</b><br>'
       + (failed
         ? 'Kosmos could not sign this window in. Quit Kosmos with Command-Q, then open it again from your Applications folder.'
-        : 'Kosmos restarted, so the app is signing this window in again. This takes a moment.')
+        : 'The app is signing this window in again. This takes a moment.')
       + '</p>'
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
       + '</div>';

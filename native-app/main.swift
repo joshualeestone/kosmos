@@ -4516,8 +4516,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func pageSaysSignedOut() {
         guard computerMode != .connect, let board = badgeOrigin else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let refused = signInWasRefused(committedPageURL, board: board, current: boardTokenValue())
-        switch signInAgainDecision(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue() != nil,
+        let token = boardTokenValue()   // read once, so the refusal check and the sign-in use the same token
+        let refused = signInWasRefused(committedPageURL, board: board, current: token)
+        switch signInAgainDecision(now: now, last: lastSignInAgainAt, refused: refused, haveToken: token != nil,
                                    gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead) {
         case .stay:
             return
@@ -4526,10 +4527,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         case .giveUp:
             signInAgainGaveUp = true
-            logLine(refused ? "#6358: the board refused the window's sign-in; showing the could-not-sign-in page"
-                    : signInsWithoutRead >= signInAgainTries
-                        ? "#6358: \(signInAgainTries) sign-ins brought no board read; showing the could-not-sign-in page"
-                        : "#6358: there is no board token to sign in with; showing the could-not-sign-in page")
+            logLine(token == nil ? "#6358: there is no board token to sign in with; showing the could-not-sign-in page"
+                    : refused ? "#6358: the board refused the window's sign-in; showing the could-not-sign-in page"
+                    : "#6358: \(signInAgainTries) sign-ins brought no board read; showing the could-not-sign-in page")
             if let url = URL(string: "http://\(board.host):\(board.port)/?signin=failed") { webView.load(URLRequest(url: url)) }
             return
         case .signIn:

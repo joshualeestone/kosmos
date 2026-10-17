@@ -100,7 +100,7 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
     'a page from anywhere but this board cannot make the window load the board with its token');
   assert.ok(proxy.indexOf('isBoardOrigin') < proxy.indexOf('pageSaysSignedOut'), 'the origin is checked before acting');
   const handler = lift(APP, 'func pageSaysSignedOut(');
-  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue\(\) != nil,\s+gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead\)/,
+  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, refused: refused, haveToken: token != nil,\s+gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead\)/,
     'throttled, and gives up on the board\'s refusal or after fruitless tries');
   const giveUp = handler.slice(handler.indexOf('case .giveUp:'), handler.indexOf('case .signIn:'));
   assert.ok(giveUp.length > 0, 'the give-up branch is gone');
@@ -121,7 +121,7 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
     return ctx.boardSigninHtml();
   };
   const app = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } });
-  assert.match(app, /the app is signing this window in again/, 'the app window is told it is being signed in');
+  assert.match(app, /The app is signing this window in again/, 'the app window is told it is being signed in');
   assert.doesNotMatch(app, /Applications folder|kosmos open/, 'the app window is not sent to open the app it is in');
   const refused = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '?signin=failed');
   assert.match(refused, /Kosmos could not sign this window in\. Quit Kosmos with Command-Q, then open it again/,
