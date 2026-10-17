@@ -27606,6 +27606,7 @@ function acctAgyUsageHtml(a) {
   }
   return html;
 }
+/* Always ends in '</div>' (acctAgyUsageHtml adds its stopped line before it): keep that ending if this changes. */
 function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
   const now = Date.now();
