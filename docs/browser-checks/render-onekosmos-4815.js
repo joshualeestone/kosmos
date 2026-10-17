@@ -228,8 +228,8 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           }, { worlds: WORLDS });
           ok(`${t} #6403: a forced read that finds one computer looks again soon and then shows the switcher`, soon.forced === true, JSON.stringify(soon));
           ok(`${t} #6403 CONTROL: an ordinary read that finds one computer waits (no switcher half a second later)`, soon.plain === false, JSON.stringify(soon));
-          /* #6403 review 5: the tip lets clicks through (only its close button takes one); it is marked seen only once it can
-             be seen (CONTROL: shown, it is); a forced read owed while hidden brings its follow-ups when the tab is shown. */
+          /* #6403 reviews 5, 7: the tip takes clicks itself (review 7); it is marked seen only once it can be seen (CONTROL:
+             shown, it is); a forced read owed while hidden brings its follow-ups when the tab is shown. */
           const r5 = await page.evaluate(async ({ worlds }) => {
             const reset = () => { try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false; };
             const key = () => { try { return localStorage.getItem('kosmos.switcherTipSeen'); } catch { return 'n/a'; } };
@@ -304,6 +304,25 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           }, { worlds: WORLDS });
           ok(`${t} #6403: not signed in, a look back does not read; a forced read still does (CONTROL)`,
             signedOut.flag === true && signedOut.afterLook === false && signedOut.afterForced === true, JSON.stringify(signedOut));
+          /* #6403 review 14: a real mouse click on the tip, over a clickable control placed under it, puts the tip away and
+             never reaches the control; CONTROL: with the tip gone, the same click does reach it (so the test can fail). */
+          const under = await page.evaluate(async ({ worlds }) => {
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
+            const tip = document.getElementById('worldsw-tip'), r = tip.getBoundingClientRect();
+            const b = document.createElement('button'); b.id = 'under-tip'; b.textContent = 'under';
+            Object.assign(b.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', zIndex: '1' });
+            window.__underHits = 0; b.addEventListener('click', () => { window.__underHits += 1; });
+            document.body.appendChild(b);
+            return { up: !tip.hidden, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }, { worlds: WORLDS });
+          await page.mouse.click(under.x, under.y);
+          const afterTipClick = await page.evaluate(() => ({ hits: window.__underHits, tipUp: !document.getElementById('worldsw-tip').hidden }));
+          await page.mouse.click(under.x, under.y);
+          const afterGone = await page.evaluate(() => { const n = window.__underHits; const b = document.getElementById('under-tip'); if (b) b.remove(); return n; });
+          ok(`${t} #6403: a click on the tip puts it away and never reaches a control under it`, under.up && afterTipClick.hits === 0 && !afterTipClick.tipUp, JSON.stringify({ under, afterTipClick }));
+          ok(`${t} #6403 CONTROL: with the tip gone, the same click reaches that control`, afterGone === 1, String(afterGone));
           /* Shown once, end to end: the page itself writes the seen flag (the tip shown and seen), and a click on the tip text
              puts it away; then after a reload with two computers from the start, no tip. */
           const wrote = await page.evaluate(async ({ worlds }) => {
@@ -436,6 +455,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 35 asserts = 140 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: eighteen, four of them with CONTROLs).
-  process.exit(problems.length || pass + problems.length < 140 ? 1 : 0);
+  // 2 engines x 2 themes x 37 asserts = 148 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty, five of them with CONTROLs).
+  process.exit(problems.length || pass + problems.length < 148 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
