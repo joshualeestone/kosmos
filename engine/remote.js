@@ -1157,7 +1157,8 @@ async function assistantChat(body) {
  * computer is not removed yet. Wiping it
  * there left the name held on the account with nothing here able to free it.
  * Only `anyway` (the person chose to remove it from this computer only, told
- * the cost) wipes after such a retire. A final refusal is wiped as before:
+ * the cost) wipes after such a retire. A kept Remove has still ended what forget() ends first: a sign-in or company
+ * setup in progress and an open browser secret. A final refusal is wiped as before:
  * keeping a key Kosmos+ will never accept would say "try again" forever. */
 async function forget({ anyway = false } = {}) {
   // #3827: a sign-in in flight ends with the Mac's identity. Cancel it (its register
@@ -1230,8 +1231,9 @@ async function forgetNow(anyway) {
     // (written above): the person asked for this computer to go, so it does not come back online by itself.
     if (!retired && !anyway && retireTransient(r)) {
       stopChild();
-      // Not forgotten, so the notes stay with the identity (kosmos#5786 (b) drops them only for a forgotten one), and
-      // switching off is a flip the account is told about like any other (kosmos#4743).
+      // Not forgotten, so the notes stay with the identity (kosmos#5786 (b) drops them only for a forgotten one). The
+      // snapshot is from before the retire wait. The switch-off is queued like any flip (kosmos#4743) and goes on the
+      // next poll: busy() stops this ask while forgetting.
       write({ vouched: before.ok === true && before.vouched ? before.vouched : {} });
       if (before.ok === true && before.on === true) { flipPending = true; askAfterFlip(); }
       return {
@@ -1239,7 +1241,7 @@ async function forgetNow(anyway) {
         kept: true,
         retired: false,
         address: was.address,
-        because: 'this computer is not removed yet, because your Kosmos+ account could not be reached (' + because + ')',
+        because: 'this computer is not removed yet, because your Kosmos+ account could not be reached or did not answer (' + because + ')',
       };
     }
   }

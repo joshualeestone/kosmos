@@ -51122,7 +51122,7 @@ async function paintPlus() {
   { const f = document.getElementById('plus-forgot-msg'); if (f && !f.hidden) { f.hidden = true; f.textContent = ''; } }
   { const fg = document.getElementById('plus-forget'); if (fg) fg.hidden = r.enrolled !== true; }
   /* kosmos#6389: the not-removed-yet note says remote access is paused, so it goes once that is no longer so. */
-  if (r.enrolled !== true || r.on === true) plusForgetKept(false);
+  if ((r.enrolled !== true || r.on === true) && typeof plusForgetKept === 'function') plusForgetKept(false);
   { const og = document.getElementById('plus-org'); if (og) { og.hidden = r.enrolled !== true; if (!og.hidden) plusOrgMaybe(); } }   // #5531
   paintDevices();
 }
@@ -51834,8 +51834,8 @@ const PLUS_FORGET_WORDS = {
   done: 'This computer is removed from Kosmos+. Its address is free, and your devices can no longer reach it. Sign in to connect it again.',
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
-  /* kosmos#6389: nothing was removed and the key is kept. The engine's own sentence names the reason. */
-  kept: (said) => said + '. Remote access is paused. Try again once this computer is online. Removing it from this computer only leaves its name on your Kosmos+ account until you remove it on your account page, and this computer cannot sign in again under that name until then.',
+  /* kosmos#6389: nothing was removed and the key is kept. The engine's own sentence (already a sentence) names the reason. */
+  kept: (said) => said + ' Remote access is paused. Try again later. Removing it from this computer only leaves its name on your Kosmos+ account until you remove it on your account page, and this computer cannot sign in again under that name until then.',
 };
 function plusForgetKept(on, said) {
   const box = document.getElementById('plus-forget-kept');
@@ -51882,7 +51882,7 @@ async function plusForgetRun(yes, anyway) {
     plusForgetArm(false);
     msg.hidden = true; msg.textContent = '';
     const because = String(said.because || 'this computer is not removed yet');
-    plusForgetKept(true, because.charAt(0).toUpperCase() + because.slice(1).replace(/[.!?]+$/, ''));
+    plusForgetKept(true, asSentence(plusWords(because)));
     await paintPlus();
     const retry = document.getElementById('plus-forget-retry'); if (retry) retry.focus();
     return;
