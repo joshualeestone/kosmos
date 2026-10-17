@@ -229,7 +229,12 @@ test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, 
   scheduled[0].fn();
   await flush();
   assert.equal(t.enters(), 0, 'someone else\'s text in the box');
-  // A pane that fell to a shell: never an Enter into it.
+  // A pane that fell to a shell: never an Enter into it. (The arm above forgot that line, as the box showed it gone:
+  // leave a fresh one.)
+  scheduled.length = 0;
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  assert.equal(scheduled.length, 3, 'PRECONDITION: a fresh line with its retries');
   const calls = [];
   chat.setRunner((args) => {
     calls.push(args);
@@ -237,9 +242,47 @@ test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, 
     if (args[0] === 'capture-pane' && args.includes('-e')) return ok(box(MSG));
     return ok();
   });
-  scheduled[1].fn();
+  scheduled[0].fn();
   await flush();
   assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0, 'not into a shell');
+}));
+
+test('kosmos#6436: a retry forgets the line only when two reads a look apart agree it is gone (one read mid-redraw does not)', () => withAgent(async (roster) => {
+  const scheduled = [];
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.deliver('al', MSG, roster);
+  const t = arm([EMPTY, box(MSG)]);   // an empty read, then the line is there after all
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t.enters(), 0, 'nothing pressed on a read that disagreed');
+  const t2 = arm([box(MSG), EMPTY]);
+  scheduled[1].fn();
+  await flush();
+  assert.equal(t2.enters(), 1, 'still remembered: the next retry presses it');
+  // CONTROL: two empty reads do forget it.
+  chat.resetForTests();
+  scheduled.length = 0;
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  arm([EMPTY]);
+  scheduled[0].fn();
+  await flush();
+  const t3 = arm([box(MSG)]);
+  assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true, 'forgotten: those words now read as not the board\'s');
+  assert.equal(t3.enters(), 0);
+}));
+
+test('kosmos#6436 (the stated limit, pinned): a delivery presses a cut end of ours that still fills four rows; the words sent are all the board\'s', () => withAgent((roster) => {
+  const SOLID = 'R' + 'abcdefghij'.repeat(60);
+  arm([EMPTY, box(SOLID, KEEP)]);
+  chat.deliver('al', SOLID, roster);
+  const cut = SOLID.slice(-300);
+  assert.ok(rowsOf(cut).length >= 4, 'PRECONDITION: four rows or more');
+  const t = arm([box(cut), EMPTY, EMPTY, box('next'), EMPTY]);
+  assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true);
+  assert.equal(t.enters(), 2);
 }));
 
 test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty box: nothing remembered, nothing retried', () => withAgent((roster) => {

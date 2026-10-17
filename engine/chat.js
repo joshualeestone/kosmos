@@ -253,7 +253,10 @@ function saveUnsent() {
     const tmp = file + '.' + process.pid + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(out), { mode: 0o600 });
     fs.renameSync(tmp, file);
-  } catch { /* best effort: the line is still remembered for this run */ }
+  } catch (err) {
+    // Best effort: the line is still remembered for this run, but a restart would lose it, so it is said.
+    process.stderr.write('chat: could not keep the unsent-lines record (' + (err && err.message) + '); a restart forgets it\n');
+  }
 }
 function recallUnsent(target) {
   loadUnsent();
@@ -1020,24 +1023,32 @@ async function pressRememberedNow(target, card) {
   if (deliveryQueues.has(target)) return 'busy';
   const box = readComposer(target);
   if (!box.ok) return 'unread';
-  if (!box.text) { forgetUnsent(target); return 'empty'; }
-  if (!rememberedShows(box.text, kept, true)) {
-    /* Not even an end of our line: it left the box (sent or cleared by hand) and something else is there. Forgotten,
-       so these words coming back later are never pressed. A box still showing an end of ours (a resized pane) keeps it
-       for the next delivery. */
-    if (!squash(kept.wire).endsWith(squash(box.text))) forgetUnsent(target);
-    return 'changed';
+  /* Our line is gone from the box (it is empty, or holds nothing that ends ours): forgotten, so these words coming
+     back later are never pressed. Only on two reads that agree a look apart: one read caught mid-redraw must not drop
+     a line that is still there, which would leave the agent refused behind it again. */
+  const gone = (b) => b.ok && (!b.text || !squash(kept.wire).endsWith(squash(b.text)));
+  if (gone(box)) {
+    if (pauser) await pauser(SUBMIT_LOOK_MS);
+    else if (!runner) await new Promise((resolve) => setTimeout(resolve, SUBMIT_LOOK_MS));
+    const again = readComposer(target);
+    if (gone(again)) {
+      const still = recallUnsent(target);
+      if (still && still.id === kept.id) forgetUnsent(target);
+      return again.text ? 'changed' : 'empty';
+    }
+    return 'unread';
   }
+  if (!rememberedShows(box.text, kept, true)) return 'changed';   // a resized pane: left to the next delivery
   if (!verifyAtSend(card).ok) return 'pane';
-  /* The pane is busy while this runs, as during a delivery: no line is pasted while this one is being watched. */
+  /* The pane is busy while this runs (deliver refuses a pane in deliveryQueues, deliverAsync waits behind it), so no
+     line is pasted while this one is being watched. */
   let release = () => {};
   const mark = new Promise((resolve) => { release = resolve; });
   deliveryQueues.set(target, mark);
   try {
     const pressed = tmux(['send-keys', '-t', target, 'Enter']);
     if (!pressed.ran || pressed.status !== 0) return 'unsent';
-    /* Waited without holding the board (#4468), as confirmAsync waits. */
-    /* The full watch (the box can take about a second to empty): this one does not hold the board. */
+    /* The full watch (the box can take about a second to empty), waited without holding the board (#4468). */
     const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS);
     let step = steps.next();
     while (!step.done) {
@@ -1062,6 +1073,10 @@ async function pressRememberedNow(target, card) {
 function scheduleUnsentRetries(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return;
+  /* One set at a time per line: a delivery that remembers the line again only adds a set once the last is done. */
+  const lastMs = UNSENT_RETRY_MS[UNSENT_RETRY_MS.length - 1];
+  if (kept.retriesUntil && Date.now() < kept.retriesUntil) return;
+  kept.retriesUntil = Date.now() + lastMs;
   const id = kept.id;
   const schedule = unsentRetryScheduler || (runner ? null : (ms, fn) => {
     const t = setTimeout(fn, ms);
