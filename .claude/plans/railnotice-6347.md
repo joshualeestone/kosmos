@@ -27,8 +27,9 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
   for the fixture fails instead of passing. It reads at the context viewport and again at 560px tall.
   RUN 2026-10-17 01:31 CDT (frozen 45554ebf18, light and dark): PASS at both heights, control and cap. With the
   surface-gate checks render-shell-noscroll-4872, render-allagents-4812 and render-phone-offline-718, all PASS
-  (trailers on 018ac88814). The arm prints only on failure, so the run records the verdict, not the numbers. (The first commit cited render-project-done-4583, which
-  only reads the notice text and never measured the layout; review round 1.)
+  (trailers on 018ac88814). The arm prints only on failure, so the run records the verdict, not the numbers.
+  (The first commit cited render-project-done-4583, which only reads the notice text and never measured the layout;
+  review round 1.)
 
 ## Weakest premise
 That 40vh leaves the agents list usable on a short window. The rule sits inside the 960px+ consolidated block, so
