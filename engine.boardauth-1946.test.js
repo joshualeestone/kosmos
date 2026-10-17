@@ -104,7 +104,7 @@ test('tokenOk(): a valid token (header) or a live session (cookie) is ok; a wron
   // #6358: a cookie is a session, looked up, never the token.
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('T') }), routingBase: base }), true);
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=T' }), routingBase: base }), false,
-    'the durable token in a cookie is refused: a cookie reaches whatever listens on 127.0.0.1');
+    'the durable token in a cookie is refused: a cookie only ever carries a session');
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('OTHER') }), routingBase: base }), false,
     'a session minted for another token is not a session for this one');
   assert.equal(boardauth.tokenOk({ token: 'T', req: req({ header: 'WRONG' }), routingBase: base }), false);

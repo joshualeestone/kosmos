@@ -461,8 +461,8 @@ function matches(presented, expected) {
 /** `Set-Cookie` value for a browser session (#6358: `value` is a mintSession id, never the board token).
  * HttpOnly so page JS cannot read it; SameSite=Strict so another site cannot cause it to be sent (defence in
  * depth alongside crossSiteWrite); Path=/ so every route carries it. Not Secure: the board is plain http on
- * loopback. A cookie is scoped by host, not port, so it reaches whatever listens on 127.0.0.1, which is why
- * it carries a session. Max-Age is the session cap: a cookie never outlives the session it names. */
+ * loopback. It carries a session rather than the token, so what a browser holds is worth less and lasts less
+ * long. Max-Age is the session cap: a cookie never outlives the session it names. */
 function cookieHeader(value) {
   return `${COOKIE_NAME}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor(SESSION_MAX_MS / 1000)}`;
 }
@@ -556,12 +556,12 @@ function bootNonce(req, routingBase) {
 
 // --- Browser sessions (#6358) -------------------------------------------------
 // The cookie carries a SESSION the board mints at bootstrap, never the board token itself. Sessions live in
-// this process's memory only, so every board restart ends every one. A board can only be impersonated on its
-// port while it is down, and whatever a page sends during that gap is a session the restarted board no longer
-// knows. The durable token stays in the mode-600 file and the CLI's header. Each session remembers the token
-// it was minted from, so the multi-world gate keeps working and a rotated token ends its sessions. The same
-// clock seam as the nonces (_setNonceClock) drives the cap in tests.
-const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;   // 7 days, a bound on a session taken while the board is up
+// this process's memory only, so every board restart ends every one: what a browser holds is worth less, and
+// lasts at most until the board next starts (or the cap below). The durable token stays in the mode-600 file
+// and the CLI's header. Each session remembers the token it was minted from, so the multi-world gate keeps
+// working and a rotated token ends its sessions. The same clock seam as the nonces (_setNonceClock) drives the
+// cap in tests.
+const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;   // 7 days: the longest one session lasts on a board that stays up
 const _sessions = new Map();   // session id -> { token, expiresAt }
 function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresAt <= now) _sessions.delete(id); } }
 function _resetSessions() { _sessions.clear(); }

@@ -84,7 +84,7 @@ test('#6358: the session cookie a ?token= bootstrap sets PROCEEDS past the guard
   assert.notEqual(r.code, 302);
 });
 
-test('#6358: the board token itself in a cookie is REFUSED (a cookie reaches any 127.0.0.1 listener, so it never holds the token)', async () => {
+test('#6358: the board token itself in a cookie is REFUSED (a cookie only ever carries a session)', async () => {
   assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${TOK}` } })).code, 403);
 });
 
