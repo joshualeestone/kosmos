@@ -17,7 +17,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    Allow and a quiet Not me (no Deny, no letter boxes);
  *  - Allow on the computer turns its sheet into "windowsbox is connected." with where to remove it;
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
- *    to connect to your Kosmos." for two) with Review;
+ *    to connect to your Kosmos." for a computer and a phone, #6388: "2 of your computers want to join." for two
+ *    computers) with Review;
  *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
  *  - #4794 slice 1: the computer's sheet says "Allow it if windowsbox shows this same code." and Allow sends that code (a
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value

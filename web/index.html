@@ -50340,7 +50340,7 @@ function paintAsk() {
      every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
      top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
      signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
-     card stays the compact "N devices want to connect" notice on every other view. */
+     card stays the compact one-line notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
