@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
+const { answerProof, boardTokens } = require('../test-support/boardproof-stub');
 const { execFile, execFileSync } = require('node:child_process');
 
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-data-'));
@@ -261,6 +262,8 @@ test('hookMain posts each keep to the board and never throws on a board that is 
 function stubBoard() {
   const seen = [];
   const server = http.createServer((req, res) => {
+    // #1765: the stub is the board, so it holds what this process's children inherit (data root and agent token).
+    if (answerProof(req, res, () => boardTokens(process.env.AGENT_WORKFORCE_DATA, String(process.env.KOSMOS_AGENT_TOKEN || '').trim()))) return;
     let b = '';
     req.on('data', (c) => { b += c; });
     req.on('end', () => {
