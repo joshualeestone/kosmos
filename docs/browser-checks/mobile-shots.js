@@ -2582,7 +2582,8 @@ async function run() {
                 });
               }
               await ctx.addInitScript((t) => { try { localStorage.setItem('kosmos-theme', t); } catch { /* no storage */ } }, theme);
-              // #6403: the switcher's one-time tip is not part of any screen here (a screen that wants it clears this).
+              // #6403: the switcher's one-time tip is not part of any screen here. This runs on every load, so a screen that
+              // wants the tip clears the key after the page has loaded, without reloading.
               await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch { /* no storage */ } });
               const page = await ctx.newPage();
               const pageErrors = [];

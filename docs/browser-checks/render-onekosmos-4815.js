@@ -249,7 +249,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
             const tip = document.getElementById('worldsw-tip');
-            const pe = { tip: getComputedStyle(tip).pointerEvents, x: getComputedStyle(document.getElementById('worldsw-tip-x')).pointerEvents };
+            const pe = { tip: getComputedStyle(tip).pointerEvents };
             const seenVisible = key();
             // The switcher hidden by the layout (a phone over Kosmos+): not marked.
             reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
@@ -268,10 +268,9 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const expectAfter = COMPUTERS_EXPECT_UNTIL > Date.now();
             delete document.hidden;
             await new Promise((r) => setTimeout(r, 50));
-            try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}   // as the earlier arms left it: seen here
             return { pe, seenVisible, seenHidden, owedWhileHidden, expectAfter };
           }, { worlds: WORLDS });
-          ok(`${t} #6403: the tip lets clicks through, its close button takes them`, r5.pe.tip === 'none' && r5.pe.x === 'auto', JSON.stringify(r5));
+          ok(`${t} #6403: the tip takes clicks itself (a click on it never lands on a control hidden under it)`, r5.pe.tip !== 'none', JSON.stringify(r5));
           ok(`${t} #6403 CONTROL: a tip that was shown is marked seen`, r5.seenVisible === '1', JSON.stringify(r5));
           ok(`${t} #6403: a tip the layout hides is not marked seen`, r5.seenHidden === null, JSON.stringify(r5));
           ok(`${t} #6403: a forced read owed while hidden brings its follow-ups when the tab is shown`, r5.owedWhileHidden && r5.expectAfter, JSON.stringify(r5));
@@ -294,12 +293,23 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const whileLaidOut = key();
             sw.style.removeProperty('display'); window.dispatchEvent(new Event('resize'));
             const afterResize = key();
-            try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
             return { whileHidden, afterShown, whileLaidOut, afterResize };
           }, { worlds: WORLDS });
           ok(`${t} #6403: a tip shown in a hidden tab is seen only once the tab is shown`, r6.whileHidden === null && r6.afterShown === '1', JSON.stringify(r6));
           ok(`${t} #6403: a tip the layout hid is seen once a resize shows it`, r6.whileLaidOut === null && r6.afterResize === '1', JSON.stringify(r6));
-          /* Shown once: after a reload with two computers from the start, no tip. */
+          /* Shown once, end to end: the page itself writes the seen flag (the tip shown and seen), and a click on the tip text
+             puts it away; then after a reload with two computers from the start, no tip. */
+          const wrote = await page.evaluate(async ({ worlds }) => {
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
+            const key = (() => { try { return localStorage.getItem('kosmos.switcherTipSeen'); } catch { return 'n/a'; } })();
+            document.getElementById('worldsw-tip-text').click();
+            const a = document.activeElement;
+            return { key, tipAfterClick: !document.getElementById('worldsw-tip').hidden, focus: a && a.id };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: the page writes the seen flag itself; a click on the tip's text puts it away, focus on the switcher`,
+            wrote.key === '1' && !wrote.tipAfterClick && wrote.focus === 'worldsw-btn', JSON.stringify(wrote));
           await page.reload();
           const again = await page.evaluate(async ({ worlds }) => {
             const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
@@ -412,6 +422,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 34 asserts = 136 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: seventeen, four of them CONTROLs).
-  process.exit(problems.length || pass + problems.length < 136 ? 1 : 0);
+  // 2 engines x 2 themes x 35 asserts = 140 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: eighteen, four of them CONTROLs).
+  process.exit(problems.length || pass + problems.length < 140 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
