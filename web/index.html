@@ -5365,6 +5365,11 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { max-height: 40vh; overflow-y: auto; }
   /* kosmos#6324: the team map's button and box take a line each in the wrapping head, and fold away with the column. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { flex: 0 0 100%; min-width: 0; }
+/* kosmos#6324: above the agents list's own reach. On touch a name's 44px hit area (#5218, an absolute ::after) runs up
+   into the head, and the list comes later in the page, so it painted over the button at the head's foot and took its
+   taps (render-phone-taps-5218, tablet 1366 one-screen). Positioned and raised, the button and the map answer for
+   themselves, and the name's reach stops at the rail head, which that check allows. */
+html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { position: relative; z-index: 1; }
   /* kosmos#6324: a big team's map scrolls inside its own box rather than growing the rail head without limit. */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 4px; }   /* padding: room at the sides for a node's focus ring (2px + 2px offset), which the scroll box would clip */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm::-webkit-scrollbar { display: none; }   /* #867: no scrollbar inside the agents rail */
