@@ -16,17 +16,15 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
    fixed height (PigeonPete's cap may change from 40vh to "fill the head").
 2. [x] web/index.html script: railPjMore() sets data-more when scrollHeight - scrollTop - clientHeight > 2; run on the
    box's scroll, a MutationObserver on its content (every painter, the retry handlers included), a ResizeObserver on
-   the box and on each row (the rail unfolding, a column width, a row reflowing; reviews 1 and 2) and window resize. scroll-padding-bottom 28px keeps a
-   keyboard-focused control above the fade (WCAG 2.4.11; review 1).
+   the box and on each row (the rail unfolding, a column width, a row reflowing; reviews 1 and 2) and window resize.
    The observer does not watch attributes, so toggling data-more cannot loop.
 3. [x] docs/browser-checks/render-projects.js: a #6349 arm after #6347's (copies of the notice's own row, removed in
    finally): no cue when short, fade while more is below, none at the end, back when scrolled up, none once short.
    It waits two frames per step for the page's own observer instead of calling railPjMore.
 4. [~] render-projects.js: first run red on the arm's premise (the base notice already overflows the cap at this
    viewport); the arm now measures what is below with the cue off and passed at af59859250 (light and dark). Review 1
-   added the unfold, gradient-colour and focus steps, review 2 the row-grew step, review 3 a focusin nudge for engines
-   that ignore scroll padding on a focus scroll (measured in Chromium only). Rerun and mutant (fade rule removed)
-   must both be read before the PR.
+   added the unfold and gradient-colour steps, review 2 the row-grew step. Rerun and mutant (fade rule removed) must
+   both be read before the PR.
 5. [ ] Screenshots of the grown box, light and dark, for the PR and the channel.
 
 ## Decided, not missed
@@ -36,6 +34,10 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
   colour would have to copy the head's, and a mismatch paints a visible band (PigeonPete).
 - Bottom only: the card is about rows BELOW the edge; a top cue for rows scrolled past is not asked for.
 - Text in the faded 28px strip is deliberately below full contrast while more is below: that dimming IS the cue.
-  Nothing is lost, because scrolling (or keyboard focus, which is kept clear of the strip) brings any row up to full
+  Nothing is lost, because scrolling brings any row up to full
   contrast. Rejected: a cue that does not cover text (a "N more" line), kept as the fallback. Review 8.
 - Weakest premise: that a 28px fade is noticed as "more below" by everyone. Measured nowhere yet with people.
+- No scroll padding and no focus nudge (reviews 1 to 9). A control focused under the fade is dimmed, not hidden, which
+  meets WCAG 2.4.11 at AA ("not entirely hidden"); keeping it fully clear is 2.4.12 (AAA). The padding and the JS
+  nudge that chased AAA produced a new defect in five reviews running, including a click that could be moved
+  mid-press, so they were removed. Weakest premise: that a dimmed focused button is clear enough to a keyboard user.
