@@ -1778,11 +1778,10 @@ function allowSelfQuietly() {
    the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
-   The browser is opened only once the snapshot holds a phone or browser sign-in from the last VOUCH_RECENT_S (in
-   `signins` or `devices`, kosmos#6407), so an
-   app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
-   also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
-   A joining computer is never allowed this way: computers pair by
+   The browser is opened only once the snapshot holds a phone or browser sign-in from the last VOUCH_RECENT_S
+   (in `signins` or `devices`, kosmos#6407), so an app-only sign-up never gets a stray sign-in tab. That recency is the
+   coordinator's first_seen, so a coordinator can also make the tab open inside the window; the tab carries S only in
+   its fragment, and allowing still needs the vouch. A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
 const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
@@ -1829,8 +1828,9 @@ function startVouch() {
 }
 /* From one read of the snapshot, two lists through the same filter: valid ids, not this computer's own sign-ins, not a
    device the person said Not me to, and never a computer (a joining one carries joining_computer, or a code wait).
-   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): every phone or browser sign-in on the account, read
-   only to decide whether to open the tab, never matched for an allow. `devices` now holds only what knocked at this
+   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): the phone and browser sign-ins the account still lists as
+   waiting for this computer (not ones it allowed), read only to decide whether to open the tab, never matched for an
+   allow. `devices` now holds only what knocked at this
    computer's gate, and the sign-in that arms the tab usually happened on the website, so it is in `signins` only. A
    tunnel that predates the field writes none: an empty list. null while there is no snapshot. */
 function vouchRows() {
