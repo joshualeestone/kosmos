@@ -50061,9 +50061,9 @@ paintStyles(true);
    while shown; the two buttons keep their colours whatever the history,
    because swapping the gold one on a re-ask is itself a mis-tap hazard. */
 const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, said: '', saidAt: 0, removing: null,
-  /* #6315: the compact notice's dismissal (askNote*): a poll has read the list, the keys it names now, this tab's own
-     record, and whether storage last failed. */
-  polled: false, noteKeys: [], noteDismissed: [], noteStoreFailed: false,
+  /* #6315: the compact notice's dismissal (askNote*): the keys it names now, this tab's own record, and whether
+     storage last failed. */
+  noteKeys: [], noteDismissed: [], noteStoreFailed: false,
   /* kosmos#5786 (b): the browser this computer opened and allowed without asking (the engine's connected_here), the id
      whose notice was put away, and what its Undo said. */
   here: null, hereGone: '', hereSaid: '', hereSaidFor: '', hereSaidAt: 0 };
@@ -50172,7 +50172,6 @@ async function pollAsk() {
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
-  ASK.polled = true;   // #6315: the list is known (an empty list before the first poll means "not read yet")
   ASK.email = r.email || '';
   ASK.here = r.connected_here && typeof r.connected_here.device_id === 'string' ? r.connected_here : null;
   /* A finished row leaves once the tunnel stops listing the device (allowed
@@ -50238,9 +50237,9 @@ function paintAsk() {
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
     // A request is its device and when it asked, so the same device asking again later is a new request.
     ASK.noteKeys = live.map((d) => String(d.device_id) + '@' + (d.first_seen || '')).concat(here ? ['here:' + askHereKey(here)] : []);
+    // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind): a
+    // request asking again has a new first_seen, so it is not in the record.
     const put = askNoteDismissed();
-    // With nothing waiting (once the list has been read) the record is dropped.
-    if (ASK.polled && !ASK.devices.length && !here && put.length) askNoteSave([]);
     // Hidden while every request it would name was put away; only one not there then brings it back.
     if (!hide && ASK.noteKeys.length && ASK.noteKeys.every((k) => put.indexOf(k) !== -1)) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
@@ -50358,7 +50357,7 @@ async function askAct(act, id, at) {
     askNoteDismiss(); paintAsk();
     // The button is gone with the notice; focus goes to the current view's tab, or on a phone (tabs in a closed menu)
     // to the button that opens them, not to the page body.
-    const t = [document.querySelector('#tabs [aria-selected="true"]')].concat(Array.from(document.querySelectorAll('#tabs [data-tab], [aria-controls="tabs"]')))
+    const t = [document.querySelector('#tabs [aria-selected="true"]'), document.querySelector('[aria-controls="tabs"]')]
       .find((el) => el && el.offsetParent);
     if (t) t.focus();
     return;

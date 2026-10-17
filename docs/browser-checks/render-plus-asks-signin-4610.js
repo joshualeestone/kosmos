@@ -142,15 +142,13 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await serve(WITH_NEW);
       const n1 = await shownNote();
       chk(n1.shown, '[' + W + '] #6315 CONTROL: a new request brings the notice back', JSON.stringify(n1));
-      /* With nothing waiting the record is dropped, so the same device asking again later is shown. */
+      /* The record is never cleared on an empty list: the same requests after a blip stay put away. */
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
       await serve([]);
       await serve(WITH_NEW);
-      chk((await shownNote()).shown, '[' + W + '] #6315 after nothing was waiting, the same requests asking again show the notice');
-      /* The same device asking again later (a newer first_seen) is a new request, even if nothing cleared the record. */
-      await page.click('#askcard .asknote-x');
-      await page.waitForTimeout(150);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 a list that read empty for a moment does not undo the dismissal (the same requests)');
+      /* The same device asking again later (a newer first_seen) is a new request. */
       await serve(WITH_NEW.map((d) => (d.device_id === 'd-safari' ? Object.assign({}, d, { first_seen: now() + 5 }) : d)));
       chk((await shownNote()).shown, '[' + W + '] #6315 the same device asking again (newer first_seen) shows the notice');
       /* Kept across a reload, and another tab's dismissal applies here (read from storage each paint). */
@@ -158,7 +156,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.waitForTimeout(150);
       await page.reload({ waitUntil: 'networkidle' });
       await page.evaluate(async () => { showTab('agents'); await pollAsk(); paintAsk(); });
-      const loaded = await page.evaluate(() => ASK.polled && ASK.devices.length > 0);
+      const loaded = await page.evaluate(() => ASK.devices.length > 0);
       chk(loaded && !(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload (the list loaded first)', String(loaded));
       await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
       chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with the stored record gone (another tab cleared it), the notice shows');
