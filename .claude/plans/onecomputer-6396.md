@@ -17,6 +17,10 @@ there is nothing to tell apart, which is Josh's point.
 ## Steps
 1. web/index.html worldswOneKosmos: sw.hidden = !COMPUTERS_OPENABLE (the MULTI_KOSMOS path is untouched).
 2. render-onekosmos-4815.js: one computer, not signed in, boot-not-answering and hidden-tab arms expect nothing shown;
-   four computers is the control; assertion floor 56 -> 52 (two one-computer asserts merged, x4 runs).
+   four computers is the control. Reviews 1, 2: hiding with the menu or the At a glance sheet open closes them and
+   moves focus to the first visible of the K mark, the Kosmos+ bar's menu and the page heading (the login and restart
+   notices' list), in tab and consolidated layouts; the sheet's scroll lock is checked before and after. Assertion
+   floor 56 -> 68 (16 off-arms + 1 control, x4 runs).
 3. render-dm-chatfirst-718.js: its top-left-name size arm gets two computers so it still measures the name.
-4. Mutant (sw.hidden = false): 16 of 52 red. Both checks green; six node tests touching the switcher green.
+4. Mutants red: the hide itself, the focus move, the sheet close. Both checks green; six node tests touching the
+   switcher green.
