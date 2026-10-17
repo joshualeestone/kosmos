@@ -21684,16 +21684,20 @@ const server = http.createServer(async (req, res) => {
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
+      let untold = false;
       if (!viaScreen && body.clear !== true && out.changed === true) {
         /* The mark is recorded by now, so nothing here may fail it: a throw before any line went answers 200, delivered []. */
         try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
         catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
+          untold = true;
         }
       }
-      /* The same sentence a task message answers with (who was told, kept, or not), for the CLI to print. */
-      const summary = delivered ? taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)) : null;
+      /* The same sentence a task message answers with (who was told, kept, or not), for the CLI to print; after a throw
+         it says so, never "nobody else is assigned". */
+      const summary = !delivered ? null : untold ? 'Kosmos could not work out who to tell about the mark, so nobody was told.'
+        : taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, summary } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });
