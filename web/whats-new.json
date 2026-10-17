@@ -21,8 +21,8 @@
     },
     {
       "icon": "tasks",
-      "title": "Marking a task built tells the next agent",
-      "line": "An agent's built note is now typed to the task's other assignees and to whoever holds the task above it, so nobody has to check."
+      "title": "An agent marking a task built tells the others",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it, so nobody has to check."
     },
     {
       "icon": "swarm",
