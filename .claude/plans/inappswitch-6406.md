@@ -16,6 +16,14 @@ chosen; an unchosen mode on Windows still sends it to the browser, as before); o
 browser (Mac createWebViewWith opens the system browser on a run/both computer). Every "open another computer" link
 the board renders follows the same rule: the switcher, its phone-menu copy, and the Agents view's Open links (#4812).
 
+## Call (review 2)
+Every "open another computer" link stays in the window, agent cards included (the ruling is about switching computers,
+and an agent on another computer is that computer). A same-window switch replaces this board, so unsent text in a
+composer goes, as on a reload today (the page has no beforeunload). Rejected: keeping agent cards on a new tab (the
+Agents view has no composer open, so the loss there is unlikely, and a browser tab breaks the ruling). Weakest premise:
+that nobody switches mid-message; if that bites, a "you have an unsent message" check belongs with #6411.
+One helper, computersLinkTarget, decides the target for all four sites (a source test pins that).
+
 ## Known limits (native app, follow-up card)
 - Until step 2, the other computer's gate asks to sign in once in that window (its session then lasts a year).
 - Getting back is the other computer's switcher, which goes to this computer's Kosmos+ address (a sign-in once there),
