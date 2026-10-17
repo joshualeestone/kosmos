@@ -29,6 +29,7 @@ function constLine(name) {
 const RENDER = slice('computersRender');
 const FETCH = slice('computersFetch');
 const RE = slice('computerAddressOk');
+const INAPP = slice('computersInApp');   // #6406
 
 function dom() {
   const d = makeDom();
@@ -36,7 +37,7 @@ function dom() {
   const list = d.add('worldsw-computers-list', 'div');
   return { d, box, list };
 }
-function render(data, visibleBefore) {
+function render(data, visibleBefore, win) {
   const t = dom();
   if (visibleBefore) {
     // As a previous render left it: visible, holding a row, so both the hide AND the emptying are tested.
@@ -44,7 +45,7 @@ function render(data, visibleBefore) {
     t.list.appendChild(t.d.document.createElement('div'));
   }
   // eslint-disable-next-line no-new-func
-  new Function('document', '_d', `${RE}${RENDER}\ncomputersRender(_d);`)(t.d.document, data);
+  new Function('document', '_d', 'window', `${RE}${INAPP}${RENDER}\ncomputersRender(_d);`)(t.d.document, data, win || {});
   return t;
 }
 const LIST = {
@@ -67,6 +68,17 @@ test('hidden when there is no list: not signed in ({ ok: false }), a failed read
     assert.equal(box.hidden, true, JSON.stringify(data));
     assert.equal(list.children.length, 0, JSON.stringify(data));
   }
+});
+
+test('#6406: in the Kosmos app (Mac bridge, or Windows WebView2) an online computer opens in this window; in a browser, a new tab', () => {
+  for (const [win, label] of [[{ webkit: { messageHandlers: { kosmosBadge: {} } } }, 'Mac app'], [{ chrome: { webview: {} } }, 'Windows app']]) {
+    const a = render(LIST, false, win).list.children[1];
+    assert.equal(a.href, 'https://agent1s.kosmosplus.com/', label);
+    assert.ok(!a.target, label + ': no new window, so the app keeps it in its own window');
+    assert.equal(a.rel, 'noopener noreferrer', label + ': this board\'s address never travels');
+  }
+  // CONTROL: a browser (no bridge) keeps the new tab.
+  assert.equal(render(LIST, false, {}).list.children[1].target, '_blank');
 });
 
 test('this computer is marked and not a link; an ONLINE computer is a new-window link to its own address; offline and updating ones are plain rows that say so', () => {
