@@ -294,7 +294,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /ran out/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       const refused = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' '));
-      chk(/That code ran out\. A new one is on its way\./.test(refused) && !/code_expired/.test(refused), `${tag} #4794: a refused confirm (expired) is worded`, refused);
+      chk(/That code ran out\. Press Try again for a new one\./.test(refused) && !/code_expired/.test(refused), `${tag} #4794/#6353: a refused confirm (expired) is worded, pointing at Try again`, refused);
       /* Review 2: the same refusal again must leave the button pressable (an identical repaint was skipped before). */
       confirmRefuse = 'code_expired';
       await page.click('#plus-join-match');
@@ -328,6 +328,30 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       jr = await readJoin();
       chk(jr.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !jr.button,
         `${tag} #4794 waiting: too many tries says the recovery`, JSON.stringify(jr));
+      /* #6353: still held, the code ran out, and no new attempt starts until the person presses Try again (a night with
+         nobody here used to spend every try). The block says so and offers the button; pressing it posts the retry, and
+         while the tunnel starts the new attempt the block says one is on its way. */
+      let retryPosts = 0; let retryRefuse = '';
+      await page.route('**/api/remote/join/retry', (route) => { retryPosts += 1;
+        if (retryRefuse) { const why = retryRefuse; retryRefuse = ''; return route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: why }) }); }
+        join = { ...join, needs_retry: false }; return route.fulfill(json({ ok: true })); });
+      join = { ...join, held: true, failed: false, needs_retry: true, confirm_expired: true, confirmed: false, join_code: '', on: null };
+      jr = await readJoin();
+      const retryBtn = await page.evaluate(() => { const b = document.getElementById('plus-join-retry'); return b ? { text: b.textContent, enabled: !b.disabled } : null; });
+      chk(jr.shown && jr.text === 'That code ran out before it was matched. When you are at both computers, press Try again for a new code. Try again' && !jr.button && retryBtn && retryBtn.enabled,
+        `${tag} #6353 waiting: a code that ran out waits for Try again, and says so`, JSON.stringify({ jr, retryBtn }));
+      retryRefuse = 'attempts_used';
+      await page.click('#plus-join-retry');
+      await page.waitForFunction(() => /Too many tries\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      const usedSay = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
+      chk(/Too many tries\./.test(usedSay) && !/attempts_used/.test(usedSay), `${tag} #6353: a refused Try again is worded, never the raw tag`, usedSay);
+      const postsBefore = retryPosts;
+      await page.click('#plus-join-retry');
+      await page.waitForFunction(() => /A new one is on its way/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      jr = await readJoin();
+      chk(retryPosts === postsBefore + 1 && jr.text === 'That code ran out. A new one is on its way.' && !(await page.$('#plus-join-retry')),
+        `${tag} #6353: Try again posts once, then the block says a new code is on its way (no button)`, JSON.stringify({ posts: retryPosts - postsBefore, jr }));
+      join = { ...join, needs_retry: false, confirm_expired: false };
       /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
          held, but the code stays until it is confirmed here. The block must still show it, with the button. */
       join = { ...join, held: false, failed: false, confirm_expired: false, confirmed: false, join_code: '246 810', on: 'homemac' };

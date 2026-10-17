@@ -10829,6 +10829,22 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not confirm that' }));
     return;
   }
+  /* #6353: the joining computer's "Try again" after a code ran out. Screen-only like the confirm, for the same reason:
+     a new attempt is a try, and the point of asking is that a PERSON is back, not a process re-asking on a loop. */
+  if (pathname === '/api/remote/join/retry' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can ask for a new code.' }); return; }
+        const got = await remote.joinRetry();
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not ask for a new code' }));
+    return;
+  }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
     remote.devicesList()
       .then((list) => {

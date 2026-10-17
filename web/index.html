@@ -51418,8 +51418,8 @@ function plusJoinLive(j) {
   if (!j || j.supported !== true) return false;
   return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
 }
-/* Allowed, but the code ran out before it was confirmed here. The tunnel says so only once it is no longer held: while
-   held, the round that withdraws a code also starts a new attempt and clears the flag (pairing.rs owe_commitment). It
+/* Allowed, but the code ran out before it was confirmed here. While held, a code that ran out says needs_retry instead
+   (#6353: no new attempt starts until the person presses Try again; pairing.rs owe_commitment), so this needs not held. It
    stays until this computer pairs again, so it is NOT live: said once, as the ending of a pairing this page watched
    (review 6), never polled for (each read is a signed round) and never claimed on a later load. */
 function plusJoinRanOut(j) {
@@ -51481,6 +51481,12 @@ function paintPlusJoin() {
   const code = !stale && /^\d{3} \d{3}$/.test(String(j.join_code || '')) ? j.join_code : '';
   if (code !== PLUS_JOIN_LAST_CODE) { PLUS_JOIN_MSG = ''; PLUS_JOIN_LAST_CODE = code; }   // a new code: an old refusal is not about it
   if (j.failed) html = '<p class="plus-join-say">Too many tries. On ' + name + other + ', press Not me on this request, then sign this computer in again.</p>';
+  /* #6353: the code ran out and nothing restarts by itself (each new code is a try, and a night with nobody here used to
+     spend all of them). The person asks for the next one. */
+  else if (j.needs_retry === true) html = '<p class="plus-join-say">That code ran out before it was matched.</p>'
+    + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
+    + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
+    + (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
      the code steps back, small and grey. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
@@ -51502,6 +51508,25 @@ function paintPlusJoin() {
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
   if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
 }
+/* #6353: Try again. The tunnel starts one new attempt on its next round, so the page reads the pairing straight after. */
+document.getElementById('plus-join').addEventListener('click', async (e) => {
+  const b = e.target.closest('#plus-join-retry');
+  if (!b || b.disabled) return;
+  b.disabled = true;
+  let res = null;
+  try { res = await fetch('/api/remote/join/retry', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }); } catch { res = null; }
+  PLUS_JOIN_GEN += 1;
+  if (res && res.ok) PLUS_JOIN_MSG = '';
+  else {
+    const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
+    PLUS_JOIN_MSG = why === 'attempts_used' ? 'Too many tries.'
+      : why === 'nothing_to_retry' ? 'A new code is already on its way.'
+        : plusWords(why || 'That did not go through. Try again.');
+  }
+  PLUS_JOIN_AT = 0;
+  { const el = document.getElementById('plus-join'); if (el) el.__lastJoin = null; }
+  paintPlusJoin(); plusJoinTick();
+});
 document.getElementById('plus-join').addEventListener('click', async (e) => {
   const b = e.target.closest('#plus-join-match');
   if (!b || b.disabled) return;
@@ -51522,7 +51547,7 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   else {
     const said = res ? await res.json().catch(() => null) : null; const why = said && said.error;
     /* The tunnel's confirm refusals, worded (engine joinConfirm tags them). */
-    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. A new one is on its way.'
+    PLUS_JOIN_MSG = why === 'code_expired' ? 'That code ran out. Press Try again for a new one.'
       : why === 'code_changed' ? 'That is not the code on this screen any more. Check the new one, then press The codes match again.'
         : plusWords(why || 'That did not go through. Try again.');
   }
