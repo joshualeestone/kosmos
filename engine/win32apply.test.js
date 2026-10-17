@@ -281,7 +281,8 @@ async function recordWrites(run, when) {
 function allowedWrite(c, p) {
   if (under(p, c.work) && path.resolve(p) !== path.resolve(c.work)) return true;
   if (win32update.ENTRIES.some((entry) => under(p, path.join(c.root, entry)))) return true;
-  for (const name of [win32anchor.UPDATE_JOURNAL_NAME, win32anchor.UPDATE_STATUS_NAME, win32anchor.POINTER_NAME, win32anchor.NODE_NAME]) {
+  /* #4382: and the hold a connect computer's rollback leaves, which a finished forward update lets go. */
+  for (const name of [win32anchor.UPDATE_JOURNAL_NAME, win32anchor.UPDATE_STATUS_NAME, win32anchor.POINTER_NAME, win32anchor.NODE_NAME, win32anchor.UPDATE_HELD_NAME]) {
     const file = path.join(c.anchor, name);
     if (path.resolve(p) === file) return true;
     if (path.dirname(path.resolve(p)) === path.resolve(c.anchor) && path.basename(p).startsWith(name + '.')) return true;

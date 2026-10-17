@@ -421,6 +421,38 @@ function boardTaskRefusal(boardTask) {
   return null;
 }
 
+/**
+ * #4382: B0's board preconditions on a computer that connects to agents on another computer, in place of
+ * boardTaskRefusal's. Such a computer has stopped its board and switched its logon task off on purpose
+ * (#4381), so "a board its task started" can never hold there, and without this nothing could update it.
+ * What must hold instead, each read now: the mode file still reads exactly `connect` (so the helper's own
+ * mode check starts no board afterwards, win32apply.startAndConfirm), and no board answers on the port (a
+ * board that answers updates itself, and two updaters must never race). `c` is
+ * `{ connects(), boardAnswers() }`, both required; anything that is not an exact yes / no refuses.
+ * connects() reads the file again here; boardAnswers() is the caller's probe, taken just before calling
+ * (a probe is asynchronous and B0 is not); a board that starts after it is met by the helper's own probe
+ * at H2.
+ */
+function connectComputerRefusal(c) {
+  if (!c || typeof c.connects !== 'function' || typeof c.boardAnswers !== 'function') {
+    return 'Kosmos could not tell whether this computer connects to agents elsewhere, so it did not start the update';
+  }
+  if (c.connects() !== true) {
+    return 'this computer is not set to connect to agents on another computer, so its own board keeps it updated';
+  }
+  if (c.boardAnswers() !== false) {
+    return 'a Kosmos board is running on this computer, so the update was left to it';
+  }
+  return null;
+}
+
+/** B0's board preconditions for this run: the connect computer's (#4382) when the caller says it is one,
+    the board task's otherwise. */
+function boardRefusal(o) {
+  if (o.connectComputer) return connectComputerRefusal(o.connectComputer);
+  return boardTaskRefusal(o.boardTask || defaultBoardTask());
+}
+
 /** win32board's answers. A process that may not run schtasks (win32job's one answer, #2973: a test
     process or a board a test spawned) and reaches this with no seam refuses here, in a test process
     by throwing (convention 3). win32board.status() refuses there too. */
@@ -1236,7 +1268,9 @@ function verifyStaged(ctx, latest) {
  *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
  * runStagedNode, liveExecutionAllowed, limits, log, lockHooks, and boardTask
- * (`{ startedByTask(), status() }`, B0's board-task preconditions).
+ * (`{ startedByTask(), status() }`, B0's board-task preconditions), or, on a computer that connects to
+ * agents elsewhere (#4382), connectComputer (`{ connects(), boardAnswers() }`, connectComputerRefusal) in
+ * its place.
  * `whileLocked(result, ctx)` runs after a successful stage while the lock is still held (B5 writes
  * the journal there); a throw from it fails the prepare.
  */
@@ -1260,7 +1294,7 @@ async function prepare(opts) {
     return { ok: false, because: LIVE_REFUSAL };
   }
   /* After the live gate, so a process that never armed it never queries the scheduler. */
-  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  const taskRefusal = boardRefusal(o);
   if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
 
   const work = path.join(root, WORK_DIRNAME);
@@ -1435,7 +1469,11 @@ async function begin(opts) {
       return { ok: false, because: `an earlier update to ${j.to.version} has not finished, so Kosmos is finishing it now, or putting ${j.from.version} back. Try again in a minute` };
     }
     log(`cleared an earlier update no resumer could finish (${settled.action}${settled.because ? ': ' + settled.because : ''})`);
+    if (o.resumeOnly) return { ok: false, because: `an earlier update to ${j.to.version} could not be finished, and was cleared` };
   }
+  /* #4382: resumeOnly asks only for the unfinished-journal handling above (a computer with no board, whose
+     logon shim never runs to resume one), never for a new install. */
+  if (o.resumeOnly) return { ok: false, because: 'there is no unfinished update to finish' };
 
   const script = path.join(root, 'app', 'engine', path.basename(__filename));
   if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'app', 'engine', apply.MODULE_FILE_NAME))) {
@@ -1608,7 +1646,7 @@ async function rollbackToPrevious(opts) {
     liveExec.refuseOrWarn('engine/win32update.js', 'rollbackToPrevious', ['--root', root]);
     return { ok: false, because: LIVE_REFUSAL };
   }
-  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  const taskRefusal = boardRefusal(o);
   if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
 
   const kept = keptPreviousBuild(root);
@@ -1725,7 +1763,7 @@ function parseCliArgs(argv) {
  * `--apply --wait`: the helper's outcome for this journal, read from the status it writes. A journal
  * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.answersAs) is a
  * success too: the update is in, and only its record is still being finished. Seams: sleep, now,
- * waitMs, probe.
+ * waitMs, probe, and noBoard (#4382: a computer with no board, where the journal's own record counts).
  */
 async function waitForOutcome(journalAt, token, seams) {
   const s = seams || {};
@@ -1739,10 +1777,29 @@ async function waitForOutcome(journalAt, token, seams) {
     const status = readJson(statusAt);
     if (status && status.journal === token && status.outcome) return status;
     const j = apply.readJournal(journalAt).journal;
+    /* #4382: on a computer with no board (s.noBoard) nothing will answer as the new build, so the helper's
+       record is the only witness. A status that could not be written (finishUpdated only logs that) would
+       otherwise run this to its limit and report a failure for an update that went in. So there, a journal
+       finished as updated counts at once. One still at `confirmed` (H7 stood without a board, and the
+       helper is finishing up, or could not record the finish) counts only when the wait runs out, below:
+       a helper that is merely still cleaning up is given its time first. */
+    if (s.noBoard && j && j.token === token && j.finished === true && j.outcome === 'updated') {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: 'the update journal records it as done; its status record was not written',
+      };
+    }
     if (j && j.token === token && j.phase === 'confirmed' && apply.answersAs(await probe(j.board.port), j.to.identity)) {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
         because: `the board answers as ${j.to.identity}; Kosmos is still finishing up the record of the update`,
+      };
+    }
+    if (now() >= until && s.noBoard && j && j.token === token && !j.finished && j.phase === 'confirmed') {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: 'the update journal records the new build as in place; its finish was not recorded in time',
+        finishUnrecorded: true,
       };
     }
     if (now() >= until) return { outcome: null, because: `no outcome was recorded within ${Math.round((s.waitMs || CLI_WAIT_MS) / 1000)} seconds; read ${statusAt} and ${journalAt}` };
@@ -1780,28 +1837,40 @@ async function applyCli(a, out, seams) {
   }
   const answer = await (s.probe || win32handoff.probeBoard)(port);
   const fromIdentity = win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), world);
-  const task = (s.boardStatus || win32board.status)() || {};
+  /* Read only where the board-task rule applies (below): a connect computer has no task to ask about. */
+  const readTask = () => (s.boardStatus || win32board.status)() || {};
   /* #3286: the report Kosmos.exe reads (its RunEngineHelper), one tagged line: UPDATED <root> once the
      new build answers, REFUSED <sentence> otherwise. */
   const report = (line) => {
     if (!a.report) return;
     try { fs.writeFileSync(a.report, line.replace(/\s*\r?\n\s*/g, ' ') + '\r\n', 'utf8'); } catch (e) { out(`could not write the report to ${a.report}: ${firstLine(e)}\n`); }
   };
+  /* #4382: a computer that connects to agents elsewhere has no board for its task to have started (#4381
+     stopped it and switched the task off), so a newer download run there (#3286, and setup.ps1, which
+     hands its zip to this same path) is held to the connect computer's preconditions instead: the mode
+     file reads connect, and nothing answers on the port. Any other computer keeps the board-task rule. */
+  const readsConnect = s.readsConnect || (() => require('./win32apply').readsConnect(process.env, os.homedir()));
+  const boardRule = readsConnect() === true && answer.answering !== true
+    ? { connectComputer: { connects: () => readsConnect() === true, boardAnswers: () => answer.answering === true } }
+    : {
+      /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
+         only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
+         CSV cannot be read, times out or meets a locale. */
+      boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: readTask },
+    };
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
     source: a.source ? path.resolve(a.source) : undefined,
     liveExecutionAllowed: () => true,
-    /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
-       only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
-       CSV cannot be read, times out or meets a locale. */
-    boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+    ...boardRule,
     ...(s.begin || {}),
   });
   out(JSON.stringify(r, null, 2) + '\n');
   if (!r.ok) { report('REFUSED ' + r.because); return 1; }
   if (!a.wait) { report('STARTED ' + root); return 0; }
   const token = (require('./win32apply').readJournal(r.journal).journal || {}).token;
-  const status = await waitForOutcome(r.journal, token, { probe: s.probe, ...(s.wait || {}) });
+  /* #4382: on a connect computer no board is started to answer as the new build, so the journal's record counts. */
+  const status = await waitForOutcome(r.journal, token, { probe: s.probe, noBoard: Boolean(boardRule.connectComputer), ...(s.wait || {}) });
   out(JSON.stringify(status, null, 2) + '\n');
   report(status.outcome === 'updated' ? 'UPDATED ' + root : 'REFUSED ' + (status.because || `the update ended as ${status.outcome || 'unknown'}`));
   return status.outcome === 'updated' ? 0 : 1;
@@ -1834,7 +1903,7 @@ async function cliMain(argv, write, seams) {
 }
 
 module.exports = {
-  prepare, begin, rollbackToPrevious, keptPreviousBuild, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  prepare, begin, rollbackToPrevious, keptPreviousBuild, connectComputerRefusal, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
