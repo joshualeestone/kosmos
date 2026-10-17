@@ -486,7 +486,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
    agent; [] when nobody else is on it) and `attempted` (how many lines were tried, which spends the valve), with
    `refusal` when the valve said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed. */
-// #6330: how long one built line may hold the mark's answer (under the Mac CLI's 15 s).
+// #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
 function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
 async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
@@ -537,15 +537,18 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
         { projectId, task: t.number, person: false });
       if (!outcome) {
-        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: past the wait the line is
-           still queued and typed, and is said as may have been told. */
+        /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: the wait for the typing is
+           bounded (the checks before it are not, and are quick); past it the line is still queued and typed, and is said
+           as may have been told. A late failure is logged, since the answer has gone. */
         const sending = chat.deliverAsync(m, line, roster);
         let timer = null;
         const waited = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }), BUILT_TELL_WAIT_MS);
           if (timer.unref) timer.unref();
         });
-        sending.catch(() => {});
+        sending.then((late) => {
+          if (late && late.state === chat.DELIVERY.COULD_NOT) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + (late.because || '') + '\n');
+        }, () => {});
         try { outcome = await Promise.race([sending, waited]); } finally { clearTimeout(timer); }
       }
     } catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
