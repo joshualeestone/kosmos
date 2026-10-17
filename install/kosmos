@@ -4723,6 +4723,7 @@ cmd_task() {
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
+      say "      --file <path>                                          send the delivered file's fingerprint (sha256) with the mark"
       say "      --clear                                                  take the built mark off"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
@@ -4841,11 +4842,13 @@ cmd_task() {
     built)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"]   (a note on how each check went, if it has checks; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
-      local _c _cpast=0   # kosmos#4889: --clear is built's one option; any other --word is refused
+      local _c _cpast=0 _cfile=0   # kosmos#4889: --clear and (#6330) --file <path> are built's options; any other --word is refused
       for _c in "${@:3}"; do
         if [ "$_cpast" = 1 ]; then break; fi
-        case "$_c" in --) _cpast=1 ;; --clear) ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"]   (a note on how each check went, if it has checks; or --clear to take the mark off)" "$_c" ;; esac
-      done ;;
+        if [ "$_cfile" = 1 ]; then _cfile=2; continue; fi
+        case "$_c" in --) _cpast=1 ;; --clear) ;; --file) _cfile=1 ;; --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "task built" "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)" "$_c" ;; esac
+      done
+      [ "$_cfile" != 1 ] || { say "--file needs the path of the delivered file."; exit 2; } ;;
     assign)
       # #4914: <project> <task-number> <agent|me|nobody> [--part <n>], checked before the board as --parent is.
       local _usage="Usage: kosmos task assign <project-id> <task-number> <agent|me|nobody> [--part <part-number>]"
@@ -5164,15 +5167,25 @@ cmd_task() {
       # #3951: mark a task built, waiting to be released or checked (the Tasks page's "Built but waiting"), or take
       # the mark off with --clear. Every arg after the number that is not --clear is the note, folded as message does.
       # The agent token names who marked it (the pane is the fallback, as for message).
-      local project num note="" clear=false _b
+      local project num note="" clear=false _b file="" _bfile=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
       local _bpast=0
       for _b in "$@"; do
+        if [ "$_bfile" = 1 ]; then file="$_b"; _bfile=2; continue; fi
         if [ "$_bpast" = 0 ] && [ "$_b" = "--" ]; then _bpast=1; continue; fi   # kosmos#4889
+        if [ "$_bpast" = 0 ] && [ "$_b" = "--file" ]; then _bfile=1; continue; fi   # #6330 slice 2
         if [ "$_bpast" = 0 ] && [ "$_b" = "--clear" ]; then clear=true; else note="${note:+$note }$_b"; fi
       done
       if [ "$clear" = true ] && [ -n "$note" ]; then
         say "--clear takes the mark off, so it takes no note. Run it without the note."; exit 2
+      fi
+      # #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file.
+      local fingerprint=""
+      if [ -n "$file" ]; then
+        [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
+        [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
+        fingerprint=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')
+        case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos could not work out that file's fingerprint."; exit 1 ;; esac
       fi
       local esc_note esc_pane
       # Control bytes other than tab, CR and newline would make the JSON invalid (review round 1): dropped, as
@@ -5184,7 +5197,7 @@ cmd_task() {
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/built" \
         -H 'content-type: application/json' \
-        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+        --data "{\"note\":\"$esc_note\",\"clear\":$clear,\"from_pane\":\"$esc_pane\"${fingerprint:+,\"fingerprint\":\"$fingerprint\"}}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "mark that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
