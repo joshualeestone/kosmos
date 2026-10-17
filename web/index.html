@@ -18591,9 +18591,36 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4194: the phone app is in testing, so a Mac user without it is not misled into thinking it can be installed. -->
       <p class="dhint" id="phone-notify-testing" style="margin:6px 0 0;">The Kosmos phone app is still in testing. For now it is an Android test build, and it is not in the App Store or Google Play yet. Until it is on your phone, these will not reach your phone.</p>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
-        <div><b>Buzz my phone when an agent needs me</b>
-          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time when an agent needs you or answers you, never what they said. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
+        <div><b>Buzz my phone about my agents</b>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. Turn this on, then choose below what buzzes your phone. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
         <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
+      </div>
+      <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
+           (the client unhides it in paintKinds). Each button toggles its own kind through
+           PUT /api/phone-notify { kind, on }; the server's `kinds` says which are on. postedRoom
+           is off by default (a busy room is opt-in); the rest are on. -->
+      <div id="phone-notify-kinds" style="margin-top:6px;" hidden>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent needs me</div>
+          <button class="btn" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent answers me</div>
+          <button class="btn" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent replies to a post of mine</div>
+          <button class="btn" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When work is ready for my check</div>
+          <button class="btn" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When anyone posts in a project room I am on
+            <p class="dhint" style="margin:2px 0 0;">Off to start with, so a busy room does not fill your phone. At most one buzz per room every few minutes.</p></div>
+          <button class="btn" id="pn-kind-postedRoom" data-kind="postedRoom" type="button" aria-pressed="false">Off</button>
+        </div>
       </div>
       <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
       <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
@@ -84559,11 +84586,35 @@ setInterval(ageCheckedStamp, 1000);
   function el(id) { return document.getElementById(id); }
   function setMsg(text) { var m = el('phone-notify-msg'); if (m) m.textContent = text || ''; }
 
+  // #6254: the per-kind sub-switches, in the page's order.
+  var KIND_BTNS = ['needsYou', 'replied', 'postedMention', 'ready', 'postedRoom'];
+  /* Paint the sub-switches from the board's `kinds`. Shown ONLY while the whole
+     feature is on and connected -- off, not connected, or unavailable all hide
+     the block, so a kind can be changed only when it could actually send. Each
+     button reads its own stored value ('On'/'Off'); the server resolves the
+     defaults, so a missing value never shows here. */
+  function paintKinds(st) {
+    var box = el('phone-notify-kinds');
+    if (!box) return;
+    var show = !!(st && st.available && st.connected && st.on && st.kinds);
+    box.hidden = !show;
+    if (!show) return;
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      var name = KIND_BTNS[i];
+      var b = el('pn-kind-' + name);
+      if (!b) continue;
+      var on = st.kinds[name] === true;
+      b.textContent = on ? 'On' : 'Off';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
   /* Paint from what the board said: on/off, and whether this computer is
      connected to Kosmos+. */
   var current = null;
   function paint(st) {
     current = st;
+    paintKinds(st);   // #6254: the sub-switches follow the master on every paint (hidden unless on + connected)
     // Shown only when the board says phone notifications are available (the
     // ship gate in engine/phonenotify.js); hidden otherwise, including when the
     // setting could not be read.
@@ -84621,13 +84672,47 @@ setInterval(ageCheckedStamp, 1000);
     }).then(function (result) { busy = false; return result; });
   }
 
+  // #6254: toggle one sub-switch. Only while the master is on and connected (the
+  // buttons are hidden otherwise, but guard anyway); a refused PUT shows the
+  // board's words and leaves the switches at the last good paint.
+  var kindBusy = false;
+  function toggleKind(name) {
+    if (kindBusy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
+    if (KIND_BTNS.indexOf(name) === -1) return Promise.resolve(false);
+    kindBusy = true;
+    var want = !current.kinds[name];
+    return fetch(API, {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: name, on: want }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok) { paint(current); setMsg(body.error || 'That did not work. Please try again.'); return false; }
+        paint(body);
+        return true;
+      });
+    }).catch(function () {
+      paint(current);
+      setMsg('That did not work. Please try again.');
+      return false;
+    }).then(function (result) { kindBusy = false; return result; });
+  }
+
   // Exposed so a browser-check can drive these without simulating clicks.
   window.kosmosRegisterServiceWorker = registerServiceWorker;
   window.kosmosPhoneNotifyToggle = toggle;
+  window.kosmosPhoneNotifyKindToggle = toggleKind;   // #6254
 
   function wire() {
     var btn = el('phone-notify-toggle');
     if (btn) btn.addEventListener('click', function () { toggle(); });
+    // #6254: wire each sub-switch to its own kind (an IIFE pins `name` per button).
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      (function (name) {
+        var kb = el('pn-kind-' + name);
+        if (kb) kb.addEventListener('click', function () { toggleKind(name); });
+      })(KIND_BTNS[i]);
+    }
     load();
     registerServiceWorker();
   }
