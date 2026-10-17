@@ -30131,8 +30131,8 @@ let COMPUTERS_FAILS = 0;
 let COMPUTERS_READ_AT = 0;   // #6403: when the last read started (computersFetch), so a look within a minute does not read
 let COMPUTERS_TIP_SHOWN = false;   // #6403: once per page even where localStorage is refused (a private window)
 let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: follow-ups for 90 s
-let COMPUTERS_STALE_FORCED = false;
-let COMPUTERS_SIGNED_OUT = false;   // #6403: the last answer said this computer is not signed in to Kosmos+   // #6403: a forced read was owed while the tab was hidden; the read on return is one
+let COMPUTERS_STALE_FORCED = false;   // #6403: a forced read was owed while the tab was hidden; the read on return is one
+let COMPUTERS_SIGNED_OUT = false;   // #6403: the last answer said this computer is not signed in to Kosmos+
 /* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered when a person
    could see it, worldswTipMarkSeen); it goes on its close button, Escape, or when the menu is opened. */
 function worldswTipOnce() {
