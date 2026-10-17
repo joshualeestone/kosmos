@@ -50722,10 +50722,11 @@ function paintAsk() {
       : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.'
       : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed ' + (d.recheck ? 'Confirm' : 'Allow') + '. Type the new one from ' + name + ', then press ' + (d.recheck ? 'Confirm' : 'Allow') + '.'
         : 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.')
-        : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
+        : e.because === 'code_pending' ? (d.recheck ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
+          : 'Working out the code with ' + name + '. It shows here in a moment.')
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
             // kosmos#6404: a check's other refusals (a key that is no longer trusted, a check that lapsed) never show a tag.
-            : d.recheck && /peer_conflict|sas_pending|code_pending/.test(String(e.because)) ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
+            : d.recheck && /peer_conflict|sas_pending|code_pending|recheck_gone/.test(String(e.because)) ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
             : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
@@ -50852,7 +50853,7 @@ async function askAct(act, id, at) {
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
       /* #4794, #6404: Allow for a joining computer carries the code the person TYPED; the tunnel refuses any other. */
-      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode, recheck: d.recheck === true || undefined }) });
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
   } catch { res = null; }
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
@@ -51907,6 +51908,8 @@ async function plusJoinTick() {
     if (plusJoinRanOut(got) && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.on || PLUS_JOIN.on || got.recheck_with || '' };
     // kosmos#6404: a check can be asked for: the ending says so, also on a page loaded later (from the probe's one read).
     else if (got.can_recheck === true && !(PLUS_JOIN_NOTE && PLUS_JOIN_NOTE.kind === 'ranout')) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.recheck_with || '' };
+    // A check that ended on its last try: allowed, every try used, no code. Its own ending, so the block does not go blank.
+    else if (got.failed === true && got.held !== true && got.confirm_expired === true && plusJoinLive(PLUS_JOIN)) PLUS_JOIN_NOTE = { kind: 'ranout', name: got.recheck_with || PLUS_JOIN.recheck_with || PLUS_JOIN.on || '', used: true };
     // The ending is said once and not polled, and paintPlus forgets the last answer once the pairing is not live, so
     // whether a check can be asked for is kept ON the ending (review 1: the button vanished on the next repaint).
     if (PLUS_JOIN_NOTE && PLUS_JOIN_NOTE.kind === 'ranout') { PLUS_JOIN_NOTE.recheck = got.can_recheck === true; if (got.recheck_with) PLUS_JOIN_NOTE.with = got.recheck_with; }
@@ -51925,8 +51928,11 @@ function plusJoinCode(code) {
    trust the other one yet. When the tunnel says a check can be asked for (`can_recheck`), one fresh code check finishes
    it; otherwise (every try used, or a tunnel without the check) nothing on either screen can, and the sentence says the
    computer is in. `who` starts the sentence, `name` is the other computer in the next line. */
-function plusJoinRanOutHtml(who, name, can) {
+function plusJoinRanOutHtml(who, name, can, used) {
   const said = PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '';
+  // Every try used: the check cannot be offered again, and the sentence says so rather than "nothing more is needed".
+  if (!can && used) return '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>'
+    + '<p class="plus-join-next">Every try for this computer and ' + name + ' is used, so the code cannot be checked again.</p>';
   if (!can) return '<p class="plus-join-say">' + who + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>' + said;
   return '<p class="plus-join-say">' + who + ' allowed this computer. Its code ran out before The codes match was pressed here.</p>'
     + '<p class="plus-join-next">To finish, check the code with ' + name + ' once. You will need to be at both computers.</p>'
@@ -51957,7 +51963,7 @@ function paintPlusJoin() {
          (peers.json has no reader outside pairing.rs), so the sentence says so rather than promising a step. It says the
          other computer allowed this one, which stays true through a later outage (it is said once and not polled). The
          slice that first reads peers (kosmos-relay) must change this sentence, or give this state a way to pair again. */
-      : plusJoinRanOutHtml(note.name ? nn : 'Your other computer', nn, note.recheck === true);
+      : plusJoinRanOutHtml(note.name ? nn : 'Your other computer', nn, note.recheck === true, note.used === true);
     if (el.__lastJoin !== html) {
       const fid = el.contains(document.activeElement) && document.activeElement.id;
       el.innerHTML = html; el.__lastJoin = html;
@@ -52041,8 +52047,10 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
   if (PLUS_JOIN_GEN !== gen) return;   // a Forget or Off reset the pairing while this was out
   PLUS_JOIN_GEN += 1;
   if (res && res.ok) {
+    const withName = PLUS_JOIN_NOTE && (PLUS_JOIN_NOTE.with || PLUS_JOIN_NOTE.name);   // read before the note goes
     PLUS_JOIN_MSG = ''; PLUS_JOIN_NOTE = null; PLUS_JOIN_CODE_AT = 0;
     if (!PLUS_JOIN) PLUS_JOIN = { supported: true, held: false, join_code: '' };
+    if (withName && !PLUS_JOIN.recheck_with) PLUS_JOIN.recheck_with = withName;
     PLUS_JOIN.can_recheck = false; PLUS_JOIN.rechecking = true; PLUS_JOIN.confirm_expired = false; PLUS_JOIN.confirmed = false;
     PLUS_JOIN_WAITING = true;
   } else {
@@ -52054,7 +52062,8 @@ document.getElementById('plus-join').addEventListener('click', async (e) => {
     PLUS_JOIN_MSG_AT = Date.now();
     if (why === 'attempts_used' || why === 'nothing_to_recheck') {
       if (PLUS_JOIN) PLUS_JOIN.can_recheck = false;
-      if (PLUS_JOIN_NOTE) PLUS_JOIN_NOTE.recheck = false;
+      if (PLUS_JOIN_NOTE) { PLUS_JOIN_NOTE.recheck = false; PLUS_JOIN_NOTE.used = why === 'attempts_used'; }
+      if (why === 'attempts_used') PLUS_JOIN_MSG = '';   // the ending says it
     }
   }
   PLUS_JOIN_AT = 0;

@@ -2138,15 +2138,15 @@ async function deviceAllow(id, name, code) {
 }
 /** Say no: the coordinator drops the request and the phone is told. Writes
     nothing on this Mac; a fresh sign-in may ask again. */
-/* kosmos#6404: `check` is Not me on a code check from a computer already allowed (the tunnel drops only the check), so
-   nothing is noted as refused: a later request from that computer must not read "You said no to this computer". */
-async function deviceDeny(id, { check = false } = {}) {
+async function deviceDeny(id) {
   { const b = busy(); if (b) return b; }
   const bad = checkId(id); if (bad) return bad;
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   if (vouchState || vouchAllowingId === id) notMeDuringVouch.add(id);   // kosmos#5786 (b)
   const r = parseSaid(await tracked(setupRun(deviceArgs('deny', id, true), null, retireTimeoutMs())));
-  if (r.ok && !check) {
+  /* kosmos#6404: the tunnel says when it only dropped a code check from a computer already allowed ("check"): nothing was
+     refused, so nothing is noted (a later request from that computer must not read "You said no to this computer"). */
+  if (r.ok && !(r.data && r.data.check === true)) {
     const denied = { ...read().denied, [id]: Math.floor(Date.now() / 1000) };
     /* Bounded: the newest 50, so a file cannot grow without limit. */
     const keep = Object.entries(denied).sort((a, b) => b[1] - a[1]).slice(0, 50);
