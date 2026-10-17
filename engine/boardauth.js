@@ -409,7 +409,8 @@ function ensureTokenPrimary() {
   }
 }
 
-/** Parse the token cookie out of a Cookie header, or null. */
+/** The board cookie's value out of a Cookie header, or null. Since #6358 that value is a session id (see
+ * sessionToken), never a token. */
 function cookieToken(req) {
   const raw = req && req.headers && req.headers.cookie;
   if (!raw) return null;
@@ -424,7 +425,8 @@ function cookieToken(req) {
   return null;
 }
 
-/** The token a request presents: cookie, then header, then `?token=` query. */
+/** What a request presents, cookie value first, then header, then `?token=` query. Since #6358 a cookie value
+ * is a session id, not a token, so read this only as "was something presented"; the gate is tokenOk. */
 function presentedToken(req, routingBase) {
   const c = cookieToken(req);
   if (c) return c;
@@ -567,9 +569,11 @@ function _sweepSessions(now) { for (const [id, s] of _sessions) { if (s.expiresA
 function _resetSessions() { _sessions.clear(); }
 
 /** A new session for `token`: its id is its own random value and never encodes the token. */
+const SESSION_MAX_COUNT = 1000;   // a stated bound on memory: past it, the oldest session ends first
 function mintSession(token) {
   const now = _nonceNow();
   _sweepSessions(now);
+  while (_sessions.size >= SESSION_MAX_COUNT) _sessions.delete(_sessions.keys().next().value);   // a Map keeps insertion order
   const id = crypto.randomBytes(32).toString('hex');
   _sessions.set(id, { token, expiresAt: now + SESSION_MAX_MS });
   return id;
@@ -592,8 +596,9 @@ function nonCookieToken(req, routingBase) {
 }
 
 /**
- * The bootstrap decision, PURE. A valid `?token=` on a GET/HEAD navigation, when
- * no cookie is set yet, is the browser / native-app first load: return the
+ * The bootstrap decision. Not pure since #6358: a sign-in mints a session into this module's store. A valid
+ * `?token=` (or `?boot=`) on a GET/HEAD navigation that holds no live session is the browser / native-app
+ * first load: return the
  * cookie to set and the clean URL to redirect to (token stripped), so every
  * subsequent same-origin request carries the cookie automatically. This runs on
  * EVERY route -- including the exempt static shell -- so the operator can land on
@@ -634,8 +639,8 @@ function bootstrap({ token, req, routingBase, method, accepts }) {
 }
 
 /**
- * Does the request present a valid token (cookie, header, or query)? PURE, so the
- * sensitive-route gate is testable without a bind. The caller decides WHICH routes
+ * Does the request present a live session (cookie) or a valid token (header or query)? Testable without a bind;
+ * it reads the session store (#6358), which expires a session it finds past its cap. The caller decides WHICH routes
  * are sensitive; this only answers "is a good token here".
  */
 function tokenOk({ token, req, routingBase }) {
@@ -654,7 +659,8 @@ function tokenOk({ token, req, routingBase }) {
  * ownership (#1946), not only the active world's, so a post-switch browser still
  * holding the world it LEFT can authenticate the switched-to board and switch back.
  *
- * The presented token is read ONCE and compared against each candidate. A null /
+ * The cookie's session is looked up once, then the header or query token is read once, and each is compared
+ * against every candidate. A null /
  * empty / non-string candidate is skipped (`matches` returns false for a
  * non-string), so an absent world token in the list is simply not a match -- never
  * a throw and never a spurious accept. Returns false when nothing is presented (the
@@ -687,7 +693,7 @@ module.exports = {
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
   // #6358: browser sessions (the cookie's value).
-  mintSession, sessionToken, SESSION_MAX_MS, _resetSessions,
+  mintSession, sessionToken, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
   reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };

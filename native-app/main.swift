@@ -1536,6 +1536,15 @@ final class SigninMessageProxy: NSObject, WKScriptMessageHandler {
     }
 }
 
+/// #6358: PURE, for --kosmos-app-mode-selftest. A URL as the app's log may show it: a `token` query item (the one
+/// tokenizedBoardURL adds) reads `token=hidden`, and everything else is kept.
+func urlForLog(_ url: URL) -> String {
+    guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          let items = comps.queryItems, items.contains(where: { $0.name == "token" }) else { return url.absoluteString }
+    comps.queryItems = items.map { $0.name == "token" ? URLQueryItem(name: "token", value: "hidden") : $0 }
+    return comps.url?.absoluteString ?? "(a board address)"
+}
+
 /* #3996: the page's waiting count, handed to the app. A separate object held WEAKLY to the app:
    WKUserContentController keeps its handlers alive, and holding the AppDelegate there would be a
    cycle. Only the board's own page is heard: the main frame at the board's own address and port
@@ -2444,7 +2453,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                 return
             }
-            logLine("LOADING \(url.absoluteString) (KOSMOS_URL override, test path)")
+            logLine("LOADING \(urlForLog(url)) (KOSMOS_URL override, test path)")   // #6358: never the token
             /* #3996: the page on the chosen board still feeds the Dock badge (its origin is the board);
                the app's own poll needs the resolved port, so it stays off here. */
             if let host = url.host { badgeOrigin = (host, url.port ?? Self.defaultPort(url.scheme)) }
@@ -2604,7 +2613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                         self.showStartupFailureAlert(detail: "The address \(urlString) is not a valid URL.")
                         return
                     }
-                    logLine("LOADING \(url.absoluteString)")
+                    logLine("LOADING \(urlForLog(url))")   // #6358: never the token
                     self.boardLoadNavigation = self.webView.load(URLRequest(url: url))
                 }
             }
@@ -6810,6 +6819,16 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     again(100, nil, true, "never tried: sign in again")
     again(100, 100 - signInAgainMinGap + 1, false, "tried under a minute ago: wait (a refused token must not loop)")
     again(100, 100 - signInAgainMinGap, true, "a minute since the last try: again")
+    // #6358: what the log may show of a board address.
+    func logged(_ s: String, _ want: String, _ why: String) {
+        ran += 1
+        let got = URL(string: s).map(urlForLog) ?? "(not a URL)"
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "log        " + why + (got == want ? "" : " -- got " + got))
+    }
+    logged("http://127.0.0.1:16180/?token=abc123", "http://127.0.0.1:16180/?token=hidden", "the token is hidden")
+    logged("http://127.0.0.1:16180/?first-run=1&token=abc123&mode=run", "http://127.0.0.1:16180/?first-run=1&token=hidden&mode=run", "other items are kept")
+    logged("http://127.0.0.1:16180/", "http://127.0.0.1:16180/", "no token: unchanged")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -7011,7 +7030,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 115   // #6358: +3 (the sign-in-again throttle); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 118   // #6358: +6 (the sign-in-again throttle, the log redaction); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

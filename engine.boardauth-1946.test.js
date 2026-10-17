@@ -124,6 +124,19 @@ test('bootstrap(): a valid ?token= on a GET nav returns cookie + clean location 
   assert.match(b.setCookie, new RegExp('Max-Age=' + Math.floor(boardauth.SESSION_MAX_MS / 1000) + '$'), 'the cookie lasts as long as its session');
 });
 
+test('#6358: past SESSION_MAX_COUNT the OLDEST session ends first, and the newest stays', () => {
+  boardauth._resetSessions();
+  const first = boardauth.mintSession('T');
+  const second = boardauth.mintSession('T');
+  for (let i = 2; i < boardauth.SESSION_MAX_COUNT; i += 1) boardauth.mintSession('T');
+  assert.equal(boardauth.sessionToken(first), 'T', 'at the ceiling, nothing has ended yet');
+  const newest = boardauth.mintSession('T');
+  assert.equal(boardauth.sessionToken(first), null, 'one past the ceiling, the oldest ended');
+  assert.equal(boardauth.sessionToken(second), 'T', 'only the oldest');
+  assert.equal(boardauth.sessionToken(newest), 'T');
+  boardauth._resetSessions();
+});
+
 test('#6358: a session ends at its cap, and an unknown or non-string id is no session', () => {
   let t = 1000;
   boardauth._setNonceClock(() => t);

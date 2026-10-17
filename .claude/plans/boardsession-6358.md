@@ -49,6 +49,38 @@ Stacked on boardproof-1765 (merge order: boardproof-1765, bpbridges-1765, then t
 - The server tests that sign in with a cookie take their session from the bootstrap: server.board-auth-1946 and
   -worldswitch-3055.
 
+## What a person sees after a restart (Splinter 05:12, both checked)
+- **The Mac app:** the page tells the app (`kosmosSignin`). The app reloads the page it was on with `?token=`.
+  - The panel reads "Kosmos restarted, so the app is signing this window in again".
+  - Accepted cost: the reload drops text typed and not yet sent. When the window was not on a board page, it falls
+    back to the board's front page without `?mode=`.
+  - The page retells after 65 s, a little over the app's own one-minute limit, so a second restart within the
+    minute is not lost (review round 1).
+- **A browser tab (`kosmos open`):** "This board is not signed in. It cannot read your agents or projects. Kosmos
+  signs a browser tab out each time it restarts or updates. To keep going, open Kosmos from your Applications folder:
+  the app signs itself in."
+  - A disclosure gives the full-path `kosmos open` command, then Reload: the browser shares the cookie across its
+    tabs, so the old tab works after Reload.
+  - The old "it fixes itself the next time Kosmos updates" is gone. It is now false, and render-board-signin-403-2023
+    asserts it is absent. That check also saves a screenshot when KOSMOS_SIGNIN_SHOT names a file.
+- **Kosmos+ remote access through the relay:** NOT signed out by a restart on the board's side. Read in kosmos-relay
+  origin/main, `crates/tunnel/src/proxy.rs`:
+  - the connector drops the visitor's `kosmos_board` cookie;
+  - it refuses `/api/board-nonce` and strips the bootstrap parameters;
+  - it presents the board token as the `x-kosmos-board-token` header, read fresh from board.token on each request.
+  - No board session is involved. A stale cookie can no longer shadow that header either, because the gate falls
+    through to the header.
+- **The Windows app (WebView2):** its panel already says to open Kosmos.exe again, which runs the launcher's
+  existing `SignInAgain`. The page now also posts `{ kosmosSignin: true }`; the current Kosmos.exe ignores it.
+  Answering it automatically needs a launcher change and a rebuild on the Windows box (Homer).
+
+## Also in this branch (review round 1)
+- The app no longer writes the tokenized URL to its log on launch: `urlForLog` hides the `token` item (three
+  selftest rows; 118 in all).
+- At most 1000 sessions, the oldest ending first.
+- The no-URL-in-logs test checks today's spellings only (`\(url`, `absoluteString`, `\(page`). It is not general
+  coverage.
+
 ## Weakest premise
 That nothing other than a browser sends the board cookie. Every CLI and node sender uses the token header (checked:
 the only token-bearing curl in install/kosmos is in kosmos_curl, and the bridges send headers). A sender that set the

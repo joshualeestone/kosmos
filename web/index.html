@@ -24393,18 +24393,22 @@ function statusFetchWithin(ms = STATUS_POLL_TIMEOUT_MS) {
 /* The Mac remedy. Command-Q quits Kosmos only in the Kosmos app (the one with the kosmosBadge bridge);
    in a browser tab (kosmos open) it would quit the browser, so a tab is told to reopen Kosmos. */
 /* #6358: the board's browser sessions end when it restarts, so the Mac app's window finds itself signed out
-   after a restart. The app reads the board token itself and signs the window in again (kosmosSignin), so tell it,
-   once per sign-out: the app also limits itself to once a minute. A browser tab has no such bridge, and its
-   signed-out panel stands. */
-let SIGNED_OUT_TOLD_APP = false;
-function signedOutTellApp() {
-  if (SIGNED_OUT_TOLD_APP) return;
+   after a restart. The app reads the board token itself and signs the window in again (kosmosSignin), so tell it.
+   Not on every poll: again only after SIGNED_OUT_RETELL_MS, a little over the app's own once-a-minute limit, so a
+   sign-out the app set aside (a second restart within the minute) is told again. A browser tab has no such bridge,
+   and its signed-out panel stands. The Windows app is told the same way ({ kosmosSignin: true }). */
+let SIGNED_OUT_TOLD_AT = 0;
+const SIGNED_OUT_RETELL_MS = 65000;
+function signedOutTellApp(now = Date.now()) {
+  if (SIGNED_OUT_TOLD_AT && now - SIGNED_OUT_TOLD_AT < SIGNED_OUT_RETELL_MS) return;
   try {
-    const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin;
-    if (!h) return;
-    SIGNED_OUT_TOLD_APP = true;
-    h.postMessage(true);
-  } catch { /* not in the Mac app, or no window (a test): nothing to tell */ }
+    const mac = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin;
+    const win = window.chrome && window.chrome.webview;
+    if (!mac && !win) return;
+    SIGNED_OUT_TOLD_AT = now;
+    if (mac) mac.postMessage(true);
+    else win.postMessage({ kosmosSignin: true });
+  } catch { /* not in an app, or no window (a test): nothing to tell */ }
 }
 function restartHowMac() {
   let app = false;
@@ -24756,7 +24760,7 @@ async function tick() {
       // #2023: a 403 is not-signed-in (no board token, #1946), a known state with
       // a remedy -- flag it so the render shows the remedy, not "cannot read".
       BOARD_NEEDS_SIGNIN = (res.status === 403);
-      if (BOARD_NEEDS_SIGNIN) signedOutTellApp();   // #6358
+      if (BOARD_NEEDS_SIGNIN && typeof signedOutTellApp === 'function') signedOutTellApp();   // #6358 (some tests lift tick alone)
       // #718 state 3: the relay's own answer for a remote device whose sign-in lapsed.
       BOARD_SIGNED_OUT = relaySignedOut(res.status, said);
       throw new Error(parts.join(' · '));
@@ -24769,7 +24773,7 @@ async function tick() {
        would lock a person out of a board that is up. */
     answered = true;
     BOARD_NEEDS_SIGNIN = false;   // a 200 means this browser is authed (#2023), whatever throws below
-    SIGNED_OUT_TOLD_APP = false;   // #6358: a later sign-out is told again
+    SIGNED_OUT_TOLD_AT = 0;   // #6358: a later sign-out is told at once
     BOARD_SIGNED_OUT = false;
 
     const lim = new URLSearchParams(location.search).get('limit');
@@ -38478,16 +38482,12 @@ function deviceSignedOutHtml(what) {
 }
 /* One source for the not-signed-in copy so the agents box, the org note and the
    projects surfaces cannot drift.
-   THE REMEDY IS THAT THE BOARD SELF-HEALS ON THE NEXT KOSMOS UPDATE (Angel's
-   #2023(a): the update re-opens the browser, which mints this origin's token via
-   the #1979 boot nonce). We do NOT tell the person to relaunch the app or to run
-   a terminal command as the lead, because BOTH were measured to FAIL on a real
-   machine: relaunch is unreliable (an app bundle older than the token-support
-   commit 6e775359 cannot sign in at all, #2028), and the bare CLI name is not on
-   PATH in a shell that has not loaded ~/.zprofile (it failed for Josh with
-   command-not-found). The full-path CLI line is a disclosure footnote for someone
-   who wants it sooner, never the primary instruction. */
-const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.');
+   #6358: every board restart (an update included) ends every browser sign-in, so
+   waiting for the next update no longer heals a tab. The lead remedy is the Mac
+   app, which signs itself in. A terminal command is never the lead: the bare CLI
+   name is not on PATH in a shell that has not loaded ~/.zprofile (it failed for
+   Josh with command-not-found), so the full-path line is a disclosure footnote. */
+const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. Open Kosmos from your Applications folder to sign in again.');   // #6358
 function boardSigninHtml() {
   /* win32-board-copy (W-24): on Windows updates are by hand, so nothing fixes itself, and
      there is no ~/.local path or kosmos command. Opening Kosmos.exe mints the token. */
@@ -38496,15 +38496,25 @@ function boardSigninHtml() {
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
       + '</div>';
   }
+  /* #6358: a board restart (an update included) ends every browser sign-in. The Mac app signs its own window in
+     again (signedOutTellApp), so there this panel shows only for a moment; a browser tab cannot, so it says how. */
+  let inApp = false;
+  try { inApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin); } catch { /* not the app */ }
+  if (inApp) {
+    return '<div class="pj-empty boardfail">'
+      + '<p><b>This board is not signed in.</b><br>'
+      + 'Kosmos restarted, so the app is signing this window in again. This takes a moment.</p>'
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   return '<div class="pj-empty boardfail">'
     + '<p><b>This board is not signed in.</b><br>'
-    + 'It cannot read your agents or projects yet. It will fix itself the next '
-    + 'time Kosmos updates, with no action from you. A bookmark or a typed '
-    + '127.0.0.1 address reaches the board without its access token; the next '
-    + 'update hands the token over.</p>'
-    + '<details class="fr-hatch"><summary>Need it sooner?</summary>'
-    + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal. Use '
-    + 'the full path shown: the bare name is not always on your PATH.</details>'
+    + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '
+    + 'restarts or updates. To keep going, open Kosmos from your Applications folder: the app '
+    + 'signs itself in.</p>'
+    + '<details class="fr-hatch"><summary>Use this browser tab instead?</summary>'
+    + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here. '
+    + 'Use the full path shown: the bare name is not always on your PATH.</details>'
     + '<button class="btn" type="button" data-board-retry>Reload</button>'
     + '</div>';
 }

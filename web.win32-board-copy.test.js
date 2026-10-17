@@ -373,18 +373,18 @@ test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () =
    Not signed in (W-24), toasts (W-26), the Claude card, Settings rows
 --------------------------------------------------------------------------- */
 
+// #6358: a browser tab's copy (a board restart ends its sign-in; the Mac app signs itself in).
 const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + '<p><b>This board is not signed in.</b><br>'
-  + 'It cannot read your agents or projects yet. It will fix itself the next '
-  + 'time Kosmos updates, with no action from you. A bookmark or a typed '
-  + '127.0.0.1 address reaches the board without its access token; the next '
-  + 'update hands the token over.</p>'
-  + '<details class="fr-hatch"><summary>Need it sooner?</summary>'
-  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal. Use '
-  + 'the full path shown: the bare name is not always on your PATH.</details>'
+  + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '
+  + 'restarts or updates. To keep going, open Kosmos from your Applications folder: the app '
+  + 'signs itself in.</p>'
+  + '<details class="fr-hatch"><summary>Use this browser tab instead?</summary>'
+  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here. '
+  + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
-const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
+const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. Open Kosmos from your Applications folder to sign in again.';
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
