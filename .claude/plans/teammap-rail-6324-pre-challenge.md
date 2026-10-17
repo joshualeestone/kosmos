@@ -26,17 +26,17 @@ Validation between iterations: focused tests (the #6324 and #6103 units, project
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 4 NITs
 **Self-generated:** 0 of the above (lookup not run; recorded BRANCH)
-- [CONVENTION] .claude/plans/teammap-rail-6324.md:3 — plan still said stacked on #6103, which has landed --> FIXED (commit 2784505c)
-- [WARNING] web/index.html paintRailTeamMap vs paintOneProject — two hand-kept copies of the member filter can drift (they did on 10-16) --> FIXED (commit 2784505c): a unit arm holds the rail, tab and map filters to one text, mutant-checked; a shared helper would break six tests that lift paintOneProject alone
+- [CONVENTION] .claude/plans/teammap-rail-6324.md:3 - plan still said stacked on #6103, which has landed --> FIXED (commit 2784505c)
+- [WARNING] web/index.html paintRailTeamMap vs paintOneProject - two hand-kept copies of the member filter can drift (they did on 10-16) --> FIXED (commit 2784505c): a unit arm holds the rail, tab and map filters to one text, mutant-checked; a shared helper would break six tests that lift paintOneProject alone
 - [NIT] hidden scrollbar on the capped map; [NIT] pjTeamMap rebuilt each poll; [NIT] focus branch not unit-covered; [NIT] byte-equal test passes no redHere
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html:5362 — a long notice plus the open map can scroll the page --> DEFERRED: the plan's "NOT covered", as a long notice alone does today; filed as #6347
-- [WARNING] web/index.html:5364 — the capped map hides its scrollbar --> DEFERRED: #867 consistency, named in the plan and put to the design review on the card
-- [WARNING] web/index.html:24638 — focus falls to the page when the last focused member leaves --> DEFERRED: the plan records it; nothing in the map is left to focus
+- [WARNING] web/index.html:5362 - a long notice plus the open map can scroll the page --> DEFERRED: the plan's "NOT covered", as a long notice alone does today; filed as #6347
+- [WARNING] web/index.html:5364 - the capped map hides its scrollbar --> DEFERRED: #867 consistency, named in the plan and put to the design review on the card
+- [WARNING] web/index.html:24638 - focus falls to the page when the last focused member leaves --> DEFERRED: the plan records it; nothing in the map is left to focus
 - [NIT] typeof guard on paintRailTeamMap (needed: web.project-notice-3923 lifts paintRailPjNotice alone, measured red without it); [NIT] click handlers repeat the tab's; [NIT] filter copied three times
 
 #### Iteration 3
@@ -58,8 +58,8 @@ Validation between iterations: focused tests (the #6324 and #6103 units, project
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 0 of the above
-- [WARNING] web/index.html:62479 — the map's hint said the list is "above the members", false in the rail --> FIXED (commit 6a676eef): "the needs-you list says what each one is waiting for"; web.teammap-6103.test.js follows the words
-- [WARNING] web/index.html:19897 — an open map lowers the needs-you notice --> DEFERRED: the plan's named trade, put to the design review
+- [WARNING] web/index.html:62479 - the map's hint said the list is "above the members", false in the rail --> FIXED (commit 6a676eef): "the needs-you list says what each one is waiting for"; web.teammap-6103.test.js follows the words
+- [WARNING] web/index.html:19897 - an open map lowers the needs-you notice --> DEFERRED: the plan's named trade, put to the design review
 - [NIT] #3948's comment sat above the new markup --> fixed (commit 6a676eef); [NIT] scrollTop read each poll; [NIT] hidden tab map painted; [NIT] stand-in drops scrollTop; [NIT] stray h4 in the rail
 
 #### Iteration 6
@@ -67,21 +67,21 @@ Validation between iterations: focused tests (the #6324 and #6103 units, project
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings:** 1 (focus to the page)
-- [WARNING] web/index.html:24636 — the map painted after the notice's early return on a missing element --> FIXED (commit c59c5ef6): painted first; unit arm with no notice element, red on the old order
+- [WARNING] web/index.html:24636 - the map painted after the notice's early return on a missing element --> FIXED (commit c59c5ef6): painted first; unit arm with no notice element, red on the old order
 
 #### Iteration 7
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 0 of the above
 **Duplicates of prior findings:** 1 (focus to the page)
-- [WARNING] docs/browser-checks/render-teammap-rail-6324.js:212 — called 960x720 the shortest window the layout keeps; there is no height floor --> FIXED (commit 786ed5d7): the comment says 720 is measured, the plan lists below 720 as not measured
+- [WARNING] docs/browser-checks/render-teammap-rail-6324.js:212 - called 960x720 the shortest window the layout keeps; there is no height floor --> FIXED (commit 786ed5d7): the comment says 720 is measured, the plan lists below 720 as not measured
 - [NIT] hint less specific in the tab layout; [NIT] filter copies; [NIT] typeof guard; [NIT] swallowed waitForFunction timeouts; [NIT] the scroll-keep arm is a guard, not coverage
 
 #### Iteration 8
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 0 of the above
-**Converged** — no new actionable findings.
+**Converged** - no new actionable findings.
 
 #### Final validation (6j)
 - [BLOCKER] final-validation: the browser-check surface gate (#2518) named render-shell-noscroll-4872.js, whose 'consolidated' token changed --> FIXED (commit 9208a3bb): ran that check against this branch (72/72, Chromium at five sizes and WebKit) and recorded the per-check trailer; an empty commit, so the code diff is unchanged
