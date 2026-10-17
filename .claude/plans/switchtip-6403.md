@@ -9,7 +9,8 @@ has another computer); retarget to main once #6396 merges. Josh asked for the ti
 at once on the computer let in while its Kosmos+ section is open (where pairing happens); on any other open board the
 next time it is looked at (window focus or the tab shown) a minute or more after its last read. (2) The first time it
 appears where a person can see it, one line under it says "Switch between your computers here."; it goes on its close
-button, a click anywhere on it, or opening the menu, and never comes back in that browser. Screenshot both.
+button, a click anywhere on it, or opening the menu, and never comes back at that address in that browser (the seen flag is per address, so the local
+board and a Kosmos+ address each show it once). Screenshot both.
 
 ## How it works (current behaviour; the review log below says how it got here)
 Reads (each is a signed call to Kosmos+):
@@ -38,7 +39,7 @@ The tip:
   paired, which update at once). What would change it: Kosmos+ telling boards a computer was added (a push).
 - The tip takes clicks (review 7 reversed click-through, which protected browser checks at the person's expense).
 - The tip shows the first time a browser sees the switcher, so everyone who already has two or more computers sees it
-  once after this ships, in each browser they use. Accepted: it is one line, dismissible, and explains a control they
+  once after this ships, in each browser and at each address they use. Accepted: it is one line, dismissible, and explains a control they
   may not have noticed. Phones over Kosmos+ never show the switcher (the phone menu lists computers instead), so they
   never get the tip; the phone menu is its own way in.
 - Back to one computer, a tip still up goes with the switcher without counting as seen (review 9).
@@ -59,6 +60,7 @@ The tip:
 - 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
   tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
   whose handler runs first.
+- 13 opus: a leftover Escape comment replaced; mobile-shots guidance; per-address wording.
 - 12 sonnet: Escape handling removed (every Escape finding traced to it); a real hit test for clicks on the tip.
 
 ## Steps

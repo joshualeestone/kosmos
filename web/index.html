@@ -32022,7 +32022,7 @@ async function worldHideSubmit() {
     // The close button, or a click anywhere on the tip (a person clicking a popover to dismiss it), puts it away.
     const tipEl = document.getElementById('worldsw-tip');
     if (tipEl) tipEl.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
-    // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.
+    // No Escape for the tip on purpose (#6403 review 12): Escape belongs to the page's dialogs, menus and composer.
   }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
