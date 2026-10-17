@@ -180,12 +180,18 @@ function clickWith({ win, answer, ev, href, twice, timers }) {
     setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: (k) => { delete attrs[k]; } };
   const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
     preventDefault() { this.defaultPrevented = true; } }, ev || {});
-  const w = Object.assign({ location: { assign: (u) => went.push(u) } }, win || {});
+  const assigned = [];
+  const w = Object.assign({ location: { assign: (u) => assigned.push(u) } }, win || {});
+  // A page: the navigation the app takes goes through a throwaway link (computersGo); its click is the navigation.
+  const doc = { createElement: () => ({ setAttribute() {}, click() { went.push(this.href + (this.rel === 'noreferrer' ? '' : ' (REFERER)')); }, remove() {} }),
+    body: { appendChild() {} } };
   const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
   const second = Object.assign({}, e, { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } });
-  const run = new Function('window', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+  const run = new Function('window', 'document', 'fetch', 'e', 'second', 'twice', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
     `${DECL}\n${OPEN}\ncomputersOpenClick(e);\nif (twice) computersOpenClick(second);`);
-  run(w, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
+  run(w, doc, fetchFn, e, second, !!twice, URL, AbortController, timers ? timers.set : setTimeout, timers ? timers.clear : clearTimeout);
+  // went: navigations through the noreferrer link; assigned: script navigations (which would send a Referer), never.
+  assert.deepEqual(assigned, [], 'no script navigation');
   return { went, posted, e, attrs };
 }
 const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };

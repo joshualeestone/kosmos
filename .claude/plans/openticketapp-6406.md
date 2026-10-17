@@ -42,7 +42,10 @@ plain address as before.
 - A local process sending a browser's header (no agent token) can get a ticket, as it can use the other screen-only
   routes. Accepted: such a process runs as the person and can run the tunnel with this computer's key itself.
 - The ticket stays in that window's history entry for its fragment until the gate page takes it out (replaceState,
-  first thing it does); it is single use and good for two minutes either way.
+  first thing it does); it is single use and good for two minutes either way. When no gate page runs there (the
+  window is already signed in on that computer, or its tunnel predates tickets), the board's page loads with `#kpt=`
+  still in its address and that history entry, unused, until it expires.
+- A link's own fragment is dropped (`plain`); no link to another computer carries one today.
 - The page gives up on the ticket after 8 s and opens the plain address; the tunnel call may still finish and make a
   ticket nobody uses (it expires).
 
@@ -76,3 +79,6 @@ plain address as before.
   person's own reverse proxy fails it; unit arms for each); the busy style keeps contrast; wording.
 - 5 sonnet: the route also requires the socket to be this computer's (isLoopbackPeer); the noreferrer link path is
   unit-tested with a page (it was only reached by the browser check).
+- 6 opus: the socket rule is tested (ticketCallerHere: the same headers from a network socket are refused); the click
+  tests now take the page's own path (a throwaway noreferrer link) and assert no script navigation; the board-page
+  fragment and dropped-fragment limits stated.
