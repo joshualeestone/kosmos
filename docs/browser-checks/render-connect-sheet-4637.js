@@ -443,7 +443,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         const j = document.getElementById('plus-join'), s = j && j.querySelector('.plus-join-slow');
         const out = { text: s ? s.textContent : '', fhint: !!(s && s.classList.contains('fhint')), weight: s ? getComputedStyle(s).fontWeight : '' };
         PLUS_JOIN_NOCODE_AT = 0; paintPlusJoin(); out.after = !!(j && j.querySelector('.plus-join-slow')); return out; });
-      chk(/one computer at a time, about one every 10 minutes/.test(slow.text) && /Keep this open: the code shows here\./.test(slow.text) && slow.fhint && Number(slow.weight) < 600 && !slow.after,
+      chk(/one computer at a time, about one every 10 minutes/.test(slow.text) && /Keep this open\. If no code comes, Settings, then Kosmos\+, on your other computer says why it is waiting\./.test(slow.text) && slow.fhint && Number(slow.weight) < 600 && !slow.after,
         `${tag} #6385 waiting over a minute: the block says the other computer adds one at a time, as a hint, and the line goes once the wait restarts`, JSON.stringify(slow));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();

@@ -7,7 +7,7 @@ The card's own fix shape: a plain line on the joining computer after a minute wi
   wait reason, so the joiner cannot know it is waiting its turn.
 - After `PLUS_JOIN_SLOW_MS` (60 s) of a wait with no code, `paintPlusJoin` adds: "Your other computer adds one
   computer at a time, about one every 10 minutes, so if you are adding more than one, this one may be waiting its
-  turn. Keep this open: the code shows here."
+  turn. Keep this open. If no code comes, Settings, then Kosmos+, on your other computer says why it is waiting."
 - It shows in both waits the card names: "Working out the code with ..." and, after Try again, "That code ran out.
   A new one is on its way."
 - `PLUS_JOIN_NOCODE_AT` records when the wait began; any other state (a code, a failure, Try again owed, a ran-out
@@ -27,8 +27,10 @@ The card's own fix shape: a plain line on the joining computer after a minute wi
   would be a guess dressed as a measurement.
 
 ## Weakest premise
-- The line names the likely reason, not the known one: the other computer may simply be off or asleep. The words say
-  "may be waiting its turn" for that reason, and that the code shows here either way.
+- The line names the likely reason, not the known one. The other computer may be off or asleep, or have stopped for
+  good (the tunnel's other waits: tries used up, its daily limit of 20, or this sign-in asked of another computer). So
+  the words say "may be waiting its turn" and point to where the real reason shows: Settings, then Kosmos+, on the
+  other computer (its Waiting for you card, JOIN_WAIT_WORDS).
 - "About one every 10 minutes" is the tunnel's constant today; if it changes, this sentence must change with it.
   What would change my mind: a measured wait on two real computers that does not match 600 s.
 
