@@ -779,7 +779,10 @@ const BUILT_NOTE_MAX = 300;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
-const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint'];
+/* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
+   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
+const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -802,8 +805,10 @@ function withoutBuilt(t) {
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  const print = fingerprint == null || fingerprint === '' ? '' : String(fingerprint);
+  if (print && !FINGERPRINT_RE.test(print)) return { ok: false, because: 'a fingerprint is sha256: and 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -830,7 +835,8 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
       if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
       /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
-      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
+        && (t.builtFingerprint || '') === print) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -840,6 +846,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
+        ...(print ? { builtFingerprint: print } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });

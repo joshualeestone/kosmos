@@ -529,6 +529,8 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
+    // #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') ? ' - fingerprint ' + t.builtFingerprint : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -21819,7 +21821,9 @@ const server = http.createServer(async (req, res) => {
       /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
+          // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
+          fingerprint: !viaScreen && typeof body.fingerprint === 'string' ? body.fingerprint : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
