@@ -1291,7 +1291,7 @@ async function main() {
       console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
     /* #6349: with more of the notice below the box's edge, the box carries data-more and its bottom fades (a cue a Mac's
-       hidden scrollbar does not give); scrolled to the end, or with the notice short again, neither. Set by the page's
+       hidden scrollbar does not give); scrolled to the end, none (the notice may already be taller than the cap here, so its starting and short-again states are read, not assumed). Set by the page's
        own observer (railPjMore), so each step waits two frames for it rather than calling it. Copies as above, removed
        in finally. */
     const cue = await page.evaluate(async () => {
@@ -1350,8 +1350,27 @@ async function main() {
           return out;
         };
         const focus = { padded: await tryFocus(false), unpadded: await tryFocus(true) };
-        focus.button = focus.padded.button && focus.unpadded.button;
-        focus.clear = !!(focus.padded.clear && focus.unpadded.clear);
+        /* A press on a button in the faded strip, with another control focused first (so a blur runs, as in any click
+           after Dismiss): the box must not move between press and release, or the click lands on something else. */
+        const press = await (async () => {
+          const all = [...box.querySelectorAll('button')], x0 = box.getBoundingClientRect();
+          const target = all.find((b) => b.getBoundingClientRect().top >= x0.bottom);
+          const other = all.find((b) => b.getBoundingClientRect().bottom <= x0.bottom - 40);
+          if (!target || !other) return { buttons: false };
+          other.focus();
+          box.scrollTop += target.getBoundingClientRect().bottom - (box.getBoundingClientRect().bottom - 6); await frames();
+          const st = box.scrollTop, inStrip = target.getBoundingClientRect().bottom > box.getBoundingClientRect().bottom - 28;
+          target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, isPrimary: true }));
+          target.focus(); await frames(); await frames();
+          const still = box.scrollTop === st;
+          target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, isPrimary: true }));
+          if (document.activeElement === target) target.blur();
+          box.scrollTop = 0; await frames();
+          return { buttons: true, inStrip, still };
+        })();
+        focus.button = focus.padded.button && focus.unpadded.button && press.buttons;
+        focus.clear = !!(focus.padded.clear && focus.unpadded.clear && press.inStrip && press.still);
+        focus.press = press;
         /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only the
            box's own size change can bring the cue back. */
         body.classList.add('fold-a'); await frames();
@@ -1378,7 +1397,7 @@ async function main() {
         || ![cue.before, cue.grown, cue.atEnd, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
         || !cue.ends.ok || !cue.focus.button || !cue.focus.clear) {
       contrastFails += 1;
-      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), ending in the rail's own background, and a control focused below the edge scrolled in clear of it (${scheme}), got ${JSON.stringify(cue)}`);
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), ending in the rail's own background, and a control focused below the edge scrolled in clear of it, and a press in the faded strip not moving the box (${scheme}), got ${JSON.stringify(cue)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
