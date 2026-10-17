@@ -166,14 +166,18 @@ self.addEventListener('fetch', (event) => {
 
 /* The coordinator's sender (kosmos-relay VapidSender) posts who/what/where and
    never content, so the payload is {kind, agent, project, id, address, session} -- NOT
-   {title, body}. `kind` is one of posted|replied|needs_you; `address` is the
-   person's own Mac host ("<mac>.<domain>", no scheme) so a tap opens her board.
-   We render a plain-language line from those fields, still preferring an
-   explicit title/body if some future producer sends one. */
+   {title, body}. `kind` is one of posted|replied|needs_you|ready (#6254 added
+   posted and ready); `address` is the person's own Mac host ("<mac>.<domain>", no
+   scheme) so a tap opens her board. We render a plain-language line from those
+   fields, still preferring an explicit title/body if some future producer sends
+   one. An unknown kind falls back to the generic headline below, so a new kind is
+   never dropped -- only phrased generically until it is listed here. */
 const KIND_HEADLINE = {
   needs_you: 'needs you',
   posted: 'posted an update',
   replied: 'replied',
+  // #6254: a task marked built -- work waiting for the person's check.
+  ready: 'has work ready for you',
 };
 
 /* Where notificationclick should land. Built ONLY from the coordinator's
