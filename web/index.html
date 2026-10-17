@@ -2191,12 +2191,10 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 /* kosmos#6403 (Josh 11:30): the first time the switcher appears, one line under it says how to switch; shown once. */
 .worldsw-tip { position: absolute; top: calc(100% + 6px); left: 0; z-index: 39; display: flex; align-items: center; gap: 6px;
   width: max-content; max-width: min(320px, calc(100vw - 88px)); padding: 6px 6px 6px 10px; font-size: 13px; color: var(--k-ink); background: var(--bg-elevated);
-  border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card);
+  pointer-events: none; }   /* clicks go through to the page below; only the close button takes one */
 .worldsw-tip[hidden] { display: none; }
-/* Clicks go through the tip to what is under it (it overlays the page below the header); only its close button takes one. */
-.worldsw-tip { pointer-events: none; }
-.worldsw-tip-x { pointer-events: auto; }
-.worldsw-tip-x { flex: none; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1;
+.worldsw-tip-x { flex: none; pointer-events: auto; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1;
   min-width: 24px; min-height: 24px; border-radius: 6px; }
 .worldsw-tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
 .worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
@@ -30157,29 +30155,34 @@ let COMPUTERS_READ_AT = 0;   // #6403: when the last read started (computersFetc
 let COMPUTERS_TIP_SHOWN = false;   // #6403: once per page even where localStorage is refused (a private window)
 let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: follow-ups for 90 s
 let COMPUTERS_STALE_FORCED = false;   // #6403: a forced read was owed while the tab was hidden; the read on return is one
-/* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered here); it goes
-   on its close button or when the menu is opened. */
+/* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered when a person
+   could see it, worldswTipMarkSeen); it goes on its close button, Escape, or when the menu is opened. */
 function worldswTipOnce() {
   let seen = COMPUTERS_TIP_SHOWN;
   try { seen = seen || localStorage.getItem('kosmos.switcherTipSeen') === '1'; } catch {}
   const tip = document.getElementById('worldsw-tip');
   if (!seen && tip) {
     tip.hidden = false;
-    /* Seen only once it can actually be seen (the switcher is shown just after this; on a phone over Kosmos+ it never
-       is), so a layout that hides the switcher does not use up the tip. */
-    setTimeout(() => {
-      if (!tip.hidden && tip.getClientRects().length > 0) {
-        COMPUTERS_TIP_SHOWN = true;
-        try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
-      }
-    }, 0);
+    // Seen once a person can see it (worldswTipMarkSeen); the switcher is shown just after this.
+    setTimeout(worldswTipMarkSeen, 0);
     // The switcher's own description while the tip is up, so a screen reader hears it on the button (a region that
     // starts hidden is not announced reliably).
     const btn = document.getElementById('worldsw-btn'); if (btn) btn.setAttribute('aria-describedby', 'worldsw-tip-text');
   }
 }
+/* #6403: the tip counts as seen when a person can see it: the tab is showing and the tip is laid out (a phone over
+   Kosmos+ hides the switcher). Checked after it shows, when the tab is shown and when the window is resized; putting it
+   away counts too. Until then a reload shows it again. */
+function worldswTipMarkSeen(force) {
+  const tip = document.getElementById('worldsw-tip');
+  if (!force && (!tip || tip.hidden || document.hidden || tip.getClientRects().length === 0)) return;
+  COMPUTERS_TIP_SHOWN = true;
+  try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
+}
 function worldswTipHide() {
-  const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
+  const tip = document.getElementById('worldsw-tip');
+  if (tip && !tip.hidden) worldswTipMarkSeen(true);   // put away (close, Escape, the menu): seen
+  if (tip) tip.hidden = true;
   const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
 }
 /* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
@@ -32040,8 +32043,10 @@ async function worldHideSubmit() {
         computersFetch().catch(() => {});
       }
       else if (!document.hidden) computersReadSoon(false);   // #6403
+      if (!document.hidden) worldswTipMarkSeen();   // #6403: a tip shown while the tab was hidden is seen now
     });
     window.addEventListener('focus', () => computersReadSoon(false));   // #6403: the app window looked at again
+    window.addEventListener('resize', () => worldswTipMarkSeen());   // #6403: a layout that now shows the switcher
     const tipX = document.getElementById('worldsw-tip-x');
     if (tipX) tipX.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
     // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.

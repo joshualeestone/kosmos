@@ -62,6 +62,14 @@ premise: a board left open and never looked at catches up only on its 5-minute t
   does), so a layout that hides the switcher does not use it up.
 - A forced read owed while the tab was hidden brings its 90 s of follow-ups when the tab is shown.
 
+## Review 6 (sonnet) changes and calls
+- One check, worldswTipMarkSeen, marks the tip seen only when a person can see it (the tab showing, the tip laid out);
+  it runs after the tip shows, when the tab is shown and on a resize, and putting the tip away counts. So a tip shown in
+  a background tab, or under a layout that hides the switcher, comes back until it is seen.
+- DECIDED: the other browser checks that serve two or more computers are not seeded with the seen flag. The tip is
+  absolutely positioned and lets clicks through, so it cannot move their layout or take their clicks; PR CI runs them
+  all, and mobile-shots (the screenshots) is seeded. What would change it: one of them going red on the tip.
+
 ## Steps
 1. computersFetch stamps COMPUTERS_READ_AT; worldswComputersSeen's first false->true shows the tip once
    (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused).
