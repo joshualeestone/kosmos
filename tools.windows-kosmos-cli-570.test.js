@@ -455,6 +455,28 @@ test('#6330: task built prints the board\'s sentence about who was told; an olde
   assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.');
 });
 
+test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the path out of the note; a missing file, --file with no path, and --file with --clear never reach the board', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-builtsha-win-'));
+  try {
+    const file = path.join(dir, 'deliverable.txt');
+    fs.writeFileSync(file, 'the delivered thing\n');
+    const want = 'sha256:' + require('node:crypto').createHash('sha256').update('the delivered thing\n').digest('hex');
+    const ok = await run(['task', 'built', 'proj/1', '4', 'merged', '--file', file], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(ok.calls[0].body.fingerprint, want);
+    assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
+    const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
+    for (const argv of [['--file', path.join(dir, 'missing')], ['--file'], ['--clear', '--file', file]]) {
+      const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
+      assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
+      assert.equal(r.calls.length, 0, argv.join(' ') + ' reached the board');
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 // ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────
 
 test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent token; ok -> 0; refusal -> 1; timeout -> 3', async () => {
