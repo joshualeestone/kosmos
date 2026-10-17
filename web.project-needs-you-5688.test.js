@@ -168,7 +168,11 @@ test('#5692: a red row whose need is not about this project is named too, after 
    the row shows; a member the engine marked quiet is not listed again among the red rows the count skips. */
 test('#6341: every counted row has a Dismiss naming the agent and carrying its reason', () => {
   const html = pjNeedsNotice([m('elon', 'question', 'Elon'), m('sam', 'crash_loop', 'Sam')]);
-  assert.match(html, /data-pn-dismiss="elon" data-pn-reason="question" aria-label="Dismiss Elon">Dismiss<\/button>/);
+  // A question's key carries its words (built from because when the engine's needsYouKey is absent): never a bare
+  // "question", which the board refuses (review 9).
+  assert.match(html, /data-pn-dismiss="elon" data-pn-reason="question:[^"]*" aria-label="Dismiss Elon">Dismiss<\/button>/);
+  const keyed = pjNeedsNotice([{ ...m('elon', 'question', 'Elon'), needsYouKey: 'question:Which logo?' }]);
+  assert.match(keyed, /data-pn-reason="question:Which logo\?"/, 'the engine\'s needsYouKey is what is sent');
   assert.match(html, /data-pn-dismiss="sam" data-pn-reason="crash_loop" aria-label="Dismiss Sam">Dismiss<\/button>/);
   assert.equal((html.match(/data-pn-dismiss=/g) || []).length, 2, 'one Dismiss per row');
   assert.equal((html.match(/data-pn-open=/g) || []).length, 2, 'CONTROL: Open (or Answer) is still on every row');

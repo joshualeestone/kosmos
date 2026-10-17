@@ -62323,7 +62323,9 @@ function pjNeedsNotice(roster, redHere) {
     + '<span class="pnacts"><button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button>'
     + '<button class="qopt pn-dismiss" type="button" data-pn-dismiss="' + esc(String(m.sessionName)) + '" data-pn-reason="' + esc(reason) + '" aria-label="' + esc('Dismiss ' + nameOf(m)) + '">Dismiss</button></span></div>';
   // The engine's needsYouKey (a question carries its words, so the next question is shown); the reason if absent.
-  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, m.needsYouKey || m.needsYouHere); }).join('');
+  // Review 9: built as the engine builds it when absent (an older engine), so the board never refuses the key.
+  const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + String(m.because || '').slice(0, 300) : m.needsYouHere);
+  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
