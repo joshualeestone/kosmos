@@ -509,13 +509,15 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
   const everyone = others.concat(forParent);
   if (!everyone.length) return { delivered: [] };
-  // The task-message valve, asked only when somebody would be told (a solo mark is never refused for nothing).
-  const refusal = typeof admit === 'function' ? admit() : null;
+  const offHere = projects.swarmOffSet(projectId);
+  // The task-message valve, asked only when a line would actually be attempted (not for a list of only switched-off or
+  // departed recipients, who are said, not typed to).
+  const attempted = everyone.filter((m) => !offHere.has(String(m)) && member(m)).length;
+  const refusal = attempted && typeof admit === 'function' ? admit() : null;
   if (refusal) return { delivered: [], refusal };
   const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
   const projName = clean(rec.name || projectId);
   const who = clean(by) || 'An agent';
-  const offHere = projects.swarmOffSet(projectId);
   const note = clean(t.builtNote || '');
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
@@ -536,7 +538,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
       ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
   };
-  return { delivered: await Promise.all(everyone.map(tell)) };
+  return { delivered: await Promise.all(everyone.map(tell)), attempted };
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
@@ -21685,7 +21687,6 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
-      /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
       let summary = null;
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to, through the
@@ -21697,8 +21698,10 @@ const server = http.createServer(async (req, res) => {
           delivered = told.delivered;
           if (told.refusal) summary = 'Nobody was told of the mark: ' + String(told.refusal.because).replace(/\.$/, '') + '.';
           else if (delivered.length) {
-            taskMessageValveRecord();
-            summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
+            if (told.attempted) taskMessageValveRecord();
+            // Lines may be out by now, so a failure here never says nobody was told.
+            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
+            catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         } catch (err) {
