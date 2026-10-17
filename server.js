@@ -1116,6 +1116,14 @@ function* proofAgentTokens(k) {
   c.ids = ids;
   if (ids.has(k)) yield ids.get(k);
 }
+/* kosmos#6406 (review 8): a second signal, independent of the forwarding headers, for the ticket route. On a board that
+   enforces its token, the app window carries the board COOKIE; Kosmos+ strips a visitor's board cookie and sends the
+   token as a header instead (kosmos-relay proxy.rs strip_cookie_named(.., BOARD_COOKIE_NAME)), so a phone through it
+   has no cookie. A board that enforces nothing (a sandboxed test board) has no cookie to ask for. */
+function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
+  if (!state || !state.on) return true;
+  return !!boardauth.cookieToken(req) && check(req);   // presentedToken reads the cookie first, so check judges it
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -11014,7 +11022,8 @@ const server = http.createServer(async (req, res) => {
      for a request made on THIS computer's own screen (madeOnThisComputer: loopback Host and Origin, nothing forwarded;
      the Kosmos+ headers are pinned in kosmos-relay's proxy tests), so a phone let in here, through Kosmos+ or a proxy
      of the person's own, cannot use this computer's key to reach the other computers; and with no agent token
-     (isViaScreen). A local
+     (isViaScreen). Kosmos+ rewrites Host and Origin to loopback and connects over loopback, so for a phone through it
+     the forwarding headers and the board cookie (boardCookieHere: Kosmos+ strips it) are what refuse it. A local
      process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
      tunnel with this computer's key itself. The address must be one an account's computer can have. */
   if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
@@ -11023,7 +11032,7 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        if (!ticketCallerHere(req) || !isViaScreen(req, body)) {
+        if (!ticketCallerHere(req) || !boardCookieHere(req) || !isViaScreen(req, body)) {
           sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
           return;
         }
@@ -25062,7 +25071,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  madeOnThisComputer, ticketCallerHere, // kosmos#6406: the ticket route's "on this computer" rule, for its test
+  madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

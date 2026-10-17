@@ -11730,7 +11730,17 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
   const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const at = src.indexOf("pathname === '/api/remote/open-ticket'");
   assert.ok(at > 0, 'the route moved');
-  assert.match(src.slice(at, at + 1200), /if \(!ticketCallerHere\(req\) \|\| !isViaScreen\(req, body\)\)/);
+  assert.match(src.slice(at, at + 1200), /if \(!ticketCallerHere\(req\) \|\| !boardCookieHere\(req\) \|\| !isViaScreen\(req, body\)\)/);
+  /* Review 8: on a board that enforces its token, the board COOKIE is required (Kosmos+ strips it and sends the token
+     as a header instead); a header alone is refused, and a board that enforces nothing does not ask. */
+  const { boardCookieHere } = require('./server');
+  const on = { on: true, token: 't' };
+  const good = () => true;
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, good), true, 'the app window');
+  assert.equal(boardCookieHere({ headers: { 'x-kosmos-board-token': 't' } }, on, good), false, 'a header alone (Kosmos+)');
+  assert.equal(boardCookieHere({ headers: {} }, on, good), false, 'nothing');
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, () => false), false, 'a cookie that does not match');
+  assert.equal(boardCookieHere({ headers: {} }, { on: false, token: null }, good), true, 'a board that enforces nothing');
   /* An address no computer of the account can have is refused before the tunnel. */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });

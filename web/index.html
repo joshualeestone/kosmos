@@ -30699,6 +30699,13 @@ function computersOpenClick(e) {
     .catch(() => { clearTimeout(cut); go(plain); });
 }
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('click', computersOpenClick);
+/* kosmos#6406: a window already signed in on this computer gets this page, not the gate page, so a ticket another
+   computer sent along (#kpt=) is taken out of the address here, unused, as the gate page would. */
+try {
+  if (typeof location !== 'undefined' && /(^#|&)kpt=/.test(location.hash || '')) {
+    history.replaceState(history.state, '', location.pathname + location.search);
+  }
+} catch {}
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');

@@ -22,7 +22,9 @@ plain address as before.
   isViaScreen (no agent token, a browser's header) AND madeOnThisComputer (review 4: loopback Host AND loopback
   Origin AND no forwarding header; Kosmos+ sets x-forwarded-for on everything and x-forwarded-host on all but a
   webhook, pinned by a test in the relay's openticket-6406 branch). A reverse proxy of the person's own fails the
-  Origin half even if it adds no header or rewrites Host. So a phone let in to this computer cannot use this computer's key to reach the others. The address must be one an account's computer can have
+  Origin half even if it adds no header or rewrites Host. Kosmos+ itself rewrites Host and Origin to loopback, so a
+  phone through it is refused by the forwarding headers AND (review 8) by boardCookieHere: on a board that enforces
+  its token, the request must carry the board cookie, which Kosmos+ strips (it sends the token as a header). So a phone let in to this computer cannot use this computer's key to reach the others. The address must be one an account's computer can have
   (account-computers validAddress under the coordinator's domain).
 - engine/remote.js openTicket: `open-ticket --state-dir --to https://<address>`, local only; only a base64url ticket
   is handed back.
@@ -39,12 +41,14 @@ plain address as before.
 - The address is not checked against the last list of the account's computers: the ticket is bound to the origin it
   names, so a ticket for an address that is not one of the computers opens nothing.
 
+- A local port forward (ssh -L, an editor's remote forward) looks exactly like this computer; as with a local process,
+  whoever set it up already has a shell here.
 - A local process sending a browser's header (no agent token) can get a ticket, as it can use the other screen-only
   routes. Accepted: such a process runs as the person and can run the tunnel with this computer's key itself.
 - The ticket stays in that window's history entry for its fragment until the gate page takes it out (replaceState,
   first thing it does); it is single use and good for two minutes either way. When no gate page runs there (the
-  window is already signed in on that computer, or its tunnel predates tickets), the board's page loads with `#kpt=`
-  still in its address and that history entry, unused, until it expires.
+  window is already signed in on that computer, or its tunnel predates tickets), the board's page takes `#kpt=` out
+  of its address on load (that history entry held it for a moment); unused, it expires.
 - A link's own fragment is dropped (`plain`); no link to another computer carries one today.
 - The page gives up on the ticket after 8 s and opens the plain address; the tunnel call may still finish and make a
   ticket nobody uses (it expires).
@@ -84,3 +88,7 @@ plain address as before.
   fragment and dropped-fragment limits stated.
 - 7 sonnet: the route is tied to ticketCallerHere (read from its source; the test socket is always loopback); a tunnel
   failure's own words never reach the page (a fixed sentence); the busy rule sits with the Agents view's links.
+- 8 opus: a second signal for Kosmos+ independent of the headers (boardCookieHere: the board cookie, which Kosmos+
+  strips; unit arms and the route tie); the local port-forward limit stated.
+  The board page now takes a #kpt= out of its address on load (the view router keeps a fragment when the query is
+  unchanged); browser-checked.
