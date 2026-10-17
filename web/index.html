@@ -51413,7 +51413,17 @@ async function paintPlus() {
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
     // #6403: the wait ended (most often this computer was let in, so the account has another): read the computers now.
     // paintPlus runs while the Kosmos+ section is on screen, which is where pairing happens; elsewhere the look-back reads.
-    if (wasWaiting && !PLUS_JOIN_WAITING && r.on === true && typeof computersReadSoon === 'function') computersReadSoon(true);
+    // Either sign counts, once per wait: the status left "waiting to be allowed" (this computer was let in), or the join
+    // block closed. The block can stay open after the Allow with an ending (a code that ran out), so the status is the
+    // one that says it first (CI's render-connect-sheet-4637 found the block alone never closing there).
+    const heldNow = r.on === true && stat.state === 'waiting-allow';
+    if (heldNow) PLUS_LETIN_READ = false;
+    const letIn = (wasWaiting && !PLUS_JOIN_WAITING) || (PLUS_LETIN_HELD && !heldNow);
+    PLUS_LETIN_HELD = heldNow;
+    if (letIn && r.on === true && !PLUS_LETIN_READ && typeof computersReadSoon === 'function') {
+      PLUS_LETIN_READ = true;
+      computersReadSoon(true);
+    }
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
       if (PLUS_JOIN) { PLUS_JOIN = null; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0; }
@@ -51805,6 +51815,8 @@ document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgL
 /* var, not let: paintPlus reads these, and a call before this line runs must not hit the temporal dead zone. */
 var PLUS_JOIN = null;          // the last /api/remote/join answer, or null
 var PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+var PLUS_LETIN_HELD = false;   // #6403: the last paint said waiting-allow
+var PLUS_LETIN_READ = false;   // #6403: this wait's ending already asked for a read of Your computers
 var PLUS_JOIN_BUSY = false;
 var PLUS_JOIN_AT = 0;
 var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
