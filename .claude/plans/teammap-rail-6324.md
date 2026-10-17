@@ -3,8 +3,13 @@
 Built on `teammap-6103` (PigeonPete, #6103); that landed on main as e741dc4c45 (PR #6342), and this branch now sits on main.
 
 ## The call (the card leaves "where the control sits in the rail" to the owner)
-- The control sits in the Agents rail HEAD (`#rail-agents`), directly under the rail's project notice
+- The control sits in the Agents rail HEAD (`#rail-agents`), directly ABOVE the rail's project notice
   (`#alist-pj-notice`, #3948): a quiet "Team map" button, and the map box under it, both inside the head.
+  First built under the notice; the design shots' sample data (1280x800) then showed a 638px notice in a 504px head,
+  and since the agents list is drawn over whatever runs past the head, the button sat under a group header and could
+  not be clicked. Above the notice nothing in the head pushes it out. Trade: an open map lowers the notice (who needs
+  you, #5688) by up to the map's 35vh cap. A browser arm forces the notice tall and requires the button to still be
+  what a click hits (CONTROL: the button moved under it reads as buried).
 - Shown only while a project is open in the consolidated layout and it has members; hidden when the agents
   column is folded (fold-a), exactly like the notice.
 - Painted from `paintRailPjNotice()`, so it inherits every caller the notice already has: each poll
@@ -41,7 +46,10 @@ map (measured 2026-10-16: 604px with the map closed and open at 1280x900), and i
 the head would run down over the list rather than push it; the cap-removed controls show both. Below 1280 wide the agents column folds by default and
 the map goes with it; the 960x720 arms unfold it first, as a person would.
 NOT covered: a long project notice plus the open map on a short window. The notice is uncapped, so that pair can run
-past the head and make the page scroll, as a long notice can by itself today. Also not covered:
+past the head and make the page scroll, as a long notice can by itself today. A notice that runs past the head is
+also drawn under the agents list on main (measured in the design shots' data: the head ends at 600px and the notice's
+text runs on under the list; its one Try again button was inside the head and clickable). That predates this card and
+is filed separately. Also not covered:
 folding the agents column drops keyboard focus from anything in the rail head, the map included (as it does for
 the notice's buttons and the rows; the fold is CSS only).
 Focus: a repaint finds a focused member again by data-agent; a focused member who leaves hands focus to the Team map
