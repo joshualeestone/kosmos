@@ -79,7 +79,8 @@ const FOUR = {
       problems.push(`[${engine} ${theme}] console: ${x}`);
     });
     // kosmos#6406: arriving with a ticket in the fragment (a window already signed in here), the page takes it out.
-    await page.goto(PAGE + '?tab=agents#kpt=TkT_left_over_abcdefghijklmnop');
+    // No query: the view router then leaves the address alone, so only the page's own strip can take the ticket out.
+    await page.goto(PAGE + '#kpt=TkT_left_over_abcdefghijklmnop');
     const t = `[${engine} ${theme}]`;
     const leftOver = await page.evaluate(() => location.hash + '|' + location.search);
     ok(`${t} #6406: a ticket in the address on arrival is taken out of it`, !/kpt=/.test(leftOver), leftOver);
