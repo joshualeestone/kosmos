@@ -452,11 +452,14 @@ const STATES = {
     /* #4079: Disconnect this computer. Three outcomes of the engine's /api/remote/forget, each on a connected
        pane: the account was told (the pane goes back to not connected and says it is done), the account could
        not be told (the same, saying the address may still show on the account), and the engine failed (the
-       pane stays connected and says so). The confirm is checked to survive the 5-second repaint and to cancel. */
+       pane stays connected and says so). The confirm is checked to survive the 5-second repaint and to cancel.
+       kosmos#6389, 'kept': Kosmos+ could not be reached, so nothing was removed. The pane stays connected, says not
+       removed yet with both ways on, and Remove from this computer only sends { anyway: true }. */
     const UNTOLD = 'this computer is forgotten here, but your Kosmos+ account could not be updated (the coordinator did not answer); its address may still show on your account page until you remove it there';
-    for (const mode of ['told', 'untold', 'fails']) {
+    const KEPT = 'this computer is not removed yet, because your Kosmos+ account could not be reached (Kosmos+ unreachable for /v1/mac/retire: connection refused)';
+    for (const mode of ['told', 'untold', 'fails', 'kept']) {
       const t = `[disconnect ${mode}]`;
-      let enrolled = true; let forgets = 0;
+      let enrolled = true; let forgets = 0; const bodies = [];
       const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
       const errs = []; page.on('pageerror', (e) => errs.push(e.message));
       const json = (o, status) => ({ status: status || 200, contentType: 'application/json', body: JSON.stringify(o) });
@@ -464,8 +467,10 @@ const STATES = {
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? (enrolled ? base : { configured: true, on: false, ok: true, enrolled: false, status: { state: 'off' } }) : { ok: true })));
       await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: [], email: 'you@example.com', self_device_id: 'd-self' })));
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [], pending: [], self_device_id: 'd-self' })));
-      await page.route('**/api/remote/forget', (route) => {
+      await page.route('**/api/remote/forget', (route, req) => {
         forgets += 1;
+        bodies.push(req.postData() || '');
+        if (mode === 'kept' && !/"anyway":true/.test(req.postData() || '')) return route.fulfill(json({ ok: false, kept: true, retired: false, address: ADDR, because: KEPT }));
         if (mode === 'fails') return route.fulfill(json({ error: 'we could not forget this computer: the tunnel program did not start' }, 500));
         enrolled = false;
         return route.fulfill(json(mode === 'told' ? { ok: true, retired: true, address: ADDR, because: null } : { ok: true, retired: false, address: ADDR, because: UNTOLD }));
@@ -493,10 +498,29 @@ const STATES = {
       const after = await page.evaluate(() => ({ state1: !document.getElementById('plus-state1').hidden, flow: !document.getElementById('plus-flow').hidden,
         forgot: (document.getElementById('plus-forgot-msg') || {}).textContent || '', forgotShown: !document.getElementById('plus-forgot-msg').hidden,
         inPane: (document.getElementById('plus-forget-msg') || {}).textContent || '' }));
-      chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);
+      chk(forgets === 1, `${t} Disconnect sends one request`, 'forgets=' + forgets);   // kept sends its second below
       if (mode === 'told') chk(after.state1 && !after.flow && after.forgotShown && /^This computer is removed from Kosmos\+\./.test(after.forgot), `${t} the pane goes back to not connected and says it is done`, JSON.stringify(after));
       if (mode === 'untold') chk(after.state1 && !after.flow && after.forgotShown && /could not be updated/.test(after.forgot) && /may still show on your account page/.test(after.forgot) && !/is removed from Kosmos\+\./.test(after.forgot), `${t} it says the account could not be told and the address may still show, never "done"`, JSON.stringify(after));
       if (mode === 'fails') chk(!after.state1 && after.flow && /^Removing it did not finish: the tunnel program did not start\. Try again in a moment\.$/.test(after.inPane), `${t} a failed disconnect keeps the connected pane and says it did not finish, in one clean sentence`, JSON.stringify(after));
+      if (mode === 'kept') {
+        const kept = await page.evaluate(() => ({ text: (document.getElementById('plus-forget-kept-msg') || {}).textContent || '',
+          focus: document.activeElement && document.activeElement.id }));
+        chk(!after.state1 && after.flow && !after.forgotShown && await vis('#plus-forget-kept') && await vis('#plus-forget-retry') && await vis('#plus-forget-anyway'),
+          `${t} nothing was removed: the pane stays connected and offers Try again and Remove from this computer only`, JSON.stringify({ after, kept }));
+        chk(/^This computer is not removed yet, because your Kosmos\+ account could not be reached \(/.test(kept.text) && /Remote access is paused\./.test(kept.text)
+          && /cannot sign in again under that name/.test(kept.text) && !/\.\./.test(kept.text) && !/may still show/.test(kept.text), `${t} it says not removed yet, paused, and what removing it here only would cost`, kept.text);
+        chk(kept.focus === 'plus-forget-retry', `${t} focus goes to Try again, not to the destructive choice`, String(kept.focus));
+        chk(bodies[0] === '', `${t} the first Remove is a plain one`, JSON.stringify(bodies));
+        if (SHOTS) await page.screenshot({ path: path.join(SHOTS, '6389-kept.png') });
+        await page.waitForTimeout(5600);   // the 5-second repaint must not take the choice away
+        chk(await vis('#plus-forget-kept'), `${t} the choice survives the 5-second repaint`);
+        await page.click('#plus-forget-anyway');
+        await page.waitForTimeout(700);
+        const gone = await page.evaluate(() => ({ state1: !document.getElementById('plus-state1').hidden,
+          forgot: (document.getElementById('plus-forgot-msg') || {}).textContent || '', kept: !document.getElementById('plus-forget-kept').hidden }));
+        chk(forgets === 2 && /"anyway":true/.test(bodies[1] || ''), `${t} Remove from this computer only sends anyway`, JSON.stringify(bodies));
+        chk(gone.state1 && !gone.kept && /may still show on your account page/.test(gone.forgot), `${t} after it, the pane is not connected and says the address may still show`, JSON.stringify(gone));
+      }
 
       if (SHOTS && mode !== 'fails') { await page.screenshot({ path: path.join(SHOTS, `4079-after-${mode}.png`) }); }
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
