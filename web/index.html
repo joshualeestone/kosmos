@@ -5382,8 +5382,8 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
      the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
      does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
-     over the rows; it never takes a click. The scroll padding keeps a control focused from the keyboard above the fade
-     (WCAG 2.4.11). */
+     over the rows; it never takes a click. The scroll padding (and railPjMore's focusin nudge, for engines that ignore it on a focus scroll) keeps a
+     control focused from the keyboard above the fade (WCAG 2.4.11). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { scroll-padding-bottom: 28px; }
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
@@ -76113,8 +76113,9 @@ document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenCl
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 /* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read on the box's
-   scroll, on a change to its rows (added, removed, text), on a change to the box's size or any row's, and on window
-   resize. */
+   scroll, on a change to its rows (added, removed, text), on a change to the box's size or any of its top-level rows',
+   and on window resize. A control focused under the fade is scrolled up clear of it here too, since not every engine
+   applies the CSS scroll padding to a focus scroll. */
 function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
@@ -76125,6 +76126,11 @@ function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (rn) {
     rn.addEventListener('scroll', railPjMore, { passive: true });
+    rn.addEventListener('focusin', (e) => requestAnimationFrame(() => {
+      if (!rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect) return;
+      const under = e.target.getBoundingClientRect().bottom - (rn.getBoundingClientRect().bottom - 28);
+      if (under > 0) rn.scrollTop += Math.ceil(under);
+    }));
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(railPjMore) : null;
     if (ro) { ro.observe(rn); for (const c of rn.children) ro.observe(c); }
     if (typeof MutationObserver === 'function') new MutationObserver((recs) => {
