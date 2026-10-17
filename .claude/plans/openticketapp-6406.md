@@ -18,9 +18,9 @@ plain address as before.
   POSTs `/api/remote/open-ticket {address}`, and goes to the address with the ticket, or without it on any failure
   (8 s cut). One at a time.
 - server.js `POST /api/remote/open-ticket`: refused (403) unless the request was made on this computer's own screen:
-  isViaScreen (a person's page, no agent token) AND not through Kosmos+ (the tunnel sets x-forwarded-host and
-  x-forwarded-for on everything it forwards, replacing whatever a visitor sent). So a phone let in to this computer
-  cannot use this computer's key to reach the others. The address must be one an account's computer can have
+  isViaScreen (no agent token, a browser's header) AND not through Kosmos+ (the tunnel sets x-forwarded-host and
+  x-forwarded-for on everything it forwards, replacing whatever a visitor sent; pinned by a test in the relay's
+  openticket-6406 branch). So a phone let in to this computer cannot use this computer's key to reach the others. The address must be one an account's computer can have
   (account-computers validAddress under the coordinator's domain).
 - engine/remote.js openTicket: `open-ticket --state-dir --to https://<address>`, local only; only a base64url ticket
   is handed back.
@@ -37,6 +37,13 @@ plain address as before.
 - The address is not checked against the last list of the account's computers: the ticket is bound to the origin it
   names, so a ticket for an address that is not one of the computers opens nothing.
 
+- A local process sending a browser's header (no agent token) can get a ticket, as it can use the other screen-only
+  routes. Accepted: such a process runs as the person and can run the tunnel with this computer's key itself.
+- The ticket stays in that window's history entry for its fragment until the gate page takes it out (replaceState,
+  first thing it does); it is single use and good for two minutes either way.
+- The page gives up on the ticket after 8 s and opens the plain address; the tunnel call may still finish and make a
+  ticket nobody uses (it expires).
+
 ## Steps
 1. engine openTicket + engine/remote.openticket-6406.test.js.
 2. server route + server.test.js (every refusal, a control that reaches the engine).
@@ -44,3 +51,5 @@ plain address as before.
    browser and modified clicks, the mark).
 
 ## Review log
+- 1 sonnet: the screen-only wording says what it guards (no agent token, not relayed) and the local-process limit;
+  the relay header premise pinned in the relay branch's test; the history-entry and timeout limits stated.
