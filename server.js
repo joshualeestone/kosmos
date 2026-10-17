@@ -23624,7 +23624,7 @@ function start(port = PORT) {
             release: (slot) => agyQuota.releaseCapStart(slot),
             // #6341: a note the room already holds (same agent, same words, in the last day) is not written again after a restart.
             // Review 2: a day, not a week, so a new stuck episode with the same words on another day is convened as new.
-            alreadyNoted: (projectId, session, because) => messages.recommenderNoted(projectId, session, because, Date.now() - 24 * 60 * 60 * 1000),
+            alreadyNoted: (projectId, session, because, at) => messages.recommenderNoted(projectId, session, because, (at || Date.now()) - 24 * 60 * 60 * 1000),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.

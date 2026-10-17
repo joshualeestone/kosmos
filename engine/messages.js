@@ -977,12 +977,15 @@ function lastPostAt(projectId) {
 }
 
 /* #6341: does this project's room already hold a Recommender note about this agent with these words, written since
-   `sinceMs`? Read from the log on disk, so it survives a board restart, which the Recommender's own memory does not. */
+   `sinceMs`? `{ asked }` (the sessions that note asked) when it does, false when not. Read from the log on disk, so it
+   survives a board restart, which the Recommender's own memory does not. */
 function recommenderNoted(projectId, session, because, sinceMs) {
   const got = record();
   if (!got.ok) return false;
-  return got.rows.some((r) => r && r.kind === 'note' && r.project === String(projectId) && r.rec
+  const hit = got.rows.find((r) => r && r.kind === 'note' && r.project === String(projectId) && r.rec
     && r.rec.stuck === session && r.rec.because === because && Date.parse(r.at) >= sinceMs);
+  // Review 5: who that note asked, so the playbook can say whether replies may be waiting (an empty list asked nobody).
+  return hit ? { asked: Array.isArray(hit.rec.asked) ? hit.rec.asked.slice() : [] } : false;
 }
 
 /** The fields each kind demands. An unknown kind is KEPT -- dropping what
