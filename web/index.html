@@ -11709,6 +11709,7 @@ body.plus-active #plus-state2 { max-width: 26rem; padding: 2rem; }
 #askcard .asknote { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 #askcard .asknote-x { margin-left: auto; background: none; border: 0; color: inherit; opacity: .7; font-size: 1.4rem; line-height: 1; min-width: 44px; min-height: 44px; cursor: pointer; border-radius: 8px; }
 #askcard .asknote-x:hover, #askcard .asknote-x:focus-visible { opacity: 1; }
+#askcard .asknote-x:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #plus-state2 h3 { font-size: 1.3rem; line-height: 1.2; margin: 0 0 .25rem; }   /* #6314: a heading that wraps on a phone ("Add this computer to your account") must not inherit the body's fixed 16px (#6299) */
 #plus-state2 .plus-si-lead { color: var(--k-ink-2); margin: .5rem 0 0; }
 /* #5785: the branded K-to-circle loader (#2692) above "Signing in..." while this computer connects; the restart
@@ -50066,12 +50067,17 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
 /* kosmos#5786 (b): one connection's notice, by device AND when it was connected, so putting one away never hides a
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
-/* #6315: the set of requests the compact notice was put away for (ASK.noteKey, written by paintAsk). */
-function askNoteDismissed() { try { return localStorage.getItem('kosmos.asknote.dismissed') || ''; } catch (e) { return ASK.noteDismissed || ''; } }
-function askNoteDismiss() {
-  ASK.noteDismissed = ASK.noteKey || '';
-  try { localStorage.setItem('kosmos.asknote.dismissed', ASK.noteDismissed); } catch (e) { /* kept in memory only */ }
+/* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk).
+   This tab's own record is read first, so a storage write that failed still holds until a reload. */
+function askNoteDismissed() {
+  if (ASK.noteDismissed !== undefined) return ASK.noteDismissed;
+  try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { return []; }
 }
+function askNoteSave(keys) {
+  ASK.noteDismissed = keys;
+  try { if (keys.length) localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); else localStorage.removeItem('kosmos.asknote.dismissed'); } catch (e) { /* this tab's record only */ }
+}
+function askNoteDismiss() { askNoteSave((ASK.noteKeys || []).slice()); }
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
 function askBrowserWord(name) {
   const n = String(name || '');
@@ -50220,8 +50226,12 @@ function paintAsk() {
   if (!onPlus) {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
-    ASK.noteKey = live.map((d) => String(d.device_id)).sort().join(',') + '|' + askHereKey(here);
-    if (!hide && askNoteDismissed() === ASK.noteKey) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
+    ASK.noteKeys = live.map((d) => String(d.device_id)).concat(here ? ['here:' + askHereKey(here)] : []);
+    const put = askNoteDismissed();
+    // With nothing waiting the record is dropped, so the same device asking again later is shown.
+    if (!live.length && !here && put.length) askNoteSave([]);
+    // Hidden while every request it would name was put away; only one not there then brings it back.
+    if (!hide && ASK.noteKeys.length && ASK.noteKeys.every((k) => put.indexOf(k) !== -1)) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
     lead.hidden = true;
@@ -50230,7 +50240,7 @@ function paintAsk() {
     const line = !n && here ? askEsc(askBrowserWord(here.name)) + ' on this computer is connected.' : n === 1 ? askHead(live[0]) + '.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
-      '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss" title="Dismiss">&times;</button></div>');
+      '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss notice" title="Dismiss">&times;</button></div>');
     return;
   }
   if (!anything) return;
@@ -50333,7 +50343,15 @@ function paintAsk() {
 async function askAct(act, id, at) {
   const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { askNoteDismiss(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
-  if (act === 'note-dismiss') { askNoteDismiss(); paintAsk(); return; }
+  if (act === 'note-dismiss') {
+    askNoteDismiss(); paintAsk();
+    // The button is gone with the notice; focus goes to the current view's tab, or on a phone (tabs in a closed menu)
+    // to the button that opens them, not to the page body.
+    const tab = document.querySelector('#tabs [aria-selected="true"]');
+    const t = tab && tab.offsetParent ? tab : document.querySelector('[aria-controls="tabs"]');
+    if (t && t.focus) t.focus();
+    return;
+  }
   if (act === 'here-ok') { ASK.hereGone = at ? id + '@' + at : ASK.here && ASK.here.device_id === id ? askHereKey(ASK.here) : ASK.hereGone; ASK.hereSaid = ''; paintAsk(); return; }
   if (act === 'here-undo') {
     // One remove at a time, shared with the Devices list's Remove (it can take up to a minute).

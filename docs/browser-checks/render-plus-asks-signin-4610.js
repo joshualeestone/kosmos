@@ -127,11 +127,24 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
       chk(!(await shownNote()).shown, '[' + W + '] #6315 dismiss hides the notice');
+      const foc = await page.evaluate(() => { const a = document.activeElement; return a && a.matches && a.matches('#tabs [aria-selected="true"], [aria-controls="tabs"]') && !!a.offsetParent; });
+      chk(foc === true, '[' + W + '] #6315 after dismiss, keyboard focus is on a visible control for the current view, not the page body');
+      const before = await page.evaluate(() => ASK.devices.slice());
+      await page.evaluate(() => { ASK.devices = ASK.devices.slice(1); paintAsk(); });
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 one of the dismissed requests answered elsewhere: the notice stays away (nothing new)');
+      await page.evaluate((b) => { ASK.devices = b; paintAsk(); }, before);
       await page.evaluate(() => paintAsk());
       chk(!(await shownNote()).shown, '[' + W + '] #6315 a repaint keeps it hidden (same requests)');
       await page.evaluate(() => { ASK.devices = ASK.devices.concat([{ device_id: 'd-new', name: 'iPad · Safari', code: 'K2-P9', first_seen: Math.floor(Date.now() / 1000) }]); paintAsk(); });
       const n1 = await shownNote();
       chk(n1.shown, '[' + W + '] #6315 CONTROL: a new request brings the notice back', JSON.stringify(n1));
+      /* With nothing waiting the record is dropped, so the same device asking again later is shown. */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      const all = await page.evaluate(() => ASK.devices.slice());
+      await page.evaluate(() => { ASK.devices = []; paintAsk(); });
+      await page.evaluate((b) => { ASK.devices = b; paintAsk(); }, all);
+      chk((await shownNote()).shown, '[' + W + '] #6315 after nothing was waiting, the same requests asking again show the notice');
       await page.click('#askcard .asknote [data-ask="open"]');
       await page.waitForTimeout(200);
       await page.evaluate(() => { showTab('agents'); paintAsk(); });

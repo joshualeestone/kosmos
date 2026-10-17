@@ -421,7 +421,7 @@ const STATES = {
         await page.waitForFunction(() => !document.querySelector('#plus-ask-rows .askreq.stale'), null, { timeout: 12000 }).catch(() => {});
         // The compact notice on another view has the same rebuild; its Review button keeps focus too.
         // #6315: the Review pressed above put this set of requests away, so the notice is brought back first.
-        await page.evaluate(() => { try { localStorage.removeItem('kosmos.asknote.dismissed'); } catch (e) {} ASK.noteDismissed = ''; });
+        await page.evaluate(() => { try { localStorage.removeItem('kosmos.asknote.dismissed'); } catch (e) {} ASK.noteDismissed = []; });
         await page.evaluate(() => showTab('agents'));
         await page.waitForTimeout(300);
         await page.evaluate(() => { const b = document.querySelector('#askcard [data-ask="open"]'); if (b) { b.focus(); b.__k3978 = 2; } });
