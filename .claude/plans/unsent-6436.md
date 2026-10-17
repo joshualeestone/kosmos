@@ -59,6 +59,11 @@ from a delivery, which carries the card the pane check needs).
   deliverWithGap; honest titles on the busy and load tests. Declined: settle forgetting on unread/other (a delivery only
   pastes into an empty box, so any earlier line is already gone); three roster snapshots per stuck line (the cost of a
   delivery).
+- [x] Round 7 (opus): the retry looks at the box first (cheap) and pays for a roster only when a press is possible;
+  it passes the automatic-sender holds too (menuHeldVerdict, accountHeldVerdict, quotaHeldVerdict; no separate test
+  here, those verdicts have their own) and reads the box again right before the Enter; only an `unsent` watch starts
+  the day again; docblock lists 'gate'; a test comment that claimed a forget is fixed. Not covered, stated for the PR:
+  a resized pane and a line loaded after a restart wait for the next delivery.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)

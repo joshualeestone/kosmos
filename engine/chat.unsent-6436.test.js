@@ -151,7 +151,7 @@ test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min,
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   assert.deepEqual(scheduled.map((s) => s.ms), [30000, 120000, 300000]);
   // The first retry: the box still shows only our line, so Enter, and it empties.
-  const t = arm([box(MSG), EMPTY]);
+  const t = arm([box(MSG), box(MSG), EMPTY]);
   scheduled[0].fn();
   await flush();
   assert.equal(t.enters(), 1, 'pressed with no new message to carry it');
@@ -173,7 +173,7 @@ test('kosmos#6436: a retry that leaves it still there keeps it for the next; a r
   scheduled[0].fn();
   await flush();
   assert.equal(t.enters(), 1);
-  const t2 = arm([box(MSG), EMPTY]);
+  const t2 = arm([box(MSG), box(MSG), EMPTY]);
   scheduled[1].fn();
   await flush();
   assert.equal(t2.enters(), 1, 'still remembered after a retry that did not take, so the next one presses it');
@@ -191,7 +191,7 @@ test('kosmos#6436: a retry that leaves it still there keeps it for the next; a r
     arm([EMPTY, box(OTHER)]);
     assert.equal(chat.deliver('al', OTHER, roster).unsubmitted, true, 'PRECONDITION: the newer line stuck too');
   } finally { Date.now = realNow; }
-  const t3 = arm([box(OTHER), EMPTY]);
+  const t3 = arm([box(OTHER), box(OTHER), EMPTY]);
   olderRetries[1].fn();
   await flush();
   assert.equal(t3.enters(), 0, 'an older line\'s retry does not press a newer line');
@@ -230,8 +230,7 @@ test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, 
   scheduled[0].fn();
   await flush();
   assert.equal(t.enters(), 0, 'someone else\'s text in the box');
-  // A pane that fell to a shell: never an Enter into it. (The arm above forgot that line, as the box showed it gone:
-  // leave a fresh one.)
+  // A pane that fell to a shell: never an Enter into it. (A fresh line, with retries of its own.)
   scheduled.length = 0;
   arm([EMPTY, box(MSG)]);
   chat.deliver('al', MSG, roster);
@@ -257,7 +256,7 @@ test('kosmos#6436: a retry forgets the line only when two reads a look apart agr
   scheduled[0].fn();
   await flush();
   assert.equal(t.enters(), 0, 'nothing pressed on a read that disagreed');
-  const t2 = arm([box(MSG), EMPTY]);
+  const t2 = arm([box(MSG), box(MSG), EMPTY]);
   scheduled[1].fn();
   await flush();
   assert.equal(t2.enters(), 1, 'still remembered: the next retry presses it');
@@ -355,7 +354,7 @@ test('kosmos#6436 (round 5 BLOCKER): a retry passes every delivery gate on the r
       await flush();
       assert.equal(t.enters(), 0, 'an Enter here would approve the command');
       // CONTROL: the same retry with the prompt gone presses the line.
-      const t2 = arm([box(MSG), EMPTY], '❯ ');
+      const t2 = arm([box(MSG), box(MSG), EMPTY], '❯ ');
       scheduled[1].fn();
       await flush();
       assert.equal(t2.enters(), 1);
@@ -365,7 +364,7 @@ test('kosmos#6436 (round 5 BLOCKER): a retry passes every delivery gate on the r
     scheduled.length = 0;
     chat.deliver('al', MSG, board.agents);
     chat.setRosterSource(null);
-    const t3 = arm([box(MSG), EMPTY]);
+    const t3 = arm([box(MSG), box(MSG), EMPTY]);
     scheduled[0].fn();
     await flush();
     assert.equal(t3.enters(), 0);

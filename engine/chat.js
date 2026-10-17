@@ -1019,45 +1019,52 @@ function confirmedVerdict(placed, result) {
 }
 
 /* kosmos#6436: press Enter on the board's own remembered line in `target`, with no new line behind it, under the same
-   rules as the press a delivery makes first: the box shows that line and nothing else (rememberedShows), the pane is
-   still an agent's, and no delivery is typing into it right now (that delivery presses it first itself). Answers
-   'sent' (the box emptied; the line is forgotten and its message row told), or why nothing was sent: 'gone' (nothing
-   remembered), 'busy', 'unread', 'empty' (the box emptied some other way; forgotten), 'changed' (it shows something
-   else, never pressed), 'pane', or 'unsent' (pressed and still there; still remembered). */
+   gates as a delivery and the holds an automatic sender passes. Cheap looks first (the box, the exact match), so a
+   retry that can press nothing never pays for a roster. Answers 'sent' (the box emptied; the line is forgotten and its
+   message row told), or why nothing was sent: 'gone' (nothing remembered), 'busy' (a delivery is typing there),
+   'unread', 'empty' (two reads agree the box is empty; forgotten), 'changed' (it shows something else, never
+   pressed; remembered), 'gate' (no roster, a hold, or a delivery gate refused), 'pane', or 'unsent' (pressed and still
+   there; remembered, its day started again). */
 async function pressRememberedNow(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return 'gone';
   if (deliveryQueues.has(target)) return 'busy';
-  /* Every gate a delivery passes before a keystroke, on the roster now: a question being answered, the trust dialog,
-     a paused swarm, quiet hours, the usage cap, and Claude Code's menus and prompts read fresh (an Enter on a
-     permission prompt would approve it). The pane must still be this one. */
-  let roster = null;
-  try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
-  if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
-  /* The wire (envelope included) is judged as the line: the gates that let some bare commands through look at it whole. */
-  const gate = typingGate(card.sessionName, kept.wire, roster, '', '', new Date().toISOString());
-  if (!gate.ok) return 'gate';
-  if (paneTarget(gate.allowed.card) !== target) return 'pane';
-  card = gate.allowed.card;
   const box = readComposer(target);
   if (!box.ok) return 'unread';
   /* The box is empty: our line went (sent, or cleared by hand), so it is forgotten. Only on two reads that agree a look
      apart: one read caught mid-redraw must not drop a line that is still there, which would leave the agent refused
      behind it again. A box holding other text keeps the memory (a person who adds to our line and then deletes the
      addition leaves our line there), and is never pressed; the day bound ends it. */
-  const gone = (b) => b.ok && !b.text;
-  if (gone(box)) {
+  if (!box.text) {
     if (pauser) await pauser(SUBMIT_LOOK_MS);
     else if (!runner) await new Promise((resolve) => setTimeout(resolve, SUBMIT_LOOK_MS));
     const again = readComposer(target);
-    if (gone(again)) {
-      const still = recallUnsent(target);
-      if (still && still.id === kept.id) forgetUnsent(target);
-      return again.text ? 'changed' : 'empty';
-    }
-    return 'unread';
+    if (!again.ok) return 'unread';
+    if (again.text) return 'changed';
+    const still = recallUnsent(target);
+    if (still && still.id === kept.id) forgetUnsent(target);
+    return 'empty';
   }
-  if (!rememberedShows(box.text, kept, true)) return 'changed';   // a resized pane: left to the next delivery
+  if (!rememberedShows(box.text, kept, true)) return 'changed';   // other text, or a resized pane: left to a delivery
+  /* Every hold an automatic sender passes (a menu up, a usage limit or sign-out, a quota) and every gate a delivery
+     passes before a keystroke (a question being answered, the trust dialog, a paused swarm, quiet hours, the usage
+     cap, Claude Code's menus and prompts read fresh: an Enter on a permission prompt would approve it), on the roster
+     as it is now. The wire (envelope included) is judged as the line. The pane must still be this one. */
+  let roster = null;
+  try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
+  if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
+  const name = card.sessionName;
+  try {
+    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return 'gate';
+  } catch { return 'gate'; }
+  const gate = typingGate(name, kept.wire, roster, '', '', new Date().toISOString());
+  if (!gate.ok) return 'gate';
+  if (paneTarget(gate.allowed.card) !== target) return 'pane';
+  card = gate.allowed.card;
+  /* Read again right before the Enter: the gates took time, and the box must still be only our line. */
+  const now = readComposer(target);
+  if (!now.ok) return 'unread';
+  if (!now.text || !rememberedShows(now.text, kept, true)) return 'changed';
   if (!verifyAtSend(card).ok) return 'pane';
   /* The pane is busy while this runs (deliver refuses a pane in deliveryQueues, deliverAsync waits behind it), so no
      line is pasted while this one is being watched. */
@@ -1075,14 +1082,16 @@ async function pressRememberedNow(target, card) {
       else if (!runner) await new Promise((resolve) => setTimeout(resolve, step.value.wait));
       step = steps.next();
     }
-    if (step.value && step.value.outcome === 'sent') {
-      const still = recallUnsent(target);
-      if (still && still.id === kept.id) forgetUnsent(target);   // only the line this retry pressed
+    const outcome = step.value && step.value.outcome;
+    const still = recallUnsent(target);
+    const mine = still && still.id === kept.id;
+    if (outcome === 'sent') {
+      if (mine) forgetUnsent(target);   // only the line this retry pressed
       if (kept.seq != null) tellEarlierSubmitted(kept.seq);
       return 'sent';
     }
-    const still = recallUnsent(target);
-    if (still && still.id === kept.id) rememberUnsent(target, { ...still, at: Date.now() });   // seen still there
+    /* Only a box read still holding only ours starts the day again; 'unread' (the screen changed) and 'other' do not. */
+    if (outcome === 'unsent' && mine) rememberUnsent(target, { ...still, at: Date.now() });
     return 'unsent';
   } finally {
     if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
@@ -1094,7 +1103,8 @@ async function pressRememberedNow(target, card) {
 function scheduleUnsentRetries(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return;
-  /* One set at a time per line: a delivery that remembers the line again only adds a set once the last is done. */
+  /* One set at a time per line: a delivery that remembers the line again only adds a set once the last is done.
+     retriesUntil lives in memory only (saveUnsent keeps wire, at and seen): a restart schedules none anyway. */
   const lastMs = UNSENT_RETRY_MS[UNSENT_RETRY_MS.length - 1];
   if (kept.retriesUntil && Date.now() < kept.retriesUntil) return;
   kept.retriesUntil = Date.now() + lastMs;
