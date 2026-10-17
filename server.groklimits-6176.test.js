@@ -38,6 +38,8 @@ account(nodePath.join(SANDBOX, '.grok'), {
   'auth.json': JSON.stringify({ 'https://auth.x.ai::u1': { email: 'sub@example.com', refresh_token: 'r' } }),
   'logs/unified.jsonl': billingLine(now - DAY, 58, now - 2 * DAY, now + 5 * DAY) + '\n',
 });
+// Signed in three days ago, before the reading (only readings since the current sign-in count: review 1).
+{ const t = new Date(now - 3 * DAY); fs.utimesSync(nodePath.join(SANDBOX, '.grok', 'auth.json'), t, t); }
 // A second sign-in with no log at all, and an API-key account.
 account(nodePath.join(SANDBOX, '.grok-quiet'), { 'auth.json': JSON.stringify({ 'https://auth.x.ai::u2': { email: 'quiet@example.com', refresh_token: 'r' } }) });
 account(nodePath.join(SANDBOX, '.grok-key'), { '.kosmos-grok-apikey': 'xai-workingkeyworkingKEYX' });

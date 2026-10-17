@@ -111,7 +111,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.key && !r.key.usage, tag + ' an API-key row draws nothing (a key has no plan limits)', JSON.stringify(r.key));
       // #6176 slice 3: Grok rows.
       say(r.gsub && r.gsub.meters.length === 1 && r.gsub.meters[0].fill === '67%' && /^67% of its weekly limit used · resets (Mon|Tue|Wed|Thu|Fri|Sat|Sun) .* · Grok last reported it 3 hours ago$/.test(r.gsub.meters[0].line || ''), tag + ' a Grok subscription: its weekly figure, its reset, and that Grok reported it', JSON.stringify(r.gsub && r.gsub.meters));
-      say(r.gnone && r.gnone.meters.length === 0 && r.gnone.nones[0] === 'No current usage reading for this sign-in. Grok reports it when it starts a session on this account.', tag + ' a Grok subscription with no reading: said plainly, naming Grok', JSON.stringify(r.gnone));
+      say(r.gnone && r.gnone.meters.length === 0 && r.gnone.nones[0] === 'No current usage reading for this sign-in. Grok reports it now and then while it runs.', tag + ' a Grok subscription with no reading: said plainly, naming Grok', JSON.stringify(r.gnone));
       say(r.gkey && !r.gkey.usage, tag + ' a Grok API key draws nothing (Grok gives a key no billing reading)', JSON.stringify(r.gkey));
       say(r.old && !r.old.usage, tag + ' an older board (no limits field) draws nothing', JSON.stringify(r.old));
       if (w === 390) say(!r.sideways, tag + ' nothing scrolls sideways');

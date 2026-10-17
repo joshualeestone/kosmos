@@ -27449,7 +27449,8 @@ function acctResetTimes(list) {
     if (!a) return [];
     const f = a.fiveHour;
     const claude = a.provider === 'anthropic' && !a.apiKey && f && Number.isFinite(f.usedPct) && Number.isFinite(f.resetsAt) && Number.isFinite(f.at) ? [f.resetsAt] : [];
-    const codex = a.provider === 'openai' && a.limits && Array.isArray(a.limits.windows)
+    // A Grok subscription's windows too (#6176 slice 3, review 1), so its meter goes at its reset on an open list.
+    const codex = (a.provider === 'openai' || a.provider === 'xai') && a.limits && Array.isArray(a.limits.windows)
       ? a.limits.windows.filter((w) => w && Number.isFinite(w.usedPct) && Number.isFinite(w.windowMinutes) && Number.isFinite(w.resetsAt)).map((w) => w.resetsAt) : [];
     return claude.concat(codex);
   });
@@ -27527,7 +27528,7 @@ function acctCodexUsageHtml(a) {
   return acctLimitsUsageHtml(a, 'Codex', 'No current usage reading for this sign-in. Codex reports it while an agent on it is working.');
 }
 function acctGrokUsageHtml(a) {
-  return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it when it starts a session on this account.');
+  return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it now and then while it runs.');
 }
 function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show

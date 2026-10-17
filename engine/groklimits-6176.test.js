@@ -67,3 +67,29 @@ test('#6176: a reading under more than 256 KB of later logging is still found (a
   assert.ok(fs.statSync(path.join(h, 'logs', 'unified.jsonl')).size > 300 * 1024, 'CONTROL: the filler pushes the line past 256 KB');
   assert.equal(groklimits.read(h, NOW) && groklimits.read(h, NOW).windows[0].usedPct, 71);
 });
+
+test('#6176 review 1: a reading from an earlier sign-in in the same folder is not this account usage', () => {
+  const h = home([billing(NOW - 2 * DAY, 80, NOW - 3 * DAY, NOW + 4 * DAY)]);
+  const rec = path.join(ROOT, 'signins-' + (n++) + '.json');
+  const auth = path.join(h, 'auth.json');
+  const signIn = (uuid, at) => { fs.writeFileSync(auth, JSON.stringify({ ['https://auth.x.ai::' + uuid]: { user_id: uuid, refresh_token: 'r' } })); fs.utimesSync(auth, new Date(at), new Date(at)); };
+  signIn('first', NOW - 5 * DAY);
+  const s1 = groklimits.signedInSince(h, rec);
+  assert.equal(s1, NOW - 5 * DAY);
+  assert.equal(groklimits.read(h, NOW, s1).windows[0].usedPct, 80, 'CONTROL: the reading after the sign-in counts');
+  // A token refresh rewrites auth.json under the same login: its start does not move.
+  signIn('first', NOW - DAY);
+  assert.equal(groklimits.signedInSince(h, rec), NOW - 5 * DAY, 'a token refresh moved the sign-in start');
+  // Another login in the same folder, after the reading: the reading is the earlier login's.
+  signIn('second', NOW - DAY);
+  const s2 = groklimits.signedInSince(h, rec);
+  assert.equal(s2, NOW - DAY);
+  assert.equal(groklimits.read(h, NOW, s2), null, 'an earlier login reading showed as this account usage');
+});
+
+test('#6176 review 1: the real line spelling (microseconds, +00:00) is read', () => {
+  const real = '{"ts":"2026-10-15T12:00:00.123Z","lvl":"info","src":"shell","msg":"billing: fetched credits config","ctx":{"config":{"creditUsagePercent":67.0,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","start":"2026-10-12T21:28:35.312657+00:00","end":"2026-10-19T21:28:35.312657+00:00"}},"subscriptionTier":"X Premium"}}';
+  const r = groklimits.read(home([real]), NOW);
+  assert.equal(r && r.windows[0].windowMinutes, 10080);
+  assert.equal(r.windows[0].resetsAt, Date.parse('2026-10-19T21:28:35.312Z'));
+});
