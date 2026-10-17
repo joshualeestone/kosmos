@@ -60,6 +60,11 @@ const FOUR = {
       window.__computers = four;
       const real = window.fetch;
       window.fetch = (url, opts) => {
+        /* kosmos#6406 step 2: the ticket this computer would make; window.__ticket is set by arm 4. */
+        if (String(url).indexOf('/api/remote/open-ticket') !== -1) {
+          window.__ticketAsked = (window.__ticketAsked || []).concat([JSON.parse((opts && opts.body) || '{}')]);
+          return Promise.resolve(new Response(JSON.stringify(window.__ticket ? { ticket: window.__ticket } : { error: 'no' }), { status: window.__ticket ? 200 : 400, headers: { 'content-type': 'application/json' } }));
+        }
         if (String(url).indexOf('/api/remote/computers') !== -1) {
           window.__computersServed = (window.__computersServed || 0) + 1;
           return Promise.resolve(new Response(JSON.stringify(window.__computers), { status: 200, headers: { 'content-type': 'application/json' } }));
@@ -169,11 +174,11 @@ const FOUR = {
       for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
       await new Promise((r) => setTimeout(r, 100));
       const a = document.querySelector('#worldsw-computers-list a.worldsw-row');
-      const out = a ? { inApp: computersInApp(), href: a.getAttribute('href'), target: a.getAttribute('target'), rel: a.getAttribute('rel') } : null;
+      const out = a ? { inApp: computersInApp(), href: a.getAttribute('href'), target: a.getAttribute('target'), rel: a.getAttribute('rel'), marked: a.getAttribute('data-computer-open') } : null;
       // The phone menu's copy of the list (#4823) keeps the row's own target, so it stays in the window too.
       if (typeof pnavFill === 'function') {
         if (!document.getElementById('pnav-computer-list')) { const ul = document.createElement('ul'); ul.id = 'pnav-computer-list'; document.body.appendChild(ul); }   // built only on a phone over Kosmos+
-        pnavFill('computers'); const p = document.querySelector('#pnav-computer-list a'); if (out) out.pnavTarget = p ? p.getAttribute('target') : 'missing'; }
+        pnavFill('computers'); const p = document.querySelector('#pnav-computer-list a'); if (out) { out.pnavTarget = p ? p.getAttribute('target') : 'missing'; out.pnavMarked = p ? p.getAttribute('data-computer-open') : 'missing'; } }
       delete window.webkit;
       worldswClose();
       return out;
@@ -181,6 +186,29 @@ const FOUR = {
     ok(`${t} #6406: in the app, an online computer is a same-window link (no new tab), still noreferrer`,
       !!inApp && inApp.inApp === true && /^https:\/\//.test(inApp.href) && inApp.target === null && inApp.rel === 'noopener noreferrer', JSON.stringify(inApp));
     ok(`${t} #6406: the phone menu's copy of an online computer also opens in the window`, !!inApp && inApp.pnavTarget === null, JSON.stringify(inApp));
+    ok(`${t} #6406 step 2: every link to another computer is marked for the ticket click, the phone menu's copy too`,
+      !!inApp && inApp.marked === '1' && inApp.pnavMarked === '1', JSON.stringify(inApp));
+
+    // ---- Arm 4, #6406 step 2: in the app, a real click asks this computer for a ticket and opens the other computer
+    //      with it in the fragment. LAST: it navigates away from the page. ----
+    let landed = null;
+    await page.route('https://desk-mini.kosmosplus.example/**', (route) => { landed = route.request().url(); return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>desk-mini</title>' }); });
+    await page.evaluate(async (four) => {
+      try { Object.defineProperty(window, 'webkit', { value: { messageHandlers: { kosmosBadge: { postMessage() {} } } }, configurable: true, writable: true }); } catch {}
+      window.__ticket = 'TkT_abcdefghijklmnopqrstuvwxyz-0123456789';
+      window.__ticketAsked = [];
+      window.__computers = four;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+    }, FOUR);
+    const asked = page.waitForURL(/desk-mini\.kosmosplus\.example/, { timeout: 5000 }).catch(() => null);
+    await page.click('#worldsw-computers-list a.worldsw-row[href="https://desk-mini.kosmosplus.example/"]');
+    await asked;
+    const url = page.url();
+    ok(`${t} #6406 step 2: in the app, clicking another computer opens it with this computer's ticket (#kpt=)`,
+      url === 'https://desk-mini.kosmosplus.example/#kpt=TkT_abcdefghijklmnopqrstuvwxyz-0123456789' && !!landed, JSON.stringify({ url, landed }));
 
     await page.close();
   }
