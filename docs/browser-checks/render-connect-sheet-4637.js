@@ -19,6 +19,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
  *    to connect to your Kosmos." for two) with Review;
  *  - an Allow that fails leaves the request waiting (the heading stays, its sheet first); with nothing waiting the heading goes;
+ *  - #6405: a computer's request (joining, or was a computer) shows no age and never fades, and turning it away keeps the
+ *    password sentence (its first_seen is its first ask); CONTROL: a day-old phone still says when and fades;
  *  - #4794 slice 1: the computer's sheet says "Allow it if windowsbox shows this same code." and Allow sends that code (a
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
@@ -149,7 +151,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
           headShare: (r.querySelector('.askwho') || r).getBoundingClientRect().width / r.getBoundingClientRect().width };
       }));
       /* Measured while the sheets are there (an empty list would pass every()). */
-      const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 2 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
+      // #6405: the phone's row carries its age; the computer's row has none (its first_seen is its first ask, not this one).
+      const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 1 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
         return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
@@ -204,6 +207,42 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
       chk(nowrap, `${tag} "a moment ago" stays on one line`);
+      /* #6405: a computer's request first seen a day ago (it asked again just now) shows no age and is not faded; CONTROL:
+         a phone first seen a day ago still says when and is faded. */
+      const dayOld = await page.evaluate(async () => {
+        const old = Math.floor(Date.now() / 1000) - 23 * 3600;
+        const keep = ASK.devices;
+        ASK.devices = [
+          { device_id: 'computer:day-old', name: 'oldbox', code: '135 246', first_seen: old, joining_computer: 'oldbox' },
+          { device_id: 'd-ph-old', name: 'iPhone', code: 'Q2-8R', first_seen: old, joining_computer: null },
+          { device_id: 'd-wac-old', name: 'oldpc', code: '', first_seen: old, joining_computer: null, code_wait: 'was_a_computer' },
+        ];
+        paintAsk();
+        const card = (id) => { const b = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]'); return b && b.closest('.askreq'); };
+        const pc = card('computer:day-old'), ph = card('d-ph-old'), wac = card('d-wac-old');
+        // Turned away: a day-old computer row still gets the fresh wording, with the password sentence.
+        ASK.done['computer:day-old'] = { state: 'denied', at: Date.now(), device: ASK.devices[0] };
+        paintAsk();
+        const deniedText = (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ');
+        delete ASK.done['computer:day-old'];
+        // CONTROL: a day-old phone turned away gets the old-request wording, no password sentence.
+        ASK.done['d-ph-old'] = { state: 'denied', at: Date.now(), device: ASK.devices[1] };
+        paintAsk();
+        const phoneDenied = (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ');
+        delete ASK.done['d-ph-old'];
+        const out = { pcAge: pc ? pc.querySelectorAll('[data-ask-ago]').length : -1, pcStale: pc ? pc.classList.contains('stale') : null,
+          wacAge: wac ? wac.querySelectorAll('[data-ask-ago]').length : -1, wacStale: wac ? wac.classList.contains('stale') : null,
+          deniedPassword: /change that email's password/.test(deniedText),
+          phoneOldWording: /can ask again by signing in/.test(phoneDenied) && !/change that email's password/.test(phoneDenied),
+          phAge: ph ? ph.querySelectorAll('[data-ask-ago]').length : -1, phStale: ph ? ph.classList.contains('stale') : null };
+        ASK.devices = keep; paintAsk();
+        return out;
+      });
+      chk(dayOld.pcAge === 0 && dayOld.pcStale === false, `${tag} #6405: a computer that first asked a day ago shows no age and is not faded`, JSON.stringify(dayOld));
+      chk(dayOld.wacAge === 0 && dayOld.wacStale === false, `${tag} #6405: a row that was a computer likewise shows no age and is not faded`, JSON.stringify(dayOld));
+      chk(dayOld.deniedPassword === true, `${tag} #6405: turning away a day-old computer row keeps the password sentence (it may have just asked)`, JSON.stringify(dayOld));
+      chk(dayOld.phoneOldWording === true, `${tag} #6405 CONTROL: turning away a day-old phone keeps the old-request wording, no password sentence`, JSON.stringify(dayOld));
+      chk(dayOld.phAge === 1 && dayOld.phStale === true, `${tag} #6405 CONTROL: a phone first seen a day ago still says when and is faded`, JSON.stringify(dayOld));
       /* #4794: a computer whose code is not worked out yet: a quiet line in the code's place, Allow disabled, Not me enabled. */
       const waitCase = async (code_wait) => {
         pending = [{ device_id: 'd-w', name: 'laptop3', code: '', first_seen: now() - 10, joining_computer: 'laptop3', code_wait }];

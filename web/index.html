@@ -50271,6 +50271,9 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
    tick is not announced while a new or changed request still is. ⚠️ Not measured with a screen reader:
    where one reads the card's region instead (role=status is atomic), the whole card is read once a
    minute, which is still far quieter than the old rewrite every 5 seconds. */
+/* kosmos#6405: a computer's request (joining, or a row that started as one): the tunnel keeps one row across every
+   attempt, so its first_seen is the FIRST ask, never this one. Josh's laptop read "23 hours ago" for a fresh request. */
+function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer')); }
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
 function askWrite(el, html) {
   if (!el) return;
@@ -50399,8 +50402,9 @@ function paintAsk() {
     if (e && e.state === 'denied') {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
-      const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in; it can ask again by signing in.</p>' +
+      // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
+      const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
         '</b>: change that email\'s password.</p>' +
@@ -50409,7 +50413,9 @@ function paintAsk() {
     /* #3829 (Josh: "terribly worded"; Mona Lisa's sketch): one compact card per request. The device and
        how long ago, one sentence, then the code LARGE directly above Allow / Not me (it is what the person checks
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
-    const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+    // #6405: no age and no fading for a computer's request (askComputerRow); its code or wait line says where it is.
+    const joiningRow = askComputerRow(d);
+    const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
     /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
@@ -50447,7 +50453,7 @@ function paintAsk() {
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
-      '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
+      '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
       '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
