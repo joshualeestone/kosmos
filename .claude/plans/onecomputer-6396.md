@@ -22,5 +22,6 @@ there is nothing to tell apart, which is Josh's point.
    notices' list), in tab and consolidated layouts; the sheet's scroll lock is checked before and after. Assertion
    floor 56 -> 68 (16 off-arms + 1 control, x4 runs).
 3. render-dm-chatfirst-718.js: its top-left-name size arm gets two computers so it still measures the name.
-4. Mutants red: the hide itself, the focus move, the sheet close. Both checks green; six node tests touching the
+4. Screenshots, one computer and two, light and dark (~/work/design-shots/kosmos-6396/), in the PR and to Josh's channel.
+5. Mutants red: the hide itself, the focus move, the sheet close. Both checks green; six node tests touching the
    switcher green.
