@@ -27378,7 +27378,7 @@ function acctFollowUp(n, busy) {
   }, ACCT_FOLLOWUP.ms);
 }
 /* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
-   shows, and that row's line goes. The same timer carries each Codex window's meter (any length; only resets within
+   shows, and that row's line goes. The same timer carries each Codex or Grok window's meter (any length; only resets within
    six hours arm it). One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
 let acctFiveTimer = null, acctFiveMisses = 0;
@@ -27386,7 +27386,7 @@ let acctFiveTimer = null, acctFiveMisses = 0;
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
-/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex window. */
+/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex or Grok window. */
 const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
@@ -27414,7 +27414,7 @@ function acctFiveHourOnShow() {
    window looks again (the same check as a section switch). */
 document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
 window.addEventListener('focus', () => acctFiveHourOnShow());
-/* A failed re-read keeps the list, so a five-hour or Codex window line drawn past its reset would stay: while one is on screen, try again
+/* A failed re-read keeps the list, so a five-hour, Codex or Grok window line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
@@ -27514,7 +27514,7 @@ function acctBulkTarget(x, fromDir) {
 }
 /* #6176 slice 2: a ChatGPT sign-in (OpenAI) row's plan limits, as Codex last reported them in its own session files.
    One meter per window Codex reports, named by its length. No move: moving agents between accounts is Claude's
-   (#6108). The age says when Codex reported it, which is what the source knows. */
+   (#6108). The age says when the provider's tool (Codex, or Grok since #6176 slice 3) reported it, which is what the source knows. */
 function acctWindowName(m) {
   const mins = Math.round(m);
   if (mins === 10080) return 'weekly';
@@ -27945,7 +27945,7 @@ async function paintAccounts(opts) {
   } catch {
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour or Codex window line past its reset)
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour, Codex or Grok window line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
