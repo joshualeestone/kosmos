@@ -24,7 +24,9 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
    It waits two frames per step for the page's own observer instead of calling railPjMore.
 4. [~] render-projects.js: first run red on the arm's premise (the base notice already overflows the cap at this
    viewport); the arm now measures what is below with the cue off and passed at af59859250 (light and dark). Review 1
-   added the unfold, gradient-colour and focus steps: rerun pending. Mutant (fade rule removed) queued.
+   added the unfold, gradient-colour and focus steps, review 2 the row-grew step, review 3 a focusin nudge for engines
+   that ignore scroll padding on a focus scroll (measured in Chromium only). Rerun and mutant (fade rule removed)
+   must both be read before the PR.
 5. [ ] Screenshots of the grown box, light and dark, for the PR and the channel.
 
 ## Decided, not missed
