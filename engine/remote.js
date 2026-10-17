@@ -1211,6 +1211,7 @@ async function forgetNow(anyway) {
   // at the coordinator and left its key and id here, without the certificate
   // enrolled() needs. It can still sign a retire, so it is retired too.
   const canRetire = was.enrolled || halfRegistered();
+  const before = read();   // kosmos#6389: what a kept answer puts back
   stopChild();
   // Off before the retire wait, not after: nothing may bring this Mac online on
   // the key being retired (the ensure tick, a stale page).
@@ -1229,6 +1230,10 @@ async function forgetNow(anyway) {
     // (written above): the person asked for this computer to go, so it does not come back online by itself.
     if (!retired && !anyway && retireTransient(r)) {
       stopChild();
+      // Not forgotten, so the notes stay with the identity (kosmos#5786 (b) drops them only for a forgotten one), and
+      // switching off is a flip the account is told about like any other (kosmos#4743).
+      write({ vouched: before.ok === true && before.vouched ? before.vouched : {} });
+      if (before.ok === true && before.on === true) { flipPending = true; askAfterFlip(); }
       return {
         ok: false,
         kept: true,

@@ -2504,7 +2504,6 @@ test('#3827: a retire that hangs cannot hang Forget', async () => {
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
     delete process.env.AGENT_WORKFORCE_REGISTER_TIMEOUT_MS; delete process.env.AGENT_WORKFORCE_RETIRE_TIMEOUT_MS;
-    await remote.forget();
   }
 });
 
@@ -2513,6 +2512,10 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // The identity's own notes, and a fresh standing stamp: a kept Remove keeps the first and sets the second back.
+  const seeded = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')), vouched: { 'dev-keep': { at: 1 } }, standing_at: Date.now() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(seeded));
+  assert.equal(remote.read().on, true, 'fixture: the switch was on before Remove');
   process.env.FAKE_TUNNEL_MODE = 'retire-down';
   try {
     fs.rmSync(RECORD, { force: true });
@@ -2526,6 +2529,9 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
     assert.equal(got.address, 'hers.kosmos.invalid', 'the kept answer did not say which address');
     assert.equal(remote.enrolled(), true, 'the key was wiped although Kosmos+ never heard the retire');
     assert.equal(remote.read().on, false, 'a computer the person asked to remove came back on');
+    assert.ok(remote.read().vouched['dev-keep'], 'a kept identity lost its "on this computer" notes');
+    // The off is a flip the account must hear about: the stamp is set back past the off cadence, so the next poll asks.
+    assert.ok(Date.now() - remote.read().standing_at > 12 * 60 * 60 * 1000, 'the switch-off was never queued to be told: ' + remote.read().standing_at);
     assert.equal(recorded().filter((c) => c[0] === 'retire').length, 1, 'fixture: one retire was tried');
     // The network back: Remove again signs the retire with the kept key, and only then wipes it.
     delete process.env.FAKE_TUNNEL_MODE;
@@ -2537,7 +2543,6 @@ test('#6389: Remove with no network keeps the key and says not removed yet, and 
     assert.equal(remote.enrolled(), false, 'the key survived a retire that worked');
   } finally {
     delete process.env.FAKE_TUNNEL_MODE;
-    await remote.forget();
   }
 });
 
@@ -3253,7 +3258,7 @@ test('#3827: a Forget whose retire meets a gateway error page says why in one re
     assert.equal(got.kept, true, 'kosmos#6389: a gateway error is "not now", so the key is kept');
     assert.match(got.because, /Kosmos\+ answered 502 for \/v1\/mac\/retire/, got.because);
     assert.doesNotMatch(got.because, /<\/?html|Error:/, 'the answer carried the raw page: ' + got.because);
-  } finally { delete process.env.FAKE_TUNNEL_MODE; await remote.forget(); }
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
 test('#3827: a Sign out during a register that then fails leaves a Mac that was on, on', async () => {

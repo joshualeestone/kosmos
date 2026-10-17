@@ -10744,9 +10744,8 @@ const server = http.createServer(async (req, res) => {
         return remote.forget({ anyway: body.anyway === true }).then((got) => {
           if (got.kept) { sendJson(res, 200, { ok: false, kept: true, retired: false, address: got.address, because: got.because, status: remote.status() }); return; }
           sendJson(res, 200, { ok: true, retired: got.retired === true, address: got.address, because: got.because, status: remote.status() });
-        });
-      })
-      .catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
+        }).catch((err) => sendJson(res, 500, { error: 'we could not forget this computer: ' + (err && err.message) }));
+      }, () => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
   /* ---- Devices (#567): the Allow moment's seam. `pending` is a FILE the
