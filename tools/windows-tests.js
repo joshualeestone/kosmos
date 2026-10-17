@@ -94,6 +94,7 @@ const HOST_BRANCH_EXCLUDED = {
   'engine/signedoutaccounts-5948.test.js': 'its win32 branches (#5948) only skip the chmod-000 and symlink arms; its other arms use POSIX-spelled fixture paths, and its logic (paths plus file reads) is covered on the Mac and Linux',
   'engine/usage-world-5532.test.js': 'its win32 branches (#5532) only skip the chmod and symlink arms; the usage scan it tests reads Claude transcripts the same way on both, and engine/usage.test.js is not run on Windows either',
   'engine/agentbrowser.test.js': 'its win32 branch only skips a read-only-folder arm; the file describes macOS',
+  'test-support.tmpscope.test.js': 'its win32 branches (#6362) only skip the locked-folder and left-running-child arms, which need POSIX permissions and bash; tmpscope itself is plain node fs and its other arms run on the Mac and Linux',
   'engine/status.codex-model-switch-4416.test.js': 'the guard it tests is Mac-only by design: it compares a rollout with the launch plist\'s mtime, and a Windows Scheduled Task has no file to compare',
   'engine/geminisettings.test.js': 'its win32 branch only skips a POSIX file-mode arm',
   'engine/communitysend.test.js': 'its win32 branch (#5431) only skips a POSIX file-mode arm',
