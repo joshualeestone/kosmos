@@ -1086,7 +1086,7 @@ out="$(KOSMOS_NO_WAIT=1 KOSMOS_WAIT_SLEEP=: kosmos_wait_until_clear "this test r
 # run-tests.sh in a scratch tree with one stray test file stops at its coverage check, the first thing after the
 # guard, so "COVERAGE MISMATCH" means the guard let it through and nothing ran. The tree is rooted under /tmp by
 # name (not $T, which may sit in the kt sandbox and would make every run here a fixture).
-RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
+RT="$(mktemp -d /tmp/rt4498.XXXXXX)"; RT2=""; RP_LIVE=""; trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" ${RP_LIVE:-} 2>/dev/null; type q_clear >/dev/null 2>&1 && q_clear; rm -rf "$T" "$RT" ${RT2:+"$RT2"}' EXIT
 mkdir -p "$RT/tools/lib" "$RT/sub"; cp "$HERE/run-tests.sh" "$RT/tools/"; cp "$HERE"/lib/*.sh "$RT/tools/lib/"
 : > "$RT/sub/stray.test.js"
 sleep 60 & wp=$!
@@ -1217,16 +1217,16 @@ out="$(rt_e2e sprobe-two)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "2 test suites (tools/run-tests.sh) are already running" && has "$out" "KOSMOS_TESTS_IGNORE_SUITE=1"; } \
   && pass "#6334 run-tests.sh by default waits beside two live suites, naming its override" \
   || fail "#6334 run-tests.sh did not hold a third suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
-for _m in 1 0 x 1000; do
+for _m in 1 0 x 1000 0003; do
   out="$(rt_e2e sprobe-live KOSMOS_SUITE_MAX="$_m")"; rc=$?
   { [ "$rc" -eq 1 ] && has "$out" "a test suite (tools/run-tests.sh) is already running"; } \
     && pass "#6334 KOSMOS_SUITE_MAX='$_m' reads as one at a time" \
     || fail "#6334 KOSMOS_SUITE_MAX='$_m' let run-tests.sh start beside a suite (rc=$rc, $(printf '%s' "$out" | tail -3))"
 done
-out="$(rt_e2e sprobe-two KOSMOS_SUITE_MAX=03)"; rc=$?
+out="$(rt_e2e sprobe-two KOSMOS_SUITE_MAX=08)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
-  && pass "#6334 KOSMOS_SUITE_MAX=03 is three, not an octal error" \
-  || fail "#6334 KOSMOS_SUITE_MAX=03 did not allow two others (rc=$rc, $(printf '%s' "$out" | tail -3))"
+  && pass "#6334 KOSMOS_SUITE_MAX=08 is eight, not an octal error" \
+  || fail "#6334 KOSMOS_SUITE_MAX=08 did not allow two others (rc=$rc, $(printf '%s' "$out" | tail -3))"
 kill "$SUITE2" 2>/dev/null; wait "$SUITE2" 2>/dev/null
 # A run-tests.sh inside a test (here: every pid has a node --test ancestor) is part of the suite that
 # started it, so it skips the suite check. The live stand-in harness (fixtures kept) is what refuses

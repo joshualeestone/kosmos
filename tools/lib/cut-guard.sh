@@ -499,8 +499,7 @@ _kosmos_suite_candidates() {
 # #6334: one suite is ONE run, however many processes carry its command line (a bash subshell keeps its parent's), so
 # a count of live suites keeps only the candidates with no other candidate above them. A candidate that is gone by now
 # is dropped rather than counted as a root of its own (its parent can no longer be read). Reads and prints
-# `pid command`. Pipes, not here-documents: bash 3.2 writes a here-document to a temp file, and with TMPDIR full the
-# loop would read nothing; the caller also refuses when this prints nothing for non-empty input.
+# `pid command`. Pipes, not here-documents: bash 3.2 writes a here-document to a temp file.
 _kosmos_suite_roots() {
   local lines pids line pid other is_child
   lines="$(cat)"
@@ -553,7 +552,7 @@ kosmos_refuse_if_suite_live() {
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$allowed" -gt 0 ]; then
     local roots; roots="$(printf '%s\n' "$out" | _kosmos_suite_roots)"
-    [ -n "$roots" ] && out="$roots"   # nothing back for a non-empty list counts every candidate: refuse, never guess
+    [ -n "$roots" ] && out="$roots"
     n="$(printf '%s\n' "$out" | grep -c . || true)"
     [ "$n" -le "$allowed" ] && return 0
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
