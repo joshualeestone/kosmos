@@ -49,7 +49,8 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   or dropped, in task-message words ("a message from mona ... was sent", "send it again"). The line itself is correct;
   only the later notice's wording is a task message's. The marker's own answer says it too ("Do not send it again").
   It also leaves a kept-sent or kept-dropped entry in the task conversation for a line the conversation never showed
-  (the note lives in builtNote). Kept as is: follow-up card #6359 for keepTaskLine and taskMessageSummary to take a kind, rather than a second copy
+  (the note lives in builtNote), and a kept built line takes a place in the marker's per-sender kept queue
+  (limitqueue MAX_PER_SENDER), the same places its real task messages use. Kept as is: follow-up card #6359 for keepTaskLine and taskMessageSummary to take a kind, rather than a second copy
   of #5805's queue here. This
   replaces review 5's cap-0-only switch.
 - Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate

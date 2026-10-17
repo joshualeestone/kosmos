@@ -510,6 +510,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
     if (who.length) { parentWho = who; heldAt = a; break; }
     up = a;
   }
+  // Both names here are agents' names from the project, not a caller, so no paneless key applies.
   const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
   const everyone = others.concat(forParent);
   if (!everyone.length) return { delivered: [] };
