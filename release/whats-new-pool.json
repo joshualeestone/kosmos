@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.51",
+  "lastProd": "0.7.53",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -181,7 +181,8 @@
       ],
       "rank": 10.5,
       "since": "0.7.37",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "Reply to Claude questions by number",
@@ -392,7 +393,8 @@
       "icon": "tasks",
       "rank": 10.8,
       "since": "0.7.47",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "Moved agents keep your imports answer",
@@ -542,7 +544,8 @@
       "icon": "swarm",
       "rank": 7,
       "since": "0.7.51",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "More permission choices as buttons",
@@ -586,7 +589,8 @@
       ],
       "rank": 1.5,
       "since": "0.7.52",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.53"
     },
     {
       "title": "A second computer can be allowed",
@@ -594,6 +598,56 @@
       "icon": "shield",
       "rank": 1.2,
       "since": "0.7.53",
+      "status": "shown",
+      "shownIn": "0.7.53"
+    },
+    {
+      "title": "Add a computer one step at a time",
+      "line": "Adding a computer to Kosmos+ now asks only for your email, shows the monthly price before you pay, and notices your payment by itself.",
+      "icon": "shield",
+      "rank": 1.1,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "Undo covers Codex and Antigravity agents",
+      "line": "With undo on, file edits by Codex and Antigravity agents now keep a copy, and the Files page shows which agent made them.",
+      "icon": "tasks",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 2,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "The restart check says what it could not check",
+      "line": "When the Agents tab cannot tell whether some agents come back after a restart, it now says how many, instead of leaving them out.",
+      "icon": "shield",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "A long Meta Muse answer says it was cut",
+      "line": "A Meta Muse agent answer too long to show in full now ends by saying so, instead of stopping mid-sentence.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 15.5,
+      "since": "0.7.54",
+      "status": "pending"
+    },
+    {
+      "title": "Old project summaries say why",
+      "line": "A project member summary marked as old now says what kept it old: hours of work, or turns ended, since it was written.",
+      "icon": "tasks",
+      "rank": 16.8,
+      "since": "0.7.54",
       "status": "pending"
     }
   ]
