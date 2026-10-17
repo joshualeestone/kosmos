@@ -78,7 +78,9 @@ test('win32anchor keeps the surface it had, and its swap constants come from win
        (win32update.js runtimeChanged) starts from, so the two share one derivation. */
     'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
     /* The Windows updater's journal and status (engine/win32apply.js), named beside the pointer. */
-    'UPDATE_JOURNAL_NAME', 'UPDATE_STATUS_NAME',
+    /* UPDATE_HELD_NAME (#4382): the version a connect computer rolled back from, held off its next
+       automatic look. */
+    'UPDATE_HELD_NAME', 'UPDATE_JOURNAL_NAME', 'UPDATE_STATUS_NAME',
     /* The updater's working folder, and the one test of whether a bundle sits inside it. */
     'UPDATE_WORK_DIRNAME',
     'anchorDir', 'bundleIsInUpdateWork', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',

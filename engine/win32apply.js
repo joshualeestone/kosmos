@@ -435,6 +435,8 @@ function writeGuard(j, journalAt) {
     statusPathFor(j.anchor),
     path.join(j.anchor, win32anchor.POINTER_NAME),
     path.join(j.anchor, win32anchor.NODE_NAME),
+    /* #4382: a hold after a connect computer's rollback, let go at a finished forward update (finishUpdated). */
+    path.join(j.anchor, win32anchor.UPDATE_HELD_NAME),
   ];
   return (target) => {
     const t = path.resolve(target);
@@ -476,10 +478,28 @@ function computerModePath(env, home) {
  */
 function boardMayStartForModeBytes(bytes) {
   if (bytes === null || bytes === undefined) return true;
+  const word = computerModeWordForBytes(bytes);
+  return word === 'run' || word === 'both';
+}
+
+/** The word the mode file's bytes hold, by that one reading, or null when they are not one of the three. */
+function computerModeWordForBytes(bytes) {
   let text;
-  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return false; }
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); } catch { return null; }
   text = text.replace(/\n+$/, '');
-  return text === 'run' || text === 'both';
+  return text === 'run' || text === 'connect' || text === 'both' ? text : null;
+}
+
+/**
+ * #4382: does this computer's choice read exactly `connect`, now? The connect computer's update
+ * (engine/win32connectupdate.js, and a newer download run there, win32update's applyCli) acts only then.
+ * No file, a file that cannot be read, and any other bytes are not connect: such a computer runs, or may
+ * run, its own board, and the board keeps it updated.
+ */
+function readsConnect(env, home) {
+  let bytes;
+  try { bytes = fs.readFileSync(computerModePath(env, home)); } catch { return false; }
+  return computerModeWordForBytes(bytes) === 'connect';
 }
 
 /** The file on this computer, read now. A missing file (or folder) is no file; any other failure to read
@@ -832,6 +852,18 @@ async function stopBoard(ctx) {
      is in ROOT or what the resumer that took over decided, and that resumer (the logon shim of the
      board that just booted) owns the recovery now. */
   assertStillOwner(ctx);
+  /* #4382: a computer whose choice forbids a board start (connect, or a choice that cannot be read) runs no
+     board on purpose, and its update names none (pid null). When nothing answers on the port and the port
+     is free there is nothing to end, so /End is not issued at all: win32board.end recognises "not running" only in English, so on a Windows in another
+     language /End would fail every such update. Anything that answers, or holds the port, takes the
+     ordinary path below. */
+  if (j.board.pid === null && !deps.mayStartBoard()) {
+    const idle = await deps.probe(j.board.port);
+    if (!idle.answering && await deps.portFree(j.board.port)) {
+      log('no board runs on this computer (it connects to Kosmos on another computer), so none was stopped');
+      return { ok: true, noBoard: true };
+    }
+  }
   /* "This run issued /End", set BEFORE it is issued: an /End that stops the board and still reports a
      failure (schtasks' timeout) leaves the board down all the same. A run that ends held, stuck or on an
      unhandled error then starts it again after the lock's release (restartBoardAfterExit). Safe when
@@ -1247,6 +1279,11 @@ function finishUpdated(ctx) {
     ['the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true })],
     ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
   ];
+  /* #4382: a forward update, however it was started (the board's button, its automatic install, a connect
+     computer's look), lets go of a version held after a rollback (win32anchor.UPDATE_HELD_NAME), as one
+     more removal, so a loss of ownership stops it like the rest. A hold left behind only offers a version
+     where it could have installed it. */
+  if (!j.rollback) removals.push(['the hold after a rollback', () => fs.rmSync(ctx.guard(path.join(j.anchor, win32anchor.UPDATE_HELD_NAME)), { force: true })]);
   let names = [];
   try { names = fs.readdirSync(j.work); } catch { names = []; }
   for (const name of names) {
@@ -1914,5 +1951,5 @@ module.exports = {
   stagedIsYoung, presenceOf, answersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
   OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
-  computerModePath, boardMayStartForModeBytes, boardMayStart, COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME,
+  computerModePath, boardMayStartForModeBytes, boardMayStart, computerModeWordForBytes, readsConnect, COMPUTER_MODE_FOLDER_NAME, COMPUTER_MODE_FILE_NAME,
 };

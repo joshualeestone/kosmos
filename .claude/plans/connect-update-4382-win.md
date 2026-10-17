@@ -1,0 +1,38 @@
+# #4382 Windows half: a connect computer updates and rolls back with no board
+
+**Posture:** production
+
+## Finished looks like
+- A Windows computer whose mode file reads `connect`, with its board stopped and its logon task off, looks for an update at Kosmos.exe launch and at least daily while the window is open.
+- Newer and updates on (no `autoupdate.json`, or `on: true`): it installs through the existing Windows updater (win32update.begin + the win32apply helper) and the board stays stopped. Updates off: it is offered (bar + system menu), never installed until the person picks it.
+- After an update, rollback to the kept build is reachable from the window's system menu with no board, through the existing rollbackToPrevious path, and the board stays stopped. Never-downgrade for forward installs is unchanged.
+- Tests for each: offered with no board, installs, board stays stopped, daily re-check, rollback reachable. Each fails without the fix.
+
+## Design
+- engine/win32connectupdate.js: `--look|--install|--rollback --yes`, run by Kosmos.exe with the bundle's node through RunEngineHelper. Reuses update-ifnewer.decide (look + consent), win32update.begin / rollbackToPrevious (install, rollback), waitForOutcome (result). Refuses unless the mode reads exactly `connect`, no board answers, no agent asked.
+- win32update B0: `connectComputer` precondition in place of the board-task rule; applyCli (newer download, setup.ps1) uses it on a connect computer.
+- KosmosLauncher.cs: StartUpdateLooks after the connect stop; daily WinForms timer (1 h retry after an unreachable look); bar over the page (never in it); system-menu Update / Restart / Roll back; relaunch after a picked update or rollback, outside the window and after its lock. Counted in stopsInFlight so Run agents cannot start a board mid-swap.
+- FirstRunChoice stays off; turning it on is a separate decision.
+
+## Decisions after review
+- **The engine reads the mode file even while `FirstRunChoice` is off (kept, not gated).** The switch is a compile-time constant in Kosmos.exe that the engine cannot see. With it off nothing writes `%LOCALAPPDATA%\Kosmos\mode`, so the file is absent, `readsConnect` is false, and every path behaves exactly as before. The helper already obeys the same file regardless of the switch (#4381: H7/H8 start no board on `connect`); gating only the update side would let the two disagree on one computer. And a hand-written `connect` file is how a test box exercises this before the switch goes on.
+- **Rollback on a connect computer only to a connect-ready build:** one that carries `app\engine\win32connectupdate.js`. The launcher is committed beside the engine, so such a build's Kosmos.exe is launcher 8.1 or later and honours the choice; an older one would start a board and could never update again, so it is neither offered nor restored, with a sentence saying why.
+- **No `/End` on a connect computer with nothing to stop** (pid unknown, no answer, port free): `win32board.end` reads "not running" only in English.
+- **Waiting with no board:** the journal's own record (finished as updated, or confirmed) counts, so a status file that could not be written does not turn a good update into a failure.
+- **The window's decisions are pure** (`AfterConnectUpdate`, `AfterNotNow`, `UpdateLookIsDue`, `UpdatePickedAction`, `UpdateUnderWayOnDisk`) and tested through a probe compiled beside the launcher. No look while an installed update waits for Restart (a second update's cleanup would delete the folder the window runs from). "Run agents" also waits while the updater's own files show an update on its way (a window closed mid-install releases the one-window lock).
+
+- **A rollback is not undone by the next automatic look:** the version rolled back from is recorded (`update-held.json` beside the update journal); the look offers it instead of installing it, the person's Update installs it and lets the hold go, and a strictly newer version installs as usual. The board's own automatic install after its Roll back button has the same gap; not changed here.
+- **The window's own look is given up on after 40 minutes** (above the engine's 15-minute download and 10-minute wait), so a hung helper cannot hold Run agents for good. A run the person asked for is waited for as long as it takes.
+- Deferred: the `--expect` check reads the kept build outside the update lock, as `rollbackToPrevious` itself does before taking the lock; the window is milliseconds and the build is validated again (`keptBuildRefusal`) before anything moves.
+
+- **An unfinished update is resumed on the next run:** the board's logon shim, which resumes one at every start, never runs on a connect computer, so every look, install and rollback first hands an unfinished journal to `begin({ resumeOnly })` (the resumer from the old build's code, or clearing one nobody can finish; never a new install). Any finished forward update lets go of the rollback hold (helper's H9 removals, inside the write guard).
+- **A look that hangs is given up on, not killed:** after 40 minutes the window stops waiting and lets its flags go; a kill could land while the engine holds its lock or has written a journal. Run agents is still held by the updater's own files while they are fresh.
+- **An update or rollback not seen to finish is its own answer, `pending`** (not `failed`): the detached helper may still finish, and then the window runs from the copy it moved aside. So the window shows a note with no button, hides Update and Roll back, and starts no further look until Kosmos is opened again (`Unsettled`); a second update's cleanup would otherwise delete the folder it runs from. A look given up on after 40 minutes that later answers `updated` or `pending` is still recorded, after any run then in flight.
+- **The window's looks start only after a connect stop that held** (kept deliberately): a stop that did not hold may have left the board's logon task on, and the engine's connect precondition stands in for the board-task rule, so nothing else would keep that task from starting a board under a swap. The person is told, and the next launch tries again.
+- Deferred: renaming `stopsInFlight` (now also counts update runs): the name is pinned by #4381's tests and mirrors the Mac app's.
+
+## Residual, named (why FirstRunChoice stays off until a real connect computer is watched)
+A crash in the moment between H3 (the old build moved aside, Kosmos.exe with it) and H4 (the new build moved in) leaves the Kosmos folder with no Kosmos.exe and no app, so the window cannot open and nothing on a connect computer resumes the journal. On a board computer the logon shim (an anchored node.exe) does that. Closing it needs a resumer that does not live in the Kosmos folder (for example a one-shot logon task or the Start menu entry pointing at the anchored runtime); left for its own change.
+
+## Weakest part
+With no board, a new build that will not boot is not caught by H7 (nothing is started to confirm). It surfaces when the person opens Kosmos (the relaunch) or picks Run agents; the Roll back menu item is the way back only if the new Kosmos.exe itself still opens.
