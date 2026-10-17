@@ -233,6 +233,14 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   const blank = await mac(['task', 'built', projectId, String(n), 'note', '--file', ''], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(blank.code, 2, 'an empty --file marked the task with no fingerprint: ' + blank.out);
   assert.match(blank.out, /cannot read that file/);
+  // A file that passes the read check but fails in the hasher (privacy controls, a disk error) is refused with words,
+  // not ended silently by set -e (review 7). A shasum that fails stands in for it.
+  const bin = path.join(SANDBOX, 'failing-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'shasum'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const failed = await mac(['task', 'built', projectId, String(n), 'note', '--file', __filename], { KOSMOS_AGENT_TOKEN: tok, PATH: bin + path.delimiter + process.env.PATH });
+  assert.equal(failed.code, 2, failed.out);
+  assert.match(failed.out, /cannot read that file/);
   const empty = await mac(['task', 'built', projectId, String(n), '--file'], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(empty.code, 2, empty.out);
   assert.match(empty.out, /--file needs the path of the delivered file/);   // not the old unknown-option refusal
