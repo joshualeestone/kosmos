@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip
+// Browser-check-surface: plus-asks askcard plus-ask-rows plus-state1 plus-state2 plus-flow plus-chip asknote-x
 // (#2518) the tokens this check asserts: where Kosmos+ device requests render on the Plus screen right after sign-in,
 // and (kosmos#5786) what each request card says about where its code is.
 /* #4610 (Josh, 2026-09-29 12:50, a brand-new Kosmos+ account in the Mac app): "these should have rendered in the same
@@ -120,6 +120,23 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.waitForTimeout(200);
       const other = await page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ').trim(), cards: document.querySelectorAll('#askcard .askreq').length }));
       chk(other.shown && /2 devices want to connect to your Kosmos\./.test(other.text) && other.cards === 0, '[' + W + '] CONTROL: elsewhere the top card is the one-line notice, not the cards', JSON.stringify(other));
+      /* #6315 (Josh, 19:41): the notice can be dismissed, and Review clears it too; a new request brings it back. */
+      const shownNote = () => page.evaluate(() => ({ shown: !document.getElementById('askcard').hidden && !!document.querySelector('#askcard .asknote'), x: !!document.querySelector('#askcard .asknote-x') }));
+      const n0 = await shownNote();
+      chk(n0.shown && n0.x, '[' + W + '] #6315 the notice has a dismiss button', JSON.stringify(n0));
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 dismiss hides the notice');
+      await page.evaluate(() => paintAsk());
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 a repaint keeps it hidden (same requests)');
+      await page.evaluate(() => { ASK.devices = ASK.devices.concat([{ device_id: 'd-new', name: 'iPad · Safari', code: 'K2-P9', first_seen: Math.floor(Date.now() / 1000) }]); paintAsk(); });
+      const n1 = await shownNote();
+      chk(n1.shown, '[' + W + '] #6315 CONTROL: a new request brings the notice back', JSON.stringify(n1));
+      await page.click('#askcard .asknote [data-ask="open"]');
+      await page.waitForTimeout(200);
+      await page.evaluate(() => { showTab('agents'); paintAsk(); });
+      await page.waitForTimeout(150);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 after Review the notice does not come back on another view');
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();
     }
