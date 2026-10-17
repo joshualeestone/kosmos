@@ -108,6 +108,7 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -1189,17 +1190,29 @@ async function taskBuilt(ctx, args) {
   /* kosmos#4889, as install/kosmos: --clear is built's one option; any other --word is refused, and past a bare --
      everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false;
+  let clear = false, past = false, file = null, wantFile = false;
   const words = [];
   for (const a of rest) {
+    if (wantFile) { file = a; wantFile = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)', a); return 2; }
+    if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
+  if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
+  /* #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file. */
+  let fingerprint = null;
+  if (file !== null) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
+    let bytes;
+    try { if (!fs.statSync(file).isFile()) throw new Error('not a file'); bytes = fs.readFileSync(file); }
+    catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    fingerprint = 'sha256:' + require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');
