@@ -294,7 +294,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /ran out/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       const refused = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' '));
-      chk(/That code ran out\. Press Try again for a new one\./.test(refused) && !/code_expired/.test(refused), `${tag} #4794/#6353: a refused confirm (expired) is worded, pointing at Try again`, refused);
+      chk(/That code ran out\./.test(refused) && !/code_expired|on its way|Try again/.test(refused), `${tag} #4794/#6353: a refused confirm (expired) is worded, and promises no new code (none comes without Try again)`, refused);
       /* Review 2: the same refusal again must leave the button pressable (an identical repaint was skipped before). */
       confirmRefuse = 'code_expired';
       await page.click('#plus-join-match');
@@ -307,8 +307,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const small = await page.evaluate(() => { const c = document.querySelector('#plus-join .plus-join-code-small'); return c ? { text: c.textContent, px: parseFloat(getComputedStyle(c).fontSize) } : null; });
       chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Now press Allow on homemac, your other computer\./.test(jr.text) && jr.code === '' && !jr.button && small && small.text === '482 915' && small.px < 20,
         `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and the code steps back, small`, JSON.stringify({ confirmBody, jr, small }));
-      /* Review 5: the tunnel reports a code that ran out unconfirmed only once this computer is no longer held (a held
-         round restarts and clears it, pairing.rs owe_commitment), so the shape is connected, not held, no code. */
+      /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
+         held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
       join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
@@ -340,17 +340,26 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const retryBtn = await page.evaluate(() => { const b = document.getElementById('plus-join-retry'); return b ? { text: b.textContent, enabled: !b.disabled } : null; });
       chk(jr.shown && jr.text === 'That code ran out before it was matched. When you are at both computers, press Try again for a new code. Try again' && !jr.button && retryBtn && retryBtn.enabled,
         `${tag} #6353 waiting: a code that ran out waits for Try again, and says so`, JSON.stringify({ jr, retryBtn }));
+      /* Every try used: the refusal paints the failed recovery at once, never Try again beside "Too many tries". */
       retryRefuse = 'attempts_used';
+      joinDelayMs = 3000;   // no round answers in time: what shows is the page's own repaint of the refusal
       await page.click('#plus-join-retry');
-      await page.waitForFunction(() => /Too many tries\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
-      const usedSay = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
-      chk(/Too many tries\./.test(usedSay) && !/attempts_used/.test(usedSay), `${tag} #6353: a refused Try again is worded, never the raw tag`, usedSay);
-      const postsBefore = retryPosts;
-      await page.click('#plus-join-retry');
-      await page.waitForFunction(() => /A new one is on its way/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      const usedSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
+      chk(usedSay.text === 'Too many tries. On homemac, your other computer, press Not me on this request, then sign this computer in again.' && !usedSay.btn,
+        `${tag} #6353: a Try again refused for every try used says the recovery, with no Try again left`, JSON.stringify(usedSay));
+      await page.waitForTimeout(3000); joinDelayMs = 0;
+      join = { ...join, failed: false, needs_retry: true };
       jr = await readJoin();
-      chk(retryPosts === postsBefore + 1 && jr.text === 'That code ran out. A new one is on its way.' && !(await page.$('#plus-join-retry')),
-        `${tag} #6353: Try again posts once, then the block says a new code is on its way (no button)`, JSON.stringify({ posts: retryPosts - postsBefore, jr }));
+      /* Accepted: the button goes at once, before any round answers (a second press would only be refused). */
+      const postsBefore = retryPosts;
+      joinDelayMs = 3000;
+      await page.click('#plus-join-retry');
+      await page.waitForTimeout(500);
+      const rightAfter = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
+      await page.waitForTimeout(3000); joinDelayMs = 0;
+      chk(retryPosts === postsBefore + 1 && rightAfter.text === 'That code ran out. A new one is on its way.' && !rightAfter.btn,
+        `${tag} #6353: Try again posts once, and at once the block says a new code is on its way (no button, before any round)`, JSON.stringify({ posts: retryPosts - postsBefore, rightAfter }));
       join = { ...join, needs_retry: false, confirm_expired: false };
       /* Review 3 (the tunnel's own contract): after the other computer's Allow this computer is connected and no longer
          held, but the code stays until it is confirmed here. The block must still show it, with the button. */
@@ -365,7 +374,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: true };
       await page.evaluate(() => paintPlusJoin());
       const old = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
-      chk(old === 'That code ran out. A new one is on its way.', `${tag} #4794: a code past 10 minutes by the page's clock reads as run out`, old);
+      chk(old === 'That code ran out.', `${tag} #4794/#6353: a code past 10 minutes by the page's clock reads as run out, promising no new one`, old);
       /* Review 6: allowed (not held) and past the page's 10 minutes, no new code follows: it says the ending, and keeps
          reading until the tunnel's own answer, which then stays as the ending. */
       join = { ...join, held: false };

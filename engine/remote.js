@@ -2203,7 +2203,7 @@ const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().to
 /* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
 function joinUnsupported(r) {
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
-  return !r.ok && r.code === 2 && /unrecognized subcommand '?join'?/.test(said);
+  return !r.ok && r.code === 2 && /unrecognized subcommand '?(join|retry)'?/.test(said);   // #6353: retry is newer than join
 }
 /** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
     failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */

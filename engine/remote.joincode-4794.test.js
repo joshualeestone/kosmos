@@ -57,6 +57,7 @@ if (args[0] === 'join') {
     process.exit(0);
   }
   if (args[1] === 'retry') {   // #6353
+    if (mode === 'retry-old') { process.stderr.write("error: unrecognized subcommand 'retry'\\n"); process.exit(2); }
     if (mode === 'retry-none') { process.stderr.write('Error: nothing_to_retry: there is no code that ran out here\\n'); process.exit(1); }
     if (mode === 'retry-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
     console.log(JSON.stringify({ retry: true })); process.exit(0);
@@ -181,6 +182,8 @@ test('#6353: Try again runs join retry locally and tags the tunnel refusals for 
   process.env.FAKE_JOIN = 'retry-used';
   assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'attempts_used' });
   process.env.FAKE_JOIN = 'unsupported';
+  assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
+  process.env.FAKE_JOIN = 'retry-old';   // a tunnel with join but from before join retry
   assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
 });
 
