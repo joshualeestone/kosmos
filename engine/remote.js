@@ -1779,7 +1779,7 @@ function allowSelfQuietly() {
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
    The browser is opened only once the snapshot holds a phone or browser sign-in from the last VOUCH_RECENT_S (in
-   `signins`, or a request in `devices`; kosmos#6407), so an
+   `signins` or `devices`, kosmos#6407), so an
    app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
    also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
    A joining computer is never allowed this way: computers pair by
@@ -1827,27 +1827,27 @@ function startVouch() {
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
-/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
-   never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
-/* kosmos#6407: `signins` reads the snapshot's list of every phone or browser sign-in on the account (id and first_seen),
-   only to decide whether to open the tab. `devices` is only what knocked at this computer's gate, and the sign-in that
-   arms the tab usually happened on the website, so it is in `signins` only. A tunnel that predates the field writes
-   none: an empty list. vouchTick's allow matches `devices` only. */
-function vouchRows(signins = false) {
+/* From one read of the snapshot, two lists through the same filter: valid ids, not this computer's own sign-ins, not a
+   device the person said Not me to, and never a computer (a joining one carries joining_computer, or a code wait).
+   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): every phone or browser sign-in on the account, read
+   only to decide whether to open the tab, never matched for an allow. `devices` now holds only what knocked at this
+   computer's gate, and the sign-in that arms the tab usually happened on the website, so it is in `signins` only. A
+   tunnel that predates the field writes none: an empty list. null while there is no snapshot. */
+function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
   if (!raw || !Array.isArray(raw.devices)) return null;
-  const list = signins ? (Array.isArray(raw.signins) ? raw.signins : []) : raw.devices;
   const settings = read();
   const selves = ownDeviceIds(settings);
   // A device the person said Not me to is never allowed this way; they can still Allow it by hand.
   const denied = settings.denied || {};
   /* #6315: DEVICE_ID, not REQUEST_ID, on purpose: a minted computer: id never qualifies, so a computer is never
      allowed by a vouch even on a row that carries no joining_computer. */
-  return list.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+  const keep = (d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
-    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
+    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait;
+  return { devices: raw.devices.filter(keep), signins: (Array.isArray(raw.signins) ? raw.signins : []).filter(keep) };
 }
 function vouchMatches(secret, d) {
   if (typeof d.vouch !== 'string') return false;
@@ -1862,12 +1862,13 @@ function vouchTick() {
   const v = vouchState;
   if (!v) return;
   if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
-  const rows = vouchRows();
-  if (!rows) return;
+  const lists = vouchRows();
+  if (!lists) return;
+  const rows = lists.devices;
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
     const recent = (d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S;
-    if (!rows.some(recent) && !(vouchRows(true) || []).some(recent)) return;   // a second read: null if pending.json went in between
+    if (!rows.some(recent) && !lists.signins.some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
@@ -3397,6 +3398,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
+  vouchAllowingIdForTests: () => vouchAllowingId,   // kosmos#6407
   vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },

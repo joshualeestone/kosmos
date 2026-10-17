@@ -4474,6 +4474,10 @@ test('kosmos#6407: a recent sign-in that never knocked here (in signins only) st
   r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
   remote.vouchTickForTests();
   assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
+  // A minted computer: id that carries no joining_computer: a computer, never "the person, a moment ago".
+  r.plant([], [{ device_id: 'computer:' + 'c'.repeat(32), first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a computer\'s row opened the browser');
   // An old one (an hour ago): not either.
   r.plant([], [{ device_id: 'dev-old', first_seen: nowS() - 3600 }]);
   remote.vouchTickForTests();
@@ -4487,7 +4491,9 @@ test('kosmos#6407: a recent sign-in that never knocked here (in signins only) st
   const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
   r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
   remote.vouchTickForTests();
-  await new Promise((ok) => setTimeout(ok, 200));
+  // Decided in the tick itself: an allow would be out now. Then as long as the CONTROL below is given to land.
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'an allow started for a row in signins');
+  for (let i = 0; i < 50; i++) await new Promise((ok) => setTimeout(ok, 100));
   assert.ok(!allowsOf().includes('dev-web'), 'a row in signins was allowed by its vouch');   // this computer's own sign-in grant is in the record too
   r.plant([{ device_id: 'dev-web', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6', vouch }], []);
   remote.vouchTickForTests();
