@@ -22,8 +22,11 @@ Screenshot the card (light and dark) and the joining computer's big code.
 - A wrong code marks the field aria-invalid; the field is described by the card's sentence (aria-describedby).
 - Input on the field wakes Allow at six digits without a repaint (it stays held during a code_changed hold); Enter
   presses Allow.
-- askAct compares digits with d.code before any request. A mismatch is ASK.done error 'code_typed', worded on the card
-  and dropped like the other code refusals once the code changes.
+- askAct checks what was typed: short of six digits says so (code_short); a mismatch reads the list once more (the other
+  computer may have a new code this page has not seen) before calling it wrong (code_typed) or new (code_new). A match
+  sends WHAT WAS TYPED in the tunnel's "ddd ddd" form, so the tunnel checks the person's entry too.
+- Short of six digits Allow is aria-disabled, not disabled: Tab from the field reaches it (never Not me first) and a
+  press says what is missing. The wait-state holds keep a real disabled.
 
 - The joining computer (#plus-join) says to TYPE its code on the other computer: held, the steps end "Type this code
   there, then press Allow." and "Then press The codes match here."; matched while held, the code stays large ("Waiting
@@ -36,6 +39,8 @@ Screenshot the card (light and dark) and the joining computer's big code.
   #askcard never draws a computer's field; its listener is there for parity, not driven by a check.
 - A wrong-code sentence stays while the person retypes, until the next Allow or a new code (clearing it on input would
   repaint mid-typing); Allow checks again either way.
+- Out-of-date open tabs (opened before this release) keep the one-click Allow until reloaded; the engine cannot tell the
+  pages apart. Accepted: a release reloads the board's page, and a server marker would break every older page at once.
 - Compare in the page, not only in the tunnel: the tunnel's refusal reads as "the code changed", which would be wrong
   for a typo. The tunnel still refuses any code that is not its own (sas_mismatch), so nothing is weaker.
   Weakest premise: the page holds this computer's code (d.code) to compare against; anyone reading the page source could
@@ -61,3 +66,5 @@ Screenshot the card (light and dark) and the joining computer's big code.
   disabled state from the typed value does rebuild the region once (comment corrected); a code that changed between typing and the press says "has a new code" (code_new).
 - 4 sonnet: the matched-while-held line no longer tells someone who already typed and allowed to do it again; Enter
   ignores an IME composition; the unused small-code CSS removed.
+- 5 opus: Allow aria-disabled short of six digits (Tab reached Not me); Allow sends the typed digits; a mismatch reads
+  the list again first; computer code_changed wording; stale comment and a check label; a dead !small assert.
