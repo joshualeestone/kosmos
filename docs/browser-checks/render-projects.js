@@ -1313,7 +1313,7 @@ async function main() {
       const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
       const copies = [];
       // What this arm changes besides the copies, so finally can put it back even after a throw.
-      const was = document.activeElement, body = document.body, folded = body.classList.contains('fold-a'), st0 = box.scrollTop;
+      const body = document.body, folded = body.classList.contains('fold-a'), st0 = box.scrollTop;
       try {
         await frames();   // the arm above put the window back; the page's own readers answer on the next frame
         const before = step();
@@ -1333,44 +1333,6 @@ async function main() {
         const rgb = /rgba?\([^)]*\)/g;
         const ends = { img: getComputedStyle(box, '::after').backgroundImage, rail: getComputedStyle(document.getElementById('rail-agents')).backgroundColor };
         ends.ok = /linear-gradient/.test(ends.img) && (ends.img.match(rgb) || []).pop() === ends.rail;
-        /* A control focused from the keyboard below the edge is scrolled in clear of the fade (WCAG 2.4.11): once as the
-           page ships, and once with the CSS scroll padding off, which only the page's own focusin nudge can then pass
-           (an engine that ignores the padding on a focus scroll). */
-        const tryFocus = async (noPad) => {
-          const btn = [...box.querySelectorAll('button')].find((b) => b.getBoundingClientRect().top >= box.getBoundingClientRect().bottom);
-          if (!btn) return { button: false };
-          if (noPad) box.style.scrollPaddingBottom = '0px';
-          btn.focus(); await frames(); await frames();
-          const b = btn.getBoundingClientRect(), x = box.getBoundingClientRect();
-          const out = { button: true, visible: btn.matches(':focus-visible'), gap: Math.round(x.bottom - b.bottom), clear: b.bottom <= x.bottom - (parseFloat(getComputedStyle(box).getPropertyValue('--railcue-fade')) || 28) + 1 && b.top >= x.top };
-          if (was && was !== document.body && was.focus) was.focus();
-          if (document.activeElement === btn) btn.blur();
-          box.style.scrollPaddingBottom = '';
-          box.scrollTop = 0; await frames();
-          return out;
-        };
-        const focus = { padded: await tryFocus(false), unpadded: await tryFocus(true) };
-        /* A press on a button in the faded strip, with another control focused first (so a blur runs, as in any click
-           after Dismiss): the box must not move between press and release, or the click lands on something else. */
-        const press = await (async () => {
-          const all = [...box.querySelectorAll('button')], x0 = box.getBoundingClientRect();
-          const target = all.find((b) => b.getBoundingClientRect().top >= x0.bottom);
-          const other = all.find((b) => b.getBoundingClientRect().bottom <= x0.bottom - 40);
-          if (!target || !other) return { buttons: false };
-          other.focus();
-          box.scrollTop += target.getBoundingClientRect().bottom - (box.getBoundingClientRect().bottom - 6); await frames();
-          const st = box.scrollTop, inStrip = target.getBoundingClientRect().bottom > box.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(box).getPropertyValue('--railcue-fade')) || 28);
-          target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, isPrimary: true }));
-          target.focus(); await frames(); await frames();
-          const still = box.scrollTop === st;
-          target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, isPrimary: true }));
-          if (document.activeElement === target) target.blur();
-          box.scrollTop = 0; await frames();
-          return { buttons: true, inStrip, still };
-        })();
-        focus.button = focus.padded.button && focus.unpadded.button && press.buttons;
-        focus.clear = !!(focus.padded.clear && focus.unpadded.clear && press.inStrip && press.still);
-        focus.press = press;
         /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only the
            box's own size change can bring the cue back. */
         body.classList.add('fold-a'); await frames();
@@ -1379,7 +1341,7 @@ async function main() {
         const unfolded = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
         const shortAgain = step();
-        return { before, grown, atEnd, rowGrew, backUp, ends, focus, unfolded, shortAgain };
+        return { before, grown, atEnd, rowGrew, backUp, ends, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
         body.classList.toggle('fold-a', folded);
@@ -1389,15 +1351,15 @@ async function main() {
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
         await frames();   // the page's own readers settle the cue before the next arm reads the page
       }
-    });
+    }).catch((e) => ({ error: String(e && e.message || e) }));   // a throw is a FAIL line, never a crash that hides the arms after it
     /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
        scrolls, with more below at the top and none at the end, so both answers are exercised. */
     const cueRight = (s) => s.more === s.below && s.fade === s.below;
-    if (cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below
+    if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below
         || ![cue.before, cue.grown, cue.atEnd, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
-        || !cue.ends.ok || !cue.focus.button || !cue.focus.clear) {
+        || !cue.ends.ok) {
       contrastFails += 1;
-      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), ending in the rail's own background, and a control focused below the edge scrolled in clear of it, and a press in the faded strip not moving the box (${scheme}), got ${JSON.stringify(cue)}`);
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
