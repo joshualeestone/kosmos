@@ -56,3 +56,4 @@ check, everything reads as before.
   longer says "nothing more is needed"; the cancel gap stated.
 - 4 sonnet: no new actionable findings (the cancel gap is stated and carded as #6429; a read-order race traced by the
   reviewer as unreachable on a successful round). Converged.
+- Tunnel review 24 asked for the typed-code requirement to be tested here: a wrong code on a check's Confirm sends nothing (arm added).

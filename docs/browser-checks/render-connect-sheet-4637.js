@@ -429,6 +429,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(rk && rk.head === 'Your computer "boxc" wants to finish its code check' && rk.say === 'Type the code shown on boxc, then press Confirm.' && rk.button === 'Confirm'
         && /^Confirm the code check for computer boxc$/.test(rk.label) && rk.field && !rk.own,
         `${tag} #6404: a code check reads as finishing one, with the field and Confirm, and never shows this computer's code`, JSON.stringify(rk));
+      /* Tunnel review 24: the tunnel's defence against a coordinator's own hello on the joining computer rests on this
+         comparison, so a wrong code on a check's Confirm is answered here and nothing reaches the tunnel. */
+      await page.click('#askcode-d-rk'); await page.keyboard.type('999999');
+      await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-rk"]');
+      await page.waitForTimeout(300);
+      chk(!allowBodies['d-rk'], `${tag} #6404: a wrong code on a check's Confirm sends nothing`, JSON.stringify(allowBodies['d-rk'] || null));
+      await page.fill('#askcode-d-rk', '');
       await page.click('#askcode-d-rk'); await page.keyboard.type('135246');
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-rk"]');
       await page.waitForFunction(() => /The code check with boxc is done here\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
