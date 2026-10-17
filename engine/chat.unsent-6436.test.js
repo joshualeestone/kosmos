@@ -269,10 +269,13 @@ test('kosmos#6436: an unattended retry takes only the exact match: a resized box
 }));
 
 test('kosmos#6436: a long end of ours in a box that has not scrolled (a person cut its start) is not pressed', () => withAgent((roster) => {
-  arm([EMPTY, box(LONG, KEEP)]);
-  chat.deliver('al', LONG, roster);
-  const cut = LONG.slice(-210);
+  // A line with no spaces, so its end keeps its length when whitespace is squashed.
+  const SOLID = 'R' + 'abcdefghij'.repeat(60);
+  arm([EMPTY, box(SOLID, KEEP)]);
+  chat.deliver('al', SOLID, roster);
+  const cut = SOLID.slice(-220);
   assert.ok(rowsOf(cut).length < 4, 'PRECONDITION: a box this short shows all it holds');
+  assert.ok(cut.length >= 200, 'PRECONDITION: long enough for the scrolled-end rule, so only the rows decide');
   const t = arm([box(cut)]);
   assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
   assert.equal(t.enters(), 0);

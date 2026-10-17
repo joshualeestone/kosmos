@@ -12,7 +12,7 @@ Claude Code 2.1.302, a 1,500-byte single line pasted the way delivery pastes it 
 - `rememberedShows(text, kept)`: all of the line (as before), or exactly what the box showed when the line was left
   (`seen`, recorded on the unsent verdict) when that is the line's end. A person who cut or added to the visible part
   changes it: never pressed.
-- No 10-minute expiry (UNSENT_REMEMBER_MS removed): kept until sent, emptied, or replaced.
+- The 10-minute expiry is now 24 hours (UNSENT_KEEP_MS): kept until sent, emptied, replaced, or a day old.
 - The memory is on disk (`unsent-lines.json` in the state folder, mode 600), so a restart keeps it. A loaded line has
   no message number, so its follow-up row is not written.
 - `scheduleUnsentRetries`: after an unsent verdict, `pressRememberedNow` at 30 s, 2 min and 5 min, under the same
@@ -40,6 +40,11 @@ from a delivery, which carries the card the pane check needs).
   Enter, other means it was sent": other means our end is still there with text added, so it was not. Measured: the
   busy guard is redundant with the box read (a mutant removing it survives: a delivery in flight leaves the box empty
   or holding its own line, and presses the earlier line itself), kept as a second guard; the id guard is tested.
+- [x] Round 3 (opus): a memory holds 24 h (UNSENT_KEEP_MS), not forever, both in use and on load (a memory that
+  outlived its line could meet the same words recalled into the box); a retry that finds no end of ours forgets it; the
+  retry watches the full SUBMIT_SETTLE_MS (it is async); the 200-character end only on a box drawing 4 rows or more
+  (it scrolled); retries rescheduled when a delivery re-remembers a line; `seen` counts from 20 characters. Mutants:
+  exact, rows. The load bound is redundant with the use bound (a mutant on it survives); kept.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
