@@ -259,7 +259,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const expectAfter = COMPUTERS_EXPECT_UNTIL > Date.now();
             delete document.hidden;
             await new Promise((r) => setTimeout(r, 50));
-            COMPUTERS_EXPECT_UNTIL = 0;   // leave no follow-up window armed for the next arm
+            COMPUTERS_EXPECT_UNTIL = 0;   // close the follow-up window (the next arm's read clears any timer still set)
             return { pe, seenVisible, seenHidden, owedWhileHidden, expectAfter };
           }, { worlds: WORLDS });
           ok(`${t} #6403: a click at the tip's centre lands on the tip, never on a control hidden under it`, r5.pe.onTip === true, JSON.stringify(r5));
@@ -304,6 +304,15 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           }, { worlds: WORLDS });
           ok(`${t} #6403: not signed in, a look back does not read; a forced read still does (CONTROL)`,
             signedOut.flag === true && signedOut.afterLook === false && signedOut.afterForced === true, JSON.stringify(signedOut));
+          /* #6403 review 15: once the Kosmos+ panel sees this computer on and enrolled, the stale "not signed in" is gone;
+             CONTROL: on but not enrolled keeps it. */
+          const signedIn = await page.evaluate(() => {
+            COMPUTERS_SIGNED_OUT = true; computersSignedInNow({ on: true, enrolled: false }); const kept = COMPUTERS_SIGNED_OUT;
+            computersSignedInNow({ on: true, enrolled: true }); const cleared = !COMPUTERS_SIGNED_OUT;
+            return { kept, cleared };
+          });
+          ok(`${t} #6403: signed in (on and enrolled) clears a stale "not signed in"; CONTROL: not enrolled keeps it`,
+            signedIn.kept === true && signedIn.cleared === true, JSON.stringify(signedIn));
           /* #6403 review 14: a real mouse click on the tip, over a clickable control placed under it, puts the tip away and
              never reaches the control; CONTROL: with the tip gone, the same click does reach it (so the test can fail). */
           const under = await page.evaluate(async ({ worlds }) => {
@@ -327,7 +336,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
              puts it away; then after a reload with two computers from the start, no tip. */
           const wrote = await page.evaluate(async ({ worlds }) => {
             try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
-            // Its own setup: the tip up with four computers, then back to one: the tip goes, not described, not seen.
+            // Its own setup: the tip up with four computers, then back to one: the tip goes and no longer describes the switcher.
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             window.__which = 'four'; await computersFetch();
             const upFirst = !document.getElementById('worldsw-tip').hidden;
@@ -455,6 +464,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 37 asserts = 148 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty, five of them with CONTROLs).
-  process.exit(problems.length || pass + problems.length < 148 ? 1 : 0);
+  // 2 engines x 2 themes x 38 asserts = 152 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty-one, six of them with CONTROLs).
+  process.exit(problems.length || pass + problems.length < 152 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

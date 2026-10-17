@@ -23,7 +23,7 @@ Reads (each is a signed call to Kosmos+):
 The tip:
 - Inside #worldsw (hidden with the switcher), one line, wraps on a phone, ink tokens for both themes.
 - Takes clicks itself: a click on it puts it away (a person clicking a popover to dismiss it must never press a control
-  hidden under it). Its close button returns focus to the switcher; it describes the switcher (aria-describedby).
+  hidden under it). Putting it away (its close button or a click on it) returns focus to the switcher; it describes the switcher (aria-describedby).
 - Seen (localStorage kosmos.switcherTipSeen, and a page flag where storage is refused) only when a person can see it:
   the tab showing and the tip laid out; checked after it shows, on the tab shown, on a resize, and when it is put away.
 - No Escape handling (removed in review 12): on a page where Escape belongs to dialogs, menus and the composer, a
@@ -42,9 +42,11 @@ The tip:
   once after this ships, in each browser and at each address they use. Accepted: it is one line, dismissible, and explains a control they
   may not have noticed. Phones over Kosmos+ never show the switcher (the phone menu lists computers instead), so they
   never get the tip; the phone menu is its own way in.
-- Back to one computer, a tip still up goes with the switcher without counting as seen (review 9).
-- A board whose last answer was "not signed in" makes no look-back reads; if it is signed in from another window, it
-  shows the switcher on its 5-minute timer (pairing on that board forces a read). Accepted: narrow, and it saves a
+- Back to one computer, a tip still up goes with the switcher; it counts as seen only if it was laid out where a person
+  could see it (review 9, narrowed in review 15).
+- A board whose last answer was "not signed in" makes no look-back reads until its Kosmos+ panel sees it on and
+  enrolled (computersSignedInNow, review 15); signed in from another window with that panel never painted here, it shows
+  the switcher on its 5-minute timer. Accepted: narrow, and it saves a
   signed call per look on every board that never signs in.
 
 ## Review log
@@ -60,6 +62,7 @@ The tip:
 - 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
   tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
   whose handler runs first.
+- 15 opus: a stale "not signed in" cleared when the Kosmos+ panel sees the computer enrolled; comments.
 - 14 sonnet: a real mouse click over a control placed under the tip (and its CONTROL); stale comments fixed.
 - 13 opus: a leftover Escape comment replaced; mobile-shots guidance; per-address wording.
 - 12 sonnet: Escape handling removed (every Escape finding traced to it); a real hit test for clicks on the tip.
@@ -67,7 +70,7 @@ The tip:
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks
    in askAct and paintPlus, the listeners (visibilitychange, focus, resize, the tip's click), the tip markup + CSS.
-2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 148. render-connect-sheet-4637.js: the Allow and
+2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 152. render-connect-sheet-4637.js: the Allow and
    let-in reads (spy + real reads) with CONTROLs. The five checks + mobile-shots: seen flag seeded.
 3. Mutants red: no focus read, no seen memory, no close handler, no tab-shown read, no follow-up
    seen-at-show, hidden-tab seen, no page write.
