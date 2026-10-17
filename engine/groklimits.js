@@ -9,13 +9,13 @@
  *     subscriptionTier: "X Premium" }
  * (measured 2026-10-16 on this computer: 43 such lines from 09-26 to 09-29; the percent is of the plan's included
  * credits in the current period, and `end` is when it resets). Nothing here asks xAI anything: it reads the tail of a
- * file Grok wrote. An API key never gets this line (Grok's billing read needs a grok.com sign-in), so the caller asks
- * only for a subscription account.
+ * file Grok wrote. An API key is reasoned (not measured) never to get this line, since Grok's billing read is of a
+ * grok.com plan; the caller asks only for a subscription account.
  *
  * Grok does not log a fetch every session (none here after 09-29, though Grok ran on 10-05, 10-07 and 10-10), so a
  * reading can be days old: `at` is the line's own time, for the page to say how old it is, and a reading whose period
- * has ended is dropped (its figure belongs to a period that is over). A billing line with no percent means 0% (see
- * readingOfRow). A line without a valid period, or with a percent that is not a number, is skipped and the newest line
+ * has ended is dropped (its figure belongs to a period that is over). A billing line with no percent is a reading with no figure (see
+ * readingOfRow): the row says there is no current reading. A line without a valid period, or with a percent that is not a number, is skipped and the newest line
  * that has them answers, so a changed shape shows the last good reading, with its age, until its period ends; never a
  * figure read from a line it does not understand. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
  * while no reading is found (a busy day logs past 256 KB, measured: the last 09-29 reading sits about 355 KB from the
@@ -50,11 +50,17 @@ function readingOfRow(row) {
   const ctx = row.ctx && typeof row.ctx === 'object' ? row.ctx : null;
   const c = ctx && ctx.config && typeof ctx.config === 'object' ? ctx.config : null;
   if (!c || !Number.isFinite(at)) return null;
-  /* An absent percent is 0 (review 3): Grok's log is protobuf JSON, which leaves out a field whose value is zero. An
-     ASSUMPTION from one sample (review 4): the only two lines here without it come late in a period before this
-     account's first use, and the next period's first line read 1.0. A percent that is present but not a number is
-     still refused. */
-  const pct = c.creditUsagePercent === undefined ? 0 : c.creditUsagePercent;
+  /* An absent percent is a reading with NO figure (review 5): it may mean 0% (protobuf JSON leaves out a zero) or a plan
+     with no credit percent at all, and one sample here cannot tell them apart (both lines came on the account's first
+     day, before any use). Showing 0% would be a confident wrong figure in the second case, so the newest reading decides
+     and says nothing: no older line answers for it. A percent that is present but not a number is refused. */
+  if (c.creditUsagePercent === undefined) {
+    const s0 = c.currentPeriod && typeof c.currentPeriod === 'object' ? Date.parse(c.currentPeriod.start) : NaN;
+    const e0 = c.currentPeriod && typeof c.currentPeriod === 'object' ? Date.parse(c.currentPeriod.end) : NaN;
+    if (!Number.isFinite(s0) || !Number.isFinite(e0) || e0 <= s0) return null;
+    return { windows: [], plan: typeof ctx.subscriptionTier === 'string' && ctx.subscriptionTier ? ctx.subscriptionTier : null, at };
+  }
+  const pct = c.creditUsagePercent;
   const p = c.currentPeriod && typeof c.currentPeriod === 'object' ? c.currentPeriod : null;
   const start = p ? Date.parse(p.start) : NaN;
   const end = p ? Date.parse(p.end) : NaN;

@@ -33,15 +33,16 @@ function account(dir, files) {
 const billingLine = (ts, pct, start, end) => JSON.stringify({ ts: new Date(ts).toISOString(), lvl: 'info', src: 'shell',
   msg: 'billing: fetched credits config', ctx: { config: { creditUsagePercent: pct, currentPeriod: {
     type: 'USAGE_PERIOD_TYPE_WEEKLY', start: new Date(start).toISOString(), end: new Date(end).toISOString() } }, subscriptionTier: 'SuperGrok' } });
-// The default Grok account: a grok.com sign-in, with a reading in the current period.
+// The default Grok account: a grok.com sign-in (the real auth shape: the key names the app's sign-in client, user_id the
+// person), with a reading in the current period.
 account(nodePath.join(SANDBOX, '.grok'), {
-  'auth.json': JSON.stringify({ 'https://auth.x.ai::u1': { email: 'sub@example.com', refresh_token: 'r' } }),
+  'auth.json': JSON.stringify({ 'https://auth.x.ai::client-1': { email: 'sub@example.com', user_id: 'person-1', refresh_token: 'r' } }),
   'logs/unified.jsonl': billingLine(now - DAY, 58, now - 2 * DAY, now + 5 * DAY) + '\n',
 });
 // Signed in three days ago, before the reading (only readings since the current sign-in count: review 1).
 { const t = new Date(now - 3 * DAY); fs.utimesSync(nodePath.join(SANDBOX, '.grok', 'auth.json'), t, t); }
 // A second sign-in with no log at all, and an API-key account.
-account(nodePath.join(SANDBOX, '.grok-quiet'), { 'auth.json': JSON.stringify({ 'https://auth.x.ai::u2': { email: 'quiet@example.com', refresh_token: 'r' } }) });
+account(nodePath.join(SANDBOX, '.grok-quiet'), { 'auth.json': JSON.stringify({ 'https://auth.x.ai::client-1': { email: 'quiet@example.com', user_id: 'person-2', refresh_token: 'r' } }) });
 account(nodePath.join(SANDBOX, '.grok-key'), { '.kosmos-grok-apikey': 'xai-workingkeyworkingKEYX' });
 
 const grokAccounts = require('./engine/grokaccounts');
