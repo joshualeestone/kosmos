@@ -123,3 +123,47 @@ test('#6176 slice 4: where agystatus says this is not a Mac, nothing is asked', 
     assert.equal(agyusage.refresh(NOW), null, 'a reading was asked for on Windows');
   } finally { agystatus.setPlatformForTests(null); agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
 });
+
+test('#6176 slice 4 review 2: a run that finishes after the sign-in changed is dropped, not shown on the new row', async () => {
+  const realResolve = runners.resolveBin;
+  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
+  require('./agystatus').setPlatformForTests('darwin');
+  agyusage.resetForTests();
+  let finish;
+  agyusage.setRunnerForTests((bin, done) => { finish = () => done(null, JSON.stringify(payload())); });
+  try {
+    const p1 = agyusage.refresh(NOW);
+    agyusage.clear();   // signed in again as someone else while it ran
+    finish();
+    assert.equal(await p1, null);
+    assert.equal(agyusage.lastReading(), null, 'the earlier sign-in reading reached the row');
+    assert.ok(agyusage.refresh(Date.now()), 'after the change the next read did not ask');
+  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.resetForTests(); }
+});
+
+test('#6176 slice 4 review 2: agystatus remember and forget clear the reading', async () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const agystatus = require('./agystatus');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agyusage-wire-'));
+  agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
+  const realResolve = runners.resolveBin;
+  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
+  agystatus.setPlatformForTests('darwin');
+  const seed = async () => {
+    agyusage.resetForTests();
+    agyusage.setRunnerForTests((bin, done) => done(null, JSON.stringify(payload())));
+    await agyusage.refresh(NOW);
+    assert.ok(agyusage.lastReading(), 'CONTROL: a reading is there before the sign-in changes');
+  };
+  try {
+    await seed();
+    agystatus.remember({ installed: true, signedIn: true });
+    assert.equal(agyusage.lastReading(), null, 'a new sign-in answer left the old reading');
+    await seed();
+    agystatus.forget();
+    assert.equal(agyusage.lastReading(), null, 'Remove left the reading');
+  } finally {
+    runners.resolveBin = realResolve; agystatus.setPlatformForTests(null); agystatus.setLastFileForTests(null);
+    agyusage.resetForTests(); fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

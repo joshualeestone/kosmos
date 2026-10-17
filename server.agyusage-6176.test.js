@@ -52,8 +52,8 @@ const payload = (weeklyLeft) => JSON.stringify({ num_turns: 0, command: { name: 
     { id: 'b-1', name: 'Weekly Limit Remaining', window: 'weekly', remaining_fraction: weeklyLeft, reset_time: new Date(Date.now() + 5 * 864e5).toISOString() },
     { id: 'b-2', name: 'Five Hour Limit Remaining', window: '5h', remaining_fraction: 1, reset_time: new Date(Date.now() + 3 * 3600e3).toISOString() } ] } ] } } });
 
-test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', async (t) => {
-  if (process.platform !== 'darwin') { t.skip('the row is offered only where agy runs'); return; }
+test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', async () => {
+  agystatus.setPlatformForTests('darwin');   // a Mac to agystatus and agyusage alike, so this runs on every CI runner
   const dir = path.join(SANDBOX, 'agylast'); fs.mkdirSync(dir, { recursive: true });
   agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
   const bin = path.join(dir, 'agy');
@@ -94,3 +94,4 @@ test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, th
     assert.equal('limits' in rw, false, 'a Windows row promised a reading Kosmos never asks for');
   } finally { agystatus.setPlatformForTests(null); }
 });
+test.afterEach(() => agystatus.setPlatformForTests(null));
