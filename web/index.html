@@ -50317,6 +50317,8 @@ const JOIN_WAIT_WORDS = {
   daily_limit: 'This computer has added as many computers as it can today. Try again tomorrow.',
   wait_a_few_minutes: 'This computer just added one. The code for <name> shows here in a few minutes.',
   was_a_computer: 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.',
+  /* #6383: since #6353 a code that ran out is followed by a new one only once the person asks on the joining computer. */
+  code_ran_out: 'The code for <name> ran out. On <name>, press Try again for a new one.',
 };
 function paintAsk() {
   const card = document.getElementById('askcard');
