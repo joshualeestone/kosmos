@@ -482,9 +482,10 @@ function listOf(described) {
       /* Members waiting on the person at all, whichever project their question is about: the project's own
          summary.needsYou counts only questions tied to this project, and an agent whose question is not tied
          to any is still waiting (measured: a Codex member asking read 0 there). */
-      /* #6341: not a member quieted by what the person did to this project (paused or archived it, dismissed the row), so
-         the list agrees with the page there. A quiet room does not drop one: this count is "waiting on the person at all,
-         whichever project", and an idle room says nothing about a question asked about another one. */
+      /* #6341: not a member the person quieted on THIS project: a row they dismissed here (whichever project its question
+         is about: dismissing it here is their word that this project's list should not carry it), or any member of a
+         paused or archived project except one asking about another project, which still waits. A quiet room drops none:
+         this count is "waiting on the person at all, whichever project", and an idle room says nothing about that. */
       needsYou: members.filter((m) => m.present && m.tied && m.state === 'needs_you'
         // Review 7: a paused project does not drop a question about ANOTHER project ('elsewhere'): that one still waits.
         && !(m.needsYouQuiet && (m.needsYouQuiet.because === 'dismissed'
