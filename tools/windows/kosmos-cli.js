@@ -2418,7 +2418,7 @@ async function main(argv, io) {
       return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: !down };
     }
     const left = bound - (Date.now() - started);
-    if (left <= 0) { lastNotProven = 'timed out'; return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true }; }
+    if (left <= 0) { lastNotProven = 'out of time'; return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true }; }
     try {
       const res = await doFetch(url + route, {
         method,
@@ -2506,7 +2506,8 @@ async function main(argv, io) {
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
-      if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');
       else if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');

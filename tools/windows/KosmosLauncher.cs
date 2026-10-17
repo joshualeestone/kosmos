@@ -2450,7 +2450,10 @@ class KosmosLauncher
     {
         ProcessStartInfo o = new ProcessStartInfo(node,
             "\"" + opener + "\" --port " + port + " --app \"" + app + "\""
-            + (printUrlOnly ? " " + PrintUrlFlag + " --timeout-ms " + BoardWindowWaitMs : ""));
+            + (printUrlOnly ? " " + PrintUrlFlag : "")
+            // #1765: the browser path waits as long as the window does: on an enforcing board the opener opens nothing
+            // for a board that never answered, so a slow first start must not run out its shorter default.
+            + " --timeout-ms " + BoardWindowWaitMs);
         o.UseShellExecute = false;
         o.CreateNoWindow = true;
         o.WorkingDirectory = here;
@@ -2528,7 +2531,10 @@ class KosmosLauncher
     // The address to open, from open-board.js --print-url: the board's own address, with a boot
     // nonce on an enforcing board. Anything else it prints, or a failure to run it, is the plain
     // address, which is what the browser path falls back to as well.
-    static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
+    // #1765: except when the opener refused (it exits OpenerRefusedExit and names no address: on an enforcing
+    // board, nothing showed it is this account's board). Then NotConfirmed, and the window loads nothing: its
+    // own web profile holds the board's sign-in cookie, which goes to whatever answers at 127.0.0.1.
+    internal static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
     {
         string plain = "http://127.0.0.1:" + port;
         try
@@ -2537,16 +2543,42 @@ class KosmosLauncher
             {
                 string said = p.StandardOutput.ReadToEnd();
                 p.WaitForExit();
-                foreach (string line in said.Split('\n'))
-                {
-                    string candidate = line.Trim();
-                    if (candidate == plain || candidate.StartsWith(plain + "/", StringComparison.Ordinal)) return candidate;
-                }
+                string named = AddressNamed(said, port);
+                if (named != null) return named;
+                if (p.ExitCode == OpenerRefusedExit) return NotConfirmed;
             }
         }
         catch { /* the plain address, below */ }
         return plain;
     }
+
+    // #1765: open-board.js's exit code when it refused to open anything (tools/kosmos-open-board.js sets
+    // process.exitCode = 1 on those paths only), and the answer that stands for it here.
+    internal const int OpenerRefusedExit = 1;
+    internal const string NotConfirmed = "";
+
+    // The board's own address (plain, or with a path such as ?boot=) on a line of what the opener printed, or null.
+    internal static string AddressNamed(string said, int port)
+    {
+        string plain = "http://127.0.0.1:" + port;
+        foreach (string line in (said ?? "").Split('\n'))
+        {
+            string candidate = line.Trim();
+            if (candidate == plain || candidate.StartsWith(plain + "/", StringComparison.Ordinal)) return candidate;
+        }
+        return null;
+    }
+
+    internal const string NotConfirmedPage =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
+        + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;text-align:center;"
+        + "font:15px 'Segoe UI',sans-serif;color:#555;background:#fafafa;padding:0 2em}"
+        + "@media (prefers-color-scheme:dark){body{color:#bbb;background:#1e1e1e}}"
+        + "</style></head><body>Kosmos could not confirm it was reaching your own Kosmos, so nothing was opened.<br>"
+        + "If Kosmos is starting or restarting, open Kosmos.exe again in a minute.</body></html>";
+
+    const string BrowserNotConfirmedMessage =
+        "Kosmos could not confirm it was reaching your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
 
     // What a double-click did before the window existed: the opener opens the board in the
     // default browser. Then the box that says why, because a browser tab where a window was
@@ -2554,12 +2586,19 @@ class KosmosLauncher
     static int OpenInBrowserInstead(string here, string node, string opener, string app, int port, string why, bool noRuntime)
     {
         string opened = null;
-        try { using (Process.Start(OpenerStartInfo(here, node, opener, app, port, false))) { } }
+        bool refused = false;
+        // #1765: wait for the opener, so a refusal (nothing opened) is said as one, not as "opened in your browser".
+        try { using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false))) { p.WaitForExit(); refused = p.ExitCode == OpenerRefusedExit; } }
         catch (Exception e) { opened = e.Message; }
         string detail = "\n\n(" + why + ")";
         if (opened != null)
         {
             ShowMessageBox("Kosmos could not open your browser (" + opened + ").\n\nOpen http://127.0.0.1:" + port + " in your browser yourself." + detail, true);
+            return 1;
+        }
+        if (refused)
+        {
+            ShowMessageBox(BrowserNotConfirmedMessage + detail, true);
             return 1;
         }
         ShowMessageBox((noRuntime ? NoWindowMessage : WindowWouldNotOpenMessage) + detail, false);
@@ -2853,6 +2892,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
     readonly Func<string> resolveBoardAddress;
     bool signingInAgain;
+    // #1765: the opener refused to name an address (KosmosLauncher.NotConfirmed), so the window shows why and loads nothing.
+    bool boardNotConfirmed;
 
     // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
     internal string RuntimeProblem;
@@ -2987,6 +3028,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         controller.MoveFocus(0);
         if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
         else if (boardAddress != null) NavigateToBoard();
+        else if (boardNotConfirmed) webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
         else webView.NavigateToString(KosmosLauncher.StartingPage);
     }
 
@@ -3011,6 +3053,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     internal void BoardAddressResolved(string address)
     {
         if (mode == KosmosLauncher.ComputerMode.Connect) return;
+        if (address == KosmosLauncher.NotConfirmed)
+        {
+            boardNotConfirmed = true;
+            if (webView != null) webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
+            return;
+        }
         boardAddress = KosmosLauncher.WithModeQuery(address, mode);
         if (webView != null) NavigateToBoard();
     }
@@ -3043,6 +3091,14 @@ class BoardWindowForm : System.Windows.Forms.Form
         // window forward (and goes back to sign-in if its last load failed, as the Mac's Reload does).
         // Nothing here ever starts the board.
         if (mode == KosmosLauncher.ComputerMode.Connect) { if (connectLoadFailed) LoadConnect(); return; }
+        // #1765: a window showing that the board could not be confirmed asks again, from the start.
+        if (boardNotConfirmed && !signingInAgain && resolveBoardAddress != null)
+        {
+            boardNotConfirmed = false;
+            if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
+            ResolveBoardAddressInBackground();
+            return;
+        }
         if (!navigatedToBoard || signingInAgain || resolveBoardAddress == null) return;
         signingInAgain = true;
         Thread resolve = new Thread(() =>
@@ -3487,6 +3543,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         connectLoadFailed = false;
         navigatedToBoard = false;
         boardAddress = null;
+        boardNotConfirmed = false;
         if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
         string task = boardTask;
         string exe = Assembly.GetExecutingAssembly().Location;

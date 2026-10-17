@@ -91,6 +91,8 @@ class ProofProbe {
       case "matches": { string[] p = input.Split('\\n'); Console.Write(BoardProof.ProofMatches(p[0], p[1], p[2], int.Parse(a[1])) ? "true" : "false"); break; }
       case "nonce": Console.Write(BoardProof.NewNonce()); break;
       case "holds": Console.Write(BoardProof.Holds(int.Parse(a[1]), input, int.Parse(a[2])) ? "true" : "false"); break;
+      case "named": { string n = KosmosLauncher.AddressNamed(input, int.Parse(a[1])); Console.Write(n == null ? "<null>" : n); break; }
+      case "resolve": { string r = KosmosLauncher.ResolveBoardAddress(a[1], a[2], a[3], a[4], int.Parse(a[5])); Console.Write(r == KosmosLauncher.NotConfirmed ? "<notconfirmed>" : r); break; }
       case "read": { int? w; bool ok = TaskbarBadge.ReadBoard(int.Parse(a[1]), out w); Console.Write(ok + ":" + (w.HasValue ? w.Value.ToString() : "null")); break; }
     }
     return 0;
@@ -221,6 +223,63 @@ test('#1765: ReadBoard sends the token to a board that proves it, and never to a
     assert.equal(status.length, 1);
     assert.equal(status[0].headers['x-kosmos-board-token'], TOKEN, 'the arm above could not have seen the token');
   } finally { await board.close(); }
+});
+
+/* ---- #1765: the window and the browser fallback when the opener names no address ---- */
+
+test('#1765: a refusal from the opener is NotConfirmed in the window, which then loads nothing and asks again on reopen', () => {
+  const resolve = slice('internal static string ResolveBoardAddress(', '\n    }\n');
+  assert.match(resolve, /if \(named != null\) return named;\s*if \(p\.ExitCode == OpenerRefusedExit\) return NotConfirmed;/);
+  assert.match(SOURCE, /internal const int OpenerRefusedExit = 1;/);
+  const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
+  assert.match(opener, /if \(open === null\) \{ process\.exitCode = 1; return; \}/, 'the opener and the launcher disagree on the refusal exit code');
+  const resolved = slice('internal void BoardAddressResolved(string address)', '\n    }\n');
+  assert.match(resolved, /if \(address == KosmosLauncher\.NotConfirmed\)\s*\{\s*boardNotConfirmed = true;\s*if \(webView != null\) webView\.NavigateToString\(KosmosLauncher\.NotConfirmedPage\);\s*return;/,
+    'a NotConfirmed answer is loaded as an address');
+  assert.match(SOURCE, /else if \(boardAddress != null\) NavigateToBoard\(\);\s*else if \(boardNotConfirmed\) webView\.NavigateToString\(KosmosLauncher\.NotConfirmedPage\);/);
+  const again = slice('internal void SignInAgain()', '\n    }\n');
+  assert.match(again, /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)[\s\S]*?ResolveBoardAddressInBackground\(\);/, 'reopening Kosmos.exe does not ask again');
+  const browser = slice('static int OpenInBrowserInstead(', '\n    }\n');
+  assert.match(browser, /p\.WaitForExit\(\); refused = p\.ExitCode == OpenerRefusedExit;/);
+  assert.match(browser, /if \(refused\)\s*\{\s*ShowMessageBox\(BrowserNotConfirmedMessage/, 'a refusal is told as "opened in your browser"');
+});
+
+function fakeApp(withToken) {
+  const app = fs.mkdtempSync(path.join(SANDBOX, 'app-'));
+  const data = fs.mkdtempSync(path.join(SANDBOX, 'appdata-'));
+  fs.mkdirSync(path.join(app, 'engine'), { recursive: true });
+  fs.writeFileSync(path.join(app, 'engine', 'store.js'), 'module.exports = { ROOT: ' + JSON.stringify(data) + ' };\n');
+  fs.copyFileSync(path.join(REPO, 'engine', 'boardproof.js'), path.join(app, 'engine', 'boardproof.js'));
+  if (withToken) fs.writeFileSync(path.join(data, 'board.token'), TOKEN + '\n');
+  return app;
+}
+const OPENER = path.join(REPO, 'tools', 'kosmos-open-board.js');
+
+test('#1765: ResolveBoardAddress, run for real with the real opener: NotConfirmed for a squatter, the signed-in address for the board', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  const app = fakeApp(true);
+  const sq = await startListener({ mode: 'squatter' });
+  try {
+    assert.equal(await probeAsync(['resolve', REPO, process.execPath, OPENER, app, String(sq.port)]), '<notconfirmed>');
+    assert.deepEqual(sq.carrying([TOKEN]), [], 'the board token reached the squatter');
+  } finally { await sq.close(); }
+  // CONTROL: the same call against a board holding the token is the signed-in address.
+  const board = await startListener({ mode: 'board', holds: TOKEN });
+  try {
+    assert.match(await probeAsync(['resolve', REPO, process.execPath, OPENER, app, String(board.port)]), new RegExp('^http://127\\.0\\.0\\.1:' + board.port + '/\\?boot=[0-9a-f]+$'));
+  } finally { await board.close(); }
+  // And a board that enforces nothing (no token on disk) still gets the plain address, as before.
+  const plain = await startListener({ mode: 'squatter' });
+  try {
+    assert.equal(await probeAsync(['resolve', REPO, process.execPath, OPENER, fakeApp(false), String(plain.port)]), 'http://127.0.0.1:' + plain.port);
+  } finally { await plain.close(); }
+});
+
+test('#1765: AddressNamed takes only this port\'s address', WINDOWS_ONLY, (t) => {
+  if (!needsProbe(t)) return;
+  assert.equal(probe(['named', '16180'], 'noise\nhttp://127.0.0.1:16180/?boot=ab\n'), 'http://127.0.0.1:16180/?boot=ab');
+  assert.equal(probe(['named', '16180'], 'http://127.0.0.1:16181/?boot=ab\n'), '<null>');
+  assert.equal(probe(['named', '16180'], ''), '<null>');
 });
 
 test.after(() => {

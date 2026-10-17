@@ -99,6 +99,18 @@ test('#1765: a board that is down still reads as down, not as a refused check', 
   assert.doesNotMatch(r.err, /could not show it is your Kosmos/);
 });
 
+test('#1765: a listener that takes the connection and resets it is not read as a board that is down', async () => {
+  const http = require('node:http');
+  const resetting = http.createServer((req) => { req.socket.destroy(); });
+  await new Promise((r) => resetting.listen(0, '127.0.0.1', r));
+  try {
+    const r = await run('http://127.0.0.1:' + resetting.address().port, ['room', 'proj']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /could not show it is your Kosmos/);
+    assert.doesNotMatch(r.err, /Is it running/);
+  } finally { resetting.close(); }
+});
+
 test('#1765: the seam is asked with the url, the token and at most half the request\'s bound; false sends nothing', async () => {
   const asked = [];
   let fetched = 0;

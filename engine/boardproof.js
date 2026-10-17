@@ -239,7 +239,8 @@ async function mayCarryTokensTo(baseUrl, headers, opts) {
 
 /* Why a check that came out false found nothing listening (or nothing answering in time), as opposed to a listener
    that answered and could not prove itself: the two read differently to a person. Neither sends anything. */
-const NOTHING_THERE_RE = /^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)\b/;
+// Not a reset: a listener that took the connection and then dropped it is there, and did not prove itself.
+const NOTHING_THERE_RE = /^request failed: (ECONNREFUSED|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)\b/;
 function nothingThere(why) { const w = String(why || ''); return NOTHING_THERE_RE.test(w) || w === 'timed out'; }
 
 /* The Windows senders' check (the report hook, the kosmos command, the board opener; #1765): boardHoldsToken with
