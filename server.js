@@ -16993,7 +16993,9 @@ const server = http.createServer(async (req, res) => {
             const pj = projects.get(body.project, roster);
             phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
               id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
-              session: (postSender.card && postSender.card.sessionName) || null, project: pj ? pj.name : null });
+              session: (postSender.card && postSender.card.sessionName) || null,
+              // #6254: the room's project id (not just its name) so a posted tap opens the room.
+              project: pj ? pj.name : null, projectId: pj ? pj.id : null });
           }
         } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal

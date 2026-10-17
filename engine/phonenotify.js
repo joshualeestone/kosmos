@@ -221,7 +221,7 @@ function capBytes(v, n) {
 }
 const cap = (v, n) => (v === null || v === undefined || v === '' ? null : capBytes(v, n));
 
-function payload(notifyId, { kind, id, agent, session, project }) {
+function payload(notifyId, { kind, id, agent, session, project, projectId }) {
   return {
     installId: notifyId,
     id: cap(id, CAPS.id),
@@ -229,6 +229,10 @@ function payload(notifyId, { kind, id, agent, session, project }) {
     agent: capBytes(agent || 'An agent', CAPS.agent),
     session: cap(session, CAPS.session),
     project: cap(project, CAPS.project),
+    // #6254: the project id (not the display name) so a `posted` tap can open the
+    // room on her board (coordinator sw.js ?tab=projects&project=<id>). Always
+    // present like project/session, null off a posted event or on an older board.
+    projectId: cap(projectId, CAPS.project),
     at: new Date().toISOString(),
   };
 }
