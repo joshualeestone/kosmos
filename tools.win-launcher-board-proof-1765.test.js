@@ -62,7 +62,9 @@ test('#1765: the badge read checks the board holds the token before the token go
 test('#1765: the board token is put in a header in one place only, the read that checks first', () => {
   const sends = [...SOURCE.matchAll(/Headers\[BoardTokenHeader\]\s*=/g)];
   assert.equal(sends.length, 1, 'another place sends the board token: it must check the board first too');
-  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 2, 'the token is read somewhere new (the definition and ReadBoard only)');
+  // The definition, ReadBoard, and ResolveBoardAddress (which only asks whether a token is on disk, and sends nothing).
+  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 3, 'the token is read somewhere new');
+  assert.match(slice('internal static string ResolveBoardAddress(', '\n    }\n'), /return TaskbarBadge\.ReadBoardToken\(\) != null \? NotConfirmed : plain;/);
 });
 
 test('#1765: the C# constants are engine/boardproof.js\'s', () => {
@@ -243,14 +245,14 @@ test('#1765: a refusal from the opener is NotConfirmed in the window, which then
   const again = slice('internal void SignInAgain()', '\n    }\n');
   assert.match(again, /if \(boardNotConfirmed && !signingInAgain && resolveBoardAddress != null\)[\s\S]*?ResolveBoardAddressInBackground\(\);/, 'reopening Kosmos.exe does not ask again');
   const browser = slice('static int OpenInBrowserInstead(', '\n    }\n');
-  assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} refused = true; \}\s*else refused = p\.ExitCode == OpenerRefusedExit;/,
+  assert.match(browser, /if \(!p\.WaitForExit\(OpenerBrowserWaitCapMs\)\) \{ try \{ p\.Kill\(\); \} catch \{[^}]*\} unknown = true; \}\s*else refused = p\.ExitCode == OpenerRefusedExit;/,
     'the browser fallback waits for the opener without a bound, or reads a timeout as success');
   const cap = Number((SOURCE.match(/const int OpenerBrowserWaitCapMs = (\d+);/) || [])[1]);
   const openerSrc = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
   const worst = Number(openerSrc.match(/Number\(argValue\('--timeout-ms', '(\d+)'\)\)/)[1]) + require('./tools/kosmos-open-board.js').PROOF_TIMEOUT_MS
     + Number(openerSrc.match(/const MINT_TIMEOUT_MS = (\d+);/)[1]);
   assert.ok(cap > worst, 'the cap (' + cap + ' ms) cuts off the opener before its own worst case (' + worst + ' ms)');
-  assert.match(browser, /if \(refused\)\s*\{\s*ShowMessageBox\(BrowserNotConfirmedMessage/, 'a refusal is told as "opened in your browser"');
+  assert.match(browser, /if \(refused \|\| unknown\)\s*\{\s*ShowMessageBox\(\(unknown \? BrowserUnknownMessage : BrowserNotConfirmedMessage\)/, 'a refusal is told as "opened in your browser"');
 });
 
 function fakeApp(withToken) {
@@ -282,6 +284,20 @@ test('#1765: ResolveBoardAddress, run for real with the real opener: NotConfirme
   try {
     assert.equal(await probeAsync(['resolve', REPO, process.execPath, OPENER, fakeApp(false), String(plain.port)]), 'http://127.0.0.1:' + plain.port);
   } finally { await plain.close(); }
+});
+
+test('#1765: an opener that ends any other way with no address: NotConfirmed when a board token is on disk, the plain address when none is', WINDOWS_ONLY, async (t) => {
+  if (!needsProbe(t)) return;
+  const crashing = path.join(SANDBOX, 'crashing-opener.js');
+  fs.writeFileSync(crashing, 'process.exit(1);\n');   // node's own crash code, not the opener's refusal
+  const app = fakeApp(false);
+  const withToken = fs.mkdtempSync(path.join(SANDBOX, 'launcherdata-'));
+  fs.mkdirSync(path.join(withToken, 'Kosmos'), { recursive: true });
+  fs.writeFileSync(path.join(withToken, 'Kosmos', 'board.token'), TOKEN);
+  const noToken = fs.mkdtempSync(path.join(SANDBOX, 'launcherdata-'));
+  const env = (data) => { const e = { ...process.env, AGENT_WORKFORCE_DATA: data }; delete e.AGENT_WORKFORCE_HOME; return e; };
+  assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], '', env(withToken)), '<notconfirmed>');
+  assert.equal(await probeAsync(['resolve', REPO, process.execPath, crashing, app, '1'], '', env(noToken)), 'http://127.0.0.1:1');
 });
 
 test('#1765: AddressNamed takes only this port\'s address', WINDOWS_ONLY, (t) => {

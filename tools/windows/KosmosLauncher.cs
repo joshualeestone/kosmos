@@ -2545,8 +2545,10 @@ class KosmosLauncher
                 if (p.ExitCode == OpenerRefusedExit) return NotConfirmed;
             }
         }
-        catch { /* the plain address, below */ }
-        return plain;
+        catch { /* the plain address, below, or NotConfirmed */ }
+        // #1765: no address named, however the opener ended. On an enforcing board (its token on disk) nothing has
+        // shown it is this account's board, so the window loads nothing rather than the plain address.
+        return TaskbarBadge.ReadBoardToken() != null ? NotConfirmed : plain;
     }
 
     // #1765: open-board.js's exit code when it refused to open anything (tools/kosmos-open-board.js sets
@@ -2578,6 +2580,9 @@ class KosmosLauncher
         + "</style></head><body>Kosmos could not confirm it was reaching your own Kosmos, so nothing was opened.<br>"
         + "If Kosmos is starting or restarting, open Kosmos.exe again in a minute.</body></html>";
 
+    const string BrowserUnknownMessage =
+        "Kosmos took too long to confirm it was reaching your own Kosmos. If no Kosmos page opened in your browser, open Kosmos.exe again in a minute.";
+
     const string BrowserNotConfirmedMessage =
         "Kosmos could not confirm it was reaching your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
 
@@ -2588,13 +2593,14 @@ class KosmosLauncher
     {
         string opened = null;
         bool refused = false;
+        bool unknown = false;   // the opener ran past its cap: it may have opened the browser, or not
         // #1765: wait for the opener, so a refusal (nothing opened) is said as one, not as "opened in your browser".
         try
         {
             using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false)))
             {
                 // Bounded: past the opener's own worst case (its wait, check and mint), it is told as a refusal.
-                if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } refused = true; }
+                if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } unknown = true; }
                 else refused = p.ExitCode == OpenerRefusedExit;
             }
         }
@@ -2605,9 +2611,9 @@ class KosmosLauncher
             ShowMessageBox("Kosmos could not open your browser (" + opened + ").\n\nOpen http://127.0.0.1:" + port + " in your browser yourself." + detail, true);
             return 1;
         }
-        if (refused)
+        if (refused || unknown)
         {
-            ShowMessageBox(BrowserNotConfirmedMessage + detail, true);
+            ShowMessageBox((unknown ? BrowserUnknownMessage : BrowserNotConfirmedMessage) + detail, true);
             return 1;
         }
         ShowMessageBox((noRuntime ? NoWindowMessage : WindowWouldNotOpenMessage) + detail, false);
@@ -3979,7 +3985,7 @@ static class TaskbarBadge
 
     // The board token, or null when the board does not enforce one (it writes the file only then).
     // Read on every poll, never kept: it never leaves this process except in the request header.
-    static string ReadBoardToken()
+    internal static string ReadBoardToken()
     {
         try
         {
@@ -4003,7 +4009,8 @@ static class TaskbarBadge
             request.ReadWriteTimeout = ReadTimeoutMs;
             request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
             string token = ReadBoardToken();
-            // #1765: the token goes only to a listener that proves it already holds it (BoardProof, above). Not
+            // #1765: the token goes only to a listener that proves it already holds it (BoardProof, above), checked on
+            // every poll on purpose: the window outlives board restarts, and another listener can hold the port. Not
             // proven is a miss, like no answer: nothing is sent.
             // The check takes at most half the read's bound, and the read gets what is left, so a poll still ends
             // within ReadTimeoutMs.
