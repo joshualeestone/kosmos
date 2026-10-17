@@ -102,7 +102,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         if (id === 'd-ph' && phoneFailsOnce) { phoneFailsOnce = false; return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'the tunnel did not answer' }) }); }
         pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true }));
       });
-      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
+      const denyIds = [];          // #6404: every Not me sent (a click in the code field must never send one)
+      await page.route('**/api/remote/devices/deny', (route, req) => { const id = JSON.parse(req.postData() || '{}').device_id; denyIds.push(id); pending = pending.filter((d) => d.device_id !== id); return route.fulfill(json({ ok: true })); });
       await page.route('**/api/remote/devices', (route) => route.fulfill(json({ on: true, allowed: [], pending })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -196,23 +197,38 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(pc.field && pc.field.label === 'Code on windowsbox' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
         `${tag} #6404: a computer's sheet has one labelled field for the code on windowsbox, never shows (or speaks) this computer's code, and Allow waits`, JSON.stringify(pc));
       chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
-      /* #6404: typed digits survive a repaint, with focus and the place at the end; Allow wakes only at six digits. */
-      await page.fill('#askcode-' + PC_ID, '48');
+      /* #6404 review 1: clicking the field's label, then the field, as a person would, sends nothing and turns nobody away. */
+      await page.click('label[for="askcode-' + PC_ID + '"]');
+      await page.click('#askcode-' + PC_ID);
+      await page.waitForTimeout(300);
+      const clicked = await page.evaluate((id) => ({ focused: document.activeElement === document.getElementById('askcode-' + id),
+        still: !!document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]') }), PC_ID);
+      chk(clicked.focused && clicked.still && denyIds.length === 0 && !allowBodies[PC_ID],
+        `${tag} #6404: clicking the label and the field puts the person in it and sends nothing (no Not me, no Allow)`, JSON.stringify({ clicked, denyIds }));
+      /* #6404: typed digits survive a repaint, with focus and the place kept; Allow wakes only at six digits. */
+      await page.keyboard.type('48');
       const partial = await page.evaluate((id) => { for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
         paintAsk(); const f = document.getElementById('askcode-' + id), a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]');
         return { value: f && f.value, focused: document.activeElement === f, caret: f && f.selectionStart, allowOff: !!(a && a.disabled) }; }, PC_ID);
       chk(partial.value === '48' && partial.focused && partial.caret === 2 && partial.allowOff,
         `${tag} #6404: two digits typed survive a repaint (value, focus, place) and Allow still waits`, JSON.stringify(partial));
+      const inMarkup = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id); return !f || f.hasAttribute('value'); }, PC_ID);
+      chk(!inMarkup, `${tag} #6404: what is typed is not written into the card's markup (a poll mid-entry does not rebuild it)`);
       /* A wrong code: Allow wakes at six digits, but pressing it is answered here and nothing reaches the tunnel. */
-      await page.fill('#askcode-' + PC_ID, '111 111');
+      await page.click('#askcode-' + PC_ID, { clickCount: 3 });
+      await page.keyboard.type('111 111');
       const wrongOn = await page.evaluate((id) => !document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="' + id + '"]').disabled, PC_ID);
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
       await page.waitForFunction(() => /That is not the code/.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
-      const wrong = await page.evaluate((id) => ({ text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '), focused: document.activeElement === document.getElementById('askcode-' + id) }), PC_ID);
-      chk(wrongOn && /That is not the code windowsbox shows\. Check it on windowsbox and type it again\./.test(wrong.text) && !allowBodies[PC_ID] && wrong.focused,
-        `${tag} #6404: a wrong code is answered on the sheet, sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID] }));
+      const wrong = await page.evaluate((id) => { const f = document.getElementById('askcode-' + id), said = f && document.getElementById(f.getAttribute('aria-describedby'));
+        return { text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '), focused: document.activeElement === f,
+          invalid: f && f.getAttribute('aria-invalid'), describedBy: said ? said.textContent : '' }; }, PC_ID);
+      chk(wrongOn && /That is not the code windowsbox shows\. Check it on windowsbox and type it again\./.test(wrong.text) && !allowBodies[PC_ID] && denyIds.length === 0 && wrong.focused
+        && wrong.invalid === 'true' && /That is not the code/.test(wrong.describedBy),
+        `${tag} #6404: a wrong code is answered on the sheet (the field is marked invalid and described by it), sends nothing, and puts the person back in the field`, JSON.stringify({ wrongOn, wrong, sent: allowBodies[PC_ID], denyIds }));
       /* The right digits, typed without the space: Allow sends the code as the tunnel wrote it. */
-      await page.fill('#askcode-' + PC_ID, '482915');
+      await page.click('#askcode-' + PC_ID, { clickCount: 3 });
+      await page.keyboard.type('482915');
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
       /* Allow the computer: its sheet says it is connected. */
