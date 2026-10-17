@@ -72,6 +72,10 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
     const { ctx, page } = await fresh();
     await page.route('**/api/status', (r) => r.fulfill({ status: 403, json: AUTH_403 }));
     await page.route('**/api/projects', (r) => r.fulfill({ status: 403, json: AUTH_403 }));
+    // #6358: a signed-out tab gets 403 on every read, first run's included, so the welcome overlay stays shut (it
+    // opens only on an answered first-run read). Without this the fixture board's unfinished first run covered the
+    // panel in the screenshot.
+    await page.route('**/api/first-run', (r) => r.fulfill({ status: 403, json: AUTH_403 }));
     await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
     await page.waitForTimeout(600); // let the failed poll paint
     const seen = await page.evaluate(() => {
