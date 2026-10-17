@@ -497,24 +497,25 @@ _kosmos_suite_candidates() {
 }
 
 # #6334: one suite is ONE run, however many processes carry its command line (a bash subshell keeps its parent's), so
-# a count of live suites keeps only the candidates with no other candidate above them. Reads and prints `pid command`.
+# a count of live suites keeps only the candidates with no other candidate above them. A candidate that is gone by now
+# is dropped rather than counted as a root of its own (its parent can no longer be read). Reads and prints
+# `pid command`. Pipes, not here-documents: bash 3.2 writes a here-document to a temp file, and with TMPDIR full the
+# loop would read nothing; the caller also refuses when this prints nothing for non-empty input.
 _kosmos_suite_roots() {
-  local lines line pid other is_child
+  local lines pids line pid other is_child
   lines="$(cat)"
-  while IFS= read -r line; do
+  pids="$(printf '%s\n' "$lines" | while IFS= read -r line; do [ -n "$line" ] && printf '%s\n' "${line%% *}"; done)"
+  printf '%s\n' "$lines" | while IFS= read -r line; do
     [ -n "$line" ] || continue
-    pid="${line%% *}"; is_child=0
-    while IFS= read -r other; do
-      other="${other%% *}"
-      { [ -n "$other" ] && [ "$other" != "$pid" ]; } || continue
+    pid="${line%% *}"
+    _kosmos_pid_gone "$pid" && continue
+    is_child=0
+    for other in $pids; do
+      [ "$other" != "$pid" ] || continue
       _kosmos_pid_is_self_or_descendant "$pid" "$other" && { is_child=1; break; }
-    done <<EOF
-$lines
-EOF
+    done
     [ "$is_child" = 1 ] || printf '%s\n' "$line"
-  done <<EOF
-$lines
-EOF
+  done
 }
 
 # kosmos_refuse_if_suite_live <what> [override] [others-allowed]: refuses while a suite runs. The third argument (#6334,
@@ -551,11 +552,12 @@ kosmos_refuse_if_suite_live() {
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ] && [ "$allowed" -gt 0 ]; then
-    out="$(printf '%s\n' "$out" | _kosmos_suite_roots)"
+    local roots; roots="$(printf '%s\n' "$out" | _kosmos_suite_roots)"
+    [ -n "$roots" ] && out="$roots"   # nothing back for a non-empty list counts every candidate: refuse, never guess
     n="$(printf '%s\n' "$out" | grep -c . || true)"
     [ "$n" -le "$allowed" ] && return 0
     local detail; detail="$(printf '%s\n' "$out" | head -1 | cut -c1-80)"
-    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (KOSMOS_SUITE_MAX=$((allowed + 1)), #6334). Wait for one to finish, or $override." >&2
+    echo "$n test suites (tools/run-tests.sh) are already running on this Mac ($detail), and $what starts beside at most $allowed (KOSMOS_SUITE_MAX=$((allowed + 1)), #6334). Wait for one to finish (bash tools/heavy-gate.sh --twice --quiet-box says when the box is quiet), or $override." >&2
     return 1
   fi
   if [ "$rc" -eq 0 ] && [ -n "$out" ]; then

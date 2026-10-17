@@ -357,9 +357,10 @@ KOSMOS_QUEUE_CLASS=heavy
 # the 12-core Mac: two full suites side by side on one commit both passed (21287 tests, 0 failures, shell stages too),
 # about 34 minutes each against 30 alone; the port fights behind the one-suite rule did not come back. Only this
 # suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait for no suite at all.
-# KOSMOS_SUITE_MAX=1 restores one at a time; anything that is not a whole number of at least 1 reads as 1.
+# KOSMOS_SUITE_MAX=1 restores one at a time; unset or empty is 2; anything else that is not a whole number from 1 to
+# 999 reads as 1.
 _rt_suite_max="${KOSMOS_SUITE_MAX:-2}"
-case "$_rt_suite_max" in ''|*[!0-9]*) _rt_suite_max=1 ;; esac
+case "$_rt_suite_max" in ''|*[!0-9]*|????*) _rt_suite_max=1 ;; esac
 _rt_suite_max=$((10#$_rt_suite_max)); [ "$_rt_suite_max" -ge 1 ] || _rt_suite_max=1   # "08" is not octal; 0 reads as 1
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
