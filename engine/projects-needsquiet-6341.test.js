@@ -188,20 +188,52 @@ test('#6341: a dismissal is not judged on an agent the board cannot see', () => 
   assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { gh61: 'crash_loop' }, 'an unseen agent is not shown to be over it');
 });
 
-test('#6341: an "elsewhere" dismissal stands while nothing is counted here, and goes when something is', () => {
+test('#6341: an "elsewhere" dismissal stands while the member is red here for another project, and lapses when not', () => {
   reset();
   const p = projects.create({ name: 'Else', folder: folder('else'), agents: ['ee61'] });
+  const other = projects.create({ name: 'Other', folder: folder('else-other'), agents: ['ee61'] });
   roomPost(p.id);
-  const idle = cards([fleet.agent('ee61', { state: 'idle' })]);
+  // Red here, about another project: the row the page lists after the counted ones.
+  assert.equal(selfreport.record('ee61', { state: 'needs_you', because: 'Which font?', project: other.id }).recorded, true);
+  const askingElsewhere = cards([fleet.agent('ee61', { state: 'needs_you' })]);
   projects.dismissNeeds(p.id, 'ee61', 'elsewhere');
-  let r = one(idle, p.id);
+  let r = one(askingElsewhere, p.id);
+  assert.equal(member(r, 'ee61').needsYouHere, null, 'CONTROL: nothing is counted here for a question about another project');
   assert.deepEqual(member(r, 'ee61').needsYouQuiet, { reason: 'elsewhere', because: 'dismissed' });
-  assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { ee61: 'elsewhere' });
+  let rec = projects.readAll().find((x) => x.id === p.id);
+  assert.deepEqual(rec.needsDismissed, { ee61: 'elsewhere' });
+  assert.equal(rec.needsDismissGone, undefined, 'a standing elsewhere dismissal got a gone mark');
+  // Review 3: recovered (idle, nothing anywhere): the dismissal starts its grace, then lapses, rather than standing forever.
+  selfreport.record('ee61', { state: 'idle', because: '', project: other.id });
+  const idle = cards([fleet.agent('ee61', { state: 'idle' })]);
+  one(idle, p.id);
+  rec = projects.readAll().find((x) => x.id === p.id);
+  assert.ok(rec.needsDismissGone && rec.needsDismissGone.ee61, 'a recovered member\'s elsewhere dismissal did not start its grace');
+  setStored(p.id, { needsDismissGone: { ee61: ago(11 * 60 * 1000) } });
+  one(idle, p.id);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'the elsewhere dismissal outlived the member\'s recovery');
+  // A counted reason appearing here is news too: shown at once.
+  projects.dismissNeeds(p.id, 'ee61', 'elsewhere');
   r = one(looping('ee61'), p.id);
   assert.equal(member(r, 'ee61').needsYouHere, 'crash_loop', 'a counted reason stayed hidden behind an elsewhere dismissal');
-  setStored(p.id, { needsDismissGone: { ee61: ago(11 * 60 * 1000) } });
-  one(looping('ee61'), p.id);
-  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'the elsewhere dismissal outlived the grace');
+});
+
+test('#6341 review 3: a Dismiss pressed between a read and its upkeep write is not overwritten', () => {
+  reset();
+  const p = projects.create({ name: 'Race', folder: folder('race'), agents: ['rc61'] });
+  roomPost(p.id);
+  projects.dismissNeeds(p.id, 'rc61', 'question');
+  const roster = looping('rc61');   // the reason is now different: the upkeep wants to start the grace
+  one(roster, p.id);
+  const snapshot = projects.readAll().find((x) => x.id === p.id);
+  assert.ok(snapshot.needsDismissGone && snapshot.needsDismissGone.rc61, 'CONTROL: the grace started');
+  setStored(p.id, { needsDismissGone: { rc61: ago(11 * 60 * 1000) } });
+  const stale = projects.readAll().find((x) => x.id === p.id);   // a read taken before the person presses Dismiss again
+  projects.dismissNeeds(p.id, 'rc61', 'question');   // pressed again: its gone mark is cleared
+  projects.describe(stale, roster, projects.readAll());   // the older read's upkeep would drop it (its mark is 11 min old)
+  const after = projects.readAll().find((x) => x.id === p.id);
+  assert.deepEqual(after.needsDismissed, { rc61: 'question' }, 'a fresh dismissal was dropped by an older read\'s upkeep');
+  assert.equal(after.needsDismissGone, undefined, 'an older read restored a gone mark the fresh dismissal had cleared');
 });
 
 test('#6341: dismissNeeds refuses what the page cannot have shown', () => {
@@ -266,6 +298,25 @@ test('#6341: the Recommender does not write a note its room already holds (a res
   assert.equal(again.out.acted[0].verdict, 'placed');
   const rec = [...again.out.next.items.values()][0];
   assert.equal(rec.convened, true, 'a delivered playbook would be retried');
+});
+
+test('#6341 review 3: a retry of a playbook that did not land still says the room holds the earlier note', () => {
+  const card = { sessionName: 'sr61', name: 'Sal', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'rq', because: 'Need the brief' };
+  const peer = { sessionName: 'pr61', name: 'Pat', state: 'idle' };
+  const members = new Map([['rq', ['sr61', 'pr61']]]);
+  const setting = { on: true };
+  const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+  const first = recommender.step({ prev: undefined, roster: [card, peer], setting, members, now: 0 });
+  const missed = recommender.runOnce({ prev: first.next, roster: [card, peer], setting, members, now: recommender.GRACE_MS + 1,
+    roomNote: () => true, deliver: () => ({ state: 'could_not' }), DELIVERY, alreadyNoted: () => true });
+  const texts = [];
+  recommender.runOnce({ prev: missed.next, roster: [card, peer], setting, members, now: recommender.GRACE_MS + 61000,
+    roomNote: () => { throw new Error('a retry wrote a note'); }, deliver: (s, t) => { texts.push([s, t]); return { state: 'placed' }; }, DELIVERY,
+    alreadyNoted: () => { throw new Error('a retry asked the room again'); } });
+  assert.equal(texts.length, 1, 'CONTROL: the retry delivered the playbook once');
+  assert.equal(texts[0][0], 'sr61');
+  assert.match(texts[0][1], /noted this in the project room earlier/, 'the retry forgot the room holds the earlier note');
+  assert.doesNotMatch(texts[0][1], /could be reached/);
 });
 
 test('#6341: recommenderNoted reads the room on disk, by agent, words, project and age', () => {

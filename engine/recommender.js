@@ -136,7 +136,7 @@ function step({ prev, roster, setting, members, now }) {
       // RETRY: the asks already went out and the playbook reached nothing. Re-deliver the
       // playbook only (never a second note or ask), charge no budget, stop after the cap.
       if (rec.attempts >= MAX_DELIVERY_ATTEMPTS) continue;
-      toConvene.push({ key, ...s, peers: rec.peers || [], asked: rec.asked || [], retry: true });
+      toConvene.push({ key, ...s, peers: rec.peers || [], asked: rec.asked || [], retry: true, alreadyNoted: rec.alreadyNoted === true });
       continue;
     }
     if (now - rec.firstSeen < GRACE_MS) continue;
@@ -243,9 +243,11 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
        already holds this note (same stuck agent, same words), the note is not written again and nobody is asked again;
        the stuck agent still gets its playbook (review 1: only the room's repeat was the complaint). Optional, as
        heldUntil is. */
-    let noted = false;
+    // A retry keeps what the first attempt learned (review 3: its playbook must not say nobody could be reached).
+    let noted = item.retry ? item.alreadyNoted === true : false;
     if (!item.retry && typeof alreadyNoted === 'function') {
       try { noted = alreadyNoted(item.project, item.session, item.because) === true; } catch { noted = false; }
+      if (noted) { const rec = out.next.items.get(item.key); if (rec) rec.alreadyNoted = true; }
     }
     const held = isHeld(item.session);
     if (held) {
