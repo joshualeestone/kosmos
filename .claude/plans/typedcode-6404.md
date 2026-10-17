@@ -43,4 +43,4 @@ Screenshot the card (light and dark) and the joining computer's big code.
 ## Review log
 - 1 opus: a click on the field or its label sent Not me (BLOCKER, fixed: own marker + askAct guard); the test used
   fill() and recorded no denies (fixed: clicks and keyboard typing, deny log, label arm); digits out of the markup;
-  aria-invalid + describedby; no maxlength; autocomplete off; placeholder contrast; a trailer reason.
+  aria-invalid + describedby; no maxlength; autocomplete off; placeholder contrast. The allagents/phone-offline trailer reason says "grid-area" where the token is the new display:grid rule (conclusion right; the pushed commit is left as is).
