@@ -1313,12 +1313,18 @@ async function main() {
       const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
       const copies = [];
       try {
+        await frames();   // the arm above put the window back; the page's own readers answer on the next frame
         const before = step();
         while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
         await frames();
         const grown = { ...step(), scrolls: box.scrollHeight > box.clientHeight + 1 };
         box.scrollTop = box.scrollHeight; await frames();
         const atEnd = step();
+        /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
+        const last = copies[copies.length - 1];
+        last.style.paddingBottom = '120px'; await frames();
+        const rowGrew = step();
+        last.style.paddingBottom = ''; await frames();
         box.scrollTop = 0; await frames();
         const backUp = step();
         /* The fade ends in the rail's own background, so it reads as the box running on rather than a band. */
@@ -1345,7 +1351,7 @@ async function main() {
         const unfolded = step();
         for (const c of copies.splice(0)) c.remove(); await frames();
         const shortAgain = step();
-        return { before, grown, atEnd, backUp, ends, focus, unfolded, shortAgain };
+        return { before, grown, atEnd, rowGrew, backUp, ends, focus, unfolded, shortAgain };
       } finally {
         for (const c of copies) c.remove();
         if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
@@ -1354,11 +1360,11 @@ async function main() {
     /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
        scrolls, with more below at the top and none at the end, so both answers are exercised. */
     const cueRight = (s) => s.more === s.below && s.fade === s.below;
-    if (cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below
-        || ![cue.before, cue.grown, cue.atEnd, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
+    if (cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below
+        || ![cue.before, cue.grown, cue.atEnd, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
         || !cue.ends.ok || !cue.focus.button || !cue.focus.clear) {
       contrastFails += 1;
-      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, scrolled back up, after the rail unfolds, short again), ending in the rail's own background, and a control focused below the edge scrolled in clear of it (${scheme}), got ${JSON.stringify(cue)}`);
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after a row grew there, scrolled back up, after the rail unfolds, short again), ending in the rail's own background, and a control focused below the edge scrolled in clear of it (${scheme}), got ${JSON.stringify(cue)}`);
     }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
