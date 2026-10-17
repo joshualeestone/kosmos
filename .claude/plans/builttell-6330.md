@@ -63,6 +63,11 @@ your task P)". A marker that identified itself (token or pane) is never told; an
 That agents want this line. A busy parent holder with many subtasks gets one line per subtask built. The valve bounds
 the rate, and every line is one the parent holder would otherwise poll for, but if it proves noisy the parent arm is
 one branch to drop.
+It is also a security trade-off, not only noise (review 10): a member agent's note (at most 300 characters, quotes and
+newlines stripped) now reaches the holders of the nearest held ancestor, who have no part in the task, where a task
+message reaches only that task's assignees. Bounded by the task-message valve and the same trust as a task message (any
+member agent can already mark any task and message any task's assignees); if it proves a channel for abuse, the parent
+arm is the branch to drop.
 
 ## Tests
 `server.builttell-6330.test.js` (19 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
