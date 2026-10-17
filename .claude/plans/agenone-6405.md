@@ -14,6 +14,12 @@ computer is (its code, or the wait line). Rejected: a new field from the tunnel 
 card does not need). Weakest premise: that nobody needs to know how long a computer has been waiting; the wait line
 covers what matters (why no code yet). It removes text, so it fits Josh's 10-17 clean-UI ruling.
 
+## Review 1 (opus) changes
+- A row that was a computer (was_a_computer) is a computer's row too: askComputerRow covers both.
+- Turning away a computer's row always gets the fresh wording with "change that email's password": its first_seen
+  says nothing about when it asked, so the "old request, no accusation" branch cannot apply.
+- Follow-up #6417 for the compact notice's dismissal key, which uses first_seen too (same root cause, older code).
+
 ## Steps
 1. web/index.html paintAsk card: joiningRow = !!d.joining_computer; no askAgoSpan and no stale class for it.
 2. render-connect-sheet-4637.js: the one-line age check now expects one age (the phone's); a day-old computer row has
