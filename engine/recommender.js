@@ -150,7 +150,8 @@ function step({ prev, roster, setting, members, now }) {
   }
   // An item no longer stuck is kept for an hour after it was acted on, so a card that flaps
   // for a tick (or the same question asked again soon) is not convened a second time. After
-  // that, or if it was never acted on, it is dropped and the same words are a new item.
+  // that, or if it was never acted on, it is dropped and the same words are a new item (whose room note is
+  // not written again while the room already holds it, #6341: only its playbook goes out).
   for (const [key, rec] of base.items) {
     if (!items.has(key) && rec && rec.noted && now - rec.notedAt < HOUR_MS) items.set(key, rec);
   }
@@ -236,19 +237,12 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     const isHeld = (s) => { if (typeof heldUntil !== 'function') return false; try { const h = heldUntil(s); return h !== null && h !== undefined; } catch { return false; } };
     /* #6341 (Josh, 10-16: the same "X is stuck" line twice in a room, hours apart): this step's memory lives only while
        the board runs, so a restart forgot a note it had written and wrote it again. The room itself is on disk: when it
-       already holds this note (same stuck agent, same words), nothing is said again, nobody is asked again, and the
-       hour's budget is given back. The item is marked convened so it is not retried. Optional, as heldUntil is. */
+       already holds this note (same stuck agent, same words), the note is not written again and nobody is asked again;
+       the stuck agent still gets its playbook (review 1: only the room's repeat was the complaint). Optional, as
+       heldUntil is. */
+    let noted = false;
     if (!item.retry && typeof alreadyNoted === 'function') {
-      let said = false;
-      try { said = alreadyNoted(item.project, item.session, item.because) === true; } catch { said = false; }
-      if (said) {
-        const i = out.next.log.findIndex((e) => e.at === now && e.session === item.session);
-        if (i !== -1) out.next.log.splice(i, 1);
-        const rec = out.next.items.get(item.key);
-        if (rec) { rec.noted = true; rec.convened = true; if (!rec.notedAt) rec.notedAt = now; }
-        acted.push({ session: item.session, name: item.name, project: item.project, retry: false, noteLanded: null, asked: [], verdict: 'already-noted' });
-        continue;
-      }
+      try { noted = alreadyNoted(item.project, item.session, item.because) === true; } catch { noted = false; }
     }
     const held = isHeld(item.session);
     if (held) {
@@ -266,7 +260,7 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     if (typeof reserve === 'function') { try { slot = reserve(item.session); } catch { slot = null; } }
     let asked = item.asked || [];
     let noteLanded = null;
-    if (!item.retry) {
+    if (!item.retry && !noted) {
       // A held peer is not typed into (not asked); it stays in item.peers, so the playbook says it could not be reached.
       asked = item.peers.filter((p) => !isHeld(p.session) && send(p.session, peerAskText(item)) === DELIVERY.PLACED);
       /* #4423: the note's facts (who is stuck, who was asked, by session) ride beside its sentence, so the room can
@@ -278,7 +272,7 @@ function runOnce({ prev, roster, setting, members, now, roomNote, deliver, DELIV
     if (verdict !== DELIVERY.PLACED && verdict !== DELIVERY.UNCONFIRMED && typeof release === 'function') { try { release(slot); } catch { /* the slot lapses on its own */ } }
     markAttempt(out.next, item.key, verdict, DELIVERY, item.retry ? undefined : asked, now);
     acted.push({ session: item.session, name: item.name, project: item.project, retry: item.retry,
-      noteLanded, asked: asked.map((p) => p.session), verdict });
+      noteLanded, asked: asked.map((p) => p.session), verdict, ...(noted ? { alreadyNoted: true } : {}) });
   }
   return { next: out.next, acted };
 }

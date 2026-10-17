@@ -915,11 +915,25 @@ function needsYouReason(m, projectId) {
 const NEEDS_LIVE_MS = 24 * 60 * 60 * 1000;
 /* #6341: what describe() needs to decide whether a reason is quiet on this project, read once per project. */
 function needsQuietContext(project, now = Date.now()) {
-  let last = null;
-  try { last = require('./messages').lastPostAt(project.id); } catch { last = null; }
-  const dismissed = project.needsDismissed && typeof project.needsDismissed === 'object' && !Array.isArray(project.needsDismissed)
-    ? project.needsDismissed : {};
-  return { paused: project.paused === true, live: last !== null && now - last < NEEDS_LIVE_MS, dismissed };
+  const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
+  let live;   // read only when a member has a reason that needs it (review 1: no log read for a project nobody flags)
+  return {
+    paused: project.paused === true,
+    dismissed: obj(project.needsDismissed),
+    gone: obj(project.needsDismissGone),
+    now,
+    get live() { if (live === undefined) live = roomLive(project, now); return live; },
+  };
+}
+/* #6341: a room is live when something was posted in it in the last day, or the project itself is that new (review 1:
+   a new project's room is often silent BECAUSE its only agent is blocked, waiting on trust or a sign-in). A log that
+   cannot be read says nothing about the room, so it counts as live: the quiet rule fails toward showing a condition. */
+function roomLive(project, now) {
+  let last;
+  try { last = require('./messages').lastPostAt(project.id); } catch { return true; }
+  if (last === undefined) return true;
+  const born = Date.parse(project.createdAt);
+  return [last, born].some((t) => Number.isFinite(t) && now - t < NEEDS_LIVE_MS);
 }
 /* #6341: why a reason is quiet ('usage' | 'paused' | 'dismissed' | 'inactive'), or null when it counts. Josh 19:47:
    "a couple agents were out of usage but that should never show in the project, only on the agent", so a rate limit
@@ -931,6 +945,10 @@ function needsQuietBecause(reason, sessionName, ctx) {
   if (reason !== 'question' && !ctx.live) return 'inactive';
   return null;
 }
+/* #6341 review 1: how long a dismissed reason must stay away before the dismissal is dropped. One read without it is not
+   enough: a reconnect phase or a crash-loop reading can flicker between polls, and dropping on the first flicker would
+   bring the row straight back, which is the "no way to dismiss it" Josh reported. */
+const NEEDS_GONE_MS = 10 * 60 * 1000;
 
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
@@ -1155,25 +1173,34 @@ function describe(project, roster, all) {
       : why === null && quiet.dismissed[m.sessionName] === 'elsewhere' ? { reason: 'elsewhere', because: 'dismissed' }
         : why === null && quiet.paused ? { reason: 'elsewhere', because: 'paused' } : null;
   }
-  /* #6341: a dismissal lasts while its reason stands. Once the member's reason is gone or different, it is dropped, so
-     the same reason coming back later (a new rate limit next week) is shown again. Only a member the board can read
-     (present and tied) is judged: an agent we cannot see now has not been shown to be over it. */
-  const stale = Object.keys(quiet.dismissed).filter((name) => {
+  /* #6341: a dismissal lasts while its reason stands. Once the member's reason has been gone or different for
+     NEEDS_GONE_MS (review 1: not on one flickering read), it is dropped, so the same reason coming back later (a new
+     crash loop next week) is shown again. Only a member the board can read (present and tied) is judged: an agent we
+     cannot see now has not been shown to be over it. `needsDismissGone` records when each one was first seen gone. */
+  const goneNow = {};
+  const drop = [];
+  for (const name of Object.keys(quiet.dismissed)) {
     const m = members.find((x) => x.sessionName === name);
-    if (!m) return !(project.agents || []).includes(name);   // no longer a member
-    if (!m.present || !m.tied) return false;
-    const now = needsYouReason(m, project.id);
-    // 'elsewhere' stands while nothing is counted here; a counted reason appearing is news, so it is shown.
-    return quiet.dismissed[name] === 'elsewhere' ? now !== null : now !== quiet.dismissed[name];
-  });
-  if (stale.length) {
+    if (!m) { drop.push(name); continue; }   // no longer a member
+    if (!m.present || !m.tied) { if (quiet.gone[name]) goneNow[name] = quiet.gone[name]; continue; }
+    const why = needsYouReason(m, project.id);
+    // 'elsewhere' stands while nothing is counted here; a counted reason appearing is news.
+    const standing = quiet.dismissed[name] === 'elsewhere' ? why === null : why === quiet.dismissed[name];
+    if (standing) continue;
+    const since = Date.parse(quiet.gone[name]);
+    if (Number.isFinite(since) && quiet.now - since >= NEEDS_GONE_MS) drop.push(name);
+    else goneNow[name] = Number.isFinite(since) ? quiet.gone[name] : new Date(quiet.now).toISOString();
+  }
+  const goneChanged = JSON.stringify(goneNow) !== JSON.stringify(quiet.gone);
+  if (drop.length || goneChanged) {
     try {
       const stored = readAll();
       const at = stored.findIndex((p) => p.id === project.id);
-      if (at >= 0 && stored[at].needsDismissed) {
-        const left = { ...stored[at].needsDismissed };
-        for (const name of stale) delete left[name];
+      if (at >= 0) {
+        const left = { ...(stored[at].needsDismissed || {}) };
+        for (const name of drop) delete left[name];
         if (Object.keys(left).length) stored[at].needsDismissed = left; else delete stored[at].needsDismissed;
+        if (Object.keys(goneNow).length) stored[at].needsDismissGone = goneNow; else delete stored[at].needsDismissGone;
         writeAll(stored);
       }
     } catch { /* a record we cannot update is not a reason to fail a read */ }
@@ -2790,7 +2817,8 @@ function cleanParent(value, childId) {
    and a reason the page does not show. Returns the project's dismissals after the write. */
 /* 'elsewhere' is a row the page lists after the counted ones (#5692: red here, but its need is not about this project);
    it is dismissed as a whole, and stands while the member has no counted reason here. */
-const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate', 'own_bound', 'other', 'elsewhere'];
+// stuck_rate is not here: out of usage is never a project's reason (Josh 19:47), so no page shows it to dismiss.
+const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'other', 'elsewhere'];
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
   if (!NEEDS_REASONS.includes(reason)) throw new Error('that is not a reason a project shows');
@@ -2801,6 +2829,11 @@ function dismissNeeds(projectId, sessionName, reason) {
   const prev = stored[at].needsDismissed && typeof stored[at].needsDismissed === 'object' && !Array.isArray(stored[at].needsDismissed)
     ? stored[at].needsDismissed : {};
   stored[at].needsDismissed = { ...prev, [sessionName]: reason };
+  if (stored[at].needsDismissGone && stored[at].needsDismissGone[sessionName]) {
+    const g = { ...stored[at].needsDismissGone };
+    delete g[sessionName];
+    if (Object.keys(g).length) stored[at].needsDismissGone = g; else delete stored[at].needsDismissGone;
+  }
   writeAll(stored);
   return { ...stored[at].needsDismissed };
 }

@@ -50,6 +50,14 @@ function roomPost(projectId, at = new Date().toISOString()) {
   row({ kind: 'post', id: 'p' + Math.random().toString(36).slice(2), from: 'zed61', project: projectId, to: [], text: 'on it', outcomes: {}, at });
 }
 const HOUR = 60 * 60 * 1000;
+/* Set a stored project's fields (a project made two days ago; a dismissal's gone mark from long ago). */
+function setStored(id, fields) {
+  const all = projects.readAll();
+  const at = all.findIndex((x) => x.id === id);
+  all[at] = { ...all[at], ...fields };
+  projects.writeAll(all);
+}
+const OLD = () => ago(48 * HOUR);
 const one = (roster, id) => projects.list(roster).find((p) => p.id === id);
 const member = (r, name) => r.agents.find((m) => m.sessionName === name);
 // A crash loop is the agent's own condition, about no project (the real card, with the field server.js attaches).
@@ -58,6 +66,7 @@ const looping = (name) => cards([fleet.agent(name, { state: 'working' })]).map((
 test('#6341: an agent\'s own condition counts only in a live room (a post in the last day)', () => {
   reset();
   const p = projects.create({ name: 'Idle', folder: folder('idle'), agents: ['cl61'] });
+  setStored(p.id, { createdAt: OLD() });   // made two days ago: a new project counts as live (see the next test)
   const roster = looping('cl61');
   let r = one(roster, p.id);
   assert.equal(member(r, 'cl61').needsYouHere, null, 'a crash loop lit a project whose room has never had a post');
@@ -75,6 +84,28 @@ test('#6341: an agent\'s own condition counts only in a live room (a post in the
   assert.equal(member(r, 'cl61').needsYouHere, 'crash_loop');
   assert.equal(member(r, 'cl61').needsYouQuiet, null);
   assert.equal(r.summary.needsYou, 1, 'CONTROL: a live room did not count the crash loop');
+});
+
+test('#6341 review 1: a project made in the last day is live though its room is silent (its agent may be the reason)', () => {
+  reset();
+  const p = projects.create({ name: 'Fresh', folder: folder('fresh'), agents: ['nw61'] });
+  const roster = looping('nw61');
+  assert.equal(one(roster, p.id).summary.needsYou, 1, 'a new project hid its only agent\'s crash loop');
+  setStored(p.id, { createdAt: OLD() });
+  assert.equal(one(roster, p.id).summary.needsYou, 0, 'CONTROL: the same project two days old and silent is quiet');
+});
+
+test('#6341 review 1: a message log that cannot be read counts the room as live (fail toward showing)', () => {
+  reset();
+  const p = projects.create({ name: 'Unread', folder: folder('unread'), agents: ['ur61'] });
+  setStored(p.id, { createdAt: OLD() });
+  const roster = looping('ur61');
+  assert.equal(one(roster, p.id).summary.needsYou, 0, 'CONTROL: quiet while the log reads as empty');
+  fs.mkdirSync(LOG(), { recursive: true });   // a directory where the log file should be: record() cannot read it
+  try {
+    assert.equal(messages.lastPostAt(p.id), undefined, 'an unreadable log read as "no post"');
+    assert.equal(one(roster, p.id).summary.needsYou, 1, 'an unreadable log hid an agent\'s condition');
+  } finally { fs.rmSync(LOG(), { recursive: true, force: true }); }
 });
 
 test('#6341: out of usage never counts on a project, even a live one (Josh 19:47)', () => {
@@ -123,12 +154,27 @@ test('#6341: a dismissal hides that reason, and a different reason comes back an
   assert.equal(r.summary.needsYou, 0, 'a dismissed question still counted');
   assert.deepEqual(member(r, 'qd61').needsYouQuiet, { reason: 'question', because: 'dismissed' });
   assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { qd61: 'question' }, 'kept while the reason stands');
-  // The reason changes: the agent is now in a crash loop in a live room. That is news: shown, and the dismissal dropped.
+  // The reason changes: the agent is now in a crash loop in a live room. That is news: shown at once.
   selfreport.record('qd61', { state: 'working', because: '', project: p.id });
   r = one(looping('qd61'), p.id);
   assert.equal(member(r, 'qd61').needsYouHere, 'crash_loop', 'a different reason stayed hidden behind an old dismissal');
   assert.equal(r.summary.needsYou, 1);
-  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'the stale dismissal was not dropped');
+  // Review 1: the dismissal is not dropped on one read (a reading can flicker); its gone mark is set.
+  let rec = projects.readAll().find((x) => x.id === p.id);
+  assert.deepEqual(rec.needsDismissed, { qd61: 'question' }, 'one read without the reason dropped the dismissal');
+  assert.ok(Number.isFinite(Date.parse(rec.needsDismissGone && rec.needsDismissGone.qd61)), 'no gone mark was set');
+  // The question back within the grace: still dismissed, and the gone mark cleared.
+  r = one(asking, p.id);
+  assert.equal(r.summary.needsYou, 0, 'a question back within the grace was shown again');
+  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissGone, undefined, 'the gone mark outlived the reason\'s return');
+  // Gone for longer than the grace: dropped, so the same question later is shown again.
+  one(looping('qd61'), p.id);
+  setStored(p.id, { needsDismissGone: { qd61: ago(11 * 60 * 1000) } });
+  one(looping('qd61'), p.id);
+  rec = projects.readAll().find((x) => x.id === p.id);
+  assert.equal(rec.needsDismissed, undefined, 'a dismissal whose reason stayed away past the grace was kept');
+  assert.equal(rec.needsDismissGone, undefined);
+  assert.equal(one(asking, p.id).summary.needsYou, 1, 'the question, back after the dismissal lapsed, was hidden');
 });
 
 test('#6341: a dismissal is not judged on an agent the board cannot see', () => {
@@ -149,8 +195,10 @@ test('#6341: an "elsewhere" dismissal stands while nothing is counted here, and 
   assert.deepEqual(member(r, 'ee61').needsYouQuiet, { reason: 'elsewhere', because: 'dismissed' });
   assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { ee61: 'elsewhere' });
   r = one(looping('ee61'), p.id);
-  assert.equal(member(r, 'ee61').needsYouHere, 'crash_loop');
-  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined);
+  assert.equal(member(r, 'ee61').needsYouHere, 'crash_loop', 'a counted reason stayed hidden behind an elsewhere dismissal');
+  setStored(p.id, { needsDismissGone: { ee61: ago(11 * 60 * 1000) } });
+  one(looping('ee61'), p.id);
+  assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'the elsewhere dismissal outlived the grace');
 });
 
 test('#6341: dismissNeeds refuses what the page cannot have shown', () => {
@@ -158,6 +206,7 @@ test('#6341: dismissNeeds refuses what the page cannot have shown', () => {
   const p = projects.create({ name: 'Ref', folder: folder('ref'), agents: ['rf61'] });
   assert.throws(() => projects.dismissNeeds(p.id, 'stranger', 'question'), /not on this project/);
   assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'made_up'), /not a reason/);
+  assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'stuck_rate'), /not a reason/, 'out of usage is never shown on a project, so never dismissed there');
   assert.throws(() => projects.dismissNeeds('no-such', 'rf61', 'question'), /no such project/);
   assert.throws(() => projects.dismissNeeds(p.id, '', 'question'), /which agent/);
   assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'a refused dismissal wrote something');
@@ -203,11 +252,13 @@ test('#6341: the Recommender does not write a note its room already holds (a res
   const again = run((p, s, b) => { asked.push([p, s, b]); return true; });
   assert.deepEqual(asked, [['rp', 'st61', stuck.because]], 'the room was not asked about this agent and these words');
   assert.equal(again.notes.length, 0, 'a note the room already holds was written again');
-  assert.equal(again.sent.length, 0, 'peers or the stuck agent were typed into again');
-  assert.equal(again.out.acted[0].verdict, 'already-noted');
-  assert.equal(again.out.next.log.length, 0, 'the hour\'s budget was charged for a note not written');
+  assert.deepEqual(control.sent.sort(), ['pe61', 'st61'], 'CONTROL: the peer is asked and the stuck agent gets its playbook');
+  // Review 1: only the room's repeat was the complaint; the stuck agent still gets its playbook, the peer is not asked again.
+  assert.deepEqual(again.sent, ['st61'], 'the peer was asked again, or the stuck agent got no playbook');
+  assert.equal(again.out.acted[0].alreadyNoted, true);
+  assert.equal(again.out.acted[0].verdict, 'placed');
   const rec = [...again.out.next.items.values()][0];
-  assert.equal(rec.convened, true, 'the item would be retried');
+  assert.equal(rec.convened, true, 'a delivered playbook would be retried');
 });
 
 test('#6341: recommenderNoted reads the room on disk, by agent, words, project and age', () => {
