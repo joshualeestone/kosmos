@@ -6,9 +6,11 @@ held too, and nothing on either screen can finish the match. Today nothing reads
 reader outside pairing.rs), so the computer works.
 
 ## The change (web/index.html, both places the sentence is drawn)
-"This computer is connected. The code ran out before it was matched with <name>, and nothing more is needed for it to
-work." A comment beside it says the slice that first reads peers must change this sentence or give this state a way to
-pair again.
+"<name> allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed."
+It says what stays true through a later outage (the ending is said once and not polled, so a sentence about being
+connected could sit under a "cannot reach the relay" status). A comment beside it says the slice that first reads peers
+must change this sentence or give this state a way to pair again. The second place draws it from the page's own
+10-minute clock; the tunnel may still accept the press there, which keeps "nothing more is needed" true.
 
 ## Decided
 - **Copy now, mechanism later.** The card offers either. Rejected for now: a held-independent retry. It is a tunnel and
@@ -17,8 +19,8 @@ pair again.
 - Left as is: `.claude/plans/joincode-4794.md` quotes the old sentence. It is the record of that change.
 
 ## Weakest premise
-That "nothing more is needed" stays true until a slice reads peers. If one lands without seeing the comment, the
-sentence becomes false; the comment and the card are the guard.
+That "nothing more is needed" stays true until a slice reads peers. That slice will be relay work, whose authors do not
+open this page, so the card (kept open, "Addresses" not "Closes") carries the warning as well as the comment here.
 
 ## Tests
 `docs/browser-checks/render-connect-sheet-4637.js`: its four #4794 assertions pin the new sentence (run on this branch).
