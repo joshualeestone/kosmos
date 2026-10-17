@@ -8,11 +8,16 @@ or Review, puts that set of requests away: the notice stays hidden across repain
 request brings it back. The request cards on the Kosmos+ page are unchanged.
 
 ## Steps
-1. [x] web/index.html: paintAsk's off-Plus branch keys the notice on the waiting request ids plus the "here" browser
-   (ASK.noteKey) and hides it when that key was dismissed; askAct 'note-dismiss' and 'open' record it
-   (localStorage kosmos.asknote.dismissed, in-memory if storage throws). A 44px close button.
-2. [x] render-plus-asks-signin-4610.js: dismiss hides, a repaint keeps it hidden, CONTROL a new request brings it
-   back, Review clears it, at 1400 and 390. Mutant (ignore the dismissal): 6 arms red.
+1. [x] web/index.html: paintAsk's off-Plus branch keys each waiting request as device id plus first_seen (a
+   re-ask is a new request), plus the "here" browser, and hides the notice while every key was put away;
+   askAct 'note-dismiss' and 'open' record the keys (localStorage kosmos.asknote.dismissed, read on every paint so
+   another tab's dismissal applies; this tab's record only when storage fails). The record is dropped once a real
+   poll finds nothing waiting (not on the paint before the first poll). Focus goes to the view's tab, or the
+   Sections button on a phone. A 44px close button with a focus ring.
+2. [x] render-plus-asks-signin-4610.js (the served list is the check's, then it calls pollAsk): dismiss hides and
+   moves focus, one answered elsewhere keeps it away, a repaint keeps it hidden, CONTROL a new request brings it
+   back, after nothing waited the same requests show it, the same device asking again shows it, kept across a
+   reload, CONTROL storage cleared shows it, Review clears it, at 1400 and 390. Mutant (ignore the dismissal): red.
 3. [x] render-plus-panel-3829.js: its earlier Review press now dismisses, so the #3978 focus arm restores the
    notice first.
 

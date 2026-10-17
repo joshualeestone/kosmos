@@ -50068,14 +50068,20 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
    later automatic Allow of the same browser. */
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 /* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk).
-   This tab's own record is read first, so a storage write that failed still holds until a reload. */
+   Storage is read each time, so another tab's dismissal applies here too; this tab's own record is used only when
+   storage cannot be read or its last write failed. */
 function askNoteDismissed() {
-  if (ASK.noteDismissed !== undefined) return ASK.noteDismissed;
-  try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { return []; }
+  if (!ASK.noteStoreFailed) {
+    try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { /* below */ }
+  }
+  return ASK.noteDismissed || [];
 }
 function askNoteSave(keys) {
   ASK.noteDismissed = keys;
-  try { if (keys.length) localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); else localStorage.removeItem('kosmos.asknote.dismissed'); } catch (e) { /* this tab's record only */ }
+  try {
+    if (keys.length) localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); else localStorage.removeItem('kosmos.asknote.dismissed');
+    ASK.noteStoreFailed = false;
+  } catch (e) { ASK.noteStoreFailed = true; }
 }
 function askNoteDismiss() { askNoteSave((ASK.noteKeys || []).slice()); }
 /* kosmos#5786 (b): the browser in a device name ("Mac · Safari" is Safari), for "Safari on this computer". */
@@ -50163,6 +50169,7 @@ async function pollAsk() {
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
+  ASK.polled = true;   // #6315: the list is known (an empty list before the first poll means "not read yet")
   ASK.email = r.email || '';
   ASK.here = r.connected_here && typeof r.connected_here.device_id === 'string' ? r.connected_here : null;
   /* A finished row leaves once the tunnel stops listing the device (allowed
@@ -50226,10 +50233,11 @@ function paintAsk() {
   if (!onPlus) {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
-    ASK.noteKeys = live.map((d) => String(d.device_id)).concat(here ? ['here:' + askHereKey(here)] : []);
+    // A request is its device and when it asked, so the same device asking again later is a new request.
+    ASK.noteKeys = live.map((d) => String(d.device_id) + '@' + (d.first_seen || '')).concat(here ? ['here:' + askHereKey(here)] : []);
     const put = askNoteDismissed();
-    // With nothing waiting the record is dropped, so the same device asking again later is shown.
-    if (!live.length && !here && put.length) askNoteSave([]);
+    // With nothing waiting (once the list has been read) the record is dropped.
+    if (ASK.polled && !live.length && !here && put.length) askNoteSave([]);
     // Hidden while every request it would name was put away; only one not there then brings it back.
     if (!hide && ASK.noteKeys.length && ASK.noteKeys.every((k) => put.indexOf(k) !== -1)) { card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     if (hide) { askWrite(document.getElementById('ask-rows'), ''); return; }
