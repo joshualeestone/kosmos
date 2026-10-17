@@ -50534,12 +50534,21 @@ function askWrite(el, html) {
   }
 }
 /* Waiting: not answered yet, or an Allow / Not me that failed (#4637: it still waits, here as in the panel). */
+/* kosmos#6404: a check reuses its computer's id, so an answer to an earlier check (cancelled, or done) is forgotten once
+   the list shows a check with another time under that id; otherwise the new check would be drawn as the old answer. */
+function askForgetOldChecks() {
+  for (const d of ASK.devices) {
+    const e = ASK.done[d.device_id];
+    if (d.recheck && e && e.device && e.state !== 'error' && (e.device.first_seen || 0) !== (d.first_seen || 0)) delete ASK.done[d.device_id];
+  }
+}
 function askLive() { return ASK.devices.filter((d) => !ASK.done[d.device_id] || ASK.done[d.device_id].state === 'error'); }
 async function pollAsk() {
   let r = null;
   try { r = await (await fetch('/api/remote/pending', { cache: 'no-store' })).json(); } catch { r = null; }
   if (!r || !Array.isArray(r.devices)) return;   /* a blip keeps the last paint; nothing is invented */
   ASK.devices = r.devices;
+  askForgetOldChecks();
   ASK.email = r.email || '';
   ASK.here = r.connected_here && typeof r.connected_here.device_id === 'string' ? r.connected_here : null;
   /* A finished row leaves once the tunnel stops listing the device (allowed
@@ -50716,7 +50725,7 @@ function paintAsk() {
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
             // kosmos#6404: a check's other refusals (a key that is no longer trusted, a check that lapsed) never show a tag.
-            : d.recheck ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
+            : d.recheck && /peer_conflict|sas_pending|code_pending/.test(String(e.because)) ? 'The code check with ' + name + ' did not go through. On ' + name + ', press Check the code again.'
             : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
@@ -50843,7 +50852,7 @@ async function askAct(act, id, at) {
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
       /* #4794, #6404: Allow for a joining computer carries the code the person TYPED; the tunnel refuses any other. */
-      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode, recheck: d.recheck === true || undefined }) });
   } catch { res = null; }
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
@@ -51989,7 +51998,7 @@ function paintPlusJoin() {
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
      round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
-  else if (j.held !== true && stale) html = plusJoinRanOutHtml(named ? name : 'Your other computer', name, j.can_recheck === true);   // kosmos#6386, as the ending above
+  else if (j.held !== true && stale && j.rechecking !== true) html = plusJoinRanOutHtml(named ? name : 'Your other computer', name, j.can_recheck === true);   // kosmos#6386, as the ending above
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired && PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS)

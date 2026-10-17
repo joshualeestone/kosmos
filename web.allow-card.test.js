@@ -46,7 +46,7 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   assert.match(card, /\(joiningRow \? '' : askAgoSpan\(d\.first_seen\)\)/);   // #3978: the time is a span filled in place; #6405: not for a computer
   assert.match(card, /askEsc\(d\.code\)/);
   // kosmos#6404: the button reads Allow, or Confirm on a code check.
-  assert.match(card, /data-ask="allow"[\s\S]*?\(d\.recheck \? 'Confirm' : 'Allow'\) \+ '<\/button>/);
+  assert.match(card, /data-ask="allow"[^\n]*'>' \+ \(d\.recheck \? 'Confirm' : 'Allow'\) \+ '<\/button>/);
   assert.match(card, /data-ask="deny"[^>]*>Not me<\/button>/);
 });
 

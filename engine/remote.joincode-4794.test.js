@@ -53,6 +53,9 @@ if (args[0] === 'join') {
     if (mode === 'shape') console.log(JSON.stringify({ held: true, join_code: '482 915', join_codes: [{ on: 'HomeMac', code: '482 915' }, { on: '<b>x</b>', code: '1' }],
       asked_of: ['HomeMac', '<script>', 'ok-name'], failed: 'yes', confirmed: false, confirm_expired: true, needs_retry: true, secret: 'not for the page' }));
     else if (mode === 'badcode') console.log(JSON.stringify({ held: true, join_code: 'AB-12', join_codes: [], asked_of: [] }));
+    else if (mode === 'recheck-status') console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false,
+      confirm_expired: true, needs_retry: false, can_recheck: true, rechecking: false, recheck_with: 'HomeMac' }));
+    else if (mode === 'recheck-badname') console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], can_recheck: 'yes', rechecking: 1, recheck_with: '<b>x</b>' }));
     else console.log(JSON.stringify({ held: false, join_code: '', join_codes: [], asked_of: [], failed: false, confirmed: false, confirm_expired: false }));
     process.exit(0);
   }
@@ -61,6 +64,12 @@ if (args[0] === 'join') {
     if (mode === 'retry-none') { process.stderr.write('Error: nothing_to_retry: there is no code that ran out here\\n'); process.exit(1); }
     if (mode === 'retry-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
     console.log(JSON.stringify({ retry: true })); process.exit(0);
+  }
+  if (args[1] === 'recheck') {   // kosmos#6404
+    if (mode === 'recheck-old') { process.stderr.write("error: unrecognized subcommand 'recheck'\\n"); process.exit(2); }
+    if (mode === 'recheck-none') { process.stderr.write('Error: nothing_to_recheck: there is no code to check again here\\n'); process.exit(1); }
+    if (mode === 'recheck-used') { process.stderr.write('Error: attempts_used: every try is used; press Not me on the other computer, then set this one up again\\n'); process.exit(1); }
+    console.log(JSON.stringify({ recheck: true })); process.exit(0);
   }
   if (args[1] === 'confirm') {
     if (flag('--code') === '482 915') { console.log(JSON.stringify({ confirmed: true, with: 'HomeMac' })); process.exit(0); }
@@ -134,7 +143,7 @@ test('#4794: join status hands the page only checked fields', async () => {
   const got = await remote.joinStatus();
   assert.equal(got.ok, true, got.because);
   assert.deepEqual(got.data, { supported: true, held: true, join_code: '482 915', on: 'homemac', asked_of: ['homemac', 'ok-name'],
-    failed: false, confirmed: false, confirm_expired: true, needs_retry: true });
+    failed: false, confirmed: false, confirm_expired: true, needs_retry: true, can_recheck: false, rechecking: false, recheck_with: null });
   const call = recorded().find((a) => a[0] === 'join' && a[1] === 'status');
   assert.ok(call && call.includes('--coordinator') && call.includes('--state-dir'), JSON.stringify(call));
 });
@@ -187,6 +196,34 @@ test('#6353: Try again runs join retry locally and tags the tunnel refusals for 
   assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
   process.env.FAKE_JOIN = 'retry-old';   // a tunnel with join but from before join retry: it can pair, not take Try again
   assert.equal((await remote.joinRetry()).because, 'this version of Kosmos cannot ask for a new code yet');
+});
+
+test('kosmos#6404: Check the code runs join recheck locally and tags the tunnel refusals for the page', async () => {
+  enrol();
+  process.env.FAKE_JOIN = '';
+  assert.deepEqual(await remote.joinRecheck(), { ok: true, because: null, data: { recheck: true } });
+  const call = recorded().find((a) => a[0] === 'join' && a[1] === 'recheck');
+  assert.ok(call && call.includes('--state-dir'), JSON.stringify(call));
+  assert.ok(!call.includes('--coordinator'), 'join recheck is local only');
+  process.env.FAKE_JOIN = 'recheck-none';
+  assert.deepEqual(await remote.joinRecheck(), { ok: false, because: 'nothing_to_recheck' });
+  process.env.FAKE_JOIN = 'recheck-used';
+  assert.deepEqual(await remote.joinRecheck(), { ok: false, because: 'attempts_used' });
+  process.env.FAKE_JOIN = 'recheck-old';   // a tunnel from before join recheck
+  assert.equal((await remote.joinRecheck()).because, 'this version of Kosmos cannot check the code again yet');
+  process.env.FAKE_JOIN = '';
+});
+
+test('kosmos#6404: join status passes the check fields, typed, and the name through the name rule', async () => {
+  enrol();
+  process.env.FAKE_JOIN = 'recheck-status';
+  const ok = await remote.joinStatus();
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual([ok.data.can_recheck, ok.data.rechecking, ok.data.recheck_with, ok.data.confirm_expired], [true, false, 'homemac', true]);
+  process.env.FAKE_JOIN = 'recheck-badname';   // CONTROL: not booleans, a name that breaks the rule
+  const bad = await remote.joinStatus();
+  assert.deepEqual([bad.data.can_recheck, bad.data.rechecking, bad.data.recheck_with], [false, false, null]);
+  process.env.FAKE_JOIN = '';
 });
 
 test('#6353: Try again before the sign-up is finished does not reach the binary', async () => {
