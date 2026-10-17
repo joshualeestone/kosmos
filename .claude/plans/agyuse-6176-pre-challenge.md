@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: agyuse-6176
-diff_hash: dfeb3512c9c41a0978e24683ecf78719d4c7bfd005fc7ac54695a7c37c035d64
+diff_hash: b3905d27bbaeaa63c78dd576b2fb746ab1d976be91ecfbdb1927047d8210db94
 validation: passed (second run; the first failed only on the #4273 leak gate with 2 unowned kts- dirs, shown not this branch's: its test files alone under run-tests --only leave nothing, 29/29)
 subdir_audit: passed
 timestamp: 2026-10-17T12:53:49Z
@@ -21,6 +21,7 @@ Disclosed against my own run:
 - No 6.0 baseline validation was run before iteration 1; full validation ran after convergence.
 - Built stacked on grokuse-6176 (PR #6351) and reviewed against beaa719cb9; rebased onto main after #6351 merged (18 commits, this slice's files only).
 - The `agy -p "/usage" --output-format json` run that measured the payload (no turn, no tokens) was one deliberate run on this computer; a signed-out /usage run is unmeasured (it needs signing out).
+- Full validation passed on hash dfeb3512 (base before main moved 68 commits). After rebasing onto main the diff hash is b3905d27bbae: the changed lines are byte-identical (only hunk offsets and context moved), and on the rebased head the focused tests (61/61), the browser check (0 FAIL) and both browser-check gates pass. PR CI runs the full suite on the rebased head.
 - My iteration-1 build drew nothing on the Antigravity row (its own drawing never called the renderer); the browser check caught it before review.
 
 ### Per-Iteration Breakdown
