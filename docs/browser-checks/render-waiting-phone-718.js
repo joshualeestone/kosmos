@@ -135,13 +135,16 @@ async function open(browser, opts) {
         state: 'rate_limited', stateReported: true, stateConfidence: 'structured',
         stuckError: { stuck: true, state: 'rate_limited', forMs: 45 * 60000 } }));
       const c = host.querySelector('.acard'), pill = c && c.querySelector('.astate'), task = c && c.querySelector('.atask');
+      // What is DRAWN: the card's text without its visually hidden parts (.vh carries the sentence for a screen reader).
+      const seen = c ? c.cloneNode(true) : null; if (seen) seen.querySelectorAll('.vh').forEach((e) => e.remove());
       const out = c ? { words: (pill.querySelector('b') || pill).textContent.trim(), task: task ? task.textContent.trim() : null, title: pill.getAttribute('title') || '',
-        text: c.textContent } : { error: 'no card' };
+        text: seen.textContent, sr: [...pill.querySelectorAll('.vh')].map((e) => e.textContent).join(' ') } : { error: 'no card' };
       host.remove();
       return out;
     }, BASE);
     chk(!rl.error && rl.words === 'Rate Limit' && rl.task === '', '[rate limit] the pill reads Rate Limit and the card carries no sentence', JSON.stringify(rl));
-    chk(!rl.error && /about 45 minutes/.test(rl.title) && !/paused by a rate limit/.test(rl.text), '[rate limit] the sentence is the pill\'s hover text, not card text', JSON.stringify(rl));
+    chk(!rl.error && /about 45 minutes/.test(rl.title) && !/paused by a rate limit/.test(rl.text), '[rate limit] the sentence is the pill\'s hover text, not drawn card text', JSON.stringify(rl));
+    chk(!rl.error && /about 45 minutes/.test(rl.sr), '[rate limit] a screen reader still hears the sentence, in the pill', JSON.stringify(rl));
     // (c) the landing: reveal on a phone scrolls the conversation to the top
     const land = async (page) => page.evaluate(() => {
       if (typeof detailRevealTalkOnPhone !== 'function' || typeof showTab !== 'function') return { error: 'reveal/showTab missing' };

@@ -51,6 +51,8 @@ function buildRenderer() {
     const pctOf = (x) => 0;
     const answerAttrs = (x) => '';
     const rateLimitTitle = (x) => '';
+    const rateLimitVh = (x) => '';
+    const nameGoLabel = (x) => 'Open ' + x.name;
     const NEARLY_FULL = 90;
     const memPrint = (c, p) => '';
     const PRESSAY = { on: 'Running', off: 'Not running' };

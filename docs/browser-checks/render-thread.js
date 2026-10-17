@@ -515,9 +515,9 @@ async function main() {
     await page.screenshot({ path: path.join(OUT, 'thread-0-needs-you-card.png'), fullPage: true });
 
     // #6400: no Answer link in any pill; the needs-you card itself is the one way into the question.
-    const answerBtn = page.locator('.acard[data-agent="mara"][data-answer]');
+    const answerCard = page.locator('.acard[data-agent="mara"][data-answer]');
     check(await page.locator('.ansgo').count() === 0, 'a pill carries an Answer link again (#6400: it says only Issue)');
-    check(await answerBtn.count() === 1, 'the "Needs you" card carries exactly one way into the question');
+    check(await answerCard.count() === 1, 'the "Needs you" card carries exactly one way into the question');
     check(await page.locator('.acard[data-agent="nils"][data-answer]').count() === 0,
       'a card that is NOT asking anything does not offer to show a question');
 
@@ -643,7 +643,7 @@ async function main() {
     // ⚠️ The click is the whole point. The answer route is the card (#6400), whose plain open would also show the
     // detail panel, so a wrongly-ordered listener would land somewhere plausible and this would be the only thing
     // that noticed (the answer route also focuses the reply box).
-    await answerBtn.click();
+    await answerCard.click();
     /* ⚠️ THE AGENT'S PAGE, NOT A PROJECT (re-pointed 2026-08-21, see the note in
        the Off arm above). The click is still the whole point -- the button sits
        inside the card, whose own handler ALSO opens the detail panel, so a

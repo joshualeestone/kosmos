@@ -29,3 +29,14 @@ server.test.js, web.consolidated-980, web.agypoolcard-4588, web.agyquota-4588, w
 web.community-card-5314 (stub), web.brace-anchor-guard-1469.lib (the .ansgo pin removed, total 27 -> 26), and the
 browser checks render-thread, render-phone-taps-5218, render-home-phone-718, render-waiting-phone-718 (new Rate Limit
 arm) now assert the new pill and the card as the answer route.
+
+## Round 1 (review) changes
+- engine/cardlabel.js says Rate Limit too (cardlabel-5959 keeps the engine's word equal to the page's; diagnostics
+  and `kosmos report show` read it).
+- A screen reader hears the rate-limit sentence inside the pill's visually hidden text (rateLimitVh), since a title is
+  not read reliably and the list pill is aria-hidden. Nothing is drawn.
+- The name button on an answerable card or row is named "Answer X's question" (nameGoLabel), because a press answers.
+- Decided, and named here: the #5154 slice B and C sentences (stuck past the threshold, a quota resume that gave up)
+  leave the card face with the rest. They stay in the pill's hover and screen-reader text and on the agent's page,
+  and both still put the agent in the Issue filter. Josh asked for the card to say only the pill.
+- Every click inside an answerable card answers; answerAttrs's comment says a new card control needs its own branch.
