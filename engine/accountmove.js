@@ -292,10 +292,13 @@ function putBackFailed(a, why, deps) {
    (guard failed or the person had changed it), or `{ proceed: true, dir }` to write `a.from.dir` next. */
 function putBackBefore(m, a) {
   const deps = m.deps;
-  /* #6231: a caller that cannot put an agent back (no sync putBack and no async putBackAsync), or whose from/to
-     accounts could not be read, says so and notes it still on its old account (putBackFailed fires leftOnOld). */
+  /* #6231: each caller says in its own words why a put-back cannot happen, and the agent is noted still on its old
+     account (putBackFailed fires leftOnOld). "Can put back" in item 7 means a sync putBack OR an async putBackAsync --
+     the tail awaits putBackAsync, the board wires both -- but the three refusals stay distinct (item 10 reads them). */
   const canWrite = typeof deps.putBack === 'function' || typeof deps.putBackAsync === 'function';
-  if (!a.from || !a.from.ok || !a.to || !a.to.ok || !canWrite) { putBackFailed(a, 'we could not read which account it was on', deps); return { done: true }; }
+  if (!canWrite) { putBackFailed(a, 'this Kosmos cannot put an agent back on its old account', deps); return { done: true }; }
+  if (typeof deps.readAccount !== 'function') { putBackFailed(a, 'this Kosmos cannot read which account an agent was on', deps); return { done: true }; }
+  if (!a.from || !a.from.ok || !a.to || !a.to.ok) { putBackFailed(a, 'we could not read which account it was on', deps); return { done: true }; }
   let now;
   try { now = deps.readAccount(a.name); } catch { putBackFailed(a, 'we could not read its account just now', deps); return { done: true }; }
   if (now !== a.to.dir) {
