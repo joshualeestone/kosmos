@@ -361,6 +361,45 @@ async function deliver(report, io) {
   }
 }
 
+/**
+ * #1765: before this hook sends a token, the listener on the board port shows it already holds that token
+ * (engine/boardproof.js: an HMAC over a fresh nonce, checked here with our own copy). Every account on a Windows
+ * computer uses the same port, so whatever answers there is not always this account's board.
+ *
+ * Returns the check this process uses: a function (url, token, timeoutMs) resolving { ok, why }. `o.proveBoard` is
+ * the test seam (a function resolving a boolean or { ok, why }). With no seam, the real check runs, over node's
+ * own http, unless the caller handed in its own `fetchImpl`: that is a test standing in for the board, and
+ * production never passes one (the hook's entry below calls main with the event only).
+ */
+function proverFor(o) {
+  if (typeof o.proveBoard === 'function') {
+    return async (url, token, timeoutMs) => {
+      try {
+        const r = await o.proveBoard(url, token, timeoutMs);
+        return (r && typeof r === 'object') ? { ok: r.ok === true, why: r.why || '' } : { ok: r === true, why: r === true ? '' : 'not proven' };
+      } catch (e) { return { ok: false, why: 'the check failed: ' + ((e && e.message) || e) }; }
+    };
+  }
+  if (o.fetchImpl) return async () => ({ ok: true, why: '' });
+  return async (url, token, timeoutMs) => {
+    let why = '';
+    let ok = false;
+    try {
+      ok = await require('./boardproof').boardHoldsToken(url, token, { timeoutMs, onRefuse: (w) => { why = String(w || ''); } });
+    } catch (e) { ok = false; why = 'the check failed: ' + ((e && e.message) || e); }   // boardproof never throws; a missing module does
+    return { ok: ok === true, why: ok === true ? '' : (why || 'not proven') };
+  };
+}
+
+/** #1765: the words for a check that came out false. Nothing listening (the board is down) and a listener that
+ *  cannot prove itself are different situations for the person, so they read differently. */
+function proofRefusalReason(why) {
+  const w = String(why || '');
+  if (/^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)/.test(w)) return { down: true, text: 'the board could not be reached (' + w.replace(/^request failed: /, '') + ')' };
+  if (w === 'timed out') return { down: true, text: 'the board did not answer in time' };
+  return { down: false, text: 'what answers at the board\'s address could not show it is your Kosmos, so nothing was sent to it' };
+}
+
 /** The throttle key, most-specific first: TMUX_PANE if present (there is none on
  *  native Windows), else a HASH of the per-launch agent token (hashed, never
  *  verbatim: the key is a marker FILENAME under %TEMP% and #1970 keeps the
@@ -438,21 +477,42 @@ async function main(io) {
     return conn;
   };
 
+  /* #1765: every send below carries a token, so each first asks the listener to prove it holds that token. Proved
+     once per process (the first send's check serves the rest), within half the first send's own bound; each send
+     then gets what is left of its bound, so the check never lengthens a hook. Not proven: nothing is sent, and the
+     hook still exits 0. The token proved is the one the board reads first (the board token, else the agent token). */
+  const prove = proverFor(o);
+  let proof = null;
+  const proven = async (c, boundMs) => {
+    const token = c.boardToken || c.agentToken;
+    if (!token) return { ok: true, leftMs: boundMs };   // nothing to protect
+    const t0 = Date.now();
+    if (!proof) proof = prove(c.url, token, Math.max(1, Math.floor(boundMs / 2)));
+    const r = await proof;
+    return { ok: r.ok, why: r.why, leftMs: boundMs - (Date.now() - t0) };
+  };
+
   /* #5812 / #5153 on Windows: just before Claude edits a file, ask the board to keep a copy and note who is writing,
      as the bash hook does on the Mac. On EVERY edit, before the heartbeat throttle below can return early. */
   const keep = keepRequestFor(evt, o.platform);
   if (keep) {
     const c = connection();
-    await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
-      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+    const p = await proven(c, o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    if (p.ok && p.leftMs > 0) {
+      await keepCopy(keep, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+        fetchImpl: o.fetchImpl, timeoutMs: p.leftMs });
+    }
   }
 
   /* #6071: a failed tool call goes to the board as a digest (no report), as the bash hook's PostToolUseFailure does. */
   const failed = failureRequestFor(evt);
   if (failed) {
     const c = connection();
-    await toolFailed(failed, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
-      fetchImpl: o.fetchImpl, timeoutMs: o.keepTimeoutMs });
+    const p = await proven(c, o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    if (p.ok && p.leftMs > 0) {
+      await toolFailed(failed, { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken, world: c.world,
+        fetchImpl: o.fetchImpl, timeoutMs: p.leftMs });
+    }
     return 0;
   }
 
@@ -474,15 +534,24 @@ async function main(io) {
   if (!report) return 0;
 
   const c = connection();
-  const verdict = await deliver(report, {
-    url: c.url,
-    boardToken: c.boardToken,
-    agentToken: c.agentToken,
-    fetchImpl: o.fetchImpl,
-    timeoutMs: o.timeoutMs || timeoutFor(report),
-    fromPane: env.TMUX_PANE || '',
-    world: c.world,
-  });
+  const p = await proven(c, o.timeoutMs || timeoutFor(report));
+  let verdict;
+  if (!p.ok) {
+    // #1765: nothing was sent. A board that is down reads as before; a listener that could not prove itself says so.
+    verdict = { ok: false, notProven: proofRefusalReason(p.why).text };
+  } else if (p.leftMs <= 0) {
+    verdict = { ok: false, error: 'out of time before the report could be sent' };
+  } else {
+    verdict = await deliver(report, {
+      url: c.url,
+      boardToken: c.boardToken,
+      agentToken: c.agentToken,
+      fetchImpl: o.fetchImpl,
+      timeoutMs: p.leftMs,
+      fromPane: env.TMUX_PANE || '',
+      world: c.world,
+    });
+  }
 
   /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
      this agent's own Kosmos is simply not the one open, and a report is not kept
@@ -493,7 +562,9 @@ async function main(io) {
     // (e.g. the board is enforcing and the agent token was missing) must NOT
     // read as "the board answered 200", which implies success; the `because`
     // is the actionable sentence, so it wins over the bare status.
-    const reason = verdict.error
+    const reason = verdict.notProven
+      ? verdict.notProven
+      : verdict.error
       ? ('the board could not be reached (' + verdict.error + ')')
       : verdict.because
         ? ('the board refused it (' + verdict.because + ')')
@@ -541,7 +612,7 @@ function attachStdin(stream, onDone) {
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
   readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
-  attachStdin, main, kosmosAllows, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
+  attachStdin, main, kosmosAllows, proverFor, proofRefusalReason, keepRequestFor, keepCopy, KEEP_TIMEOUT_MS, failureRequestFor, toolFailed,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 
