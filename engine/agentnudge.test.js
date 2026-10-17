@@ -568,3 +568,51 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   const justRan = nudge.openParts('ag', proj({ number: 5, sentence: 'Just ran', who: 'ag', repeat: { every: 'day', at: '09:00' }, repeatSetAt: hourAgo, lastRunAt: new Date(now - 60 * 1000).toISOString() }));
   assert.equal(justRan.length, 0, 'CONTROL: a repeating task between runs is not open work');
 });
+
+/* #6421 (10-17 feedback): a delivered parent whose subtasks were built, not closed, was nudged with no reason. */
+function childOf(w, parent, sentence, built) {
+  const c = tasks.create(w.pid, { sentence, parent, made: { via: 'screen' } });
+  assert.ok(c && c.number, 'fixture: child refused: ' + JSON.stringify(c));
+  if (built) {
+    const r = tasks.setBuilt(w.pid, c.number, { by: 'someone-else' });
+    assert.ok(r && r.ok, 'fixture: setBuilt refused: ' + JSON.stringify(r));
+  }
+  return c.number;
+}
+
+test('#6421: a parent whose subtasks are all built says they wait for the person and names marking it built', () => {
+  const w = world([{ name: 'parentall' }]);
+  try {
+    const n = taskOn(w, w.key.parentall, 'ship the release');
+    childOf(w, n, 'write the notes', true);
+    childOf(w, n, 'cut the build', true);
+    const { calls } = pass(w);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].text, /Every subtask under it is closed or built \(2 are built, waiting for the person to check and close them\)/, calls[0].text);
+    assert.ok(calls[0].text.includes('kosmos task built ' + w.pid + ' ' + n + " '<how its checks went>'"), calls[0].text);
+  } finally { w.restore(); }
+});
+
+test('#6421: a parent with some subtasks built and some not says how many of each', () => {
+  const w = world([{ name: 'parentsome' }]);
+  try {
+    const n = taskOn(w, w.key.parentsome, 'ship the other release');
+    childOf(w, n, 'write the notes', true);
+    childOf(w, n, 'cut the build', false);
+    const { calls } = pass(w);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].text, /1 of its 2 subtasks is built, waiting for the person; 1 is not finished\./, calls[0].text);
+    assert.ok(!calls[0].text.includes('kosmos task built'), 'named marking built while a subtask is unfinished: ' + calls[0].text);
+  } finally { w.restore(); }
+});
+
+test('#6421 control: a parent with no built subtask, and a task with none, say nothing about subtasks', () => {
+  const w = world([{ name: 'parentnone' }]);
+  try {
+    const n = taskOn(w, w.key.parentnone, 'ship a third release');
+    childOf(w, n, 'write the notes', false);
+    const { calls } = pass(w);
+    assert.equal(calls.length, 1, 'CONTROL: the parent is still nudged');
+    assert.ok(!/subtask/.test(calls[0].text), calls[0].text);
+  } finally { w.restore(); }
+});
