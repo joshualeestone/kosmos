@@ -5553,9 +5553,12 @@ const server = http.createServer(async (req, res) => {
     /* #6358: a cookie given out before sessions held one of this account's tokens, and a browser keeps it for up
        to 400 days. A cookie whose value the gate accepts AS A TOKEN is that cookie: end it on this answer, so the
        browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone. */
+    // Against the tokens already in memory (the active one and the worlds known at start), so a stale tab's every
+    // request costs no disk read.
     const oldCookie = boardauth.cookieToken(req);
     if (oldCookie && boardauth.sessionToken(oldCookie) === null
-        && boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: oldCookie } })) {
+        && (boardauth.matches(oldCookie, boardAuthState.token)
+          || [...(KNOWN_WORLD_TOKENS || new Map()).values()].some((t) => boardauth.matches(oldCookie, t)))) {
       res.setHeader('set-cookie', boardauth.clearedCookieHeader());
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);

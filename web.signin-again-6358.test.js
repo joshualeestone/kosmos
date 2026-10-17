@@ -100,7 +100,7 @@ test('#6358: the app hears kosmosSignin only from its own board page, and never 
     'a page from anywhere but this board cannot make the window load the board with its token');
   assert.ok(proxy.indexOf('isBoardOrigin') < proxy.indexOf('pageSaysSignedOut'), 'the origin is checked before acting');
   const handler = lift(APP, 'func pageSaysSignedOut(');
-  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, answeredSince: boardAnsweredSinceSignIn, gaveUp: signInAgainGaveUp\)/, 'throttled, and gives up on a refused token');
+  assert.match(handler, /signInAgainDecision\(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue\(\) != nil, gaveUp: signInAgainGaveUp\)/, 'throttled, and gives up on the board\x27s own refusal');
   const giveUp = handler.slice(handler.indexOf('case .giveUp:'), handler.indexOf('case .signIn:'));
   assert.ok(giveUp.length > 0, 'the give-up branch is gone');
   assert.doesNotMatch(giveUp, /tokenizedBoardURL/, 'giving up loads the could-not-sign-in page without the token');

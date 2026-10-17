@@ -23,7 +23,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - Passes `accepts`, the gate's own `boardTokenOk` on the token as a header. So a `?token=` of another of this
     account's worlds (#3055) signs in, with that world's session. Needed because a world switch restarts the board,
     and the Mac app signs in with the default world's token.
-  - Ends (`Max-Age=0`) a cookie whose value the gate accepts as one of this account's tokens: the cookie given out
+  - Ends (`Max-Age=0`) a cookie whose value is one of this account's tokens in memory (the active one and the worlds known at start): the cookie given out
     before sessions. A live session, or a cookie that is no token here (another board's), is left alone.
 - **`native-app/main.swift`**
   - A `kosmosSignin` message, from the board's own main frame only (`isBoardOrigin`), makes the app sign the window
@@ -32,15 +32,14 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - `signInAgainPage`: the page it was on only when that is this board's own origin (plain http, its host and port,
     no user), with any stale `token=` / `signin=` dropped. Anything else, Kosmos+ pages included (`isBoardPage` counts
     those), gets the board's front page. With no board token, it does not reload.
-  - `signInAgainDecision`:
-    - sign in at most once a minute;
-    - give up once when a sign-in is a full minute old and no good read has come since (the page posts its badge only
-      after a read that worked), i.e. the board refused the token;
-    - inside that minute, wait, because a second restart can land before a good sign-in's first read.
+  - `signInAgainDecision`: sign in at most once a minute, and give up once when the board REFUSED the sign-in or
+    there is no token. Refusal is read from the board's own answer (`signInWasRefused`): an accepted `?token=` is
+    redirected to the clean address, a refused one is not, so the committed page still carries `token=`. A second
+    restart or a down board is no refusal, so the app simply signs in again.
   - Giving up loads `?signin=failed` without the token. The app then stays out of it until a read works, which in
     practice means Kosmos is reopened.
   - `urlForLog` keeps the token out of the two launch log lines.
-  - All pure, with `--kosmos-app-mode-selftest` rows: 131 in all.
+  - All pure, with `--kosmos-app-mode-selftest` rows: 135 in all. The reload log line goes through `urlForLog` too.
 - **`web/index.html`**
   - On the poll's 403, inside the Mac app (or the Windows app, `{ kosmosSignin: true }`), tell the app
     (`signedOutTellApp`). Not on every poll: again after 65 s, a little over the app's own limit, and at once after a
@@ -88,7 +87,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
 - **Rejected:**
   - the page proving the board before each poll (it would not cover a reload);
   - the app serving the board through a scheme handler (a large rewrite; kept as a next step);
-  - a port in the cookie name (cookies cannot be scoped by port).
+  - a port in the cookie name: it would stop two boards in one browser from overwriting each other's cookie, but
+    not a listener on the same port, which is the case here (kept as a possible next step for many-board browsers).
 
 ## Checks
 - **Engine unit tests** (boardauth 1946, 1979, 3055) are rewritten to the new contract. New arms:
@@ -108,7 +108,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - Three mutants were run by hand (not in the suite), each restored after: dropping the poll's call, the
     told-guard, or the proxy's origin check. Each failed its own assertion.
 - **`web.win32-board-copy.test.js`:** the Mac copy pin follows the new copy, and a Linux arm was added.
-- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 131/131.
+- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 135/135.
 - **The server tests that sign in with a cookie** take their session from the bootstrap (server.board-auth-1946,
   -worldswitch-3055). 1946 also checks that the old token cookie is ended and a live or foreign one is not.
 - The no-URL-in-logs test checks today's spellings only (`\(url`, `absoluteString`, `\(page`). It is not general
@@ -123,3 +123,10 @@ header. A sender that set the cookie to the token would now be refused, and its 
 - Measuring a link from the dashboard to another 127.0.0.1 port (queued).
 - The Windows app answering `kosmosSignin` (Homer).
 - The proof route answering for sessions (Renet, after this merges).
+
+## Known limits, stated
+- A session minted through `accepts` (another world's `?token=`) passes the gate (`boardTokenOk`, with #3055's other
+  worlds) but not the few operator checks that call `tokenOk` with the active token only. That is as before: an
+  other-world cookie failed them too.
+- `boardproof.tokenIn` still reads the cookie value first, which is now a session id. It fails closed until Renet's
+  part of #6358 has the proof route answer for sessions.

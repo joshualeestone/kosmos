@@ -1541,16 +1541,25 @@ func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> Str
     return comps.url?.absoluteString ?? front
 }
 
+/// #6358: PURE, for --kosmos-app-mode-selftest. Whether the board REFUSED the window's last sign-in, from the board's
+/// own answer: an accepted `?token=` is redirected to the clean address, a refused one is not, so the page the window
+/// committed on this board still carries `token=`. A board that was down never commits a page at all, which is no
+/// refusal (the app signs in again on the next "signed out").
+func signInWasRefused(_ committed: URL?, board: (host: String, port: Int)) -> Bool {
+    guard let u = committed, u.scheme?.lowercased() == "http", u.host?.lowercased() == board.host.lowercased(),
+          (u.port ?? 80) == board.port,
+          let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems else { return false }
+    return items.contains { $0.name == "token" }
+}
+
 /// #6358: PURE, for --kosmos-app-mode-selftest. What the app does with the page's "signed out": sign in again; wait
-/// (inside the once-a-minute limit); or give up, once. A sign-in followed, a full minute later, by "signed out" with no
-/// good board read in between (the page posts its badge only after a read that worked) means the board refused the
-/// token, so another would only reload the window for nothing. Inside that minute it waits instead: a second restart
-/// can land before a good sign-in's first read. Giving up loads a page that says to quit and reopen Kosmos, and the
-/// app stays out of it until a read works again, which in practice means Kosmos is reopened.
+/// (inside the once-a-minute limit); or give up, once, when the board refused the sign-in (signInWasRefused) or there
+/// is no board token to sign in with. Giving up loads a page that says to quit and reopen Kosmos; the app then stays
+/// out of it until a board read works (the page's badge post), which in practice means Kosmos is reopened.
 enum SignInAgain { case signIn, wait, giveUp, stay }
-func signInAgainDecision(now: TimeInterval, last: TimeInterval?, answeredSince: Bool, gaveUp: Bool) -> SignInAgain {
+func signInAgainDecision(now: TimeInterval, last: TimeInterval?, refused: Bool, haveToken: Bool, gaveUp: Bool) -> SignInAgain {
     if gaveUp { return .stay }
-    if let last = last, !answeredSince { return now - last >= signInAgainMinGap ? .giveUp : .wait }
+    if refused || !haveToken { return .giveUp }
     return shouldSignInAgain(now: now, last: last) ? .signIn : .wait
 }
 
@@ -4496,14 +4505,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// computer (it has no local board here), and at most once per signInAgainMinGap. The URL is never logged: it
     /// carries the token.
     private var lastSignInAgainAt: TimeInterval?
-    private var boardAnsweredSinceSignIn = true
     private var signInAgainGaveUp = false
-    /// #6358: a board read that worked (the page's badge post) ends a give-up and proves the last sign-in.
-    func boardAnsweredForSignIn() { boardAnsweredSinceSignIn = true; signInAgainGaveUp = false }
+    /// #6358: a board read that worked (the page's badge post) ends a give-up.
+    func boardAnsweredForSignIn() { signInAgainGaveUp = false }
     func pageSaysSignedOut() {
         guard computerMode != .connect, let board = badgeOrigin else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        switch signInAgainDecision(now: now, last: lastSignInAgainAt, answeredSince: boardAnsweredSinceSignIn, gaveUp: signInAgainGaveUp) {
+        let refused = signInWasRefused(committedPageURL, board: board)
+        switch signInAgainDecision(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue() != nil, gaveUp: signInAgainGaveUp) {
         case .stay:
             return
         case .wait:
@@ -4511,14 +4520,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             return
         case .giveUp:
             signInAgainGaveUp = true
-            logLine("#6358: the board refused the window's sign-in; showing the could-not-sign-in page")
+            logLine(refused ? "#6358: the board refused the window's sign-in; showing the could-not-sign-in page"
+                            : "#6358: there is no board token to sign in with; showing the could-not-sign-in page")
             if let url = URL(string: "http://\(board.host):\(board.port)/?signin=failed") { webView.load(URLRequest(url: url)) }
             return
         case .signIn:
             break
         }
         lastSignInAgainAt = now   // systemUptime stops while the Mac sleeps: the throttle only ever waits longer
-        boardAnsweredSinceSignIn = false
         // signInAgainPage keeps the page only on this board's own origin, so the token is never added elsewhere.
         guard boardTokenValue() != nil, let url = tokenizedBoardURL(signInAgainPage(committedPageURL, board: board)) else {
             logLine("#6358: the page is signed out and there is no board token to sign in with; not reloading")
@@ -5274,7 +5283,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             NSSound.beep()
             logLine("reload: ignored, a board start is already in flight")
         case .reload:
-            logLine("reload: webView.reload() of \(webView.url?.absoluteString ?? "<committed page>")")
+            logLine("reload: webView.reload() of \(webView.url.map(urlForLog) ?? "<committed page>")")   // #6358: never the token
             recoverOnReloadFailure = true
             reloadNavigation = webView.reload()
             if reloadNavigation == nil {
@@ -6893,18 +6902,28 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     againOn(nil, "http://127.0.0.1:16180/", "no committed page: the front page")
     againOn("http://127.0.0.1:16180/?tab=a&token=OLD", "http://127.0.0.1:16180/?tab=a", "a stale token in the page is dropped (board.token's is added next)")
     againOn("http://127.0.0.1:16180/?signin=failed", "http://127.0.0.1:16180/", "the could-not-sign-in marker is dropped")
-    func decide(_ last: TimeInterval?, _ answered: Bool, _ gaveUp: Bool, _ want: SignInAgain, _ why: String) {
+    func decide(_ last: TimeInterval?, _ refused: Bool, _ haveToken: Bool, _ gaveUp: Bool, _ want: SignInAgain, _ why: String) {
         ran += 1
-        let got = signInAgainDecision(now: 1000, last: last, answeredSince: answered, gaveUp: gaveUp)
+        let got = signInAgainDecision(now: 1000, last: last, refused: refused, haveToken: haveToken, gaveUp: gaveUp)
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + "decide     " + why)
     }
-    decide(nil, true, false, .signIn, "first sign-out: sign in")
-    decide(1000 - signInAgainMinGap, true, false, .signIn, "a later sign-out after a good read: sign in")
-    decide(1000 - signInAgainMinGap, false, false, .giveUp, "SIGNED OUT AGAIN WITH NO GOOD READ: the token was refused, give up once")
-    decide(1000 - signInAgainMinGap, false, true, .stay, "after giving up: stay out of it")
-    decide(1000 - 1, true, false, .wait, "a sign-out right after a good read within the minute: wait")
-    decide(1000 - 1, false, false, .wait, "no read yet, but the sign-in was seconds ago (a second restart): wait, do not give up")
+    decide(nil, false, true, false, .signIn, "first sign-out: sign in")
+    decide(1000 - signInAgainMinGap, false, true, false, .signIn, "a minute later, not refused (a second restart): sign in again")
+    decide(1000 - 1, false, true, false, .wait, "within the minute, not refused: wait")
+    decide(1000 - 1, true, true, false, .giveUp, "THE BOARD REFUSED THE SIGN-IN: give up once, no reload loop")
+    decide(nil, false, false, false, .giveUp, "no board token to sign in with: give up, say what to do")
+    decide(1000 - signInAgainMinGap, true, true, true, .stay, "after giving up: stay out of it")
+    func refusedOn(_ s: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = signInWasRefused(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180))
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "refused?   " + why)
+    }
+    refusedOn("http://127.0.0.1:16180/?tab=a&token=T", true, "the board kept ?token= (no redirect): refused")
+    refusedOn("http://127.0.0.1:16180/?tab=a", false, "redirected to the clean address: accepted")
+    refusedOn("https://amy.kosmosplus.com/?token=T", false, "another origin says nothing about this board")
+    refusedOn(nil, false, "nothing committed (the board was down): not a refusal")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -7106,7 +7125,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 131   // #6358: +19 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 135   // #6358: +23 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
