@@ -185,6 +185,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     }, accounts);
     const aNone = await show([agy({ limits: null })]);
     say(aNone.lines.length === 0 && aNone.nones[0] === 'No current usage reading from Antigravity for this sign-in.', '[chromium open] the Antigravity row with no reading says so, naming Antigravity', JSON.stringify(aNone));
+    const aAsk = await show([agy({ limits: null, connection: { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified', liveCheckPending: true } })]);
+    say(aAsk.nones[0] === 'Asking Antigravity for its usage.', '[chromium open] while a reading is on its way, the Antigravity row says so', JSON.stringify(aAsk));
+    const aStop = await show([agy({ limits: null, usageStopped: true })]);
+    say(aStop.nones[0] === 'Antigravity could not report usage. Sign in again to try again.', '[chromium open] after a failed reading, the Antigravity row says what to do', JSON.stringify(aStop));
     const aTwo = await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
     say(aTwo.lines.length === 2 && /^25% of its 5-hour limit used · resets .* · Antigravity last reported it 2 minutes ago$/.test(aTwo.lines[0]) && /^1% of its weekly limit used/.test(aTwo.lines[1]),
       '[chromium open] the Antigravity row draws its five-hour and weekly windows, and says Antigravity reported them', JSON.stringify(aTwo));

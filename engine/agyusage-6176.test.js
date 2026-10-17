@@ -189,3 +189,40 @@ test('#6176 slice 4 review 2: agystatus remember and forget clear the reading', 
     assert.equal(agyusage.lastReading(), null, 'Remove left the reading');
   } finally { undo(); agystatus.setLastFileForTests(null); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('#6176 slice 4 review 4: a run that never answers stops the asking, and the stop outlives a board restart', async () => {
+  const fs = require('node:fs'); const os = require('node:os'); const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agyusage-stop-'));
+  const file = path.join(dir, 'usage-stopped');
+  let undo = rig(() => { /* hangs: never calls back */ });
+  try {
+    agyusage.setStoppedFileForTests(file);
+    agyusage.setKillMsForTests(1);
+    const t0 = Date.now();
+    const p1 = agyusage.refresh(NOW);
+    assert.equal(await p1, null);
+    assert.ok(Date.now() - t0 < 2000, 'the cap did not settle a hung run');
+    assert.equal(agyusage.isStopped(), true, 'a hung run did not stop the asking');
+    assert.ok(fs.existsSync(file), 'the stop was not kept for a restart');
+    // A restart: memory is fresh, the record is not.
+    undo();
+    undo = rig((bin, done) => done(null, JSON.stringify(payload())));
+    agyusage.setStoppedFileForTests(file);
+    assert.equal(agyusage.refresh(NOW + 10 * agyusage.REFRESH_MS), null, 'a restart ran agy again after a stop');
+    agyusage.clear();   // the sign-in confirmed again
+    assert.equal(fs.existsSync(file), false, 'a confirmed sign-in left the stop on disk');
+    assert.ok(agyusage.refresh(NOW + 10 * agyusage.REFRESH_MS), 'CONTROL: once confirmed it asks again');
+  } finally { undo(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#6176 slice 4 review 4: a failure from a run started before a sign-in change does not stop the new sign-in', async () => {
+  let finish;
+  const undo = rig((bin, done) => { finish = () => done(new Error('old sign-in'), ''); });
+  try {
+    const p1 = agyusage.refresh(NOW);
+    agyusage.clear();
+    finish();
+    await p1;
+    assert.equal(agyusage.isStopped(), false, 'the old sign-in failure stopped the new one');
+  } finally { undo(); }
+});

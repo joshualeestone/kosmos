@@ -159,7 +159,9 @@ function remember(r) {
   const file = lastFile();
   if (!file) return;
   const rec = { signedIn: r.signedIn === true, at: new Date().toISOString() };
-  try { require('./agyusage').clear(); } catch { /* none */ }   // #6176 slice 4: a new answer, a new usage reading
+  /* #6176 slice 4: any confident answer starts the usage reading afresh, deliberately, same account or not: it may be a
+     new Google account, and it is what lets a stopped reading resume. Only explicit checks and sign-ins get here. */
+  try { require('./agyusage').clear(); } catch { /* none */ }
   try { fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, JSON.stringify(rec), { mode: 0o600 }); } catch { /* best effort */ }
 }
 /** { signedIn, at } from the last confident answer, or null if there has been none. */

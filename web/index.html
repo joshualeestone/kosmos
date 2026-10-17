@@ -27589,7 +27589,12 @@ function acctGrokUsageHtml(a) {
   return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it now and then while it runs.');
 }
 function acctAgyUsageHtml(a) {
-  return acctLimitsUsageHtml(a, 'Antigravity', 'No current usage reading from Antigravity for this sign-in.');
+  /* Three states with no reading, each said as it is (review 4): asking now, stopped after a failed run (it waits for
+     the sign-in to be confirmed, which Sign in again does), or simply none yet. */
+  const none = a && a.usageStopped ? 'Antigravity could not report usage. Sign in again to try again.'
+    : a && a.connection && a.connection.liveCheckPending ? 'Asking Antigravity for its usage.'
+    : 'No current usage reading from Antigravity for this sign-in.';
+  return acctLimitsUsageHtml(a, 'Antigravity', none);
 }
 function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
