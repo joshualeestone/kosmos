@@ -1,7 +1,7 @@
 # railcue-6349: a cue that the capped rail notice has more below
 
-Card: #6349 (PigeonPete's follow-up to #6347). Owner: Angel. Stacked on `railnotice-6347` (45554ebf18); merges only
-after #6347 does, rebased onto main then.
+Card: #6349 (PigeonPete's follow-up to #6347). Owner: Angel. Was stacked on `railnotice-6347`; #6347 merged as #6356
+(60cd0ab9ea) and this branch is rebased onto main.
 
 ## Done means
 In the consolidated layout, while some of the Agents rail's project notice (#alist-pj-notice) is below its scrolling

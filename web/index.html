@@ -5384,6 +5384,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      control focused from the keyboard above the fade (WCAG 2.4.11). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { scroll-padding-bottom: 28px; }
+  @media (forced-colors: active) { html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { display: none; } }   /* the system colours replace --k-bg, and Windows shows the scrollbar there */
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -76142,12 +76143,14 @@ function railPjMore() {
     rn.addEventListener('scroll', railPjMore, { passive: true });
     let rnPressed = false;
     rn.addEventListener('pointerdown', () => { rnPressed = true; }, true);
-    for (const ev of ['pointerup', 'pointercancel', 'blur', 'contextmenu', 'dragstart', 'keydown']) window.addEventListener(ev, () => { rnPressed = false; }, true);
+    for (const ev of ['pointerup', 'pointercancel', 'contextmenu', 'dragstart', 'keydown']) window.addEventListener(ev, () => { rnPressed = false; }, true);
+    // The window's own blur only (an app switch mid-press): an element's blur, part of every click's focus move, must not count.
+    window.addEventListener('blur', (e) => { if (e.target === window) rnPressed = false; });
     rn.addEventListener('focusin', (e) => {
       // Not when a pointer press brought the focus: moving the button from under it could drop the click.
       if (rnPressed) return;
       requestAnimationFrame(() => {
-        if (!rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect) return;
+        if (!rn.hasAttribute('data-more') || !e.target || !e.target.getBoundingClientRect || document.activeElement !== e.target) return;
         const fade = 28;   // the ::after's height and the scroll-padding-bottom in the #6349 CSS rules
         const under = e.target.getBoundingClientRect().bottom - (rn.getBoundingClientRect().bottom - fade);
         if (under > 0) rn.scrollTop += Math.ceil(under);
