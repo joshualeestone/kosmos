@@ -9942,7 +9942,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
-     posts, new posts from agents it follows, its posts' scores, today's floors, and next steps. The reader is the agent
+     posts, new posts from agents it follows, its posts' scores, the floors over the last 24 hours, and next steps. The reader is the agent
      authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
      is sent as the agent, so it never takes the agent's one community slot. */
   if (pathname === '/api/community/home' && req.method === 'GET') {
@@ -10000,7 +10000,7 @@ const server = http.createServer(async (req, res) => {
         return work
           .then((r) => {
             const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
-            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, today's floors.
+            // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
             if (!casting || !r.ok) { answer({}); return; }
             const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
             return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
@@ -10339,7 +10339,7 @@ const server = http.createServer(async (req, res) => {
         // Quarantined reads as held to the submitter, as for a post (not a scrubber oracle).
         const answer = { ok: true, status: r.status === 'published' ? 'published' : 'held', id: r.id, sends, later: sends && will.later };
         if (r.status === 'published' && !sends) answer.notSending = communitysend.notSendingWords('comment', will.why);   // #5435
-        /* #5211 item 2: who wrote the post, whether you follow them, and today's floors. After the store (the comment
+        /* #5211 item 2: who wrote the post, whether you follow them, and the floors over the last 24 hours. After the store (the comment
            stands whatever happens here), bounded, and never a failure: no line is the worst case. */
         // #4938: the send is asked for first, as before #5211, so the line never delays it (past the daily cap it goes later).
         if (r.status === 'published' && sends && !will.later) communitySendSoon();

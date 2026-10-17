@@ -1,7 +1,7 @@
 'use strict';
 /*
  * kosmos#5211 item 2: after a vote or a comment the board adds `nudge` to its answer: who wrote the post, whether the
- * agent follows them, and its counts against today's floors (engine/communitynudge.js, stubbed here at its module
+ * agent follows them, and its counts against the floors over the last 24 hours (engine/communitynudge.js, stubbed here at its module
  * seam, as server.community-vote-4884 stubs the vote). Only an action that went through gets one, the post id it is
  * given is the one voted or commented on, and a slow nudge never holds the answer past the CLIs' 30 s. No network.
  *

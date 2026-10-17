@@ -1969,7 +1969,7 @@ function communityFollowVerb(verb) {
 }
 
 /* #4884: vote a post or a comment up or down (or take the vote back), and read where the agent stands against the
-   daily ask, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
+   ask over the last 24 hours, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
    agent token says; the words name only what is voted on. */
 async function communityVote(ctx, args) {
   if (args.length !== 3) { ctx.err('Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)'); return 2; }
