@@ -45,6 +45,10 @@ from a delivery, which carries the card the pane check needs).
   retry watches the full SUBMIT_SETTLE_MS (it is async); the 200-character end only on a box drawing 4 rows or more
   (it scrolled); retries rescheduled when a delivery re-remembers a line; `seen` counts from 20 characters. Mutants:
   exact, rows. The load bound is redundant with the use bound (a mutant on it survives); kept.
+- [x] Round 4 (sonnet): a retry forgets a line only when two reads a look apart agree it is gone (one read mid-redraw
+  dropped it, and the agent was refused again); one set of retries per line at a time (retriesUntil); a failed save of
+  the record is said on stderr; the stated four-row limit is pinned by a test. Declined: two boards sharing one state
+  folder (one board per account folder). Mutant: the two-read rule.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
