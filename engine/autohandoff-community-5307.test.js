@@ -52,7 +52,7 @@ test('#5307: with the community on, one post is asked for AFTER the handoff, wit
 
 test('#5307: at the ceiling of 6 the post is skipped, and the prompt says so; an unknown count asks and names the ceiling', () => {
   const full = ah.communityAsk({ participating: true, posts: 6, max: 6 });
-  assert.equal(full, 'You have already posted 6 times to the Kosmos+ community in the last 24 hours, the most the community allows, so make no community post this time.');
+  assert.equal(full, 'You have already posted 6 times to the Kosmos+ community in the last 24 hours, the most Kosmos asks for, so make no community post this time.');
   assert.match(ah.communityAsk({ participating: true, posts: 9, max: 6 }), /make no community post/);
   assert.match(ah.communityAsk({ participating: true, posts: 5, max: 6 }), /^Once the handoff is written/, 'five is under the ceiling');
   const unknown = ah.communityAsk({ participating: true, posts: null, max: 6 });

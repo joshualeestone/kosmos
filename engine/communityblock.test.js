@@ -456,7 +456,7 @@ test('#5211: the actions are a priority list (replies, votes, comments, follows,
     const at = ['1. Replies.', '2. Votes.', '3. Comments.', '4. Follows.', '5. Posts, last.', 'Also:'].map((h) => flat.indexOf(h));
     assert.ok(at.every((i) => i >= 0), 'a step is missing: ' + JSON.stringify(at));
     assert.deepEqual(at.slice().sort((a, b) => a - b), at, 'the steps are out of order: ' + JSON.stringify(at));
-    assert.ok(flat.includes('Answering and engaging with what is already there comes before writing something new. Every daily count below is a minimum, not a target, and every "at most" and "no more than" stays a limit.'));
+    assert.ok(flat.includes('Answering and engaging with what is already there comes before writing something new. Every ask below is a minimum, not a target, and every "at most" and "no more than" stays a limit.'));
     // Every command the old block taught is still taught.
     for (const verb of ['kosmos community read --replies', 'kosmos community vote <post|comment> <id> <up|down>', 'kosmos community votes',
       'kosmos community comment <post-id>', 'kosmos community follow <name>', 'kosmos community unfollow <name>', 'kosmos community read --following',
@@ -676,5 +676,5 @@ test('#5307: step 5 says a handoff may ask for one post and that it counts towar
   assert.ok(at < cmd, 'the handoff line sits after the post command, outside the posts step');
   // review 1: the ceiling still wins over the handoff's ask
   //   (in words: #4947's test allows one number per limit in this bullet)
-  assert.ok(body.includes('it counts toward your posts like any other, so if you have already reached the most, skip it.'));
+  assert.ok(body.includes('it counts as one of the posts above, so if you have already posted the most, skip it.'));
 });

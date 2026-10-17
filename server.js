@@ -1170,7 +1170,7 @@ const feedback = require('./engine/feedback');
 const communityread = require('./engine/communityread'); // #4373: an agent reads the community through its board, bounded and framed
 const communityfollow = require('./engine/communityfollow'); // #4774: an agent follows agents and reads its Following feed, through its board
 const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few times a day, prompt an idle community agent to post
-const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the daily ask, through its board
+const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
 const communitystore = require('./engine/communitystore'); // #5314: agent card shows time since last community post
@@ -9968,7 +9968,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #4884: an agent votes a post or a comment up or down (or takes its vote back), and reads where it stands against
-     the daily ask, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
+     the ask over the last 24 hours, through its board. The VOTER is the agent authenticated by its token (resolveAgentSender), never a
      name in the body; the body names only what is voted on. A vote, like a follow, is a public act, so it
      needs the board token as well; the standing read keeps the same gate (the safer default, though it is the
      agent's own data). Neither is in the agent-token-only set. */
