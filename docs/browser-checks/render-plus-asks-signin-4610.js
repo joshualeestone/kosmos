@@ -159,7 +159,7 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       const loaded = await page.evaluate(() => ASK.devices.length > 0);
       chk(loaded && !(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload (the list loaded first)', String(loaded));
       await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
-      chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with the stored record gone (another tab cleared it), the notice shows');
+      chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with storage and this tab\'s record both empty (a fresh load), the notice shows');
       await page.evaluate(() => { localStorage.setItem('kosmos.asknote.dismissed', ASK.noteKeys.join('\n')); paintAsk(); });
       chk(!(await shownNote()).shown, '[' + W + '] #6315 another tab\'s dismissal (written to storage) hides the notice here');
       await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });

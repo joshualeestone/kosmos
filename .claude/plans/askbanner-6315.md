@@ -11,7 +11,7 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
 1. [x] web/index.html: paintAsk's off-Plus branch keys each waiting request as device id plus first_seen (a
    re-ask is a new request), plus the "here" browser, and hides the notice while every key was put away;
    askAct 'note-dismiss' and 'open' record the keys (localStorage kosmos.asknote.dismissed, read on every paint so
-   another tab's dismissal applies; this tab's record only when storage fails). The record is never cleared on an
+   another tab's dismissal applies; combined on every paint with this tab's own record, which holds when storage fails). The record is never cleared on an
    empty list (a list being rewritten reads empty, and another tab can be behind); a re-ask has a new first_seen.
    Focus goes to the view's tab, or the Sections button on a phone. A 44px close button with a focus ring.
 2. [x] render-plus-asks-signin-4610.js (the served list is the check's, then it calls pollAsk): dismiss hides and
@@ -32,6 +32,9 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
   the browser's Undo (a security control), so it must be seen before it can be put away; a close that hid it unseen
   was iteration 6's finding. The role=status region announces the new line.
 - A request whose first_seen and denied_at both arrive as 0 cannot come back once put away (the key cannot change).
+- A device turned away from another tab, or from the Devices list, gets a new denied_at; until the tunnel's list
+  drops it (a poll or two), this tab sees a new key and the notice can come back for it briefly. Not excluded: a
+  device that is turned away and then asks again is shown on purpose (the cards say so), and it looks the same.
 - Premise, not measured: the coordinator keeps a waiting request's first_seen the same from poll to poll (it is when
   the coordinator first saw that device). If it changed, a dismissed notice would come back with nothing new.
 - Storage and this tab's own record are read together, so another tab's dismissals and this tab's survive a storage
