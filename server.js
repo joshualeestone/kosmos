@@ -11717,19 +11717,22 @@ const server = http.createServer(async (req, res) => {
             /* #6176 slice 4: the Gemini usage Antigravity last reported (engine/agyusage.js), and a new reading asked
                for at most every few minutes, never waited on here: while one runs the row says so, and the page reads
                the list again (the same follow-up Codex limits use). */
-            let limits = null, pending = false;
+            let usage = null;
             try {
               const au = require('./engine/agyusage');
-              au.refresh();
-              limits = au.lastReading();
-              pending = au.isRunning();
-            } catch { limits = null; pending = false; }
+              if (au.supported()) {
+                if (wantAgents) au.refresh();   // asked only when Settings lists the accounts (?agents=1), not the create picker
+                usage = { limits: au.lastReading(), pending: au.isRunning() };
+              }
+            } catch { usage = null; }
+            const pending = !!(usage && usage.pending);
             agySub = [{
               provider: 'antigravity', providerName: 'Gemini', dir: null, label: null, name: null, isDefault: false,
               email: null, authMode: 'antigravity', keyTail: null,
               connection: { state: 'connected', checkedLive: false, checkedAt: agyLast.at, badge: 'signed_in_unverified',
                 ...(pending ? { liveCheckPending: true } : {}) },
-              limits,
+              // No limits field where no reading can be asked for (Windows): the page then draws nothing, never a promise.
+              ...(usage ? { limits: usage.limits } : {}),
             }];
           }
         } catch { agySub = []; }

@@ -52,8 +52,8 @@ const payload = (weeklyLeft) => JSON.stringify({ num_turns: 0, command: { name: 
     { id: 'b-1', name: 'Weekly Limit Remaining', window: 'weekly', remaining_fraction: weeklyLeft, reset_time: new Date(Date.now() + 5 * 864e5).toISOString() },
     { id: 'b-2', name: 'Five Hour Limit Remaining', window: '5h', remaining_fraction: 1, reset_time: new Date(Date.now() + 3 * 3600e3).toISOString() } ] } ] } } });
 
-test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', async () => {
-  if (process.platform !== 'darwin') return;   // the row is offered only where agy runs
+test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, then carries the Gemini usage', async (t) => {
+  if (process.platform !== 'darwin') { t.skip('the row is offered only where agy runs'); return; }
   const dir = path.join(SANDBOX, 'agylast'); fs.mkdirSync(dir, { recursive: true });
   agystatus.setLastFileForTests(() => path.join(dir, 'last.json'));
   const bin = path.join(dir, 'agy');
@@ -63,13 +63,15 @@ test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, th
   agyusage.resetForTests();
   let runs = 0, finish = null;
   agyusage.setRunnerForTests((b, done) => { runs++; finish = () => done(null, payload(0.6)); });
-  const row = async () => {
-    const res = await fetch(base + '/api/accounts');
+  const row = async (q = '?agents=1') => {
+    const res = await fetch(base + '/api/accounts' + q);
     assert.equal(res.status, 200);
     return ((await res.json()).accounts || []).find((a) => a && a.authMode === 'antigravity');
   };
+  const r0 = await row('');
+  assert.ok(r0, 'CONTROL: the signed-in subscription has its row');
+  assert.equal(runs, 0, 'a read that was not Settings (no ?agents=1) asked agy');
   const r1 = await row();
-  assert.ok(r1, 'CONTROL: the signed-in subscription has its row');
   assert.equal(runs, 1, 'the row did not ask agy for a reading');
   assert.ok('limits' in r1 && r1.limits === null, 'a row with no reading yet did not say so: ' + JSON.stringify(r1));
   assert.equal(r1.connection.liveCheckPending, true, 'the page was not told a reading is on its way');
@@ -84,4 +86,11 @@ test('#6176 slice 4: the Antigravity row asks once, says a reading is coming, th
   assert.equal(r3.limits.windows[1].windowMinutes, 10080);
   assert.equal('liveCheckPending' in r3.connection, false, 'still said a reading is coming after it came');
   assert.ok(r2);
+  // Where no reading can be asked for (agystatus says Windows), the row carries no limits field: nothing is promised.
+  agystatus.setPlatformForTests('win32');
+  try {
+    const rw = await row();
+    assert.ok(rw, 'CONTROL: the row is still listed on Windows');
+    assert.equal('limits' in rw, false, 'a Windows row promised a reading Kosmos never asks for');
+  } finally { agystatus.setPlatformForTests(null); }
 });

@@ -35,7 +35,7 @@ test('#6176 slice 4: the Gemini group is read, five-hour first, as used percent;
   const r = agyusage.parse(JSON.stringify(payload()), NOW);
   assert.deepEqual(r, { windows: [
     { usedPct: 75, windowMinutes: 300, resetsAt: Date.parse('2026-10-17T12:01:58Z') },
-    { usedPct: 0.5, windowMinutes: 10080, resetsAt: Date.parse('2026-10-23T23:06:25Z') },
+    { usedPct: 0, windowMinutes: 10080, resetsAt: Date.parse('2026-10-23T23:06:25Z') },
   ], plan: null, at: NOW });
 });
 
@@ -60,6 +60,7 @@ test('#6176 slice 4: a bucket of an unknown window or a bad fraction is skipped,
 test('#6176 slice 4: refresh runs agy once, keeps the reading, never twice at once, and not again within the interval', async () => {
   const realResolve = runners.resolveBin;
   runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/fake/agy' } : realResolve(p));
+  require('./agystatus').setPlatformForTests('darwin');   // a reading is asked for only on a Mac; CI runs on Linux too
   agyusage.resetForTests();
   let runs = 0, finish;
   agyusage.setRunnerForTests((bin, done) => { runs++; finish = () => done(null, JSON.stringify(payload())); });
@@ -70,21 +71,55 @@ test('#6176 slice 4: refresh runs agy once, keeps the reading, never twice at on
     assert.equal(agyusage.isRunning(), true);
     finish();
     const r = await p1;
-    assert.equal(r.windows[1].usedPct, 0.5);
-    assert.equal(agyusage.lastReading().windows[1].usedPct, 0.5);
+    assert.equal(r.windows[0].usedPct, 75);
+    assert.equal(agyusage.lastReading().windows[0].usedPct, 75);
     assert.equal(agyusage.refresh(NOW + 60e3), null, 'asked again within the interval');
     assert.equal(runs, 1);
-    // A failed run after the interval keeps the last good reading.
+    // A failed run after the interval keeps the last good reading, and the next try waits only RETRY_MS.
     agyusage.setRunnerForTests((bin, done) => { runs++; done(new Error('offline'), ''); });
     await agyusage.refresh(NOW + agyusage.REFRESH_MS + 1);
     assert.equal(runs, 2, 'CONTROL: a run was made after the interval');
-    assert.equal(agyusage.lastReading().windows[1].usedPct, 0.5, 'a failed run lost the last reading');
-  } finally { runners.resolveBin = realResolve; agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
+    assert.equal(agyusage.lastReading().windows[0].usedPct, 75, 'a failed run lost the last reading');
+    const p3 = agyusage.refresh(Date.now() + agyusage.RETRY_MS + 1);
+    assert.ok(p3, 'after a failed run the next try waited the full interval');
+    await p3;
+    assert.equal(runs, 3);
+    // A new sign-in answer drops the reading and the throttle: the next read asks afresh.
+    agyusage.clear();
+    assert.equal(agyusage.lastReading(), null, 'a reading outlived a sign-in change');
+    assert.ok(agyusage.refresh(Date.now()), 'after a sign-in change the next read did not ask');
+  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
 });
 
-test('#6176 slice 4: in a test process with no runner supplied, agy is never run', () => {
+test('#6176 slice 4: in a test process with no runner supplied, agy is never run, even where it is installed', () => {
+  // agy "installed" as a stub that is never reached: a missing guard shows as a run started, not as a real agy spawned.
+  const realResolve = runners.resolveBin;
+  runners.resolveBin = (p) => (p === 'antigravity' ? { present: true, bin: '/usr/bin/false' } : realResolve(p));
+  require('./agystatus').setPlatformForTests('darwin');   // past the platform gate, so only the test guard can refuse
   agyusage.resetForTests();
   agyusage.setRunnerForTests(null);
-  assert.equal(agyusage.refresh(NOW), null);
-  assert.equal(agyusage.isRunning(), false);
+  try {
+    assert.equal(agyusage.refresh(NOW), null, 'agy was run in a test process');
+    assert.equal(agyusage.isRunning(), false);
+  } finally { runners.resolveBin = realResolve; require('./agystatus').setPlatformForTests(null); agyusage.resetForTests(); }
+});
+
+test('#6176 slice 4: a whole-percent used, rounded down once, so 99.6% never reads as at the limit', () => {
+  const p = payload();
+  p.command.data.groups[0].buckets[1].remaining_fraction = 0.004;   // 99.6% used
+  p.command.data.groups[0].buckets[0].remaining_fraction = 0;       // all used
+  const r = agyusage.parse(p, NOW);
+  assert.equal(r.windows[0].usedPct, 99);
+  assert.equal(r.windows[1].usedPct, 100);
+});
+
+test('#6176 slice 4: where agystatus says this is not a Mac, nothing is asked', () => {
+  const agystatus = require('./agystatus');
+  agystatus.setPlatformForTests('win32');
+  agyusage.resetForTests();
+  agyusage.setRunnerForTests((bin, done) => done(null, JSON.stringify(payload())));
+  try {
+    assert.equal(agyusage.supported(), false);
+    assert.equal(agyusage.refresh(NOW), null, 'a reading was asked for on Windows');
+  } finally { agystatus.setPlatformForTests(null); agyusage.setRunnerForTests(null); agyusage.resetForTests(); }
 });
