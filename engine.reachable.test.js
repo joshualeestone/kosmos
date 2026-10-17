@@ -290,7 +290,6 @@ const TRIAGED_5548 = {
   ALLOWED_TOOLS: ['engine/orgchartcodex.js', TEST_SEAM + ' (the hardening policy list the capture test asserts; nothing in the module reads it)'],
   deriveCatalog: ['engine/orgchartcodex.js', TEST_SEAM + ' (a wrapper over catalogFor for the capture test; production calls catalogFor)'],
   offeredTools: ['engine/orgchartcodex.js', TEST_SEAM + ' (asserted by the capture test; nothing in the module calls it)'],
-  parentOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).up; the screen reads the tree through allTasks rows)'],
   childrenOf: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).under)'],
   subtaskProgress: ['engine/tasks.js', ACCESSOR + ' (treeOf(p).progress; the screen shows "N of M subtasks done" from the row)'],
   whyNoReader: ['engine/orgchartfile.js', ACCESSOR + ' (lastWhy; production reads readerAndWhy)'],
