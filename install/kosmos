@@ -9,7 +9,8 @@
 #   kosmos status    say whether it is running, in a sentence (exit 0 running,
 #                    1 not, 4 running but too busy to answer: #4466, 5 a listener is there but
 #                    this shell cannot connect to it, or this shell cannot check at all (a strict sandbox):
-#                    #4636, as `open` too; the watchdog reads 4 and 5)
+#                    #4636, as `open` too; the watchdog reads 4 and 5); a note comes first when this
+#                    install cannot run the board check (#6358)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -1009,8 +1010,10 @@ token_refused_hint() {   # <token-sent> <board-answer>
 #   is none or it is 0), clamped to 0.5 to 15 s; the request then gets the caller's -m less the proof's time
 #   (KOSMOS_PROOF_LEFT, at least 0.5 s). Only a separate numeric `-m <seconds>` is read and rewritten.
 # - Node computes the key id and checks the answer; the token reaches it on stdin, never argv.
-# - Runs only in the installed layout (runtime/bin/node and app/engine/boardproof.js present); without either, and
-#   for a call with no token, it returns 0 and the call is sent as before.
+# - Runs only in the installed layout (runtime/bin/node present and executable, and app/engine/boardproof.js present:
+#   kosmos_proof_runnable); without that, and
+#   for a call with no token, it returns 0 and the call is sent as before. `kosmos status` names an installed Kosmos
+#   (app/server.js present) that cannot run it (kosmos#6358); a source checkout is not named, by design.
 # - Not remembered between calls. Nothing is sent unless this returns 0:
 #   0   proven, or there is no token to protect, or this is not the installed layout
 #   5/6/7  curl could not resolve or connect for the proof: the same codes, and the same "not sent" meaning
@@ -1042,12 +1045,17 @@ KOSMOS_PROOF_MIN_S=0.5        # the floor for the proof's share and the request'
 KOSMOS_PROOF_MAX_S=15         # the most the proof itself may take (a busy board can take seconds to answer)
 KOSMOS_PROOF_DEFAULT_M=15     # the caller's -m when it passes none or 0 (curl reads both as no limit); 15 s is the
                               # CLI's usual -m for a board call
+# Can this install run the board proof? Presence and the exec bit only: a node that is there but broken is not
+# detected here (the proof then fails closed, 96). One rule for kosmos_board_proven (which sends unproven when it cannot, by
+# design: see above) and for kosmos status, which names that state (kosmos#6358) so it is seen rather than silent.
+KOSMOS_BOARDPROOF="$KOSMOS_HOME/app/engine/boardproof.js"
+kosmos_proof_runnable() { [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$KOSMOS_BOARDPROOF" ]; }
 kosmos_board_proven() {   # <token> <the caller's curl arguments>
   local _token="$1"; shift
   KOSMOS_PROOF_LEFT=""
   [ -n "$_token" ] || return 0
-  local _bp="$KOSMOS_HOME/app/engine/boardproof.js"
-  { [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$_bp" ]; } || return 0
+  local _bp="$KOSMOS_BOARDPROOF"
+  kosmos_proof_runnable || return 0
   local _caller_m="$KOSMOS_PROOF_DEFAULT_M" _prev="" _a _nonce _key_id _ans _rc _proof_m _proof_took
   local _nolimit=""
   for _a in "$@"; do [ "$_prev" = "-m" ] && _kosmos_is_secs "$_a" && _caller_m="$_a"; _prev="$_a"; done
@@ -2004,6 +2012,15 @@ cmd_stop() {
 
 cmd_status() {
   local _st_pid
+  # kosmos#6358: an installed Kosmos (app/server.js present) that cannot run the board proof sends its token
+  # without it. Said first because most branches below exit; a source checkout never proves, so it is not said there.
+  # An agent is told to pass it on rather than reinstall: changing the install is the person's call, as with the
+  # restart advice #4466 keeps from agents (and the exit-96 wording in this file, which tells an agent the same).
+  if [ -f "$APP" ] && ! kosmos_proof_runnable; then
+    say "Note: part of this Kosmos install is missing or cannot run, so when it sends a token it cannot first check"
+    say "that it is talking to its own board."
+    if _invoked_by_agent; then say "Tell your person: reinstalling Kosmos fixes it."; else say "Reinstalling Kosmos fixes it: curl -fsSL https://installkosmos.com/setup | sh"; fi
+  fi
   if healthy; then
     local pid
     pid="$(running_pid)" || pid=""
