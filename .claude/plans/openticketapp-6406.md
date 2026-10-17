@@ -38,6 +38,9 @@ plain address as before.
 - A local page in a browser on this computer cannot get a ticket from another site: the board's cross-site guard
   refuses its POST and CORS keeps the answer from it. A same-origin page (the board itself, opened in a browser) can;
   that is the person at this computer.
+- A ticket names any address of the account-computer shape; the links that ask for one come only from the coordinator's
+  (unsigned) computer list. A ticket sent to a stranger's computer opens nothing there, but tells it this
+  computer's id and that it signs tickets. Accepted: the coordinator could name addresses anyway.
 - The address is not checked against the last list of the account's computers: the ticket is bound to the origin it
   names, so a ticket for an address that is not one of the computers opens nothing.
 
@@ -101,3 +104,5 @@ plain address as before.
 - 9 sonnet: no bypass found. The load-time strip removes only the kpt key; the ticket call has its own 15 s limit;
   the comments read in order; the enforcing-board test gap, the ticket shape check against the relay and the Mac
   reload log stated.
+- 10 opus: CONVERGED (NITs only). Applied: a page on another local port is refused at the route (test); the
+  stranger-address note.

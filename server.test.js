@@ -11741,6 +11741,9 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
   assert.equal(boardCookieHere({ headers: {} }, on, good), false, 'nothing');
   assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, () => false), false, 'a cookie that does not match');
   assert.equal(boardCookieHere({ headers: {} }, { on: false, token: null }, good), true, 'a board that enforces nothing');
+  /* Review 10: a page on another local port is refused too (the global cross-site guard compares the port). */
+  const otherPort = await req('/api/remote/open-ticket', { method: 'POST', headers: { ...page, origin: 'http://127.0.0.1:3000' }, body });
+  assert.equal(otherPort.status, 403, 'another local port got through: ' + otherPort.body);
   /* An address no computer of the account can have is refused before the tunnel. */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
