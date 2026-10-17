@@ -330,11 +330,15 @@ test('#6362: a process left running that makes the dir again after its test ende
   if (process.platform === 'win32') return t.skip('POSIX permissions and bash; this file is not in the Windows selection');
   const base = freshBase(t);
   const done = path.join(base, 'child-done');
+  // Written by the child on EVERY exit (done, gave up, base gone): only while it is missing is the pid still the child's.
+  const ended = path.join(os.tmpdir(), `tmpscope-6362-ended-${process.pid}-${Date.now()}`);
+  t.after(() => { try { fs.rmSync(ended, { force: true }); } catch { /* gone */ } });
   const victim = path.join(base, 'leaves-a-child-6362.test.js');
   // The child waits for its parent to end (and sweep), then makes a folder under the parent's TMPDIR, as a left
   // running helper would. It acts only while this test's base exists and gives up after 20 s, so an interrupted run
   // cannot leave it to remake the tree after cleanup.
   const child = `const fs=require('fs'),os=require('os'),p=require('path');const parent=+process.argv[1];
+const end=()=>{try{fs.writeFileSync(${JSON.stringify(ended)},'')}catch{}};process.on('exit',end);
 const stop=Date.now()+20000;const t=setInterval(()=>{if(Date.now()>stop){clearInterval(t);return}try{process.kill(parent,0)}catch{clearInterval(t);
 if(!fs.existsSync(${JSON.stringify(base)}))return;try{fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true})}finally{fs.writeFileSync(${JSON.stringify(done)},'')}}},20);`;
   const pidFile = path.join(base, 'child-pid');
@@ -356,8 +360,7 @@ require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();
     assert.match(guardSays(base), /: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 \(or its write failed\); it holds: helper-cache-6362\n$/);
   } finally {
     // On a failure above, end the child before freshBase removes the base, or its recursive mkdir would make it again.
-    // Only while it has not finished: it writes child-done however its mkdir went, so a missing child-done means it
-    // is still waiting, and a present one means its pid may be someone else's.
-    if (childPid && !fs.existsSync(done)) { try { process.kill(childPid, 'SIGKILL'); } catch { /* it has ended */ } }
+    // Only while it has not ended: it writes `ended` on every way out, so its absence means the pid is still the child's.
+    if (childPid && !fs.existsSync(ended)) { try { process.kill(childPid, 'SIGKILL'); } catch { /* it has ended */ } }
   }
 });
