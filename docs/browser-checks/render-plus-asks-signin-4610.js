@@ -177,11 +177,14 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       const hr = await page.evaluate(() => {
         ASK.here = { device_id: 'd-here2', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
         const x = document.querySelector('#askcard .asknote-x'); if (x) x.click();
+        // Right after the close: the browser it did not name is what the notice now says (decided, see the plan).
+        const after = document.getElementById('askcard').innerText.replace(/\s+/g, ' ');
         const keep = ASK.devices; ASK.devices = []; paintAsk();
-        const r = { shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
+        const r = { after, shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
         ASK.devices = keep; ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk();
         return r;
       });
+      chk(/on this computer is connected/.test(hr.after) && !/want/.test(hr.after), '[' + W + '] #6315 closing the request line moves the notice on to the connected-here browser it had not named', JSON.stringify(hr));
       chk(hr.shown && /on this computer is connected/.test(hr.text), '[' + W + '] #6315 a connected-here browser not named when dismissed still shows once the request is gone', JSON.stringify(hr));
       /* Storage that throws: the dismissal still holds in this tab. */
       await page.evaluate(() => { Storage.prototype.__set = Storage.prototype.setItem; Storage.prototype.__get = Storage.prototype.getItem;
