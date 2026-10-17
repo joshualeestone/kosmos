@@ -855,7 +855,8 @@ test('#6358: on Linux the not-signed-in panel leads with the tab\'s own sign-in 
   const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
   assert.match(html, /reach this board through Kosmos\+, which stays signed in/);
   assert.match(html, /<summary>Sign this tab in again<\/summary>On the computer running Kosmos, run <code>~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal\./, 'the step #6361 made work on Linux');
-  assert.match(html, /prints a one-time address to open in a browser on that computer within 2 minutes/, 'a computer with no browser opener gets the address');
+  assert.match(html, /prints a one-time address: open it within 2 minutes in the browser showing this page\./, 'a computer with no browser opener (a headless server reached through a forward) gets the address, for THIS browser');
+  assert.match(html, /Then press Reload here, or use that tab \(a tab in another browser stays signed out\)\./, 'the cookie is one browser\'s: Reload here is only true in the same one');
   assert.ok(html.indexOf('Sign this tab in again') < html.indexOf('data-board-retry'), 'the steps come before Reload');
   assert.doesNotMatch(html, /not available on Linux/, 'the pre-#6361 dead end is gone');
   assert.match(html, /data-board-retry/, 'the panel lost its Reload');

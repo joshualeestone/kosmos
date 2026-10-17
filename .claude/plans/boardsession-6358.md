@@ -67,8 +67,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - The old "it fixes itself the next time Kosmos updates" is gone. It is now false, and render-board-signin-403-2023
     asserts it is absent. That check saves a screenshot when KOSMOS_SIGNIN_SHOT names a file.
 - **A browser tab on a Linux board:** reach the board through Kosmos+, which stays signed in. Signing a local tab back
-  in is NOT available on Linux yet: `kosmos open` uses `/usr/bin/open`, which most Linux systems lack (install/kosmos,
-  Renet's file; routed). The copy says so rather than promising a remedy that fails.
+  in again: since #6361 `kosmos open` works on Linux (xdg-open, or a printed one-time address to open in the browser
+  showing the page; a tab in another browser stays signed out). Round 23 made the copy say which browser.
 - **The one sentence (agents box, projects, org note):** "The not-signed-in note on the agents list says what to do." It is a constant,
   so it claims nothing that the app's give-up could make false; the panel carries the state-aware remedy. That is true in both places. Linux has its own sentence.
 - **Kosmos+ remote access through the relay:** NOT signed out by a restart on the board's side. Read in kosmos-relay
