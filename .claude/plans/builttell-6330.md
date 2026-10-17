@@ -39,7 +39,16 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   still being typed then is said as unconfirmed ("may have been told") and is still typed after the answer.
 - Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
   operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
-  answer says nobody was told and why; told, each line tried counts once against that valve (review 14: one unit per line, so the cap counts lines here as it does for task messages). A line that then fails, or is kept for an agent out of usage, still spends its unit, as a task message does. This
+  answer says nobody was told and why; told, the mark counts once against that valve, spent the moment it is admitted.
+- Decided (reviews 14 and 15 pulled opposite ways): ONE valve unit per mark, not one per line. #768 spends one unit per
+  task message whatever its audience, so the cap counts messages, and a built mark is one message to its audience.
+  Rejected: one per line (review 14), which made a built mark cost N where the same task message costs 1 and could lock
+  real task messages out. Spending it at admission, not after the lines, keeps concurrent marks from slipping past the
+  cap for the 10 s a line may wait. A line that then fails still spent it, as a task message does.
+- Decided (review 15): a line kept for an agent out of usage goes through messages.keepTaskLine and so reads, when typed
+  or dropped, in task-message words ("a message from mona ... was sent", "send it again"). The line itself is correct;
+  only the later notice's wording is a task message's. Kept as is: a follow-up card for keepTaskLine to take a kind,
+  rather than a second copy of #5805's queue here. This
   replaces review 5's cap-0-only switch.
 - Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate
   (deliverAutomaticAsync). A built line carries the marker's own note, sent on its behalf, exactly as a task message
@@ -76,7 +85,7 @@ so it is the same trust, and closing it is a change to how the route identifies 
 A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
-`server.builttell-6330.test.js` (21 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+`server.builttell-6330.test.js` (22 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
 (other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
 parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
 typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients

@@ -484,7 +484,7 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
    reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
    governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
-   agent; [] when nobody else is on it) and `attempted` (how many lines would be tried: recipients past the swarm-off and membership filters, one valve unit each), with
+   agent; [] when nobody else is on it) and `attempted` (how many lines would be tried: recipients past the swarm-off and membership filters; the valve is asked only when it is not 0), with
    `refusal` when the valve said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed. */
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
@@ -542,12 +542,13 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
            as may have been told. A late failure is logged, since the answer has gone. */
         const sending = chat.deliverAsync(m, line, roster);
         let timer = null;
+        let late = false;
         const waited = new Promise((resolve) => {
-          timer = setTimeout(() => resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }), BUILT_TELL_WAIT_MS);
+          timer = setTimeout(() => { late = true; resolve({ state: chat.DELIVERY.UNCONFIRMED, because: 'it was still being typed when the mark was answered' }); }, BUILT_TELL_WAIT_MS);
           if (timer.unref) timer.unref();
         });
-        sending.then((late) => {
-          if (late && late.state === chat.DELIVERY.COULD_NOT) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + (late.because || '') + '\n');
+        sending.then((end) => {
+          if (late && end && end.state === chat.DELIVERY.COULD_NOT) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + (end.because || '') + '\n');
         }, () => {});
         try { outcome = await Promise.race([sending, waited]); } finally { clearTimeout(timer); }
       }
@@ -21714,7 +21715,12 @@ const server = http.createServer(async (req, res) => {
         // tellBuiltMark can throw only before any line goes (each line's own step catches), so its throw alone is "nobody was told".
         let told = null;
         try {
-          told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => taskMessageRefusal());
+          // One mark is one task message on the valve (as #768 spends one per message, whatever its audience), spent as it is admitted.
+          told = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster, () => {
+            const no = taskMessageRefusal();
+            if (!no) taskMessageValveRecord();
+            return no;
+          });
         } catch (err) {
           process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
           delivered = [];
@@ -21727,8 +21733,6 @@ const server = http.createServer(async (req, res) => {
             + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
             // Lines may be out by now, so nothing here may say nobody was told.
-            // One valve unit per line tried, so AGENT_WORKFORCE_TASK_MSG_CAP counts lines here as it does for task messages.
-            try { for (let i = 0; i < told.attempted; i++) taskMessageValveRecord(); } catch { /* the mark and its lines stand */ }
             try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
             catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
