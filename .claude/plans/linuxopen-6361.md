@@ -16,6 +16,9 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   - a non-enforcing board (no token, no nonce): print the plain address, exit 0;
   - an enforcing board that answered without a nonce: its plain page cannot sign in, so say the one-time address could
     not be made and give the command to try again, exit 1;
+    only on the no-opener path. With an opener that board's plain page is still opened, as before (#1979's own choice:
+    "fall back to the plain URL ... the operator can re-run `kosmos open`", pinned by its mint-500 test); changing that
+    is #1765's design, not this card's.
   - with a nonce, on a person's terminal (`[ -t 1 ]` and not `_invoked_by_agent`, the CLI's own agent check): print
     the one-time sign-in address, say it works once within 2 minutes
     (NONCE_TTL_MS = 120000, engine/boardauth.js) and not to share it, exit 0;
