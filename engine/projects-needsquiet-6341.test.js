@@ -62,6 +62,13 @@ const one = (roster, id) => projects.list(roster).find((p) => p.id === id);
 const member = (r, name) => r.agents.find((m) => m.sessionName === name);
 // A crash loop is the agent's own condition, about no project (the real card, with the field server.js attaches).
 const looping = (name) => cards([fleet.agent(name, { state: 'working' })]).map((c) => ({ ...c, crashLoop: { looping: true, count: 4 } }));
+/* A stuck agent the Recommender acts on, and an idle peer: real fleet cards, the stuck one carrying a real self-report
+   (the fixture-discipline rule: never a card typed by hand). Returns [stuckCard, peerCard]. */
+function stuckPair(stuck, peer, project, because) {
+  assert.equal(selfreport.record(stuck, { state: 'needs_you', because, project }).recorded, true, 'fixture: the report was refused');
+  const roster = cards([fleet.agent(stuck, { state: 'needs_you' }), fleet.agent(peer, { state: 'idle' })]);
+  return [roster.find((c) => c.sessionName === stuck), roster.find((c) => c.sessionName === peer)];
+}
 
 test('#6341: an agent\'s own condition counts only in a live room (a post in the last day)', () => {
   reset();
@@ -352,8 +359,7 @@ test('#6341: lastPostAt reads posts and outside messages only, and keeps up as t
 });
 
 test('#6341: the Recommender does not write a note its room already holds (a restart forgot it)', () => {
-  const card = { sessionName: 'st61', name: 'Stu', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'rp', because: 'Need the brief' };
-  const peer = { sessionName: 'pe61', name: 'Pia', state: 'idle' };
+  const [card, peer] = stuckPair('st61', 'pe61', 'rp', 'Need the brief');
   const members = new Map([['rp', ['st61', 'pe61']]]);
   const setting = { on: true };
   const stuck = recommender.stuckRow(card);
@@ -391,8 +397,7 @@ test('#6341: the Recommender does not write a note its room already holds (a res
 });
 
 test('#6341 review 3: a retry of a playbook that did not land still says the room holds the earlier note', () => {
-  const card = { sessionName: 'sr61', name: 'Sal', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'rq', because: 'Need the brief' };
-  const peer = { sessionName: 'pr61', name: 'Pat', state: 'idle' };
+  const [card, peer] = stuckPair('sr61', 'pr61', 'rq', 'Need the brief');
   const members = new Map([['rq', ['sr61', 'pr61']]]);
   const setting = { on: true };
   const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
@@ -410,14 +415,14 @@ test('#6341 review 3: a retry of a playbook that did not land still says the roo
 });
 
 test('#6341 review 5: an earlier note that asked nobody is said as that, not as replies to read', () => {
-  const card = { sessionName: 'sn61', name: 'Sol', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'rn', because: 'Need the brief' };
+  const [card, pip] = stuckPair('sn61', 'pn61', 'rn', 'Need the brief');
   const members = new Map([['rn', ['sn61', 'pn61']]]);
   const setting = { on: true };
   const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
   const run = (got) => {
-    const first = recommender.step({ prev: undefined, roster: [card, { sessionName: 'pn61', name: 'Pip', state: 'idle' }], setting, members, now: 0 });
+    const first = recommender.step({ prev: undefined, roster: [card, pip], setting, members, now: 0 });
     const texts = {};
-    recommender.runOnce({ prev: first.next, roster: [card, { sessionName: 'pn61', name: 'Pip', state: 'idle' }], setting, members, now: recommender.GRACE_MS + 1,
+    recommender.runOnce({ prev: first.next, roster: [card, pip], setting, members, now: recommender.GRACE_MS + 1,
       roomNote: () => true, deliver: (s, t) => { texts[s] = t; return { state: 'placed' }; }, DELIVERY, alreadyNoted: () => got });
     return texts.sn61;
   };

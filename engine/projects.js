@@ -2871,7 +2871,7 @@ const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
   // A question's key carries its words ('question:<words>', needsDismissKey); every other reason is the bare reason.
-  const base = typeof reason === 'string' ? reason.split(':')[0] : '';
+  const base = typeof reason !== 'string' ? '' : reason.startsWith('question:') ? 'question' : reason;
   const ok = typeof reason === 'string' && NEEDS_REASONS.includes(base)
     && (base === 'question' ? reason.startsWith('question:') && reason.length <= 'question:'.length + NEEDS_KEY_WORDS : reason === base);
   if (!ok) throw new Error('that is not a reason a project shows');
