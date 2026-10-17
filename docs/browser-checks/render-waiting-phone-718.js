@@ -105,24 +105,43 @@ async function open(browser, opts) {
       });
       chk(!noFlow.panel && noFlow.card && noFlow.allow === 0 && noFlow.slot >= 1, '[allow/place] #4610: with no connected panel showing, the requests are still in the Kosmos Plus section, not the top card', JSON.stringify(noFlow));
     }
-    // (b) Answer's hit area, on a real needs-you card
+    // (b) #6400: a needs-you card's pill says only Issue, and the card itself is the answer target, so a tap anywhere
+    //     on it (the pill included) reaches the question. Measured on a real card, by a real hit test on the pill.
     const ans = async (page) => page.evaluate((base) => {
       if (typeof card !== 'function') return { error: 'card missing' };
       const host = document.createElement('div'); document.body.appendChild(host);
       host.innerHTML = card(Object.assign({}, base, { sessionName: 'april', name: 'April', isNamedOurs: true, paneless: false,
         state: 'needs_you', stateReported: true, stateReportedBy: 'agent', because: 'Which venue?' }));
-      const b = host.querySelector('.ansgo');
-      if (!b) return { error: 'no Answer button on a needs-you card' };
-      const a = getComputedStyle(b, '::after');
-      b.scrollIntoView({ block: 'center' });
-      const r = b.getBoundingClientRect();
-      // A real hit test just above the pill's text: the extended area must catch it on touch.
-      const hit = document.elementFromPoint(r.left + r.width / 2, r.top - 5);
-      return { content: a.content, top: a.top, left: a.left, hitAbove: !!(hit && hit.closest && hit.closest('.ansgo')) };
+      const c = host.querySelector('.acard');
+      const pill = host.querySelector('.astate');
+      if (!c || !pill) return { error: 'no needs-you card or pill' };
+      pill.scrollIntoView({ block: 'center' });
+      const r = pill.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      const out = { link: !!host.querySelector('.ansgo'), route: c.getAttribute('data-answer'),
+        pillTap: !!(hit && hit.closest && hit.closest('[data-answer]') === c), pillWords: pill.textContent.trim() };
+      host.remove();
+      return out;
     }, BASE);
     const a1 = await ans(phone);
-    chk(!a1.error && a1.content === '""' && a1.top === '-8px' && a1.left === '-6px', '[answer/touch] Answer has an extended hit area on a touchscreen', JSON.stringify(a1));
-    chk(!a1.error && a1.hitAbove === true, '[answer/touch] a tap 5px above the Answer text still lands on Answer', JSON.stringify(a1));
+    chk(!a1.error && a1.link === false && a1.route === 'april', '[answer/touch] the pill has no Answer link and the card carries the answer route (#6400)', JSON.stringify(a1));
+    chk(!a1.error && a1.pillTap === true, '[answer/touch] a tap on the pill reaches the answer route', JSON.stringify(a1));
+    // (b2) #6398 (Josh 2026-10-17): a rate-limited card says only "Rate Limit" in its pill, with no sentence under it;
+    //      the sentence (how long, what to do) is the pill's hover text. Stuck past the threshold, the long one.
+    const rl = await phone.evaluate((base) => {
+      if (typeof card !== 'function') return { error: 'card missing' };
+      const host = document.createElement('div'); document.body.appendChild(host);
+      host.innerHTML = card(Object.assign({}, base, { sessionName: 'april', name: 'April', isNamedOurs: true, paneless: false,
+        state: 'rate_limited', stateReported: true, stateConfidence: 'structured',
+        stuckError: { stuck: true, state: 'rate_limited', forMs: 45 * 60000 } }));
+      const c = host.querySelector('.acard'), pill = c && c.querySelector('.astate'), task = c && c.querySelector('.atask');
+      const out = c ? { words: (pill.querySelector('b') || pill).textContent.trim(), task: task ? task.textContent.trim() : null, title: pill.getAttribute('title') || '',
+        text: c.textContent } : { error: 'no card' };
+      host.remove();
+      return out;
+    }, BASE);
+    chk(!rl.error && rl.words === 'Rate Limit' && rl.task === '', '[rate limit] the pill reads Rate Limit and the card carries no sentence', JSON.stringify(rl));
+    chk(!rl.error && /about 45 minutes/.test(rl.title) && !/paused by a rate limit/.test(rl.text), '[rate limit] the sentence is the pill\'s hover text, not card text', JSON.stringify(rl));
     // (c) the landing: reveal on a phone scrolls the conversation to the top
     const land = async (page) => page.evaluate(() => {
       if (typeof detailRevealTalkOnPhone !== 'function' || typeof showTab !== 'function') return { error: 'reveal/showTab missing' };

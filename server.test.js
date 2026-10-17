@@ -4258,9 +4258,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       assert.match(api.lrow(leo), new RegExp(piece), 'the list row lost its ' + piece + ' column');
     }
 
-    // The answer route: gated on the tie, labelled with its visible word.
+    // The answer route: gated on the tie. #6400 (Josh 2026-10-17): the pill says only "Issue", so the route is the
+    // card itself (data-answer on its root), reached by a click or by Enter on its name button.
     const ask = api.card(mara);
-    assert.match(ask, /ansgo/, 'the needs_you card lost its answer route');
+    assert.match(ask, /^<div class="acard[^>]* data-answer="mara"/, 'the needs_you card lost its answer route');
+    assert.doesNotMatch(ask, /Answer &rarr;|class="ansgo"/, 'the pill carries an Answer link again (#6400)');
+    assert.match(ask, /<button class="namego"/, 'the card lost the keyboard path to its answer route');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put
@@ -4279,13 +4282,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       'the answer button routes into a project room again, which is the screen it was moved off');
     assert.doesNotMatch(answerFrom, /showTab\('projects'\)/,
       'the answer button still switches to the Projects tab');
-    assert.match(ask, /aria-label="Answer /, 'the answer button accessible name lost its visible word');
     // The untied-needs_you shape cannot come through real routes (the
     // pipeline forces untied panes to unknown; that refusal is its own
     // tested fact elsewhere) -- so the gate's negative is driven by
     // perturbing the one field the gate reads, on an otherwise-real card.
-    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /ansgo/,
-      'a borrowed-name card offers a button into a thread that will refuse it');
+    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /data-answer=/,
+      'a borrowed-name card offers a route into a thread that will refuse it');
 
     // Hostile names render inert in both views. The controls aim at the two
     // real failure modes: a live tag in text position, and a quote breaking
@@ -5079,12 +5081,6 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // an ink fill would pass every behavioural check.
     [/\.vt\.on \{ background: var\(--gold-bright\); color: #14161a; \}/,
      'the selected view-toggle state lost its gold (an ink fill inverts meaning in dark)'],
-    // The Answer control is the ONE card control whose function nothing
-    // else on the card duplicates (the card body opens detail, not the
-    // thread), so the undersized-target exceptions do not apply to it and
-    // it carries the retired .card-answer's SC 2.5.8 floor itself.
-    [/\.ansgo \{[^}]*min-height: 24px/,
-     'the Answer control lost its 24px minimum target (SC 2.5.8), shrinking back to a text-height target'],
     // The removed list's reassurance line is the sentence that makes the
     // light Remove confirmation honest; it rides inside paintRemoved's
     // generated html where no render drive currently reads it.

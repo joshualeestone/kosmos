@@ -381,8 +381,8 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
      render -- which the old `display: none` pin would have happily allowed. */
   assert.doesNotMatch(PAGE, /lsaid/,
     'the quoted last-words line is being rendered again somewhere -- Josh cut it under #855 (grid) and #986 (list); it should not exist in the markup at all');
-  assert.match(PAGE, new RegExp(cons + ' \\.lrow:has\\(\\.lstate \\.ansgo\\) > \\.lav \\{ grid-row: 1 \\/ span 3;'),
-    'the avatar no longer spans the Answer row, so the kept .lstate misaligns');
+  // #6400: the needs-you row's inline Answer link is gone (the row itself answers), so no rule widens a row for it.
+  assert.doesNotMatch(PAGE, /ansgo/, 'the Answer link, or a rule for it, is back (#6400: the pill says only Issue)');
   /* Every state glyph stays aria-hidden, or the clip above starts announcing
      decorative markup alongside the word. */
   /* ⚠️ ANCHORED AT A LINE START. A plain indexOf('const GLYPH = {') found a

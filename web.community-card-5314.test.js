@@ -49,7 +49,8 @@ function buildRenderer() {
     const cardStOf = (x) => ({ st: 'idle', pres: 'on' });
     const stateCopyOf = (x) => ({ label: 'Idle' });
     const pctOf = (x) => 0;
-    const answerBtn = (x) => '';
+    const answerAttrs = (x) => '';
+    const rateLimitTitle = (x) => '';
     const NEARLY_FULL = 90;
     const memPrint = (c, p) => '';
     const PRESSAY = { on: 'Running', off: 'Not running' };

@@ -453,8 +453,9 @@ async function main() {
        wrongly-ordered listener "would be the only thing that noticed" -- it did
        notice, a day ago, and nobody was listening. */
     await page.goto(BASE, { waitUntil: 'networkidle' });
-    await page.waitForSelector('.acard[data-agent="mara"] .ansgo', { timeout: 10000 });
-    await page.click('.acard[data-agent="mara"] .ansgo');
+    // #6400: the card itself is the answer route (its pill says only Issue).
+    await page.waitForSelector('.acard[data-agent="mara"][data-answer]', { timeout: 10000 });
+    await page.click('.acard[data-agent="mara"][data-answer]');
     /* #3419: wait on the PAGE opening, not on `#d-qask`. The question is a thread
        bubble now, and `#d-qask` stays hidden for a plain needs_you agent (it is the
        folder-trust recovery box only), so the old `!q.hidden` wait would time out --
@@ -513,9 +514,11 @@ async function main() {
     await page.waitForSelector('.acard', { timeout: 10000 });
     await page.screenshot({ path: path.join(OUT, 'thread-0-needs-you-card.png'), fullPage: true });
 
-    const answerBtn = page.locator('.acard[data-agent="mara"] .ansgo');
+    // #6400: no Answer link in any pill; the needs-you card itself is the one way into the question.
+    const answerBtn = page.locator('.acard[data-agent="mara"][data-answer]');
+    check(await page.locator('.ansgo').count() === 0, 'a pill carries an Answer link again (#6400: it says only Issue)');
     check(await answerBtn.count() === 1, 'the "Needs you" card carries exactly one way into the question');
-    check(await page.locator('.acard[data-agent="nils"] .ansgo').count() === 0,
+    check(await page.locator('.acard[data-agent="nils"][data-answer]').count() === 0,
       'a card that is NOT asking anything does not offer to show a question');
 
     /* ⚠️ THE BORROWED-NAME CARD, as the pipeline actually serves it.
@@ -538,8 +541,8 @@ async function main() {
     check(rookState !== null && rookState.tied === false && rookState.state === 'unknown',
       'CONTROL: the pipeline serves the borrowed name UNTIED with its state withheld as unknown',
       JSON.stringify(rookState));
-    check(await rookCard.locator('.ansgo').count() === 0,
-      'a borrowed-name card gets NO "See the question" button');
+    check(await page.locator('.acard[data-agent="rook"][data-answer]').count() === 0,
+      'a borrowed-name card gets NO way into a question');
     // The window box's untied arm, driven (the pass-5 gate would be
     // deletable-green otherwise): opening the borrowed-name panel with
     // Engineering mode ON must hide the box, and never paint a refusal
@@ -637,9 +640,9 @@ async function main() {
     await page.waitForTimeout(300);
     expectUntiedRefusals = false;
 
-    // ⚠️ The click is the whole point. The button sits INSIDE the card, whose
-    // own handler opens the detail panel — so a wrongly-ordered listener would
-    // land somewhere plausible and this would be the only thing that noticed.
+    // ⚠️ The click is the whole point. The answer route is the card (#6400), whose plain open would also show the
+    // detail panel, so a wrongly-ordered listener would land somewhere plausible and this would be the only thing
+    // that noticed (the answer route also focuses the reply box).
     await answerBtn.click();
     /* ⚠️ THE AGENT'S PAGE, NOT A PROJECT (re-pointed 2026-08-21, see the note in
        the Off arm above). The click is still the whole point -- the button sits
