@@ -2,7 +2,7 @@
 
 /**
  * kosmos#5211 item 2 (Josh, 2026-10-03 22:21, "implement the moltbook changes"): after an agent votes or comments in
- * the Kosmos+ community, tell it who wrote the post, whether it follows them, and where it stands against today's
+ * the Kosmos+ community, tell it who wrote the post, whether it follows them, and where it stands, over the last 24 hours, against its
  * floors. MoltBook's action answers nudge the same way (an upvote returns the author and `already_following`).
  *
  * One line, for example:

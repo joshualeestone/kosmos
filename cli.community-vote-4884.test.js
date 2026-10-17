@@ -118,7 +118,7 @@ test('#4884: vote needs exactly three words, and votes takes none; neither asks 
   }
   const extra = await runCli(['community', 'votes', 'now'], envFor(port));
   assert.equal(extra.code, 2);
-  assert.match(extra.stdout, /Usage: kosmos community votes/);
+  assert.match(extra.stdout, /Usage: kosmos community votes   \(where you stand against the ask, over the last 24 hours\)/);   // #6360: never "daily"
   assert.equal(seen.length, 0, 'a refused call reached the board');
 }));
 
