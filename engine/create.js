@@ -1831,8 +1831,22 @@ function restoreAccount(name, dir, platform) {
 function* restoreAccountSteps(name, dir) {
   const prep = restoreAccountPrep(name, dir, 'win32');
   if (prep.refusal) return prep.refusal;
-  const unwritten = yield* rewriteAgentJobWin32Steps(prep.clean, prep.spoken, prep.fields);
-  return restoreAccountFinish(prep, unwritten);
+  let finished = false;
+  try {
+    const unwritten = yield* rewriteAgentJobWin32Steps(prep.clean, prep.spoken, prep.fields);
+    finished = true;
+    return restoreAccountFinish(prep, unwritten);
+  } finally {
+    /* #6231 item 7: prep writes the Qwen account to the OLD dir BEFORE the job, and restoreAccountFinish is what
+       rolls it back on a failed write. But the async driver ABANDONS this generator at its cap (or on a throw) by
+       calling .return(), so restoreAccountFinish never runs -- which would leave the record naming the old account
+       while the job stayed on the new one (the move's). This finally runs on .return() too, so roll the record
+       back to what prep read, mirroring restoreAccountFinish's failed-write rollback. The sync `restoreAccount`
+       never abandons, so `finished` is always true there and this is a no-op for it. */
+    if (!finished && prep.qwenJob) {
+      try { store.writeProfile(prep.clean, { qwenAccount: prep.qwenBefore }); } catch { /* best effort; the job did not move */ }
+    }
+  }
 }
 
 /**

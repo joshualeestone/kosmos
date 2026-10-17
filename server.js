@@ -13968,9 +13968,10 @@ const server = http.createServer(async (req, res) => {
               })
               .catch(() => {});
           },
-          // #6231 item 7: the put-back off the board's thread. win32 drives restoreAccountSteps via driveAsync
-          // (a large move's schtasks no longer hold the board); linux/mac write a local file, so the sync
-          // restoreAccount wrapped in a resolved promise is already non-blocking.
+          // #6231 item 7: the put-back off the board's thread. win32 is the case this targets: it drives
+          // restoreAccountSteps via driveAsync so a large move's schtasks no longer hold the board. linux/mac
+          // run the sync restoreAccount inline (wrapped in a resolved promise): it is a local job-file write,
+          // cheap enough that it was never the #6183 freeze, so it is not converted to steps here.
           putBackAsync: (n, dir) => (process.platform === 'win32'
             ? removal.putBackAsync(n, dir)
             : Promise.resolve(create.restoreAccount(n, dir))),

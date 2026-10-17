@@ -137,6 +137,23 @@ test('#6231 item 10: a caller with no readAccount is told so in its own words', 
   assert.match(bo.because, /\(this Kosmos cannot read which account an agent was on\)/);
 });
 
+test('#6231 item 9: a put-back whose ASYNC write rejects is said as partial and NOTED (deps carried through putBackOne\'s catch)', async () => {
+  // Regression guard: putBackOne's catch must pass deps to putBackFailed, or leftOnOld is a no-op and the agent
+  // is left saved-on-new / running-on-old with no note -- the exact #6174/#6231 note this feature exists to write.
+  // The async REJECTION path is the one that matters: removal.putBackAsync rejects on any driver/generator error.
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  d.putBackAsync = () => Promise.reject(new Error('schtasks exploded'));
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  await tick();
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'partial');
+  assert.match(bo.because, /could not put it back on its old account \(schtasks exploded\)/);
+  assert.deepEqual(d.noted, ['bo'], 'a rejected async put-back still notes the agent as left on its old account');
+});
+
 test('#6231 item 9: a put-back that throws past its own guard is still said and noted', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);

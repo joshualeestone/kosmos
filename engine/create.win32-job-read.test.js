@@ -620,6 +620,31 @@ test('#6231 item 7: restoreAccountSteps whose /Create fails says "could not upda
   assert.deepEqual(d.verbs, ['/Query', '/Create'], 'it still issued the /Create before reporting the failure');
 });
 
+test('#6231 item 7: a Qwen put-back ABANDONED mid-drive (the async cap) rolls the Qwen profile back, not leaving it on the old account', () => {
+  // The async driver abandons restoreAccountSteps at its cap by calling gen.return(). restoreAccountPrep has
+  // already written the Qwen account to the OLD dir BEFORE the job write, and restoreAccountFinish (which rolls
+  // that back on a failed write) never runs on an abandon -- so without the generator's finally the record would
+  // name the old account while the job stayed on the new one. The finally must restore what prep read.
+  const store = require('./store');
+  const QWEN_HOME = path.join(HOME, '.kosmos-qwen-work');   // basename starts with the Qwen DIR_PREFIX -> jobProvider 'alibaba'
+  fs.mkdirSync(QWEN_HOME, { recursive: true });
+  const tasks = { 'Kosmos\\agent-qw': taskFor('qw', { runner: 'codex', configDir: QWEN_HOME }) };
+  scheduler(tasks);
+  fs.mkdirSync(create.workerDir('qw'), { recursive: true });
+  store.writeProfile('qw', { qwenAccount: '/new-qwen-acct' });   // the move had set it to the new account
+  const made = [];
+  const answer = answerSteps(tasks, made);
+  const gen = create.restoreAccountSteps('qw', '/old-qwen-acct');
+  let res = gen.next();                                   // -> the staleness /Query (taskEnabledSteps)
+  assert.equal(res.value.exec[1][0], '/Query', 'the first step is the staleness read');
+  assert.equal(store.readProfile('qw').qwenAccount, '/old-qwen-acct', 'prep wrote the put-back (old) account before the job');
+  res = gen.next(answer(res.value.exec));                 // answer /Query -> yields the /Create
+  assert.equal(res.value.exec[1][0], '/Create', 'the second step is the job write');
+  gen.return();                                           // ABANDON before the /Create settles, as the cap does
+  assert.equal(store.readProfile('qw').qwenAccount, '/new-qwen-acct', 'the finally rolled the Qwen record back to what prep read');
+  assert.equal(made.length, 0, 'the /Create was never answered');
+});
+
 test('#6231 item 7: restoreAccountSteps on a task no longer registered refuses BEFORE any /Create (the keep-its-switch safety)', () => {
   /* The job is readable at prep time (the sync read finds it), but the staleness /Query the step form issues
      comes back "no such task": the shared win32RewriteGate must refuse without re-registering. */
