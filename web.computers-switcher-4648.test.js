@@ -167,3 +167,67 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
   new Function('document', 'computersFetch', `${slice('worldswOpen')}\nworldswOpen();`)(d.document, () => { calls++; return Promise.resolve(); });
   assert.equal(calls, 1, 'opening the menu did not read the computers');
 });
+
+/* kosmos#6406 step 2: a plain click on a link to another computer, in the app, asks this computer for a ticket and opens
+   the other computer with it in the fragment; anything else keeps the plain address. */
+const OPEN = slice('computersInApp') + slice('computersOpenClick');
+function clickWith({ win, answer, ev, href }) {
+  const went = [];
+  const posted = [];
+  const a = { href: href || 'https://tmnt.kosmosplus.com/?tab=detail&agent=x', closest: (sel) => (sel === 'a[data-computer-open]' ? a : null) };
+  const e = Object.assign({ defaultPrevented: false, button: 0, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, target: a,
+    preventDefault() { this.defaultPrevented = true; } }, ev || {});
+  const w = Object.assign({ location: { assign: (u) => went.push(u) } }, win || {});
+  const fetchFn = (url, opts) => { posted.push({ url, body: JSON.parse(opts.body) }); return answer(); };
+  const run = new Function('window', 'fetch', 'e', 'URL', 'AbortController', 'setTimeout', 'clearTimeout',
+    `let computersOpening = false;\n${OPEN}\ncomputersOpenClick(e);`);
+  run(w, fetchFn, e, URL, AbortController, setTimeout, clearTimeout);
+  return { went, posted, e };
+}
+const APP = { webkit: { messageHandlers: { kosmosBadge: {} } } };
+const settle = () => new Promise((r) => setTimeout(r, 20));
+
+test('#6406 step 2: in the app a plain click opens the other computer with a ticket, keeping its path', async () => {
+  const t = clickWith({ win: APP, answer: () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ticket: 'abcdefghijklmnopqrstuvwxyz_-0123' }) }) });
+  await settle();
+  assert.ok(t.e.defaultPrevented);
+  assert.deepEqual(t.posted, [{ url: '/api/remote/open-ticket', body: { address: 'tmnt.kosmosplus.com' } }]);
+  assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x#kpt=abcdefghijklmnopqrstuvwxyz_-0123']);
+});
+
+test('#6406 step 2: a refused or failed ticket, or one of the wrong shape, opens the plain address', async () => {
+  for (const [label, answer] of [
+    ['refused', () => Promise.resolve({ ok: false, json: () => Promise.resolve({ error: 'x' }) })],
+    ['unreachable', () => Promise.reject(new Error('down'))],
+    ['odd ticket', () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ticket: 'not one <b>' }) })],
+  ]) {
+    const t = clickWith({ win: APP, answer });
+    await settle();
+    assert.deepEqual(t.went, ['https://tmnt.kosmosplus.com/?tab=detail&agent=x'], label);
+  }
+});
+
+test('#6406 step 2: a browser, or a modified click, keeps the plain link and asks for nothing', async () => {
+  const never = () => { throw new Error('asked for a ticket'); };
+  for (const [label, win, ev] of [
+    ['browser', {}, {}], ['cmd-click', APP, { metaKey: true }], ['ctrl-click', APP, { ctrlKey: true }],
+    ['shift-click', APP, { shiftKey: true }], ['middle', APP, { button: 1 }], ['already handled', APP, { defaultPrevented: true }],
+  ]) {
+    const t = clickWith({ win, answer: never, ev });
+    await settle();
+    assert.equal(t.posted.length, 0, label);
+    assert.equal(t.went.length, 0, label);
+    if (label !== 'already handled') assert.ok(!t.e.defaultPrevented, label + ': the link does its own thing');
+  }
+  // Not https (a mistake in a row): nothing is taken over.
+  const t = clickWith({ win: APP, answer: never, href: 'http://tmnt.kosmosplus.com/' });
+  assert.ok(!t.e.defaultPrevented);
+});
+
+test('#6406 step 2: every link to another computer is marked for the click (and a copied row keeps the mark)', () => {
+  const attrs = {};
+  const a = { setAttribute: (k, v) => { attrs[k] = v; } };
+  new Function('window', 'a', `${INAPP}\ncomputersLinkTarget(a);`)(APP, a);
+  assert.equal(attrs['data-computer-open'], '1');
+});
+
