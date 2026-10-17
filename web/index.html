@@ -30173,7 +30173,10 @@ function worldswOneKosmos() {
   nameEl.textContent = name;
   sw.classList.add('worldsw-onekosmos');
   sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
-  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  /* kosmos#6396 (Josh 11:09: "If there is only 1 computer lets not show \"This computer\" in the top left - it makes
+     no sense"): shown only once the account has another computer to go to; one computer, not signed in, or no answer
+     yet shows nothing there. */
+  sw.hidden = !COMPUTERS_OPENABLE;
   const menu = document.getElementById('worldsw-menu');
   if (COMPUTERS_OPENABLE) {
     btn.removeAttribute('aria-disabled');

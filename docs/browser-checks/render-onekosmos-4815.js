@@ -6,16 +6,16 @@
  *
  * On a board with TWO Kosmoses, rendered through the SHIPPED worldswRender and computersFetch (the computers read
  * is stubbed), in the real page, both engines, light and dark:
- *   - one computer on the account: the top-left says that computer's name, has no chevron and no border, does
- *     not open, and no "Kosmoses" or "New Kosmos" is visible anywhere on the page;
- *   - not signed in (the route's { ok: false }): it says "This computer", the same way;
+ *   - one computer on the account: the top-left shows nothing (#6396), nothing opens, and no "Kosmoses" or
+ *     "New Kosmos" is visible anywhere on the page;
+ *   - not signed in (the route's { ok: false }): nothing there either (#6396);
  *   - four computers: it names this one, opens, and the menu holds ONLY Your computers (no Kosmoses list, no New
  *     Kosmos, and no separator above the section, since nothing sits above it);
- *   - a screen reader hears the plain name as text (no expanded state, no Tab stop), the openable one as a menu;
+ *   - a screen reader hears the openable one as a menu; the hidden one is not in the accessibility tree;
  *   - after a good read, a FAILED read keeps the name and the menu and says it could not reach the computers, and a
  *     SLOW read shows "Checking your computers..." rather than an empty menu (review round 1);
- *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts as plain
- *     "This computer" and recovers on the page's own re-read (review round 2);
+ *   - at BOOT, with nothing called by hand: four computers name this one and open; no answer starts with nothing
+ *     there and recovers on the page's own re-read (review round 2);
  *   - failed reads back off, and a hidden tab waits and reads when it is looked at again (review round 5);
  *   - CONTROL, the answer this check must be able to give: with the switch back on (localStorage
  *     kosmos.multiKosmos = 1), the same board shows the Kosmoses list, New Kosmos and "Kosmos 1".
@@ -84,6 +84,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           const chev = btn.querySelector('.worldsw-chev');
           const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
           const out = {
+            shown: vis('worldsw'),
             name: document.getElementById('worldsw-name').textContent,
             chev: !!chev && getComputedStyle(chev).display !== 'none',
             border: getComputedStyle(btn).borderTopColor,
@@ -103,17 +104,16 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
 
         if (!multi) {
           const one = await read('one');
-          ok(`${t} one computer: the top-left says its name`, one.name === 'studio-laptop', one.name);
-          ok(`${t} one computer: no chevron, no border, nothing opens`, !one.chev && one.border === 'rgba(0, 0, 0, 0)' && !one.opened, JSON.stringify(one));
+          ok(`${t} #6396: one computer: nothing shows top-left and nothing opens`, !one.shown && !one.opened, JSON.stringify(one));
           ok(`${t} one computer: no Kosmoses list, no New Kosmos, no "Kosmoses" or "New Kosmos" on the page`, !one.listShown && !one.newShown && !one.plural, JSON.stringify(one));
           const none = await read('none');
-          ok(`${t} not signed in (the marked answer): it says This computer, and does not open`, none.name === 'This computer' && !none.chev && !none.opened && !none.plural, JSON.stringify(none));
+          ok(`${t} #6396: not signed in (the marked answer): nothing shows top-left, nothing opens`, !none.shown && !none.opened && !none.plural, JSON.stringify(none));
           const four = await read('four');
-          ok(`${t} four computers: it names this one and opens`, four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
+          ok(`${t} four computers: it shows, names this one and opens (#6396 CONTROL: the hidden arms above can fail)`, four.shown && four.name === 'studio-laptop' && four.chev && four.opened, JSON.stringify(four));
           ok(`${t} four computers: the menu holds only Your computers, with no separator above it`,
             four.computers && !four.listInMenu && !four.newInMenu && four.sepAbove === '0px' && !four.plural, JSON.stringify(four));
-          ok(`${t} a screen reader: the plain-text name has no expanded state and is not a Tab stop; the openable one has one`,
-            one.expanded === null && one.tab === '-1' && four.expanded === 'false' && four.tab === null, JSON.stringify({ one: [one.expanded, one.tab], four: [four.expanded, four.tab] }));
+          ok(`${t} a screen reader: the openable one is a menu button and a Tab stop`,
+            four.expanded === 'false' && four.tab === null, JSON.stringify({ four: [four.expanded, four.tab] }));
           /* After a good read of four, a read that FAILS must not lock the menu or lose the name (review round 1). */
           const after = await page.evaluate(async () => {
             window.__which = 'down';   // what production sends when Kosmos+ does not answer (always a 200)
@@ -179,8 +179,8 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           await bf.evaluate(() => { window.__which = 'four'; });
           await bf.waitForTimeout(800);
           const bfAfter = await look(bf);
-          ok(`${t} at boot, Kosmos+ not answering: plain "This computer", then the page reads again and recovers on its own`,
-            bfBefore.name === 'This computer' && bfBefore.fixed && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
+          ok(`${t} at boot, Kosmos+ not answering: nothing top-left, then the page reads again and recovers on its own`,
+            !bfBefore.shown && bfAfter.shown && bfAfter.name === 'studio-laptop' && !bfAfter.fixed, JSON.stringify({ bfBefore, bfAfter }));
           await bf.close();
           /* The retries back off (review round 5): with a 200 ms first wait, Kosmos+ down for 1.1 s is read at boot, then
              at 200, 600 (and 1400) ms: about 3 reads. A flat 200 ms would make about 6. */
@@ -204,7 +204,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           await bh.waitForTimeout(300);
           const shownLook = await look(bh);
           ok(`${t} a hidden tab waits, and reads (and recovers) when it is looked at again`,
-            hiddenLook.fixed && hiddenLook.name === 'This computer' && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
+            !hiddenLook.shown && shownLook.shown && !shownLook.fixed && shownLook.name === 'studio-laptop', JSON.stringify({ hiddenLook, shownLook }));
           await bh.close();
         } else {
           const c = await read('one');
@@ -219,5 +219,5 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
   // 2 engines x 2 themes x (13 arms off + 1 control) = 56.
-  process.exit(problems.length || pass + problems.length < 56 ? 1 : 0);
+  process.exit(problems.length || pass + problems.length < 52 ? 1 : 0);   // #6396: two one-computer asserts became one (x4 runs)
 })().catch((e) => { console.error(e); process.exit(1); });
