@@ -365,7 +365,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       /* Rounds failing for ten minutes after the press: the tunnel's Try again has lapsed too, so the promise goes. */
       const promiseOld = await page.evaluate(() => { const was = PLUS_JOIN_RETRY_AT; PLUS_JOIN_RETRY_AT = Date.now() - 601 * 1000; paintPlusJoin();
         const t = (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(); PLUS_JOIN_RETRY_AT = was; paintPlusJoin(); return t; });
-      chk(promiseOld === 'That code ran out.', `${tag} #6353: ten minutes after an accepted Try again with no round answering, the block stops promising a code`, promiseOld);
+      chk(promiseOld === 'That code ran out. Kosmos is checking with your other computer.', `${tag} #6353: ten minutes after an accepted Try again with no round answering, the block stops promising a code`, promiseOld);
       await page.waitForTimeout(3500); joinDelayMs = 0;
       chk(retryPosts === postsBefore + 1 && rightAfter.text === 'That code ran out. A new one is on its way.' && !rightAfter.btn && rightAfter.focus === 'plus-join' && rightAfter.pill === 'Waiting to be allowed',
         `${tag} #6353: Try again posts once, and at once the block says a new code is on its way (no button, before any round; focus stays in the block)`, JSON.stringify({ posts: retryPosts - postsBefore, rightAfter }));
@@ -421,7 +421,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: true };
       await page.evaluate(() => paintPlusJoin());
       const old = await page.evaluate(() => (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim());
-      chk(old === 'That code ran out.', `${tag} #4794/#6353: a code past 10 minutes by the page's clock reads as run out, promising no new one`, old);
+      chk(old === 'That code ran out. Kosmos is checking with your other computer.', `${tag} #4794/#6353: a code past 10 minutes by the page's clock reads as run out, promising no new one`, old);
       /* Review 6: allowed (not held) and past the page's 10 minutes, no new code follows: it says the ending, and keeps
          reading until the tunnel's own answer, which then stays as the ending. */
       join = { ...join, held: false };

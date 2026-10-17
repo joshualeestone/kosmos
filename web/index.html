@@ -51473,7 +51473,7 @@ var PLUS_JOIN_BUSY = false;
 var PLUS_JOIN_AT = 0;
 var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
 var PLUS_JOIN_LAST_CODE = '';
-var PLUS_JOIN_GEN = 0;         // bumped by a confirm (and when waiting ends): a round that began before it is stale
+var PLUS_JOIN_GEN = 0;         // bumped by a confirm or a Try again (and when waiting ends): a round that began before it is stale
 var PLUS_JOIN_CODE_AT = 0;     // when the current code first showed, by this page's clock
 var PLUS_JOIN_PROBED = false;  // the read on page load got a real answer (review 5)
 var PLUS_JOIN_PROBE_TRIES = 0; // failed reads on load; it stops after three
@@ -51488,7 +51488,7 @@ var PLUS_JOIN_RETRY_AT = 0;    // #6353: when a Try again was accepted (its prom
 function plusJoinReset() {
   if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
   PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
-  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = '';
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0;
   paintPlusJoin();
 }
 /* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
@@ -51595,9 +51595,9 @@ function paintPlusJoin() {
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
-    ? '<p class="plus-join-say">That code ran out.</p>'   // the tunnel no longer owes the attempt (its Try again lapses too)
+    ? '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>'   // the tunnel no longer owes the attempt (its Try again lapses too)
     : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
-  else if (stale) html = '<p class="plus-join-say">That code ran out.</p>';
+  else if (stale) html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';
   else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. */
   if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
