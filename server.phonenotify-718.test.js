@@ -174,7 +174,7 @@ test('ON: needs_you sends once per change into it, reply sends replied, never th
   const [first, , third] = sent;
   assert.equal(first.url, 'https://coord.example.test/kosmos/v1/mac/notify');
   assert.equal(first.headers['x-kosmos-notify-token'], MINTED);
-  assert.deepEqual(Object.keys(first.body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+  assert.deepEqual(Object.keys(first.body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'projectId', 'session']);
   assert.equal(first.body.kind, 'needs_you');
   assert.match(first.body.id, /^report:\d{4}-\d\d-\d\dT/, 'the unique part of the event id is not first, so a long session name could cut it off');
   assert.match(third.body.id, /^reply:\d{4}-\d\d-\d\dT/);
@@ -271,7 +271,7 @@ test('#6254 ready: an agent built mark buzzes ready once; a screen mark, a clear
     assert.equal(sent[0].body.session, WHO);
     assert.equal(sent[0].body.project, 'Delivery run');
     assert.match(sent[0].body.id, /^built:/, 'the ready event id does not start with its own unique part');
-    assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+    assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'projectId', 'session']);
     assert.equal(sent[0].body.text, undefined, 'the task words left the Mac');
 
     // 2) The person's own mark from the screen does not buzz (viaScreen). Past any cooldown, so a zero is the gate.
@@ -327,7 +327,7 @@ test('#6254 posted: a names-you post buzzes by default; any other room post wait
   phonenotify.happened(ev({ namesPerson: true, id: 'post:m1' }));
   assert.equal(sent.length, 1, 'a names-you post did not buzz under the default postedMention');
   assert.equal(sent[0].body.kind, 'posted');
-  assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+  assert.deepEqual(Object.keys(sent[0].body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'projectId', 'session']);
   assert.equal(sent[0].body.text, undefined, 'a post\'s words left the Mac');
 
   // postedMention off: a names-you post goes silent.
@@ -488,6 +488,16 @@ test('turning off while a turn-on is still minting ends off', async () => {
     delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
     fs.rmSync(GATE, { force: true });
   }
+});
+
+test('#6254: payload carries the room project id for a posted tap, capped, null-but-present when absent', () => {
+  const withId = phonenotify.payload('n', { kind: 'posted', agent: 'Leo', session: 'leo', project: 'Kosmos Inside Out', projectId: 'kosmosinsideout' });
+  assert.equal(withId.projectId, 'kosmosinsideout', 'a posted payload must carry the room id so the coordinator can route the tap');
+  const capped = phonenotify.payload('n', { kind: 'posted', agent: 'Leo', projectId: 'z'.repeat(200) });
+  assert.equal(Buffer.byteLength(capped.projectId), 120, 'projectId is capped like project');
+  const absent = phonenotify.payload('n', { kind: 'needs_you', agent: 'Leo', session: 'leo' });
+  assert.equal(absent.projectId, null, 'projectId is null off a posted event');
+  assert.ok('projectId' in absent, 'projectId is always a key, like project and session');
 });
 
 test('names are capped in UTF-8 bytes, never inside a character', () => {
