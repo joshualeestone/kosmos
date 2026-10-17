@@ -1828,11 +1828,11 @@ function startVouch() {
 }
 /* From one read of the snapshot, two lists through the same filter: valid ids, not this computer's own sign-ins, not a
    device the person said Not me to, and never a computer (a joining one carries joining_computer, or a code wait).
-   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): the phone and browser sign-ins the account still lists as
-   waiting for this computer (not ones it allowed), read only to decide whether to open the tab, never matched for an
-   allow. `devices` now holds only what knocked at this
-   computer's gate, and the sign-in that arms the tab usually happened on the website, so it is in `signins` only. A
-   tunnel that predates the field writes none: an empty list. null while there is no snapshot. */
+   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): the phone and browser rows of the tunnel's pending
+   list before its knock filter (id and first_seen), read only to decide whether to open the tab, never matched for an
+   allow. `devices` holds only what knocked at this computer's gate, and the sign-in that arms the tab usually happened
+   on the website, so it is in `signins` only. A tunnel that predates the field writes none: an empty list. null while
+   there is no snapshot. */
 function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
