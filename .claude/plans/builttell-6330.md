@@ -35,7 +35,7 @@ your task P)". A marker that identified itself (token or pane) is never told; an
 - Review 5: `AGENT_WORKFORCE_TASK_MSG_CAP=0` (agent task messages switched off on this computer) switches these lines
   off too, and the answer says so. A project list that cannot be read while working out who to tell answers "Kosmos
   could not work out who to tell", never "nobody else is assigned". Review 11 (raised in 5, 8 and 11, so fixed rather than
-  deferred again): each line holds the answer at most BUILT_TELL_WAIT_MS (10 s, under the Mac CLI's 15 s); a line
+  deferred again): the typing of each line holds the answer at most BUILT_TELL_WAIT_MS (10 s, under the Mac CLI's 15 s; the quick checks before it are not timed); a line
   still being typed then is said as unconfirmed ("may have been told") and is still typed after the answer.
 - Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
   operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
@@ -70,7 +70,10 @@ It is also a security trade-off, not only noise (review 10): a member agent's no
 newlines stripped) now reaches the holders of the nearest held ancestor, who have no part in the task, where a task
 message reaches only that task's assignees. Bounded by the task-message valve and the same trust as a task message (any
 member agent can already mark any task and message any task's assignees); if it proves a channel for abuse, the parent
-arm is the branch to drop.
+arm is the branch to drop. An unidentified caller (no token, no pane that resolves) has the same reach, named "An
+agent", and cannot be excluded from its own lines; that caller can already mark any task and send any task message,
+so it is the same trust, and closing it is a change to how the route identifies callers, not to this slice.
+A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
 `server.builttell-6330.test.js` (20 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
