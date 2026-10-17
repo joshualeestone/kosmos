@@ -1,8 +1,8 @@
 'use strict';
 /**
  * kosmos#6367: when the company's policy requires this computer to report, Remove this computer (Kosmos+) says the
- * company will see it stop. A warning, never a refusal. Covers the engine's reading of the policy, what /api/org
- * passes on, and the confirm's line for each kind of org and state.
+ * company will see it stop. A warning, never a refusal. Covers the engine's reading of the policy and the confirm's
+ * line for each kind of org and state. What /api/org passes on is run for real in server.orgenroll-5531.test.js.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -11,7 +11,6 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-const SERVER = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
 const orgpolicy = require('./engine/orgpolicy');
 
 function lift(src, name, open = '{') {
@@ -32,11 +31,6 @@ test('#6367: reportingRequired is true only for telemetry.required === true', ()
     { telemetry: { required: 'true' } }, { telemetry: { required: 1 } }, { backup: { required: true } }]) {
     assert.equal(orgpolicy.reportingRequired(p), false, JSON.stringify(p));
   }
-});
-
-test('#6367: /api/org passes reportingRequired on, and only for the enrolled Kosmos', () => {
-  assert.match(SERVER, /const reportingRequired = here \? require\('\.\/engine\/orgpolicy'\)\.reportingRequired\(\) : false;/);
-  assert.match(SERVER, /reportingWait: why, wordsNeeded, reportingRequired,/);
 });
 
 function page(state) {

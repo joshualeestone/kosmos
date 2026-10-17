@@ -43,3 +43,10 @@ confirm. Accepted: it is a warning, and the policy itself reaches the board only
   Before, pressing Remove before the pane's first read left the confirm without the line for as long as it stayed open.
 - A behavioural /api/org arm in server.orgenroll-5531.test.js: the applied policy file says required, then not, then
   the enrollment names another world. Mutants: always "stops", no refresh on read, server always false. Each fails.
+
+## Round 2 (Sonnet)
+- Removed the /api/org source pin: the behavioural arm in server.orgenroll-5531.test.js covers it, and a pin of the
+  spelling fails on a harmless rewrite.
+- Declined: "after a join the state lacks reportingRequired for up to a minute". Both join paths set PLUS_ORG.at = 0
+  and call plusOrgMaybe() at once (web/index.html, the enroll and family-accept handlers), so the full state is read
+  straight away.
