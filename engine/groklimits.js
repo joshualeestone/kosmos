@@ -150,6 +150,8 @@ function read(home, now = Date.now(), since = null) {
     const r = cachedNewest(file, st);
     if (!r) return null;
     // A reading logged before this folder's current sign-in began is another login's (review 1): it says nothing.
+    // On first sight the start is auth.json's time, which can be just after Grok's first fetch: that reading is hidden
+    // until the next (review 6). Hidden, never wrong.
     if (Number.isFinite(since) && r.at < since) return null;
     // The newest reading decides, even when its period is over: then there is no current figure.
     const windows = r.windows.filter((w) => w.resetsAt > now);
