@@ -976,6 +976,8 @@ function needsRedElsewhere(m) {
    bring the row straight back, which is the "no way to dismiss it" Josh reported. */
 const NEEDS_GONE_MS = 10 * 60 * 1000;
 
+/* ⚠️ A read that can write: describe() persists `everSeen` upgrades and (#6341) the dismissal upkeep (needsDismissed /
+   needsDismissGone), each by re-reading the store just before writing. */
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
   // ⚠️ Seeing an agent is remembered. `everSeen` was written once, at add time,
