@@ -1219,8 +1219,8 @@ async function forgetNow() {
   let because = null;
   if (canRetire) {
     const r = await retireHere();
-    retired = r.ok === true;
-    because = r.ok ? null : retireReason(r);
+    retired = r.ok === true || retiredAlready(r);
+    because = retired ? null : retireReason(r);
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -3035,6 +3035,19 @@ function retireReason(r) {
   const lines = String((r && r.stderr) || '').split('\n').map((l) => l.trim()).filter(Boolean);
   const line = lines.find((l) => /Kosmos\+ /.test(l)) || String((r && r.because) || 'no reason given');
   return line.replace(/^Error:\s*/, '').replace(/:\s*<[\s\S]*$/, '').slice(0, 200);
+}
+/* kosmos#6390: Kosmos+ refused this computer's retire because it was retired already (removed on the account page).
+   That is the outcome a retire asks for, not a failure. The coordinator keeps the code (mac_retired) off the wire, so
+   this reads its sentence (relay auth.rs: "this computer was retired"; "this Mac" is the older wording), and only for a
+   401 on the retire route itself. The relay pins that sentence on its side (fedroom.rs
+   the_coordinators_retired_answer_is_final_here, person_copy_4628.rs); nothing in this repo reads auth.rs, so a
+   reworded sentence would bring back the old message here, never a wrong "retired". engine/fedseats.js
+   MAC_LEVEL_REFUSAL matches the same sentence among others; a reword changes both. */
+function retiredAlready(r) {
+  const said = String((r && r.stderr) || '');
+  // One line, as the tunnel writes a refusal (refusal_error): its prefix ("this Mac", or "this computer" on Windows), a
+  // sentence starting with the coordinator's words, then the status and the route, all on that line.
+  return /^(?:Error: )?Kosmos\+ refused this (?:Mac|computer): this (?:computer|Mac) was retired\b[^\n]*\(HTTP 401 on \/v1\/mac\/retire\)\s*$/m.test(said);
 }
 /* The one retire of this Mac at Kosmos+, signed with its own key. */
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
