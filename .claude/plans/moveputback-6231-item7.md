@@ -66,15 +66,25 @@ removal. Item 7 is already a large async conversion that itself restructures put
 separately keeps item 7 focused and lets item 8 build on item 7's restructured putBack cleanly. Noted on
 #6231. (Liu Kang m5823 criterion: same PR "if it stays small"; it does not.)
 
-## Folded from Raiden's #6243 review (Liu Kang m5831 gates)
+## Folded from Raiden's #6243 review (Liu Kang m5831 gates) -- SPLIT to a follow-up (2026-10-17)
 
-- (1) Direct test for the async taskkill exit-128 ("already gone"=success) path -- a pure test, ships here.
-- (2) Remove `win32job.running()` (`win32job.js:620`) TOGETHER with the now-dead sync win32 `loaded` act
-  (`remove.js:627`), as a SEPARATE COMMIT. GATE SATISFIED (grep on origin/main, in the PR body):
-  running() has one caller (the :627 sync loaded act); :627 is reached only via `act('loaded')`
-  (`remove.js:2344`) which always prefers `ops.steps.loaded` (`:650`) for win32; the only `.loaded(` call
-  sites anywhere are linux (`lj.loaded`) and mac (`MAC_STEPS`). No test calls `win32job.running`
-  (world-guard:141 is a comment). Both are dead code.
+These two were ancillary cleanups folded in from a DIFFERENT review (#6243), not the core item-7 async
+put-back conversion. On resuming this branch they are being split to their own follow-up PR, alongside
+item 8, rather than shipped here. Reasons:
+
+- (2)'s dead-code gate was written against an origin/main that is now ~700 commits behind, and
+  `win32job.running()` STILL has a live caller -- `remove.js:627`, the sync win32 `loaded` act -- which is
+  reached whenever a win32 restart runs through the SYNC arm (the async-steps arm at `:650` uses
+  `runningSteps`, not `running()`). Proving the sync arm is truly unreachable for win32 on CURRENT main is a
+  deep, ancillary investigation; getting it wrong silently breaks win32 restart liveness detection. It does
+  not belong inside the item-7 PR and must be re-gated against today's code in its own commit.
+- (1), the exit-128 async-taskkill test, lives in the win32stop restart path (`win32stop.js:247`), which
+  item 7 does not touch -- the put-back re-registers the job (`/Query` + `/Create`), it never taskkills. It
+  belongs with (2) in the follow-up, where the `running()`/restart cleanup is.
+
+- (1) Direct test for the async taskkill exit-128 ("already gone"=success) path -- FOLLOW-UP.
+- (2) Remove `win32job.running()` + the now-dead sync win32 `loaded` act (`remove.js:627`), re-gated against
+  current main, as its own commit -- FOLLOW-UP.
 
 ## Contracts #6238 relied on that the answer-first restructure MUST preserve (Liu Kang m5836)
 
@@ -241,5 +251,7 @@ step-form tests for installSteps/taskEnabledSteps/restoreAccountSteps.
    (put-backs run via driveAsync, event loop not frozen).
 2. The put-back's three schtasks ops run as async step generators reusing win32StepResult + the shared
    parsers; sync arm preserved for non-async callers.
-3. Exit-128 async taskkill path has a direct test; `running()`+the `:627` sync loaded act removed in a
-   separate commit with the caller grep in the PR. Item 8 split out, noted on #6231. Full suite green at head.
+3. Item 8 split out, noted on #6231. The two #6243-folded cleanups (exit-128 async-taskkill test;
+   `running()` + the `:627` sync loaded act removal) are ALSO split to a follow-up PR -- see the "Folded from
+   Raiden's #6243 review" section for why (stale gate, a still-live caller, and the taskkill path is outside
+   item 7). Full suite green at head.

@@ -2596,7 +2596,14 @@ async function putBackAsync(name, dir) {
     const release = () => { clearTimeout(timer); RESTARTING.delete(clean); };
     driven.then(release, release);   // attached before the race, so the hold ends when the drive really ends
     const out = await Promise.race([driven, capped]);
-    return out || (await capped);
+    if (out) return out;
+    /* out is falsy only when `driven` won the race carrying null. Normally that is the abandon case, where the cap
+       already resolved `capped`, so awaiting it returns the REFUSED at once. But `release()` cleared the timer the
+       moment `driven` settled, so if a FUTURE restoreAccountSteps path ever returned a falsy value WITHOUT
+       abandonment, `capped` would never resolve and `await capped` would hang forever -- leaving the move running
+       and the board frozen to Update/restart. Guard it rather than depend on that invariant two modules away. */
+    if (ctl.abandoned) return await capped;
+    return { outcome: create.OUTCOME.REFUSED, because: `putting ${clean || name} back did not return a result` };
   } catch (err) {
     clearTimeout(timer);
     throw err;
