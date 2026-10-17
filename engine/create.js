@@ -1834,7 +1834,8 @@ function* restoreAccountSteps(name, dir) {
   let finished = false;
   try {
     const unwritten = yield* rewriteAgentJobWin32Steps(prep.clean, prep.spoken, prep.fields);
-    finished = true;
+    finished = true;   // the write settled; restoreAccountFinish now owns the Qwen record (it rolls back on a failed
+                       // write). If finish itself threw the rollback is skipped, which is right: the job DID move.
     return restoreAccountFinish(prep, unwritten);
   } finally {
     /* #6231 item 7: prep writes the Qwen account to the OLD dir BEFORE the job, and restoreAccountFinish is what

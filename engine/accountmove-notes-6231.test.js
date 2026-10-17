@@ -154,6 +154,23 @@ test('#6231 item 9: a put-back whose ASYNC write rejects is said as partial and 
   assert.deepEqual(d.noted, ['bo'], 'a rejected async put-back still notes the agent as left on its old account');
 });
 
+test('#6231 item 7: a put-back ABANDONED at its cap is worded as UNCONFIRMED (not "still on the old account"), and still noted', async () => {
+  // The async cap resolves { capped: true }: whether the write landed is unknown (an in-flight /Create can land
+  // after the cap fires). accountmove must not assert the saved/running state; it says "check Settings" and notes it.
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  d.putBackAsync = () => Promise.resolve({ outcome: REFUSED, capped: true, because: 'putting it back did not finish within 300 seconds, so we stopped waiting for it' });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  await tick();
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'partial');
+  assert.match(bo.because, /not confirmed -- check its account in Settings/);
+  assert.doesNotMatch(bo.because, /still on the old account until it restarts/, 'the cap case must not falsely assert the saved/running state');
+  assert.deepEqual(d.noted, ['bo'], 'an unconfirmed put-back is still noted (the safe side)');
+});
+
 test('#6231 item 9: a put-back that throws past its own guard is still said and noted', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);

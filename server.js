@@ -14007,10 +14007,11 @@ const server = http.createServer(async (req, res) => {
               })
               .catch(() => {});
           },
-          // #6231 item 7: the put-back off the board's thread. win32 is the case this targets: it drives
-          // restoreAccountSteps via driveAsync so a large move's schtasks no longer hold the board. linux/mac
-          // run the sync restoreAccount inline (wrapped in a resolved promise): it is a local job-file write,
-          // cheap enough that it was never the #6183 freeze, so it is not converted to steps here.
+          // #6231 item 7: the put-back's WRITE off the board's thread. win32 is the case this targets: it drives
+          // restoreAccountSteps via driveAsync so a large move's schtasks /Create WRITES no longer hold the board.
+          // The per-agent staleness re-read (the /Query) stays SYNC by contract 3, so a cold-cache read can still
+          // block the thread briefly per agent -- it is the serialized WRITES that were the #6183 freeze, not the
+          // reads. linux/mac run the sync restoreAccount inline (a local job-file write, never the freeze).
           putBackAsync: (n, dir) => (process.platform === 'win32'
             ? removal.putBackAsync(n, dir)
             : Promise.resolve(create.restoreAccount(n, dir))),

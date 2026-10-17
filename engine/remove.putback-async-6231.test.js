@@ -79,6 +79,26 @@ test('#6231 item 7: putBackAsync holds the agent (restartingNow) while its put-b
   assert.equal(remove.restartingNow(), false, 'the hold clears only after the put-back settles');
 });
 
+test('#6231 item 7: a put-back whose generator throws rejects putBackAsync and still releases the hold', async () => {
+  remove.setRunner(() => ({ ok: false, code: 99 }));
+  remove.setAsyncRunner(async () => ({ ok: true, stdout: '' }));
+  create.restoreAccountSteps = function* () { throw new Error('generator boom'); };
+  await assert.rejects(remove.putBackAsync('al', '/acct/old'), /generator boom/, 'a throwing drive must reject, not swallow');
+  assert.equal(remove.restartingNow(), false, 'the hold is released even when the drive throws (release is attached to driven)');
+});
+
+test('#6231 item 7: a drive that returns a falsy value WITHOUT abandonment resolves a synthetic REFUSED, never hangs', async () => {
+  // Exercises the falsy-without-abandon guard: release() clears the cap timer the moment driven settles, so if the
+  // generator returned nothing and we were NOT abandoned, `await capped` would hang forever without the guard.
+  remove.setRunner(() => ({ ok: false, code: 99 }));
+  remove.setAsyncRunner(async () => ({ ok: true, stdout: '' }));
+  create.restoreAccountSteps = function* () { return undefined; };
+  const out = await remove.putBackAsync('al', '/acct/old');
+  assert.equal(out.outcome, create.OUTCOME.REFUSED, 'a falsy drive result is turned into a REFUSED, not a hang');
+  assert.match(out.because, /did not return a result/);
+  assert.equal(remove.restartingNow(), false, 'the hold is released');
+});
+
 test('#6231 item 7: a put-back that overruns its cap resolves a REFUSED-shaped result, and still releases the hold once the abandoned command ends', async () => {
   process.env.AGENT_WORKFORCE_ASYNC_RESTART_CAP_MS = '20';
   remove.setRunner(() => ({ ok: false, code: 99 }));
