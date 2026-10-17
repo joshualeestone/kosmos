@@ -649,6 +649,14 @@
       "rank": 16.8,
       "since": "0.7.54",
       "status": "pending"
+    },
+    {
+      "title": "A monthly AI cap for families",
+      "line": "Parents can now set a monthly cap on a child's Claude use in the family console; at the cap, Kosmos takes no new messages for its agents.",
+      "icon": "shield",
+      "rank": 3,
+      "since": "0.7.54",
+      "status": "pending"
     }
   ]
 }
