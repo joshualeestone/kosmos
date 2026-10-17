@@ -28,6 +28,52 @@ const AGENTS_MAX = 200;
 const PROJECTS_MAX = 200;
 const NAMES_MAX = 50;
 const USAGE_DAYS = 7;
+/* kosmos#5532: about the longest a usage read is waited for in the board's own tick (the timer fires only between the
+   scan's synchronous steps); past it, usage is withheld for that body, or a recent finished scan goes instead (lastScan).
+   It bounds the wait, not the scan; a send's total also includes its pane reads. */
+const USAGE_READ_MS = 60 * 1000;
+/* Another Kosmos's child has GATHER_TIMEOUT_MS for everything, so its usage wait is shorter, leaving its pane reads room.
+   A slow pane read plus a slow usage read can still cross the bound and lose that Kosmos's report for the send. The
+   child exits after its run, so a scan it gave up on is lost and that body is withheld. */
+const CHILD_USAGE_READ_MS = 30 * 1000;
+const SLOW = Symbol('slow');   // the timeout's own answer, which no reader can return
+/* One live scan at a time (plus at most one given-up scan, see below): a read the wait gave up on keeps running (it is not cancelled),
+   so a later send shares it rather than starting another beside it; a scan pending past the limit is left running in
+   the background and a fresh one starts (a hung read cannot be stopped, only stopped from blocking). */
+let pendingScan = null;
+let pendingSince = 0;
+let scanGeneration = 0;
+/* A scan pending longer than this is given up on: a later send starts a fresh one rather than sharing a scan that may
+   never settle, which would otherwise withhold usage for the rest of the process's life. At most ONE given-up scan may
+   still be running: a truly hung scan is a stuck filesystem call holding one of the few shared worker threads, and a
+   fresh scan on the same stuck mount would hang too, so starting one every hour would take the board's threads one by
+   one. While one given-up scan is still running, no further give-up happens: at most one given-up scan and one live
+   scan run at once, and later sends use the last finished scan or say usage is withheld. */
+let abandoned = new Set();   // the generations of given-up scans still running (a set: a reset or a late settle cannot drift it)
+const PENDING_SCAN_MAX_MS = 60 * 60 * 1000;
+/* The last scan that finished, and when: a scan the wait gave up on still finishes, and a later send whose own wait gives
+   up uses it (under a day old), marked incomplete. Module state: it lives as long as the process does. In the board's
+   own tick that is the board's life; when the enrolled Kosmos's tick runs in a child (orgrollup-child.js tick, when the
+   board serves another Kosmos), it is that one run, so a scan that always outlasts the wait there is always withheld. */
+let lastScan = null;
+let slowSaid = false;
+function scanUsageOnce() {
+  const stale = pendingScan && Date.now() - pendingSince > PENDING_SCAN_MAX_MS;
+  if (stale && abandoned.size > 0) return pendingScan;   // one given-up scan is still running: start nothing more
+  if (!pendingScan || stale) {
+    if (stale) {
+      const given = scanGeneration;
+      abandoned.add(given);
+      pendingScan.then(() => {}, () => {}).finally(() => { abandoned.delete(given); });
+    }
+    const gen = ++scanGeneration;
+    pendingSince = Date.now();
+    pendingScan = Promise.resolve().then(() => require('./usage').worldUsageByModel(USAGE_DAYS))
+      .then((v) => { if (gen === scanGeneration) lastScan = { v, at: Date.now() }; return v; })
+      .finally(() => { if (gen === scanGeneration) pendingScan = null; });   // a superseded scan touches nothing
+  }
+  return pendingScan;
+}
 const USAGE_ROWS_PER_DAY = 40;
 /** Bytes, measured on the serialized body: under the coordinator's 60 KB refusal with room for the signature. */
 const BODY_MAX = 56 * 1024;
@@ -106,6 +152,7 @@ function usageOk(u) {
  *   projects     [{ name, agents: [agent name] }]
  *   usageByDay   { 'YYYY-MM-DD': { model: { input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens } } }
  *   lastActive, backupLastOk, policyVersion, policyRefused, policyUsage ({ used, cap, warn, over, month }, kosmos#6309)
+ *   partial, usageWithheld, usageIncomplete (kosmos#5532: a short usage count, which marks the body truncated)
  */
 function build(input) {
   const i = input || {};
@@ -210,11 +257,11 @@ function build(input) {
     lastActive: notAfterTomorrow(day(i.lastActive), nowMs),   // the day only: "when you were last active", not a timeline (review 5)
     backup: { lastOk: iso(i.backupLastOk) },
     agents, projects, usage,
-    /* Contract v1.1 (PigeonPete): while this board has no reader scoped to this world, usage is [] and usageWithheld
-       says so, and the console shows "usage not reported yet", never 0. truncated means only a real trim or a partial
-       read. */
+    /* Contract v1.1 (PigeonPete): while usage is not read (the words do not name it, or no reader scoped to this world),
+       usage is [] and usageWithheld says so, and the console shows "usage not reported yet", never 0. truncated means a
+       real trim, a partial read, or a usage count the reader said was incomplete (usageIncomplete, kosmos#5532). */
     usageWithheld: i.usageWithheld === true,
-    truncated: truncated || i.partial === true,   // a partial read is said, never sent as the whole picture
+    truncated: truncated || i.partial === true || i.usageIncomplete === true,   // a partial read is said, never sent as the whole picture
   };
   return fit(body);
 }
@@ -254,11 +301,14 @@ function defaultSources() {
     /* A project linked from another Kosmos (federation: someone else's project joined here, or one from another computer
        of this account, which may be a personal Kosmos) is not this work Kosmos's to report (rollup review 7). */
     linkedProject: (id) => { try { return !!require('./federation').linkFor(id); } catch { return true; } },
-    /* 🛑 NO usageByDay HERE (rollup review 1, a BLOCKER). engine/usage.js reads every Claude config folder on this
-       computer (status.configRoots: ~/.claude, ~/.claude-*, CLAUDE_CONFIG_DIR), with no filter by world or agent, so
-       its numbers include the person's other Kosmoses and their own sessions outside Kosmos. Sending them would break
-       the one rule this whole feature rests on. Usage is withheld (an empty list, and usageWithheld says so) until a reader scoped to
-       this world's own agents exists. */
+    /* kosmos#5532: usage of sessions launched in THIS Kosmos's own roster's agent folders (engine/usage.js
+       worldUsageByModel, #5571; its residual: in the default world, where Kosmoses share the workers folder, two
+       Kosmoses' same-named agents, or a person's own session started in an agent's exact folder, count as this one's), never the computer-wide readers beside it, which include the person's other
+       Kosmoses and their own sessions (rollup review 1, a BLOCKER). It leaves only under accepted words that name it
+       (usageConsented), and the company's words say "sessions launched in your agents' folders", which is what this
+       counts. Answers { byDay, complete }; an incomplete count marks the body truncated (usageIncomplete), not
+       partial. */
+    usageByDay: scanUsageOnce,
     lastActiveOf: (sessionName) => { const r = activity.read(sessionName, 'working'); return r.found ? r.at : null; },
     /* Known runners and providers only (rollup review 22): create's maps fall back to claude/anthropic for anything else,
        which would send a guess as the provider. */
@@ -291,6 +341,43 @@ function defaultSources() {
   };
 }
 
+/* Tests only: forget the last finished scan and drop any pending one (a scan still running from an earlier test can
+   then change nothing), so a test starts from none; module state outlives a test. */
+function _resetUsageScanForTests() { lastScan = null; slowSaid = false; pendingScan = null; scanGeneration += 1; abandoned = new Set(); }
+function plainMap(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
+/* kosmos#5532: fills out.usageByDay from the sources' scoped reader, or says usageWithheld when there is none. The
+   board's reader answers { byDay, complete }; a plain day map is also taken (test sources). A short count sets
+   usageIncomplete (the body's truncated), never `partial`: partial holds the daily and blocks change sends, and a count
+   can stay incomplete for good (usage.js). A late count reused from an earlier scan (lastScan) can be up to a day
+   old; it too is only marked truncated, so the console reads it as short, not as stale. A read that throws, takes longer than its wait (USAGE_READ_MS, or the child's CHILD_USAGE_READ_MS), or answers an
+   empty count it says is not complete (which cannot be told from a read that found nothing) says usageWithheld ("not reported yet", contract v1.1), never 0. The bound is the wait only: the scan is not
+   cancelled, and the pane reads before it are not bounded by it. */
+async function readUsage(s, out, waitMs) {
+  if (typeof s.usageByDay !== 'function') { out.usageWithheld = true; return; }
+  const wait = Number.isFinite(waitMs) && waitMs > 0 ? waitMs : USAGE_READ_MS;   // the child's own, or a test's
+  let timer;
+  try {
+    const slow = new Promise((resolve) => { timer = setTimeout(() => resolve(SLOW), wait); });
+    const u = await Promise.race([Promise.resolve(s.usageByDay()), slow]);
+    if (u === SLOW) {
+      // The board's own reader: the last scan that finished, under a day old, goes as a short count rather than none.
+      const late = s.usageByDay === scanUsageOnce && lastScan && Date.now() - lastScan.at >= 0 && Date.now() - lastScan.at < DAILY_MS ? lastScan.v : null;
+      if (late && plainMap(late.byDay) && Object.keys(late.byDay).length > 0) { out.usageByDay = late.byDay; out.usageIncomplete = true; return; }
+      if (!slowSaid) { slowSaid = true; console.error('orgrollup: reading this Kosmos\'s usage took longer than the wait, so it is withheld until a read finishes; a later send uses that read, marked incomplete (said once)'); }
+      out.usageByDay = {}; out.usageWithheld = true; return;
+    }
+    if (plainMap(u) && Object.prototype.hasOwnProperty.call(u, 'byDay')) {
+      // The board's reader's shape: a day map and a boolean. Anything else is not a count: withheld, never sent as 0.
+      if (!plainMap(u.byDay) || typeof u.complete !== 'boolean') { out.usageByDay = {}; out.usageWithheld = true; return; }
+      // An empty count that is not complete cannot tell "read nothing" from "a quiet week with part unread" (usage.js
+      // answers it for both), so it is withheld rather than sent as a zero; an empty COMPLETE count is a real zero.
+      if (!u.complete && Object.keys(u.byDay).length === 0) { out.usageByDay = {}; out.usageWithheld = true; return; }
+      out.usageByDay = u.byDay;
+      if (!u.complete) out.usageIncomplete = true;
+    } else if (plainMap(u) && Object.keys(u).length > 0 && Object.keys(u).every((k) => /^\d{4}-\d{2}-\d{2}$/.test(k))) out.usageByDay = u;   // a plain day map (test sources)
+    else { out.usageByDay = {}; out.usageWithheld = true; }
+  } catch { out.usageByDay = {}; out.usageWithheld = true; } finally { clearTimeout(timer); }
+}
 /**
  * The plain inputs for build(), read from this board. The same agents the board shows: running cards from the status
  * snapshot, plus the agents that are on this computer but not running (the /api/status offline list's own filter:
@@ -299,9 +386,14 @@ function defaultSources() {
  * Decided: an offline agent is sent as 'stopped' with no model (a stopped agent has no current model; the transcript
  * holds yesterday's, Mona Lisa's ruling on the board). When the snapshot could not read every pane line the offline
  * list is withheld, exactly as /api/status withholds it, and the body says truncated.
+ *
+ * `opts.usage === true` (kosmos#5532): read usage too; only a caller under words naming it asks. Without it, usage is not
+ * read at all (a scan of a week of transcripts) and the body says usageWithheld. `opts.usageReadMs` sets the
+ * usage wait (another Kosmos's child uses CHILD_USAGE_READ_MS; tests use a few milliseconds).
  */
-async function gather(src) {
+async function gather(src, opts) {
   const s = src || defaultSources();
+  const wantUsage = !!(opts && opts.usage === true);   // opt-in: a caller that does not ask scans nothing
   const out = { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false };
   let snap = { agents: [], counts: {} };
   let snapFailed = false;
@@ -370,9 +462,8 @@ async function gather(src) {
       out.projects.push({ name: p.name, agents: members });
     }
   } catch { out.partial = true; }   // projects unreadable: say so rather than send "no projects"
-  if (typeof s.usageByDay === 'function') {
-    try { out.usageByDay = (await s.usageByDay()) || {}; } catch { out.partial = true; }
-  } else out.usageWithheld = true;   // no reader scoped to this world: say so, never send the whole computer's
+  if (wantUsage) await readUsage(s, out, opts && opts.usageReadMs);
+  else out.usageWithheld = true;   // not consented: say so, never read it
   out.lastActive = latest;
   return out;
 }
@@ -561,10 +652,11 @@ function elsewhereRunner(deps) {
   };
 }
 
-/* One other Kosmos's inventory, read by a child process in its environment: { world, gathered } or null. */
-function gatherIn(env) {
+/* One other Kosmos's inventory, read by a child process in its environment: { world, gathered } or null.
+   `usage` (kosmos#5532): whether the accepted words name usage for every Kosmos; only then is the child told 'usage'. */
+function gatherIn(env, usage) {
   return new Promise((resolve) => {
-    require('child_process').execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'gather'],
+    require('child_process').execFile(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'gather'].concat(usage === true ? ['usage'] : []),
       { env, timeout: GATHER_TIMEOUT_MS, maxBuffer: GATHER_STDOUT_MAX }, (err, stdout) => {
         if (err) return resolve(null);
         try {
@@ -598,6 +690,8 @@ async function sendOthers(c) {
   // Words that do not name every Kosmos keep no signatures (board review 2, decided): words naming them again resend
   // every Kosmos at once, the safe direction (the enrolled Kosmos's own signature, by contrast, survives new words).
   if (!c.accepted || c.accepted.everyKosmosConsented !== true) return next;
+  // kosmos#5532: another Kosmos's usage only under words naming usage for every Kosmos, not this one's alone.
+  const otherUsage = c.accepted.usageConsented === true && c.accepted.everyKosmosUsageConsented === true;
   let list = [];
   const seen = new Set();
   /* Every other Kosmos, not the first fifteen in registry order (board review 15): one enrolled itself, or unreadable,
@@ -622,7 +716,7 @@ async function sendOthers(c) {
       break;
     }
     let got = null;
-    try { got = await (c.o.gatherIn || gatherIn)(w.env); } catch { got = null; }
+    try { got = await (c.o.gatherIn || gatherIn)(w.env, otherUsage); } catch { got = null; }
     // A Kosmos that may belong to a company was not read at all (board review 9): skipped, and its old marks pruned.
     if (got && got.enrolled === true) continue;
     const idOk = !!got && require('./orgenroll').WORLD_ID.test(got.world);
@@ -638,7 +732,7 @@ async function sendOthers(c) {
     if (got.enrolled !== false) { held.delete(got.world); missed.delete(got.world); continue; }
     if (Object.prototype.hasOwnProperty.call(prev, got.world)) next[got.world] = prev[got.world];
     const g = got.gathered;
-    if (c.accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+    if (!otherUsage) { g.usageByDay = {}; g.usageWithheld = true; delete g.usageIncomplete; }
     // The company's policy is the computer's, reported by the enrolled Kosmos. Stripped BEFORE the signature below, so
     // the signature is of what is sent (board review 12: moving this after it would change every other Kosmos's).
     delete g.policyVersion; delete g.policyRefused; delete g.policyUsage;
@@ -696,7 +790,7 @@ async function sendOthers(c) {
 /**
  * One tick: send if this world is the enrolled one AND (a day has passed OR the agents or projects changed and the
  * last send is CHANGE_MIN_MS old), unless a failure was within RETRY_AFTER_FAIL_MS. Never throws.
- * opts: { root, remote, sources, now } (tests); the board passes nothing.
+ * opts: { root, remote, sources, now, usageReadMs (tests only) } (tests); the board passes nothing.
  */
 async function tick(opts) {
   const startedReal = Date.now();
@@ -789,11 +883,14 @@ async function tick(opts) {
     delete st.printWaitAt; delete st.printWaitWhy; delete st.printWaitHash;
     writeState(root, Object.assign({}, st, { enrolledAs }));
   }
-  const g = await gather(o.sources);
+  /* kosmos#5532: read without usage first. The signature never includes usage, so whether anything is due is decided
+     without it, and the scan (a week of transcripts, uncached) runs only for a send, below. */
+  const src = o.sources || defaultSources();
+  const g = await gather(src, { usage: false });
   /* Usage leaves only under a consent that named it (review 8): a reader added to the sources later cannot turn it on
-     by itself. Until the enrollment records `usageConsented` (set by the consent follow-up when the accepted words name
-     usage), any usage read is dropped and the body says usageWithheld. */
-  if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; }
+     by itself. The read above takes none; this is the backstop, and usage is read only for a send, below, when the
+     accepted words name it (usageConsented, recorded from NAMES_USAGE). */
+  if (accepted.usageConsented !== true) { g.usageByDay = {}; g.usageWithheld = true; delete g.usageIncomplete; }   // backstop: gather above read none
   /* #5534: the policy version, and whether a bundle was refused, leave only under words that name the policy. Read as a
      create reads it (orgpolicy.refresh: the bundle on disk verified, the last good one kept; it may apply a newer
      bundle, as a create would, and reads the shared data folder, not o.root). Only this company's: a policy another
@@ -839,6 +936,7 @@ async function tick(opts) {
   const changed = !g.partial && st.lastSig && sig !== st.lastSig;
   if (!due && !(changed && (!st.lastAt || now - st.lastAt >= CHANGE_MIN_MS)))   // no last send on record: long ago (review 16)
     return { sent: false, because: 'nothing due' };
+  if (accepted.usageConsented === true) { delete g.usageWithheld; await readUsage(src, g, o.usageReadMs); }   // usageReadMs: tests only
   const body = build(Object.assign({ world: rec.world, at: new Date(now).toISOString(), reason: due ? 'daily' : 'change', nowMs: now }, g));
   /* #5532 (v1.5): the computer print pinned at enroll, made from this world's own record. Once a print is pinned the
      company refuses a rollup without it (a copy would just leave it out), so a read still retrying waits for the next
@@ -997,6 +1095,7 @@ function waitingForPrint(root) {
 }
 
 module.exports = {
+  _resetUsageScanForTests, CHILD_USAGE_READ_MS,
   waitingForPrint, KNOWN_RUNNERS, KNOWN_PROVIDERS,
   DAILY_MS, CHANGE_MIN_MS, RETRY_AFTER_FAIL_MS, RETAKE_EVERY_MS, RECHECK_NO_REPORTS_MS, STATE_FILE, RETAKE_FILE, signature, tick,
   ROUTE, VERSION, NAME_MAX, AGENTS_MAX, PROJECTS_MAX, NAMES_MAX, USAGE_DAYS, USAGE_ROWS_PER_DAY, BODY_MAX,
