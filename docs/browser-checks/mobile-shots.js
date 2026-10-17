@@ -1110,6 +1110,18 @@ const SCREENS = [
       && document.activeElement.matches(':focus-visible'));
     if (!focused) throw new Error('the focus shot lost its focus ring (Org chart is not focused-visible)');
   } },
+  /* kosmos#6324: the team map from the consolidated layout's Agents rail head, open, for the project. Desktop only, as
+     the consolidated view is. Opening the project closes the Agents view openConsAgents opened, which is the point. */
+  { name: 'cons-teammap-6324', owner: 'April', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await openConsAgents(page);
+    await page.evaluate((id) => { PJ_TEAMMAP_OPEN.delete(String(id)); openProject(id); }, data.projectId);
+    await page.waitForFunction(() => { const b = document.getElementById('alist-teammap-btn'); return b && !b.hidden && b.getClientRects().length > 0; }, null, { timeout: 8000 });
+    await page.click('#alist-teammap-btn', { timeout: 5000 });
+    await page.waitForFunction(() => { const m = document.getElementById('alist-teammap'); return m && !m.hidden && m.querySelector('.pjtm-node'); }, null, { timeout: 5000 });
+  }, verify: async (page) => {
+    const ok = await page.evaluate(() => { const m = document.getElementById('alist-teammap'); return !!m && !m.hidden && m.getClientRects().length > 0 && !!m.querySelector('.pjtm-node'); });
+    if (!ok) throw new Error('the rail team map is not open with its members');
+  } },
   { name: 'create-agent', owner: 'unowned', go: async (page) => {
     // A real tap (visible, not covered), the way a phone user reaches it; a hidden button fails the shot.
     await page.click('#new-agent', { timeout: 5000 });
