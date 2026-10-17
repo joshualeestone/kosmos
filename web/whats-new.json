@@ -16,6 +16,11 @@
     },
     {
       "icon": "shield",
+      "title": "A monthly AI cap for families",
+      "line": "Parents can now set a monthly cap on a child's Claude use in the family console; at the cap, Kosmos takes no new messages for its agents."
+    },
+    {
+      "icon": "shield",
       "title": "The restart check says what it could not check",
       "line": "When the Agents tab cannot tell whether some agents come back after a restart, it now says which ones, instead of leaving them out.",
       "platforms": [
@@ -26,11 +31,6 @@
       "icon": "tasks",
       "title": "Idle agents hear which scheduled run is due",
       "line": "When a repeating task's run is due, an idle agent's reminder names that run and tells it how to record it."
-    },
-    {
-      "icon": "tasks",
-      "title": "Agents are told how to finish a task",
-      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
     }
   ]
 }
