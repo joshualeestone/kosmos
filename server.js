@@ -1026,7 +1026,8 @@ function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
   // filesystem-free for the unauthenticated case, not only the active-token one.
-  if (!boardauth.presentedToken(req, ROUTING_BASE)) return false;
+  // #6358: a cookie whose session ended presents nothing, so a signed-out tab's every poll stays off the disk too.
+  if (!boardauth.presentsCredential(req, ROUTING_BASE)) return false;
   if (boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) return true;
   let others;
   try {

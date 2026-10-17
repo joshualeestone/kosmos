@@ -111,6 +111,10 @@ self.addEventListener('fetch', (event) => {
   /* App-shell navigations: network-first so an online open always gets the
      freshest board (the whole app is one no-store HTML file), falling back to
      the cached shell only when offline. */
+  /* #6358: a sign-in navigation (?token= / ?boot=) is left to the network alone. With the cached shell as a
+     fallback, a sign-in that met a down board would commit at the sign-in address, and the Mac app reads a page
+     still carrying token= as the board refusing it. Without the worker, a down board commits nothing. */
+  if (req.mode === 'navigate' && (url.searchParams.has('token') || url.searchParams.has('boot'))) return;
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {

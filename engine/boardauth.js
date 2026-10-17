@@ -612,6 +612,12 @@ function liveSessionIds() {
   return [..._sessions.keys()];
 }
 
+/** #6358: whether a request presents anything the gate could accept: a live session (cookie), or a header or query
+ * token. A cookie whose session ended is nothing, so the gate can refuse it without reading the worlds registry. */
+function presentsCredential(req, routingBase) {
+  return sessionToken(cookieToken(req)) !== null || !!nonCookieToken(req, routingBase);
+}
+
 /** The board-token header, then the `?token=` query: what a request presents besides its cookie. */
 function nonCookieToken(req, routingBase) {
   const h = req && req.headers && req.headers[HEADER_NAME];
@@ -621,8 +627,7 @@ function nonCookieToken(req, routingBase) {
 
 /**
  * The bootstrap decision. Not pure since #6358: a sign-in mints a session into this module's store. A valid
- * `?token=` (or `?boot=`) on a GET/HEAD navigation that holds no live session is the browser / native-app
- * first load: return the
+ * `?token=` (or `?boot=`) on a GET/HEAD navigation, live session or not, is a sign-in: return the
  * cookie to set and the clean URL to redirect to (token stripped), so every
  * subsequent same-origin request carries the cookie automatically. This runs on
  * EVERY route -- including the exempt static shell -- so the operator can land on
@@ -721,7 +726,7 @@ module.exports = {
   // #1979: single-use browser-open nonces.
   mintNonce, redeemNonce, bootNonce, _setNonceClock,
   // #6358: browser sessions (the cookie's value).
-  mintSession, sessionToken, sessionLeftMs, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
+  mintSession, sessionToken, sessionLeftMs, presentsCredential, liveSessionIds, SESSION_MAX_MS, SESSION_MAX_COUNT, _resetSessions, clearedCookieHeader,
   // #2030: reauth-seeded marker, written on `?boot=` redemption not at dispatch.
   reauthMarkerPath, seedReauthMarker, REAUTH_SEEDED_FILE,
 };

@@ -259,3 +259,15 @@ test('ensureToken() writes a mode-600 token in a mode-700 dir and is idempotent'
     fs.rmSync(SB, { recursive: true, force: true });
   }
 });
+
+test('#6358: presentsCredential: a live session or a token presents something; a dead session cookie presents nothing', () => {
+  const base = 'http://localhost';
+  boardauth._resetSessions();
+  const sid = boardauth.mintSession('T');
+  assert.equal(boardauth.presentsCredential(req({ cookie: 'kosmos_board=' + sid }), base), true);
+  assert.equal(boardauth.presentsCredential(req({ header: 'T' }), base), true);
+  assert.equal(boardauth.presentsCredential({ url: '/api/x?token=T', headers: {} }, base), true);
+  boardauth._resetSessions();   // a restart
+  assert.equal(boardauth.presentsCredential(req({ cookie: 'kosmos_board=' + sid }), base), false, 'a session a restart forgot is nothing');
+  assert.equal(boardauth.presentsCredential({ url: '/api/x', headers: {} }, base), false);
+});

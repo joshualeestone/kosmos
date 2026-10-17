@@ -145,7 +145,8 @@ test('#6358: the one sentence (agents box, projects, org note) is true in the ap
   const m = PAGE.match(/const SIGNIN_SENTENCE = platformCopy\('signinSentence', '([^']*)'\)/);
   assert.ok(m, 'SIGNIN_SENTENCE is gone');
   assert.match(m[1], /The Kosmos app signs itself in again/, 'true in the app');
-  assert.match(m[1], /In a browser tab, open Kosmos from your Applications folder/, 'actionable in a tab');
+  assert.match(m[1], /A browser tab stays signed out until it is signed in again/, 'true in a tab: opening the app does not sign the tab in');
+  assert.doesNotMatch(m[1], /;/, 'no semicolon: liftConst-based tests cut the sentence at the first one');
 });
 
 test('#6358: the stuck switch waits well past the retell plus a poll, and the give-up marker is read before boot rewrites the address', () => {
@@ -155,4 +156,34 @@ test('#6358: the stuck switch waits well past the retell plus a poll, and the gi
   const marker = PAGE.indexOf('let SIGNIN_FAILED_AT_LOAD =');
   const boot = PAGE.lastIndexOf('showTab(BOOT_TAB);');
   assert.ok(marker > 0 && boot > 0 && marker < boot, 'SIGNIN_FAILED_AT_LOAD is read before boot\'s showTab (which runs syncUrl)');
+});
+
+test('#6358: the give-up marker is kept for the window (a reload still says what to do) and a good read clears it', () => {
+  const key = PAGE.match(/const SIGNIN_FAILED_KEY = '[^']+';/);
+  const start = PAGE.indexOf('let SIGNIN_FAILED_AT_LOAD = (() => {');
+  assert.ok(key && start > 0, 'the marker code is gone');
+  const src = key[0] + '\n' + PAGE.slice(start, PAGE.indexOf('})();', start) + 5) + '\nSIGNIN_FAILED_AT_LOAD;';
+  const load = (search, stored) => {
+    const store = new Map(stored ? [[key[0].match(/'([^']+)'/)[1], '1']] : []);
+    const ctx = { URLSearchParams, location: { search }, sessionStorage: { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, v) } };
+    vm.createContext(ctx);
+    return { failed: vm.runInContext(src, ctx), store };
+  };
+  const first = load('?signin=failed', false);
+  assert.equal(first.failed, true, 'the app\'s give-up address marks the window');
+  assert.equal(first.store.size, 1, 'and keeps the mark for this window');
+  assert.equal(load('?tab=agents', true).failed, true, 'a reload (the address rewritten by boot) still knows it gave up');
+  assert.equal(load('?tab=agents', false).failed, false, 'CONTROL: a window that never gave up is not marked');
+  const at200 = PAGE.indexOf('SIGNED_OUT_TOLD_AT = 0; SIGNED_OUT_SINCE = 0;');
+  assert.ok(at200 > 0, 'the 200 branch no longer resets the sign-out clock');
+  const next = PAGE.slice(at200, PAGE.indexOf('\n', PAGE.indexOf('\n', at200) + 1));
+  assert.match(next, /sessionStorage\.removeItem\(SIGNIN_FAILED_KEY\)/, 'a good read clears the kept mark');
+});
+
+test('#6358: a good board read (the badge post) resets the app\'s give-up and its count of fruitless sign-ins', () => {
+  const said = lift(APP, 'func pageSaidWaiting(');
+  assert.match(said, /boardAnsweredForSignIn\(\)/, 'without this, every app gives up after its third restart');
+  const reset = lift(APP, 'func boardAnsweredForSignIn(');
+  assert.match(reset, /signInAgainGaveUp = false/);
+  assert.match(reset, /signInsWithoutRead = 0/);
 });

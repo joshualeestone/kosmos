@@ -42,7 +42,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     rewrites the address. The app then stays out of it until a read works, which in
     practice means Kosmos is reopened.
   - `urlForLog` keeps the token out of the two launch log lines.
-  - All pure, with `--kosmos-app-mode-selftest` rows: 135 in all. The reload log line goes through `urlForLog` too.
+  - All pure, with `--kosmos-app-mode-selftest` rows: 138 in all. The reload log line goes through `urlForLog` too.
 - **`web/index.html`**
   - On the poll's 403, inside the Mac app (or the Windows app, `{ kosmosSignin: true }`), tell the app
     (`signedOutTellApp`). Not on every poll: again after 65 s, a little over the app's own limit, and at once after a
@@ -112,7 +112,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - Three mutants were run by hand (not in the suite), each restored after: dropping the poll's call, the
     told-guard, or the proxy's origin check. Each failed its own assertion.
 - **`web.win32-board-copy.test.js`:** the Mac copy pin follows the new copy, and a Linux arm was added.
-- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 135/135.
+- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 138/138.
 - **The server tests that sign in with a cookie** take their session from the bootstrap (server.board-auth-1946,
   -worldswitch-3055). 1946 also checks that the old token cookie is ended and a live or foreign one is not.
 - The no-URL-in-logs test checks today's spellings only (`\(url`, `absoluteString`, `\(page`). It is not general
@@ -142,3 +142,15 @@ header. A sender that set the cookie to the token would now be refused, and its 
   after 3 accepted sign-ins in a row with no good read (an accepted sign-in whose cookie is not kept).
 - The give-up marker is kept in sessionStorage for the window, so a reload after a give-up still says what to do. A
   200 clears it.
+
+## Also (review rounds 8 and 9)
+- The app also gives up after `signInAgainTries` (3) accepted sign-ins in a row with no good read, and a refusal
+  only counts for the token held now (a changed board.token gets one more try).
+- The board's service worker leaves sign-in navigations (`?token=` / `?boot=`) to the network, so a sign-in that
+  meets a down board commits nothing; served from the cached shell, it would read as a refusal
+  (web.sw-shell-4103, mutation-checked).
+- `presentsCredential`: a cookie whose session ended presents nothing, so the gate refuses it without reading the
+  worlds registry.
+- The server tests passed on 2a189624c8: 79/79, 0 skipped (7 files, real in-process boards).
+- One race, once, during the move to sessions: a request already in flight with the old token cookie can come back
+  ending the cookie after the sign-in set the new one. The window then signs in again (one extra round).

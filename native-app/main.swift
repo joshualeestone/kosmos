@@ -1543,13 +1543,14 @@ func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> Str
 
 /// #6358: PURE, for --kosmos-app-mode-selftest. Whether the board REFUSED the window's last sign-in, from the board's
 /// own answer: an accepted `?token=` is redirected to the clean address, a refused one is not, so the page the window
-/// committed on this board still carries `token=`. A board that was down never commits a page at all, which is no
-/// refusal (the app signs in again on the next "signed out").
-func signInWasRefused(_ committed: URL?, board: (host: String, port: Int)) -> Bool {
-    guard let u = committed, u.scheme?.lowercased() == "http", u.host?.lowercased() == board.host.lowercased(),
-          (u.port ?? 80) == board.port,
+/// committed on this board still carries `token=`. A board that was down never commits a page at all (the board's
+/// service worker leaves sign-in navigations to the network), which is no refusal. And only a refusal of the token
+/// held NOW counts: if board.token changed since (rotated, or rewritten by a start), one more sign-in may work.
+func signInWasRefused(_ committed: URL?, board: (host: String, port: Int), current: String?) -> Bool {
+    guard let current = current, let u = committed, u.scheme?.lowercased() == "http",
+          u.host?.lowercased() == board.host.lowercased(), (u.port ?? 80) == board.port,
           let items = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems else { return false }
-    return items.contains { $0.name == "token" }
+    return items.contains { $0.name == "token" && $0.value == current }
 }
 
 /// #6358: PURE, for --kosmos-app-mode-selftest. What the app does with the page's "signed out": sign in again; wait
@@ -4515,7 +4516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func pageSaysSignedOut() {
         guard computerMode != .connect, let board = badgeOrigin else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        let refused = signInWasRefused(committedPageURL, board: board)
+        let refused = signInWasRefused(committedPageURL, board: board, current: boardTokenValue())
         switch signInAgainDecision(now: now, last: lastSignInAgainAt, refused: refused, haveToken: boardTokenValue() != nil,
                                    gaveUp: signInAgainGaveUp, triesWithoutRead: signInsWithoutRead) {
         case .stay:
@@ -6930,7 +6931,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     tries(signInAgainTries, .giveUp, "THREE ACCEPTED SIGN-INS AND STILL NO READ: give up, not a reload every minute forever")
     func refusedOn(_ s: String?, _ want: Bool, _ why: String) {
         ran += 1
-        let got = signInWasRefused(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180))
+        let got = signInWasRefused(s.flatMap { URL(string: $0) }, board: ("127.0.0.1", 16180), current: "T")
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + "refused?   " + why)
     }
@@ -6938,6 +6939,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     refusedOn("http://127.0.0.1:16180/?tab=a", false, "redirected to the clean address: accepted")
     refusedOn("https://amy.kosmosplus.com/?token=T", false, "another origin says nothing about this board")
     refusedOn(nil, false, "nothing committed (the board was down): not a refusal")
+    refusedOn("http://127.0.0.1:16180/?token=OLD", false, "a refusal of an older token: board.token changed since, so try once more")
     func link(_ s: String, _ clicked: Bool, _ want: ConnectLink, _ why: String) {
         ran += 1
         let got = URL(string: s).map { connectLinkDecision(for: $0, clicked: clicked) }
@@ -7139,7 +7141,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 137   // #6358: +25 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 138   // #6358: +26 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

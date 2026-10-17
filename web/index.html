@@ -38514,7 +38514,7 @@ function deviceSignedOutHtml(what) {
    app, which signs itself in. A terminal command is never the lead: the bare CLI
    name is not on PATH in a shell that has not loaded ~/.zprofile (it failed for
    Josh with command-not-found), so the full-path line is a disclosure footnote. */
-const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. The Kosmos app signs itself in again. In a browser tab, open Kosmos from your Applications folder.');
+const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. The Kosmos app signs itself in again. A browser tab stays signed out until it is signed in again.');
 function boardSigninHtml() {
   /* win32-board-copy (W-24): on Windows updates are by hand, so nothing fixes itself, and
      there is no ~/.local path or kosmos command. Opening Kosmos.exe mints the token. */
