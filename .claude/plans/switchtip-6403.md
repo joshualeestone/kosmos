@@ -60,13 +60,14 @@ The tip:
 - 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
   tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
   whose handler runs first.
+- 14 sonnet: a real mouse click over a control placed under the tip (and its CONTROL); stale comments fixed.
 - 13 opus: a leftover Escape comment replaced; mobile-shots guidance; per-address wording.
 - 12 sonnet: Escape handling removed (every Escape finding traced to it); a real hit test for clicks on the tip.
 
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks
    in askAct and paintPlus, the listeners (visibilitychange, focus, resize, the tip's click), the tip markup + CSS.
-2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 140. render-connect-sheet-4637.js: the Allow and
+2. render-onekosmos-4815.js: every behaviour above with CONTROLs; floor 148. render-connect-sheet-4637.js: the Allow and
    let-in reads (spy + real reads) with CONTROLs. The five checks + mobile-shots: seen flag seeded.
 3. Mutants red: no focus read, no seen memory, no close handler, no tab-shown read, no follow-up
    seen-at-show, hidden-tab seen, no page write.
