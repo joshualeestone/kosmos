@@ -20676,7 +20676,8 @@ function pnavFill(name) {
       const nm = row.querySelector('.worldsw-rowname'), st = row.querySelector('.worldsw-state');
       const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
       it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
-      if (row.tagName === 'A') { it.href = row.href; it.target = '_blank'; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
+      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -30794,7 +30795,7 @@ function oaCard(a, c, off) {
   const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
   if (!off) {
     el.href = oaAgentHref(c.address, a.sessionName);
-    el.target = '_blank';
+    if (!(typeof computersInApp === 'function' && computersInApp())) el.target = '_blank';   // #6406: in the app, its window
     el.rel = 'noopener noreferrer';
     el.setAttribute('aria-label', 'Open ' + name + ' on ' + c.name);
   }
@@ -30826,7 +30827,7 @@ function oaGroup(c, seen, now) {
     const open = document.createElement('a');
     open.className = 'oa-open';
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (!(typeof computersInApp === 'function' && computersInApp())) open.target = '_blank';   // #6406: in the app, its window
     open.rel = 'noopener noreferrer';
     open.textContent = 'Open ' + c.name;
     head.appendChild(open);
@@ -31124,7 +31125,7 @@ function aoGroup(c, seen, ao, now) {
   if (st !== 'out') {   // as the Agents view's group (#4812): where to sign in, or to see it there
     const open = aoEl('a', 'oa-open', 'Open ' + c.name);
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (!(typeof computersInApp === 'function' && computersInApp())) open.target = '_blank';   // #6406: in the app, its window
     open.rel = 'noopener noreferrer';
     g.appendChild(open);
   }
