@@ -10,7 +10,7 @@ and pressing it starts exactly one new attempt. A test proves an overnight with 
   lapsed or every try is used; `JoinStatus.needs_retry`. Tests: overnight (12 h, polled every minute) spends 1 try
   (mutant with the old auto-restart spends 10); one Try again = one attempt; refusals; CLI test.
 - kosmos `retrygate-6353`: engine `joinStatus` passes `needs_retry`; `joinRetry`; screen-only
-  `POST /api/remote/join/retry`; page needs_retry state with a Try again button; render-connect-sheet-4637 arm.
+  `POST /api/remote/join/retry`; page needs_retry state with a Try again button; render-connect-sheet-4637 arm; design-shots screen plus-join-retry (mobile-shots.js).
 
 ## Decided
 - Counting stays where it is (a try is spent when the other computer answers). Rejected: free unanswered codes, which

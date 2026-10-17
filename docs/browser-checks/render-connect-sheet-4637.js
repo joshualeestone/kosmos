@@ -362,6 +362,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForTimeout(500);
       const rightAfter = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry'),
         focus: document.activeElement && document.activeElement.id, pill: document.getElementById('plus-pill').textContent }));
+      /* Rounds failing for ten minutes after the press: the tunnel's Try again has lapsed too, so the promise goes. */
+      const promiseOld = await page.evaluate(() => { const was = PLUS_JOIN_RETRY_AT; PLUS_JOIN_RETRY_AT = Date.now() - 601 * 1000; paintPlusJoin();
+        const t = (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(); PLUS_JOIN_RETRY_AT = was; paintPlusJoin(); return t; });
+      chk(promiseOld === 'That code ran out.', `${tag} #6353: ten minutes after an accepted Try again with no round answering, the block stops promising a code`, promiseOld);
       await page.waitForTimeout(3500); joinDelayMs = 0;
       chk(retryPosts === postsBefore + 1 && rightAfter.text === 'That code ran out. A new one is on its way.' && !rightAfter.btn && rightAfter.focus === 'plus-join' && rightAfter.pill === 'Waiting to be allowed',
         `${tag} #6353: Try again posts once, and at once the block says a new code is on its way (no button, before any round; focus stays in the block)`, JSON.stringify({ posts: retryPosts - postsBefore, rightAfter }));
@@ -378,6 +382,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /could not be reached/.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       const failSay = await page.evaluate(() => ({ text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') }));
       chk(/could not be reached/.test(failSay.text) && failSay.btn, `${tag} #6353: a Try again that did not go through says why and leaves Try again`, JSON.stringify(failSay));
+      const failOld = await page.evaluate(() => { const was = PLUS_JOIN_MSG_AT; PLUS_JOIN_MSG_AT = Date.now() - 601 * 1000; paintPlusJoin();
+        const out = { text: (document.getElementById('plus-join').innerText || '').replace(/\s+/g, ' ').trim(), btn: !!document.getElementById('plus-join-retry') };
+        PLUS_JOIN_MSG_AT = was; paintPlusJoin(); return out; });
+      chk(!/could not be reached/.test(failOld.text) && failOld.btn, `${tag} #6353: a Try again refusal is not left under the button after ten minutes, and Try again stays`, JSON.stringify(failOld));
       /* Refused because the pairing moved on: the button does not come back pressable before a round says what is next. */
       await page.waitForTimeout(4100);   // the failed press's own read, paced, is done
       join = { ...join, needs_retry: true, confirm_expired: true };
