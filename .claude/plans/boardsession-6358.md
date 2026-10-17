@@ -175,3 +175,14 @@ header. A sender that set the cookie to the token would now be refused, and its 
   until the give-up page loads (the board's own token, in the app's own webview, stripped by syncUrl; not in logs).
   Session eviction at the 1000 cap is oldest first, not by use: a local process that already holds the token can
   push the app's session out, and the app signs in again within a minute.
+
+## Rounds 15 to 17, applied 2026-10-17
+- Round 15: the 403 and Windows browser checks pin the shipped tab copy (the tab's own sign-in leads, then the app);
+  a page reached through Kosmos+ gets its own panel (Reload, else Kosmos must be open on the computer it runs on).
+- Round 16: no Linux signinSentence (the default points to the panel, true locally and through Kosmos+).
+- Round 17: the Kosmos+ panel comes before every platform branch, Windows included. The add-project hint no longer
+  says a not-signed-in board can still add a project (the gate refuses that POST too).
+- Left as is, decided: the Windows SIGNIN_SENTENCE (W-24, pinned exactly, from before this card) still says to
+  double-click Kosmos.exe when read through Kosmos+. That is where the remedy is (the computer Kosmos runs on), worded
+  as if local. Changing it means touching a load-time constant several tests evaluate. Revisit if a Windows Kosmos+
+  403 is ever seen (the connector presents the token header, so it is rare).

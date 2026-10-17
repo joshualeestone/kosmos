@@ -38521,6 +38521,17 @@ function deviceSignedOutHtml(what) {
    Josh with command-not-found), so the full-path line is a disclosure footnote. */
 const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. The not-signed-in note on the agents list says what to do.');
 function boardSigninHtml() {
+  /* Through Kosmos+ (a phone, another computer, or a connect computer's app window) there is no terminal here and no
+     app sign-in for this board: Kosmos+ signs in from the computer Kosmos runs on, so that is where the remedy is.
+     First, before any platform: Kosmos.exe, kosmos open and the Applications folder are all on that other computer. */
+  if (typeof kplusRemote === 'function' && kplusRemote()) {
+    return '<div class="pj-empty boardfail">'
+      + '<p><b>This board is not signed in.</b><br>'
+      + 'It cannot read your agents or projects through Kosmos+. Press Reload. If it stays signed out, Kosmos needs '
+      + 'to be open on the computer it runs on.</p>'
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   /* win32-board-copy (W-24): on Windows updates are by hand, so nothing fixes itself, and
      there is no ~/.local path or kosmos command. Opening Kosmos.exe mints the token. */
   if (onWindows()) {
@@ -38530,16 +38541,6 @@ function boardSigninHtml() {
   }
   /* #6358: a board restart (an update included) ends every browser sign-in. The Mac app signs its own window in
      again (signedOutTellApp), so there this panel shows only for a moment; a browser tab cannot, so it says how. */
-  /* Through Kosmos+ (a phone, another computer, or a connect computer's app window) there is no terminal here and no
-     app sign-in for this board: Kosmos+ signs in from the computer Kosmos runs on, so that is where the remedy is. */
-  if (typeof kplusRemote === 'function' && kplusRemote()) {
-    return '<div class="pj-empty boardfail">'
-      + '<p><b>This board is not signed in.</b><br>'
-      + 'It cannot read your agents or projects through Kosmos+. Press Reload. If it stays signed out, Kosmos needs '
-      + 'to be open on the computer it runs on.</p>'
-      + '<button class="btn" type="button" data-board-retry>Reload</button>'
-      + '</div>';
-  }
   if (onLinux()) {
     return '<div class="pj-empty boardfail">' + linuxCopy('signinPanel')
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
@@ -75023,7 +75024,7 @@ function paintAddAgents() {
   const box = document.getElementById('pj-add-agents');
   // #2023: a not-signed-in board is a known state with a remedy, not "cannot
   // read". Checked first so a 403 (which also sets BOARD_LOOK_FAILED) draws the
-  // self-heal copy here too, not the generic could-not-see-them sentence.
+  // not-signed-in sentence here too, not the generic could-not-see-them sentence.
   /* #718 state 3: no "you can still add the project" here: the relay refuses a signed-out
      device's POST too, so it cannot create one until it signs in. */
   /* #718 state 1: an offline device cannot reach the Mac to add a project either, so no
@@ -75037,8 +75038,8 @@ function paintAddAgents() {
     return;
   }
   if (BOARD_NEEDS_SIGNIN) {
-    setLive(box, '<p class="fhint">' + SIGNIN_SENTENCE + ' You can still '
-      + 'add the project and put agents on it later.</p>');
+    // #6358: no "you can still add the project": the board's gate refuses a not-signed-in POST too.
+    setLive(box, '<p class="fhint">' + SIGNIN_SENTENCE + '</p>');
     return;
   }
   // ⚠️ "We have not looked yet" is NOT "there are none", and saying the second
