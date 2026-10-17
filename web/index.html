@@ -5382,7 +5382,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
      the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
      does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
-     over the rows; it never takes a click. The scroll padding (and railPjMore's focusin nudge, for engines that ignore it on a focus scroll) keeps a
+     over the rows; it never takes a click. The scroll padding (and the focusin nudge beside railPjMore, for engines that ignore it on a focus scroll) keeps a
      control focused from the keyboard above the fade (WCAG 2.4.11). */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: 28px; margin-top: -28px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn:not(:empty) { scroll-padding-bottom: 28px; }
