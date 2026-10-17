@@ -8,7 +8,8 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
 - The opener is chosen per platform, AFTER the #1765 refusals (a board that fails the proof or the nonce request is
   neither opened nor printed, unchanged):
   - `KOSMOS_OPEN_BIN` set: it wins (the test seam, or a person's own choice), as before.
-  - Darwin: `/usr/bin/open`, as before.
+  - Darwin: `/usr/bin/open`, as before. Its FAILURE path is the shared one below, so on a Mac a failed open on an
+    enforcing board now hands a person the one-time address (still exit 1), and not the plain address it gave before.
   - Linux with `DISPLAY` or `WAYLAND_DISPLAY` and `xdg-open` on PATH: `xdg-open`.
   - Anything else: no opener.
 - No opener:
@@ -41,15 +42,26 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   ends non-zero with "Could not open a browser from here." on stderr (#1957: a failed open never exits 0).
 - Platforms other than Darwin and Linux (a BSD, Cygwin) get no opener now. Before, they ran a `/usr/bin/open` they
   do not have and failed; now they hand over the address, which is the better of the two.
-- `xdg-open` can exit 0 while nothing opens (no handler); as on macOS (#1957), the words name the address.
+- `xdg-open` can exit 0 while nothing opens (no handler); as on macOS (#1957), the words name the address. In its
+  generic fallback it runs `$BROWSER` in the foreground, so `kosmos open` can wait until that browser exits.
 - Not measured on a real Linux desktop: the arms run the CLI as Linux on macOS through `KOSMOS_PLATFORM`, with a stub
   xdg-open on PATH.
 
 ## Checks
-- `cli.open-linux-6361.test.js` (6 tests): Linux with a display opens the nonce address with xdg-open; no display and
-  no terminal prints no nonce and exits 1; no display at a terminal (script(1)) prints it; a non-enforcing board gives
-  the plain address; a failed proof is neither opened nor printed even at a terminal with a display; the macOS opener
-  is unchanged. Mutants: the original cmd_open reds 5 of 6; dropping the terminal guard reds the no-terminal arm.
+`cli.open-linux-6361.test.js` (12 tests, the CLI run as Linux through `KOSMOS_PLATFORM`, a stub xdg-open on PATH):
+- Linux with DISPLAY opens the one-time address with xdg-open; Wayland alone counts as a display.
+- No display, no terminal: no one-time address, exits 1, says why, gives the full-path command, never "sign in there".
+- No display, at a terminal (script(1)): the one-time address is printed.
+- A non-enforcing board: the plain address.
+- A failed proof: neither opened nor printed, even at a terminal with a display.
+- An agent at a terminal: not handed the address (CONTROL: a person at the same terminal is); an agent is told to ask
+  the person.
+- A failed xdg-open at a terminal still hands over the address and exits non-zero; a failed opener on an enforcing
+  board as Darwin, not at a terminal, prints no address and exits non-zero.
+- A platform that is neither: no opener runs.
+- A source check that Darwin keeps /usr/bin/open and the old default is gone.
+Mutants: the original cmd_open reds 5 of the first 6; dropping the terminal guard, the agent check, or the fallback
+each reds its arm.
 
 ## Follow-up copy (PigeonPete, 07:23)
 boardsession-6358 (#6358) adds Linux copy to the not-signed-in panel in web/index.html: "Signing a local browser tab
