@@ -52,6 +52,7 @@ test('#6176: a line whose shape is not the measured one is skipped; the newest g
   const bad = [
     { ...good, ts: new Date(NOW - DAY).toISOString(), ctx: { config: { creditUsagePercent: 'x', currentPeriod: good.ctx.config.currentPeriod } } },
     { ...good, ts: new Date(NOW - DAY).toISOString(), ctx: { config: { creditUsagePercent: 10 } } },
+    { ...good, ts: new Date(NOW - DAY).toISOString(), ctx: { config: { creditUsagePercent: -1, currentPeriod: good.ctx.config.currentPeriod } } },
     { ...good, ts: new Date(NOW - DAY).toISOString(), ctx: { config: { creditUsagePercent: 10, currentPeriod: { start: 'x', end: 'y' } } } },
     '{"msg": "billing: fetched credits config", not json',
   ];
@@ -108,4 +109,36 @@ test('#6176 review 2: an unchanged log is not read again; a changed one is', () 
     assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 44, 'a new reading was not seen');
     assert.ok(opens >= 1, 'CONTROL: the changed log was read');
   } finally { fs.openSync = realOpen; }
+});
+
+test('#6176 review 3: a billing line with no percent is 0% (protobuf leaves out a zero), never skipped to an older period', () => {
+  const zero = billing(NOW - 60e3, 0, NOW - DAY, NOW + 6 * DAY);
+  delete zero.ctx.config.creditUsagePercent;
+  const h = home([billing(NOW - 2 * DAY, 91, NOW - 8 * DAY, NOW - DAY), zero]);
+  const r = groklimits.read(h, NOW);
+  assert.equal(r && r.windows[0].usedPct, 0, 'a fresh period with no percent read as no reading, or as the old period');
+  assert.equal(groklimits.readingOfRow({ ...zero, ctx: { config: { creditUsagePercent: '5', currentPeriod: zero.ctx.config.currentPeriod } } }), null, 'CONTROL: a percent that is not a number is still refused');
+});
+
+test('#6176 review 3: a growing log has only its new bytes read; a replaced log is read again', () => {
+  const filler = [];
+  for (let i = 0; i < 3000; i++) filler.push(other(NOW - DAY + i));
+  const h = home([billing(NOW - 2 * DAY, 20, NOW - 3 * DAY, NOW + 4 * DAY), ...filler]);
+  const file = path.join(h, 'logs', 'unified.jsonl');
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 20);
+  const realRead = fs.readSync; let bytes = 0;
+  fs.readSync = (fd, buf, off, len, pos) => { bytes += len; return realRead(fd, buf, off, len, pos); };
+  try {
+    fs.appendFileSync(file, JSON.stringify(other(NOW - 30e3)) + '\n');
+    assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 20, 'the earlier reading was lost when the log grew');
+    assert.ok(bytes < 64 * 1024, 'a log that grew by one line was read from its tail again: ' + bytes + ' bytes');
+    fs.appendFileSync(file, '{"ts":"' + new Date(NOW - 20e3).toISOString() + '","msg":"billing: fetched credits config","ctx":{"config":{"creditUsagePercent":2');
+    fs.appendFileSync(file, '5,"currentPeriod":{"start":"' + new Date(NOW - 3 * DAY).toISOString() + '","end":"' + new Date(NOW + 4 * DAY).toISOString() + '"}}}}\n');
+    assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 25, 'CONTROL: a new reading in the new bytes is seen');
+  } finally { fs.readSync = realRead; }
+  // Replaced by another file (a new inode) of a different history: read again, not served from the cache.
+  const tmp = file + '.new';
+  fs.writeFileSync(tmp, JSON.stringify(billing(NOW - 60e3, 77, NOW - DAY, NOW + 6 * DAY)) + '\n');
+  fs.renameSync(tmp, file);
+  assert.equal(groklimits.read(h, NOW).windows[0].usedPct, 77, 'a replaced log was served from the cache');
 });

@@ -3,7 +3,7 @@
  * kosmos#6176 slice 3: a Grok subscription's usage, as Grok itself last logged it.
  *
  * On a grok.com sign-in, the Grok CLI fetches its billing state and logs it into its own log,
- * `<GROK_HOME>/logs/unified.jsonl`, one JSON object per line (`ts, lvl, src, pid, sid, ver, msg, ctx`):
+ * `<GROK_HOME>/logs/unified.jsonl`, one JSON object per line (`ts, lvl, src, pid, ver, msg, ctx`; other lines add `sid`):
  *   msg "billing: fetched credits config", ctx { config: { creditUsagePercent: 67.0,
  *     currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", start: "<RFC 3339>", end: "<RFC 3339>" }, ... },
  *     subscriptionTier: "X Premium" }
@@ -14,10 +14,10 @@
  *
  * Grok does not log a fetch every session (none here after 09-29, though Grok ran on 10-05, 10-07 and 10-10), so a
  * reading can be days old: `at` is the line's own time, for the page to say how old it is, and a reading whose period
- * has ended is dropped (its figure belongs to a period that is over). A billing line without the figure or period is
- * skipped and the newest line that has them answers (measured: Grok writes some billing lines with no percent at all,
- * 2 of 43 here), so a changed shape shows the last good reading, with its age, until its period ends; never a figure
- * read from a line it does not understand. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
+ * has ended is dropped (its figure belongs to a period that is over). A billing line with no percent means 0% (see
+ * readingOfRow). A line without a valid period, or with a percent that is not a number, is skipped and the newest line
+ * that has them answers, so a changed shape shows the last good reading, with its age, until its period ends; never a
+ * figure read from a line it does not understand. Read cheaply: the last 256 KB of the log, then 1 MB, then 4 MB, only
  * while no reading is found (a busy day logs past 256 KB, measured: the last 09-29 reading sits about 355 KB from the
  * end of a 1.5 MB log; the 4 MB step is headroom, not a measurement). Never throws.
  *
@@ -50,7 +50,10 @@ function readingOfRow(row) {
   const ctx = row.ctx && typeof row.ctx === 'object' ? row.ctx : null;
   const c = ctx && ctx.config && typeof ctx.config === 'object' ? ctx.config : null;
   if (!c || !Number.isFinite(at)) return null;
-  const pct = c.creditUsagePercent;
+  /* An absent percent is 0 (review 3): Grok's log is protobuf JSON, which leaves out a field whose value is zero. Measured:
+     the only two lines without it are the first of a fresh period, and the next lines in that period read 1.0. A percent
+     that is present but not a number is still refused. */
+  const pct = c.creditUsagePercent === undefined ? 0 : c.creditUsagePercent;
   const p = c.currentPeriod && typeof c.currentPeriod === 'object' ? c.currentPeriod : null;
   const start = p ? Date.parse(p.start) : NaN;
   const end = p ? Date.parse(p.end) : NaN;
@@ -63,26 +66,61 @@ function readingOfRow(row) {
   };
 }
 
-/* The newest valid reading per log file, kept while the file's size and time are unchanged (review 2: in the usual
-   state, no reading for days, every accounts read would otherwise scan up to 4 MB per account). */
+/* The newest valid reading per log file (review 2, 3): kept with the file's identity and size. An unchanged file is not
+   read; a file that only grew (Grok appends while it runs) has just its new bytes read, plus a little before them in
+   case a line was half written; a replaced or shorter file, or one that grew by more than the largest step, is read
+   again from its tail. */
 const newestCache = new Map();
+const OVERLAP = 16 * 1024;
+
+/** The newest valid billing line in `text`, or null. */
+function newestIn(text) {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (!line || line.indexOf(BILLING_MSG) === -1) continue;
+    let row; try { row = JSON.parse(line); } catch { continue; }
+    const r = readingOfRow(row);
+    if (r) return r;
+  }
+  return null;
+}
 
 /** The newest valid billing line in the file, whatever its period, or null. Reads the tail in TAIL_STEPS. */
 function newestReading(file, size) {
   for (const bytes of TAIL_STEPS) {
     const text = tail(file, bytes);
     if (!text) return null;
-    const lines = text.split('\n');
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i];
-      if (!line || line.indexOf(BILLING_MSG) === -1) continue;
-      let row; try { row = JSON.parse(line); } catch { continue; }
-      const r = readingOfRow(row);
-      if (r) return r;
-    }
+    const r = newestIn(text);
+    if (r) return r;
     if (bytes >= size) return null;   // the whole file was read
   }
   return null;
+}
+
+/** The bytes from `start` to `end` of a file as text, or null when they cannot be read. */
+function slice(file, start, end) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buf = Buffer.alloc(end - start);
+    fs.readSync(fd, buf, 0, end - start, start);
+    return buf.toString('utf8');
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
+
+function cachedNewest(file, st) {
+  const hit = newestCache.get(file);
+  const same = hit && hit.ino === st.ino && hit.dev === st.dev;
+  if (same && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.reading;
+  let r;
+  if (same && st.size > hit.size && st.size - hit.size <= TAIL_STEPS[TAIL_STEPS.length - 1]) {
+    const text = slice(file, Math.max(0, hit.size - OVERLAP), st.size);
+    if (text === null) return null;
+    r = newestIn(text) || hit.reading;
+  } else r = newestReading(file, st.size);
+  newestCache.set(file, { ino: st.ino, dev: st.dev, size: st.size, mtimeMs: st.mtimeMs, reading: r });
+  return r;
 }
 
 /**
@@ -97,10 +135,7 @@ function read(home, now = Date.now(), since = null) {
     if (typeof home !== 'string' || !home) return null;
     const file = path.join(home, 'logs', 'unified.jsonl');
     let st; try { st = fs.statSync(file); } catch { return null; }
-    const hit = newestCache.get(file);
-    let r;
-    if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) r = hit.reading;
-    else { r = newestReading(file, st.size); newestCache.set(file, { size: st.size, mtimeMs: st.mtimeMs, reading: r }); }
+    const r = cachedNewest(file, st);
     if (!r) return null;
     // A reading logged before this folder's current sign-in began is another login's (review 1): it says nothing.
     if (Number.isFinite(since) && r.at < since) return null;
