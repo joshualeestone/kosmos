@@ -5,7 +5,7 @@ Card: #6334 (fleet waiting). Owner: Angel. Splinter 18:40 CDT: "reversible so it
 ## Done means
 `tools/run-tests.sh` starts beside one other live suite by default (KOSMOS_SUITE_MAX, default 2) and waits for one to
 finish when two are live. An install harness, a queued-heavy turn and a release cut still wait for no suite at all.
-KOSMOS_SUITE_MAX=1 restores one at a time. One suite seen as several processes (a bash subshell keeps its parent's
+KOSMOS_SUITE_MAX=1 makes the run that sets it wait for no other suite; it does not change anyone else's run. One suite seen as several processes (a bash subshell keeps its parent's
 command line) counts once.
 
 ## Evidence the change rests on
@@ -33,17 +33,14 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   suites cannot starve heavy turns. A directly started install harness is not in that queue, but it marks itself
   before it waits (test-install.sh, kosmos_mark_run harness) and every suite refuses beside a live harness, waiting or
   not, so no new suite starts while it waits and the running ones drain to zero. Reasoned from the code, not run.
-- Known residual, not new: a run that starts with an empty queue asks once with no waiter marker, so two such runs
-  started in the same poll beside one live suite could both start (three suites). It existed at one suite too (two
-  beside none). Not closed here: it needs two starts within one poll, and its cost is a possible false red, which the
-  post-merge watch below is for.
 - A candidate that exits between the waiter filter and the roots walk can make one poll refuse with no suite left.
   That is the refusing side and clears on the next poll; accepted.
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.
 - Default 2 everywhere, not only on this Mac. Weakest premise: one measured pair, one commit, one machine. Mortals
-  has not been measured with two. Rollback is one variable (KOSMOS_SUITE_MAX=1) or a one-line revert.
+  has not been measured with two. Rollback for everyone is the default in tools/run-tests.sh (a one-line change to 1, or a revert): the variable only
+  governs the run that sets it, and run-tests.sh unsets it before its tests, so it cannot be set once for the fleet.
 
 ## After merge
 Log the first paired runs on #6334 (wall time and any red that appears only under a pair). Drop the default to 1 on
