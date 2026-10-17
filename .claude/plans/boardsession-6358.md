@@ -60,7 +60,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     could not sign this window in. Quit Kosmos with Command-Q, then open it again from your Applications folder." No
     reload loop, and no "this takes a moment" that never ends.
 - **A browser tab on a Mac (`kosmos open`):** "This board is not signed in. It cannot read your agents or projects.
-  Kosmos signs a browser tab out each time it restarts or updates, and after seven days. To keep going, open Kosmos
+  Kosmos signs a browser tab out each time it restarts or updates, and after seven days. (before round 14; see the Round 14 note for the shipped words) To keep going, open Kosmos
   from your Applications folder: the app signs itself in. This tab stays signed out until it is signed in again."
   - A disclosure gives the full-path `kosmos open`, then Reload. The browser shares the cookie across its tabs, so
     the old tab works after Reload.

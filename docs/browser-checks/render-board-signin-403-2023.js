@@ -2,10 +2,11 @@
  * The board's protected reads, refused with 403, must render AS NOT-SIGNED-IN --
  * leading with the remedy that works -- not as the honest-but-wrong "we cannot read
  * right now" (kosmos#2023). #6358: a board restart (an update included) ends a
- * tab's sign-in, so the lead remedy is the Mac app, which signs itself in, and the
- * old "it fixes itself the next time Kosmos updates" must not be promised. The
- * full-path CLI (~/.local/share/kosmos/bin/kosmos open) is a footnote, never the
- * lead and never a bare name (the bare CLI name is off PATH in some shells).
+ * tab's sign-in, so the box leads with how to sign THIS tab in (the steps just below
+ * it), offers the Mac app (which signs itself in) as the other way on, and the old
+ * "it fixes itself the next time Kosmos updates" must not be promised. The CLI step
+ * is the full path (~/.local/share/kosmos/bin/kosmos open), never a bare name (the
+ * bare CLI name is off PATH in some shells).
  * KOSMOS_SIGNIN_SHOT=<file.png> saves a screenshot of the agents 403 state.
  *
  * 🛑 THE REGRESSION THIS PINS SHIPPED IN 0.6.25 AND REACHED REAL USERS. #1946's
@@ -49,9 +50,11 @@ function check(name, pass, detail) {
 const AUTH_403 = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
 
 const SIGNIN = /not signed in/i;
-/* #6358: the lead remedy is the Mac app (it signs itself in); an update no longer
-   heals a tab, so promising it would be false. */
-const APP_REMEDY = /open Kosmos from your Applications folder/i;
+/* #6358: the lead remedy signs this tab in (the steps just below); the Mac app, which signs itself in, comes after
+   it. An update no longer heals a tab, so promising it would be false. */
+const TAB_LEAD = /stays signed out until it is signed in again, and the steps are just below/i;
+const APP_REMEDY = /Kosmos app from your Applications folder/i;
+const leads = (t) => TAB_LEAD.test(t) && APP_REMEDY.test(t) && t.search(TAB_LEAD) < t.search(APP_REMEDY);
 const SELF_HEAL = /fix(?:es)? itself the next time Kosmos updates/i;
 /* The terminal line is a footnote, and it MUST be the full path: the bare name
    is not on PATH in a shell without ~/.zprofile (how it failed for Josh). */
@@ -87,7 +90,7 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
       return { boardText, org: (orgnote && orgnote.textContent) || '' };
     });
     check('agents 403: the board says NOT SIGNED IN', SIGNIN.test(seen.boardText), seen.boardText.slice(0, 120));
-    check('agents 403: it LEADS with the app remedy', APP_REMEDY.test(seen.boardText), seen.boardText.slice(0, 160));
+    check('agents 403: it LEADS with this tab\'s own sign-in, then the app', leads(seen.boardText), seen.boardText.slice(0, 260));
     check('agents 403: it does NOT promise an update will sign this tab in (#6358)', !SELF_HEAL.test(seen.boardText), seen.boardText.slice(0, 160));
     if (process.env.KOSMOS_SIGNIN_SHOT) await page.screenshot({ path: process.env.KOSMOS_SIGNIN_SHOT, fullPage: false });
     check('agents 403: the terminal footnote uses the FULL path, never a bare name', FULL_PATH.test(seen.boardText), seen.boardText.slice(0, 200));
@@ -105,7 +108,7 @@ const CANNOT_READ_AGENTS = /We cannot read your agents right now/i;
     await page.waitForTimeout(600);
     const pj = await page.evaluate(() => (document.getElementById('pj-list') || {}).textContent || '');
     check('projects 403: #pj-list says NOT SIGNED IN', SIGNIN.test(pj), pj.slice(0, 120));
-    check('projects 403: #pj-list LEADS with the app remedy', APP_REMEDY.test(pj), pj.slice(0, 160));
+    check('projects 403: #pj-list LEADS with this tab\'s own sign-in, then the app', leads(pj), pj.slice(0, 260));
     check('projects 403: #pj-list footnote uses the FULL path', FULL_PATH.test(pj), pj.slice(0, 200));
     check('projects 403: #pj-list does NOT say the generic "cannot read your projects"', !/We cannot read your projects right now/i.test(pj), pj.slice(0, 120));
     await ctx.close();

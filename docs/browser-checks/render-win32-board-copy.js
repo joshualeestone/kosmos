@@ -296,7 +296,7 @@ async function readLinux(browser, platform) {
       check(`${engine}: CONTROL Mac ${sel} still reads "${want}"`, mac.got.text[sel] === want, JSON.stringify(mac.got.text[sel]));
     }
     check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,5,2,3,4,6,7,8,9]', JSON.stringify(mac.got.steps));
-    check(`${engine}: CONTROL Mac not-signed-in panel is the Mac copy (#6358: open Kosmos from Applications)`, /open Kosmos from your Applications folder/.test(mac.got.signin), mac.got.signin.slice(0, 120));
+    check(`${engine}: CONTROL Mac not-signed-in panel is the Mac copy (#6358: the Kosmos app from Applications)`, /Kosmos app from your Applications folder/.test(mac.got.signin), mac.got.signin.slice(0, 120));
     check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
 
     const lin = await readLinux(browser, 'linux');

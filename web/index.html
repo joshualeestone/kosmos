@@ -38530,6 +38530,16 @@ function boardSigninHtml() {
   }
   /* #6358: a board restart (an update included) ends every browser sign-in. The Mac app signs its own window in
      again (signedOutTellApp), so there this panel shows only for a moment; a browser tab cannot, so it says how. */
+  /* Through Kosmos+ (a phone, another computer, or a connect computer's app window) there is no terminal here and no
+     app sign-in for this board: Kosmos+ signs in from the computer Kosmos runs on, so that is where the remedy is. */
+  if (typeof kplusRemote === 'function' && kplusRemote()) {
+    return '<div class="pj-empty boardfail">'
+      + '<p><b>This board is not signed in.</b><br>'
+      + 'It cannot read your agents or projects through Kosmos+. Press Reload. If it stays signed out, Kosmos needs '
+      + 'to be open on the computer it runs on.</p>'
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   if (onLinux()) {
     return '<div class="pj-empty boardfail">' + linuxCopy('signinPanel')
       + '<button class="btn" type="button" data-board-retry>Reload</button>'
@@ -38537,8 +38547,6 @@ function boardSigninHtml() {
   }
   let inApp = false;
   try { inApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosSignin); } catch { /* not the app */ }
-  // A Kosmos+ board in the app window (a connect computer) is not signed in by the app, so it is not told it is.
-  if (typeof kplusRemote === 'function' && kplusRemote()) inApp = false;
   if (inApp) {
     // The app loads ?signin=failed when the board refused its sign-in (it does not try again until the board answers).
     let failed = typeof SIGNIN_FAILED_AT_LOAD !== 'undefined' && SIGNIN_FAILED_AT_LOAD === true;

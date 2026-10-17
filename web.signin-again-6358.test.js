@@ -146,6 +146,10 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
   assert.ok(tab.indexOf('steps are just below') < tab.indexOf('Applications folder'), 'the app is the alternative, not the lead remedy');
   const kplus = render({ webkit: { messageHandlers: { kosmosSignin: { postMessage() {} } } } }, '', 0, false, true);
   assert.doesNotMatch(kplus, /The app is signing this window in|Quit Kosmos with Command-Q/, 'a Kosmos+ board in the app window is not promised an app sign-in');
+  for (const [name, html] of [['app window', kplus], ['browser', render({}, '', 0, false, true)]]) {
+    assert.match(html, /cannot read your agents or projects through Kosmos\+\. Press Reload\. If it stays signed out, Kosmos needs to be open on the computer it runs on/, 'Kosmos+ ' + name + ': the remedy is on the computer Kosmos runs on');
+    assert.doesNotMatch(html, /kosmos open|Applications folder|each time it restarts or updates/, 'Kosmos+ ' + name + ': no terminal step, no app to open here, and a restart does not sign Kosmos+ out');
+  }
   assert.match(tab, /~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal, then press Reload/, 'and how to bring this tab back');
   assert.doesNotMatch(tab, /fix(es)? itself the next time Kosmos updates/, 'no promise that an update signs it in');
 });
