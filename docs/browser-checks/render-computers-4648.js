@@ -143,6 +143,23 @@ const FOUR = {
     ok(`${t} not signed in: the read was really served before this was checked`, b.served === true, JSON.stringify(b));
     ok(`${t} not signed in: the section is gone`, b.hidden === true && b.display === 'none' && b.rows === 0, JSON.stringify(b));
 
+    // ---- Arm 3, #6406: in the Kosmos app (its bridge present) an online computer opens in THIS window ----
+    const inApp = await page.evaluate(async (four) => {
+      window.webkit = { messageHandlers: { kosmosBadge: { postMessage() {} } } };   // the Mac app's bridge
+      window.__computers = four;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+      const a = document.querySelector('#worldsw-computers-list a.worldsw-row');
+      const out = a ? { href: a.getAttribute('href'), target: a.getAttribute('target'), rel: a.getAttribute('rel') } : null;
+      delete window.webkit;
+      worldswClose();
+      return out;
+    }, FOUR);
+    ok(`${t} #6406: in the app, an online computer is a same-window link (no new tab), still noreferrer`,
+      !!inApp && /^https:\/\//.test(inApp.href) && inApp.target === null && inApp.rel === 'noopener noreferrer', JSON.stringify(inApp));
+
     await page.close();
   }
   await browser.close();
