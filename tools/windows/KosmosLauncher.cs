@@ -2601,7 +2601,8 @@ class KosmosLauncher
             {
                 // Bounded: past the opener's own worst case (its wait, check and mint), it is told as a refusal.
                 if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } unknown = true; }
-                else refused = p.ExitCode == OpenerRefusedExit;
+                // As the window reads it (ResolveBoardAddress): the refusal code, or any failure while a token is on disk.
+                else refused = p.ExitCode == OpenerRefusedExit || (p.ExitCode != 0 && TaskbarBadge.ReadBoardToken() != null);
             }
         }
         catch (Exception e) { opened = e.Message; }

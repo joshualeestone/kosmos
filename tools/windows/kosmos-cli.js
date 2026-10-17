@@ -2507,6 +2507,7 @@ async function main(argv, io) {
          board may already have acted, so a retry could make a duplicate. */
       /* #1765: the check before the send did not pass, so nothing was sent. */
       if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
       else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
       else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');
       else if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');

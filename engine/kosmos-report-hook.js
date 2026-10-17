@@ -387,6 +387,7 @@ function proverFor(o) {
 function proofRefusalReason(r) {
   const w = String((r && r.why) || '');
   if (w === 'timed out') return 'the board did not answer in time, so nothing was sent';
+  if (/^the check (could not load|failed)/.test(w)) return 'this computer could not check it was reaching your Kosmos (' + w + '), so nothing was sent';
   if (r && r.nothingThere) return 'the board could not be reached (' + w.replace(/^request failed: /, '') + ')';
   return 'what answers at the board\'s address could not show it is your Kosmos, so nothing was sent to it';
 }
