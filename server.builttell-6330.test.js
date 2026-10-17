@@ -529,6 +529,14 @@ test('a control character in the note (an escape sequence) never reaches another
   }
 });
 
+test('summary is the answer\'s last key, which the Mac CLI\'s greedy sed relies on', async () => {
+  const n = tasks.create(projectId, { sentence: 'Order the keys', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Sort them', who: 'ivy' });
+  const r = await mark(n, asAgent('mona'));
+  assert.equal(typeof r.json.summary, 'string', JSON.stringify(r.json));
+  assert.equal(Object.keys(r.json).at(-1), 'summary', 'a key after summary would make the Mac CLI print the wrong text: ' + Object.keys(r.json).join(', '));
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));

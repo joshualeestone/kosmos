@@ -11,7 +11,8 @@ Nothing on the screen. An agent that marks a task built (`kosmos task built`) no
 - the open holders, still on the project, of the nearest task above it that has any: its parent, else that task's
   parent, and so on, up the parent chain only (a closed task ends the walk),
 saying "<agent> marked task N built: "<note>"" with how to reply in the task, and for a parent holder "(it is under
-your task P)". A marker that identified itself (token or pane) is never told; an unidentified caller cannot be excluded. The answer gains `delivered`, one outcome per agent, as a task message's has.
+your task P)". A marker that identified itself (token or pane) is never told; an unidentified caller cannot be
+excluded. The answer gains `delivered`, one outcome per agent, as a task message's has.
 
 ## Rules
 - Only an agent's NEW mark: not a clear, not the same mark again (`changed: false`), not the person's mark from the
@@ -92,7 +93,7 @@ so it is the same trust, and closing it is a change to how the route identifies 
 A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
-`server.builttell-6330.test.js` (25 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+`server.builttell-6330.test.js` (26 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
 (other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
 parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
 typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients

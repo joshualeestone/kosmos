@@ -261,7 +261,7 @@ test('the managed block teaches the join: tasks listed in the matching spelling,
   /* #3951: the only way a task reaches "Built but waiting" is an agent running this, so the block teaches it. */
   assert.match(body, /task built <project-id> <task-number> "what is left"/, 'the built command is not taught (#3951)');
   assert.match(body, /Closing the task clears the mark/);
-  assert.match(body, /The note is typed to the task's other assignees and to whoever holds the task it sits under\./, '#6330: agents are told who their note reaches');
+  assert.match(body, /The note is typed to the task's other assignees and to the holders of the nearest open task above it that someone holds\./, '#6330: agents are told who their note reaches');
   /* #4771: a pause the person asks for in the room reaches the Prompter only through this verb, so it is taught. */
   assert.match(body, /project pause <project-id>/, 'the pause command is not taught (#4771)');
   assert.match(body, /project role <project-id> "what you do here"/, 'the role command is not taught (#5300)');
