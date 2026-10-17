@@ -312,13 +312,13 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
-      chk(jr.shown && jr.text === 'This computer is connected. The code ran out before it was matched with homemac, and nothing more is needed for it to work.' && !jr.button && !jr.code && jr.pill === 'Connected',
+      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button && !jr.code && jr.pill === 'Connected',
         `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
       /* Review 6: that ending lasts until this computer pairs again, so it is said once and never polled for, and it does
          not take the status line: an outage after it is still said. */
       const getsAtEnd = joinGets;
       jr = await readJoin(); jr = await readJoin();
-      chk(jr.shown && jr.text === 'This computer is connected. The code ran out before it was matched with homemac, and nothing more is needed for it to work.' && joinGets === getsAtEnd, `${tag} #4794: the ran-out ending stays and runs no more pairing rounds (review 6)`, JSON.stringify({ jr, rounds: joinGets - getsAtEnd }));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && joinGets === getsAtEnd, `${tag} #4794: the ran-out ending stays and runs no more pairing rounds (review 6)`, JSON.stringify({ jr, rounds: joinGets - getsAtEnd }));
       remoteNow = { ...REMOTE, status: { state: 'down', because: 'the relay cannot be reached' } };
       jr = await readJoin();
       chk(jr.shown && /relay cannot be reached/.test(jr.status), `${tag} #4794: an outage after the ending is still said (review 6)`, JSON.stringify(jr));
@@ -427,10 +427,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: false };
       remoteNow = REMOTE;
       jr = await readJoin();
-      chk(jr.shown && jr.text === 'This computer is connected. The code ran out before it was matched with homemac, and nothing more is needed for it to work.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button, `${tag} #4794: allowed and past 10 minutes: the ending, not "a new one is on its way" (review 6)`, JSON.stringify(jr));
       join = { ...join, join_code: '', on: null, confirm_expired: true };
       jr = await readJoin(); jr = await readJoin();
-      chk(jr.shown && jr.text === 'This computer is connected. The code ran out before it was matched with homemac, and nothing more is needed for it to work.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
+      chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.', `${tag} #4794: the tunnel's ran-out answer keeps the ending up (review 6)`, JSON.stringify(jr));
       /* CONTROL: a fresh page, connected and confirmed: the read on load answers and the block stays away (an ending is
          only said for a pairing this page watched). */
       join = { ...join, held: false, confirmed: true, confirm_expired: false, join_code: '246 810' };
