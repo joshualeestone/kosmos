@@ -256,12 +256,28 @@ function headersFor(env, readBoardToken) {
   return headers;
 }
 
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file), or none found at all, or one that fails to load,
+   cannot check, and the send goes ahead as before. `timeoutMs` bounds the proof. */
+async function mayCarry(port, headers, fetchImpl, timeoutMs) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch, timeoutMs });
+}
+
 /* POST one body to the board, bounded, the answer read under the same timer (a board that sent its headers and
    stalled its body would otherwise hold the hook: the Codex hook's review 3); never throws. */
 async function post(port, route, headers, body, timeoutMs, fetchImpl) {
   const doFetch = fetchImpl || fetch;
+  // #1765: one deadline for the proof and the send, so the proof never adds to the hook's bound. The proof gets at
+  // most half of it (as the CLI's does); the send gets what is left, and nothing is sent when nothing is left.
+  const deadline = Date.now() + timeoutMs;
+  if (!(await mayCarry(port, headers, doFetch, Math.max(1, Math.floor(timeoutMs / 2))))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), left);
   await Promise.resolve()
     .then(() => doFetch(`http://127.0.0.1:${port}${route}`, { method: 'POST', headers, body, signal: controller.signal }))
     .then((res) => (res && typeof res.text === 'function' ? res.text() : null))

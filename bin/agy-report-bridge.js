@@ -341,16 +341,33 @@ function boardHeaders(env) {
   } catch { /* a missed world header must never become a failed turn */ }
   return headers;
 }
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file), or none found at all, or one that fails to load,
+   cannot check, and the send goes ahead as before. `timeoutMs` bounds the proof; each
+   caller gives it at most half its own bound and sends in what is left, so the proof never adds to that bound. */
+async function mayCarry(port, headers, fetchImpl, timeoutMs) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch, timeoutMs });
+}
+
 /* #5812: one keep call, bounded at KEEP_TIMEOUT_MS; never throws. `fetchImpl` is a seam. The answer's body is not
    read: this bridge ends with process.exit (the finally below main), so a board that sends its headers and stalls
    its body cannot hold agy's hook, unlike the Codex and Grok bridges, which must read it under their timer. */
 async function postKeep(body, env, fetchImpl) {
   const doFetch = fetchImpl || fetch;
   const port = Number(env.KOSMOS_PORT) || 16180;
+  const headers = boardHeaders(env);   // #1765: built once, so the token sent is the token proven
+  // #1765: one deadline for the proof and the keep (see mayCarry).
+  const deadline = Date.now() + KEEP_TIMEOUT_MS;
+  if (!(await mayCarry(port, headers, doFetch, Math.floor(KEEP_TIMEOUT_MS / 2)))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), KEEP_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), left);
   await Promise.resolve()
-    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers: boardHeaders(env), body: JSON.stringify(body), signal: controller.signal }))
+    .then(() => doFetch(`http://127.0.0.1:${port}/api/undo/keep`, { method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal }))
     .catch(() => { /* a missed keep must never stop the edit */ })
     .finally(() => clearTimeout(timer));
 }
@@ -389,8 +406,13 @@ async function main() {
      begin); a close that lands while the request is opening is not covered. */
   await new Promise((resolve) => setImmediate(resolve));
   holdStdioFds();
+  // #1765: one deadline for the proof and the report (see mayCarry).
+  const deadline = Date.now() + TIMEOUT_MS;
+  if (!(await mayCarry(port, headers, undefined, Math.floor(TIMEOUT_MS / 2)))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), left);
   await fetch(`http://127.0.0.1:${port}/api/report`, {
     method: 'POST', headers, body: JSON.stringify(buildBody(mapped.state, mapped.text, process.env, mapped.waiting, mapped.final, mapped.until)), signal: controller.signal,
   }).catch(() => { /* a missed report must never become a failed turn */ })

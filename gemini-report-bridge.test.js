@@ -24,6 +24,7 @@ const fsB = require('node:fs');
 const osB = require('node:os');
 
 const BRIDGE = nodePath.join(__dirname, 'bin', 'gemini-report-bridge.js');
+const { answerProof, boardTokens } = require('./test-support/boardproof-stub');
 
 /** Run the bridge once against a stub board, feeding the event on STDIN; return
  * what the board saw. Async spawn (not spawnSync) for the same #2895 reason the
@@ -34,7 +35,12 @@ const BRIDGE = nodePath.join(__dirname, 'bin', 'gemini-report-bridge.js');
 function drive(eventJson, env = {}, bridge = BRIDGE) {
   return new Promise((resolve, reject) => {
     const seen = [];
+    // #1765: the stub is the board the bridge was launched against, so it holds that board's tokens and proves them.
+    // The child's env is process.env with this test's env over it, so its agent token can come from the machine.
+    const childEnv = { ...process.env, AGENT_WORKFORCE_DATA: DATA4796, ...env };
+    const holds = () => boardTokens(childEnv.AGENT_WORKFORCE_DATA, String(childEnv.KOSMOS_AGENT_TOKEN || '').trim());   // trimmed, as the bridge sends it
     const server = http.createServer((req, res) => {
+      if (answerProof(req, res, holds)) return;
       let body = '';
       req.on('data', (d) => { body += d; });
       req.on('end', () => {
