@@ -2529,8 +2529,9 @@ class KosmosLauncher
     // nonce on an enforcing board. Anything else it prints, or a failure to run it, is the plain
     // address, which is what the browser path falls back to as well.
     // #1765: except when the opener refused (it exits OpenerRefusedExit and names no address: on an enforcing
-    // board, nothing showed it is this account's board). Then NotConfirmed, and the window loads nothing: its
-    // own web profile holds the board's sign-in cookie, which goes to whatever answers at 127.0.0.1.
+    // board, nothing showed it is this account's board), or named no address in any other way while a board token
+    // is on disk. Then NotConfirmed, and the window loads nothing: its own web profile holds the board's sign-in
+    // cookie, which goes to whatever answers at 127.0.0.1.
     internal static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
     {
         string plain = "http://127.0.0.1:" + port;
@@ -2599,7 +2600,7 @@ class KosmosLauncher
         {
             using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false)))
             {
-                // Bounded: past the opener's own worst case (its wait, check and mint), it is told as a refusal.
+                // Bounded: past the opener's own worst case (its wait, check and mint), the outcome is told as unknown.
                 if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } unknown = true; }
                 // As the window reads it (ResolveBoardAddress): the refusal code, or any failure while a token is on disk.
                 else refused = p.ExitCode == OpenerRefusedExit || (p.ExitCode != 0 && TaskbarBadge.ReadBoardToken() != null);
@@ -3055,7 +3056,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             string resolved = null;
             try { resolved = resolveBoardAddress(); } catch { /* the plain address, below */ }
-            if (resolved == null) resolved = "http://127.0.0.1:" + port;
+            if (resolved == null) resolved = TaskbarBadge.ReadBoardToken() != null ? KosmosLauncher.NotConfirmed : "http://127.0.0.1:" + port;   // #1765, as ResolveBoardAddress
             try { BeginInvoke(new Action(() => BoardAddressResolved(resolved))); }
             catch { /* the window closed before the board answered */ }
         });

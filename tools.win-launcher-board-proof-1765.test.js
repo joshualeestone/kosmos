@@ -62,9 +62,9 @@ test('#1765: the badge read checks the board holds the token before the token go
 test('#1765: the board token is put in a header in one place only, the read that checks first', () => {
   const sends = [...SOURCE.matchAll(/Headers\[BoardTokenHeader\]\s*=/g)];
   assert.equal(sends.length, 1, 'another place sends the board token: it must check the board first too');
-  // The definition, ReadBoard, and ResolveBoardAddress and OpenInBrowserInstead (which only ask whether a token is on
+  // The definition, ReadBoard, and ResolveBoardAddress, its background caller and OpenInBrowserInstead (which only ask whether a token is on
   // disk, and send nothing).
-  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 4, 'the token is read somewhere new');
+  assert.equal((SOURCE.match(/ReadBoardToken\(\)/g) || []).length, 5, 'the token is read somewhere new');
   assert.match(slice('internal static string ResolveBoardAddress(', '\n    }\n'), /return TaskbarBadge\.ReadBoardToken\(\) != null \? NotConfirmed : plain;/);
 });
 
