@@ -90,6 +90,24 @@ test('#6398 scope: the short quota/usage reset lines still render on the card (n
     'the #4588 quota-reset line stays on the card');
 });
 
+test('#6398 scope: a STUCK rate-limited card is just the pill even with a Google quota reset set (the stuck arm returns above the #4588 line)', () => {
+  // The stuck arm (stateReason, the rate_limited early return) fires ABOVE the #4588 quota-reset arm, so a
+  // STUCK rate_limited agent never reaches the short "...The Google quota resets at..." line: on the card it is
+  // only the "Rate Limit" pill, and the time + "switch its model" detail stays behind the pill. This pins that
+  // the early return is DELIBERATE -- adding quotaUntil must NOT leak the reset line onto a stuck card, and must
+  // NOT replace the behind-the-pill paragraph with it. (The non-stuck quota card keeps its reset line; that is
+  // the scope test above.)
+  const quotaUntil = new Date(Date.now() + 90 * 60000).toISOString();
+  const stuckRateQuota = { ...stuckRate, quotaUntil };
+  assert.equal(taskLineOf(stuckRateQuota, { card: true }), '',
+    'a stuck rate_limited card is just the pill, even with quotaUntil -- the stuck arm returns above the #4588 quota line');
+  const detail = taskLineOf(stuckRateQuota);   // behind the pill (#d-task): no opts.card
+  assert.match(detail, PARAGRAPH, 'the detail behind the pill keeps the stuck paragraph');
+  assert.match(detail, /switch its model/i, 'and the "switch its model" affordance');
+  assert.doesNotMatch(detail, /The Google quota resets at/,
+    'the stuck detail is the paragraph, NOT the #4588 reset line -- the stuck arm returns before it');
+});
+
 test('#6398 control: auth_failed is untouched -- its stuck sentence still renders on the card', () => {
   const stuckAuth = {
     state: 'auth_failed', stateConfidence: 'structured',
