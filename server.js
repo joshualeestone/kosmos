@@ -10918,8 +10918,9 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not confirm that' }));
     return;
   }
-  /* #6353: the joining computer's "Try again" after a code ran out. Screen-only like the confirm, for the same reason:
-     a new attempt is a try, and the point of asking is that a PERSON is back, not a process re-asking on a loop. */
+  /* #6353: the joining computer's "Try again" after a code ran out. The same advisory screen check as the confirm
+     (isViaScreen keeps agents' own calls out; it cannot tell a person from another local process), because a new
+     attempt is a try. Other websites are refused by crossSiteWrite before any route. */
   if (pathname === '/api/remote/join/retry' && req.method === 'POST') {
     readBody(req)
       .then(async (buf) => {
