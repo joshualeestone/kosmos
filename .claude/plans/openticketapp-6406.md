@@ -82,3 +82,5 @@ plain address as before.
 - 6 opus: the socket rule is tested (ticketCallerHere: the same headers from a network socket are refused); the click
   tests now take the page's own path (a throwaway noreferrer link) and assert no script navigation; the board-page
   fragment and dropped-fragment limits stated.
+- 7 sonnet: the route is tied to ticketCallerHere (read from its source; the test socket is always loopback); a tunnel
+  failure's own words never reach the page (a fixed sentence); the busy rule sits with the Agents view's links.
