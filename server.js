@@ -483,9 +483,9 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
    through what a task message's do (#768): a swarm switched off in this project is not told, an assignee who left the
    project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
    reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The task-message valve (asked through `admit`)
-   governs whether any line goes; it is asked only when somebody would be told. Returns { delivered } (one outcome per
-   agent; [] when nobody else is on it) and `attempted` (how many lines would be tried: recipients past the swarm-off and membership filters; the valve is asked only when it is not 0), with
-   `refusal` when the valve said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed. */
+   governs whether any line goes, and is asked only when at least one recipient is past the swarm-off and membership
+   filters. Returns { delivered } (one outcome per agent; [] when nobody else is on it), with `refusal` when the valve
+   said no. A line still being typed after BUILT_TELL_WAIT_MS is said as unconfirmed, and a late failure is logged. */
 // #6330: how long the typing of one built line may hold the mark's answer (under the Mac CLI's 15 s).
 let BUILT_TELL_WAIT_MS = 10000;
 function setBuiltTellWaitForTests(ms) { BUILT_TELL_WAIT_MS = ms === undefined ? 10000 : ms; }
@@ -549,7 +549,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
         });
         sending.then((end) => {
           if (late && end && end.state === chat.DELIVERY.COULD_NOT) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + (end.because || '') + '\n');
-        }, () => {});
+        }, (err) => {
+          if (late) process.stderr.write('task built: the line to ' + m + ' about task ' + t.number + ' could not be typed after the answer: ' + ((err && err.message) || err) + '\n');
+        });
         try { outcome = await Promise.race([sending, waited]); } finally { clearTimeout(timer); }
       }
     } catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
@@ -557,7 +559,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
       ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) };
   };
-  return { delivered: await Promise.all(everyone.map(tell)), attempted };
+  return { delivered: await Promise.all(everyone.map(tell)) };
 }
 /* #3559: the most tasks one bulk close will take. The Tasks view ticks rows by
    hand, so a real selection is far below this; the cap bounds one request's
