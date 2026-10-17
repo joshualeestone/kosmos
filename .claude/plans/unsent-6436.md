@@ -34,6 +34,12 @@ from a delivery, which carries the card the pane check needs).
   characters or longer also counts (SCROLLED_MIN), with the seen match kept for shorter ends; retries are async (they
   no longer hold the board, #4468); the file keeps at most 100 lines; stale comments fixed; retry arms tested
   (still unsent, a newer line). Mutants: the 200 path, the newer-line guard.
+- [x] Round 2 (sonnet): a retry holds the pane busy (deliveryQueues) while it watches and forgets only its own line;
+  lines carry ids (the newer-line guard compared milliseconds); unattended retries take only the exact match (all, or
+  `seen`), leaving the 200-character end to deliveries; lines older than 7 days are not loaded. Declined: "after an
+  Enter, other means it was sent": other means our end is still there with text added, so it was not. Measured: the
+  busy guard is redundant with the box read (a mutant removing it survives: a delivery in flight leaves the box empty
+  or holding its own line, and presses the earlier line itself), kept as a second guard; the id guard is tested.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
