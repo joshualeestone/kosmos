@@ -14,8 +14,12 @@ Screenshot the card (light and dark) and the joining computer's big code.
 ## How it works
 - paintAsk's render: `typing` (a computer row with a code and no wait line) swaps the big code for the field; the
   Allow label no longer speaks this computer's code for a computer row.
+- The field is NOT a [data-ask] control (review 1: a click on it fell through askAct to Not me); askAct now ignores any
+  act other than allow and deny.
 - ASK.typed[id] = { code, v }: kept across repaints, forgotten when the row's code changes (askTypedFor), cleared on a
-  good Allow. askWrite puts focus back in the field with the place at the end of what was typed.
+  good Allow. The digits stay out of the markup (typing never rebuilds the live region); askWrite puts them back, with
+  focus and the person's place.
+- A wrong code marks the field aria-invalid; the field is described by the card's sentence (aria-describedby).
 - Input on the field wakes Allow at six digits without a repaint (it stays held during a code_changed hold); Enter
   presses Allow.
 - askAct compares digits with d.code before any request. A mismatch is ASK.done error 'code_typed', worded on the card
@@ -35,3 +39,8 @@ Screenshot the card (light and dark) and the joining computer's big code.
 2. render-connect-sheet-4637.js: the field and its label, no own code, Allow waiting, a repaint keeps the digits,
    a wrong code sends nothing, the right one sent in the tunnel's form, a new code clears the typing; CONTROL: a phone.
    mobile-shots connect-connected types the code first. README row.
+
+## Review log
+- 1 opus: a click on the field or its label sent Not me (BLOCKER, fixed: own marker + askAct guard); the test used
+  fill() and recorded no denies (fixed: clicks and keyboard typing, deny log, label arm); digits out of the markup;
+  aria-invalid + describedby; no maxlength; autocomplete off; placeholder contrast; a trailer reason.
