@@ -98,6 +98,13 @@ if [ "$(id -u)" != 0 ]; then
   chmod 644 "$root/kts-Ab12Cd/.kts-owner.new"
   [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362b" ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but its owner copy cannot be read here; it holds: nothing' && ok "#6362: an unreadable aside copy says it cannot be read" || bad "unreadable aside: rc=$rc out=$out"
 fi
+# an unreadable copy beside a readable owner still says the sweep ran (non-root only),
+if [ "$(id -u)" != 0 ]; then
+  printf 'engine/beside-6362.test.js\tpid 4\n' > "$root/kts-Ab12Cd/.kts-owner"; chmod 000 "$root/kts-Ab12Cd/.kts-owner.new"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362c" ) || rc=1
+  chmod 644 "$root/kts-Ab12Cd/.kts-owner.new"; rm -f "$root/kts-Ab12Cd/.kts-owner"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362c" ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/beside-6362.test.js (pid 4); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an unreadable aside copy beside an owner still says the sweep ran" || bad "unreadable aside with owner: rc=$rc out=$out"
+fi
 # and an empty aside copy beside a good owner takes the name from the owner, not "did not run".
 : > "$root/kts-Ab12Cd/.kts-owner.new"; printf 'engine/kept-6362.test.js\tpid 6\n' > "$root/kts-Ab12Cd/.kts-owner"
 rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
