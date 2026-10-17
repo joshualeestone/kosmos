@@ -52,7 +52,11 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       page.on('pageerror', (e) => errs.push(e.message));
       const json = (o) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(o) });
       await page.route('**/api/remote', (route, req) => route.fulfill(json(req.method() === 'GET' ? REMOTE : { ok: true })));
-      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: PENDING, email: 'you@example.com', self_device_id: 'd-self' })));
+      /* #6315: the served list is the check's to change; it then polls (pollAsk), so the page's own 5-second poll can
+         only ever serve the same list. */
+      const cur = { list: PENDING };
+      await page.route('**/api/remote/pending', (route) => route.fulfill(json({ devices: cur.list, email: 'you@example.com', self_device_id: 'd-self' })));
+      const serve = async (list) => { cur.list = list; await page.evaluate(() => pollAsk()); await page.waitForTimeout(100); };
       await page.route('**/api/remote/devices**', (route) => route.fulfill(json({ on: true, allowed: [] })));
       await page.goto(BASE, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
@@ -129,22 +133,35 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       chk(!(await shownNote()).shown, '[' + W + '] #6315 dismiss hides the notice');
       const foc = await page.evaluate(() => { const a = document.activeElement; return a && a.matches && a.matches('#tabs [aria-selected="true"], [aria-controls="tabs"]') && !!a.offsetParent; });
       chk(foc === true, '[' + W + '] #6315 after dismiss, keyboard focus is on a visible control for the current view, not the page body');
-      const before = await page.evaluate(() => ASK.devices.slice());
-      await page.evaluate(() => { ASK.devices = ASK.devices.slice(1); paintAsk(); });
+      await serve(PENDING.slice(1));
       chk(!(await shownNote()).shown, '[' + W + '] #6315 one of the dismissed requests answered elsewhere: the notice stays away (nothing new)');
-      await page.evaluate((b) => { ASK.devices = b; paintAsk(); }, before);
+      await serve(PENDING);
       await page.evaluate(() => paintAsk());
       chk(!(await shownNote()).shown, '[' + W + '] #6315 a repaint keeps it hidden (same requests)');
-      await page.evaluate(() => { ASK.devices = ASK.devices.concat([{ device_id: 'd-new', name: 'iPad · Safari', code: 'K2-P9', first_seen: Math.floor(Date.now() / 1000) }]); paintAsk(); });
+      const WITH_NEW = PENDING.concat([{ device_id: 'd-new', name: 'iPad · Safari', code: 'K2-P9', first_seen: now() }]);
+      await serve(WITH_NEW);
       const n1 = await shownNote();
       chk(n1.shown, '[' + W + '] #6315 CONTROL: a new request brings the notice back', JSON.stringify(n1));
       /* With nothing waiting the record is dropped, so the same device asking again later is shown. */
       await page.click('#askcard .asknote-x');
       await page.waitForTimeout(150);
-      const all = await page.evaluate(() => ASK.devices.slice());
-      await page.evaluate(() => { ASK.devices = []; paintAsk(); });
-      await page.evaluate((b) => { ASK.devices = b; paintAsk(); }, all);
+      await serve([]);
+      await serve(WITH_NEW);
       chk((await shownNote()).shown, '[' + W + '] #6315 after nothing was waiting, the same requests asking again show the notice');
+      /* The same device asking again later (a newer first_seen) is a new request, even if nothing cleared the record. */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await serve(WITH_NEW.map((d) => (d.device_id === 'd-safari' ? Object.assign({}, d, { first_seen: now() + 5 }) : d)));
+      chk((await shownNote()).shown, '[' + W + '] #6315 the same device asking again (newer first_seen) shows the notice');
+      /* Kept across a reload, and another tab's dismissal applies here (read from storage each paint). */
+      await page.click('#askcard .asknote-x');
+      await page.waitForTimeout(150);
+      await page.reload({ waitUntil: 'networkidle' });
+      await page.evaluate(() => { showTab('agents'); paintAsk(); });
+      await page.waitForTimeout(200);
+      chk(!(await shownNote()).shown, '[' + W + '] #6315 a dismissal is kept across a reload');
+      await page.evaluate(() => { localStorage.removeItem('kosmos.asknote.dismissed'); paintAsk(); });
+      chk((await shownNote()).shown, '[' + W + '] #6315 CONTROL: with the stored record gone (another tab cleared it), the notice shows');
       await page.click('#askcard .asknote [data-ask="open"]');
       await page.waitForTimeout(200);
       await page.evaluate(() => { showTab('agents'); paintAsk(); });
