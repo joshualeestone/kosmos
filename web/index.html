@@ -27411,7 +27411,7 @@ let acctSayTimer = null;
 let ACCT_USAGE_GEN = 0;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
-/* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok) is still under way.
+/* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok), or an Antigravity usage reading (#6176), is still under way.
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
    handshake timeout), so the reads continue until nothing is pending or the count runs out. */
 const ACCT_FOLLOWUP = { ms: 3500, max: 6, busyMax: 60 };
@@ -27436,7 +27436,7 @@ function acctFollowUp(n, busy) {
   }, ACCT_FOLLOWUP.ms);
 }
 /* #6176: a five-hour window resets within hours, so a list left open is read again just after the soonest reset it
-   shows, and that row's line goes. The same timer carries each Codex or Grok window's meter (any length; only resets within
+   shows, and that row's line goes. The same timer carries each Codex, Grok or Antigravity window's meter (any length; only resets within
    six hours arm it). One timer at a time; a repaint of the list first replaces it (ACCT_EPOCH). It reads
    as a follow-up at the cap: no "Checking…", a failed read keeps the list, and it starts no further follow-ups. */
 let acctFiveTimer = null, acctFiveMisses = 0;
@@ -27444,7 +27444,7 @@ let acctFiveTimer = null, acctFiveMisses = 0;
    panel has no boxes. Opening Settings paints the list again, and switching back to AI Models reads or re-arms it
    (acctFiveHourOnShow), so nothing is lost by stopping. */
 function acctListShown() { const box = document.getElementById('set-accounts'); return !!box && box.getClientRects().length > 0; }
-/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex or Grok window. */
+/* #6176: every meter that goes away at a reset carries data-resets: Claude's five-hour line and each Codex, Grok or Antigravity window. */
 const ACCT_RESET_SEL = '#set-accounts .acct-usage-five[data-resets], #set-accounts .acct-usage-codex[data-resets]';
 /* The list has just come back on screen (a section switch, not a paint): read it again if a line it shows is past its
    reset, otherwise arm the timer for the soonest reset it shows. */
@@ -27501,7 +27501,7 @@ function acctFiveHourRetry() {
   wait();
 }
 /* The resets of the lines the list draws, by the same tests that draw them: Claude's five-hour line (acctUsageHtml) and
-   each Codex or Grok window (acctLimitsUsageHtml). A reset of a line that is not drawn would only cost a read. */
+   each Codex, Grok or Antigravity window (acctLimitsUsageHtml). A reset of a line that is not drawn would only cost a read. */
 function acctResetTimes(list) {
   return (list || []).flatMap((a) => {
     if (!a) return [];
@@ -28032,7 +28032,7 @@ async function paintAccounts(opts) {
     acctFollowUp(followUp, 1); return;
   }
   accountsRead(list);
-  /* #3997: a sign-in (ChatGPT or Grok) whose free check is still under way is read again a few seconds on, so it turns green
+  /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
   if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
   acctFiveHourRepaint(list);
