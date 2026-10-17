@@ -21,11 +21,14 @@ process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_FAKE_PANES = path.join(SANDBOX, 'panes.txt');
 
+const fleet = require('./test-support/fleet');
 const { withAgentSortFields } = require('./server');
+
+const board = fleet.install([fleet.agent('ada', { displayName: 'Ada', state: 'idle' })]);
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 
-test.after(() => { fs.rmSync(SANDBOX, { recursive: true, force: true }); });
+test.after(() => { board.restore(); fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 test('#6399: the board page draws no community-post line on any card', () => {
   assert.ok(PAGE.includes('<div class="atask">'), 'CONTROL: the card markup this test reads is not in the page');
@@ -35,11 +38,11 @@ test('#6399: the board page draws no community-post line on any card', () => {
 });
 
 test('#6399: the board payload carries no community-post fields, even with the community on and a post on record', () => {
-  const ada = { name: 'Ada', sessionName: 'ada-discord' };
+  const ada = Object.assign({}, board.card('ada'));   // a real card from the fleet, not one built by hand
   // The inputs #5314's reader took: a switch on and a recent post. They must have no effect now.
   const [row] = withAgentSortFields([ada], {
-    direct: null, roomRows: null, births: [], communityOn: true,
-    communityPosts: new Map([['ada-discord', [new Date().toISOString()]]]),
+    direct: null, roomRows: null, communityOn: true,
+    communityPosts: new Map([[String(ada.sessionName).toLowerCase(), [new Date().toISOString()]], [String(ada.name).toLowerCase(), [new Date().toISOString()]]]),
   });
   assert.ok(Object.prototype.hasOwnProperty.call(row, 'createdAt'), 'CONTROL: withAgentSortFields did not build the row');
   for (const gone of ['communityOn', 'lastCommunityPost', 'lastCommunityPostAt']) {
