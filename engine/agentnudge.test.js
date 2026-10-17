@@ -623,9 +623,10 @@ test('#6421: one built subtask and one closed reads as every subtask closed or b
     const n = taskOn(w, w.key.parentone, 'ship a fourth release');
     childOf(w, n, 'write the notes', true);
     const c = childOf(w, n, 'cut the build', false);
-    assert.ok(tasks.close(w.pid, c).ok !== false, 'fixture: close refused');
+    const closed = tasks.close(w.pid, c);
+    assert.ok(closed && closed.closedAt, 'fixture: close refused: ' + JSON.stringify(closed));   // close returns the task
     const { calls } = pass(w);
-    assert.match(calls[0].text, /closed or built \(1 is built, waiting for the person to check and close it\), so if your own part/, calls[0].text);
+    assert.match(calls[0].text, /closed or built \(1 is built, waiting for the person to check and close it\), so when your own part/, calls[0].text);
   } finally { w.restore(); }
 });
 
@@ -655,4 +656,40 @@ test('#6421: a repeating parent is never told to mark itself built; CONTROL: the
   const plain = nudge.openParts('ag', proj(parent));
   assert.ok(plain[0].subs && plain[0].subs.built === 1, 'CONTROL: the plain parent carries its built subtask');
   assert.ok(nudge.nudgeText(plain[0]).includes('kosmos task built'), 'CONTROL: ' + nudge.nudgeText(plain[0]));
+});
+
+test('#6421: plural counts, a held built subtask counts as not finished, and an unassigned open part is another part', () => {
+  const w = world([{ name: 'parentmany' }]);
+  try {
+    const n = taskOn(w, w.key.parentmany, 'ship a fifth release');
+    childOf(w, n, 'write the notes', true);
+    childOf(w, n, 'write the readme', true);
+    childOf(w, n, 'cut the build', false);
+    const held = childOf(w, n, 'sign the build', true);
+    tasks.setOnHold(w.pid, held, true);
+    assert.ok(tasks.isOnHold(tasks.byNumber(projects.readAll().find((x) => x.id === w.pid), held)), 'fixture: the subtask is not held');
+    const { calls } = pass(w);
+    assert.match(calls[0].text, /2 of its 4 subtasks are built, waiting for the person; 2 are not finished\./, calls[0].text);
+    const w2 = world([{ name: 'parentspare' }]);
+    try {
+      const m = taskOn(w2, w2.key.parentspare, 'ship a sixth release');
+      const r = tasks.addPart(w2.pid, m, { sentence: 'nobody holds this half' });
+      assert.ok(r && r.ok !== false, 'fixture: addPart refused: ' + JSON.stringify(r));
+      childOf(w2, m, 'write the notes', true);
+      const t2 = pass(w2).calls[0].text;
+      assert.match(t2, /other parts of it are still open/, t2);
+    } finally { w2.restore(); }
+  } finally { w.restore(); }
+});
+
+test('#6421: the agent\'s own second part is not another\'s: it is still told to mark the parent built', () => {
+  const w = world([{ name: 'parenttwo' }]);
+  try {
+    const n = taskOn(w, w.key.parenttwo, 'ship a seventh release');
+    const r = tasks.addPart(w.pid, n, { sentence: 'my second half', who: w.key.parenttwo });
+    assert.ok(r && r.ok !== false, 'fixture: addPart refused: ' + JSON.stringify(r));
+    childOf(w, n, 'write the notes', true);
+    const t = pass(w).calls[0].text;
+    assert.ok(t.includes('kosmos task built'), t);
+  } finally { w.restore(); }
 });
