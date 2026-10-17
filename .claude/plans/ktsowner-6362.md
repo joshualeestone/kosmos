@@ -57,8 +57,8 @@ one full run is one data point, not a rate.
 `test-support.tmpscope.test.js` (23): a dir that survives its sweep (a locked subfolder) gets its owner back marked,
 and the real guard names the file and lists the lock (control: the same file with nothing locked leaves nothing); a
 real left-running child that remakes the dir after its parent ended is reported by what it wrote (the child acts only
-while the test's base exists and gives up after 20 s, so an interrupted run leaves nothing). Both skip as root and on
-Windows. `tools/test-test-leak-guard-4273.sh`: every guard sentence above, under set -e with and without pipefail,
+while the test's base exists and gives up after 20 s, so an interrupted run cannot have it remake the tree after
+cleanup). Both skip on Windows; the locked-subfolder one also skips as root. `tools/test-test-leak-guard-4273.sh`: every guard sentence above, under set -e with and without pipefail,
 including mode 000 and 300 fixtures (unlocked in the cleanup trap). Mutants red: dropping the owner rewrite, the
 aside read, the search check, the read check, and the find-status read. Untested: the part-way listing failure,
 which cannot be made on demand.
