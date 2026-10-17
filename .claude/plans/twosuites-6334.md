@@ -20,6 +20,8 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
    suite tree. KOSMOS_SUITE_MAX joins KOSMOS_WAIT_CONTROL_VARS so no test inherits it.
 2. [x] tools/run-tests.sh: reads KOSMOS_SUITE_MAX (default 2, also when set empty; anything not one to three digits, or 0, reads as 1, so 1000 and 0003 are 1;
    "08" is 8, not an octal error) and passes max - 1 to the suite check.
+2b. [x] tools/run-tests.sh: a Mac-wide cap file, suite-max in the run-marker dir, lowers the limit for every run
+   (never raises it; junk reads as 1).
 3. [x] tools/test-cut-guard.sh: unit arms (one allowed beside one; default still refuses; a third waits for two;
    a parent and its child count once; roots keep the parent; two separate suites stay two; junk allowance is 0),
    end-to-end arms through run-tests.sh (beside one it reaches the harness check; beside two it refuses; 1, 0, x
@@ -39,9 +41,11 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.
 - Default 2 everywhere, not only on this Mac. Weakest premise: one measured pair, one commit, one machine. Mortals
-  has not been measured with two. Rollback for everyone is the default in tools/run-tests.sh (a one-line change to 1, or a revert): the variable only
-  governs the run that sets it, and run-tests.sh unsets it before its tests, so it cannot be set once for the fleet.
+  has not been measured with two. Rollback for the whole Mac at once: `echo 1 > ~/.cache/kosmos-run-markers/suite-max`. Every run with this
+  code reads that file, whatever tree it runs from, and it can only lower the limit (junk reads as 1). The variable
+  only governs the run that sets it, and reverting the default reaches a tree only once it rebases, so the file is
+  the switch to use on a collision.
 
 ## After merge
-Log the first paired runs on #6334 (wall time and any red that appears only under a pair). Drop the default to 1 on
-the first collision.
+Log the first paired runs on #6334 (wall time and any red that appears only under a pair). On the first collision,
+write 1 to the suite-max file at once, then change the default back to 1 in a PR.
