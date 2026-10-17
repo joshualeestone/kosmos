@@ -13,7 +13,8 @@ and 5:15 pm, in one room.
 - `engine/projects.js` `describe()`: a member's reason is QUIET (not counted in `summary.needsYou`, `needsYouHere` null,
   kept as `needsYouQuiet: {reason, because}`) when:
   - `usage`: the reason is `stuck_rate` (Josh 19:47: on the agent only), on any project, live or not;
-  - `paused`: the project is paused (any reason, a question included);
+  - `paused`: the project is paused or archived (any reason, a question included; the agent's own page and the Agents
+    count, engine/status.js, untouched here, still show it);
   - `dismissed`: the person dismissed that member's exact reason on this project;
   - `inactive`: it is the agent's own condition (anything but its question about this project) and the room has had no
     post in 24 hours (`NEEDS_LIVE_MS`).

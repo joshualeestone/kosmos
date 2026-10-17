@@ -62468,6 +62468,7 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
   const present = m.present || m.state === 'restarting';
   const stClass = present
+    // 'quiet' (#6341) has no class on purpose: a quieted member keeps the neutral surface, never red.
     ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[rowSt] || '')
     : '';
   /* #3212 (Josh 6.72): a member the board cannot see (`!present`) is one a room post could

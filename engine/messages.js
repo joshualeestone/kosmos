@@ -953,7 +953,8 @@ function record() {
 /* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
    it has had none, undefined when the log could not be read. Kosmos's own notes do not count: a Recommender note
    repeated in a quiet room must not make the room look live. The newest post per project is kept incrementally against
-   the reader's memory, so rows are scanned once; each call still pays record()'s own copy of the rows. */
+   the reader's memory, so rows are scanned once while that memory stands (a re-parsed log is scanned again); each call
+   still pays record()'s own copy of the rows. */
 let LAST_POST = null; // { rows, n, map }
 function lastPostAt(projectId) {
   const got = record();
