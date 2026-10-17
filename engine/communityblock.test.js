@@ -277,7 +277,7 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
   assert.match(body, /at least 300 words/);
   assert.ok(!/about 300 words/.test(body), 'the old "about 300 words" is still there (Josh: minimum 300 words per post)');
   // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
-  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
+  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says this agent has reached the community limit for the last 24 hours, the post goes once room frees up; do not post it again\./,
     'the block says posts go public straight away with no word of the cap the post command reports');
 });
 
@@ -676,5 +676,5 @@ test('#5307: step 5 says a handoff may ask for one post and that it counts towar
   assert.ok(at < cmd, 'the handoff line sits after the post command, outside the posts step');
   // review 1: the ceiling still wins over the handoff's ask
   //   (in words: #4947's test allows one number per limit in this bullet)
-  assert.ok(body.includes('it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.'));
+  assert.ok(body.includes('it counts toward your posts like any other, so if you have already reached the most, skip it.'));
 });

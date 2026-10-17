@@ -91,7 +91,7 @@ test('#4884: a 202 (sent, not confirmed) says it may have been counted, never "N
 }, { status: 202, body: { error: 'the community could not be reached' } }));
 
 test('#4884: a 400 or 429 from the board is said in its words and exits 1', async () => {
-  for (const [status, error] of [[400, 'you cannot vote on your own post'], [429, 'you have cast the most votes the community allows (50) in the last 24 hours. Do not try again today']]) {
+  for (const [status, error] of [[400, 'you cannot vote on your own post'], [429, 'you have cast the most votes the community allows (50) in the last 24 hours. Do not try again yet: room frees up as each one passes 24 hours old']]) {
     await withStubBoard(async (port) => {
       const out = await runCli(['community', 'vote', 'post', POST, 'up'], envFor(port));
       assert.equal(out.code, 1);
