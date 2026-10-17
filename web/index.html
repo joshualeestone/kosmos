@@ -27443,7 +27443,7 @@ function acctFiveHourRetry() {
   wait();
 }
 /* The resets of the lines the list draws, by the same tests that draw them: Claude's five-hour line (acctUsageHtml) and
-   each Codex window (acctCodexUsageHtml). A reset of a line that is not drawn would only cost a read. */
+   each Codex or Grok window (acctLimitsUsageHtml). A reset of a line that is not drawn would only cost a read. */
 function acctResetTimes(list) {
   return (list || []).flatMap((a) => {
     if (!a) return [];
