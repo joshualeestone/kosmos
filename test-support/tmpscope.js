@@ -53,6 +53,7 @@ function activate() {
     /* #6061: name the test file that owns this directory. A kill this module cannot catch leaves the directory
        behind, and the suite's leak guard (tools/lib/test-leak-guard.sh) reads this file to say which test was
        killed; without it a `kts-` leak names only a random suffix, from any of some two hundred files. */
+    let ownerLine = null;
     try {
       /* Real paths on both sides: macOS gives the cwd as /private/var/... and the script as /var/..., and a relative
          path between those is a climb to the root. A script outside the cwd keeps its absolute path, with the home
@@ -69,13 +70,23 @@ function activate() {
         script = rel && rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel) ? rel
           : (home && abs.startsWith(home + path.sep) ? '~' + abs.slice(home.length) : abs);
       }
-      fs.writeFileSync(path.join(dir, '.kts-owner'), `${script}\tpid ${process.pid}\n`);
+      ownerLine = `${script}\tpid ${process.pid}`;
+      fs.writeFileSync(path.join(dir, '.kts-owner'), ownerLine + '\n');
     } catch { /* the directory still works without its owner line */ }
     /* At exit, and on SIGINT/SIGTERM/SIGHUP (./remove-at-end.js). When the file has its
        own handler for the signal, that handler decides whether the process ends, and the
        sweep waits for the exit: sweeping first would leave it running with its TMPDIR
        gone (measured: a later mkdtemp failed ENOENT and the file exited 0). */
-    removeAtEnd(() => fs.rmSync(dir, { recursive: true, force: true }));
+    removeAtEnd(() => {
+      try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); } catch { /* checked below */ }
+      /* #6362: still here means the sweep failed part way (a process this file started was still writing into it,
+         or something in it could not be removed), after it had already taken .kts-owner. Put the owner back, marked, so the leak guard names this file rather than
+         "no owner recorded". (A process that makes the folder again AFTER this one has ended cannot be caught
+         here; the guard lists what such a folder holds instead.) */
+      try {
+        if (ownerLine && fs.existsSync(dir)) fs.writeFileSync(path.join(dir, '.kts-owner'), ownerLine + '\tsurvived its sweep\n');
+      } catch { /* the leak is still reported, without its owner */ }
+    });
   } catch {
     /* No scope is better than a red test: the file then behaves exactly as before. */
   }

@@ -180,18 +180,34 @@ leak_family() {
 # sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
 # `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
 # unterminated owner line (a kill during the write) still reports.
+# #6362: an owner line with a third field ("survived its sweep") means the sweep ran and the dir outlived it (a
+# process the file started was still writing there, or something in it could not be removed). A dir with NO owner is
+# what a process the test started and left running leaves when it makes the dir again after the test ended (the
+# sweep took .kts-owner with it; reproduced for #6362), so the report lists what the dir holds, whose names usually
+# say which test's process it was.
 leak_kts_owners() {
-  local root="${1%/}" d owner pid
+  local root="${1%/}" d owner rest pid why held n shown
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
     owner=""
     if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
     if [ -n "$owner" ]; then
       pid="pid unknown"
-      case "$owner" in *$'\t'*) pid=${owner#*$'\t'} ;; esac
-      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); its exit sweep did not run (killed, still running, or the sweep failed)"
+      why="its exit sweep did not run (killed, still running, or the sweep failed)"
+      case "$owner" in
+        *$'\t'*)
+          rest=${owner#*$'\t'}
+          pid=${rest%%$'\t'*}
+          case "$rest" in *$'\t'*) why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
+      esac
+      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why"
     else
-      echo "  ${d##*/}: no owner recorded (made by a tmpscope older than #6061, or the write failed)"
+      # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
+      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null | sed 's|.*/||' | LC_ALL=C sort) || held=""
+      n=$(printf '%s' "$held" | grep -c . || true)
+      shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
+      if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
+      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061; it holds: ${shown:-nothing}"
     fi
   done
 }
