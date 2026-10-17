@@ -2133,7 +2133,9 @@ cmd_open() {
     [ "$_failed" = 1 ] && exit 1
     return 0
   fi
-  die "This is not a person's terminal, so the one-time sign-in address is not printed (it would land in a file or a transcript). In a terminal on this computer, run: $KOSMOS_HOME/bin/kosmos open"
+  local _who="In a terminal on this computer, run"
+  _invoked_by_agent && _who="Tell the person who runs this computer to run, in a terminal on it"   # as _stop_advice does
+  die "This is not a person's terminal, so the one-time sign-in address is not printed (it would land in a file or a transcript). $_who: $KOSMOS_HOME/bin/kosmos open"
 }
 
 # The direct look the board names when it cannot read the agents (#274).
