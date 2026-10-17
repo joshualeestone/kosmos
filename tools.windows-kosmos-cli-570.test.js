@@ -467,9 +467,10 @@ test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the pa
     assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
     const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
     assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
-    for (const argv of [['--file', path.join(dir, 'missing')], ['--file'], ['--clear', '--file', file]]) {
+    for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--clear', '--file', file], /takes no file/]]) {
       const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
       assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
+      assert.match(r.err, said, 'refused for another reason');
       assert.equal(r.calls.length, 0, argv.join(' ') + ' reached the board');
     }
   } finally {

@@ -4802,7 +4802,7 @@ cmd_task() {
       say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
-      say "      --file <path>                                          send the delivered file's fingerprint (sha256) with the mark"
+      say "      --file <path>                                          send the delivered file's fingerprint (sha256) with the mark; a mark without it drops an earlier one"
       say "      --clear                                                  take the built mark off"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
@@ -4919,7 +4919,7 @@ cmd_task() {
       # Review 1: `message p 3 --` leaves no words once the -- is dropped; that is the usage error, not an empty send.
       [ -n "${KOSMOS_TEXT_ARGS[*]+${KOSMOS_TEXT_ARGS[*]}}" ] || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; } ;;
     built)
-      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"]   (a note on how each check went, if it has checks; or --clear to take the mark off)"; exit 2; }
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task built <project-id> <task-number> [\"note\"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file's fingerprint; or --clear to take the mark off)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
       local _c _cpast=0 _cfile=0   # kosmos#4889: --clear and (#6330) --file <path> are built's options; any other --word is refused
       for _c in "${@:3}"; do
@@ -5244,7 +5244,7 @@ cmd_task() {
       ;;
     built)
       # #3951: mark a task built, waiting to be released or checked (the Tasks page's "Built but waiting"), or take
-      # the mark off with --clear. Every arg after the number that is not --clear is the note, folded as message does.
+      # the mark off with --clear. Every arg after the number that is not --clear or --file <path> is the note, folded as message does.
       # The agent token names who marked it (the pane is the fallback, as for message).
       local project num note="" clear=false _b file="" _bfile=0
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
@@ -5263,7 +5263,7 @@ cmd_task() {
       if [ -n "$file" ]; then
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
         [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
-        fingerprint=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')
+        fingerprint=$(shasum -a 256 < "$file" 2>/dev/null | awk '{print $1}')   # from stdin: a name with \ or a leading - is not escaped or read as an option
         case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos could not work out that file's fingerprint."; exit 1 ;; esac
       fi
       local esc_note esc_pane

@@ -70,7 +70,7 @@ test('engine: a fingerprint is stored with the mark, a clear drops it, and a bad
   const ok = tasks.setBuilt(projectId, n, { by: 'mona', note: 'exported', fingerprint: A });
   assert.equal(ok.ok, true, ok.because);
   assert.equal(stored(n).builtFingerprint, A);
-  for (const bad of ['sha256:' + 'A'.repeat(64), 'md5:' + 'a'.repeat(32), 'sha256:' + 'a'.repeat(63), A + ' ']) {
+  for (const bad of ['sha256:' + 'A'.repeat(64), 'md5:' + 'a'.repeat(32), 'sha256:' + 'a'.repeat(63), A + ' ', [A], 123]) {
     const r = tasks.setBuilt(projectId, n, { by: 'mona', note: 'again', fingerprint: bad });
     assert.equal(r.ok, false, 'a bad shape was stored: ' + bad);
   }
@@ -93,6 +93,10 @@ test('route: an agent\'s fingerprint is stored; a bad shape is 400 and stores no
   const n = tasks.create(projectId, { sentence: 'Ship the report', who: 'mona' }).number;
   const bad = await mark(n, asAgent('mona'), { note: 'shipped', fingerprint: 'sha256:nothex' });
   assert.equal(bad.status, 400, JSON.stringify(bad.json));
+  for (const odd of [[A], { a: A }, 7]) {
+    const r = await mark(n, asAgent('mona'), { note: 'shipped', fingerprint: odd });
+    assert.equal(r.status, 400, 'a fingerprint that is not a string was let through: ' + JSON.stringify(odd));
+  }
   assert.equal(stored(n).builtAt, undefined, 'a refused fingerprint still marked the task');
   const ok = await mark(n, asAgent('mona'), { note: 'shipped', fingerprint: A });
   assert.equal(ok.status, 200, JSON.stringify(ok.json));
@@ -158,7 +162,10 @@ function mac(args, extra = {}) {
 }
 
 test('Mac `kosmos task built --file` sends the file\'s sha256, and task list shows it', { skip: process.platform === 'win32' && 'the Mac CLI' }, async () => {
-  const file = path.join(SANDBOX, 'deliverable.txt');
+  // A backslash and a leading dash in the name: shasum escapes the one and reads the other as an option (review 1).
+  const dir = path.join(SANDBOX, 'out');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, '-deliver\\able.txt');
   fs.writeFileSync(file, 'the delivered thing\n');
   const want = sha('the delivered thing\n');
   const n = tasks.create(projectId, { sentence: 'Deliver the file', who: 'mona' }).number;
@@ -179,7 +186,9 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   assert.match(missing.out, /cannot read that file/);
   const empty = await mac(['task', 'built', projectId, String(n), '--file'], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(empty.code, 2, empty.out);
+  assert.match(empty.out, /--file needs the path of the delivered file/);   // not the old unknown-option refusal
   const both = await mac(['task', 'built', projectId, String(n), '--clear', '--file', __filename], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(both.code, 2, both.out);
+  assert.match(both.out, /takes no file/);
   assert.equal(stored(n).builtAt, undefined, 'a refused command marked the task');
 });

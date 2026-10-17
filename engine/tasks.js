@@ -807,8 +807,9 @@ function withoutBuilt(t) {
  */
 function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
-  const print = fingerprint == null || fingerprint === '' ? '' : String(fingerprint);
-  if (print && !FINGERPRINT_RE.test(print)) return { ok: false, because: 'a fingerprint is sha256: and 64 lowercase hex characters' };
+  const print = fingerprint == null ? '' : fingerprint;
+  // Only a string of the shape: String() would make ['sha256:...'] one (review 1).
+  if (print !== '' && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is sha256: and 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
