@@ -48,7 +48,8 @@ your task P)". A marker that identified itself (token or pane) is never told; an
 - Decided (review 15): a line kept for an agent out of usage goes through messages.keepTaskLine and so reads, when typed
   or dropped, in task-message words ("a message from mona ... was sent", "send it again"). The line itself is correct;
   only the later notice's wording is a task message's. The marker's own answer says it too ("Do not send it again").
-  Kept as is: follow-up card #6359 for keepTaskLine and taskMessageSummary to take a kind, rather than a second copy
+  It also leaves a kept-sent or kept-dropped entry in the task conversation for a line the conversation never showed
+  (the note lives in builtNote). Kept as is: follow-up card #6359 for keepTaskLine and taskMessageSummary to take a kind, rather than a second copy
   of #5805's queue here. This
   replaces review 5's cap-0-only switch.
 - Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate
@@ -67,6 +68,10 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   first version's "cut a long note to 140" could never run, and it was removed rather than tested.
 
 ## Decided
+- **Agents are told who their note reaches (review 19)** in the task instructions spliced beside their tasks
+  (engine/projects.js, re-spliced on every membership change), so they stop sending a separate "done" message. Not in
+  the doctrine block (engine/defaults.js): changing it bumps DOCTRINE_VERSION and re-delivers the whole block to every
+  agent, which is too heavy for one sentence.
 - **Through chat.deliverAsync, like a task message.** Rejected: a new notification channel or a dependency field ("after
   task X"). The first needs a design; the second is a bigger change (Angel's 10-16 recommendation) and can come later.
 - **Parent holders included.** The card's "next agent" is usually whoever is coordinating the parent; without a

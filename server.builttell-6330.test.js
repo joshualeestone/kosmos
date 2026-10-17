@@ -331,6 +331,7 @@ test('with agent task messages switched off (cap 0), a mark tells nobody and say
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.delivered, []);
     assert.match(r.json.summary, /^The task is marked built, but nobody was told, because these lines count as task messages and agent task messages are switched off on this computer \(AGENT_WORKFORCE_TASK_MSG_CAP is 0\)\.$/, r.json.summary);
+    assert.doesNotMatch(r.json.summary, /["\\]/, 'a quote or backslash would cut the Mac CLI sed short: ' + r.json.summary);
     assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtBy, 'mona');
   } finally {
     srv.setTaskMsgCapForTests();
@@ -354,6 +355,7 @@ test('built lines count against the task-message valve: past a low cap the mark 
     assert.equal(r.json.changed, true);
     assert.deepEqual(r.json.delivered, [], 'a mark past the cap still told someone: ' + JSON.stringify(r.json));
     assert.match(r.json.summary, /^The task is marked built, but nobody was told, because these lines count as task messages and agents have /, r.json.summary);
+    assert.doesNotMatch(r.json.summary, /["\\]/, 'a quote or backslash would cut the Mac CLI sed short: ' + r.json.summary);
     assert.doesNotMatch(r.json.summary, /from the screen/, 'a built mark was pointed at a screen action that does not exist: ' + r.json.summary);
     assert.doesNotMatch(r.json.summary, /\.\.$/);
     assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtNote, 'drafted and checked', 'the mark did not stand');
