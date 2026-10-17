@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: teammap-rail-6324
-diff_hash: ee7504540177b025d4ea5d56297202f06c5d6a97ae221ada114ec47946726a8a
+diff_hash: c582d648d294c78be84665da28d1cd7cfbd64fbd645c08a0fa0ec17cd35b3c37
 validation: passed
 subdir_audit: passed
-timestamp: 2026-10-17T07:48:54Z
-iterations: 8
+timestamp: 2026-10-17T11:36:35Z
+iterations: 12
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 8 blind reviews, alternating opus and sonnet (this formal run, on the branch rebased onto main after #6103 landed; 17 earlier blind rounds ran on the stacked branch before it)
-**Converged:** Yes (iteration 8, sonnet: no BLOCKER, WARNING or CONVENTION)
-**Total findings:** 17 actionable (0 BLOCKERs from reviewers, 15 WARNINGs, 1 CONVENTION, plus 1 synthetic final-validation BLOCKER), 26 NITs
-**Fixed:** 8 | **Deferred:** 4 (plus 5 duplicates of deferred entries) | **Asked (awaiting user):** 0
+**Iterations:** 12 blind reviews, alternating opus and sonnet (this formal run, on the branch rebased onto main after #6103 landed; 17 earlier blind rounds ran on the stacked branch before it)
+**Converged:** Yes (iteration 12, sonnet: one WARNING, a duplicate of a deferred entry; nothing new)
+**Total findings:** 15 distinct actionable (0 BLOCKERs from reviewers, 11 WARNINGs, 1 CONVENTION, 1 synthetic final-validation BLOCKER, 2 PR CI reds), 36 NITs
+**Fixed:** 11 | **Deferred:** 4 (plus 7 duplicates of deferred entries) | **Asked (awaiting user):** 0
 
 Origin: every finding is recorded BRANCH, the fail-safe default. The 6c-bis blame lookup was not run mechanically for this loop, so no finding was treated as SELF and no fix took the SELF prose path.
 Validation between iterations: focused tests (the #6324 and #6103 units, project-notice-3923, consolidated-980 and the repo-wide browser-check meta tests, 50 to 64 passing, 0 failing) after each fix; the full suite is the final gate below, on the final head.
@@ -83,9 +83,40 @@ Validation between iterations: focused tests (the #6324 and #6103 units, project
 **Self-generated:** 0 of the above
 **Converged** - no new actionable findings.
 
+#### PR CI on #6354, after iteration 8
+- [BLOCKER] CI render-phone-taps-5218, tablet 1366 one-screen: the Team map button covered by the first name's touch reach (#5218 ::after) --> FIXED (commit b6398b08, rebased): the button and the map are positioned and raised (z-index 1); that check is the guard and ran green locally on the fix
+- The branch was then rebased onto main past railnotice-6347 (PigeonPete), which conflicted at the rail head's CSS; both blocks kept, the diff re-checked line for line (852 lines both sides)
+- [BLOCKER] CI render-projects, #6347's arm: with the Team map button showing, the 40vh notice cap ran 32px under the list at 560 tall --> FIXED (commit 4a825399, then 3aa287e9): the cap gives back the button's line, calc(40vh - 52px); that arm is the guard
+
+#### Iteration 9
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 3 NITs
+**Self-generated:** 0 of the above
+- [WARNING] web/index.html:5367 - raised above the list, an overflowing map now takes the clicks of the rows under it --> FIXED (commit a3aad690): stated in the plan, reasoned from the CSS, not measured
+- [NIT] the new rule was not indented with its block --> fixed (a3aad690)
+
+#### Iteration 10
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 4 NITs
+**Converged**; the PR CI reds above followed, so the loop ran on.
+
+#### Iteration 11
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
+**Self-generated:** 0 of the above
+**Duplicates of prior findings:** 1 (notice plus open map)
+- [WARNING] web/index.html:5368 - the cap's 44px give-back did not match its own sum and left out the button's 8px margin --> FIXED (commit 3aa287e9): 8 + 36.4 + 6 = 50.4, cap calc(40vh - 52px), sum written at the rule
+- [NIT] the plan still called the notice uncapped --> fixed (3aa287e9)
+
+#### Iteration 12
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs (1 raised, a duplicate of the deferred focus case), 0 CONVENTIONs, 4 NITs
+**Converged** - no new actionable findings.
+
 #### Final validation (6j)
 - [BLOCKER] final-validation: the browser-check surface gate (#2518) named render-shell-noscroll-4872.js, whose 'consolidated' token changed --> FIXED (commit 9208a3bb): ran that check against this branch (72/72, Chromium at five sizes and WebKit) and recorded the per-check trailer; an empty commit, so the code diff is unchanged
-- The next run (00:53) went red only in tools/test-publish-r2-3725.sh: every pwsh call on this Mac aborted rc=134, a machine fault since fixed (kosmos#6352). Discarded per Splinter; the rerun at 02:06 on 9208a3bb PASSED (hash ee7504540177), no rc=134 anywhere in it, and the 6j helper call then skipped on that clean entry.
+- Earlier: the next run (00:53) went red only in tools/test-publish-r2-3725.sh: every pwsh call on this Mac aborted rc=134, a machine fault since fixed (kosmos#6352). Discarded per Splinter; the rerun at 02:06 on 9208a3bb PASSED (hash ee7504540177), no rc=134 anywhere in it, and the 6j helper call then skipped on that clean entry.
+- On the final head 3aa287e9 (after the CI fixes): validation PASSED at 06:36 (hash c582d648d294), no rc=134 in the run; the 6j helper call skipped on that clean entry; PR CI 8/8 green on the same head.
 
 ### Final Ledger
 
@@ -102,6 +133,10 @@ Validation between iterations: focused tests (the #6324 and #6103 units, project
 | 9 | 7 | WARNING | render-teammap-rail-6324.js:212 | BRANCH | 720 called a floor | FIXED | 786ed5d7 |
 | 10 | 6j | BLOCKER | final-validation | BRANCH | surface gate: noscroll check not updated | FIXED | 9208a3bb |
 | 11 | shots | WARNING | web/index.html rail head | BRANCH | button buried under the list by a long notice | FIXED | ce7ca2a9 |
+| 12 | CI | BLOCKER | web/index.html rail CSS | BRANCH | Team map button under the first name's touch reach | FIXED | b6398b08 |
+| 13 | CI | BLOCKER | web/index.html rail CSS | BRANCH | notice cap ran under the list with the button showing | FIXED | 4a825399, 3aa287e9 |
+| 14 | 9 | WARNING | web/index.html:5367 | BRANCH | overflowing map takes the rows' clicks | FIXED | a3aad690 (plan) |
+| 15 | 11 | WARNING | web/index.html:5368 | BRANCH | cap give-back did not match its sum | FIXED | 3aa287e9 |
 
 ### NITs (non-blocking, across all iterations)
 - Hidden scrollbar on the capped map (iterations 1, 6); pjTeamMap rebuilt each poll, and the hidden tab map also painted (1, 3, 5); the member filter copied three times (2, 3, 6, 7); the typeof guard (2, 7); the focus branch not unit-covered (1); swallowed waitForFunction timeouts (7); the scroll-keep browser arm is a guard (7); a stray h4 in the rail (5); the plan filename has no timestamp, as most sibling plans (3); squash on merge (3)
