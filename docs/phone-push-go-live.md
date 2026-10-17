@@ -106,6 +106,13 @@ record and its seller name cannot be undone, which is why item 2 is Josh's decis
 
 ## Step 2. Put the APNs settings into the coordinator's env template [fleet]
 
+**What actually shipped, 2026-10-17 (kosmos#6262 step 7, Splinter's go; kosmos-relay apns-6262):** the four
+`KOSMOS_APNS_*` settings are real assignments in the template (`io.kosmos.app`, team `6563JLN5HF`, key `B65JD5HYK3`,
+the key at `/etc/kosmos-coordinator/apns.p8`), and **`KOSMOS_PUSH` is not set at all**. So Steps 3 and 8 happen as one
+deploy: APNs sends for real from that deploy on, as web push already did. Nothing reaches a phone until the phone
+registers (the TestFlight app, signed in) and its computer's Phone notifications switch is on. The board's lock is open
+since 0.7.54 (`PHONE_APP_CAN_RECEIVE`, #4220). The rest of this step is the earlier plan, kept for the record.
+
 **Turns on after:** the coordinator deploy in Step 3. A Mac release or APK
 cannot supply these server settings.
 
@@ -200,6 +207,20 @@ No deploy step copies a key file, and the template only holds its path.
 - **Undo:** delete the file.
 
 ### 3b. Deploy
+
+**As shipped on 2026-10-17 (kosmos#6262):** run Step 3a first. The service reads the key once, at startup, and
+falls back to log-only if it cannot. Then deploy with `INSTALL_ENV=1`. The check is the journal line
+`apns: sending with token auth`, not the log-only line below. To send one test notice to an account's phones, run
+the box-only operator command as the service's user, with its env and sandbox:
+
+    systemd-run --wait --pipe -p User=kosmos-coordinator -p Group=kosmos-coordinator \
+      -p EnvironmentFile=/etc/kosmos-coordinator.env -p Environment=KOSMOS_DATA_DIR=/var/lib/kosmos-coordinator \
+      -p ProtectSystem=strict -p ProtectHome=yes -p ReadWritePaths=/var/lib/kosmos-coordinator \
+      -p UMask=0077 -p PrivateTmp=yes -p NoNewPrivileges=yes \
+      /usr/local/bin/kosmos-coordinator apns-test --email <the account's email>
+
+It prints one line per phone with Apple's answer, for example `refused (403 InvalidProviderToken)`, which is the
+team and key mismatch from Step 2's trap 2.
 
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
@@ -548,6 +569,9 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 - A Mac back on the old board has the lock closed again and sends nothing.
 
 ## Step 8. Let the coordinator send [Josh]
+
+**Not needed as written (2026-10-17, kosmos#6262):** `KOSMOS_PUSH` was never set to log (see Step 2), so there is
+nothing to turn off. The coordinator sends from the Step 3 deploy on.
 
 **Carries:** a second coordinator env deploy. This turns APNs delivery from
 log-only to real sending after the apps and Mac release are ready. It changes
