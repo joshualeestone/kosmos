@@ -665,7 +665,7 @@
     },
     {
       "title": "Add several computers in one sitting",
-      "line": "Pairing to Kosmos+ now allows 10 code tries per computer and 20 answers a day; one stuck at the old limits can finish once both Macs update.",
+      "line": "With both Macs on this version, Kosmos+ pairing allows 10 code tries per computer and 20 answers a day, and a stuck pair can finish.",
       "icon": "shield",
       "platforms": [
         "mac"
@@ -692,7 +692,7 @@
     },
     {
       "title": "A team map for each project",
-      "line": "In the tab layout, a project's Members card now has a Team map: who reports to whom, what each member holds, and who handed work to whom.",
+      "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
       "icon": "swarm",
       "rank": 4,
       "since": "0.7.55",
