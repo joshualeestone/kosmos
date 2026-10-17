@@ -5555,7 +5555,8 @@ const server = http.createServer(async (req, res) => {
     }
     /* #6358: a cookie given out before sessions held one of this account's tokens, and a browser keeps it for up
        to 400 days. A cookie whose value the gate accepts AS A TOKEN is that cookie: end it on this answer, so the
-       browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone. */
+       browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone, and so
+       is a session a restart forgot (it is no credential, and the next sign-in overwrites it). */
     // Against the tokens already in memory (the active one and the worlds known at start), so a stale tab's every
     // request costs no disk read.
     const oldCookie = boardauth.cookieToken(req);

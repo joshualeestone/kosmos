@@ -850,7 +850,7 @@ test('#5865: an unreadable daily-report setting on Linux does not send the perso
   assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
 });
 
-test('#6358: on Linux the not-signed-in panel and sentence say kosmos open, never the Mac app or Kosmos.exe', () => {
+test('#6358: on Linux the not-signed-in panel and sentence point to Kosmos+, never the Mac app, Kosmos.exe or kosmos open', () => {
   const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
   assert.match(html, /reach it through Kosmos\+, which stays signed in/);
   assert.match(html, /Signing a local browser tab back in is not available on Linux yet/, 'no remedy is promised that does not work there');
