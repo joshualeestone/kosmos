@@ -191,7 +191,7 @@ test('#5333 both CLIs: a refusal shaped { error: <sentence> } gets the hint too'
       const mac = await run(CLI, ['msg', 'mara', 'hello'], envFor(port, home, TOKEN));
       assert.ok(mac.out.includes(NO_MATCH), `the stub answered: ${mac.out}`);
       assert.ok(mac.stderr.includes(HINT), `Mac: the error arm says the way back: ${mac.out}`);
-      const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN));
+      const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN, WIN_DATA));
       assert.ok(win.out.includes(NO_MATCH), `the stub answered: ${win.out}`);
       assert.ok(win.stderr.includes(HINT), `Windows: the error arm says the way back: ${win.out}`);
     }, { errorShape: true });

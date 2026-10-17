@@ -237,7 +237,32 @@ async function mayCarryTokensTo(baseUrl, headers, opts) {
   return boardHoldsToken(baseUrl, t, opts);
 }
 
-module.exports = { PROOF_PATH, AGENT_HEADER, logOnce, PROOF_ANSWER_MAX_BYTES, NONCE_BYTES, KEY_ID_HEX, PROOF_HEX, CLIENT_ADDR, keyId, proof, newNonce, proofMatches, answer, boardHoldsToken, portOf, mayCarryTokensTo, tokenIn };
+/* Why a check that came out false found nothing listening (or nothing answering in time), as opposed to a listener
+   that answered and could not prove itself: the two read differently to a person. Neither sends anything. */
+const NOTHING_THERE_RE = /^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)\b/;
+function nothingThere(why) { const w = String(why || ''); return NOTHING_THERE_RE.test(w) || w === 'timed out'; }
+
+/* The Windows senders' check (the report hook, the kosmos command, the board opener; #1765): boardHoldsToken with
+   its reason kept. Resolves { ok, why, nothingThere }, never throws. `opts.prove` is a test seam standing in for the
+   check: (url, token, timeoutMs) resolving a boolean or { ok, why }. */
+async function checkBoard(baseUrl, token, opts) {
+  const o = opts || {};
+  let ok = false;
+  let why = '';
+  try {
+    if (typeof o.prove === 'function') {
+      const r = await o.prove(baseUrl, token, o.timeoutMs);
+      if (r && typeof r === 'object') { ok = r.ok === true; why = String(r.why || ''); } else ok = r === true;
+    } else {
+      ok = await boardHoldsToken(baseUrl, token, { timeoutMs: o.timeoutMs, onRefuse: (w) => { why = String(w || ''); } });
+    }
+  } catch (e) { ok = false; why = 'the check failed: ' + ((e && e.message) || e); }
+  if (ok === true) return { ok: true, why: '', nothingThere: false };
+  why = why || 'not proven';
+  return { ok: false, why, nothingThere: nothingThere(why) };
+}
+
+module.exports = { PROOF_PATH, AGENT_HEADER, logOnce, PROOF_ANSWER_MAX_BYTES, NONCE_BYTES, KEY_ID_HEX, PROOF_HEX, CLIENT_ADDR, keyId, proof, newNonce, proofMatches, answer, boardHoldsToken, portOf, mayCarryTokensTo, tokenIn, checkBoard };
 
 if (require.main === module) {
   const [flag, base] = process.argv.slice(2);

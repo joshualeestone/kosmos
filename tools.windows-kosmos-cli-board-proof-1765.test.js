@@ -124,3 +124,20 @@ test('#1765: a check that passed serves the rest of the process: two sends in on
   assert.equal(fetched, 2, 'the command did not make two requests: ' + r.err);
   assert.equal(asked, 1, 'the second request asked for a second proof');
 });
+
+test('#1765: task ran is not asked again of a listener that failed the check, and says why nothing was sent', async () => {
+  const sq = await startListener({ mode: 'squatter' });
+  try {
+    const r = await run(sq.url, ['task', 'ran', 'proj', '3', 'checked the queue']);
+    assert.equal(r.code, 1, r.err);
+    assert.match(r.err, /could not show it is your Kosmos, so we did not record that run and sent it nothing/);
+    assert.doesNotMatch(r.err, /asking again/, 'a failed check was retried');
+    assert.equal(sq.proofRequests().length, 1);
+    assert.deepEqual(sq.carrying([BOARD, AGENT]), []);
+  } finally { await sq.close(); }
+});
+
+test('#1765: the command\'s own entry passes no fetch, hook or seam (any of which would skip the real check)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
+  assert.match(src, /if \(require\.main === module\) \{\n  main\(process\.argv\.slice\(2\)\)\.then/);
+});

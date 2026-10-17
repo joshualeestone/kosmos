@@ -3651,18 +3651,6 @@ public class NavigationCompleted : ICoreWebView2NavigationCompletedEventHandler
     }
 }
 
-// ---- #3996: the waiting count on the taskbar button, the Windows twin of the Mac Dock badge ----
-//
-// The number is the board's, never worked out here: counts.waiting on /api/status (engine/status.js
-// waitingTotal: agents that need the person + unread direct messages + unread project messages).
-// Null (Settings > Computer > App icon switched off, #4025, or a board older than #3996), zero, or
-// anything that is not a whole number clears the badge. The badge itself is ITaskbarList3's overlay
-// icon on the window's taskbar button: a red circle with the count in white, 1 to 9, then "9+"
-// (the overlay is a small icon, so a longer number would not read). It exists only while the
-// window does, which is where the taskbar button is.
-//
-// Everything here but ReadBoard, DrawIcon and the COM is pure, so tools.win-taskbar-badge-3996.test.js
-// compiles a probe beside this file and drives it.
 // #1765: before this process sends the board token, the listener on the board port shows it already holds that
 // token. Every account on a Windows computer uses the same port, so whatever answers there is not always this
 // account's board. The exchange is engine/boardproof.js's, byte for byte (tools.win-launcher-board-proof-1765.test.js
@@ -3774,6 +3762,18 @@ static class BoardProof
     }
 }
 
+// ---- #3996: the waiting count on the taskbar button, the Windows twin of the Mac Dock badge ----
+//
+// The number is the board's, never worked out here: counts.waiting on /api/status (engine/status.js
+// waitingTotal: agents that need the person + unread direct messages + unread project messages).
+// Null (Settings > Computer > App icon switched off, #4025, or a board older than #3996), zero, or
+// anything that is not a whole number clears the badge. The badge itself is ITaskbarList3's overlay
+// icon on the window's taskbar button: a red circle with the count in white, 1 to 9, then "9+"
+// (the overlay is a small icon, so a longer number would not read). It exists only while the
+// window does, which is where the taskbar button is.
+//
+// Everything here but ReadBoard, DrawIcon and the COM is pure, so tools.win-taskbar-badge-3996.test.js
+// compiles a probe beside this file and drives it.
 static class TaskbarBadge
 {
     // As the Mac app: the page polls every 5 s, the window's own read runs every 10 s but only after
@@ -3937,9 +3937,16 @@ static class TaskbarBadge
             request.ReadWriteTimeout = ReadTimeoutMs;
             request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
             string token = ReadBoardToken();
-            // #1765: the token goes only to a listener that proves it already holds it (BoardProof below). Not
+            // #1765: the token goes only to a listener that proves it already holds it (BoardProof, above). Not
             // proven is a miss, like no answer: nothing is sent.
+            // The check takes at most half the read's bound, and the read gets what is left, so a poll still ends
+            // within ReadTimeoutMs.
+            Stopwatch checking = Stopwatch.StartNew();
             if (token != null && !BoardProof.Holds(port, token, ReadTimeoutMs / 2)) return false;
+            int left = ReadTimeoutMs - (int)checking.ElapsedMilliseconds;
+            if (left <= 0) return false;
+            request.Timeout = left;
+            request.ReadWriteTimeout = left;
             if (token != null) request.Headers[BoardTokenHeader] = token;
             string body;
             using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())

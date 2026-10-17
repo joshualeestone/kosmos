@@ -343,7 +343,8 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
   const server = http.createServer(() => { /* accept, then never respond */ });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  const { appDir } = makeAppDir({ withToken: true });
+  // #1765: no token, so the plain url is the right fallback (with one, nothing opens: see below).
+  const { appDir } = makeAppDir({ withToken: false });
   const t0 = Date.now();
   try {
     // Runs ~4.8s, not ~2.5s: at ~2.4s (after the first 2s probe aborts + a 400ms
@@ -355,6 +356,18 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
     assert.equal(url, `http://127.0.0.1:${port}`, 'a hung board did not fall back to the plain url');
     assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
   } finally { server.close(); }
+});
+
+test('#1765: on an enforcing board, a listener that takes the connection and never answers gets nothing opened at it', async () => {
+  const server = http.createServer(() => { /* accept, then never respond */ });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const { appDir } = makeAppDir({ withToken: true });
+  const t0 = Date.now();
+  try {
+    assert.equal(await helper.resolveOpenUrl({ appDir, port, timeoutMs: 2500 }), null, 'an address nothing answered for was opened on an enforcing board');
+    assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
+  } finally { server.closeAllConnections(); server.close(); }
 });
 
 test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url', async (t) => {
@@ -414,15 +427,16 @@ test('#1118: --print-url hands the NONCED url to the board window on stdout and 
   } finally { server.close(); }
 });
 
-test('board never comes up: opens the plain url within the timeout', async () => {
-  // Nothing listening on this port; the helper must give up and return the plain
-  // url rather than hang or crash.
-  const { appDir } = makeAppDir({ withToken: true });
+test('board never comes up: opens the plain url within the timeout (no token), and nothing on an enforcing board (#1765)', async () => {
+  // Nothing listening on this port; the helper must give up rather than hang or crash.
   const port = 1;               // port 1 refuses fast; the connect simply errors
-  const t0 = Date.now();
-  const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 1200 });
-  assert.equal(url, `http://127.0.0.1:${port}`);
-  assert.ok(Date.now() - t0 < 5000, 'the helper did not honor its timeout');
+  for (const withToken of [false, true]) {
+    const { appDir } = makeAppDir({ withToken });
+    const t0 = Date.now();
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 1200 });
+    assert.equal(url, withToken ? null : `http://127.0.0.1:${port}`, 'withToken=' + withToken);
+    assert.ok(Date.now() - t0 < 5000, 'the helper did not honor its timeout');
+  }
 });
 
 /* ---- #1765: the listener proves it holds the token before the helper sends it ---- */

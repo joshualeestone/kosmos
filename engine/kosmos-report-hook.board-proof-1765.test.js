@@ -141,3 +141,15 @@ test('#1765: with no token at all nothing is proved (there is nothing to protect
   assert.equal(asked, 0);
   assert.equal(fetched, 1);
 });
+
+test('#1765: no production caller hands main a fetch of its own (which would stand in for the board and skip the check)', () => {
+  const src = (f) => fs.readFileSync(path.join(__dirname, f), 'utf8');
+  // The hook's own entry: the event only.
+  assert.match(src('kosmos-report-hook.js'), /const run = \(input\) => main\(\{ input \}\)/);
+  // The Codex supervisor's idle report: the event, its env and a quiet stdout, nothing else.
+  assert.match(src('win32codexsup.js'), /require\('\.\/kosmos-report-hook'\)\s*\.main\(\{ input: JSON\.stringify\(\{ hook_event_name: 'Stop' \}\), env, stdout: \(\) => \{\} \}\)\)/);
+  // Nothing else outside the tests calls main.
+  const callers = fs.readdirSync(__dirname).filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .filter((f) => /kosmos-report-hook['"]\)\s*\.main\(/.test(src(f)));
+  assert.deepEqual(callers, ['win32codexsup.js']);
+});

@@ -1341,12 +1341,14 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
      every attempt, which the board takes as the same run however late it lands.
      A rule (repeat) is asked once, as before. */
   let mayHaveLanded = !r.reached && !r.refused && !r.notConnected;
-  for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {
+  // #1765: a listener that could not prove it is this account's board is not asked again: nothing was sent to it.
+  for (let tries = 0; which === 'ran' && tries < 2 && !r.notProven && (!r.reached || r.status === 503); tries += 1) {
     ctx.err('Kosmos did not answer or was busy; asking again...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env) * (tries === 0 ? 2 : 8)));
     r = await ctx.call('POST', path, body);
     if (!r.reached && !r.refused && !r.notConnected) mayHaveLanded = true;
   }
+  if (r.notProven && !mayHaveLanded) return ctx.unreachable('record that run');   // #1765: says why nothing was sent
   if (which === 'ran' && !mayHaveLanded && (!r.reached || r.status === 503)) {
     ctx.err(r.reached
       ? 'Kosmos could not record that run: ' + (ctx.refusedBy(r) || 'it was busy') + '. It was not recorded; run the same command again in a minute.'
@@ -2383,31 +2385,18 @@ async function main(argv, io) {
      seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
      the board or its token, and production (the entry at the bottom of this file) passes neither. */
   const proved = new Map();
-  const prove = typeof o.proveBoard === 'function'
-    ? async (u, t, ms) => {
-      try {
-        const r = await o.proveBoard(u, t, ms);
-        return (r && typeof r === 'object') ? { ok: r.ok === true, why: r.why || '' } : { ok: r === true, why: r === true ? '' : 'not proven' };
-      } catch (e) { return { ok: false, why: 'the check failed: ' + ((e && e.message) || e) }; }
-    }
-    : (o.fetch || o.hook) ? null
-      : async (u, t, ms) => {
-        let why = '';
-        let ok = false;
-        try {
-          ok = await require(path.join(engineDir(), 'boardproof.js')).boardHoldsToken(u, t, { timeoutMs: ms, onRefuse: (w) => { why = String(w || ''); } });
-        } catch (e) { ok = false; why = 'the check failed: ' + ((e && e.message) || e); }   // never send unproven
-        return { ok: ok === true, why: ok === true ? '' : (why || 'not proven') };
-      };
+  const seamed = typeof o.proveBoard === 'function';
+  const checking = seamed || !(o.fetch || o.hook);
   async function provenFor(headers, boundMs) {
-    if (!prove) return { ok: true };
-    let t;
-    try { t = require(path.join(engineDir(), 'boardproof.js')).tokenIn(headers); }
-    catch (e) { return { ok: false, why: 'the check could not run: ' + ((e && e.message) || e) }; }   // never send unproven
+    if (!checking) return { ok: true };
+    let boardproof;
+    try { boardproof = require(path.join(engineDir(), 'boardproof.js')); }
+    catch (e) { return { ok: false, why: 'the check could not load: ' + ((e && e.message) || e), nothingThere: false }; }   // never send unproven
+    const t = boardproof.tokenIn(headers);
     if (t === '') return { ok: true };   // no token: nothing to protect
-    if (t === null) return { ok: false, why: 'headers unreadable' };
+    if (t === null) return { ok: false, why: 'headers unreadable', nothingThere: false };
     if (proved.get(t) === true) return { ok: true };
-    const r = await prove(url, t, Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))));
+    const r = await boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
     if (r.ok) proved.set(t, true);
     return r;
   }
@@ -2424,7 +2413,7 @@ async function main(argv, io) {
     if (!p.ok) {
       /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
          retry). A board that is down still reads as down; anything else says the listener could not prove itself. */
-      const down = /^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)/.test(String(p.why || ''));
+      const down = p.nothingThere === true && p.why !== 'timed out';
       if (!down) lastNotProven = String(p.why || 'not proven');
       return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: !down };
     }

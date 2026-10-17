@@ -363,41 +363,32 @@ async function deliver(report, io) {
 
 /**
  * #1765: before this hook sends a token, the listener on the board port shows it already holds that token
- * (engine/boardproof.js: an HMAC over a fresh nonce, checked here with our own copy). Every account on a Windows
- * computer uses the same port, so whatever answers there is not always this account's board.
+ * (engine/boardproof.js checkBoard: an HMAC over a fresh nonce, checked here with our own copy). Every account on a
+ * Windows computer uses the same port, so whatever answers there is not always this account's board.
  *
- * Returns the check this process uses: a function (url, token, timeoutMs) resolving { ok, why }. `o.proveBoard` is
- * the test seam (a function resolving a boolean or { ok, why }). With no seam, the real check runs, over node's
- * own http, unless the caller handed in its own `fetchImpl`: that is a test standing in for the board, and
- * production never passes one (the hook's entry below calls main with the event only).
+ * Returns the check this process uses: (url, token, timeoutMs) resolving { ok, why, nothingThere }. `o.proveBoard`
+ * is the test seam (resolving a boolean or { ok, why }). With no seam the real check runs, unless the caller handed in
+ * its own `fetchImpl`: that is a test standing in for the board. No production caller passes one (the entry at the
+ * bottom of this file, and engine/win32codexsup.js; kosmos-report-hook.board-proof-1765.test.js pins both).
  */
 function proverFor(o) {
-  if (typeof o.proveBoard === 'function') {
-    return async (url, token, timeoutMs) => {
-      try {
-        const r = await o.proveBoard(url, token, timeoutMs);
-        return (r && typeof r === 'object') ? { ok: r.ok === true, why: r.why || '' } : { ok: r === true, why: r === true ? '' : 'not proven' };
-      } catch (e) { return { ok: false, why: 'the check failed: ' + ((e && e.message) || e) }; }
-    };
-  }
-  if (o.fetchImpl) return async () => ({ ok: true, why: '' });
-  return async (url, token, timeoutMs) => {
-    let why = '';
-    let ok = false;
-    try {
-      ok = await require('./boardproof').boardHoldsToken(url, token, { timeoutMs, onRefuse: (w) => { why = String(w || ''); } });
-    } catch (e) { ok = false; why = 'the check failed: ' + ((e && e.message) || e); }   // boardproof never throws; a missing module does
-    return { ok: ok === true, why: ok === true ? '' : (why || 'not proven') };
+  const check = (url, token, timeoutMs, prove) => {
+    let boardproof;
+    try { boardproof = require('./boardproof'); } catch (e) { return Promise.resolve({ ok: false, why: 'the check could not load: ' + ((e && e.message) || e), nothingThere: false }); }
+    return boardproof.checkBoard(url, token, { timeoutMs, prove });
   };
+  if (typeof o.proveBoard === 'function') return (url, token, timeoutMs) => check(url, token, timeoutMs, o.proveBoard);
+  if (o.fetchImpl) return async () => ({ ok: true, why: '', nothingThere: false });
+  return (url, token, timeoutMs) => check(url, token, timeoutMs);
 }
 
 /** #1765: the words for a check that came out false. Nothing listening (the board is down) and a listener that
  *  cannot prove itself are different situations for the person, so they read differently. */
-function proofRefusalReason(why) {
-  const w = String(why || '');
-  if (/^request failed: (ECONNREFUSED|ECONNRESET|EADDRNOTAVAIL|EHOSTUNREACH|ENETUNREACH)/.test(w)) return { down: true, text: 'the board could not be reached (' + w.replace(/^request failed: /, '') + ')' };
-  if (w === 'timed out') return { down: true, text: 'the board did not answer in time' };
-  return { down: false, text: 'what answers at the board\'s address could not show it is your Kosmos, so nothing was sent to it' };
+function proofRefusalReason(r) {
+  const w = String((r && r.why) || '');
+  if (w === 'timed out') return 'the board did not answer in time, so nothing was sent';
+  if (r && r.nothingThere) return 'the board could not be reached (' + w.replace(/^request failed: /, '') + ')';
+  return 'what answers at the board\'s address could not show it is your Kosmos, so nothing was sent to it';
 }
 
 /** The throttle key, most-specific first: TMUX_PANE if present (there is none on
@@ -478,7 +469,7 @@ async function main(io) {
   };
 
   /* #1765: every send below carries a token, so each first asks the listener to prove it holds that token. Proved
-     once per process (the first send's check serves the rest), within half the first send's own bound; each send
+     once per process (the first send's check, passed or failed, serves the rest), within half the first send's own bound; each send
      then gets what is left of its bound, so the check never lengthens a hook. Not proven: nothing is sent, and the
      hook still exits 0. The token proved is the one the board reads first (the board token, else the agent token). */
   const prove = proverFor(o);
@@ -489,7 +480,7 @@ async function main(io) {
     const t0 = Date.now();
     if (!proof) proof = prove(c.url, token, Math.max(1, Math.floor(boundMs / 2)));
     const r = await proof;
-    return { ok: r.ok, why: r.why, leftMs: boundMs - (Date.now() - t0) };
+    return { ok: r.ok, why: r.why, nothingThere: r.nothingThere, leftMs: boundMs - (Date.now() - t0) };
   };
 
   /* #5812 / #5153 on Windows: just before Claude edits a file, ask the board to keep a copy and note who is writing,
@@ -538,7 +529,7 @@ async function main(io) {
   let verdict;
   if (!p.ok) {
     // #1765: nothing was sent. A board that is down reads as before; a listener that could not prove itself says so.
-    verdict = { ok: false, notProven: proofRefusalReason(p.why).text };
+    verdict = { ok: false, notProven: proofRefusalReason(p) };
   } else if (p.leftMs <= 0) {
     verdict = { ok: false, error: 'out of time before the report could be sent' };
   } else {
