@@ -5,7 +5,8 @@ leak guard could not say which test file left them. Seen on PR #6351's CI and on
 
 ## What was measured (scratch experiment, both arms, with controls)
 tmpscope already writes `.kts-owner` at creation (#6061), so the card's suggested first slice was in place. A dir
-with no owner comes from the exit sweep (`fs.rmSync(dir, { recursive, force })`), which removes `.kts-owner` first:
+with no owner comes from the exit sweep (`fs.rmSync(dir, { recursive, force })`), which removes `.kts-owner` with
+everything else:
 - Arm A: a process the test started is still writing into the dir while it is swept. The final rmdir fails
   (ENOTEMPTY), the catch swallows it, and the dir stays without its owner. 3 of 20 runs.
 - Arm B: a process the test started, left running, makes a folder under the test's TMPDIR after the test has
@@ -50,5 +51,8 @@ marked owner line, the owner-less listing under set -e and pipefail, and the fiv
 the owner rewrite reds the survive-sweep test. NOT guarded by a test: the sweep's retry (`maxRetries`). Node retries
 ENOTEMPTY, EBUSY and EPERM but not the EACCES the locked-folder test makes, and a real ENOTEMPTY race is not
 deterministic; arm A's "0 of 30" is the scratch measurement, not a suite check.
-- Review 1: an EMPTY `.kts-owner` (a kill while tmpscope wrote it at creation) has its own sentence ("owner line
-  cut"); only a dir with NO owner file gets the "made again" explanation, which now keeps "or its write failed".
+- Review 1 and 5: what the guard cannot see, it says it cannot see. An EMPTY `.kts-owner` reads "owner file empty
+  (most likely the test was killed while tmpscope wrote it)"; an unreadable one, "its owner file cannot be read
+  here"; a dir it cannot search, "cannot be read here, so its owner is unknown"; a listing that failed part way
+  keeps what it printed, marked incomplete (that branch is untested: a walk that fails part way cannot be made on
+  demand). Only a dir with NO owner file gets the "made again" explanation.

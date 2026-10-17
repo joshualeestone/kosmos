@@ -82,8 +82,8 @@ function activate() {
       // no suite test can make that race on demand, so keep it when editing).
       try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 20 }); } catch { /* checked below */ }
       /* #6362: still here means the sweep failed part way (a process this file started was still
-         writing into it, or something in it could not be removed), after it had already taken
-         .kts-owner. Put the owner back, marked, so the leak guard names this file. (A process
+         writing into it, or something in it could not be removed), and it may already have taken
+         .kts-owner (that depends on the order it met the entries). Put the owner back, marked, so the leak guard names this file. (A process
          that makes the folder again AFTER this one has ended cannot be caught here; the guard
          lists what such a folder holds instead.) */
       try {

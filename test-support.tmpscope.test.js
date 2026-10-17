@@ -296,7 +296,7 @@ test('#6362: a dir that survives its sweep gets its owner back, marked, and the 
   if (process.getuid && process.getuid() === 0) return t.skip('running as root: a 0o500 folder does not stop root');
   const base = freshBase(t);
   const victim = path.join(base, 'stuck-6362.test.js');
-  // A subfolder with no write permission cannot be emptied, so the sweep fails after it has removed .kts-owner.
+  // A subfolder with no write permission cannot be emptied, so the sweep fails and the dir survives it.
   fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const fs=require('fs'),os=require('os'),p=require('path');
 const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');fs.chmodSync(d,0o500);\n`);
   try {
