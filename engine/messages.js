@@ -2428,11 +2428,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
   let allowed = lim.roomArrivalsPerWindow;
+  let progressFrom = null;   // #6420: the allowance as read once here, handed to the clear-time reading below
   if (lim.on && operator !== true && arrivals + charged > allowed) {
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
        earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
-    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
+    progressFrom = roomProgressAllowance(projectId, lim, now, countFrom);
+    allowed += progressFrom(countFrom);
   }
   /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
      the volume valve below. The volume valve counts arrivals; two agents trading
@@ -2575,7 +2577,19 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
+      /* #6420: and WHEN the volume limit lifts (only this valve: the pair limit and the duplicate check are their own
+         refusals), so the agent is told a time, not "about an hour" whatever the room did. Read by roomHeldRead, the
+         function behind the room's own "should lift by": counted posts age out oldest first, and the progress
+         allowance shrinks as its steps leave the hour. Read for THIS post's size, so it agrees with the room's own
+         reading when the sizes match (that one reads the latest post's). An estimate, so the CLI says "about".
+         The fields are left off when there is no time to give: until is null for a post bigger than the whole
+         budget with what progress has earned (no wait and no reopen fits it), and a row dated after now (counted
+         here, not by roomHeldRead) can leave no reading at all. A post that reaches nobody (charged 0) is read at
+         the latest post's size. */
+      const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom);
+      const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
+      const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
     }
   }
 
@@ -3589,7 +3603,10 @@ function roomHeld(project, now) {
   HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
   return out;
 }
-function roomHeldRead(projectId, at, lim, rows) {
+/* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.
+   `progressFrom`: the allowance as the caller already read it for this same moment (#6420: sendPost's refusal, so a
+   refused post reads the task and file times once); without it, read here. */
+function roomHeldRead(projectId, at, lim, rows, charge, progressFrom) {
   let lastOperatorAt = 0;
   for (const m of rows) {
     if (!m || m.project !== projectId) continue;
@@ -3609,17 +3626,17 @@ function roomHeldRead(projectId, at, lim, rows) {
     else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
   counted.sort((a, b) => a.t - b.t);
-  const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
+  const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
   const cap = lim.roomArrivalsPerWindow;
-  if (arrivals + charge <= cap) return null;
-  const allowanceFrom = roomProgressAllowance(projectId, lim, at, countFrom);
-  if (arrivals + charge <= cap + allowanceFrom(countFrom)) return null;
+  if (arrivals + size <= cap) return null;
+  const allowanceFrom = typeof progressFrom === 'function' ? progressFrom : roomProgressAllowance(projectId, lim, at, countFrom);
+  if (arrivals + size <= cap + allowanceFrom(countFrom)) return null;
   let freeAt = null;
   for (const c of counted) {
     arrivals -= c.n;
     /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
-    if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
+    if (arrivals + size <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
   }
   return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
 }
