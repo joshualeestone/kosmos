@@ -144,8 +144,9 @@ test('#6358: the signed-out panel tells the app window it is being signed in, an
 test('#6358: the one sentence (agents box, projects, org note) is true in the app window and in a tab', () => {
   const m = PAGE.match(/const SIGNIN_SENTENCE = platformCopy\('signinSentence', '([^']*)'\)/);
   assert.ok(m, 'SIGNIN_SENTENCE is gone');
-  assert.match(m[1], /The Kosmos app signs itself in again/, 'true in the app');
-  assert.match(m[1], /A browser tab stays signed out until it is signed in again/, 'true in a tab: opening the app does not sign the tab in');
+  // A constant cannot follow the app's give-up, so it claims nothing about the app and points to the panel, which does.
+  assert.match(m[1], /The not-signed-in note on the agents list says what to do\./);
+  assert.doesNotMatch(m[1], /signs itself in/, 'a claim that turns false the moment the app gives up');
   assert.doesNotMatch(m[1], /;/, 'no semicolon: liftConst-based tests cut the sentence at the first one');
 });
 

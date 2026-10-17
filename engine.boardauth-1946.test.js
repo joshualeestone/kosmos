@@ -188,6 +188,19 @@ test('#6358: a live session plus a valid ?token= is still redirected to the clea
     'the clean address is no bootstrap: no redirect loop');
 });
 
+test('#6358: a kept session with under a minute left is REPLACED, never handed back about to expire', () => {
+  let t = 20000;
+  boardauth._setNonceClock(() => t);
+  try {
+    const sid = boardauth.mintSession('T');
+    t += boardauth.SESSION_MAX_MS - 30000;   // 30 s left
+    const b = boardauth.bootstrap({ token: 'T', req: { url: '/?token=T', headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    const m = b.setCookie.match(/^kosmos_board=([0-9a-f]{64});.*Max-Age=(\d+)$/);
+    assert.ok(m && m[1] !== sid, 'a new session, not the one about to expire: ' + b.setCookie);
+    assert.equal(Number(m[2]), Math.floor(boardauth.SESSION_MAX_MS / 1000), 'with the whole cap');
+  } finally { boardauth._setNonceClock(null); }
+});
+
 test('#6358: a kept session\'s cookie lasts only what the session has left, never longer', () => {
   let t = 10000;
   boardauth._setNonceClock(() => t);

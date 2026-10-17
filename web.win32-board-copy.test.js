@@ -384,7 +384,7 @@ const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
-const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. The Kosmos app signs itself in again. A browser tab stays signed out until it is signed in again.';
+const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. The not-signed-in note on the agents list says what to do.';
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',

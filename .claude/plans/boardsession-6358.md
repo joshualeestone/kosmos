@@ -42,7 +42,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
     rewrites the address. The app then stays out of it until a read works, which in
     practice means Kosmos is reopened.
   - `urlForLog` keeps the token out of the two launch log lines.
-  - All pure, with `--kosmos-app-mode-selftest` rows: 138 in all. The reload log line goes through `urlForLog` too.
+  - All pure, with `--kosmos-app-mode-selftest` rows: 139 in all. The reload log line goes through `urlForLog` too.
 - **`web/index.html`**
   - On the poll's 403, inside the Mac app (or the Windows app, `{ kosmosSignin: true }`), tell the app
     (`signedOutTellApp`). Not on every poll: again after 65 s, a little over the app's own limit, and at once after a
@@ -69,8 +69,8 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
 - **A browser tab on a Linux board:** reach the board through Kosmos+, which stays signed in. Signing a local tab back
   in is NOT available on Linux yet: `kosmos open` uses `/usr/bin/open`, which most Linux systems lack (install/kosmos,
   Renet's file; routed). The copy says so rather than promising a remedy that fails.
-- **The one sentence (agents box, projects, org note):** "The Kosmos app signs itself in again. A browser tab stays
-  signed out until it is signed in again." (The tab panel carries the Applications-folder advice.) That is true in both places. Linux has its own sentence.
+- **The one sentence (agents box, projects, org note):** "The not-signed-in note on the agents list says what to do." It is a constant,
+  so it claims nothing that the app's give-up could make false; the panel carries the state-aware remedy. That is true in both places. Linux has its own sentence.
 - **Kosmos+ remote access through the relay:** NOT signed out by a restart on the board's side. Read in kosmos-relay
   origin/main, `crates/tunnel/src/proxy.rs`:
   - the connector drops the visitor's `kosmos_board` cookie;
@@ -113,7 +113,7 @@ sessions (Renet's part of #6358, using `liveSessionIds`) lands after this.
   - Three mutants were run by hand (not in the suite), each restored after: dropping the poll's call, the
     told-guard, or the proxy's origin check. Each failed its own assertion.
 - **`web.win32-board-copy.test.js`:** the Mac copy pin follows the new copy, and a Linux arm was added.
-- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 138/138.
+- **The app:** builds against the macOS floor; `--kosmos-app-mode-selftest` passes 139/139.
 - **The server tests that sign in with a cookie** take their session from the bootstrap (server.board-auth-1946,
   -worldswitch-3055). 1946 also checks that the old token cookie is ended and a live or foreign one is not.
 - The no-URL-in-logs test checks today's spellings only (`\(url`, `absoluteString`, `\(page`). It is not general
@@ -160,3 +160,5 @@ header. A sender that set the cookie to the token would now be refused, and its 
 - A sign-in with a different token than the live session mints a new session and leaves the old one valid until a
   restart or the cap. That is harmless: its holder had it already. A kept session with under a minute left is
   replaced rather than handed back about to expire.
+- A `?token=` / `?boot=` open made while the board is down now gets the browser's own error page rather than the
+  cached offline shell (the worker skips sign-in navigations, by design). Ordinary opens are unchanged.

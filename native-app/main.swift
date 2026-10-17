@@ -1535,7 +1535,7 @@ func signInAgainPage(_ committed: URL?, board: (host: String, port: Int)) -> Str
           var comps = URLComponents(url: u, resolvingAgainstBaseURL: false)
     else { return front }
     if let items = comps.queryItems {
-        let kept = items.filter { $0.name != "token" && $0.name != "signin" }
+        let kept = items.filter { $0.name != "token" && $0.name != "signin" && $0.name != "boot" }
         comps.queryItems = kept.isEmpty ? nil : kept
     }
     return comps.url?.absoluteString ?? front
@@ -6911,6 +6911,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     againOn(nil, "http://127.0.0.1:16180/", "no committed page: the front page")
     againOn("http://127.0.0.1:16180/?tab=a&token=OLD", "http://127.0.0.1:16180/?tab=a", "a stale token in the page is dropped (board.token's is added next)")
     againOn("http://127.0.0.1:16180/?signin=failed", "http://127.0.0.1:16180/", "the could-not-sign-in marker is dropped")
+    againOn("http://127.0.0.1:16180/?boot=N&tab=a", "http://127.0.0.1:16180/?tab=a", "a stale boot= is dropped too")
     func decide(_ last: TimeInterval?, _ refused: Bool, _ haveToken: Bool, _ gaveUp: Bool, _ want: SignInAgain, _ why: String) {
         ran += 1
         let got = signInAgainDecision(now: 1000, last: last, refused: refused, haveToken: haveToken, gaveUp: gaveUp)
@@ -7143,7 +7144,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 138   // #6358: +26 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 139   // #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
