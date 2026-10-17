@@ -21685,11 +21685,13 @@ const server = http.createServer(async (req, res) => {
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
       let delivered = null;
       let untold = false;
-      /* #6330 review 5: AGENT_WORKFORCE_TASK_MSG_CAP=0 switches agent task messages off, and a built line is an agent's
-         note typed into other agents' panes, so it is off too. */
-      const switchedOff = TASK_MSG_CAP_PER_HOUR === 0;
-      if (!viaScreen && body.clear !== true && out.changed === true && switchedOff) delivered = [];
-      else if (!viaScreen && body.clear !== true && out.changed === true) {
+      /* #6330 review 7: a built line is an agent's note typed into other agents' panes, so it goes through the task-message
+         valve (AGENT_WORKFORCE_TASK_MSG_CAP, 0 = switched off): refused, the mark stands and nobody is told; told, the
+         mark counts once against the valve, as one task message does. */
+      const tells = !viaScreen && body.clear !== true && out.changed === true;
+      const refusal = tells ? taskMessageRefusal() : null;
+      if (refusal) delivered = [];
+      else if (tells) {
         /* The mark is recorded by now, so nothing here may fail it: a throw before any line went answers 200, delivered []. */
         try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
         catch (err) {
@@ -21697,13 +21699,12 @@ const server = http.createServer(async (req, res) => {
           delivered = [];
           untold = true;
         }
+        if (delivered && delivered.length) taskMessageValveRecord();
       }
-      /* The same sentence a task message answers with (who was told, kept, or not), for the CLI to print; after a throw
-         it says so, never "nobody else is assigned". */
       let summary = null;
       if (delivered) {
         try {
-          summary = switchedOff ? 'Agent task messages are switched off on this computer, so nobody was told of the mark.'
+          summary = refusal ? 'Nobody was told of the mark: ' + String(refusal.because).replace(/\.$/, '') + '.'
             : untold ? 'Kosmos could not work out who to tell about the mark, so nobody was told.'
             : taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length));
         } catch { summary = null; }

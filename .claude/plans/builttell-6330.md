@@ -34,6 +34,15 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   could not work out who to tell", never "nobody else is assigned". Deferred from review 5: the answer still waits
   for the slowest line, so one pane with a backlog can hold it past the Mac CLI's 15 s (the CLI then says it may
   still have happened, and a retry is a no-op). A task message has exactly the same exposure through the same CLI.
+- Review 7: the lines go through the task-message valve (taskMessageRefusal / taskMessageValveRecord), so the
+  operator's AGENT_WORKFORCE_TASK_MSG_CAP governs them at any value, not only at 0: refused, the mark stands and the
+  answer says nobody was told and why; told, the mark counts once against that valve, as one task message does. This
+  replaces review 5's cap-0-only switch.
+- Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate
+  (deliverAutomaticAsync). A built line carries the marker's own note, sent on its behalf, exactly as a task message
+  carries an agent's words, and task messages are exempt from that gate by decision; the assignment notice (heardBy)
+  is not gated either. If the gate should cover agent-originated lines, that is one change for task messages and
+  built lines together, not this slice.
 - Review 3: lines go to every recipient at once (different panes), so the mark's answer waits for the slowest line, not
   the sum (the Mac CLI waits 15 s); a failure for one recipient is that recipient's could_not and never hides the
   others. The answer also carries `summary` (taskMessageSummary, as a task message), and both CLIs print it.
