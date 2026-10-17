@@ -241,7 +241,7 @@ test('review 1: past the daily cap a queued post or comment says it waits for th
   assert.equal(stateOfTitle('ava', 'Capped comment text'), 'queued', 'the post cap held a comment back (they are counted apart)');
   writeJson(cs._paths.keysFile(), { ava: { apiKey: 'k', commentRetryAt: future } });
   assert.equal(stateOfTitle('ava', 'Capped comment text'), 'capped');
-  assert.match(status.statusText('ava').text, /daily limit for this agent is reached/);
+  assert.match(status.statusText('ava').text, /this agent has reached the community limit for the last 24 hours, so Kosmos sends it once room frees up/);
 });
 
 test('review 1: an agent whose community name is held with no key says it waits, not "within a few minutes"', () => {
