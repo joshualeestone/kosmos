@@ -50071,7 +50071,8 @@ const ASK = { devices: [], email: '', done: {}, allowed: null, confirm: null, sa
 function askHereKey(h) { return h ? h.device_id + '@' + h.at : ''; }
 /* #6315: the requests the compact notice was put away for, as a list of keys (ASK.noteKeys, written by paintAsk):
    what storage holds (read on every paint, so another tab's dismissal applies here at this tab's next paint) together
-   with this tab's own record (which holds when storage cannot be read or written). */
+   with this tab's own record (which holds when storage cannot be read or written). Nothing un-dismisses a request:
+   this tab's record only grows until the page reloads. */
 function askNoteStored() {
   try { return (localStorage.getItem('kosmos.asknote.dismissed') || '').split('\n').filter(Boolean); } catch (e) { return []; }
 }
@@ -50083,11 +50084,9 @@ function askNoteSave(keys) {
   ASK.noteDismissed = keys;
   try { localStorage.setItem('kosmos.asknote.dismissed', keys.join('\n')); } catch (e) { /* this tab's record holds */ }
 }
-/* Added to what was put away before (the newest 200 kept), so a request dismissed earlier and missing from one list
-   is not forgotten when another is dismissed. */
+/* Added to what was put away before, here and in other tabs (the newest 200 kept), so nothing dismissed earlier is
+   forgotten. Two tabs saving at the same instant can still lose one; the cost is a notice shown again. */
 function askNoteDismiss() {
-  // Merged with what storage holds now, so other tabs' dismissals are kept (two tabs saving at the same instant can
-  // still lose one; the cost is a notice shown again).
   const keys = ASK.noteKeys || [];
   askNoteSave(askNoteDismissed().filter((k) => keys.indexOf(k) === -1).concat(keys).slice(-200));
 }
@@ -50243,9 +50242,9 @@ function paintAsk() {
     // later is a new request. A row whose first_seen and denied_at both arrive as 0 cannot come back.
     const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '');
     const hereKey = here ? 'here:' + askHereKey(here) : '';
+    if (hide) { ASK.noteKeys = []; askWrite(document.getElementById('ask-rows'), ''); return; }
     // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
-    if (hide) { ASK.noteKeys = []; askWrite(document.getElementById('ask-rows'), ''); return; }
     // The notice names only what was not put away; with nothing left it is hidden.
     const fresh = live.filter((d) => put.indexOf(noteKey(d)) === -1);
     const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
