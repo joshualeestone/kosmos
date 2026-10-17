@@ -691,6 +691,14 @@
       "status": "pending"
     },
     {
+      "title": "Marking a task built tells the next agent",
+      "line": "An agent's built note is now typed to the task's other assignees and to whoever holds the task above it, so nobody has to check.",
+      "icon": "tasks",
+      "rank": 3,
+      "since": "0.7.56",
+      "status": "pending"
+    },
+    {
       "title": "A team map for each project",
       "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
       "icon": "swarm",
