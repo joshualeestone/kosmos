@@ -78,6 +78,12 @@ from a delivery, which carries the card the pane check needs).
 - [x] Round 11 (opus): a light record lives 60 s (UNSENT_LIGHT_MS), just past its one retry, since its line usually
   went and sits in the agent's history (recalled, it must never be pressed again); re-remembering a light record keeps
   its time and one retry; comments honest (id and number kept; submitConfirmSteps returns text). Test pins it.
+- [x] Round 12 (sonnet): a hold that outlasts all three retries (a permission prompt answered ten minutes later, a usage
+  limit) no longer strands the line: a full record still stuck after the last retry is tried every 10 min
+  (UNSENT_TAIL_MS), one chain per line (retryChain; a newer set ends the older), for at most a day from its first
+  retry even when a press that does not take starts its day again. Light records have no tail. The unsent sentence
+  says so. Tests: held through four tries then pressed; CONTROL a sent line gets no tail; the day bound. Mutants: the
+  tail call, the day bound.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)

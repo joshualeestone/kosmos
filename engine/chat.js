@@ -292,8 +292,14 @@ function tellEarlierSubmitted(seq) {
 /* kosmos#6436: a line the board left unsent is pressed again on its own after these delays, so the agent is not left
    idle until someone next writes to it (agents sat idle 30 to 60 minutes behind one). A line is pressed late only within
    its day (UNSENT_KEEP_MS): while it is in the box nothing newer can be typed in, so sending it then keeps the order. A
-   retry that finds a delivery typing there is spent (that delivery presses the line itself); the next one still runs. */
+   retry that finds a delivery typing there is spent (that delivery presses the line itself); the next one still runs.
+   Round 12: a hold can outlast all three (a permission prompt answered ten minutes later, a usage limit), so a line still
+   stuck after the last is tried again every UNSENT_TAIL_MS, for at most a day from its first retry (the bound holds even
+   when a press that does not take starts the line's day again). One chain per line: a newer set ends the older. */
 const UNSENT_RETRY_MS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
+const UNSENT_TAIL_MS = 10 * 60 * 1000;
+const UNSENT_DONE = new Set(['sent', 'empty', 'gone']);   // pressRememberedNow's answers after which nothing is left to try
+let unsentChainNext = 0;
 /* The test seam for those retries: (ms, fn) => void. Unset with an injected tmux runner, nothing is scheduled (a test
    that wants them sets it); unset in production, a real unref'd timer. */
 let unsentRetryScheduler = null;
@@ -973,7 +979,7 @@ const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
-const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes and before the next thing it types to this agent, while the box shows only that line';
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
@@ -1118,19 +1124,38 @@ function scheduleUnsentRetries(target, card, delays = UNSENT_RETRY_MS) {
   const lastMs = delays[delays.length - 1];
   if (kept.retriesUntil && Date.now() < kept.retriesUntil) return;
   kept.retriesUntil = Date.now() + lastMs;
-  const id = kept.id;
+  unsentChainNext += 1;
+  kept.retryChain = unsentChainNext;
+  const id = kept.id, chain = kept.retryChain, since = Date.now();
   const schedule = unsentRetryScheduler || (runner ? null : (ms, fn) => {
     const t = setTimeout(fn, ms);
     if (t && typeof t.unref === 'function') t.unref();
   });
   if (!schedule) return;
-  for (const ms of delays) {
+  delays.forEach((ms, i) => {
     schedule(ms, () => {
       const now = recallUnsent(target);
       if (!now || now.id !== id) return;   // gone, or a newer line with retries of its own
-      Promise.resolve().then(() => pressRememberedNow(target, card)).catch(() => { /* a retry that fails is not the delivery's failure */ });
+      Promise.resolve().then(() => pressRememberedNow(target, card)).then((answer) => {
+        if (i === delays.length - 1 && !UNSENT_DONE.has(answer)) scheduleUnsentTail(target, card, id, chain, since, schedule);
+      }).catch(() => { /* a retry that fails is not the delivery's failure */ });
     });
-  }
+  });
+}
+/* Round 12: one more try every UNSENT_TAIL_MS while the line is still this chain's and still stuck. A light record has
+   no tail (it lives 60 s); a newer set of retries (a delivery that met the line again) ends this chain. */
+function scheduleUnsentTail(target, card, id, chain, since, schedule) {
+  const kept = recallUnsent(target);
+  if (!kept || kept.id !== id || kept.light || kept.retryChain !== chain) return;
+  if (Date.now() + UNSENT_TAIL_MS - since > UNSENT_KEEP_MS) return;
+  kept.retriesUntil = Date.now() + UNSENT_TAIL_MS;   // a delivery meanwhile adds no second chain
+  schedule(UNSENT_TAIL_MS, () => {
+    const now = recallUnsent(target);
+    if (!now || now.id !== id || now.retryChain !== chain) return;
+    Promise.resolve().then(() => pressRememberedNow(target, card)).then((answer) => {
+      if (!UNSENT_DONE.has(answer)) scheduleUnsentTail(target, card, id, chain, since, schedule);
+    }).catch(() => { /* a retry that fails is not the delivery's failure */ });
+  });
 }
 
 /* ── who may be sent to ──────────────────────────────────────────────────── */
@@ -4782,7 +4807,7 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS,   // #6249, kosmos#6436
+  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
   setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,

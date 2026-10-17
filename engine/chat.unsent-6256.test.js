@@ -68,7 +68,7 @@ test('#6256 item 3, kosmos#6436: the unsent sentence says Kosmos presses it agai
     arm([EMPTY, box(MSG)]);
     const v = chat.deliver('al', MSG, board.agents);
     assert.equal(v.unsubmitted, true, 'PRECONDITION: left in the box');
-    assert.match(v.because, /still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes and before the next thing it types to this agent, while the box shows only that line/);
+    assert.match(v.because, /still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line/);
   } finally { board.restore(); }
 });
 

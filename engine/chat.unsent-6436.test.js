@@ -421,3 +421,63 @@ test('kosmos#6436 (round 11): a light record (an unread watch) lives only past i
     assert.equal(t.enters(), 0, 'words that probably went are never pressed again minutes later');
   } finally { Date.now = realNow; }
 }));
+
+test('kosmos#6436 (round 12): a hold that outlasts the three retries does not strand the line: it is tried every ten minutes until it goes', async () => {
+  const PERMISSION = 'Bash command\n\n  ls\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No, and tell Claude what to do differently (esc)\n\nEnter to select · ↑/↓ to navigate · Esc to cancel';
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try {
+    const scheduled = [];
+    arm([EMPTY, box(MSG)]);
+    chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+    chat.deliver('al', MSG, board.agents);
+    const working = fleet.install([fleet.agent('al', { state: 'working' })]);
+    try {
+      chat.setRosterSource(() => working.agents);
+      // A permission prompt sits there through all three.
+      const held = arm([box(MSG)], PERMISSION);   // the box keeps showing our line under the prompt
+      for (const s of scheduled.slice(0, 3)) { s.fn(); await flush(); }
+      assert.equal(held.enters(), 0, 'PRECONDITION: the prompt holds every retry');
+      assert.deepEqual(scheduled.map((s) => s.ms), [30000, 120000, 300000, chat.UNSENT_TAIL_MS], 'a tail after the last');
+      // Still held at the first tail: another is set.
+      scheduled[3].fn(); await flush();
+      assert.equal(held.enters(), 0);
+      assert.equal(scheduled.length, 5, 'held again: one more, never more than one at a time');
+      // The prompt is answered: the next tail presses it, and that ends the chain.
+      const t = arm([box(MSG), box(MSG), EMPTY], '❯ ');
+      scheduled[4].fn(); await flush();
+      assert.equal(t.enters(), 1, 'pressed once the hold lifted, with no later message');
+      assert.equal(scheduled.length, 5, 'sent: nothing more scheduled');
+    } finally { working.restore(); }
+  } finally { board.restore(); }
+});
+
+test('kosmos#6436 (round 12) CONTROL: a line the last retry sent gets no tail; and the tail ends a day after the first retry', () => withAgent(async (roster) => {
+  const scheduled = [];
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
+  chat.deliver('al', MSG, roster);
+  const t = arm([box(MSG), box(MSG), EMPTY]);
+  scheduled[2].fn(); await flush();
+  assert.equal(t.enters(), 1, 'PRECONDITION: the last retry pressed it');
+  assert.equal(scheduled.length, 3, 'sent: no tail');
+  // A line that never takes: each press that does not empty the box starts its day again, but the chain still ends.
+  scheduled.length = 0;
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const realNow = Date.now;
+  let clock = realNow();
+  Date.now = () => clock;
+  try {
+    const stuck = arm([box(MSG)]);
+    scheduled[2].fn(); await flush();
+    let tails = 0;
+    while (scheduled.length > 3 + tails && tails < 500) {
+      clock += chat.UNSENT_TAIL_MS;
+      scheduled[3 + tails].fn(); await flush();
+      tails += 1;
+    }
+    assert.ok(stuck.enters() > 1, 'PRECONDITION: the tail did press it');
+    assert.ok(tails < 500, 'the chain ended');
+    assert.ok(tails * chat.UNSENT_TAIL_MS <= 24 * 60 * 60 * 1000, 'within a day of the first retry, ' + tails + ' tails');
+  } finally { Date.now = realNow; }
+}));
