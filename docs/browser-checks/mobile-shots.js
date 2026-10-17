@@ -1637,7 +1637,13 @@ const SCREENS = [
      lines out again, as the #5752 screen above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    /* #6420: the room's budget scales with its size (engine/messages.js roomCap), so the seed fills THIS project's
+       budget, sized as the room route and the valve size it (messages.roomRecipientsOf). */
+    const msgs = require(path.join(REPO, 'engine', 'messages'));
+    const proj = require(path.join(REPO, 'engine', 'projects')).readAll().find((x) => x && x.id === data.projectId);
+    if (!proj) throw new Error('#6420: the seeded project ' + data.projectId + ' is not in the registry, so its budget cannot be read');
+    const size = msgs.roomRecipientsOf(proj.agents);
+    const cap = msgs.roomCap(require(path.join(REPO, 'engine', 'limits')).caps(), size);
     const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
     const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
     data.heldLines = [
@@ -1648,6 +1654,8 @@ const SCREENS = [
         stopped: true, at: ago(4) }),
     ];
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
+    // The premise, checked here rather than read off a later timeout: the room reads held at its own size.
+    if (!msgs.roomHeld(data.projectId, Date.now(), size)) throw new Error('#6420: the seed did not hold the room at its own budget (' + cap + ')');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
