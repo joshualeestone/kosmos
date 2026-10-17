@@ -367,10 +367,11 @@ test('a project list that cannot be read while working out who to tell is said, 
   tasks.addPart(projectId, n, { sentence: 'Update the vault', who: 'zed' });
   const real = projects.readAll;
   let calls = 0;
+  let threw = 0;
   // The route reads the list for membership and setBuilt writes the task; the read inside tellBuiltMark is the last one.
   projects.readAll = (...a) => {
     calls += 1;
-    if (new Error().stack.includes('tellBuiltMark')) throw new Error('the projects file could not be read');
+    if (new Error().stack.includes('tellBuiltMark')) { threw += 1; throw new Error('the projects file could not be read'); }
     return real.apply(projects, a);
   };
   try {
@@ -379,6 +380,7 @@ test('a project list that cannot be read while working out who to tell is said, 
     assert.deepEqual(r.json.delivered, []);
     assert.match(r.json.summary, /could not work out who to tell/, r.json.summary);
     assert.ok(calls > 1, 'control: the stub saw the route\'s own reads too');
+    assert.equal(threw, 1, 'the stub never found the read inside tellBuiltMark, so this test proved nothing');
   } finally {
     projects.readAll = real;
   }
@@ -471,6 +473,35 @@ test('a line that fails inside the wait is not logged as failing after the answe
     chat.deliverAsync = real;
   }
 });
+
+for (const how of ['comes back could_not', 'rejects']) {
+  test(`a line that ${how} after the answer is logged, naming the agent and the task`, async () => {
+    const srv = require('./server');
+    const chat = require('./engine/chat');
+    const n = tasks.create(projectId, { sentence: 'Rotate the keys', who: 'mona' }).number;
+    tasks.addPart(projectId, n, { sentence: 'Check the new keys', who: 'ivy' });
+    const real = chat.deliverAsync;
+    chat.deliverAsync = () => new Promise((resolve, reject) => setTimeout(() => (how === 'rejects'
+      ? reject(new Error('pane gone'))
+      : resolve({ state: chat.DELIVERY.COULD_NOT, because: 'pane gone' })), 150));
+    const written = [];
+    const realWrite = process.stderr.write;
+    process.stderr.write = (chunk, ...rest) => { written.push(String(chunk)); return realWrite.call(process.stderr, chunk, ...rest); };
+    srv.setBuiltTellWaitForTests(30);
+    try {
+      const r = await mark(n, asAgent('mona'));
+      assert.equal(r.json.delivered.find((d) => d.agent === 'ivy').state, 'unconfirmed', JSON.stringify(r.json));
+      await new Promise((res) => setTimeout(res, 400));
+      const line = written.find((w) => /could not be typed after the answer/.test(w));
+      assert.ok(line, 'a late failure left no trace: ' + written.join(''));
+      assert.match(line, new RegExp(`the line to ivy about task ${n} could not be typed after the answer: pane gone`));
+    } finally {
+      process.stderr.write = realWrite;
+      chat.deliverAsync = real;
+      srv.setBuiltTellWaitForTests();
+    }
+  });
+}
 
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;

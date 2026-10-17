@@ -47,8 +47,9 @@ your task P)". A marker that identified itself (token or pane) is never told; an
   cap for the 10 s a line may wait. A line that then fails still spent it, as a task message does.
 - Decided (review 15): a line kept for an agent out of usage goes through messages.keepTaskLine and so reads, when typed
   or dropped, in task-message words ("a message from mona ... was sent", "send it again"). The line itself is correct;
-  only the later notice's wording is a task message's. Kept as is: a follow-up card for keepTaskLine to take a kind,
-  rather than a second copy of #5805's queue here. This
+  only the later notice's wording is a task message's. The marker's own answer says it too ("Do not send it again").
+  Kept as is: follow-up card #6359 for keepTaskLine and taskMessageSummary to take a kind, rather than a second copy
+  of #5805's queue here. This
   replaces review 5's cap-0-only switch.
 - Decided (review 7): the lines go through chat.deliverAsync, not the automatic sender's gate
   (deliverAutomaticAsync). A built line carries the marker's own note, sent on its behalf, exactly as a task message
@@ -85,7 +86,7 @@ so it is the same trust, and closing it is a change to how the route identifies 
 A line still being typed when the answer goes keeps no record of how it ended beyond a stderr line on failure.
 
 ## Tests
-`server.builttell-6330.test.js` (22 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
+`server.builttell-6330.test.js` (24 cases, route level on a real sandboxed board, plus the real Mac CLI): who is told
 (other assignees; the nearest held ancestor; once when on both; a held sibling never; holders who left skipped; a closed
 parent tells nobody); when (not for the same mark again, a clear or the screen, each with a first-mark control); the
 typed lines themselves (wording, quoting, exactly the expected count); swarm-off, departed and out-of-usage recipients
@@ -93,5 +94,5 @@ typed lines themselves (wording, quoting, exactly the expected count); swarm-off
 summary, not refused at cap 0); a pane still typing after the wait (unconfirmed, with a control); failures (a throw, an unreadable project list, one recipient's own step) never fail
 the mark or claim nobody was told wrongly. `tools.windows-kosmos-cli-570.test.js`: the Windows CLI prints the summary,
 and nothing from an older board. Review 9: the valve is asked only when a line would be attempted (not for a list of
-only switched-off or departed recipients), and a valve count is spent only then; concurrent marks can overrun the cap by
-the number in flight, as task messages can.
+only switched-off or departed recipients), and a valve count is spent only then. The valve is asked and spent in one synchronous step,
+so concurrent marks cannot slip past the cap (task messages, which record after their sends, can).
