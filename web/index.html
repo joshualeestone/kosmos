@@ -50402,7 +50402,7 @@ function paintAsk() {
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
       // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
       const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in; it can ask again by signing in.</p>' +
+      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
         '</b>: change that email\'s password.</p>' +
