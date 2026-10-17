@@ -276,6 +276,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       let jr = await readJoin();
       chk(jr.shown && jr.text === 'Working out the code with homemac, your other computer...' && !jr.button && jr.status === '' && jr.pill === 'Waiting to be allowed',
         `${tag} #4794 waiting: "Working out the code with homemac, your other computer...", no button, the coordinator's sentence gone`, JSON.stringify(jr));
+      /* kosmos#6385: a wait with no code for over a minute says why it can take a while, as a hint (grey, not the bold
+         action line), and the line goes when it is no longer a wait. The wait's start is set back rather than waited for. */
+      const slow = await page.evaluate(() => { PLUS_JOIN_NOCODE_AT = Date.now() - 61 * 1000; paintPlusJoin();
+        const j = document.getElementById('plus-join'), s = j && j.querySelector('.plus-join-slow');
+        const out = { text: s ? s.textContent : '', fhint: !!(s && s.classList.contains('fhint')), weight: s ? getComputedStyle(s).fontWeight : '' };
+        PLUS_JOIN_NOCODE_AT = 0; paintPlusJoin(); out.after = !!(j && j.querySelector('.plus-join-slow')); return out; });
+      chk(/one computer at a time, about one every 10 minutes/.test(slow.text) && /Keep this open: the code shows here\./.test(slow.text) && slow.fhint && Number(slow.weight) < 600 && !slow.after,
+        `${tag} #6385 waiting over a minute: the block says the other computer adds one at a time, as a hint, and the line goes once the wait restarts`, JSON.stringify(slow));
       join = { ...join, join_code: '482 915', on: 'homemac' };
       jr = await readJoin();
       chk(jr.shown && /^Allow this computer from your other one\.\s*Open Kosmos on your other computer, homemac, and go to Settings, then Kosmos\+\.\s*Check it shows this same code\./.test(jr.text) && jr.code === '482 915' && jr.label === '4 8 2, 9 1 5' && jr.size >= 28 && jr.button === 'The codes match: 4 8 2, 9 1 5',

@@ -27,7 +27,7 @@ function slice(start) {
 }
 /* The page's own declarations of the join state, so the test runs with the page's starting values and minute. */
 function varsBlock() {
-  const a = PAGE.indexOf('var PLUS_JOIN_WAITING = false;');
+  const a = PAGE.indexOf('var PLUS_JOIN = null;');   // from PLUS_JOIN itself, so no rig leaks it onto the global object
   const b = PAGE.indexOf('var PLUS_JOIN_WAITED = false;');
   assert.ok(a > 0 && b > a, 'the join state declarations moved');
   return PAGE.slice(a, PAGE.indexOf('\n', b));
@@ -62,6 +62,15 @@ const HELD = { supported: true, held: true, on: 'Studio Mac' };
 test('#6385: the minute is the page\'s own (PLUS_JOIN_SLOW_MS), and it is a minute', () => {
   const r = rig();
   assert.equal(r.api.slowMs(), 60 * 1000);
+});
+
+test('#6385: each rig has its own pairing (nothing leaks onto the global object)', () => {
+  const r = rig();
+  r.api.set({ ...HELD });
+  assert.equal(typeof globalThis.PLUS_JOIN, 'undefined', 'the rig set a global PLUS_JOIN');
+  const fresh = rig();
+  fresh.api.paint();
+  assert.equal(fresh.el.innerHTML, '', 'a fresh rig painted the last rig\'s pairing');
 });
 
 test('#6385: working out the first code, the joiner says why it can take a while after a minute, not before', () => {
