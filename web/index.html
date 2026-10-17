@@ -19898,13 +19898,15 @@ window.kosmosMeasureScrollbarWidth();
        Painted by paintRailPjNotice only while a project is open in the consolidated layout, so one notice
        speaks at a time. Never hidden itself: only its content comes and goes, so a screen reader hears it
        arrive (the same rule as #pj-one-notice). -->
-  <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
-  <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
   <!-- kosmos#6324: the team map (#6103) from the consolidated layout, which hides the Members card that holds the
-       tab layout's button. Here in the head, under the notice: the head is not rebuilt each poll. Painted by
-       paintRailTeamMap (from paintRailPjNotice) with the same pjTeamMap and PJ_TEAMMAP_OPEN as the tab layout. -->
+       tab layout's button. Here in the head (not rebuilt each poll), ABOVE the project notice: a long notice runs past
+       the bottom of the head, the agents list is drawn over what runs past, and a button there cannot be clicked
+       (measured 2026-10-16 at 1280x800: a 638px notice in a 504px head). Painted by paintRailTeamMap (from
+       paintRailPjNotice) with the same pjTeamMap and PJ_TEAMMAP_OPEN as the tab layout. -->
   <button class="btn-quiet pj-tmbtn alist-tmbtn" id="alist-teammap-btn" type="button" aria-expanded="false" aria-controls="alist-teammap" hidden>Team map</button>
   <div id="alist-teammap" class="pjtm alist-tm" hidden></div>
+  <div id="alist-pj-notice" class="alist-pjn" role="status" aria-live="polite"></div>
+  <div id="alist-pj-notice-said" class="vh" role="status" aria-live="polite"></div>
 </div>
 <div class="alist" id="alist" hidden></div>
 <!-- #520, piece three: the person, bottom left of the agents rail, in the

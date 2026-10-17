@@ -147,6 +147,24 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       return Math.abs(a - pr);
     });
     say('CONTROL: the label instrument reads a pushed label line as apart', pushed > 1, 'apart ' + pushed + 'px');
+    // A long project notice runs past the head and the list is drawn over what runs past (measured 2026-10-16: a 638px
+    // notice in a 504px head buried the button). The button sits above the notice, so it is still the thing a click hits.
+    const buried = await p.evaluate(() => {
+      const btn = document.getElementById('alist-teammap-btn');
+      const notice = document.getElementById('alist-pj-notice');
+      const hits = () => { const r = btn.getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && btn.contains(e); };
+      notice.style.minHeight = '1200px';
+      const tall = hits();
+      // CONTROL: the same tall notice, with the button moved under it, must read as buried.
+      const back = btn.nextSibling;
+      notice.after(btn);
+      const under = hits();
+      btn.parentNode.insertBefore(btn, back);
+      notice.style.minHeight = '';
+      return { tall, under };
+    });
+    say('with a long project notice the Team map button is still the thing a click hits', buried.tall === true, JSON.stringify(buried));
+    say('CONTROL: under a long notice the same button reads as buried', buried.under === false, JSON.stringify(buried));
 
     await p.click('#alist-teammap-btn');
     await p.waitForFunction(() => !document.getElementById('alist-teammap').hidden, null, { timeout: 5000 }).catch(() => {});
