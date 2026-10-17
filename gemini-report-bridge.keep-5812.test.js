@@ -8,6 +8,7 @@ require('./test-support/tmpscope'); // kosmos#4273: this file's temp dirs, remov
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const bridge = require('./bin/gemini-report-bridge');
+const { withProof } = require('./test-support/boardproof-stub');
 
 const before = (tool, input, extra) => ({ session_id: 'g-sess', cwd: '/w/agent', hook_event_name: 'BeforeTool',
   timestamp: '2026-10-13T13:11:32.808Z', tool_name: tool, tool_input: input, ...extra });
@@ -23,7 +24,8 @@ async function run(evt, opts = {}) {
   process.stdout.write = (s, ...a) => { out.push(String(s)); return true; };
   try {
     await bridge.main({ input: JSON.stringify(evt), env: { KOSMOS_PORT: '16999', KOSMOS_AGENT_TOKEN: 'ab12', ...(opts.env || {}) },
-      fetchImpl: r.fetchImpl, platform: opts.platform || 'darwin', keepTimeoutMs: opts.keepTimeoutMs, readBoardToken: () => 'BT5812' });
+      // #1765: the recorder stands in for the board, so it holds the tokens this run sends and proves them.
+      fetchImpl: withProof(r.fetchImpl, ['BT5812', 'ab12', ...(opts.env && opts.env.KOSMOS_AGENT_TOKEN ? [opts.env.KOSMOS_AGENT_TOKEN] : [])]), platform: opts.platform || 'darwin', keepTimeoutMs: opts.keepTimeoutMs, readBoardToken: () => 'BT5812' });
   } finally { process.stdout.write = orig; }
   return { calls: r.calls, stdout: out.join('') };
 }

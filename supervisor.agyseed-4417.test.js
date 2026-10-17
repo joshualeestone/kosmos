@@ -18,6 +18,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const http = require('node:http');
+const { answerProof, mintedTokens } = require('./test-support/boardproof-stub');
 const nodePath = require('node:path');
 const { spawn } = require('node:child_process');
 
@@ -41,9 +42,11 @@ fs.writeFileSync(FAKE_TMUX, [
 const FAKE_AGY = nodePath.join(ROOT, 'agy');
 fs.writeFileSync(FAKE_AGY, '#!/bin/sh\n[ "$1" = "--version" ] && { echo 1.2.12; exit 0; }\nexit 0\n', { mode: 0o755 });
 
-function standInBoard(rec) {
+function standInBoard(rec, data) {
   const seen = [];
   const server = http.createServer((req, res) => {
+    // #1765: the stub is the board the supervisor minted the launch token against, so it holds the tokens minted there.
+    if (answerProof(req, res, () => mintedTokens(data))) return;
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
@@ -65,7 +68,7 @@ async function run(name, { signedIn, adopt = false, extraEnv = {}, gitWork = fal
   fs.mkdirSync(nodePath.join(data, 'Kosmos', 'agy-account'), { recursive: true });
   if (signedIn !== undefined) fs.writeFileSync(nodePath.join(data, 'Kosmos', 'agy-account', 'last.json'), JSON.stringify({ signedIn, at: '2026-09-28T00:00:00Z' }));
   const rec = nodePath.join(dir, 'tmux-calls.txt');
-  const board = await standInBoard(rec);
+  const board = await standInBoard(rec, data);
   const session = 'zz-test-4417-' + name;
   const env = {
     /* TMPDIR, so the bridge's throttle marker lands in this process's tmpscope dir, not the real /tmp (review 8). */
