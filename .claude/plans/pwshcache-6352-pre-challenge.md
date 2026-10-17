@@ -18,3 +18,17 @@ converged: true
 **Documented, not built:** a script that finds pwsh other than by `command -v pwsh` is not swept.
 
 Measured both arms with that night's damaged startup profile as the outer cache: tools/test-publish-r2-3725.sh failed 87 (rc 134) before the change and passed after, with the damaged file untouched. Mutants of the pin test, each red: the export removed; the export below the first pwsh start; the export indented.
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** sonnet
+**Checked and clean:**
+- Nothing else in tools/test-publish-r2-3725.sh reads XDG_CACHE_HOME (node, python3, env, mktemp do not); the trap on $TMP removes the folder; a Windows-hosted CI ignores the variable.
+- Every pwsh start (in $(...) subshells, a function, plain calls) inherits the export; the `env -u ...` wrappers unset only named variables; no `env -i` scrubs it.
+- tools/test-ci-runner-setup-4601.sh only writes a fake pwsh and never matches `command -v pwsh`, so the sweep rightly skips it.
+**Findings:**
+- [NIT] tools.pwsh-cache-6352.test.js firstPwshRun: a start written as $PWSH, "${PWSH}" or via another variable name was not recognised --> FIXED ($PWSH and ${PWSH} quoted or not; the variable-name limit stated)
+- [NIT] the sweep selects only scripts with `command -v pwsh` (not `which`, `type -P` or a fixed path) --> DOCUMENTED in the test header, not built
+- [NIT] the export check could pass with the export inside an if or a function body --> FIXED (column 0 required; mutant with it indented: red)
+- [NIT] the plan's mutant claims were not re-run by the reviewer --> no change; they are re-run above and in the PR body
