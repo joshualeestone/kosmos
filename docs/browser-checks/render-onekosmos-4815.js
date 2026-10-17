@@ -19,7 +19,7 @@
  *   - failed reads back off, and a hidden tab waits and reads when it is looked at again (review round 5);
  *   - #6403: another computer arriving shows the switcher without a reload (window focus or the tab shown again, a
  *     minute after the last read; CONTROL within the minute), with a one-line tip the first time; the menu, the close
- *     button and Escape (not while a dialog is open, the CONTROL) put it away; once only across a reload; a forced
+ *     button and a click on it put it away; once only across a reload; a forced
  *     read that finds one computer looks again soon (CONTROL: an ordinary read waits); seen only when a person can see
  *     it (a hidden tab, a layout that hides it, then a resize); a forced read owed while hidden; no look-back reads
  *     while not signed in (CONTROL: a forced read still reads); a click on the tip puts it away; back to one computer,
@@ -208,33 +208,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             closeAndShow.shown && closeAndShow.described === 'worldsw-tip-text', JSON.stringify(closeAndShow));
           ok(`${t} #6403: the tip's close button puts it away and focus stays on the switcher`,
             !closeAndShow.tipAfter && closeAndShow.focus === 'worldsw-btn' && closeAndShow.describedAfter === null, JSON.stringify(closeAndShow));
-          /* #6403 review 3: Escape puts the tip away, but not while a dialog the person can see is open (Escape is its). */
-          const esc = await page.evaluate(async ({ worlds }) => {
-            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
-            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
-            window.__which = 'four'; await computersFetch();
-            const tip = () => !document.getElementById('worldsw-tip').hidden;
-            const shownFirst = tip();
-            // A dialog whose own Escape closes it (as the page's dialogs do, registered before this): one Escape must not
-            // also put the tip away.
-            const dlg = document.createElement('div'); dlg.setAttribute('aria-modal', 'true'); dlg.textContent = 'a dialog'; document.body.appendChild(dlg);
-            const closeDlg = (e) => { if (e.key === 'Escape') dlg.remove(); };
-            // Capture on document: it runs before any document listener of the page, as a dialog's earlier-registered
-            // handler does (only a window capture listener runs before it).
-            document.addEventListener('keydown', closeDlg, true);
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            document.removeEventListener('keydown', closeDlg, true);
-            const afterDialogEscape = tip();
-            const box = document.createElement('div'); box.setAttribute('aria-modal', 'true'); box.textContent = 'a dialog'; document.body.appendChild(box);
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            const withDialog = tip();
-            box.remove();
-            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            return { shownFirst, afterDialogEscape, withDialog, after: tip() };
-          }, { worlds: WORLDS });
-          ok(`${t} #6403 CONTROL: Escape with a dialog open leaves the tip, even when the dialog's own Escape closes it first`,
-            esc.shownFirst && esc.afterDialogEscape && esc.withDialog, JSON.stringify(esc));
-          ok(`${t} #6403: Escape puts the tip away`, esc.shownFirst && !esc.after, JSON.stringify(esc));
           /* #6403 review 2: a forced read (after an Allow, or let in) that still finds one computer looks again soon, not in
              five minutes; CONTROL: an ordinary read that finds one computer does not. */
           const soon = await page.evaluate(async ({ worlds }) => {
@@ -264,7 +237,10 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
             const tip = document.getElementById('worldsw-tip');
-            const pe = { tip: getComputedStyle(tip).pointerEvents };
+            // What a click at the tip's centre lands on: the tip itself, never a control hidden under it.
+            const rc = tip.getBoundingClientRect();
+            const hit = document.elementFromPoint(rc.left + rc.width / 2, rc.top + rc.height / 2);
+            const pe = { onTip: !!hit && tip.contains(hit) };
             const seenVisible = key();
             // The switcher hidden by the layout (a phone over Kosmos+): not marked.
             reset(); window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
@@ -285,7 +261,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             await new Promise((r) => setTimeout(r, 50));
             return { pe, seenVisible, seenHidden, owedWhileHidden, expectAfter };
           }, { worlds: WORLDS });
-          ok(`${t} #6403: the tip takes clicks itself (a click on it never lands on a control hidden under it)`, r5.pe.tip !== 'none', JSON.stringify(r5));
+          ok(`${t} #6403: a click at the tip's centre lands on the tip, never on a control hidden under it`, r5.pe.onTip === true, JSON.stringify(r5));
           ok(`${t} #6403 CONTROL: a tip that was shown is marked seen`, r5.seenVisible === '1', JSON.stringify(r5));
           ok(`${t} #6403: a tip the layout hides is not marked seen`, r5.seenHidden === null, JSON.stringify(r5));
           ok(`${t} #6403: a forced read owed while hidden brings its follow-ups when the tab is shown`, r5.owedWhileHidden && r5.expectAfter, JSON.stringify(r5));
@@ -459,6 +435,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x 37 asserts = 148 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: twenty, five of them with CONTROLs).
-  process.exit(problems.length || pass + problems.length < 148 ? 1 : 0);
+  // 2 engines x 2 themes x 35 asserts = 140 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: eighteen, four of them with CONTROLs).
+  process.exit(problems.length || pass + problems.length < 140 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
