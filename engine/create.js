@@ -1841,8 +1841,12 @@ function* restoreAccountSteps(name, dir) {
        rolls it back on a failed write. But the async driver ABANDONS this generator at its cap (or on a throw) by
        calling .return(), so restoreAccountFinish never runs -- which would leave the record naming the old account
        while the job stayed on the new one (the move's). This finally runs on .return() too, so roll the record
-       back to what prep read, mirroring restoreAccountFinish's failed-write rollback. The sync `restoreAccount`
-       never abandons, so `finished` is always true there and this is a no-op for it. */
+       back to what prep read. For a clean abandon (the job write never landed) this matches restoreAccountFinish's
+       failed-write rollback. In the narrow abandon-AFTER-success window (the cap fires after the /Create landed but
+       before finish ran) it rolls back though the job did move, so the record names the new account while the job
+       is on the old one -- the same record/job disagreement item 13 handles, reconciled by a Repair; the
+       alternative, trusting a write the driver has already abandoned, is the worse of the two. The sync
+       `restoreAccount` never abandons, so `finished` is always true there and this is a no-op for it. */
     if (!finished && prep.qwenJob) {
       try { store.writeProfile(prep.clean, { qwenAccount: prep.qwenBefore }); } catch { /* best effort; the job did not move */ }
     }
