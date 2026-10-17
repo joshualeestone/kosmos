@@ -189,7 +189,7 @@ test('a parent nobody holds directly hands to the nearest held task above it', a
 
 test('only the parent chain is asked: a held sibling is not told the work is under its task', async () => {
   const top = tasks.create(projectId, { sentence: 'Plan the retreat' }).number;   // nobody on it
-  const sibling = tasks.create(projectId, { sentence: 'Book the venue', who: 'zed', parent: top }).number;
+  tasks.create(projectId, { sentence: 'Book the venue', who: 'zed', parent: top });   // the held sibling
   const n = tasks.create(projectId, { sentence: 'Book the travel', who: 'mona', parent: top }).number;
   const r = await mark(n, asAgent('mona'));
   assert.deepEqual(told(r), [], 'a sibling holder was told: ' + JSON.stringify(r.json));
@@ -198,7 +198,6 @@ test('only the parent chain is asked: a held sibling is not told the work is und
   const n2 = tasks.create(projectId, { sentence: 'Book the meals', who: 'mona', parent: top }).number;
   const r2 = await mark(n2, asAgent('mona'));
   assert.deepEqual(told(r2), ['ivy'], JSON.stringify(r2.json));
-  assert.ok(sibling > 0);
 });
 
 test('when every holder of the parent has left, the next task up is asked', async () => {
@@ -265,6 +264,7 @@ test('a failure while working out who to tell never fails the mark: 200, recorde
     const r = await mark(n, asAgent('mona'));
     assert.equal(r.status, 200, JSON.stringify(r.json));
     assert.deepEqual(r.json.delivered, []);
+    assert.match(r.json.summary, /could not work out who to tell/, 'a throw was summarised as nobody assigned: ' + r.json.summary);
     assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtBy, 'mona', 'the mark was not recorded');
   } finally {
     projects.swarmOffSet = real;
