@@ -54,6 +54,8 @@ const SRC = [
   slice('computerAddressOk'),
   slice('agoWords'),
   slice('oaEligible'),
+  slice('computersInApp'),        // #6406
+  slice('computersLinkTarget'),
   slice('oaOthers'),
   slice('oaClassify'),
   slice('oaRemember'),
@@ -71,17 +73,17 @@ const SRC = [
 
 /* One sandbox per test: the page's functions, a fake document, a fake fetch, and a sortAgents stand-in that
    sorts by name (the real one needs half the page; that it is CALLED with this computer's sort is asserted). */
-function load(fetchImpl) {
+function load(fetchImpl, win) {
   const t = makeDom();
   const calls = { sort: [] };
-  const api = new Function('document', 'fetch', 'calls', 'OA_LISTED', `
+  const api = new Function('document', 'fetch', 'calls', 'OA_LISTED', 'window', `
     let OA_COMPUTERS = OA_LISTED;   // the reads keep only computers still on the list
     const STATE_COPY = { working: { label: 'Working' }, idle: { label: 'Idle' } };
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
     return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaHost, oaGroupKey, oaStale, OA_SEEN };
-  `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls, LIST);
+  `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls, LIST, win || {});
   return { api, calls, d: t };
 }
 
@@ -200,6 +202,22 @@ test('note: says which of the four it is, with this page\'s own last read for on
   assert.equal(api.oaNote(c, { state: 'out', agents: null, at: null }, now), 'Not connected.', 'the coordinator\'s lastSeen (refreshed daily) is never shown as a time');
   assert.equal(api.oaNote({ ...c, lastSeen: null }, { state: 'out', agents: null }, now), 'Not connected.', 'never a made-up time');
   assert.match(api.oaNote(LIST.computers[1], { state: 'blocked', agents: null }, now), /online, but its agents cannot be read from here yet\. It may need the latest Kosmos\./);
+});
+
+test('#6406: in the Kosmos app an agent card and the group\'s Open link open in this window; in a browser, a new tab', () => {
+  const c = LIST.computers[1];
+  for (const [win, label] of [[{ webkit: { messageHandlers: { kosmosBadge: {} } } }, 'Mac app'], [{ chrome: { webview: {} } }, 'Windows app']]) {
+    const { api } = load(null, win);
+    const el = api.oaCard(card('a', { name: 'Ann', state: 'working' }), c, false);
+    assert.ok(!el.target, label + ': the agent card has no new-window target');
+    assert.equal(el.rel, 'noopener noreferrer');
+    const open = api.oaGroup(c, { state: 'notin', agents: null }, 0).querySelectorAll('.oa-open')[0];
+    assert.ok(open && !open.target, label + ': Open <computer> has no new-window target');
+  }
+  // CONTROL: a browser keeps the new tab on both.
+  const { api } = load(null, {});
+  assert.equal(api.oaCard(card('a', { name: 'Ann', state: 'working' }), c, false).target, '_blank');
+  assert.equal(api.oaGroup(c, { state: 'notin', agents: null }, 0).querySelectorAll('.oa-open')[0].target, '_blank');
 });
 
 test('cards: a link to the agent on ITS computer, built from the address, names as text', () => {

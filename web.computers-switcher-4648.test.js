@@ -81,14 +81,19 @@ test('#6406: in the Kosmos app (Mac bridge, or Windows WebView2) an online compu
   assert.equal(render(LIST, false, {}).list.children[1].target, '_blank');
 });
 
-test('#6406: every link to another computer goes through computersLinkTarget, none sets _blank by itself', () => {
-  // The switcher row, the Agents view's agent cards and its two Open <computer> links (and the phone menu copies the row).
-  const uses = PAGE.match(/computersLinkTarget\((row|el|open)\)/g) || [];
-  assert.equal(uses.length, 4, 'four call sites: ' + uses.join(', '));
-  for (const fn of ['computersRender', 'oaCard']) assert.ok(slice(fn).includes('computersLinkTarget('), fn + ' must use the helper');
-  // CONTROL for the source scan: the helper itself is the only place the rule lives.
-  const helper = slice('computersLinkTarget');
-  assert.ok(/computersInApp\(\)/.test(helper) && /_blank/.test(helper));
+test('#6406: every link the page builds to another computer goes through computersLinkTarget', () => {
+  /* Every href built from a computer's Kosmos+ address ('https://' + c.address, oaAgentHref) must be followed by the
+     helper, and no '_blank' may be set near it except the helper's own fallback for a test that lifts one function. */
+  const lines = PAGE.split('\n');
+  const sites = [];
+  lines.forEach((l, i) => { if (/(\.href = 'https:\/\/' \+ c\.address|\.href = oaAgentHref\()/.test(l)) sites.push(i); });
+  assert.ok(sites.length >= 4, 'found ' + sites.length + ' address links');
+  for (const i of sites) {
+    const near = lines.slice(i, i + 4).join('\n');
+    assert.ok(/computersLinkTarget\(/.test(near), 'line ' + (i + 1) + ' must use the helper: ' + lines[i].trim());
+    const bare = near.split('\n').filter((l) => /target = '_blank'/.test(l) && !/typeof computersLinkTarget === 'function'/.test(l));
+    assert.deepEqual(bare, [], 'line ' + (i + 1) + ' sets _blank by itself');
+  }
 });
 
 test('this computer is marked and not a link; an ONLINE computer is a new-window link to its own address; offline and updating ones are plain rows that say so', () => {

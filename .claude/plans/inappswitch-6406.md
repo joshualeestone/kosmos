@@ -33,7 +33,11 @@ One helper, computersLinkTarget, decides the target for all four sites (a source
   computer). The guard belongs in the app (#6411).
 
 ## Steps
-1. web/index.html: computersInApp() (kosmosBadge bridge or WebView2); the row link drops target=_blank in the app.
-2. web.computers-switcher-4648.test.js: Mac and Windows bridges open in the window; CONTROL: a browser keeps _blank.
-   Mutant (always _blank): red. render-computers-4648.js arm 3 (Chromium + WebKit): the same in the real page, and the
-   phone menu's copy (pnavFill) keeps the row's target; mutant (pnav always _blank): red.
+1. web/index.html: computersInApp() (kosmosBadge bridge or WebView2) and computersLinkTarget(a), which every link to
+   another computer calls: the switcher row (computersRender), the Agents view's agent cards (oaCard) and its two
+   Open <computer> links (oaGroup, aoGroup); the phone menu (pnavFill) copies the row's own target.
+2. web.computers-switcher-4648.test.js: Mac and Windows bridges open in the window, a browser keeps _blank (CONTROL);
+   a source scan: every href built from a computer's address is followed by the helper and no bare _blank.
+3. web.allagents-4812.test.js: the agent card and Open <computer> in the app and in a browser (CONTROL).
+4. render-computers-4648.js arm 3 (Chromium + WebKit): the switcher row and the phone menu's copy in the real page.
+5. Mutants red: always _blank on the row; pnav always _blank; a stray _blank on the agent card (two tests).
