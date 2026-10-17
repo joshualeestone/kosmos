@@ -2101,7 +2101,7 @@ async function deviceAllow(id, name, code) {
   }
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person typed here (#6404); the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
   if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
   const r = await tracked(setupRun(args, null, retireTimeoutMs()));
