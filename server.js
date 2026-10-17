@@ -19477,6 +19477,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* #6341 (Josh, 10-16 19:43: "there's not really a way to really dismiss it"): the person dismisses one row of a
+     project's "needs you" block. Body {agent, reason}: the reason is the one the page showed, so a dismissal stands only
+     while that member's reason is still the same (engine/projects.js dismissNeeds, describe). A screen act: no agent
+     token reaches it (it is not on the agent-token list). Answers the project as the page reads it. */
+  const needsDis = pathname.match(/^\/api\/project\/([^/]+)\/needs-dismiss$/);
+  if (needsDis && req.method === 'POST') {
+    const id = decodeSegment(needsDis[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((buf) => {
+      let body;
+      try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        projects.dismissNeeds(id, body.agent, body.reason);
+      } catch (err) {
+        sendJson(res, /no such project/.test(String(err && err.message)) ? 404 : 400, { error: String((err && err.message) || 'that could not be dismissed') });
+        return;
+      }
+      let project = null;
+      try { project = projects.get(id, safeRoster()); } catch { project = null; }
+      sendJson(res, 200, { ok: true, project });
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
   if (proj && req.method === 'PUT') {
     const id = decodeSegment(proj[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
@@ -23596,11 +23619,15 @@ function start(port = PORT) {
               ?? (chat.menuHeld(session, roster) ? new Date(Date.now() + 60e3).toISOString() : null),   // only non-null is read
             reserve: (session) => agyQuota.noteCapStart(session, roster, Date.now()),   // #4588 ask 3 review 9: the stuck agent first
             release: (slot) => agyQuota.releaseCapStart(slot),
+            // #6341: a note the room already holds (same agent, same words, in the last week) is not written again after a restart.
+            alreadyNoted: (projectId, session, because) => messages.recommenderNoted(projectId, session, because, Date.now() - 7 * 24 * 60 * 60 * 1000),
           });
           recommenderPrev = out.next;
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
           const heldNow = new Set();
           for (const a of out.acted) {
+            // #6341: the room already held this note (a restart forgot it had been written): nothing was said or asked.
+            if (a.verdict === 'already-noted') { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: already noted in the room, not repeated\n`); continue; }
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
