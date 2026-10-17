@@ -2450,10 +2450,7 @@ class KosmosLauncher
     {
         ProcessStartInfo o = new ProcessStartInfo(node,
             "\"" + opener + "\" --port " + port + " --app \"" + app + "\""
-            + (printUrlOnly ? " " + PrintUrlFlag : "")
-            // #1765: the browser path waits as long as the window does: on an enforcing board the opener opens nothing
-            // for a board that never answered, so a slow first start must not run out its shorter default.
-            + " --timeout-ms " + BoardWindowWaitMs);
+            + (printUrlOnly ? " " + PrintUrlFlag + " --timeout-ms " + BoardWindowWaitMs : ""));
         o.UseShellExecute = false;
         o.CreateNoWindow = true;
         o.WorkingDirectory = here;
@@ -2553,8 +2550,9 @@ class KosmosLauncher
     }
 
     // #1765: open-board.js's exit code when it refused to open anything (tools/kosmos-open-board.js sets
-    // process.exitCode = 1 on those paths only), and the answer that stands for it here.
-    internal const int OpenerRefusedExit = 1;
+    // process.exitCode = OPENER_REFUSED_EXIT on those paths only; a code node itself never uses, so a crash is not
+    // read as a refusal), and the answer that stands for it here.
+    internal const int OpenerRefusedExit = 10;
     internal const string NotConfirmed = "";
 
     // The board's own address (plain, or with a path such as ?boot=) on a line of what the opener printed, or null.

@@ -230,9 +230,12 @@ test('#1765: ReadBoard sends the token to a board that proves it, and never to a
 test('#1765: a refusal from the opener is NotConfirmed in the window, which then loads nothing and asks again on reopen', () => {
   const resolve = slice('internal static string ResolveBoardAddress(', '\n    }\n');
   assert.match(resolve, /if \(named != null\) return named;\s*if \(p\.ExitCode == OpenerRefusedExit\) return NotConfirmed;/);
-  assert.match(SOURCE, /internal const int OpenerRefusedExit = 1;/);
+  const code = SOURCE.match(/internal const int OpenerRefusedExit = (\d+);/);
+  assert.ok(code, 'OpenerRefusedExit moved');
+  assert.equal(Number(code[1]), require('./tools/kosmos-open-board.js').OPENER_REFUSED_EXIT, 'the opener and the launcher disagree on the refusal exit code');
+  assert.notEqual(Number(code[1]), 1, 'node exits 1 on a crash, so 1 cannot mean a refusal');
   const opener = fs.readFileSync(path.join(REPO, 'tools', 'kosmos-open-board.js'), 'utf8');
-  assert.match(opener, /if \(open === null\) \{ process\.exitCode = 1; return; \}/, 'the opener and the launcher disagree on the refusal exit code');
+  assert.match(opener, /if \(open === null\) \{ process\.exitCode = OPENER_REFUSED_EXIT; return; \}/);
   const resolved = slice('internal void BoardAddressResolved(string address)', '\n    }\n');
   assert.match(resolved, /if \(address == KosmosLauncher\.NotConfirmed\)\s*\{\s*boardNotConfirmed = true;\s*if \(webView != null\) webView\.NavigateToString\(KosmosLauncher\.NotConfirmedPage\);\s*return;/,
     'a NotConfirmed answer is loaded as an address');

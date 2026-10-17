@@ -159,6 +159,9 @@ async function mintNonce(url, token) {
  * to 127.0.0.1 and not to the port. install/kosmos's cmd_open refuses the same way. A boardproof module that will
  * not load cannot check, so it refuses too (the module ships beside this file's engine in every bundle).
  * `proveBoard` is the test seam: (url, token, timeoutMs) resolving a boolean or { ok, why }. */
+/* The exit code that means "refused: nothing opened, no address" (#1765). Not 1, which node uses for a crash, so the
+ * launcher cannot mistake one for the other (KosmosLauncher.cs OpenerRefusedExit). */
+const OPENER_REFUSED_EXIT = 10;
 const PROOF_TIMEOUT_MS = 7500; // half the mint's cap, as install/kosmos gives its proof half the request's -m
 
 async function boardProven({ appDir, url, token, proveBoard }) {
@@ -266,9 +269,9 @@ async function main() {
   const timeoutMs = Number(argValue('--timeout-ms', '20000')) || 20000;
   const open = await resolveOpenUrl({ appDir, port, timeoutMs });
   // #1765: nothing showed it is this account's board (resolveOpenUrl said why): open nothing and print no address.
-  // The launcher's own window still falls back to the plain address when it is named none (ResolveBoardAddress in
-  // tools/windows/KosmosLauncher.cs); that is the launcher's to change, not this helper's.
-  if (open === null) { process.exitCode = 1; return; }
+  // The launcher reads OPENER_REFUSED_EXIT as that refusal and shows why instead of loading anything
+  // (KosmosLauncher.cs OpenerRefusedExit, ResolveBoardAddress, OpenInBrowserInstead).
+  if (open === null) { process.exitCode = OPENER_REFUSED_EXIT; return; }
   // #1118: `--print-url` is Kosmos.exe's board window asking for the address to load in itself,
   // instead of a browser. It gets the RESOLVED url (nonced on an enforcing board) and nothing is
   // opened. This is the one case where stdout carries the nonce, and it is safe for the same reason
@@ -298,7 +301,7 @@ if (require.main === module) {
     // pre-fix behavior). Await the open so its own diagnostic is written first.
     process.stderr.write('kosmos-open-board: ' + (e && e.message || e) + '\n');
     // #1765: on an enforcing board (a token on disk) nothing has shown it is this account's board: open nothing.
-    if (readBoardToken(argValue('--app', path.join(__dirname, 'app')))) { process.exitCode = 1; return; }
+    if (readBoardToken(argValue('--app', path.join(__dirname, 'app')))) { process.exitCode = OPENER_REFUSED_EXIT; return; }
     const url = `http://127.0.0.1:${argValue('--port', DEFAULT_PORT)}`;
     process.stdout.write(url + '\n');
     // --print-url: the window loads the plain url itself; opening a browser too would be two Kosmoses.
@@ -306,4 +309,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { resolveOpenUrl, readBoardToken, mintNonce, waitForBoard, openInBrowser, boardProven, refusalWords, PROOF_TIMEOUT_MS };
+module.exports = { resolveOpenUrl, readBoardToken, mintNonce, waitForBoard, openInBrowser, boardProven, refusalWords, PROOF_TIMEOUT_MS, OPENER_REFUSED_EXIT };

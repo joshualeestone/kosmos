@@ -518,7 +518,7 @@ test('#1765: main() against a squatter opens no browser, prints no address, exit
             resolve({ code: err ? err.code : 0, stdout: so, stderr: se });
           });
       });
-      assert.equal(r.code, 1, extra.join(' ') + ': ' + r.stderr);
+      assert.equal(r.code, helper.OPENER_REFUSED_EXIT, extra.join(' ') + ': ' + r.stderr);
       assert.equal(r.stdout, '', 'an address was handed out for an unproven listener');
       assert.match(r.stderr, /could not show it is your Kosmos .*nothing was opened and nothing was sent/);
     }
