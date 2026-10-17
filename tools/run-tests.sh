@@ -341,8 +341,8 @@ KOSMOS_QUEUE_CLASS=heavy
 # test-install.sh asks the mirror question (kosmos_refuse_if_suite_live) before it starts.
 # A cut's own suite (it holds the live claim) stands down: the cut asked at its start, and its own
 # install gate runs only after this suite ends.
-# #4498: nor beside ANOTHER suite, since #6334 more than KOSMOS_SUITE_MAX - 1 of them (three full suites overlapped on Mortals on 2026-09-28, because
-# plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
+# #4498: nor beside more than KOSMOS_SUITE_MAX - 1 other suites (#6334; three full suites overlapped
+# on Mortals on 2026-09-28, because plain `heavy-gate --twice` does not count a suite). A suite inside a test (a node --test ancestor or
 # the kt sandbox, the #4259 fixture rule) is part of the suite that started it, not a second one.
 # Both checks WAIT rather than refuse: every 30 s, in a queue so the oldest waiting suite goes
 # first, giving up when no waiter ahead has left for 105 minutes, whatever the blocker, and in any

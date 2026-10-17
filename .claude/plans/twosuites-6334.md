@@ -33,6 +33,12 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   suites cannot starve heavy turns. A directly started install harness is not in that queue, but it marks itself
   before it waits (test-install.sh, kosmos_mark_run harness) and every suite refuses beside a live harness, waiting or
   not, so no new suite starts while it waits and the running ones drain to zero. Reasoned from the code, not run.
+- Known residual, not new: a run that starts with an empty queue asks once with no waiter marker, so two such runs
+  started in the same poll beside one live suite could both start (three suites). It existed at one suite too (two
+  beside none). Not closed here: it needs two starts within one poll, and its cost is a possible false red, which the
+  post-merge watch below is for.
+- A candidate that exits between the waiter filter and the roots walk can make one poll refuse with no suite left.
+  That is the refusing side and clears on the next poll; accepted.
 - No fixed-port guard test. Surveyed: no *.test.js calls listen() on a literal port, and the shell tests' literal
   KOSMOS_PORT values (17777, 19999, 65000) feed stubs, a mocked curl or an uninstall, none binds. A regex guard
   would have nothing real to catch and could only pass vacuously or flag those false hits.
