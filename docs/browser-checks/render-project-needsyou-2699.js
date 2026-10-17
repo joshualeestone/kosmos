@@ -85,13 +85,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       overFace = w.width > 0 && w.height > 0 && w.left < f.right && w.right > f.left && w.top < f.bottom && w.bottom > f.top;
     }
     /* #5688: a member the project's Issue pill counts (needsYouHere) shows the triangle even in a state the card draws
-       calm (a rate limit that stood too long); the same member uncounted does not (control). And the "needs you" block
+       calm (a crash loop on a working agent; #6341: a rate limit is never counted on a project now); the same member
+       uncounted does not (control). And the "needs you" block
        that names it renders, visible, with an Open button. */
     const host2 = document.createElement('div');
     document.body.appendChild(host2);
-    host2.innerHTML = '<div class="pj-members">' + pjMember(Object.assign(mk('rate_limited'), { needsYouHere: 'stuck_rate' }), true, false, true)
-      + pjMember(Object.assign(mk('rate_limited'), { needsYouHere: null }), true, false, true) + '</div>'
-      + '<div class="ny-host-5688">' + (typeof pjNeedsNotice === 'function' ? pjNeedsNotice([Object.assign(mk('rate_limited'), { name: 'Elon', needsYouHere: 'stuck_rate' })]) : '') + '</div>';
+    host2.innerHTML = '<div class="pj-members">' + pjMember(Object.assign(mk('working'), { needsYouHere: 'crash_loop' }), true, false, true)
+      + pjMember(Object.assign(mk('working'), { needsYouHere: null }), true, false, true) + '</div>'
+      + '<div class="ny-host-5688">' + (typeof pjNeedsNotice === 'function' ? pjNeedsNotice([Object.assign(mk('working'), { name: 'Elon', needsYouHere: 'crash_loop' })]) : '') + '</div>';
     const r2 = host2.querySelectorAll('.pj-member');
     const nb = host2.querySelector('.ny-host-5688 .pnotice');
     const ob = host2.querySelector('.ny-host-5688 [data-pn-open]');
@@ -107,7 +108,16 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const sameRow = !!(db && ob && db.closest('.pnrow') && db.closest('.pnrow') === ob.closest('.pnrow'));
     const quietHtml = typeof pjNeedsNotice === 'function' && typeof pjRedHere === 'function'
       ? pjNeedsNotice([Object.assign(mk('needs_you'), { name: 'Quinn', stateProject: 'elsewhere', needsYouHere: null, needsYouQuiet: { reason: 'elsewhere', because: 'dismissed' } })], pjRedHere) : 'no pjNeedsNotice';
-    const dismiss6341 = { shown: vis(db), label: db ? db.getAttribute('aria-label') : '', reason: db ? db.getAttribute('data-pn-reason') : '',
+    // A red member (a question about another project) drawn quiet: no triangle and no red ground; the control is red.
+    const qh = document.createElement('div');
+    document.body.appendChild(qh);
+    const redM = Object.assign(mk('needs_you'), { name: 'Rho', stateProject: 'elsewhere', needsYouHere: null });
+    qh.innerHTML = '<div class="pj-members">' + pjMember(redM, true, false, true)
+      + pjMember(Object.assign({}, redM, { needsYouQuiet: { reason: 'elsewhere', because: 'dismissed' } }), true, false, true) + '</div>';
+    const qr = qh.querySelectorAll('.pj-member');
+    const quietRow6341 = { controlRed: !!(qr[0] && qr[0].querySelector('.pj-face .lwarn')) && /\bpjm-attn\b/.test(qr[0] ? qr[0].className : ''),
+      quietWarn: !!(qr[1] && qr[1].querySelector('.pj-face .lwarn')), quietClass: qr[1] ? qr[1].className : '' };
+    const dismiss6341 = { quietRow6341, shown: vis(db), label: db ? db.getAttribute('aria-label') : '', reason: db ? db.getAttribute('data-pn-reason') : '',
       sameRow, height: db ? db.getBoundingClientRect().height : 0, quietListed: quietHtml !== '' };
     const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
       uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
@@ -164,18 +174,21 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
   // #5688 arms.
   const c = r.counted5688 || {};
-  if (!c.countedWarn || c.countedWarnDisplay === 'none') fail.push('#5688: a member the Issue pill counts (a rate limit that stood too long) has no visible triangle');
+  if (!c.countedWarn || c.countedWarnDisplay === 'none') fail.push('#5688: a member the Issue pill counts (a crash loop on an agent the card reads as working) has no visible triangle');
   if (c.uncountedWarn) fail.push('#5688 CONTROL: the same member, not counted, got the triangle');
-  if (!c.noticeShown || !/Elon needs you on this project\./.test(c.noticeText) || !/rate limit/.test(c.noticeText)) fail.push('#5688: the needs-you block is not shown or does not say who and why (' + JSON.stringify(c.noticeText) + ')');
+  if (!c.noticeShown || !/Elon needs you on this project\./.test(c.noticeText) || !/keeps restarting it/.test(c.noticeText)) fail.push('#5688: the needs-you block is not shown or does not say who and why (' + JSON.stringify(c.noticeText) + ')');
   if (!c.openShown || c.openLabel !== 'Open Elon') fail.push('#5688: the needs-you block has no visible Open for the member (' + JSON.stringify(c.openLabel) + ')');
   const a5692 = r.also5692 || {};
   if (!a5692.another) fail.push('#5692: a red row about another project is not named in the needs-you block');
   if (a5692.idleListed) fail.push('#5692 CONTROL: an idle member was named in the needs-you block');
   const d6341 = r.dismiss6341 || {};
   if (!d6341.shown || d6341.label !== 'Dismiss Elon') fail.push('#6341: the needs-you row has no visible Dismiss for the member (' + JSON.stringify(d6341.label) + ')');
-  if (d6341.reason !== 'stuck_rate') fail.push('#6341: Dismiss does not carry the reason the row shows (' + JSON.stringify(d6341.reason) + ')');
+  if (d6341.reason !== 'crash_loop') fail.push('#6341: Dismiss does not carry the reason the row shows (' + JSON.stringify(d6341.reason) + ')');
   if (!d6341.sameRow) fail.push('#6341: Dismiss is not in the same row as Open');
   if (d6341.height < 24) fail.push('#6341: Dismiss is under 24px tall (' + d6341.height + ')');
+  const q6341 = d6341.quietRow6341 || {};
+  if (!q6341.controlRed) fail.push('#6341 CONTROL: a member needing you about another project is not drawn red (the quiet arm below proves nothing)');
+  if (q6341.quietWarn || /\bpjm-attn\b/.test(q6341.quietClass || '')) fail.push('#6341: a member the engine marked quiet is still drawn red on the project (' + q6341.quietClass + ')');
   if (d6341.quietListed) fail.push('#6341: a member the engine marked quiet (dismissed) was listed again in the block');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));

@@ -950,13 +950,14 @@ function record() {
   return { ok: true, rows: cache.rows.concat(fragRows), parsed: cache.parsed.concat(fragParsed) };
 }
 
-/* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms, or null.
-   Kosmos's own notes do not count: a Recommender note repeated in a quiet room must not make the room look live.
-   Kept incrementally against the reader's memory, so a projects read does not walk the whole log per project. */
+/* #6341: when a project's room last had a post (an agent's, the person's, or one from outside), as epoch ms; null when
+   it has had none, undefined when the log could not be read. Kosmos's own notes do not count: a Recommender note
+   repeated in a quiet room must not make the room look live. The newest post per project is kept incrementally against
+   the reader's memory, so rows are scanned once; each call still pays record()'s own copy of the rows. */
 let LAST_POST = null; // { rows, n, map }
 function lastPostAt(projectId) {
   const got = record();
-  if (!got.ok) return null;
+  if (!got.ok) return undefined;   // could not read: not "no post" (the caller counts the room as live)
   const rows = READ_CACHE ? READ_CACHE.rows : [];
   if (!LAST_POST || LAST_POST.rows !== rows || LAST_POST.n > rows.length) LAST_POST = { rows, n: 0, map: new Map() };
   const bump = (map, r) => {

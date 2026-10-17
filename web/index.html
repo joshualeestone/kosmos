@@ -62396,7 +62396,11 @@ function pjMember(m, suppressTold, withMinus, hideState) {
      calm rows: a terminal error that stood too long was counted but drawn calm. A QUESTION keeps the card's read: an
      agent's own question stays calm here as everywhere (#2808), and the needs-you block above names it with Answer.
      Only ADDS red: a row the card already reads as needing the person stays red. */
-  const rowSt = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(liveM).st;
+  /* #6341 (Josh, 10-16 19:47: "should never show in the project, only on the agent"): a member the engine marked quiet
+     here (out of usage, a paused project, an idle room, dismissed) is not drawn red on the project either, so a
+     Dismiss visibly takes the row's red away too. Its own page and the Agents list still show it. */
+  const rowStRaw = (m && typeof m.needsYouHere === 'string' && m.needsYouHere && m.needsYouHere !== 'question') ? 'attn' : cardStOf(liveM).st;
+  const rowSt = rowStRaw === 'attn' && m && m.needsYouQuiet ? 'quiet' : rowStRaw;
   const needsYou = m.present === true && rowSt === 'attn'; // liveM: a given-up connection is red here too (#3410)
   const warn = needsYou ? LROW_WARN : '';
   /* #2711 item 16: the member box takes a ground by state, the same read the
@@ -75770,8 +75774,9 @@ document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenCl
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
 /* #6341: Dismiss on a "needs you" row. The board keeps it (per member and reason), so it holds across windows and a
-   reload, and the project's Issue count drops with the row. Focus goes to the next row's Dismiss, else the notice's
-   first button, else the Members heading, so a keyboard user is not sent to the top. A dismissal the board refused
+   reload, and the project's Issue count drops with the row. Focus goes to the next row's Dismiss, else the last
+   Dismiss left (the row above), else the notice's first button, else the Members heading, so a keyboard user is not
+   sent to the top. A dismissal the board refused
    leaves the row as it was and says so in the notice's own line. */
 async function pjNeedsDismissClick(e) {
   const btn = e.target && e.target.closest ? e.target.closest('[data-pn-dismiss]') : null;
@@ -75793,8 +75798,10 @@ async function pjNeedsDismissClick(e) {
   btn.disabled = false;
   const said = document.getElementById(rail ? 'alist-pj-notice-said' : 'pj-one-notice-said');
   if (!ok) {
-    // Seen as well as heard: the button says it did not go through (the next repaint redraws it as Dismiss).
+    // Seen as well as heard: the button says it did not go through. The notice's last-painted memory is cleared, so
+    // the next poll redraws it as Dismiss (review 1: without this the words stayed until the notice changed).
     btn.textContent = 'Try again';
+    box.__lastLive = null;
     if (said) { said.textContent = ''; said.dataset.pj = String(project); requestAnimationFrame(() => { if (said.dataset.pj === String(project)) said.textContent = 'Kosmos could not dismiss that. Try again in a moment.'; }); }
     return;
   }

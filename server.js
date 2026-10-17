@@ -23626,8 +23626,8 @@ function start(port = PORT) {
           // #4588 PR B: a held item is logged when it becomes held, not every minute it stays held; the set is this tick's.
           const heldNow = new Set();
           for (const a of out.acted) {
-            // #6341: the room already held this note (a restart forgot it had been written): nothing was said or asked.
-            if (a.verdict === 'already-noted') { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: already noted in the room, not repeated\n`); continue; }
+            // #6341: the room already held this note (a restart forgot it had been written): no note, no asks; the playbook went.
+            if (a.alreadyNoted) { process.stdout.write(`recommender: ${a.name} (${a.session}) on ${a.project}: note already in the room (not repeated), playbook ${a.verdict}\n`); continue; }
             if (a.verdict === 'held') {
               const heldKey = a.session + ' ' + a.project;
               heldNow.add(heldKey);
