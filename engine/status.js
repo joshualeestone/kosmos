@@ -1670,7 +1670,8 @@ function visibleWithoutDim(line, dimIn = false, state = null) {
 /* #6256 item 7: the rule under the box is found on the row's raw text (every escape removed, dim kept), so a theme
    that drew the rule dim still ends the box there rather than merging the footer into it. */
 const rawRow = (line) => String(line).replace(/\x1b\[[0-9;:?]*[A-Za-z]/g, '');
-function composerText(ansi) {
+/* kosmos#6436: { rows: true } also answers how many rows the box draws (a scrolled box draws the pane's most). */
+function composerText(ansi, opts) {
   if (typeof ansi !== 'string' || !ansi) return { ok: false };
   const lines = ansi.split('\n');
   const carry = { dim: false };
@@ -1684,7 +1685,7 @@ function composerText(ansi) {
   const parts = [];
   for (let i = at; i < rows.length && !COMPOSER_RULE.test(rawRow(lines[i])); i += 1) parts.push(rows[i]);
   const text = parts.join(' ').replace(/^❯/, '').replace(/[\s ]+/g, ' ').trim();
-  return { ok: true, text };
+  return opts && opts.rows ? { ok: true, text, rows: parts.length } : { ok: true, text };
 }
 /* An ANSI capture of one pane (the colours say which text is dim), with its own seam for tests. */
 let ansiCapture = null;

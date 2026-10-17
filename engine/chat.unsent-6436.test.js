@@ -252,3 +252,41 @@ test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
   assert.equal(scheduled.length, 0, 'a box that only looks full is not a stranded line');
 }));
+
+test('kosmos#6436: an unattended retry takes only the exact match: a resized box is left to the next delivery (CONTROL: which presses it)', () => withAgent(async (roster) => {
+  const scheduled = [];
+  arm([EMPTY, box(LONG, KEEP)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.deliver('al', LONG, roster);
+  const resized = box(LONG, 12);
+  const t = arm([resized]);
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t.enters(), 0, 'no unattended Enter on an end the box did not show when the board left it');
+  const t2 = arm([resized, EMPTY, EMPTY, box('next'), EMPTY]);
+  assert.equal(chat.deliver('al', 'next', roster).earlierSubmitted, true, 'CONTROL: a delivery takes the resized end');
+  assert.equal(t2.enters(), 2);
+}));
+
+test('kosmos#6436: a long end of ours in a box that has not scrolled (a person cut its start) is not pressed', () => withAgent((roster) => {
+  arm([EMPTY, box(LONG, KEEP)]);
+  chat.deliver('al', LONG, roster);
+  const cut = LONG.slice(-210);
+  assert.ok(rowsOf(cut).length < 4, 'PRECONDITION: a box this short shows all it holds');
+  const t = arm([box(cut)]);
+  assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
+  assert.equal(t.enters(), 0);
+}));
+
+test('kosmos#6436: a line left more than a day ago is not loaded after a restart (its words may come back as the person\'s own)', () => withAgent((roster) => {
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const file = path.join(store.ROOT, 'unsent-lines.json');
+  const kept = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const k of Object.keys(kept)) kept[k].at = Date.now() - 25 * 60 * 60 * 1000;
+  fs.writeFileSync(file, JSON.stringify(kept));
+  chat.restartUnsentForTests();
+  const t = arm([box(MSG)]);
+  assert.equal(chat.deliver('al', 'a later line', roster).inputHeld, true);
+  assert.equal(t.enters(), 0, 'a day-old memory is not trusted');
+}));

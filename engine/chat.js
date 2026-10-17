@@ -221,8 +221,10 @@ const UNSENT_FILE = () => path.join(store.ROOT, 'unsent-lines.json');
 let unsentLoaded = false;
 /* Each remembered line gets its own id (a retry scheduled for one line never acts on another, whatever the clock says). */
 let unsentIdNext = 0;
-/* A line left longer ago than this is not loaded after a restart: a pane gone that long is not coming back for it. */
-const UNSENT_LOAD_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+/* A line left longer ago than this is neither pressed nor loaded after a restart. Hours, not the old 10 minutes (an
+   agent sat idle 30 to 60 minutes behind one), and not forever: a memory that outlived its line could meet the same
+   words put back in the box later (the person's own up-arrow history) and press them. */
+const UNSENT_KEEP_MS = 24 * 60 * 60 * 1000;
 function loadUnsent() {
   if (unsentLoaded) return;
   unsentLoaded = true;
@@ -231,7 +233,7 @@ function loadUnsent() {
   if (!raw || typeof raw !== 'object') return;
   for (const [target, e] of Object.entries(raw)) {
     /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
-    if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_LOAD_MAX_MS) {
+    if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
       unsentIdNext += 1;
       unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '' });
     }
@@ -253,7 +255,12 @@ function saveUnsent() {
     fs.renameSync(tmp, file);
   } catch { /* best effort: the line is still remembered for this run */ }
 }
-function recallUnsent(target) { loadUnsent(); return unsentWires.get(target) || null; }
+function recallUnsent(target) {
+  loadUnsent();
+  const e = unsentWires.get(target) || null;
+  if (e && Date.now() - e.at > UNSENT_KEEP_MS) { forgetUnsent(target); return null; }
+  return e;
+}
 function rememberUnsent(target, entry) {
   loadUnsent();
   if (!entry.id) { unsentIdNext += 1; entry = { ...entry, id: unsentIdNext }; }
@@ -910,14 +917,19 @@ function composerIsAll(text, wire) {
    and back) would be sent with it. Text added after ours, or other text on screen, is never pressed. A long end cut
    shorter on screen is still all ours, so it is pressed: the words sent are the board's own. */
 const SCROLLED_MIN = 200;
+/* The rows a box draws once it has scrolled (measured: 7 at 80x24; fewer on a shorter pane). A box drawing fewer
+   shows all it holds, so the wider end rule does not apply to it. */
+const SCROLLED_ROWS = 4;
 /* `exact`: only all of the line, or exactly what the box showed when it was left (the unattended retries use this;
-   the wider SCROLLED_MIN end is left to a delivery). */
-function rememberedShows(text, kept, exact = false) {
+   the wider SCROLLED_MIN end, on a box that has scrolled, is left to a delivery). `seen` counts only at the length
+   composerHolds asks of a piece of ours. */
+function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
   if (composerIsAll(text, kept.wire)) return true;
   const t = squash(text);
   if (!t || !squash(kept.wire).endsWith(t)) return false;
-  return (!!kept.seen && t === kept.seen) || (!exact && t.length >= SCROLLED_MIN);
+  if (kept.seen && t === kept.seen && t.length >= 20) return true;
+  return !exact && t.length >= SCROLLED_MIN && rows >= SCROLLED_ROWS;
 }
 /* Round 9: does the box still hold the end of what we pasted (its last 20 characters, or all of a shorter message)? */
 function stillHoldsOurEnd(text, wire) {
@@ -928,7 +940,7 @@ function stillHoldsOurEnd(text, wire) {
 function readComposer(target) {
   const got = tmux(['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
   if (!got.ran || got.status !== 0) return { ok: false };
-  return composerText(got.out);
+  return status.composerText(got.out, { rows: true });
 }
 /* Only Claude Code's box is read this way; other runners draw their own and keep today's verdict. */
 const composerReadable = (card) => !!card && String(card.runner || 'claude') === 'claude';
@@ -1009,7 +1021,13 @@ async function pressRememberedNow(target, card) {
   const box = readComposer(target);
   if (!box.ok) return 'unread';
   if (!box.text) { forgetUnsent(target); return 'empty'; }
-  if (!rememberedShows(box.text, kept, true)) return 'changed';
+  if (!rememberedShows(box.text, kept, true)) {
+    /* Not even an end of our line: it left the box (sent or cleared by hand) and something else is there. Forgotten,
+       so these words coming back later are never pressed. A box still showing an end of ours (a resized pane) keeps it
+       for the next delivery. */
+    if (!squash(kept.wire).endsWith(squash(box.text))) forgetUnsent(target);
+    return 'changed';
+  }
   if (!verifyAtSend(card).ok) return 'pane';
   /* The pane is busy while this runs, as during a delivery: no line is pasted while this one is being watched. */
   let release = () => {};
@@ -1019,7 +1037,8 @@ async function pressRememberedNow(target, card) {
     const pressed = tmux(['send-keys', '-t', target, 'Enter']);
     if (!pressed.ran || pressed.status !== 0) return 'unsent';
     /* Waited without holding the board (#4468), as confirmAsync waits. */
-    const steps = submitConfirmSteps(card, target, kept.wire, false, EARLIER_SETTLE_MS);
+    /* The full watch (the box can take about a second to empty): this one does not hold the board. */
+    const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS);
     let step = steps.next();
     while (!step.done) {
       if (pauser) await pauser(step.value.wait);
@@ -2127,7 +2146,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
          refused with the sentence that says so. Anything else in the box is never submitted. */
       const kept = recallUnsent(target);
       const earlier = kept ? kept.wire : null;
-      if (earlier && rememberedShows(box.text, kept) && verifyAtSend(allowed.card).ok) {
+      if (earlier && rememberedShows(box.text, kept, false, box.rows) && verifyAtSend(allowed.card).ok) {
         forgetUnsent(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
@@ -2144,7 +2163,10 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
            refused below, as before. It keeps its first time and number, so its own retries (kosmos#6436) still know it.
            Known gap (review 3): if the Enter did take and the box only emptied later, no follow-up row is written; an
            empty box later cannot say whether it was sent or cleared by hand. */
-        if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept)) rememberUnsent(target, kept);
+        if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept, false, box.rows)) {
+          rememberUnsent(target, kept);
+          scheduleUnsentRetries(target, allowed.card);   // its first ones may be long done
+        }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
       if (box.ok && box.text) {
