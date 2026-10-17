@@ -16,7 +16,7 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
    fixed height (PigeonPete's cap may change from 40vh to "fill the head").
 2. [x] web/index.html script: railPjMore() sets data-more when scrollHeight - scrollTop - clientHeight > 2; run on the
    box's scroll, a MutationObserver on its content (every painter, the retry handlers included), a ResizeObserver on
-   the box (the rail unfolding, a column width; review 1) and window resize. scroll-padding-bottom 28px keeps a
+   the box and on each row (the rail unfolding, a column width, a row reflowing; reviews 1 and 2) and window resize. scroll-padding-bottom 28px keeps a
    keyboard-focused control above the fade (WCAG 2.4.11; review 1).
    The observer does not watch attributes, so toggling data-more cannot loop.
 3. [x] docs/browser-checks/render-projects.js: a #6349 arm after #6347's (copies of the notice's own row, removed in

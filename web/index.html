@@ -76126,9 +76126,9 @@ function pjNeedsOpenClick(e) {
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
-/* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read from the box
-   itself on scroll, on any change to what it holds (every painter, the retry handlers included), and on any change to
-   its own size (the rail unfolding, a column width, the window). */
+/* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read on the box's
+   scroll, on a change to its rows (added, removed, text), on a change to the box's size or any row's, and on window
+   resize. */
 function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
@@ -76139,8 +76139,15 @@ function railPjMore() {
   const rn = document.getElementById('alist-pj-notice');
   if (rn) {
     rn.addEventListener('scroll', railPjMore, { passive: true });
-    if (typeof MutationObserver === 'function') new MutationObserver(railPjMore).observe(rn, { childList: true, subtree: true, characterData: true });
-    if (typeof ResizeObserver === 'function') new ResizeObserver(railPjMore).observe(rn);
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(railPjMore) : null;
+    if (ro) { ro.observe(rn); for (const c of rn.children) ro.observe(c); }
+    if (typeof MutationObserver === 'function') new MutationObserver((recs) => {
+      if (ro) for (const r of recs) if (r.target === rn) {
+        for (const n of r.removedNodes) if (n.nodeType === 1) ro.unobserve(n);
+        for (const n of r.addedNodes) if (n.nodeType === 1) ro.observe(n);
+      }
+      railPjMore();
+    }).observe(rn, { childList: true, subtree: true, characterData: true });
     window.addEventListener('resize', railPjMore);
   }
 }
