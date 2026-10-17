@@ -263,3 +263,18 @@ test('#6406 step 2: a ticket request that never answers opens the plain address 
   assert.equal(t.went.length, 1);
 });
 
+test('#6406 step 2: on a page, the navigation goes through a throwaway hidden noreferrer link that is not marked', async () => {
+  const made = [];
+  const doc = { createElement: (tag) => { const el = { tag, attrs: {}, clicked: 0, removed: false,
+    click() { this.clicked += 1; }, remove() { this.removed = true; } }; made.push(el); return el; },
+    body: { appendChild: (el) => { el.inPage = true; } } };
+  let assigned = null;
+  const w = { location: { assign: (u) => { assigned = u; } } };
+  new Function('window', 'document', `${slice('computersGo')}\ncomputersGo('https://tmnt.kosmosplus.com/#kpt=x');`)(w, doc);
+  assert.equal(made.length, 1);
+  const l = made[0];
+  assert.deepEqual([l.tag, l.href, l.rel, l.hidden, l.inPage, l.clicked, l.removed], ['a', 'https://tmnt.kosmosplus.com/#kpt=x', 'noreferrer', true, true, 1, true]);
+  assert.equal(l.attrs['data-computer-open'], undefined, 'not marked, so computersOpenClick leaves it alone');
+  assert.equal(assigned, null, 'no script navigation (it would send a Referer)');
+});
+

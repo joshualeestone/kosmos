@@ -74,3 +74,5 @@ plain address as before.
 - 4 opus: no Referer to the other computer (a throwaway noreferrer link; the browser check asserts the navigating
   link's rel); "on this computer" is positive (madeOnThisComputer: loopback Host and Origin, nothing forwarded; a
   person's own reverse proxy fails it; unit arms for each); the busy style keeps contrast; wording.
+- 5 sonnet: the route also requires the socket to be this computer's (isLoopbackPeer); the noreferrer link path is
+  unit-tested with a page (it was only reached by the browser check).
