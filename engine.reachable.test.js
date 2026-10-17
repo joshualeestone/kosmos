@@ -20,6 +20,9 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setTokenFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s path for agy\'s sign-in file, so engine/agyusage-6176.test.js and server.agyusage-6176.test.js can stand a file in for it; production checks the real path in the person\'s home folder.',
+  setStoppedFileForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s record that asking stopped after a failed run, so engine/agyusage-6176.test.js can show it outlives a restart without touching the person\'s Kosmos folder (production refuses it in a test process).',
+  setKillMsForTests: 'test seam (#6176 slice 4): engine/agyusage.js\'s kill time for a hung agy run, which engine/agyusage-6176.test.js shortens to reach the cap path in milliseconds instead of fifty seconds.',
   latestForTests: 'test seam (#6309): engine/usagecap.js\'s last count from its worker thread, so engine/usagecap-6309.test.js can wait for the real worker to post before asking the gate. Production reads the same `latest` inside capInForce.',
   resetLiveCacheForTest: 'test seam (#5977): engine/qwenaccounts.js clears the remembered endpoint answers (a minute for an unreachable one), so engine/qwenaccounts-5977.test.js and engine/qwen-review2-5977.test.js can change the fake endpoint between checks. Production keeps the cache.',
   _readState: 'engine/agentevents.js (#5683 slice 1, review 37): the state reader, so engine/agentevents-5683.test.js can check that a bad queue entry or send size is dropped on read without a tick in between (a tick drained the queue and hid the check).',

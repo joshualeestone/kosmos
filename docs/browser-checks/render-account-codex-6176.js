@@ -188,13 +188,24 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     const aAsk = await show([agy({ limits: null, connection: { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified', liveCheckPending: true } })]);
     say(aAsk.nones[0] === 'Asking Antigravity for its usage.', '[chromium open] while a reading is on its way, the Antigravity row says so', JSON.stringify(aAsk));
     const aStop = await show([agy({ limits: null, usageStopped: true })]);
-    say(aStop.nones[0] === 'Antigravity could not report usage. Sign in again to try again.', '[chromium open] after a failed reading, the Antigravity row says what to do', JSON.stringify(aStop));
+    say(aStop.nones[0] === 'Antigravity could not report usage. Sign in again to ask it again.', '[chromium open] after a failed reading, the Antigravity row says what to do', JSON.stringify(aStop));
+    const aStopOld = await show([agy({ usageStopped: true, limits: { windows: [win(40, 10080, now + 50 * H)], plan: null, at: now - 3 * H } })]);
+    say(aStopOld.lines.length === 1 && aStopOld.nones[0] === 'Antigravity could not report usage. Sign in again to ask it again.', '[chromium open] stopped with an earlier reading: the meter stays and the row still says the asking stopped', JSON.stringify(aStopOld));
     const aTwo = await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
     say(aTwo.lines.length === 2 && /^25% of its 5-hour limit used · resets .* · Antigravity last reported it 2 minutes ago$/.test(aTwo.lines[0]) && /^1% of its weekly limit used/.test(aTwo.lines[1]),
       '[chromium open] the Antigravity row draws its five-hour and weekly windows, and says Antigravity reported them', JSON.stringify(aTwo));
+    // A pending Antigravity reading keeps the list being read for up to 56 s (agy can take 50 s), not the 21 s other checks get.
+    const pend = { state: 'connected', checkedLive: false, checkedAt: now - H, badge: 'signed_in_unverified', liveCheckPending: true };
+    await show([agy({ limits: null, connection: pend })]);
+    await pa.evaluate(() => { window.__reads = 0; });
+    for (let i = 0; i < 20; i++) { await pa.clock.runFor(3600); await pa.waitForTimeout(40); }
+    const aReads = await pa.evaluate(() => window.__reads);
+    say(aReads >= 12 && aReads <= 17, '[chromium open] a pending Antigravity reading is followed for about 56 s, not 21 s', 'reads=' + aReads);
+    await show([agy({ limits: { windows: [win(25, 300, now + 10 * 60e3), win(1, 10080, now + 50 * H)], plan: null, at: now - 2 * 60e3 } })]);
+    await pa.evaluate(() => { window.__reads = 0; });
     await pa.clock.runFor(11 * 60e3); await pa.waitForTimeout(300);
     const aAfter = await pa.evaluate(() => ({ lines: document.querySelectorAll('#set-accounts .acct-usage-codex').length, reads: window.__reads }));
-    say(aAfter.reads === 2 && aAfter.lines === 1, '[chromium open] an Antigravity window past its reset on a list left open is read again and goes', JSON.stringify(aAfter));
+    say(aAfter.reads === 1 && aAfter.lines === 1, '[chromium open] an Antigravity window past its reset on a list left open is read again and goes', JSON.stringify(aAfter));
     await pa.close();
     // The reset passes while another Settings section is open (the list hidden): back on AI Models, the meter goes.
     const p2 = await browser.newPage({ viewport: { width: 1100, height: 900 }, locale: 'en-US' });

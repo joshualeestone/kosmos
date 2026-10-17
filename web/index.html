@@ -27413,8 +27413,10 @@ function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctS
 
 /* #3997: how often, and how many times, the list is read again while a sign-in's free check (ChatGPT or Grok), or an Antigravity usage reading (#6176), is still under way.
    A healthy check answers within a second or two; a dead or slow one takes up to about 20 seconds (codex's own
-   handshake timeout), so the reads continue until nothing is pending or the count runs out. */
-const ACCT_FOLLOWUP = { ms: 3500, max: 6, busyMax: 60 };
+   handshake timeout), so the reads continue until nothing is pending or the count runs out. An Antigravity usage run
+   can take up to 50 s before Kosmos gives up on it (review 5), so while one is pending the count runs to agyMax (56 s):
+   the row then reaches "could not report" instead of stopping on "Asking". */
+const ACCT_FOLLOWUP = { ms: 3500, max: 6, agyMax: 16, busyMax: 60 };
 /* Never rebuild the list under the person's hands (review round 2): a Check now in flight (its button disabled) or a
    half-pressed Disconnect or Delete. Focus alone is not busy (round 4: a button keeps focus after its answer, and the
    row then kept saying "checking" long after its check had ended). */
@@ -27422,7 +27424,7 @@ function acctListBusy(box) { return !!(box && box.querySelector('.acct-check:dis
 /* The next follow-up read, `n` of at most ACCT_FOLLOWUP.max. One that finds the list busy waits a turn, still counted,
    and none reads if the list has been painted again meanwhile. */
 function acctFollowUp(n, busy) {
-  if (n > ACCT_FOLLOWUP.max) return;
+  if (n > ACCT_FOLLOWUP.agyMax) return;   // the outer bound; each paint decides max or agyMax by what is pending
   /* A turn skipped because the list is busy (a Check now in flight, a half-armed Disconnect) waits without spending a
      read, under its own cap (about 3.5 minutes), so a long press does not use up the reads and leave a row saying
      "checking" after the check has finished (review round 15). */
@@ -27472,7 +27474,7 @@ function acctFiveHourOnShow() {
    window looks again (the same check as a section switch). */
 document.addEventListener('visibilitychange', () => { if (!document.hidden) acctFiveHourOnShow(); });
 window.addEventListener('focus', () => acctFiveHourOnShow());
-/* A failed re-read keeps the list, so a five-hour, Codex or Grok window line drawn past its reset would stay: while one is on screen, try again
+/* A failed re-read keeps the list, so a five-hour, Codex, Grok or Antigravity window line drawn past its reset would stay: while one is on screen, try again
    in a minute, at most ten times in a row (a paint that succeeds starts the count again). */
 function acctFiveHourRetry() {
   if (!acctListShown()) return;
@@ -27588,13 +27590,21 @@ function acctCodexUsageHtml(a) {
 function acctGrokUsageHtml(a) {
   return acctLimitsUsageHtml(a, 'Grok', 'No current usage reading for this sign-in. Grok reports it now and then while it runs.');
 }
+const ACCT_AGY_STOPPED = 'Antigravity could not report usage. Sign in again to ask it again.';
 function acctAgyUsageHtml(a) {
   /* Three states with no reading, each said as it is (review 4): asking now, stopped after a failed run (it waits for
      the sign-in to be confirmed, which Sign in again does), or simply none yet. */
-  const none = a && a.usageStopped ? 'Antigravity could not report usage. Sign in again to try again.'
+  const stopped = !!(a && a.usageStopped);
+  const none = stopped ? ACCT_AGY_STOPPED
     : a && a.connection && a.connection.liveCheckPending ? 'Asking Antigravity for its usage.'
     : 'No current usage reading from Antigravity for this sign-in.';
-  return acctLimitsUsageHtml(a, 'Antigravity', none);
+  const html = acctLimitsUsageHtml(a, 'Antigravity', none);
+  /* Stopped with an earlier reading still drawn (review 5): the meters stay, with their age, and the row says the asking
+     stopped and what restarts it. */
+  if (stopped && html && html.indexOf('acct-usage-codex') !== -1) {
+    return html.replace(/<\/div>$/, '<p class="acct-usage-line acct-usage-none">' + esc(ACCT_AGY_STOPPED) + '</p></div>');
+  }
+  return html;
 }
 function acctLimitsUsageHtml(a, who, none) {
   if (!a || !('limits' in a)) return '';   // an older board, or an API key: nothing to show
@@ -28012,7 +28022,7 @@ async function paintAccounts(opts) {
   } catch {
     if (acctReadOpen === mine) acctReadOpen = 0;
     if (mine !== ACCT_EPOCH) return;
-    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour, Codex or Grok window line past its reset)
+    if (followUp) { acctFiveHourRetry(); return; }   // #3997: a failed background re-read keeps the list the person is looking at (#6176: and tries again if it shows a five-hour, Codex, Grok or Antigravity window line past its reset)
     /* 🛑 CANCEL HERE TOO. The cancel at the top of this function runs BEFORE the
        await, so these two writes were the third and fourth exceptions to the
        "every writer cancels" claim above, and this diff has already corrected
@@ -28039,7 +28049,9 @@ async function paintAccounts(opts) {
   accountsRead(list);
   /* #3997: a sign-in (ChatGPT or Grok) whose free check, or an Antigravity row whose usage reading (#6176), is still under way is read again a few seconds on, so it turns green
      (or says what is wrong) without the person doing anything; bounded by ACCT_FOLLOWUP.max, never a loop. */
-  if (followUp < ACCT_FOLLOWUP.max && list.some((a) => a && a.connection && a.connection.liveCheckPending)) acctFollowUp(followUp + 1);
+  const pendingRows = list.filter((a) => a && a.connection && a.connection.liveCheckPending);
+  const followMax = pendingRows.some((a) => a.authMode === 'antigravity') ? ACCT_FOLLOWUP.agyMax : ACCT_FOLLOWUP.max;
+  if (followUp < followMax && pendingRows.length) acctFollowUp(followUp + 1);
   acctFiveHourRepaint(list);
   if (!followUp) {
     acctCancelSay();  /* post-await writer, same reason as the catch above */
