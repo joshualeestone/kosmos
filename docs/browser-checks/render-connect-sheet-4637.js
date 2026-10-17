@@ -119,7 +119,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       });
       chk(note.shown && /2 devices want to connect to your Kosmos\./.test(note.text) && note.review && /kosmos\+/i.test(note.text), `${tag} on another page: a Kosmos+ notice with Review`, JSON.stringify(note));
       const noteContrast = await page.evaluate((fn) => { const w = eval(fn); const n = document.querySelector('#askcard .asknote');
-        return n ? [...n.querySelectorAll('span')].map((e) => Math.round(w(e) * 100) / 100) : []; }, WORST_CONTRAST);
+        return n ? [...n.querySelectorAll(':scope > span')].map((e) => Math.round(w(e) * 100) / 100) : []; }, WORST_CONTRAST);   // #6315: the words, not the close button's glyph
       chk(noteContrast.length === 2 && noteContrast.every((r) => r >= 4.5), `${tag} the notice's words read on its navy (4.5:1)`, JSON.stringify(noteContrast));
       /* Review W2: the notice's edges line up with the banner under it (#conn). Fails if the banner is not shown. */
       const edges = await page.evaluate(() => {
