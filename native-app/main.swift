@@ -454,6 +454,14 @@ func isOwnSettingsPage(_ page: URL?, board: (host: String, port: Int)?, ownPlusH
     return host == own
 }
 
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the window shows ANOTHER computer: a Kosmos+ computer
+/// page (isBoardPage, which leaves out the Kosmos+ service sites) that is not this computer's own (isOwnSettingsPage).
+/// Only then does View > Back to This Computer show.
+func showsAnotherComputer(_ page: URL?, board: (host: String, port: Int)?, ownPlusHost: String?) -> Bool {
+    guard let page = page, isKosmosPlusURL(page) else { return false }
+    return isBoardPage(page, board: board) && !isOwnSettingsPage(page, board: board, ownPlusHost: ownPlusHost)
+}
+
 /// #6411: this computer's own Kosmos+ address, as the board keeps it (engine/remote.js address(): `address` in
 /// AGENT_WORKFORCE_TUNNEL_STATE when set, else the store's remote/ folder); nil when it has none. The override is
 /// read from THIS app's environment, which a board started with it does not hand over (a test and development
@@ -2839,6 +2847,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Settings… (Cmd-,) opens the page's own Settings, which on a connect computer is the OTHER
         // computer's; hidden there, as the plan says this computer's settings are not on that page.
         items.first(where: { $0.action == #selector(AppDelegate.openSettings(_:)) })?.isHidden = computerMode == .connect
+        updateBackHomeItem()
+    }
+
+    /// #6411: whether the window is on another computer, from this run or both Mac (a connect computer has no board
+    /// of its own to go back to). Read at every commit, every mode switch, and when the page goes away.
+    private func isOnAnotherComputer() -> Bool {
+        computerMode != .connect && showsAnotherComputer(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost())
+    }
+
+    private func updateBackHomeItem() {
+        let view = NSApp.mainMenu?.items.first(where: { $0.submenu?.title == "View" })?.submenu
+        view?.items.first(where: { $0.action == #selector(AppDelegate.backToThisComputer(_:)) })?.isHidden = !isOnAnotherComputer()
+    }
+
+    /// #6411: View > Back to This Computer. Loads this computer's own board the way a launch does (loadBoard: the
+    /// board is found running, or started, and its page loaded), so nothing about the other computer is kept.
+    @objc func backToThisComputer(_ sender: Any?) {
+        guard isOnAnotherComputer(), !boardStartInFlight else {
+            NSSound.beep(); logLine("backToThisComputer: refused (not on another computer, or a start is in flight)"); return
+        }
+        window.makeKeyAndOrderFront(nil)
+        logLine("backToThisComputer: loading this computer's board")
+        loadBoard()
     }
 
     // MARK: #4382: a connect computer keeps itself current, with no board
@@ -5098,6 +5129,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         logLine("WEB CONTENT PROCESS TERMINATED (blank window until reload)")
         voice?.hostCancel("page process ended")   // #4409 (review 3): no page is left to show the mic is on
         committedPageURL = nil   // #5167: no page is on screen to save downloads from
+        updateBackHomeItem()   // #6411
     }
 
     /// #4409 (review 3): a new page (a reload, a navigation) starts with every mic drawn off, so the old page's
@@ -5105,6 +5137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         voice?.hostCancel("new page loaded")
         committedPageURL = webView.backForwardList.currentItem?.url   // #5167: the origin a download must share (moves only at a commit)
+        updateBackHomeItem()   // #6411: shown only while the window is on another computer
         pageCommits += 1   // #5167: an Allow asked before this commit does not count for the new page
     }
 
@@ -5479,6 +5512,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                                     action: #selector(AppDelegate.reloadBoard(_:)), keyEquivalent: "r")
         reloadItem.target = reloadTarget
         viewMenu.addItem(reloadItem)
+        /* #6411: since #6406 the window can show another computer, and the only way home was that computer's own
+           switcher (to this computer's Kosmos+ address, a sign-in there once) or quitting. Shown only while the
+           window is on another computer (updateBackHomeItem); hidden from the start, so a window on this computer
+           never offers it. A hidden item's shortcut can still fire, so the action checks again. */
+        let homeItem = NSMenuItem(title: "Back to This Computer",
+                                  action: #selector(AppDelegate.backToThisComputer(_:)), keyEquivalent: "h")
+        homeItem.keyEquivalentModifierMask = [.command, .shift]
+        homeItem.target = reloadTarget
+        homeItem.isHidden = true
+        viewMenu.addItem(homeItem)
 
         // ── Window ────────────────────────────────────────────────────────
         let windowMenuItem = NSMenuItem()
@@ -6961,6 +7004,19 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     file("  HOME.kosmosplus.com  ", "home.kosmosplus.com", "trimmed and lowercased")
     file("\n", nil, "an empty file is no address")
     file(nil, nil, "no file is no address")
+    func away(_ s: String?, _ ownPlus: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = showsAnotherComputer(s.flatMap { URL(string: $0) }, board: here, ownPlusHost: ownPlus)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "away" : "home").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    away("https://amy.kosmosplus.com/", "home.kosmosplus.com", true, "ANOTHER COMPUTER: Back to This Computer shows")
+    away("https://amy.kosmosplus.com/", nil, true, "another computer, with Kosmos+ never set up here")
+    away("https://home.kosmosplus.com/", "home.kosmosplus.com", false, "this computer's own Kosmos+ address is home")
+    away("http://127.0.0.1:16180/?tab=agents", "home.kosmosplus.com", false, "this computer's own board is home")
+    away("https://login.kosmosplus.com/", "home.kosmosplus.com", false, "Kosmos+ sign-in is not a computer")
+    away("https://example.com/", "home.kosmosplus.com", false, "a foreign site is not another computer")
+    away(nil, "home.kosmosplus.com", false, "no page yet")
     func dest(_ suggested: String, _ taken: Set<String>, _ want: String, _ why: String) {
         ran += 1
         let dir = URL(fileURLWithPath: "/D", isDirectory: true)
@@ -7054,7 +7110,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 138   // #6411: +26 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 145   // #6411: +33 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
