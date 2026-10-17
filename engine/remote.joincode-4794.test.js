@@ -183,8 +183,8 @@ test('#6353: Try again runs join retry locally and tags the tunnel refusals for 
   assert.deepEqual(await remote.joinRetry(), { ok: false, because: 'attempts_used' });
   process.env.FAKE_JOIN = 'unsupported';
   assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
-  process.env.FAKE_JOIN = 'retry-old';   // a tunnel with join but from before join retry
-  assert.match((await remote.joinRetry()).because, /cannot pair computers yet/);
+  process.env.FAKE_JOIN = 'retry-old';   // a tunnel with join but from before join retry: it can pair, not take Try again
+  assert.equal((await remote.joinRetry()).because, 'this version of Kosmos cannot ask for a new code yet');
 });
 
 test('#6353: Try again before the sign-up is finished does not reach the binary', async () => {

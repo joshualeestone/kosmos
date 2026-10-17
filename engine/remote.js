@@ -2260,7 +2260,10 @@ async function joinRetry() {
   { const b = busy(); if (b) return b; }
   if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
   const r = await tracked(setupRun(['join', 'retry', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
-  if (joinUnsupported(r)) return { ok: false, because: 'this version of Kosmos cannot pair computers yet' };
+  if (joinUnsupported(r)) {
+    const noRetry = /unrecognized subcommand '?retry'?/.test(String(r.stderr || '') + '\n' + String(r.because || ''));
+    return { ok: false, because: noRetry ? 'this version of Kosmos cannot ask for a new code yet' : 'this version of Kosmos cannot pair computers yet' };
+  }
   if (!r.ok) {
     const said = String(r.stderr || '') + '\n' + String(r.because || '');
     if (/\bnothing_to_retry:/.test(said)) return { ok: false, because: 'nothing_to_retry' };
