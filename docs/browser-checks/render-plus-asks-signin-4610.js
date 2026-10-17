@@ -176,14 +176,17 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
          request is gone, its line (the way to its Undo) shows. */
       const hr = await page.evaluate(() => {
         ASK.here = { device_id: 'd-here2', at: Math.floor(Date.now() / 1000), name: 'Mac · Safari' }; ASK.hereGone = ''; paintAsk();
-        const x = document.querySelector('#askcard .asknote-x'); if (x) x.click();
-        // Right after the close: the browser it did not name is what the notice now says (decided, see the plan).
+        const x = document.querySelector('#askcard .asknote-x'); if (x) { x.focus(); x.click(); }
+        // Right after the close: the browser it did not name is what the notice now says (decided, see the plan), and
+        // keyboard focus stays on the notice (its close button), not moved off a notice still showing.
         const after = document.getElementById('askcard').innerText.replace(/\s+/g, ' ');
+        const focusOnNotice = !!(document.activeElement && document.activeElement.closest && document.activeElement.closest('#askcard'));
         const keep = ASK.devices; ASK.devices = []; paintAsk();
-        const r = { after, shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
+        const r = { after, focusOnNotice, shown: !document.getElementById('askcard').hidden, text: document.getElementById('askcard').innerText.replace(/\s+/g, ' ') };
         ASK.devices = keep; ASK.here = null; localStorage.removeItem('kosmos.asknote.dismissed'); ASK.noteDismissed = []; paintAsk();
         return r;
       });
+      chk(hr.focusOnNotice === true, '[' + W + '] #6315 after that close, keyboard focus stays on the notice that is still showing', JSON.stringify(hr));
       chk(/on this computer is connected/.test(hr.after) && !/want/.test(hr.after), '[' + W + '] #6315 closing the request line moves the notice on to the connected-here browser it had not named', JSON.stringify(hr));
       chk(hr.shown && /on this computer is connected/.test(hr.text), '[' + W + '] #6315 a connected-here browser not named when dismissed still shows once the request is gone', JSON.stringify(hr));
       /* Storage that throws: the dismissal still holds in this tab. */
@@ -201,7 +204,8 @@ const PENDING = [{ device_id: 'd-safari', name: 'Mac · Safari', code: 'VR-D6', 
       await page.waitForTimeout(200);
       await page.evaluate(() => { showTab('agents'); paintAsk(); });
       await page.waitForTimeout(150);
-      chk(!(await shownNote()).shown, '[' + W + '] #6315 after Review the notice does not come back on another view');
+      const offPlus = await page.evaluate(() => typeof plusOnScreen === 'function' && !plusOnScreen());
+      chk(offPlus && !(await shownNote()).shown, '[' + W + '] #6315 after Review the notice does not come back on another view (the page did leave Kosmos+)', String(offPlus));
       chk(errs.length === 0, '[' + W + '] no page errors', errs.join(' | '));
       await page.close();
     }

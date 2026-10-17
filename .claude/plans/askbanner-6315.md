@@ -32,5 +32,7 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
   the browser's Undo (a security control), so it must be seen before it can be put away; a close that hid it unseen
   was iteration 6's finding. The role=status region announces the new line.
 - A request whose first_seen and denied_at both arrive as 0 cannot come back once put away (the key cannot change).
+- With N requests the line says "N devices want to connect"; a dismiss puts away the N waiting at that moment, even
+  if one replaced another without the count changing. Accepted: the line names a count, not devices.
 - Review puts the notice away before anything is decided (Josh's ruling): a request left unanswered after Review
   is marked only by the Kosmos+ nav dot and the cards there, until a new request comes.
