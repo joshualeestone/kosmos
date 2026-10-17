@@ -12,9 +12,10 @@ Card: kosmos#6411, part 1. Stacked on cmdcomma-6411 (part 2), whose isOwnSetting
 - A hidden item's key equivalent is ignored (NSMenuItem.h), so the shortcut works exactly while the item shows.
   `backToThisComputer` still checks again (the address file can change after the commit that showed it), refuses
   with a beep while a board start is in flight, and holds off with runAgentsHere's "One moment" alert while an
-  update is copying files in (#4382). Otherwise it brings the window forward, marks the start as the person's own
-  (boardRecoveryIsUserInitiated, so a failure gets Cmd-R's mid-session wording, #965) and calls `loadBoard`, the
-  launch path: the board is found running (or started) and its own page loaded.
+  update is copying files in (#4382). Otherwise it brings the window forward and calls `loadBoard`, the launch path: the
+  board is found running (or started) and its own page loaded. It does not mark the start user-initiated: that
+  wording (#965) says to press Cmd-R, which here would reload the other computer's page, not retry; as
+  runAgentsHere, a failed start gets the launch wording.
 - The mode selftest gains seven rows (145); the bundle build's menu table gains the row.
 
 ## Decided
@@ -33,4 +34,4 @@ Card: kosmos#6411, part 1. Stacked on cmdcomma-6411 (part 2), whose isOwnSetting
 - Menu selftest matches the build's expected table (run here, diffed: identical).
 - native-app.backhome-6411.test.js pins what no selftest reaches: built hidden with a target and the shortcut, the
   table row, re-decided at commit, process end and mode switch, and before loadBoard the action's re-check, its
-  update hold and its user-initiated mark.
+  update hold, and that it is not marked user-initiated.

@@ -2877,7 +2877,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         window.makeKeyAndOrderFront(nil)
         logLine("backToThisComputer: loading this computer's board")
-        boardRecoveryIsUserInitiated = true   // as Cmd-R (#965): a failed start here gets the mid-session wording
+        // Not marked user-initiated (boardRecoveryIsUserInitiated): that wording says "press Cmd-R", and Cmd-R here would
+        // reload the other computer's page, not retry this. As runAgentsHere, a failed start gets the launch wording.
         loadBoard()
     }
 

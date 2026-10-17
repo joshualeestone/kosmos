@@ -44,7 +44,7 @@ test('#6411: the item is re-decided at every commit, when the page goes away, an
     'the item no longer follows the selftested rule, or shows on a connect computer');
 });
 
-test('#6411: the action checks again, holds off during an update, and loads as a person\'s retry', () => {
+test('#6411: the action checks again and holds off during an update before it loads', () => {
   const b = body('@objc func backToThisComputer(_ sender: Any?)');
   const load = b.indexOf('loadBoard()');
   const guard = b.indexOf('guard isOnAnotherComputer(), !boardStartInFlight else {');
@@ -52,8 +52,8 @@ test('#6411: the action checks again, holds off during an update, and loads as a
   const update = b.indexOf('let updating = updateLookInFlight || (modeHome.map { Self.installUnderWay(kosmosHome: $0) } ?? false)');
   const hold = b.indexOf('guard !updating else {');
   assert.ok(update > 0 && hold > update && hold < load, 'the board can be started while an update is copying files in');
-  const mine = b.indexOf('boardRecoveryIsUserInitiated = true');
-  assert.ok(mine > 0 && mine < load, 'a failed start from this menu gets the launch wording, not the mid-session one (#965)');
+  // Not marked user-initiated: that wording sends the person to Cmd-R, which here reloads the other computer's page.
+  assert.doesNotMatch(b, /boardRecoveryIsUserInitiated = true/, 'a failed start from this menu would tell the person to press Cmd-R, which does not retry it');
 });
 
 test('#6411: showsAnotherComputer has selftest rows both ways', () => {
