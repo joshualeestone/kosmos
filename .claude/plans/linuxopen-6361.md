@@ -32,6 +32,8 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   move; an unused nonce expires in 2 minutes.
 
 ## Weakest premise
+- "A terminal" is `[ -t 1 ]`: a terminal that is itself recorded (`script -a`, tmux `pipe-pane`, a logged ssh
+  session) keeps the one-time address in that record. It works once, within 2 minutes.
 - An agent is detected the way the rest of the CLI detects one (`_invoked_by_agent`: its session or token variable,
   or its pane's supervisor claim). An agent started outside Kosmos's supervisor, with none of those, at a terminal,
   would be handed the address; it works once, within 2 minutes, and such an agent can already read `board.token`.
