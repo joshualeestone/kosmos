@@ -51049,7 +51049,7 @@ async function paintPlus() {
       : ((stat.state === 'connecting' || stat.state === 'restarting') ? 'connecting' : 'down')));
     if (typeof pill.setAttribute === 'function') pill.setAttribute('data-state', ps);   // page-test harness elements have none
     pill.textContent = ps === 'up' ? 'Connected' : (ps === 'off' ? 'Off' : (ps === 'down' ? 'Not connected'
-      : (ps === 'waiting' ? 'Waiting to be allowed' : 'Connecting')));
+      : (ps === 'waiting' ? (typeof plusJoinPillWord === 'function' ? plusJoinPillWord() : 'Waiting to be allowed') : 'Connecting')));
   }
   const acct = document.getElementById('plus-account'); if (acct && typeof PLUS_ACCOUNT_VIEW_URL !== 'undefined') acct.href = PLUS_ACCOUNT_VIEW_URL;
   const chip = document.getElementById('plus-chip');
@@ -51493,6 +51493,10 @@ function plusJoinReset() {
    up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
    the other computer first and confirm here after"), so the block must outlive waiting-allow (review 3). A code past the
    page's 10 minutes stays live until a round answers, so the tunnel's own "ran out" is read rather than missed (review 6). */
+/* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
+function plusJoinPillWord() {
+  return PLUS_JOIN_WAITING && PLUS_JOIN && PLUS_JOIN.needs_retry === true && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
+}
 function plusJoinLive(j) {
   if (!j || j.supported !== true) return false;
   return j.held === true || (/^\d{3} \d{3}$/.test(String(j.join_code || '')) && j.confirmed !== true);
@@ -51538,6 +51542,8 @@ function paintPlusJoin() {
   const live = PLUS_JOIN_WAITING && plusJoinLive(j);
   const note = PLUS_JOIN_NOTE;
   el.hidden = !live && !note;
+  { const pill = document.getElementById('plus-pill');
+    if (pill && pill.getAttribute && pill.getAttribute('data-state') === 'waiting') { const w = plusJoinPillWord(); if (pill.textContent !== w) pill.textContent = w; } }
   /* kosmos#6314 (Josh 11:37: one screen doing "double and triple duty"): while this computer waits to be allowed, the
      pairing is the page's only job, so the devices list (empty until it is allowed) and the company block step aside. */
   { const flow = document.getElementById('plus-flow'); if (flow && flow.classList) flow.classList.toggle('plus-joining', !!live && j.held === true); }
@@ -51564,7 +51570,7 @@ function paintPlusJoin() {
   /* #6353: the code ran out and nothing restarts by itself (each new code is a try, and a night with nobody here used to
      spend all of them). The person asks for the next one. */
   else if (j.needs_retry === true) html = '<p class="plus-join-say">A new code is needed to finish pairing.</p>'
-    + '<p class="plus-join-next">When you are at both computers, press Try again for one.</p>'
+    + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
     + (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
