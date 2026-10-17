@@ -30150,13 +30150,15 @@ let COMPUTERS_OPENABLE = false;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
-let COMPUTERS_READ_AT = 0;   // #6403: when a look-back read last started, so looking again within a minute does not read
+let COMPUTERS_READ_AT = 0;   // #6403: when the last read started (computersFetch), so a look within a minute does not read
+let COMPUTERS_TIP_SHOWN = false;   // #6403: once per page even where localStorage is refused (a private window)
 let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: one quick follow-up
 /* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered here); it goes
    on its close button or when the menu is opened. */
 function worldswTipOnce() {
-  let seen = false;
-  try { seen = localStorage.getItem('kosmos.switcherTipSeen') === '1'; localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
+  let seen = COMPUTERS_TIP_SHOWN;
+  COMPUTERS_TIP_SHOWN = true;
+  try { seen = seen || localStorage.getItem('kosmos.switcherTipSeen') === '1'; localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
   const tip = document.getElementById('worldsw-tip');
   if (!seen && tip) {
     tip.hidden = false;
@@ -30174,9 +30176,8 @@ function worldswTipHide() {
 function computersReadSoon(force) {
   if (MULTI_KOSMOS || COMPUTERS_OPENABLE || document.hidden) return;
   if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 60 * 1000;
-  // A look back: at most once a minute, and never while Kosmos+ is failing (the backoff timer is in charge then).
+  // A look back: at most once a minute after any read, and never while Kosmos+ is failing (the backoff is in charge).
   else if (COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
-  COMPUTERS_READ_AT = Date.now();
   computersFetch().catch(() => {});
 }
 /* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
@@ -30644,6 +30645,8 @@ function computerAddressOk(a, domain) {
 let COMPUTERS_GEN = 0;
 async function computersFetch() {
   const gen = ++COMPUTERS_GEN;
+  // #6403: every read counts for the minute a look back waits (boot, timers, the menu, a stale tab), not only its own.
+  try { COMPUTERS_READ_AT = Date.now(); } catch { /* lifted alone by a test */ }
   /* Hide last time's list until THIS read lands: a state word from an earlier open ("Online")
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
@@ -32025,6 +32028,11 @@ async function worldHideSubmit() {
     window.addEventListener('focus', () => computersReadSoon(false));   // #6403: the app window looked at again
     const tipX = document.getElementById('worldsw-tip-x');
     if (tipX) tipX.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
+    // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.
+    document.addEventListener('keydown', (e) => {
+      const tip = document.getElementById('worldsw-tip');
+      if (e.key === 'Escape' && tip && !tip.hidden && document.getElementById('worldsw-menu').hidden && !document.querySelector('[aria-modal="true"]:not([hidden])')) worldswTipHide();
+    });
   }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
@@ -50718,7 +50726,8 @@ async function askAct(act, id, at) {
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
-    if (act === 'allow' && d.joining_computer && typeof computersReadSoon === 'function') computersReadSoon(true);   // #6403
+    // #6403. Only a joining computer: a row that was a computer (was_a_computer) cannot be allowed, its Allow is disabled.
+    if (act === 'allow' && d.joining_computer && typeof computersReadSoon === 'function') computersReadSoon(true);
   } else {
     const said = res ? await res.json().catch(() => null) : null;
     const why = said && said.error;
