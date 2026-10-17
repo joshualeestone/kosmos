@@ -66,11 +66,17 @@ function arm(boxes) {
 }
 function withAgent(fn) {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
-  try { return fn(board.agents); } finally { board.restore(); }
+  let out;
+  try { out = fn(board.agents); } catch (e) { board.restore(); throw e; }
+  if (out && typeof out.then === 'function') return out.finally(() => board.restore());
+  board.restore();
+  return out;
 }
 /* A room post as long as the one on the card: far more than an 80x24 box shows. */
 const LONG = '[room post from mona] ' + Array.from({ length: 40 }, (_, i) => `point ${i} about the release plan for the team`).join(', ');
 const KEEP = 7;   // the rows the measured 80x24 box showed
+const flush = async () => { for (let i = 0; i < 5; i += 1) await new Promise((r) => setImmediate(r)); };
+const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
 
 test.beforeEach(() => { chat.resetForTests(); });
 test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
@@ -90,21 +96,36 @@ test('kosmos#6436: a long line left unsent in a scrolled box is pressed by the n
   assert.equal(t2.enters(), 2);
 }));
 
-test('kosmos#6436 CONTROL: a scrolled box whose visible part a person cut, or added to, is never pressed', () => withAgent((roster) => {
+test('kosmos#6436 CONTROL: text added to a scrolled box, or a short end that is not what the box showed, is never pressed', () => withAgent((roster) => {
   const scrolled = box(LONG, KEEP);
   arm([EMPTY, scrolled]);
   chat.deliver('al', LONG, roster);
   const shown = chat.composerText(scrolled).text;
-  for (const changed of [shown.slice(12), shown + ' and more']) {
+  for (const changed of [shown + ' and more', 'hello ' + shown, shown.slice(-120)]) {
     const t = arm([box(changed)]);
     const v = chat.deliver('al', 'a later line', roster);
     assert.equal(v.inputHeld, true, JSON.stringify(changed.slice(0, 30)));
-    assert.equal(t.enters(), 0, 'text the box did not show when the board left it is never submitted');
+    assert.equal(t.enters(), 0, 'not the board\'s line alone, or too little of it to say');
+  }
+}));
+
+test('kosmos#6436: a pane resized since (a person attached) shows a longer or shorter end of the line, and it is still pressed', () => withAgent((roster) => {
+  arm([EMPTY, box(LONG, KEEP)]);
+  chat.deliver('al', LONG, roster);
+  for (const keep of [12, 4]) {
+    const wider = box(LONG, keep);
+    const t = arm([wider, EMPTY, EMPTY, box('next'), EMPTY]);
+    const v = chat.deliver('al', 'next', roster);
+    assert.equal(v.earlierSubmitted, true, 'rows kept: ' + keep);
+    assert.equal(t.enters(), 2);
+    // Leave it again for the next arm.
+    chat.resetForTests();
+    arm([EMPTY, box(LONG, KEEP)]);
+    chat.deliver('al', LONG, roster);
   }
 }));
 
 test('kosmos#6436: the remembered line survives a board restart (kept on disk, private), and is pressed after it', () => withAgent((roster) => {
-  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
   arm([EMPTY, box(MSG)]);
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   const file = path.join(store.ROOT, 'unsent-lines.json');
@@ -122,9 +143,8 @@ test('kosmos#6436: the remembered line survives a board restart (kept on disk, p
   assert.equal(t2.enters(), 0);
 }));
 
-test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min, 5 min), with no later message', () => withAgent((roster) => {
+test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min, 5 min), with no later message', () => withAgent(async (roster) => {
   const scheduled = [];
-  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
   arm([EMPTY, box(MSG)]);
   chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
@@ -132,23 +152,56 @@ test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min,
   // The first retry: the box still shows only our line, so Enter, and it empties.
   const t = arm([box(MSG), EMPTY]);
   scheduled[0].fn();
+  await flush();
   assert.equal(t.enters(), 1, 'pressed with no new message to carry it');
   assert.equal(t.pasted(), 0, 'nothing new typed');
   // The later ones find it gone and do nothing.
   const t2 = arm([box(MSG)]);
   scheduled[1].fn();
   scheduled[2].fn();
+  await flush();
   assert.equal(t2.enters(), 0, 'a sent line is not pressed again');
 }));
 
-test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, nor a pane that is no longer an agent\'s', () => withAgent((roster) => {
+test('kosmos#6436: a retry that leaves it still there keeps it for the next; a retry during a delivery, or after a newer line, presses nothing', () => withAgent(async (roster) => {
   const scheduled = [];
-  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.deliver('al', MSG, roster);
+  const t = arm([box(MSG)]);   // pressed, and it does not empty
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t.enters(), 1);
+  const t2 = arm([box(MSG), EMPTY]);
+  scheduled[1].fn();
+  await flush();
+  assert.equal(t2.enters(), 1, 'still remembered after a retry that did not take, so the next one presses it');
+  // A newer line left unsent: the older line's retries leave it to its own.
+  scheduled.length = 0;
+  const OTHER = 'a newer line the board also left in the box, long enough to be read as its own';
+  arm([EMPTY, box(MSG)]);
+  chat.deliver('al', MSG, roster);
+  const olderRetries = scheduled.slice();
+  arm([EMPTY, box(OTHER)]);
+  // The box must read empty before the newer paste: deliver it as a fresh line after the older one went.
+  chat.resetForTests();
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  arm([EMPTY, box(OTHER)]);
+  chat.deliver('al', OTHER, roster);
+  const t3 = arm([box(OTHER), EMPTY]);
+  olderRetries[1].fn();
+  await flush();
+  assert.equal(t3.enters(), 0, 'an older line\'s retry does not press a newer line');
+}));
+
+test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, nor a pane that is no longer an agent\'s', () => withAgent(async (roster) => {
+  const scheduled = [];
   arm([EMPTY, box(MSG)]);
   chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
   chat.deliver('al', MSG, roster);
   const t = arm([box('the person started typing ' + MSG)]);
   scheduled[0].fn();
+  await flush();
   assert.equal(t.enters(), 0, 'someone else\'s text in the box');
   // A pane that fell to a shell: never an Enter into it.
   const calls = [];
@@ -159,12 +212,12 @@ test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, 
     return ok();
   });
   scheduled[1].fn();
+  await flush();
   assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0, 'not into a shell');
 }));
 
 test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty box: nothing remembered, nothing retried', () => withAgent((roster) => {
   const scheduled = [];
-  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
   const ghost = [RULE, '\x1b[39m❯\u00a0\x1b[2m' + MSG + '\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
   assert.equal(chat.composerText(ghost).text, '', 'PRECONDITION: dim text is not typed text');
   arm([EMPTY, ghost]);

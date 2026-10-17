@@ -62,7 +62,7 @@ const LATER = 'a later line that is long enough to read';
 test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-test('#6256 item 3: the unsent sentence says Kosmos tries to send it with the next message, and when', () => {
+test('#6256 item 3, kosmos#6436: the unsent sentence says Kosmos presses it again on its own and before the next message', () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
   try {
     arm([EMPTY, box(MSG)]);
