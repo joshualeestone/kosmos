@@ -158,7 +158,9 @@ test('#6361: a board that fails the proof is neither opened nor printed, even at
 
 test('#6361: in the source, Darwin keeps /usr/bin/open and the old macOS-only default is gone (a source check)', () => {
   const src = fs.readFileSync(CLI, 'utf8');
-  const body = src.slice(src.indexOf('cmd_open() {'), src.indexOf('\ncmd_agents() {'));
+  const a = src.indexOf('cmd_open() {'), b = src.indexOf('\ncmd_agents() {');
+  assert.ok(a >= 0 && b > a, 'cmd_open or the function after it moved, so this check would read the wrong text');
+  const body = src.slice(a, b);
   assert.match(body, /Darwin\) _opener=\/usr\/bin\/open ;;/);
   assert.doesNotMatch(body, /\$\{KOSMOS_OPEN_BIN:-\/usr\/bin\/open\}/, 'the old macOS-only default is back');
 });

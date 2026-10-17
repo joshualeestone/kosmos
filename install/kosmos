@@ -2123,7 +2123,7 @@ cmd_open() {
   # at a terminal: piped or logged it would sit in a file, and an agent's terminal is its transcript, so neither gets
   # it. An agent with none of the supervisor's markers is not caught (the plan's weakest premise).
   if [ "$_open_url" = "$URL" ]; then
-    [ "$_failed" = 1 ] && die "Could not open a browser. Go to the dashboard yourself: $URL"
+    [ "$_failed" = 1 ] && die "Go to the dashboard yourself: $URL"   # the failure is already said, above
     say "Go to the dashboard yourself: $URL"
     return 0
   fi
