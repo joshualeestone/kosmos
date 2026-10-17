@@ -11,12 +11,12 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
 1. [x] web/index.html: paintAsk's off-Plus branch keys each waiting request as device id plus first_seen (a
    re-ask is a new request), plus the "here" browser, and hides the notice while every key was put away;
    askAct 'note-dismiss' and 'open' record the keys (localStorage kosmos.asknote.dismissed, read on every paint so
-   another tab's dismissal applies; this tab's record only when storage fails). The record is dropped once a real
-   poll finds nothing waiting (not on the paint before the first poll). Focus goes to the view's tab, or the
-   Sections button on a phone. A 44px close button with a focus ring.
+   another tab's dismissal applies; this tab's record only when storage fails). The record is never cleared on an
+   empty list (a list being rewritten reads empty, and another tab can be behind); a re-ask has a new first_seen.
+   Focus goes to the view's tab, or the Sections button on a phone. A 44px close button with a focus ring.
 2. [x] render-plus-asks-signin-4610.js (the served list is the check's, then it calls pollAsk): dismiss hides and
    moves focus, one answered elsewhere keeps it away, a repaint keeps it hidden, CONTROL a new request brings it
-   back, after nothing waited the same requests show it, the same device asking again shows it, kept across a
+   back, a list that read empty for a moment does not undo it, the same device asking again shows it, kept across a
    reload (after the list loads), CONTROL storage cleared shows it, storage throwing still holds in the tab, Review
    clears it, at 1400 and 390. A mutant run by hand (ignore the dismissal) turned the dismiss arms red.
 3. [x] render-plus-panel-3829.js: its earlier Review press now dismisses, so the #3978 focus arm restores the
@@ -27,3 +27,5 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
   Mona Lisa's #6341 project notices are server-side because they last; same rule (a new thing comes back), two
   stores, agreed with her 19:4x.
 - The cards on Kosmos+ keep no dismiss: they are the place the decision is made.
+- Review puts the notice away before anything is decided (Josh's ruling): a request left unanswered after Review
+  is marked only by the Kosmos+ nav dot and the cards there, until a new request comes.
