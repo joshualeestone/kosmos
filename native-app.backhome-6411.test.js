@@ -4,8 +4,8 @@
  * computer, and the only way home was that computer's own switcher or quitting. The item shows only while the
  * window is on another computer; its rule (showsAnotherComputer) is proved by its rows in
  * --kosmos-app-mode-selftest, and the menu row by the bundle build's menu table (--kosmos-app-menu-selftest). This
- * file pins the wiring neither selftest reaches: when the item is shown or hidden, and that its action checks again
- * (a hidden item's key equivalent can still fire).
+ * file pins the wiring neither selftest reaches: when the item is shown or hidden (a hidden item's key equivalent is
+ * ignored, so that decides the shortcut too), and that its action checks again and holds off during an update.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -24,7 +24,9 @@ test('#6411: the item is built hidden, under View, with its own target and Cmd-S
   const menu = body('static func makeMainMenu(');
   const at = menu.indexOf('let homeItem = NSMenuItem(title: "Back to This Computer"');
   assert.ok(at > 0, 'View > Back to This Computer is gone');
-  const item = menu.slice(at, menu.indexOf('viewMenu.addItem(homeItem)', at));
+  const end = menu.indexOf('viewMenu.addItem(homeItem)', at);
+  assert.ok(end > at, 'the item is built but never added to View');
+  const item = menu.slice(at, end);
   assert.match(item, /homeItem\.isHidden = true/, 'the item is not hidden from the start, so a window on this computer offers it');
   assert.match(item, /homeItem\.target = reloadTarget/, 'the item has no target (WebKit swallows a nil-targeted action)');
   assert.match(BUILD, /item:Back to This Computer\tshortcut:cmd\+shift\+h\taction:backToThisComputer:\ttarget:set/,
@@ -42,11 +44,16 @@ test('#6411: the item is re-decided at every commit, when the page goes away, an
     'the item no longer follows the selftested rule, or shows on a connect computer');
 });
 
-test('#6411: the action checks again before it loads this computer\'s board', () => {
+test('#6411: the action checks again, holds off during an update, and loads as a person\'s retry', () => {
   const b = body('@objc func backToThisComputer(_ sender: Any?)');
+  const load = b.indexOf('loadBoard()');
   const guard = b.indexOf('guard isOnAnotherComputer(), !boardStartInFlight else {');
-  assert.ok(guard > 0, 'the action no longer refuses when the window is not on another computer (a hidden item\'s shortcut still fires)');
-  assert.ok(guard < b.indexOf('loadBoard()'), 'the board is loaded before the check');
+  assert.ok(guard > 0 && guard < load, 'the action no longer checks, before loading, that the window is still on another computer');
+  const update = b.indexOf('let updating = updateLookInFlight || (modeHome.map { Self.installUnderWay(kosmosHome: $0) } ?? false)');
+  const hold = b.indexOf('guard !updating else {');
+  assert.ok(update > 0 && hold > update && hold < load, 'the board can be started while an update is copying files in');
+  const mine = b.indexOf('boardRecoveryIsUserInitiated = true');
+  assert.ok(mine > 0 && mine < load, 'a failed start from this menu gets the launch wording, not the mid-session one (#965)');
 });
 
 test('#6411: showsAnotherComputer has selftest rows both ways', () => {

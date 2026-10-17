@@ -9,9 +9,12 @@ Card: kosmos#6411, part 1. Stacked on cmdcomma-6411 (part 2), whose isOwnSetting
 - View > Back to This Computer (Cmd-Shift-H), built hidden. `updateBackHomeItem` shows it only while the window is
   on another computer of a run or both computer (a connect computer has no board of its own), re-deciding at every
   page commit, when the page process ends, and on every mode switch (from updateRunAgentsItem).
-- `backToThisComputer` checks again (a hidden item's key equivalent can still fire) and refuses with a beep while a
-  board start is in flight; otherwise it brings the window forward and calls `loadBoard`, the launch path: the board
-  is found running (or started) and its own page loaded.
+- A hidden item's key equivalent is ignored (NSMenuItem.h), so the shortcut works exactly while the item shows.
+  `backToThisComputer` still checks again (the address file can change after the commit that showed it), refuses
+  with a beep while a board start is in flight, and holds off with runAgentsHere's "One moment" alert while an
+  update is copying files in (#4382). Otherwise it brings the window forward, marks the start as the person's own
+  (boardRecoveryIsUserInitiated, so a failure gets Cmd-R's mid-session wording, #965) and calls `loadBoard`, the
+  launch path: the board is found running (or started) and its own page loaded.
 - The mode selftest gains seven rows (145); the bundle build's menu table gains the row.
 
 ## Decided
@@ -29,4 +32,5 @@ Card: kosmos#6411, part 1. Stacked on cmdcomma-6411 (part 2), whose isOwnSetting
   its own), this computer's own address, the own board, Kosmos+ sign-in, a foreign site, no page.
 - Menu selftest matches the build's expected table (run here, diffed: identical).
 - native-app.backhome-6411.test.js pins what no selftest reaches: built hidden with a target and the shortcut, the
-  table row, re-decided at commit, process end and mode switch, and the action's re-check before loadBoard.
+  table row, re-decided at commit, process end and mode switch, and before loadBoard the action's re-check, its
+  update hold and its user-initiated mark.

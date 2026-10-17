@@ -2862,13 +2862,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     /// #6411: View > Back to This Computer. Loads this computer's own board the way a launch does (loadBoard: the
-    /// board is found running, or started, and its page loaded), so nothing about the other computer is kept.
+    /// board is found running, or started, and its page loaded) in place of the other computer's page.
     @objc func backToThisComputer(_ sender: Any?) {
+        // Checked again: the item was shown for the page at its last commit, and the address file can change since.
         guard isOnAnotherComputer(), !boardStartInFlight else {
             NSSound.beep(); logLine("backToThisComputer: refused (not on another computer, or a start is in flight)"); return
         }
+        // As runAgentsHere: no board start while an update is copying files in (#4382).
+        let updating = updateLookInFlight || (modeHome.map { Self.installUnderWay(kosmosHome: $0) } ?? false)
+        guard !updating else {
+            logLine("backToThisComputer: refused for now, an update is still running")
+            showStartupFailureAlert(detail: "Kosmos is still updating on this computer. Try again when it has finished.", title: "One moment")
+            return
+        }
         window.makeKeyAndOrderFront(nil)
         logLine("backToThisComputer: loading this computer's board")
+        boardRecoveryIsUserInitiated = true   // as Cmd-R (#965): a failed start here gets the mid-session wording
         loadBoard()
     }
 
@@ -5515,7 +5524,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         /* #6411: since #6406 the window can show another computer, and the only way home was that computer's own
            switcher (to this computer's Kosmos+ address, a sign-in there once) or quitting. Shown only while the
            window is on another computer (updateBackHomeItem); hidden from the start, so a window on this computer
-           never offers it. A hidden item's shortcut can still fire, so the action checks again. */
+           never offers it. A hidden item's key equivalent is ignored (NSMenuItem.h), so the shortcut works exactly
+           while the item shows; the action still checks again, in case what it was shown for has changed since. */
         let homeItem = NSMenuItem(title: "Back to This Computer",
                                   action: #selector(AppDelegate.backToThisComputer(_:)), keyEquivalent: "h")
         homeItem.keyEquivalentModifierMask = [.command, .shift]
