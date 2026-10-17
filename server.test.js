@@ -4263,7 +4263,9 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     const ask = api.card(mara);
     assert.match(ask, /^<div class="acard[^>]* data-answer="mara"/, 'the needs_you card lost its answer route');
     assert.doesNotMatch(ask, /Answer &rarr;|class="ansgo"/, 'the pill carries an Answer link again (#6400)');
-    assert.match(ask, /<button class="namego"/, 'the card lost the keyboard path to its answer route');
+    assert.match(ask, /<button class="namego" type="button" aria-label="Answer mara’s question">/,
+      'the keyboard path to the answer route does not say it answers (#6400; it used to be the Answer button\'s name)');
+    assert.match(api.card({ ...mara, isNamedOurs: false }), /aria-label="Open mara"/, 'CONTROL: a card with no answer route opens');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put
