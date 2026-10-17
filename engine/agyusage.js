@@ -29,6 +29,8 @@ const { execFile } = require('node:child_process');
 const GROUP = 'Gemini Models';
 const WINDOW_MINUTES = { weekly: 7 * 1440, '5h': 300 };
 const REFRESH_MS = 5 * 60e3;   // the route asks for a new reading at most this often
+const RETRY_MS = 30e3;         // after a run that gave no reading (offline, signed out), ask again sooner (review 1)
+const CAP_SECONDS = 30;        // agy's own print timeout, as agystatus passes (review 1)
 const KILL_MS = 45000;
 
 /** The Gemini group's reading from agy's /usage JSON (an object or its text), or null. `at` is epoch ms. */
@@ -49,7 +51,9 @@ function parse(payload, at) {
     const f = b.remaining_fraction;
     const resetsAt = Date.parse(b.reset_time);
     if (!mins || typeof f !== 'number' || !Number.isFinite(f) || f < 0 || f > 1 || !Number.isFinite(resetsAt)) continue;
-    windows.push({ usedPct: Math.round((1 - f) * 1000) / 10, windowMinutes: mins, resetsAt });
+    /* Rounded DOWN to a whole percent, once (review 1): a page that rounds 99.5 to 100 would say "at its limit" while
+       Gemini still has room. 100 only when nothing is left. */
+    windows.push({ usedPct: Math.floor((1 - f) * 100 + 1e-9), windowMinutes: mins, resetsAt });
   }
   windows.sort((a, b) => a.windowMinutes - b.windowMinutes);   // five-hour first, as Codex reports them
   return windows.length ? { windows, plan: null, at } : null;
@@ -59,7 +63,7 @@ function parse(payload, at) {
 const defaultRunAgy = (bin, done) => {
   let dir = null;
   try { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-agy-usage-')); } catch { dir = os.tmpdir(); }
-  execFile(bin, ['-p', '/usage', '--output-format', 'json'], { cwd: dir, timeout: KILL_MS, killSignal: 'SIGKILL', maxBuffer: 256 * 1024 },
+  execFile(bin, ['-p', '/usage', '--output-format', 'json', '--print-timeout', CAP_SECONDS + 's'], { cwd: dir, timeout: KILL_MS, killSignal: 'SIGKILL', maxBuffer: 256 * 1024 },
     (err, stdout) => {
       if (dir && dir !== os.tmpdir()) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } }
       done(err, String(stdout || ''));
@@ -85,10 +89,8 @@ function refresh(now = Date.now()) {
   try {
     if (running) return null;
     if (now - askedAt < REFRESH_MS) return null;
-    if (!runnerSetByTest) {
-      if (process.platform !== 'darwin') return null;
-      if (require('./live-execution').inTestRun()) return null;
-    }
+    if (!supported()) return null;
+    if (!runnerSetByTest && require('./live-execution').inTestRun()) return null;
     const inst = require('./runners').resolveBin('antigravity');
     if (!inst || !inst.present || !inst.bin) return null;
     askedAt = now;
@@ -101,6 +103,7 @@ function refresh(now = Date.now()) {
           done = true; clearTimeout(cap);
           const r = err ? null : parse(out, Date.now());
           if (r) last = r;
+          else askedAt = Date.now() - REFRESH_MS + RETRY_MS;   // a failed run waits RETRY_MS, not the full interval
           resolve(r);
         });
       } catch { done = true; clearTimeout(cap); resolve(null); }
@@ -109,6 +112,12 @@ function refresh(now = Date.now()) {
   } catch { return null; }
 }
 function isRunning() { return !!running; }
+/* Where a reading can be asked for at all (review 1): a Mac, as agystatus judges the platform. On Windows a signed-out
+   print run can open a browser and /usage there is unmeasured, so the row carries no limits field and draws nothing. */
+function supported() { try { return require('./agystatus').platform() === 'darwin'; } catch { return false; } }
+/** Drop the reading and the throttle: the sign-in was checked again or removed, so the next read asks afresh
+    (review 1: a reading must not outlive a change of Google account). */
+function clear() { last = null; askedAt = 0; }
 function resetForTests() { last = null; askedAt = 0; running = null; }
 
-module.exports = { parse, refresh, lastReading, isRunning, setRunnerForTests, resetForTests, GROUP, REFRESH_MS };
+module.exports = { parse, refresh, lastReading, isRunning, supported, clear, setRunnerForTests, resetForTests, GROUP, REFRESH_MS, RETRY_MS };
