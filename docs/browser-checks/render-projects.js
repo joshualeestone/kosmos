@@ -1239,7 +1239,7 @@ async function main() {
     await page.waitForFunction(() => /instructions for this project/.test((document.getElementById('alist-pj-notice') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
     const railOn = await railRead();
     /* #6347: a LONG notice (April measured 1580px with ten failing members) ran under the list, because the head's
-       height comes from the grid row. Grown from copies of the row the page itself drew (no invented markup); each read
+       height comes from the grid row. Grown from copies of the first row the page drew (no invented markup); each read
        adds, measures and removes them in one synchronous evaluate, so no poll repaints them in between. Only the
        copies are removed, so the original rows (and any focus in them) are untouched, and the region is not live while
        they exist. The CONTROL is
@@ -1255,11 +1255,13 @@ async function main() {
       const live = box.getAttribute('aria-live');
       box.setAttribute('aria-live', 'off');
       const copies = [];
-      for (let i = 0; i < 12; i += 1) copies.push(box.appendChild(row.cloneNode(true)));
+      // Copies until the notice's content outruns the whole window (so it outruns 40vh whatever the row's height), at
+      // most 60: a fixed count could leave a short row's fixture too small for a tall window.
+      while (box.scrollHeight <= innerHeight && copies.length < 60) copies.push(box.appendChild(row.cloneNode(true)));
       const read = () => { const b = box.getBoundingClientRect(), l = list.getBoundingClientRect();
         return { height: Math.round(b.height), gap: Math.round(l.top - b.bottom) }; };
       const capped = read();
-      const out = { vh: innerHeight, cap: Math.round(innerHeight * 0.4), ...capped, content: box.scrollHeight,
+      const out = { vh: innerHeight, copies: copies.length, cap: Math.round(innerHeight * 0.4), ...capped, content: box.scrollHeight,
         scrolls: box.scrollHeight > box.clientHeight + 1, overflowY: getComputedStyle(box).overflowY };
       box.style.maxHeight = 'none';
       out.uncapped = read();
@@ -1272,7 +1274,7 @@ async function main() {
     // short for this window) is a different finding from a cap that broke.
     const controlBad = (r) => r.missing || !(r.uncapped.height > r.cap + 1 && r.uncapped.gap < 0);
     const capBad = (r) => r.missing || !r.scrolls || r.overflowY !== 'auto' || r.height > r.cap + 1 || r.gap < 0;
-    const vpWas = page.viewportSize();
+    const vpWas = page.viewportSize() || { width: 1280, height: 720 };   // this context sets none: Playwright's default
     const railLong = { full: await longRead() };
     try {
       await page.setViewportSize({ width: vpWas.width, height: 560 });

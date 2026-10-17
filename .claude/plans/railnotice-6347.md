@@ -21,7 +21,7 @@ with ten failing members) ran under the list. Capped, it scrolls in its own box.
 - web.project-notice-3923.test.js: the arm asserts the full selector, that the rule sits directly inside the 960px
   block (brace depth 1, comments stripped), the cap, the scroll, and no scrollbar-width at all.
 - docs/browser-checks/render-projects.js: a new #6347 arm grows the rail notice from copies of the row the page drew
-  (12 more), measures in one synchronous step, and removes only the copies (the region is not live meanwhile). It
+  (until its content outruns the window, at most 60), measures in one synchronous step, and removes only the copies (the region is not live meanwhile). It
   asserts the box is at most 40vh, scrolls, and still ends above the list. Its control lifts the cap on the same box,
   which must then outgrow 40vh and run under the list, so a viewport too tall for the fixture fails instead of passing.
   It reads at the context viewport and again at 560px tall. (The first commit cited render-project-done-4583, which
