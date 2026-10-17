@@ -51868,7 +51868,10 @@ function plusJoinSlowLine() {
   PLUS_JOIN_WAITED = true;
   if (!PLUS_JOIN_NOCODE_AT) PLUS_JOIN_NOCODE_AT = Date.now();
   if (Date.now() - PLUS_JOIN_NOCODE_AT < PLUS_JOIN_SLOW_MS) return '';
-  return '<p class="plus-join-next plus-join-slow">Your other computer adds one computer at a time, about one every 10 minutes, so if you are adding more than one, this one may be waiting its turn. Keep this open: the code shows here.</p>';
+  /* The minutes are the code's own lifetime here (PLUS_JOIN_CODE_MS, the tunnel's REVEAL_TIMEOUT_SECS), which the tunnel's
+     answer pace equals (pairing.rs: ANSWER_EVERY_SECS = REVEAL_TIMEOUT_SECS). A hint, not an instruction: fhint. */
+  return '<p class="fhint plus-join-slow">Your other computer adds one computer at a time, about one every '
+    + Math.round(PLUS_JOIN_CODE_MS / 60000) + ' minutes, so if you are adding more than one, this one may be waiting its turn. Keep this open: the code shows here.</p>';
 }
 /* #6353: Try again. The tunnel starts one new attempt on its next round, so the page reads the pairing straight after. */
 document.getElementById('plus-join').addEventListener('click', async (e) => {
