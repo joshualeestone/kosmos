@@ -1,0 +1,175 @@
+'use strict';
+
+/**
+ * kosmos#6436: a delivery left its line in an agent's input box, unsent, and then refused every later message ("its
+ * input box already holds text that was not sent") until a person pressed Enter in the pane; agents sat idle 30 to 60
+ * minutes. Measured on Claude Code 2.1.302: at 80x24 (every agent pane here: tmux default-size) a 1,500-byte line
+ * scrolls, the box shows only its last 462 characters with ❯ on the first VISIBLE row, so "the box shows all of our
+ * line" could never hold and the line was never pressed.
+ *
+ * Pins: a scrolled box showing exactly what it showed when the line was left is pressed; one a person cut or added to
+ * is not; the memory survives a board restart; the board presses its own line again on its own (30 s, 2 min, 5 min)
+ * without waiting for the next message, and never on text that is not its own; dim suggestion text is an empty box.
+ */
+
+const os = require('node:os');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-unsent-6436-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
+process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const chat = require('./chat');
+const store = require('./store');
+const fleet = require('../test-support/fleet');
+
+const RULE = '\x1b[38;5;244m' + '─'.repeat(80);
+const rowsOf = (text) => {
+  const rows = [];
+  let rest = String(text);
+  while (rest) { rows.push(rest.slice(0, 76)); rest = rest.slice(76); }
+  return rows;
+};
+/* A box drawn as Claude Code draws it. `keep` rows at most: a longer line scrolls, and ❯ is drawn on the first row that
+   still shows (measured), not on the line's start. */
+function box(text, keep) {
+  let rows = rowsOf(text);
+  if (keep && rows.length > keep) rows = rows.slice(-keep);
+  const drawn = rows.map((r, i) => (i === 0 ? '\x1b[39m❯\u00a0' : '  ') + r);
+  return [RULE, ...drawn, RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
+}
+const EMPTY = [RULE, '\x1b[39m❯\u00a0\x1b[2mTry "write a test"\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
+
+function ok(out) { return { ran: true, spawnFailed: false, status: 0, out: out || '', err: '' }; }
+function arm(boxes) {
+  const calls = [];
+  const queue = boxes.slice();
+  const fn = (args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return ok('2.1.302\t\t0\n');
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(queue.length > 1 ? queue.shift() : queue[0]);
+    return ok();
+  };
+  fn.calls = calls;
+  fn.enters = () => calls.filter((a) => a[0] === 'send-keys' && a[a.length - 1] === 'Enter').length;
+  fn.pasted = () => calls.filter((a) => a[0] === 'paste-buffer').length;
+  chat.setRunner(fn);
+  chat.setDryRun(false);
+  chat.setPauser(() => {});
+  return fn;
+}
+function withAgent(fn) {
+  const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
+  try { return fn(board.agents); } finally { board.restore(); }
+}
+/* A room post as long as the one on the card: far more than an 80x24 box shows. */
+const LONG = '[room post from mona] ' + Array.from({ length: 40 }, (_, i) => `point ${i} about the release plan for the team`).join(', ');
+const KEEP = 7;   // the rows the measured 80x24 box showed
+
+test.beforeEach(() => { chat.resetForTests(); });
+test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+test('kosmos#6436: a long line left unsent in a scrolled box is pressed by the next delivery, then that one goes', () => withAgent((roster) => {
+  assert.ok(LONG.length > KEEP * 76 * 2, 'PRECONDITION: the line is far longer than the box shows');
+  const scrolled = box(LONG, KEEP);
+  assert.notEqual(chat.composerText(scrolled).text.replace(/\s+/g, ''), LONG.replace(/\s+/g, ''), 'PRECONDITION: the box shows only its end');
+  const t1 = arm([EMPTY, scrolled]);
+  assert.equal(chat.deliver('al', LONG, roster).unsubmitted, true, 'PRECONDITION: left in the box');
+  assert.equal(t1.enters(), 1);
+  const NEXT = 'a short line that comes after the long one';
+  const t2 = arm([scrolled, EMPTY, EMPTY, box(NEXT), EMPTY]);
+  const v = chat.deliver('al', NEXT, roster);
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+  assert.equal(v.earlierSubmitted, true, 'the long line went first');
+  assert.equal(t2.enters(), 2);
+}));
+
+test('kosmos#6436 CONTROL: a scrolled box whose visible part a person cut, or added to, is never pressed', () => withAgent((roster) => {
+  const scrolled = box(LONG, KEEP);
+  arm([EMPTY, scrolled]);
+  chat.deliver('al', LONG, roster);
+  const shown = chat.composerText(scrolled).text;
+  for (const changed of [shown.slice(12), shown + ' and more']) {
+    const t = arm([box(changed)]);
+    const v = chat.deliver('al', 'a later line', roster);
+    assert.equal(v.inputHeld, true, JSON.stringify(changed.slice(0, 30)));
+    assert.equal(t.enters(), 0, 'text the box did not show when the board left it is never submitted');
+  }
+}));
+
+test('kosmos#6436: the remembered line survives a board restart (kept on disk, private), and is pressed after it', () => withAgent((roster) => {
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
+  const file = path.join(store.ROOT, 'unsent-lines.json');
+  assert.ok(fs.existsSync(file), 'the line is on disk');
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'only this user can read it');
+  chat.restartUnsentForTests();
+  const t = arm([box(MSG), EMPTY, EMPTY, box('after the restart'), EMPTY]);
+  const v = chat.deliver('al', 'after the restart', roster);
+  assert.equal(v.earlierSubmitted, true, 'the restarted board still knew its own line');
+  assert.equal(t.enters(), 2);
+  // CONTROL: once sent, it is gone from disk too, so a restart does not bring it back.
+  chat.restartUnsentForTests();
+  const t2 = arm([box(MSG)]);
+  assert.equal(chat.deliver('al', 'another', roster).inputHeld, true);
+  assert.equal(t2.enters(), 0);
+}));
+
+test('kosmos#6436: the board presses its own line again on its own (30 s, 2 min, 5 min), with no later message', () => withAgent((roster) => {
+  const scheduled = [];
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
+  assert.deepEqual(scheduled.map((s) => s.ms), [30000, 120000, 300000]);
+  // The first retry: the box still shows only our line, so Enter, and it empties.
+  const t = arm([box(MSG), EMPTY]);
+  scheduled[0].fn();
+  assert.equal(t.enters(), 1, 'pressed with no new message to carry it');
+  assert.equal(t.pasted(), 0, 'nothing new typed');
+  // The later ones find it gone and do nothing.
+  const t2 = arm([box(MSG)]);
+  scheduled[1].fn();
+  scheduled[2].fn();
+  assert.equal(t2.enters(), 0, 'a sent line is not pressed again');
+}));
+
+test('kosmos#6436 CONTROL: a retry never presses text that is not the board\'s, nor a pane that is no longer an agent\'s', () => withAgent((roster) => {
+  const scheduled = [];
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  arm([EMPTY, box(MSG)]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  chat.deliver('al', MSG, roster);
+  const t = arm([box('the person started typing ' + MSG)]);
+  scheduled[0].fn();
+  assert.equal(t.enters(), 0, 'someone else\'s text in the box');
+  // A pane that fell to a shell: never an Enter into it.
+  const calls = [];
+  chat.setRunner((args) => {
+    calls.push(args);
+    if (args[0] === 'display-message') return ok('zsh\t\t0\n');
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(box(MSG));
+    return ok();
+  });
+  scheduled[1].fn();
+  assert.equal(calls.filter((a) => a[0] === 'send-keys').length, 0, 'not into a shell');
+}));
+
+test('kosmos#6436 (the ghost case): a dim suggestion after the Enter is an empty box: nothing remembered, nothing retried', () => withAgent((roster) => {
+  const scheduled = [];
+  const MSG = 'Kosmos here: please read the ruling on the card and carry on with the fix you described this morning.';
+  const ghost = [RULE, '\x1b[39m❯\u00a0\x1b[2m' + MSG + '\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
+  assert.equal(chat.composerText(ghost).text, '', 'PRECONDITION: dim text is not typed text');
+  arm([EMPTY, ghost]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn }));
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+  assert.equal(scheduled.length, 0, 'a box that only looks full is not a stranded line');
+}));
