@@ -242,6 +242,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.keyboard.type('482915');
       chk(await page.evaluate(() => document.getElementById('plus-asks-title').textContent) === 'Waiting for you', `${tag} the section says Waiting for you, not the old wording`);
 
+      /* #6403: count the forced reads of Your computers (after an Allow of a computer, and when this computer is let in). */
+      await page.evaluate(() => { window.__forced = 0; const real = computersReadSoon; window.computersReadSoon = (f) => { if (f) window.__forced += 1; return real(f); }; });
       /* Allow the computer: its sheet says it is connected. */
       await page.click('#plus-ask-rows [data-ask="allow"][data-id="' + PC_ID + '"]');
       await page.waitForFunction(() => /windowsbox is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
@@ -250,6 +252,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         `${tag} after Allow: "windowsbox is connected." and where to remove it`, done);
       chk(/iPhone wants to connect to your Kosmos/.test(done), `${tag} the other request is still waiting`, done);
       chk(allowBodies[PC_ID] && allowBodies[PC_ID].code === '482 915', `${tag} #6404: Allow on the computer sends the code typed from it, in the tunnel's own form`, JSON.stringify(allowBodies[PC_ID]));
+      const forcedAfterPc = await page.evaluate(() => window.__forced);
+      chk(forcedAfterPc === 1, `${tag} #6403: allowing a computer reads Your computers at once`, String(forcedAfterPc));
       chk(await page.evaluate(() => !document.getElementById('plus-asks-title').hidden), `${tag} with a request still waiting, the heading shows`);
       /* Review W1: under the heading, what waits comes first; the answered line follows it. */
       const order = await page.evaluate(() => [...document.getElementById('plus-ask-rows').children].map((e) => e.classList.contains('askreq') ? 'waiting' : 'answered'));
@@ -265,6 +269,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.waitForFunction(() => /iPhone is connected\./.test(document.getElementById('plus-ask-rows').innerText), null, { timeout: 5000 }).catch(() => {});
       const after = await page.evaluate(() => ({ title: !document.getElementById('plus-asks-title').hidden, text: (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' ') }));
       chk(allowBodies['d-ph'] && allowBodies['d-ph'].code === undefined, `${tag} #4794 CONTROL: a phone's Allow sends no code`, JSON.stringify(allowBodies['d-ph']));
+      chk(await page.evaluate(() => window.__forced) === 1, `${tag} #6403 CONTROL: allowing a phone does not read Your computers`);
       chk(!after.title && /windowsbox is connected\./.test(after.text) && /iPhone is connected\./.test(after.text), `${tag} nothing waiting: no "Waiting for you" over the success lines`, JSON.stringify(after));
 
       chk(nowrap, `${tag} "a moment ago" stays on one line`);
@@ -412,6 +417,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       let join = { supported: true, held: true, join_code: '', on: null, asked_of: ['homemac'], failed: false, confirmed: false, confirm_expired: false };
       let confirmBody = null;
       remoteNow = { ...REMOTE, status: { state: 'waiting-allow', because: 'waiting for one of your computers to allow this one' } };
+      const forcedAtWait = await page.evaluate(() => window.__forced);
       let joinDelayMs = 0;     // review 1: hold the pairing round open, as the tunnel's real round can take seconds
       let confirmRefuse = '';  // review 1: a confirm the tunnel refuses (code_expired)
       let joinGets = 0;        // review 6: each GET is a signed pairing round, so the endings must not poll
@@ -470,8 +476,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
          held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
       join = { ...join, held: false, join_code: '', on: null, confirmed: false, confirm_expired: true };   // no code, so no join_codes, so no on (review 7)
+      const forcedBeforeIn = await page.evaluate(() => window.__forced);
+      chk(forcedBeforeIn === forcedAtWait, `${tag} #6403 CONTROL: no forced read while this computer waits to be allowed`, JSON.stringify({ forcedAtWait, forcedBeforeIn }));
       remoteNow = REMOTE;   // connected
       jr = await readJoin();
+      chk(await page.evaluate(() => window.__forced) === forcedBeforeIn + 1, `${tag} #6403: when this computer is let in, it reads Your computers at once`);
       chk(jr.shown && jr.text === 'homemac allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.' && !jr.button && !jr.code && jr.pill === 'Connected',
         `${tag} #4794: allowed, then the code ran out unconfirmed: said, no button (review 5)`, JSON.stringify(jr));
       /* Review 6: that ending lasts until this computer pairs again, so it is said once and never polled for, and it does

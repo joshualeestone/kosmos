@@ -180,6 +180,26 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             return { shown: !document.getElementById('worldsw').hidden };
           }, { worlds: WORLDS });
           ok(`${t} #6403 CONTROL: looked at again within a minute: no extra read, still nothing top-left`, !recent.shown, JSON.stringify(recent));
+          /* #6403 review 1: the close button puts the tip away and leaves focus on the switcher; the tab shown again a minute
+             after the last look reads too (visibilitychange, not only focus). */
+          const closeAndShow = await page.evaluate(async ({ worlds }) => {
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {}
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            COMPUTERS_READ_AT = Date.now() - 61 * 1000;
+            window.__which = 'four';
+            document.dispatchEvent(new Event('visibilitychange'));
+            await new Promise((r) => setTimeout(r, 150));
+            const btn = document.getElementById('worldsw-btn');
+            const shown = !document.getElementById('worldsw').hidden && !document.getElementById('worldsw-tip').hidden;
+            const described = btn.getAttribute('aria-describedby');
+            document.getElementById('worldsw-tip-x').click();
+            const a = document.activeElement;
+            return { shown, described, tipAfter: !document.getElementById('worldsw-tip').hidden, focus: a && a.id, describedAfter: btn.getAttribute('aria-describedby') };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: the tab shown again reads too; the tip describes the switcher while it is up`,
+            closeAndShow.shown && closeAndShow.described === 'worldsw-tip-text', JSON.stringify(closeAndShow));
+          ok(`${t} #6403: the tip's close button puts it away and focus stays on the switcher`,
+            !closeAndShow.tipAfter && closeAndShow.focus === 'worldsw-btn' && closeAndShow.describedAfter === null, JSON.stringify(closeAndShow));
           /* Shown once: after a reload with two computers from the start, no tip. */
           await page.reload();
           const again = await page.evaluate(async ({ worlds }) => {
@@ -293,6 +313,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (21 arms off + 1 control) = 88 (#6396: two one-computer asserts became one; two hide arms, x2 layouts; #6403: five).
-  process.exit(problems.length || pass + problems.length < 88 ? 1 : 0);
+  // 2 engines x 2 themes x 24 asserts = 96 (#6396: two one-computer asserts became one, two hide arms x2 layouts; #6403: seven, one a CONTROL).
+  process.exit(problems.length || pass + problems.length < 96 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
