@@ -2585,8 +2585,13 @@ async function putBackAsync(name, dir) {
     const capped = new Promise((resolve) => {
       timer = setTimeout(() => {
         ctl.abandoned = true;
+        /* `capped: true` tells accountmove the outcome is UNKNOWN, not a confirmed failure: driveAsync checks
+           abandonment only between turns, so an in-flight /Create may land AFTER the cap fires, putting the agent
+           back though we stopped waiting. accountmove words this as unconfirmed rather than "still on the new
+           account" (#6231 item 7). */
         resolve({
           outcome: create.OUTCOME.REFUSED,
+          capped: true,
           because: `putting it back did not finish within ${Math.round(cap / 1000)} seconds, so we stopped waiting for it`,
         });
       }, cap);

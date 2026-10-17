@@ -199,7 +199,7 @@ function start(body, deps) {
   const done = (async () => {
     try {
       for (const a of pending) {
-        if (m.stopped) break;   // #6214: the person stopped it; `stop` has already said and released the rest
+        if (m.stopped) break;   // #6214: the person stopped it; the tail below puts the rest back and releases them
         if (a.outcome !== 'pending') continue;
         if (Date.now() - m.startedAt >= moveCap) break;   // the rest are said below as not reached
         m.current = a.name;
@@ -269,21 +269,20 @@ function leftOnOld(deps, name) {
   try { if (deps && typeof deps.leftOnOld === 'function') deps.leftOnOld(name); } catch { /* the note is not the move */ }
 }
 
-/* #6214: what a stop does with one agent the move had not reached. Its account was saved on the new one when the move
-   started, but it was never restarted, so it still runs on the old one: put the saved account back to match (Liu Kang
-   m5659: left saved, the next restart for any reason would move it hours later). Only when the saved account is still
-   the one this move wrote; a person who changed it since keeps their change. The read and the write are one synchronous
-   block, so nothing in this board process can change it in between (another process writing the job file
-   in that moment, such as a hand edit, is not covered). */
 /* Said on its own, not through sentence(): that one reads "could not start it again", and a stop means no restart
    was tried. The new account is saved and the agent still runs on its old one, as a partial says. Called from every
    put-back failure path (the guards, the write rejection, a REFUSED result) so the wording cannot drift (#6231
    item 7), and it fires the leftOnOld note, so a caller that drops `deps` silently loses the note (#6231 item 9). */
-function putBackFailed(a, why, deps) {
+function putBackFailed(a, why, deps, uncertain) {
   const acct = (a.wrote && a.wrote.account) || {};
   const who = acct.name || acct.email || acct.label || 'the new account';
   a.outcome = 'partial';
-  a.because = `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
+  /* `uncertain` is the async cap: we stopped waiting, so whether the put-back landed is genuinely unknown -- do not
+     assert "still on the old account". Either way the agent is NOTED (leftOnOld), which is the safe side: a spurious
+     note says "look", a missing one hides a real left-on-old. */
+  a.because = uncertain
+    ? `We saved ${who}, but you stopped the move before its turn and ${why}, so whether it is back on its old account is not confirmed -- check its account in Settings.`
+    : `We saved ${who}, but you stopped the move before its turn and we could not put it back on its old account (${why}). It is still on the old account until it restarts.`;
   leftOnOld(deps, a.name);   // #6231: noted as still running on its old account, as a partial restart is
 }
 
@@ -323,6 +322,9 @@ function putBackBefore(m, a) {
 /* #6231 item 7: the part AFTER the write (run by putBackOne): word the outcome from the write's result (a
    create.OUTCOME-shaped `{ outcome, because, account }`, or the async cap's REFUSED-shaped one). */
 function putBackAfter(a, back, deps) {
+  /* The async cap abandoned the write mid-flight: the result is unknown, not a confirmed failure (an in-flight
+     /Create may have landed after the cap fired). Word it as unconfirmed, and still note it. */
+  if (back && back.capped) { putBackFailed(a, back.because, deps, true); return; }
   if (!back || back.outcome === deps.REFUSED) { putBackFailed(a, (back && back.because) || 'that did not work', deps); return; }
   const acct = back.account || {};
   const who = acct.name || acct.email || acct.label || 'their old account';
