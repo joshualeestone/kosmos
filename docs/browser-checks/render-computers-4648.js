@@ -145,6 +145,21 @@ const FOUR = {
     ok(`${t} not signed in: the read was really served before this was checked`, b.served === true, JSON.stringify(b));
     ok(`${t} not signed in: the section is gone`, b.hidden === true && b.display === 'none' && b.rows === 0, JSON.stringify(b));
 
+    // ---- #6406 CONTROL, in a browser (no bridge): the phone menu's copy keeps the row's new tab ----
+    const pnavBrowser = await page.evaluate(async (four) => {
+      window.__computers = four;
+      const before = window.__computersServed || 0;
+      worldswClose(); worldswOpen();
+      for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 100));
+      if (!document.getElementById('pnav-computer-list')) { const ul = document.createElement('ul'); ul.id = 'pnav-computer-list'; document.body.appendChild(ul); }
+      pnavFill('computers');
+      const p = document.querySelector('#pnav-computer-list a');
+      worldswClose();
+      return p ? p.getAttribute('target') : 'missing';
+    }, FOUR);
+    ok(`${t} #6406 CONTROL: in a browser the phone menu's copy of an online computer opens a new tab`, pnavBrowser === '_blank', String(pnavBrowser));
+
     // ---- Arm 3, #6406: in the Kosmos app (its bridge present) an online computer opens in THIS window ----
     const inApp = await page.evaluate(async (four) => {
       try { Object.defineProperty(window, 'webkit', { value: { messageHandlers: { kosmosBadge: { postMessage() {} } } }, configurable: true, writable: true }); } catch {}   // the Mac app's bridge
