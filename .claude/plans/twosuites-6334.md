@@ -4,8 +4,9 @@ Card: #6334 (fleet waiting). Owner: Angel. Splinter 18:40 CDT: "reversible so it
 
 ## Done means
 `tools/run-tests.sh` starts beside one other live suite by default (KOSMOS_SUITE_MAX, default 2) and waits for one to
-finish when two are live. An install harness, a queued-heavy turn and a release cut still wait for no suite at all.
-KOSMOS_SUITE_MAX=1 makes the run that sets it wait until no other suite runs; it does not change anyone else's run. One suite seen as several processes (a bash subshell keeps its parent's
+finish when two are live. An install harness and a queued-heavy turn still wait until no suite runs. A release cut asks about no suite (its
+machine claim stops new ones), so it can now start while up to two are still running.
+KOSMOS_SUITE_MAX=1 makes the run that sets it wait until no other suite runs; it does not change anyone else's run, and a later default run can still start beside it. One suite seen as several processes (a bash subshell keeps its parent's
 command line) counts once.
 
 ## Evidence the change rests on
@@ -59,6 +60,11 @@ harness; #4498 three suites on Mortals, 2026-09-28) did not reproduce.
   only governs the run that sets it, and reverting the default reaches a tree only once it rebases, so the file is
   the switch to use on a collision.
 
+- A release cut beside a staggered pair: its own suite can run beside two earlier ones (it skips the suite check),
+  and its load gate (kosmos_wait_for_quiet_box, 600 s) is more likely to run out with two live, aborting the cut as
+  "saturated by background LOAD". Not measured; named for the watch. Rollback is the suite-max file.
+
 ## After merge
-Log the first paired runs on #6334 (wall time and any red that appears only under a pair). On the first collision,
+Log the first paired runs on #6334 (wall time and any red that appears only under a pair), and any cut that aborts
+on background load while two suites run. On the first collision,
 write 1 to the suite-max file at once, then change the default back to 1 in a PR.

@@ -521,7 +521,8 @@ _kosmos_suite_roots() {
 
 # kosmos_refuse_if_suite_live <what> [override] [others-allowed]: refuses while a suite runs. The third argument (#6334,
 # default 0) is how many OTHER live suites this run may start beside; only tools/run-tests.sh passes one (from
-# KOSMOS_SUITE_MAX), so an install harness, a queued-heavy turn and a cut still wait for no suite at all.
+# KOSMOS_SUITE_MAX), so an install harness and a queued-heavy turn still wait until no suite runs. (A release cut
+# does not call this at all.)
 kosmos_refuse_if_suite_live() {
   local what="${1:-this run}" override="${2:-KOSMOS_HARNESS_IGNORE_SUITE=1 runs anyway}" probe="${KOSMOS_SUITE_PROBE:-}" out rc self
   local allowed="${3:-0}" n

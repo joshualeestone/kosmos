@@ -356,10 +356,11 @@ KOSMOS_QUEUE_CLASS=heavy
 # #6334: up to KOSMOS_SUITE_MAX suites at once (default 2), so this run starts beside one other. Measured 2026-10-16 on
 # the 12-core Mac: two full suites side by side on one commit both passed (21287 tests, 0 failures, shell stages too),
 # about 34 minutes each against 30 alone; that one pair, with nothing else running beside it, showed no port fight. Only
-# this suite-beside-suite check reads it: an install harness, a queued-heavy turn and a cut still wait until no
-# suite runs, which beside a staggered pair can take longer than beside one suite (their own bound still applies).
-# KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits for no other suite; another
-# agent's run still reads its own). Unset or empty is 2. A value must be 1 to 3 digits and not 0; anything else
+# this suite-beside-suite check reads it: an install harness and a queued-heavy turn still wait until no suite runs,
+# which beside a staggered pair can take longer than beside one suite (their own bound still applies). A release cut
+# asks about no suite at all: its claim stops new ones, and up to KOSMOS_SUITE_MAX already running finish beside it.
+# KOSMOS_SUITE_MAX is read for THIS run's start only (KOSMOS_SUITE_MAX=1: this run waits until no other suite runs;
+# a later run reading the default can still start beside it, so it does not keep the Mac to itself). Unset or empty is 2. A value must be 1 to 3 digits and not 0; anything else
 # reads as 1 (so 0003 is 1). 999 lets this run start beside up to 998 others; the file below, when present, still caps it.
 # The Mac-wide cap is a file, suite-max in the run-marker dir (~/.cache/kosmos-run-markers/suite-max), read by every
 # run that has this code, whatever its own tree: `echo 1 > ~/.cache/kosmos-run-markers/suite-max` puts them all back to

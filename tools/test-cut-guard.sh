@@ -540,6 +540,9 @@ out="$(sg sprobe-two 2)"; rc=$?
 out="$(sg sprobe-onetree 1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#6334 one suite seen as a parent and its child counts once" \
   || fail "#6334 one suite's subshell was counted as a second suite (rc=$rc, $out)"
+out="$(sg sprobe-onetree)"; rc=$?
+[ "$rc" -eq 1 ] && pass "#6334 CONTROL: the same one tree with no others allowed refuses (it is counted, not dropped)" \
+  || fail "#6334 the one-tree stand-in was not counted at all (rc=$rc, $out)"
 out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$PAIRP" "$PAIRC" | _kosmos_suite_roots)"
 { has_pid "$out" "$PAIRP" && ! has_pid "$out" "$PAIRC"; } && pass "#6334 the root of a suite's tree is the one kept" \
   || fail "#6334 _kosmos_suite_roots kept the wrong line ($out)"
