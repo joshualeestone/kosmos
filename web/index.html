@@ -24650,7 +24650,8 @@ function paintRailTeamMap(op) {
   btn.hidden = roster.length === 0;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   box.hidden = !open;
-  // The scroll position is kept for a repaint of the same project; another project's map starts at the top.
+  // Another project's map starts at the top (the browser would keep the last project's offset); the same project's
+  // repaint keeps its position.
   const same = !!op && box.dataset.pj === String(op.id);
   const top = same ? box.scrollTop : 0;
   box.dataset.pj = op ? String(op.id) : '';

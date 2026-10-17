@@ -38,6 +38,10 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
   const fleet = require('../../test-support/fleet');
   fs.writeFileSync(roots.DATA + '/fake-panes', NAMES.map((n) => fleet.line({ session: n + '-discord', claim: n, title: '✳ idle' })).join('\n') + '\n');
   fs.writeFileSync(roots.DATA + '/fake-sessions', NAMES.map((n) => n + '-discord\n').join(''));
+  // Each member's own folder, so adding it to the project can update its instructions. Without one, every member gets a
+  // "Kosmos could not update" row in the rail's project notice, and ten rows push the agents list off the window
+  // (measured 2026-10-16: a 1580px notice on #6103 alone). The height arms below are about the map, with the notice empty.
+  for (const n of NAMES) { fs.mkdirSync(path.join(roots.WORKERS, n), { recursive: true }); fs.writeFileSync(path.join(roots.WORKERS, n, 'CLAUDE.md'), '# ' + n + '\n'); }
 
   const srv = spawn('node', ['server.js'], {
     cwd: REPO,
@@ -112,6 +116,9 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
     const before = await state();
     say('CONTROL: the consolidated layout is on with the project open', before.cons && before.open === made.id, JSON.stringify(before));
     say('CONTROL: the tab layout\'s Team map button cannot be reached here (the card\'s problem)', before.tabBtn === false, JSON.stringify(before));
+    // CONTROL for the height arms: the project notice is empty, so a list pushed off the window is the map's doing.
+    const noticeH = await p.evaluate(() => { const n = document.getElementById('alist-pj-notice'); return n ? [n.getBoundingClientRect().height, n.textContent.slice(0, 160)] : null; });
+    say('CONTROL: the rail project notice is empty with the members told', !!noticeH && noticeH[0] === 0, JSON.stringify(noticeH));
     say('the rail shows a Team map button', before.btn, JSON.stringify(before));
     say('the rail map starts closed', before.shown === false && before.expanded === 'false', JSON.stringify(before));
     const gapBtn = await labelGap();
@@ -237,20 +244,15 @@ const say = (n, cond, note) => { if (cond) console.log('PASS  ' + n); else { fai
       m.name = 'Ada renamed';
       paintRailPjNotice();
       const r = { at, now: box.scrollTop, replaced: !node.isConnected };
-      // The same repaint WITHOUT the restore: write the changed markup straight into the box.
-      box.scrollTop = box.scrollHeight;
-      r.at2 = box.scrollTop;
-      m.name = 'Ada renamed again';
-      setIfChanged(box, pjTeamMap(PROJECTS.find((x) => x.id === pid), LAST, pjRedHere));
-      r.bare = box.scrollTop;
       m.name = was;
       paintRailPjNotice();
       box.scrollTop = 0;
       return r;
     }, made.id);
     say('CONTROL: the map was scrolled down and the repaint replaced its buttons', scrolled.at > 0 && scrolled.replaced, JSON.stringify(scrolled));
+    // A guard, not a measurement of the restore: MEASURED 2026-10-16, Chromium keeps a scroll box's position when its
+    // markup is replaced (a bare repaint stayed at 509 of 509). The restore matters for a project switch (unit suite).
     say('a repaint keeps the map scrolled where it was', Math.abs(scrolled.now - scrolled.at) <= 1, JSON.stringify(scrolled));
-    say('CONTROL: the same repaint without the restore loses the position', scrolled.bare < scrolled.at2 - 1, JSON.stringify(scrolled));
     // A focused member leaving the project: its button is gone, so focus goes to the Team map button, not the page.
     const left = await p.evaluate((pid) => {
       document.querySelector('#alist-teammap .pjtm-node[data-agent="rmjo"]').focus();
