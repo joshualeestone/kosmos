@@ -44,15 +44,18 @@ function page(state) {
   const el = (id) => (els[id] = els[id] || { id, hidden: true, textContent: '', focus() {} });
   const ctx = { document: { getElementById: el }, PLUS_ORG: { state } };
   vm.createContext(ctx);
-  const required = PAGE.match(/const PLUS_FORGET_REQUIRED = '[^']*';/);
-  assert.ok(required, 'PLUS_FORGET_REQUIRED is gone');
-  vm.runInContext([required[0].replace(/^const/, 'var'), lift(PAGE, 'function plusOrgIn('),
-    lift(PAGE, 'function plusForgetRequiredLine('), lift(PAGE, 'function plusForgetArm(')].join('\n'), ctx);
+  const consts = ['PLUS_FORGET_REQUIRED', 'PLUS_FORGET_REQUIRED_IDLE'].map((n) => {
+    const m = PAGE.match(new RegExp('const ' + n + " = '[^']*';"));
+    assert.ok(m, n + ' is gone');
+    return m[0].replace(/^const/, 'var');
+  });
+  vm.runInContext([...consts, lift(PAGE, 'function plusOrgIn('), lift(PAGE, 'function plusForgetRequiredLine('),
+    lift(PAGE, 'function plusForgetRequiredPaint('), lift(PAGE, 'function plusForgetArm(')].join('\n'), ctx);
   return { ctx, el };
 }
 
 test('#6367: the Remove confirm says the company requires reports, for the enrolled Kosmos under that policy only', () => {
-  const company = { enrolled: true, reportingRequired: true, org: { kind: 'company' } };
+  const company = { enrolled: true, reporting: true, reportingRequired: true, org: { kind: 'company' } };
   const p = page(company);
   p.ctx.plusForgetArm(true);
   const line = p.el('plus-forget-required');
@@ -61,7 +64,7 @@ test('#6367: the Remove confirm says the company requires reports, for the enrol
   p.ctx.plusForgetArm(false);
   assert.equal(p.el('plus-forget-required').hidden, true, 'closing the confirm hides it');
 
-  const fam = page({ enrolled: true, reportingRequired: true, org: { kind: 'family' } });
+  const fam = page({ enrolled: true, reporting: true, reportingRequired: true, org: { kind: 'family' } });
   fam.ctx.plusForgetArm(true);
   assert.match(fam.el('plus-forget-required').textContent, /^Your family requires .* your family will see that\.$/, 'a family is not called a company');
 
@@ -72,6 +75,32 @@ test('#6367: the Remove confirm says the company requires reports, for the enrol
     assert.equal(q.el('plus-forget-required').hidden, true, 'nothing said for ' + JSON.stringify(st));
     assert.equal(q.el('plus-forget-required').textContent, '');
   }
+});
+
+test('#6367: a Kosmos that does not report yet is told only that it cannot report once removed, never that it stops', () => {
+  for (const st of [
+    { enrolled: true, reporting: false, reportingRequired: true, wordsNeeded: true, org: { kind: 'family' } },
+    { enrolled: true, reporting: false, reportingWait: 'print', reportingRequired: true, org: { kind: 'company' } },
+    { enrolled: true, reporting: false, reportingWait: 'noReports', reportingRequired: true, org: { kind: 'company' } },
+    { enrolled: true, reportingRequired: true, org: { kind: 'company' } },
+  ]) {
+    const p = page(st);
+    p.ctx.plusForgetArm(true);
+    const t = p.el('plus-forget-required').textContent;
+    assert.match(t, /requires this computer to report to it\. Once it is removed, it cannot report\.$/, JSON.stringify(st));
+    assert.doesNotMatch(t, /stops reporting/, 'nothing stops that never started: ' + JSON.stringify(st));
+  }
+});
+
+test('#6367: a read of /api/org that lands while the confirm is open fills the line; one that lands while it is closed does not', () => {
+  const p = page(null);
+  p.ctx.plusForgetArm(true);
+  assert.equal(p.el('plus-forget-required').hidden, true, 'pressed before the first read: no line yet');
+  p.ctx.PLUS_ORG.state = { enrolled: true, reporting: true, reportingRequired: true, org: { kind: 'company' } };
+  p.ctx.plusForgetRequiredPaint(true);
+  assert.match(p.el('plus-forget-required').textContent, /stops reporting/);
+  // The read's own call site: only while the confirm is open.
+  assert.match(PAGE, /PLUS_ORG\.state = j;\n\s*\/\/ kosmos#6367[^\n]*\n\s*\{ const ask = document\.getElementById\('plus-forget-ask'\); if \(ask && !ask\.hidden && typeof plusForgetRequiredPaint === 'function'\) plusForgetRequiredPaint\(true\); \}/);
 });
 
 test('#6367: the line sits in the confirm, after what Remove does, and is hidden until the confirm opens', () => {

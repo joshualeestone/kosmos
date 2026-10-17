@@ -51124,6 +51124,8 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
+    // kosmos#6367: an open Remove confirm takes the new state's line.
+    { const ask = document.getElementById('plus-forget-ask'); if (ask && !ask.hidden && typeof plusForgetRequiredPaint === 'function') plusForgetRequiredPaint(true); }
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
@@ -51742,18 +51744,26 @@ const PLUS_FORGET_WORDS = {
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
 /* kosmos#6367: when this is the work Kosmos and its company's policy requires reports, the confirm says what removing
-   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too. */
+   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too.
+   "Stops reporting" only while it reports now; a Kosmos not reporting yet (words to accept, or waiting for its print)
+   is told only that it cannot report once removed, which is true either way. */
 const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
+const PLUS_FORGET_REQUIRED_IDLE = 'Your company requires this computer to report to it. Once it is removed, it cannot report.';
 function plusForgetRequiredLine(st) {
   if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
-  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, PLUS_FORGET_REQUIRED) : PLUS_FORGET_REQUIRED;
+  const line = st.reporting === true ? PLUS_FORGET_REQUIRED : PLUS_FORGET_REQUIRED_IDLE;
+  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, line) : line;
+}
+/* Filled when the confirm opens, and again when a read of /api/org lands while it is open (plusOrgMaybe): pressed
+   before the pane's first read, the confirm would otherwise stay without the line however long it stays open. */
+function plusForgetRequiredPaint(on) {
+  const req = document.getElementById('plus-forget-required');
+  if (!req) return;
+  const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
+  req.textContent = line; req.hidden = !line;
 }
 function plusForgetArm(on) {
-  const req = document.getElementById('plus-forget-required');
-  if (req) {
-    const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
-    req.textContent = line; req.hidden = !line;
-  }
+  plusForgetRequiredPaint(on);
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;

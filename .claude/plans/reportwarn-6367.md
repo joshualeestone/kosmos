@@ -34,3 +34,12 @@ confirm. Accepted: it is a warning, and the policy itself reaches the board only
 - `server.orgenroll-5531.test.js`: the exact /api/org shape now includes `reportingRequired: false`.
 - Static set 3336/3336; org server tests 61/61; both browser-check gates pass (a `Browser-check:` trailer: the line is
   hidden unless enrolled under the policy, which no browser check stands up).
+
+## Round 1 (Opus), applied
+- "Stops reporting" only while this Kosmos reports now (`st.reporting === true`). Not reporting yet (family words to
+  accept, waiting for its print, words naming no reports): "Once it is removed, it cannot report." That is true
+  either way.
+- A read of /api/org that lands while the confirm is open fills the line (plusOrgMaybe calls plusForgetRequiredPaint).
+  Before, pressing Remove before the pane's first read left the confirm without the line for as long as it stayed open.
+- A behavioural /api/org arm in server.orgenroll-5531.test.js: the applied policy file says required, then not, then
+  the enrollment names another world. Mutants: always "stops", no refresh on read, server always false. Each fails.
