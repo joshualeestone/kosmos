@@ -4724,7 +4724,7 @@ cmd_task() {
       say "  kosmos task activity <project-id> <task-number>              read a task's conversation, oldest first, in this computer's local time"
       say "  kosmos task built <project-id> <task-number> [\"note\"]  mark it built; with checks, the note says how each went"
       say "      --clear                                                  take the built mark off"
-      say "      --file <path>                                            send the delivered file's fingerprint (sha256) with the mark; a mark without it drops an earlier one"
+      say "      --file <path>                                            send the delivered file's fingerprint (sha256) with the mark; a mark without it keeps an earlier one"
       say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)"
@@ -5184,7 +5184,7 @@ cmd_task() {
       if [ "$_bfile" = 2 ]; then   # given, even as "" (an unset variable): refused below as Windows refuses it (review 2)
         [ "$clear" = true ] && { say "--clear takes the mark off, so it takes no file. Run it without --file."; exit 2; }
         [ -f "$file" ] && [ -r "$file" ] || { say "Kosmos cannot read that file: $file. Name the delivered file."; exit 2; }
-        fingerprint=$(shasum -a 256 < "$file" 2>/dev/null | awk '{print $1}')   # from stdin: a name with \ or a leading - is not escaped or read as an option
+        fingerprint=$( (shasum -a 256 2>/dev/null || sha256sum 2>/dev/null) < "$file" | awk '{print $1}')   # from stdin: a name with \ or a leading - is not escaped or read as an option
         case "$fingerprint" in ????????????????????????????????????????????????????????????????) fingerprint="sha256:$fingerprint" ;; *) say "Kosmos could not work out that file's fingerprint."; exit 1 ;; esac
       fi
       local esc_note esc_pane

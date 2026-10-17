@@ -70,7 +70,7 @@ test('engine: a fingerprint is stored with the mark, a clear drops it, and a bad
   const ok = tasks.setBuilt(projectId, n, { by: 'mona', note: 'exported', fingerprint: A });
   assert.equal(ok.ok, true, ok.because);
   assert.equal(stored(n).builtFingerprint, A);
-  for (const bad of ['sha256:' + 'A'.repeat(64), 'md5:' + 'a'.repeat(32), 'sha256:' + 'a'.repeat(63), A + ' ', [A], 123]) {
+  for (const bad of ['sha256:' + 'A'.repeat(64), 'md5:' + 'a'.repeat(32), 'sha256:' + 'a'.repeat(63), A + ' ', [A], 123, '']) {
     const r = tasks.setBuilt(projectId, n, { by: 'mona', note: 'again', fingerprint: bad });
     assert.equal(r.ok, false, 'a bad shape was stored: ' + bad);
   }
@@ -87,6 +87,16 @@ test('engine: a new fingerprint is a new mark; the same one is the same mark (CO
   const moved = tasks.setBuilt(projectId, n, { by: 'mona', note: 'done', fingerprint: B });
   assert.equal(moved.changed, true, 'a different deliverable was taken as the same mark');
   assert.equal(stored(n).builtFingerprint, B);
+  // The checker's mark carries no fingerprint and keeps the deliverable's (review 3); a mark without one on a task
+  // that had none stores none (CONTROL).
+  const checked = tasks.setBuilt(projectId, n, { by: 'zed', note: '1 met.' });
+  assert.equal(checked.ok, true, checked.because);
+  assert.equal(stored(n).builtFingerprint, B, 'a mark without a fingerprint dropped the deliverable\'s');
+  const again = tasks.setBuilt(projectId, n, { by: 'zed', note: '1 met.' });
+  assert.equal(again.changed, false, 'the same mark again, with the kept fingerprint, counted as a change');
+  const n2 = tasks.create(projectId, { sentence: 'Build the other import', who: 'mona' }).number;
+  tasks.setBuilt(projectId, n2, { by: 'mona', note: 'done' });
+  assert.equal(stored(n2).builtFingerprint, undefined);
 });
 
 test('route: an agent\'s fingerprint is stored; a bad shape is 400 and stores nothing; the screen sends none', async () => {
@@ -186,6 +196,7 @@ test('Mac: a missing file, --file with no path, and --file with --clear are refu
   assert.match(missing.out, /cannot read that file/);
   const blank = await mac(['task', 'built', projectId, String(n), 'note', '--file', ''], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(blank.code, 2, 'an empty --file marked the task with no fingerprint: ' + blank.out);
+  assert.match(blank.out, /cannot read that file/);
   const empty = await mac(['task', 'built', projectId, String(n), '--file'], { KOSMOS_AGENT_TOKEN: tok });
   assert.equal(empty.code, 2, empty.out);
   assert.match(empty.out, /--file needs the path of the delivered file/);   // not the old unknown-option refusal
