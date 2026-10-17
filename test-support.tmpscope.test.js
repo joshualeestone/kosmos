@@ -305,7 +305,7 @@ const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'
     const left = entries(base).filter((n) => n.startsWith('kts-'));
     assert.equal(left.length, 1, 'the locked subfolder did not keep the dir, so this cannot test what it is for: ' + entries(base));
     assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), `stuck-6362.test.js\tpid ${r.pid}\tsurvived its sweep\n`);
-    assert.match(guardSays(base), /: made by stuck-6362\.test\.js \(pid \d+\); its exit sweep ran but the dir survived it /);
+    assert.match(guardSays(base), /: made by stuck-6362\.test\.js \(pid \d+\); its exit sweep ran but the dir survived it \(.*\); it holds: locked\n$/);
   } finally {
     // Unlock before freshBase's own cleanup runs, or it cannot remove the base.
     for (const n of entries(base)) { try { fs.chmodSync(path.join(base, n, 'locked'), 0o700); } catch { /* none */ } }

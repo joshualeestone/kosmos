@@ -68,7 +68,7 @@ rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
 # #6362: the sweep ran but a process the file started was still writing: tmpscope marks the owner line, and it is said.
 printf 'engine/spawns-6362.test.js\tpid 77\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner"
 rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
-[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/spawns-6362.test.js (pid 77); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)' && ok "#6362: a marked owner line says a process the file started was still writing" || bad "marked owner: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/spawns-6362.test.js (pid 77); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed); it holds: nothing' && ok "#6362: a marked owner line says a process the file started was still writing" || bad "marked owner: rc=$rc out=$out"
 # #6362: a dir with no owner lists what it holds (the names a left-running process wrote), never .kts-owner itself.
 rm -f "$root/kts-Zz99Yy/.kts-owner"
 mkdir "$root/kts-Zz99Yy/boardkeychain-4491-Ab" "$root/kts-Zz99Yy/kosmos-sendwhy-5435-Cd"

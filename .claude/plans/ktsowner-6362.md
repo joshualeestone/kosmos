@@ -35,6 +35,9 @@ Mona's two dirs are gone (the run's temp root is removed), so which arm they wer
 That the leaked folders' names identify their test. Many fixture prefixes carry a card number or a test name, but a
 generic one (`tmp-`, a bare mkdtemp) would not; then the report says what is there and a person still has to look.
 
+Also: if the owner rewrite itself fails after a failed sweep that took `.kts-owner` (an unwritable dir), the dir
+reads as owner-less; the guard's sentence keeps "or its write failed" for it, but leads with the remade-dir cause.
+Review 6: a dir that survived its sweep also lists what it holds (what blocked the sweep).
 Also: if a process remakes the dir between a failed sweep and the owner rewrite, the dir is marked "survived its
 sweep" though it was remade; the guard then names the file (right) with a cause that is only roughly right.
 

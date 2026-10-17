@@ -185,8 +185,23 @@ leak_family() {
 # usually what a process the test started and left running leaves when it makes the dir again after the test ended
 # (the sweep took .kts-owner with it; reproduced for #6362); a tmpscope older than #6061 or a failed owner write leaves
 # the same. So the report lists what the dir holds, whose names usually say which test's process it was.
+# _kts_held <dir>: what a kts- dir holds besides .kts-owner, five names then a count, for leak_kts_owners (#6362).
+_kts_held() {
+  local d="$1" held n shown part=""
+  # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
+  # find's own status, not the pipeline's (whose status is the last stage's). A walk that failed part way (an
+  # entry removed under it by a process still writing) keeps what it did print, marked incomplete.
+  held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null) || part=" (listing incomplete)"
+  held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
+  n=$(printf '%s' "$held" | grep -c . || true)
+  shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
+  if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
+  if [ -n "$part" ] && [ -z "$shown" ]; then shown="(could not list)"; part=""; fi
+  printf '%s\n' "${shown:-nothing}${part}"
+}
+
 leak_kts_owners() {
-  local root="${1%/}" d owner rest pid why held n shown part
+  local root="${1%/}" d owner rest pid why shown
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
     # A dir the guard cannot search hides whether it has an owner, so it says only that.
@@ -203,24 +218,17 @@ leak_kts_owners() {
           pid=${rest%%$'\t'*}
           case "$rest" in *$'\t'*) why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
       esac
-      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why"
+      case "$why" in
+        *survived*) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why; it holds: $(_kts_held "$d")" ;;
+        *) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why" ;;
+      esac
     elif [ -f "$d/.kts-owner" ]; then
       # An EMPTY owner file was cut while tmpscope wrote it (at creation, or its rewrite after a failed sweep);
       # a remade dir has none at all.
       echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
-      # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
-      # find's own status, not the pipeline's (whose status is the last stage's). A walk that failed part way (an
-      # entry removed under it by a process still writing) keeps what it did print, marked incomplete.
-      part=""
-      held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner 2>/dev/null) || part=" (listing incomplete)"
-      held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
-      n=$(printf '%s' "$held" | grep -c . || true)
-      shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
-      if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
-      if [ -n "$part" ] && [ -z "$shown" ]; then shown="(could not list)"; part=""; fi
-      shown="${shown}${part}"
-      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: ${shown:-nothing}"
+      shown=$(_kts_held "$d")
+      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: ${shown}"
     fi
   done
 }
