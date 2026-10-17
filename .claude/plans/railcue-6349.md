@@ -13,7 +13,7 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
 1. [x] web/index.html CSS: `.alist-pjn[data-more]::after`, a sticky 28px block at the box's bottom, linear-gradient
    from transparent to `var(--k-bg, #faf9f7)` (the head's background; redefined for dark and high contrast),
    pointer-events none. No scrollbar-width (the #3443 win32 bar; web.project-notice-3923.test.js pins it), and no
-   fixed height (PigeonPete's cap may change from 40vh to "fill the head").
+   fixed height on the box (PigeonPete's cap may change from 40vh to "fill the head"; the fade itself is 28px).
 2. [x] web/index.html script: railPjMore() sets data-more when scrollHeight - scrollTop - clientHeight > 2; run on the
    box's scroll, a MutationObserver on its content (every painter, the retry handlers included), a ResizeObserver on
    the box and on each row (the rail unfolding, a column width, a row reflowing; reviews 1 and 2) and window resize.
@@ -52,3 +52,4 @@ there is no fade. The cue follows the box's own scroll, whatever sets the cap.
   then shows it (the box must shrink and more be below); the page's Team map repaint is held during the step and the
   button restored in finally. Still owed before merge: a green render-projects on this head (queued, else PR CI) and the
   rail-notice-more shots retaken on the rebased page.
+- 18 sonnet: converged (owed only the green run and the shots, both queued; forced colors is the stated gap).
