@@ -1,6 +1,6 @@
 # teammap-rail-6324: the team map from the consolidated layout (kosmos#6324)
 
-Stacked on `teammap-6103` (PigeonPete, #6103, not yet merged). Rebase onto main once #6103 lands; never merge first.
+Built on `teammap-6103` (PigeonPete, #6103); that landed on main as e741dc4c45 (PR #6342), and this branch now sits on main.
 
 ## The call (the card leaves "where the control sits in the rail" to the owner)
 - The control sits in the Agents rail HEAD (`#rail-agents`), directly under the rail's project notice
