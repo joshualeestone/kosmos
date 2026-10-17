@@ -59,7 +59,7 @@ const chat = require('./chat');
 /* #6256 item 2: a message left unsent in its recipient's input box, by the number chat gave its remembered line, until
    a later delivery or one of chat's retries sends it (the hook below writes the follow-up row). */
 const unsentPending = new Map();   // seq -> { id, from, to, at }
-/* kosmos#6436: chat keeps a remembered line until it is sent (no 10 minutes any more), so a row waits a day; a line
+/* kosmos#6436: chat keeps a remembered line up to a day from when it was last seen in the box, so a row waits a day; a line
    still unsent after that, or one remembered across a board restart (it carries no number), gets no follow-up row. */
 const UNSENT_PENDING_MS = 24 * 60 * 60 * 1000;
 function noteUnsent(seq, row) {

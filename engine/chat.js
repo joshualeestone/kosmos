@@ -1024,8 +1024,9 @@ function confirmedVerdict(placed, result) {
    retry that can press nothing never pays for a roster. Answers 'sent' (the box emptied; the line is forgotten and its
    message row told), or why nothing was sent: 'gone' (nothing remembered), 'busy' (a delivery is typing there),
    'unread', 'empty' (two reads agree the box is empty; forgotten), 'changed' (it shows something else, never
-   pressed; remembered), 'gate' (no roster, a hold, or a delivery gate refused), 'pane', or 'unsent' (pressed and still
-   there; remembered, its day started again). */
+   pressed; remembered), 'gate' (no roster, a hold, or a delivery gate refused), 'pane', or 'unsent' (tmux refused the
+   Enter, or the watch did not see it go; remembered, and its day starts again only when the box still shows it).
+   The waits do not hold the board; its tmux reads are synchronous, as a delivery's are. */
 async function pressRememberedNow(target, card) {
   const kept = recallUnsent(target);
   if (!kept) return 'gone';
@@ -1076,7 +1077,8 @@ async function pressRememberedNow(target, card) {
   try {
     const pressed = tmux(['send-keys', '-t', target, 'Enter']);
     if (!pressed.ran || pressed.status !== 0) return 'unsent';
-    /* The full watch (the box can take about a second to empty), waited without holding the board (#4468). */
+    /* The full watch (the box can take about a second to empty); the waits between looks do not hold the board (#4468).
+       While it runs (about 1.5 s) a person's line to this pane is refused as busy, nothing typed. */
     const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS);
     let step = steps.next();
     while (!step.done) {
@@ -2206,7 +2208,11 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
          refused with the sentence that says so. Anything else in the box is never submitted. */
       const kept = recallUnsent(target);
       const earlier = kept ? kept.wire : null;
-      if (earlier && rememberedShows(box.text, kept, false, box.rows) && verifyAtSend(allowed.card).ok) {
+      /* kosmos#6436: the earlier line passes the gates as a line of its own: a bare command let through in quiet hours or
+         on a paused swarm must not carry a work line in ahead of it. */
+      let earlierGated = false;
+      if (earlier) { try { earlierGated = typingGate(sessionName, earlier, roster, '', '', at).ok === true; } catch { earlierGated = false; } }
+      if (earlier && earlierGated && rememberedShows(box.text, kept, false, box.rows) && verifyAtSend(allowed.card).ok) {
         forgetUnsent(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
@@ -2381,10 +2387,19 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
     let seq = null;
+    /* `seen` only when it is an end of ours (a box still drawing our start shows a beginning, which no later read can
+       match as the end). */
+    const endSeen = (t) => { const q = squash(t); return q && squash(wire).endsWith(q) ? q : ''; };
     if (result && result.outcome === 'unsent') {   // only ours is there: the next line, or a retry, may send it
       unsentSeq += 1;
       seq = unsentSeq;
-      rememberUnsent(target, { wire, at: Date.now(), seq, seen: squash(result.text) });
+      rememberUnsent(target, { wire, at: Date.now(), seq, seen: endSeen(result.text) });
+      scheduleUnsentRetries(target, allowed.card);
+    } else if (result && result.outcome === 'unread') {
+      /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
+         went; if it did not, nothing would know it is ours. Remembered with no `seen` and no message row: the retries
+         forget it on two empty reads and press it only when the box shows all of it. */
+      rememberUnsent(target, { wire, at: Date.now(), seq: null, seen: '' });
       scheduleUnsentRetries(target, allowed.card);
     } else forgetUnsent(target);
     const out = confirmedVerdict(v, result);

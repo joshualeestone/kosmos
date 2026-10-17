@@ -370,3 +370,39 @@ test('kosmos#6436 (round 5 BLOCKER): a retry passes every delivery gate on the r
     assert.equal(t3.enters(), 0);
   } finally { board.restore(); }
 });
+
+test('kosmos#6436 (round 9): a bare command let through on a paused swarm does not carry the remembered work line in ahead of it', () => withAgent((roster) => {
+  arm([EMPTY, box(MSG)]);
+  assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION: a work line left in the box');
+  const card = roster.find((a) => a.sessionName === 'al');
+  card.swarm = { active: false, pausedBecause: 'paused for the night' };
+  const t = arm([box(MSG)]);
+  const v = chat.deliver('al', '/compact', roster);
+  assert.equal(t.enters(), 0, 'the work line was not pressed');
+  assert.equal(v.inputHeld, true, 'the command is refused, the box still holding the line');
+  // The earlier-line press with no pause is pinned in chat.composer-6249.test.js (round 1, reworked in round 7).
+}));
+
+test('kosmos#6436 (round 9): a line whose watch could not read the box (the turn\'s screen over it) is still remembered, and a retry presses all of it', () => withAgent(async (roster) => {
+  const scheduled = [];
+  const NOBOX = 'some output from the turn, no input box drawn\n';
+  arm([EMPTY, NOBOX]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
+  const v = chat.deliver('al', MSG, roster);
+  assert.equal(v.state, chat.DELIVERY.PLACED, 'PRECONDITION: unread keeps the verdict');
+  assert.equal(scheduled.length, 3, 'retries scheduled even so');
+  const t = arm([box(MSG), box(MSG), EMPTY]);
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t.enters(), 1, 'the line was still there, so it was pressed');
+  // CONTROL: had it gone, two empty reads forget it and nothing is pressed.
+  chat.resetForTests();
+  scheduled.length = 0;
+  arm([EMPTY, NOBOX]);
+  chat.setUnsentRetryScheduler((ms, fn) => scheduled.push({ ms, fn })); chat.setRosterSource(() => roster);
+  chat.deliver('al', MSG, roster);
+  const t2 = arm([EMPTY]);
+  scheduled[0].fn();
+  await flush();
+  assert.equal(t2.enters(), 0);
+}));

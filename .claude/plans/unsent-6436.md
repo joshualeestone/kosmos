@@ -67,6 +67,11 @@ from a delivery, which carries the card the pane check needs).
 - [x] Round 8 (sonnet): a stale "no expiry" comment fixed; the retry presses only a Claude Code box
   (composerReadable); a busy retry is spent, said; a temp file left by a failed rename is removed. Declined: the unsent
   sentence over-promising for a loaded line (it is said when the line is left, when retries are scheduled).
+- [x] Round 9 (opus): the earlier-line press inside a delivery now passes typingGate as a line of its own (a bare
+  /compact let through in quiet hours or on a paused swarm no longer carries a work line in; test, mutant caught); an
+  unread watch remembers the line with no seen and schedules retries (test with control); seen recorded only when it is
+  an end of ours; docblock and messages.js comment honest. Stated cost: while a retry watches (about 1.5 s) a person's
+  line to that pane is refused as busy, nothing typed.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)
