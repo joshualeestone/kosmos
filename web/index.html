@@ -2178,10 +2178,10 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }
 /* kosmos#6403 (Josh 11:30): the first time the switcher appears, one line under it says how to switch; shown once. */
 .worldsw-tip { position: absolute; top: calc(100% + 6px); left: 0; z-index: 39; display: flex; align-items: center; gap: 6px;
-  white-space: nowrap; padding: 6px 6px 6px 10px; font-size: 13px; color: var(--text-primary); background: var(--bg-elevated);
+  width: max-content; max-width: min(320px, calc(100vw - 88px)); padding: 6px 6px 6px 10px; font-size: 13px; color: var(--k-ink); background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
 .worldsw-tip[hidden] { display: none; }
-.worldsw-tip-x { border: 0; background: none; color: var(--text-secondary); cursor: pointer; font-size: 16px; line-height: 1;
+.worldsw-tip-x { flex: none; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1;
   min-width: 24px; min-height: 24px; border-radius: 6px; }
 .worldsw-tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
 .worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
@@ -12400,7 +12400,7 @@ window.kosmosMeasureScrollbarWidth();
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
-      <div class="worldsw-tip" id="worldsw-tip" role="status" hidden><span>Switch between your computers here.</span><button class="worldsw-tip-x" id="worldsw-tip-x" type="button" aria-label="Dismiss tip">&times;</button></div>
+      <div class="worldsw-tip" id="worldsw-tip" hidden><span id="worldsw-tip-text">Switch between your computers here.</span><button class="worldsw-tip-x" id="worldsw-tip-x" type="button" aria-label="Dismiss tip">&times;</button></div>
       <!-- #2238: the rows are now ACTIONABLE. Each non-active row is a native <button>
            that switches the active Kosmos (POST /api/worlds/active); the active row is a
            non-interactive div marked aria-current. Native buttons are keyboard-operable
@@ -30127,21 +30127,33 @@ let COMPUTERS_OPENABLE = false;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
-let COMPUTERS_READ_AT = 0;   // #6403: when the last answer arrived, so a look back at the page can read again
+let COMPUTERS_READ_AT = 0;   // #6403: when a look-back read last started, so looking again within a minute does not read
+let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: one quick follow-up
 /* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered here); it goes
    on its close button or when the menu is opened. */
 function worldswTipOnce() {
   let seen = false;
   try { seen = localStorage.getItem('kosmos.switcherTipSeen') === '1'; localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
   const tip = document.getElementById('worldsw-tip');
-  if (!seen && tip) tip.hidden = false;
+  if (!seen && tip) {
+    tip.hidden = false;
+    // The switcher's own description while the tip is up, so a screen reader hears it on the button (a region that
+    // starts hidden is not announced reliably).
+    const btn = document.getElementById('worldsw-btn'); if (btn) btn.setAttribute('aria-describedby', 'worldsw-tip-text');
+  }
 }
-function worldswTipHide() { const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true; }
+function worldswTipHide() {
+  const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
+  const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
+}
 /* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
    one is let in, or when the page is looked at again a minute or more after the last answer. */
 function computersReadSoon(force) {
   if (MULTI_KOSMOS || COMPUTERS_OPENABLE || document.hidden) return;
-  if (!force && Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
+  if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 60 * 1000;
+  // A look back: at most once a minute, and never while Kosmos+ is failing (the backoff timer is in charge then).
+  else if (COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
+  COMPUTERS_READ_AT = Date.now();
   computersFetch().catch(() => {});
 }
 /* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
@@ -30155,7 +30167,6 @@ function worldswComputersSeen(rows, good) {
     THIS_COMPUTER_NAME = me ? me.name : '';
     const was = COMPUTERS_OPENABLE;
     COMPUTERS_OPENABLE = rows.length >= 2;
-    COMPUTERS_READ_AT = Date.now();
     if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
   } else if (COMPUTERS_OPENABLE) {
     const box = document.getElementById('worldsw-computers');
@@ -30179,7 +30190,12 @@ function worldswComputersSeen(rows, good) {
     /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
        computer) and each read is a signed call to Kosmos+ (review round 4). */
     const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
-    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
+    /* #6403: still one computer just after an Allow or being let in: Kosmos+ may not list the new one yet, so look once
+       more soon rather than in five minutes. */
+    const expecting = good && !COMPUTERS_OPENABLE && Date.now() < COMPUTERS_EXPECT_UNTIL;
+    if (expecting) COMPUTERS_EXPECT_UNTIL = 0;
+    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1))
+      : (!COMPUTERS_OPENABLE ? (expecting ? Math.min(15000, first) : 5 * 60 * 1000) : 0);
     /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
        open menu is not repainted under the person (it reads when the menu is next opened). */
     const tick = () => {
@@ -51123,7 +51139,7 @@ async function paintPlus() {
     else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
     const wasWaiting = PLUS_JOIN_WAITING;
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
-    // #6403: this computer was just let in, so the account now has another computer: show the switcher now.
+    // #6403: the wait ended (most often this computer was let in, so the account has another): read the computers now.
     if (wasWaiting && !PLUS_JOIN_WAITING && r.on === true && typeof computersReadSoon === 'function') computersReadSoon(true);
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
