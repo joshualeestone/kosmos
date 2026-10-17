@@ -2090,8 +2090,40 @@ cmd_open() {
   # silence-plus-exit-0, indistinguishable from success. Name the URL (a person
   # with no browser can go there themselves) and name a real failure with a
   # non-zero exit instead of swallowing it. KOSMOS_OPEN_BIN is a test seam.
+  # #6361: the opener is the platform's. /usr/bin/open is macOS's only: most Linux systems have no such file, and on
+  # Debian and Ubuntu that path can be openvt. Linux opens with xdg-open when there is a display to open on.
+  # KOSMOS_OPEN_BIN still wins (the test seam, or a person's own choice).
+  local _opener=""
+  if [ -n "${KOSMOS_OPEN_BIN:-}" ]; then
+    _opener="$KOSMOS_OPEN_BIN"
+  else
+    case "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" in
+      Darwin) _opener=/usr/bin/open ;;
+      Linux)
+        if { [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; } && command -v xdg-open >/dev/null 2>&1; then
+          _opener="$(command -v xdg-open)"
+        fi ;;
+    esac
+  fi
+  if [ -z "$_opener" ]; then
+    # #6361: no opener, so the person opens it. The refusals above have already run: this is reached only after the
+    # board proved itself and answered. On an enforcing board the address carries the one-time sign-in nonce, which
+    # signs a browser in once within 2 minutes (NONCE_TTL_MS, engine/boardauth.js). It is printed only to a
+    # terminal: piped or logged, it would sit in a file, so it is not printed there and the plain address is.
+    if [ "$_open_url" = "$URL" ]; then
+      say "No browser opens from here. Go to the dashboard yourself: $URL"
+      return 0
+    fi
+    if [ -t 1 ]; then
+      say "No browser opens from here. Open this address in a browser on this computer within 2 minutes. It signs that browser in once, so do not share it:"
+      say "$_open_url"
+      return 0
+    fi
+    say "No browser opens from here, and this is not a terminal, so the one-time sign-in address is not printed (it would land in a file). Run kosmos open in a terminal on this computer, or go to $URL and sign in there."
+    exit 1
+  fi
   say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
-  "${KOSMOS_OPEN_BIN:-/usr/bin/open}" "$_open_url" || die "Could not open a browser. Go to the dashboard yourself: $URL"
+  "$_opener" "$_open_url" || die "Could not open a browser. Go to the dashboard yourself: $URL"
 }
 
 # The direct look the board names when it cannot read the agents (#274).
