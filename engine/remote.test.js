@@ -346,6 +346,8 @@ if (args[0] === 'devices') {
   }
   // kosmos#5786 (b): a deny the tunnel refuses, and an allow that takes a while.
   if (verb === 'deny' && mode.includes('deny-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
+  // kosmos#6404: Not me on a code check: the tunnel drops only the check and says so.
+  if (verb === 'deny' && mode.includes('deny-check')) { console.log(JSON.stringify({ denied: true, device_id: flag('--device-id'), check: true })); process.exit(0); }
   if (verb === 'allow' && mode.includes('slow-allow')) { const until = Date.now() + 1500; while (Date.now() < until) { /* wait */ } }
   // kosmos#5786 (b): an allow the tunnel refuses (the vouch path's retry cap).
   if (verb === 'allow' && mode.includes('allow-fails')) { process.stderr.write('error: the coordinator refused\\n'); process.exit(1); }
@@ -1208,6 +1210,19 @@ test('kosmos#6286: an allow the coordinator answers "no such sign-in" is a refus
   // CONTROL: the same call with the tunnel's ordinary answer is still allowed.
   const ok = await remote.deviceAllow('dev-9', 'iPhone');
   assert.equal(ok.ok, true, ok.because);
+});
+
+test('kosmos#6404: Not me on a code check notes no refusal (the tunnel says it only dropped the check)', async () => {
+  enrol();
+  process.env.FAKE_TUNNEL_MODE = 'deny-check';
+  try {
+    const r = await remote.deviceDeny('dev-chk');
+    assert.equal(r.ok, true, r.because);
+    assert.equal((remote.read().denied || {})['dev-chk'], undefined, 'a check was noted as a refusal');
+  } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  // CONTROL: an ordinary Not me is noted.
+  assert.equal((await remote.deviceDeny('dev-ctl')).ok, true);
+  assert.ok(remote.read().denied['dev-ctl'] > 1700000000, 'the control No was not recorded');
 });
 
 test('deny remembers the No, so a re-ask from the same id carries when this Mac said no', async () => {

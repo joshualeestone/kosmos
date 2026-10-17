@@ -25,6 +25,10 @@ check, everything reads as before.
   button label, the done row and the cancelled row say what a check is.
 
 ## Calls
+- Whether a Not me noted a refusal comes from the tunnel's answer (`"check": true` from `devices deny`), never from the
+  page, whose list can be a refresh behind.
+- Known gap: Not me on a check is not seen by the joining computer, which keeps the check's steps up until its code
+  runs out (ten minutes) and then offers Check the code again. Telling it needs a tunnel message; not in this change.
 - The joining computer polls only while a check it asked for runs (each read is a signed round).
 - Not me on a check says the computer stays connected (computers are not in the Devices list, so no "remove it there").
 - Weakest premise: a board on an older tunnel never sends `can_recheck`, so it keeps the old ending; the button never
@@ -45,3 +49,7 @@ check, everything reads as before.
   note); an answer to an earlier check is forgotten when a check with another time arrives under that id; engine tests
   for joinRecheck and the status fields; the check-ended and tries-used arms; only lapsed/key refusals get the check
   sentence; the stale branch skips while a check runs; the allow-card regex anchored to the button.
+- 3 opus: a lapsed check's refusal gets the check sentence (code_pending on a check); a check that ends on its last try
+  has its own ending instead of a blank block; the deny note follows the tunnel's "check" answer (engine test); the
+  later-check arm now covers Not me and Got it first; the name is kept while a check starts; the tries-used ending no
+  longer says "nothing more is needed"; the cancel gap stated.

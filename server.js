@@ -11094,8 +11094,7 @@ const server = http.createServer(async (req, res) => {
         if (verb === 'allow' && !isViaScreen(req, body)) { sendJson(res, 403, { error: 'Only a person at the Kosmos screen can allow a device.' }); return; }
         const id = typeof body.device_id === 'string' ? body.device_id : '';
         const got = verb === 'allow' ? await remote.deviceAllow(id, body.name, body.code)
-          // kosmos#6404: Not me on a code check (the page says so) is no refusal of that computer: nothing is noted.
-          : verb === 'deny' ? await remote.deviceDeny(id, { check: body.recheck === true })
+          : verb === 'deny' ? await remote.deviceDeny(id)
             : await remote.deviceRemove(id);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         sendJson(res, 200, { ok: true, ...(got.data || {}) });
