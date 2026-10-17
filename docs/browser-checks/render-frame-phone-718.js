@@ -286,6 +286,9 @@ async function projectsArm(page, tag, w) {
         {
           const tag = `[${engine} 1280x800]`;
           const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+          // kosmos#6396: with one computer the switcher is hidden; several Kosmoses keep it in place for this size
+          // check, as the phone arm above does.
+          await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.multiKosmos', '1'); } catch {} });
           const page = await ctx.newPage();
           await home(page, URL);
           const rows = await measure(page, HOME.filter((c) => c.sel !== '#burger'));
