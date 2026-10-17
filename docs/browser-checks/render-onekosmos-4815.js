@@ -215,14 +215,25 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             window.__which = 'four'; await computersFetch();
             const tip = () => !document.getElementById('worldsw-tip').hidden;
             const shownFirst = tip();
+            // A dialog whose own Escape closes it (as the page's dialogs do, registered before this): one Escape must not
+            // also put the tip away.
+            const dlg = document.createElement('div'); dlg.setAttribute('aria-modal', 'true'); dlg.textContent = 'a dialog'; document.body.appendChild(dlg);
+            const closeDlg = (e) => { if (e.key === 'Escape') dlg.remove(); };
+            // Capture on document: it runs before any document listener of the page, as a dialog's earlier-registered
+            // handler does (only a window capture listener runs before it).
+            document.addEventListener('keydown', closeDlg, true);
+            document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+            document.removeEventListener('keydown', closeDlg, true);
+            const afterDialogEscape = tip();
             const box = document.createElement('div'); box.setAttribute('aria-modal', 'true'); box.textContent = 'a dialog'; document.body.appendChild(box);
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
             const withDialog = tip();
             box.remove();
             document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-            return { shownFirst, withDialog, after: tip() };
+            return { shownFirst, afterDialogEscape, withDialog, after: tip() };
           }, { worlds: WORLDS });
-          ok(`${t} #6403 CONTROL: Escape with a dialog open leaves the tip`, esc.shownFirst && esc.withDialog, JSON.stringify(esc));
+          ok(`${t} #6403 CONTROL: Escape with a dialog open leaves the tip, even when the dialog's own Escape closes it first`,
+            esc.shownFirst && esc.afterDialogEscape && esc.withDialog, JSON.stringify(esc));
           ok(`${t} #6403: Escape puts the tip away`, esc.shownFirst && !esc.after, JSON.stringify(esc));
           /* #6403 review 2: a forced read (after an Allow, or let in) that still finds one computer looks again soon, not in
              five minutes; CONTROL: an ordinary read that finds one computer does not. */
@@ -320,15 +331,20 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
              puts it away; then after a reload with two computers from the start, no tip. */
           const wrote = await page.evaluate(async ({ worlds }) => {
             try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
+            // Its own setup: the tip up with four computers, then back to one: the tip goes, not described, not seen.
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
-            const downBefore = document.getElementById('worldsw-tip').hidden && !document.getElementById('worldsw-btn').getAttribute('aria-describedby');
+            window.__which = 'four'; await computersFetch();
+            const upFirst = !document.getElementById('worldsw-tip').hidden;
+            window.__which = 'one'; await computersFetch();
+            const downBefore = upFirst && document.getElementById('worldsw-tip').hidden && !document.getElementById('worldsw-btn').getAttribute('aria-describedby');
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
             window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
             const key = (() => { try { return localStorage.getItem('kosmos.switcherTipSeen'); } catch { return 'n/a'; } })();
             document.getElementById('worldsw-tip-text').click();
             const a = document.activeElement;
             return { downBefore, key, tipAfterClick: !document.getElementById('worldsw-tip').hidden, focus: a && a.id };
           }, { worlds: WORLDS });
-          ok(`${t} #6403: back to one computer, a tip still up goes (not described, not seen)`, wrote.downBefore === true, JSON.stringify(wrote));
+          ok(`${t} #6403: back to one computer, a tip still up goes and no longer describes the switcher`, wrote.downBefore === true, JSON.stringify(wrote));
           ok(`${t} #6403: the page writes the seen flag itself; a click on the tip's text puts it away, focus on the switcher`,
             wrote.key === '1' && !wrote.tipAfterClick && wrote.focus === 'worldsw-btn', JSON.stringify(wrote));
           await page.reload();

@@ -32023,14 +32023,16 @@ async function worldHideSubmit() {
     const tipEl = document.getElementById('worldsw-tip');
     if (tipEl) tipEl.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
     // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape') return;
+    /* Capture phase on window, so this reads the page before any other Escape handler acts (a dialog's own handler
+       would close it first, and then one Escape would put away both). A key another layer already claimed is theirs. */
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
       const tip = document.getElementById('worldsw-tip');
       if (!tip || tip.hidden || tip.getClientRects().length === 0 || !document.getElementById('worldsw-menu').hidden) return;
       // A dialog box keeps aria-modal while its wrapper is hidden, so "open" is a box the person can see (as the / shortcut checks).
       if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
       worldswTipHide();
-    });
+    }, true);
   }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
