@@ -75,3 +75,17 @@ test('#6157: a done task, or no roster, names nobody', () => {
   assert.deepEqual(tasks.waitingOnOf(done, roster), []);
   assert.deepEqual(tasks.waitingOnOf(t, null), []);
 });
+
+/* #6341 (Josh, 10-16 19:47: out of usage "should never show in the project, only on the agent"): an agent that is only
+   out of usage does not put its task in Needs your decision. */
+test('#6341: a holder out of usage is not named, and alone does not make a decision', () => {
+  const { p, t } = setup('Usage');
+  const [ann, bo, cy] = realCards();
+  const rate = { state: 'rate_limited', stuckError: { stuck: true, state: 'rate_limited', forMs: 30 * 60000 } };
+  assert.equal(projects.needsYouReason({ ...ann, ...rate, present: true, tied: true }, p.id), 'stuck_rate', 'CONTROL: the card is out of usage');
+  const alone = [{ ...ann, ...rate }, { ...bo, state: 'working' }, { ...cy, state: 'idle' }];
+  assert.deepEqual(tasks.waitingOnOf(t, alone), [], 'an agent out of usage was named on the task');
+  assert.equal(tasks.waitingOnPerson(t, alone), false, 'an agent out of usage put the task in Needs your decision');
+  const withQuestion = [{ ...ann, ...rate }, { ...bo, state: 'needs_you', stateProject: p.id }, { ...cy, state: 'idle' }];
+  assert.deepEqual(tasks.waitingOnOf(t, withQuestion), [{ who: 'bo', reason: 'question' }], 'CONTROL: a question beside it is still named');
+});

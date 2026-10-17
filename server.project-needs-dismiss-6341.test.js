@@ -46,28 +46,29 @@ const dismiss = (id, body, raw) => fetch(`${base}/api/project/${encodeURICompone
 test('#6341: a dismissal is kept on the project, per member and reason, and answered with the project', async () => {
   const p = projects.create({ name: 'Needs Dismiss', agents: ['nd61', 'ne61'] });
   assert.deepEqual(stored(p.id).agents, ['nd61', 'ne61'], 'CONTROL: the fixture project has both members');
-  const r = await dismiss(p.id, { agent: 'nd61', reason: 'question' });
+  const r = await dismiss(p.id, { agent: 'nd61', reason: 'question:Which logo?' });
   assert.equal(r.status, 200, await r.clone().text());
   const body = await r.json();
   assert.equal(body.ok, true);
   assert.equal(body.project && body.project.id, p.id, 'the answer is the project as the page reads it');
-  assert.deepEqual(stored(p.id).needsDismissed, { nd61: 'question' });
+  assert.deepEqual(stored(p.id).needsDismissed, { nd61: 'question:Which logo?' });
   assert.equal((await dismiss(p.id, { agent: 'ne61', reason: 'elsewhere' })).status, 200);
-  assert.deepEqual(stored(p.id).needsDismissed, { nd61: 'question', ne61: 'elsewhere' }, 'a second dismissal replaced the first');
+  assert.deepEqual(stored(p.id).needsDismissed, { nd61: 'question:Which logo?', ne61: 'elsewhere' }, 'a second dismissal replaced the first');
 });
 
 test('#6341: what the page cannot have shown is refused, and nothing is written', async () => {
   const p = projects.create({ name: 'Needs Refuse', agents: ['nr61'] });
   for (const [body, status, why] of [
-    [{ agent: 'stranger', reason: 'question' }, 400, 'a name that is not a member'],
+    [{ agent: 'stranger', reason: 'question:Which?' }, 400, 'a name that is not a member'],
+    [{ agent: 'nr61', reason: 'question' }, 400, 'a question without its words'],
     [{ agent: 'nr61', reason: 'made_up' }, 400, 'a reason the page does not show'],
-    [{ reason: 'question' }, 400, 'no agent'],
+    [{ reason: 'question:Which?' }, 400, 'no agent'],
   ]) {
     const r = await dismiss(p.id, body);
     assert.equal(r.status, status, why + ': ' + (await r.text()));
   }
   assert.equal((await dismiss(p.id, null, '{not json')).status, 400, 'a body that is not JSON');
-  assert.equal((await dismiss('no-such-project', { agent: 'nr61', reason: 'question' })).status, 404, 'an unknown project');
+  assert.equal((await dismiss('no-such-project', { agent: 'nr61', reason: 'question:Which?' })).status, 404, 'an unknown project');
   assert.equal(stored(p.id).needsDismissed, undefined, 'a refused dismissal wrote something');
 });
 
@@ -77,8 +78,8 @@ test('#6341 review 3: a store that cannot be read is our fault, answered 500, no
   const kept = fs.readFileSync(file, 'utf8');
   fs.writeFileSync(file, '{ not json');
   try {
-    const r = await dismiss(p.id, { agent: 'nx61', reason: 'question' });
+    const r = await dismiss(p.id, { agent: 'nx61', reason: 'question:Which?' });
     assert.equal(r.status, 500, await r.text());
   } finally { fs.writeFileSync(file, kept); }
-  assert.equal((await dismiss(p.id, { agent: 'nx61', reason: 'question' })).status, 200, 'CONTROL: the same request with the store back');
+  assert.equal((await dismiss(p.id, { agent: 'nx61', reason: 'question:Which?' })).status, 200, 'CONTROL: the same request with the store back');
 });

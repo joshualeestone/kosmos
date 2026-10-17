@@ -1767,7 +1767,10 @@ function cardsNeedingPerson(task, roster, members) {
     && status.needsPerson(card)
     /* Only a question names a project. A trust wait or a connection given up on is about the agent itself,
        so it counts on every task the agent holds, as it does on the project page (#3726). */
-    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true));
+    && (card.state === status.STATE.NEEDS_YOU ? card.stateProject === task.projectId : true)
+    /* #6341 (Josh, 10-16 19:47: "a couple agents were out of usage but that should never show in the project, only on
+       the agent"): an agent that is only out of usage does not put its tasks in Needs your decision either. */
+    && projects.needsYouReason({ ...card, present: true, tied: true }, task.projectId) !== 'stuck_rate');
 }
 
 /**

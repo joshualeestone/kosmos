@@ -940,12 +940,24 @@ function roomLive(project, now) {
 /* #6341: why a reason is quiet ('usage' | 'paused' | 'dismissed' | 'inactive'), or null when it counts. Josh 19:47:
    "a couple agents were out of usage but that should never show in the project, only on the agent", so a rate limit
    is never a project's reason, live or not; the agent's own page and the Agents count still say it. */
-function needsQuietBecause(reason, sessionName, ctx) {
+function needsQuietBecause(reason, m, ctx) {
   if (reason === 'stuck_rate') return 'usage';
   if (ctx.paused) return 'paused';
-  if (ctx.dismissed[sessionName] === reason) return 'dismissed';
+  if (ctx.dismissed[m.sessionName] === needsDismissKey(reason, m)) return 'dismissed';
   if (reason !== 'question' && !ctx.live) return 'inactive';
   return null;
+}
+/* #6341 review 5: what a dismissal is kept under. A question is kept with its own words, so the agent's NEXT question
+   about this project is news and shown; every other reason is kept as the reason. */
+const NEEDS_KEY_WORDS = 300;
+function needsDismissKey(reason, m) {
+  if (!reason) return null;
+  return reason === 'question' ? 'question:' + String((m && m.because) || '').slice(0, NEEDS_KEY_WORDS) : reason;
+}
+/* #6341: is this member red here for a reason not counted here (the rows #5692 lists after the counted ones)? */
+function needsRedElsewhere(m) {
+  return m.restartFailed === true || m.state === 'needs_you' || m.state === 'needs_trust'
+    || m.state === 'connection_lost' || Boolean(m.ownBound && m.ownBound.raised === true);
 }
 /* #6341 review 1: how long a dismissed reason must stay away before the dismissal is dropped. One read without it is not
    enough: a reconnect phase or a crash-loop reading can flicker between polls, and dropping on the first flicker would
@@ -1168,12 +1180,15 @@ function describe(project, roster, all) {
   const quiet = needsQuietContext(project);
   for (const m of members) {
     const why = needsYouReason(m, project.id);
-    const hidden = why === null ? null : needsQuietBecause(why, m.sessionName, quiet);
+    const hidden = why === null ? null : needsQuietBecause(why, m, quiet);
     m.needsYouHere = hidden ? null : why;
+    m.needsYouKey = needsDismissKey(why, m);   // what the page sends back to dismiss this member's row
     m.needsYouQuiet = hidden ? { reason: why, because: hidden }
-      // A dismissed 'elsewhere' row (no counted reason here), or any member of a paused project: the page lists neither.
+      // A dismissed 'elsewhere' row (no counted reason here), any member of a paused project, or (review 5) one red
+      // for another project in a room silent for a day: the page lists none of them.
       : why === null && quiet.dismissed[m.sessionName] === 'elsewhere' ? { reason: 'elsewhere', because: 'dismissed' }
-        : why === null && quiet.paused ? { reason: 'elsewhere', because: 'paused' } : null;
+        : why === null && quiet.paused ? { reason: 'elsewhere', because: 'paused' }
+          : why === null && m.present && m.tied && needsRedElsewhere(m) && !quiet.live ? { reason: 'elsewhere', because: 'inactive' } : null;
   }
   /* #6341: a dismissal lasts while its reason stands. Once the member's reason has been gone or different for
      NEEDS_GONE_MS (review 1: not on one flickering read), it is dropped, so the same reason coming back later (a new
@@ -1181,15 +1196,13 @@ function describe(project, roster, all) {
      cannot see now has not been shown to be over it. `needsDismissGone` records when each one was first seen gone.
      'elsewhere' stands while the member is still red here for a reason not counted here (review 3: not merely while
      nothing is counted, which a recovered agent also is, so it never lapsed). */
-  const redElsewhere = (m) => m.restartFailed === true || m.state === 'needs_you' || m.state === 'needs_trust'
-    || m.state === 'connection_lost' || Boolean(m.ownBound && m.ownBound.raised === true);
   const verdict = {};   // name -> 'drop' | 'stand' | ISO time first seen gone
   for (const name of Object.keys(quiet.dismissed)) {
     const m = members.find((x) => x.sessionName === name);
     if (!m) { verdict[name] = 'drop'; continue; }   // no longer a member
     if (!m.present || !m.tied) continue;   // not judged: whatever is stored stays as it is
     const why = needsYouReason(m, project.id);
-    const standing = quiet.dismissed[name] === 'elsewhere' ? why === null && redElsewhere(m) : why === quiet.dismissed[name];
+    const standing = quiet.dismissed[name] === 'elsewhere' ? why === null && needsRedElsewhere(m) : needsDismissKey(why, m) === quiet.dismissed[name];
     if (standing) { verdict[name] = 'stand'; continue; }
     const since = Date.parse(quiet.gone[name]);
     if (Number.isFinite(since) && quiet.now - since >= NEEDS_GONE_MS) verdict[name] = 'drop';
@@ -2843,7 +2856,11 @@ function cleanParent(value, childId) {
 const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'other', 'elsewhere'];
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
-  if (!NEEDS_REASONS.includes(reason)) throw new Error('that is not a reason a project shows');
+  // A question's key carries its words ('question:<words>', needsDismissKey); every other reason is the bare reason.
+  const base = typeof reason === 'string' ? reason.split(':')[0] : '';
+  const ok = typeof reason === 'string' && NEEDS_REASONS.includes(base)
+    && (base === 'question' ? reason.startsWith('question:') && reason.length <= 'question:'.length + NEEDS_KEY_WORDS : reason === base);
+  if (!ok) throw new Error('that is not a reason a project shows');
   const stored = readAll();
   const at = stored.findIndex((p) => p.id === projectId);
   if (at < 0) throw new Error('no such project');

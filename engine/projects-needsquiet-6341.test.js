@@ -152,7 +152,7 @@ test('#6341 review 4: a gone mark that is not a time is repaired once, not rewri
   reset();
   const p = projects.create({ name: 'Bent', folder: folder('bent'), agents: ['bt61'] });
   roomPost(p.id);
-  projects.dismissNeeds(p.id, 'bt61', 'question');
+  projects.dismissNeeds(p.id, 'bt61', 'question:Which size?');
   setStored(p.id, { needsDismissGone: { bt61: 'not a time' } });
   const roster = looping('bt61');   // a different reason: the grace applies
   one(roster, p.id);
@@ -180,11 +180,13 @@ test('#6341: a dismissal hides that reason, and a different reason comes back an
   assert.equal(selfreport.record('qd61', { state: 'needs_you', because: 'Which colour?', project: p.id }).recorded, true);
   const asking = cards([fleet.agent('qd61', { state: 'needs_you' })]);
   assert.equal(one(asking, p.id).summary.needsYou, 1, 'CONTROL');
-  assert.deepEqual(projects.dismissNeeds(p.id, 'qd61', 'question'), { qd61: 'question' });
+  const key = member(one(asking, p.id), 'qd61').needsYouKey;
+  assert.equal(key, 'question:Which colour?', 'a question\'s key carries its words');
+  assert.deepEqual(projects.dismissNeeds(p.id, 'qd61', key), { qd61: key });
   let r = one(asking, p.id);
   assert.equal(r.summary.needsYou, 0, 'a dismissed question still counted');
   assert.deepEqual(member(r, 'qd61').needsYouQuiet, { reason: 'question', because: 'dismissed' });
-  assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { qd61: 'question' }, 'kept while the reason stands');
+  assert.deepEqual(projects.readAll().find((x) => x.id === p.id).needsDismissed, { qd61: key }, 'kept while the reason stands');
   // The reason changes: the agent is now in a crash loop in a live room. That is news: shown at once.
   selfreport.record('qd61', { state: 'working', because: '', project: p.id });
   r = one(looping('qd61'), p.id);
@@ -192,7 +194,7 @@ test('#6341: a dismissal hides that reason, and a different reason comes back an
   assert.equal(r.summary.needsYou, 1);
   // Review 1: the dismissal is not dropped on one read (a reading can flicker); its gone mark is set.
   let rec = projects.readAll().find((x) => x.id === p.id);
-  assert.deepEqual(rec.needsDismissed, { qd61: 'question' }, 'one read without the reason dropped the dismissal');
+  assert.deepEqual(rec.needsDismissed, { qd61: key }, 'one read without the reason dropped the dismissal');
   assert.ok(Number.isFinite(Date.parse(rec.needsDismissGone && rec.needsDismissGone.qd61)), 'no gone mark was set');
   // The question back within the grace: still dismissed, and the gone mark cleared.
   r = one(asking, p.id);
@@ -206,6 +208,32 @@ test('#6341: a dismissal hides that reason, and a different reason comes back an
   assert.equal(rec.needsDismissed, undefined, 'a dismissal whose reason stayed away past the grace was kept');
   assert.equal(rec.needsDismissGone, undefined);
   assert.equal(one(asking, p.id).summary.needsYou, 1, 'the question, back after the dismissal lapsed, was hidden');
+});
+
+test('#6341 review 5: the agent\'s NEXT question about this project is shown, though the last one was dismissed', () => {
+  reset();
+  const p = projects.create({ name: 'Next', folder: folder('next'), agents: ['nq61'] });
+  roomPost(p.id);
+  selfreport.record('nq61', { state: 'needs_you', because: 'Which colour?', project: p.id });
+  const first = cards([fleet.agent('nq61', { state: 'needs_you' })]);
+  projects.dismissNeeds(p.id, 'nq61', member(one(first, p.id), 'nq61').needsYouKey);
+  assert.equal(one(first, p.id).summary.needsYou, 0, 'CONTROL: the dismissed question is hidden');
+  selfreport.record('nq61', { state: 'needs_you', because: 'Which font?', project: p.id });
+  const r = one(cards([fleet.agent('nq61', { state: 'needs_you' })]), p.id);
+  assert.equal(member(r, 'nq61').needsYouHere, 'question', 'a new question stayed hidden behind the last one\'s dismissal');
+  assert.equal(r.summary.needsYou, 1);
+});
+
+test('#6341 review 5: a member red here for another project is not listed in a room silent for a day', () => {
+  reset();
+  const p = projects.create({ name: 'Hush', folder: folder('hush'), agents: ['hx61'] });
+  const other = projects.create({ name: 'Elsewhere', folder: folder('hush-other'), agents: ['hx61'] });
+  setStored(p.id, { createdAt: OLD() });
+  selfreport.record('hx61', { state: 'needs_you', because: 'Which font?', project: other.id });
+  const roster = cards([fleet.agent('hx61', { state: 'needs_you' })]);
+  assert.deepEqual(member(one(roster, p.id), 'hx61').needsYouQuiet, { reason: 'elsewhere', because: 'inactive' });
+  roomPost(p.id);
+  assert.equal(member(one(roster, p.id), 'hx61').needsYouQuiet, null, 'CONTROL: a live room lists it');
 });
 
 test('#6341: a dismissal is not judged on an agent the board cannot see', () => {
@@ -250,28 +278,31 @@ test('#6341 review 3: a Dismiss pressed between a read and its upkeep write is n
   reset();
   const p = projects.create({ name: 'Race', folder: folder('race'), agents: ['rc61'] });
   roomPost(p.id);
-  projects.dismissNeeds(p.id, 'rc61', 'question');
+  projects.dismissNeeds(p.id, 'rc61', 'question:Which size?');
   const roster = looping('rc61');   // the reason is now different: the upkeep wants to start the grace
   one(roster, p.id);
   const snapshot = projects.readAll().find((x) => x.id === p.id);
   assert.ok(snapshot.needsDismissGone && snapshot.needsDismissGone.rc61, 'CONTROL: the grace started');
   setStored(p.id, { needsDismissGone: { rc61: ago(11 * 60 * 1000) } });
   const stale = projects.readAll().find((x) => x.id === p.id);   // a read taken before the person presses Dismiss again
-  projects.dismissNeeds(p.id, 'rc61', 'question');   // pressed again: its gone mark is cleared
+  projects.dismissNeeds(p.id, 'rc61', 'question:Which size?');   // pressed again: its gone mark is cleared
   projects.describe(stale, roster, projects.readAll());   // the older read's upkeep would drop it (its mark is 11 min old)
   const after = projects.readAll().find((x) => x.id === p.id);
-  assert.deepEqual(after.needsDismissed, { rc61: 'question' }, 'a fresh dismissal was dropped by an older read\'s upkeep');
+  assert.deepEqual(after.needsDismissed, { rc61: 'question:Which size?' }, 'a fresh dismissal was dropped by an older read\'s upkeep');
   assert.equal(after.needsDismissGone, undefined, 'an older read restored a gone mark the fresh dismissal had cleared');
 });
 
 test('#6341: dismissNeeds refuses what the page cannot have shown', () => {
   reset();
   const p = projects.create({ name: 'Ref', folder: folder('ref'), agents: ['rf61'] });
-  assert.throws(() => projects.dismissNeeds(p.id, 'stranger', 'question'), /not on this project/);
+  assert.throws(() => projects.dismissNeeds(p.id, 'stranger', 'question:Which?'), /not on this project/);
   assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'made_up'), /not a reason/);
   assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'stuck_rate'), /not a reason/, 'out of usage is never shown on a project, so never dismissed there');
-  assert.throws(() => projects.dismissNeeds('no-such', 'rf61', 'question'), /no such project/);
-  assert.throws(() => projects.dismissNeeds(p.id, '', 'question'), /which agent/);
+  assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'question'), /not a reason/, 'a question without its words would hide every later question');
+  assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'crash_loop:extra'), /not a reason/);
+  assert.throws(() => projects.dismissNeeds(p.id, 'rf61', 'question:' + 'x'.repeat(400)), /not a reason/, 'a key longer than the engine ever makes');
+  assert.throws(() => projects.dismissNeeds('no-such', 'rf61', 'question:Which?'), /no such project/);
+  assert.throws(() => projects.dismissNeeds(p.id, '', 'question:Which?'), /which agent/);
   assert.equal(projects.readAll().find((x) => x.id === p.id).needsDismissed, undefined, 'a refused dismissal wrote something');
 });
 
@@ -347,11 +378,27 @@ test('#6341 review 3: a retry of a playbook that did not land still says the roo
   assert.doesNotMatch(texts[0][1], /could be reached/);
 });
 
+test('#6341 review 5: an earlier note that asked nobody is said as that, not as replies to read', () => {
+  const card = { sessionName: 'sn61', name: 'Sol', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'rn', because: 'Need the brief' };
+  const members = new Map([['rn', ['sn61', 'pn61']]]);
+  const setting = { on: true };
+  const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed', COULD_NOT: 'could_not' };
+  const run = (got) => {
+    const first = recommender.step({ prev: undefined, roster: [card, { sessionName: 'pn61', name: 'Pip', state: 'idle' }], setting, members, now: 0 });
+    const texts = {};
+    recommender.runOnce({ prev: first.next, roster: [card, { sessionName: 'pn61', name: 'Pip', state: 'idle' }], setting, members, now: recommender.GRACE_MS + 1,
+      roomNote: () => true, deliver: (s, t) => { texts[s] = t; return { state: 'placed' }; }, DELIVERY, alreadyNoted: () => got });
+    return texts.sn61;
+  };
+  assert.match(run({ asked: [] }), /nobody else could be asked then, so decide it yourself now/);
+  assert.match(run({ asked: ['pn61'] }), /asked the others then\. Read the room/, 'CONTROL: a note that asked someone says so');
+});
+
 test('#6341: recommenderNoted reads the room on disk, by agent, words, project and age', () => {
   reset();
   messages.roomNote('rp', 'Recommender: Stu is stuck.', { recommender: { stuck: 'st61', asked: [], because: 'Need the brief' } });
   const week = Date.now() - 7 * 24 * HOUR;
-  assert.equal(messages.recommenderNoted('rp', 'st61', 'Need the brief', week), true);
+  assert.deepEqual(messages.recommenderNoted('rp', 'st61', 'Need the brief', week), { asked: [] }, 'the note and who it asked');
   assert.equal(messages.recommenderNoted('rp', 'st61', 'Need the logo', week), false, 'other words matched');
   assert.equal(messages.recommenderNoted('rp', 'other', 'Need the brief', week), false, 'another agent matched');
   assert.equal(messages.recommenderNoted('zz', 'st61', 'Need the brief', week), false, 'another room matched');
