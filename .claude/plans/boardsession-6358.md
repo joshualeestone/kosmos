@@ -193,3 +193,18 @@ header. A sender that set the cookie to the token would now be refused, and its 
   7-day cap holds. Every minting caller already sends the header. Server test added, mutation-checked.
 - An app from before #6358 that is still running after the update (kosmosBadge bridge, no kosmosSignin) gets the
   Command-Q line, not the tab copy.
+
+## Round 22 (Sonnet): what a session may do, decided
+- **Call:** a session acts for the person in the dashboard, with the same authority the page has. What it may not do is
+  MINT a credential that outlives it. So `POST /api/board-nonce` and `POST /api/agent-token` are judged on the header
+  or query token alone (`boardTokenOkWithoutCookie`); no page calls either, and their callers send the header.
+- **Kept on purpose:** `POST /api/federation/invite`, `POST /api/accounts/share` and `POST /api/remote/devices/allow` are
+  page actions (the page calls them), so a session may make them, as the person would by clicking. Before #6358 the
+  cookie WAS the durable token, with no expiry, so a cookie holder could do all of this and more; sessions narrow that.
+- **Rejected:** requiring the header token on every durable grant. It would break the dashboard's own share, invite and
+  allow buttons, which have only the cookie.
+- **Weakest premise:** that "no page calls it" stays true. A future page feature calling agent-token would need a
+  different design (a header the page cannot get), not the cookie.
+- **Would change my mind:** a page route that hands back a credential in its response body to a session.
+- Tests: a session cookie alone is refused on both routes and the token is not; both guards mutation-checked.
+  1635/1635 across the 127 test files that reach agent-token, and 161/161 in the auth set.

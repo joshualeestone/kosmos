@@ -79,6 +79,23 @@ test('#6358: a session cookie alone cannot mint a nonce (a nonce redeems for a N
   assert.equal(both.code, 200, 'the board token still mints, cookie or not');
 });
 
+test('#6358: a session cookie alone cannot mint an agent token either (it outlives the session); the board token can', async () => {
+  const signIn = await nav('/?token=' + TOK);
+  const sid = ((signIn.setCookie || '').match(/kosmos_board=([0-9a-f]{64})/) || [])[1];
+  assert.ok(sid, 'a sign-in gives a session cookie: ' + signIn.setCookie);
+  const post = async (headers) => {
+    const res = await fetch(base + '/api/agent-token', { method: 'POST', headers: Object.assign({ 'content-type': 'application/json' }, headers), body: JSON.stringify({ name: 'remote-6358' }) });
+    let json = {};
+    try { json = JSON.parse(await res.text()); } catch { /* leave {} */ }
+    return { code: res.status, json };
+  };
+  const bySession = await post({ cookie: 'kosmos_board=' + sid });
+  assert.equal(bySession.code, 403, 'a session must not mint a credential that outlives it');
+  assert.equal(bySession.json.token, undefined);
+  const byToken = await post({ cookie: 'kosmos_board=' + sid, 'x-kosmos-board-token': TOK });
+  assert.equal(byToken.code, 200, 'CONTROL: the board token still mints one: ' + JSON.stringify(byToken.json));
+});
+
 test('a minted nonce redeems: GET /?boot=<nonce> is a 302 that sets the cookie and strips boot', async () => {
   const m = await mint({ 'x-kosmos-board-token': TOK });
   const r = await nav(`/?first-run=1&boot=${m.nonce}`);

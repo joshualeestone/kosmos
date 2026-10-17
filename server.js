@@ -1022,6 +1022,13 @@ function* proofAgentTokens(k) {
   c.ids = ids;
   if (ids.has(k)) yield ids.get(k);
 }
+/* #6358: the gate judged on the request's header or query token alone, its cookie removed. For the few routes that
+   MINT a credential which outlives a browser session (a board nonce, an agent token): a session acts for the person
+   in the dashboard, but it must not mint what outlasts it. No page calls these routes; their callers send the header.
+   Built field by field: headers can be a getter on the request. */
+function boardTokenOkWithoutCookie(req) {
+  return boardTokenOk({ url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) });
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -5660,10 +5667,8 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
     /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
        a session cookie. Otherwise a session could mint its own successor and outlast SESSION_MAX_MS for as long as
-       the board stays up. Every minting caller (kosmos open, open-board.js, the staging check) sends the header. The
-       gate is judged on a copy of the request with no cookie, built field by field (headers can be a getter). */
-    const noCookie = { url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) };
-    if (boardAuthState.on && !boardTokenOk(noCookie)) {
+       the board stays up. Every minting caller (kosmos open, open-board.js, the staging check) sends the header. */
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
@@ -16465,6 +16470,11 @@ const server = http.createServer(async (req, res) => {
      lists that name. The operator hands the returned token to the
      remote agent as KOSMOS_AGENT_TOKEN. */
   if (pathname === '/api/agent-token' && req.method === 'POST') {
+    // #6358: an agent token outlives any browser session, so a session cookie alone does not mint one.
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     readBody(req)
       .then((buf) => {
         let body;
