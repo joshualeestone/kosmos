@@ -478,52 +478,57 @@ function heardBy(projectId, t, who, sentence, roster, deliver = chat.deliver, no
   return sent && typeof sent.then === 'function' ? sent.then(answer, failed) : answer(sent);
 }
 /* #6330 slice 1: an agent's built mark tells the people the work is handed to, so nobody has to poll for it: the task's
-   other assignees, and its parent task's assignees (or, with none, whoever holds the parent through its own parents,
-   tasks.ownerIn). The marker is never told about its own mark. Recipients pass the same filters a task message uses:
-   a swarm switched off in this project is not told (projects.swarmOffSet), and an assignee who has left the project is
-   not told either, and both are said in the answer. One line each, through chat.deliver; the built-mark valve the route
-   already applies bounds how often. Returns the per-agent outcomes, or an empty list when nobody else is on it. */
-function tellBuiltMark(projectId, t, by, byKey, roster) {
+   other assignees, and the parent task's open holders who are still on the project (or, with none, whoever holds the
+   parent through its own parents, tasks.ownerIn). An identified marker is not told about its own mark. Recipients go
+   through what a task message's do (#768): a swarm switched off in this project is not told, an assignee who left the
+   project is not told, both are said in the answer, and a line to an agent out of usage is kept and typed after its
+   reset (messages.keepTaskLine, #5805); the rest go through chat.deliverAsync. The route's built-mark valve limits how
+   many marks an agent makes, not how many lines one mark sends. Returns the per-agent outcomes ([] when nobody else is
+   on it). */
+async function tellBuiltMark(projectId, t, by, byKey, roster) {
   if (!t || typeof t.number !== 'number') return [];
   let rec = null;
   try { rec = projects.readAll().find((x) => x && x.id === projectId) || null; } catch { rec = null; }
   if (!rec) return [];
   const notMe = (m) => !(by && sameAgentName(m, by, byKey));
+  const member = (m) => projectHasAgent(rec, String(m), false);
   const others = tasks.whoOf(t).filter(notMe);
   const parentNum = tasks.parentOf(rec, t);
   const parent = parentNum === null ? null : tasks.byNumber(rec, parentNum);
   let parentWho = [];
   if (parent && !tasks.progressOf(parent).closed) {
-    parentWho = tasks.whoOf(parent);
+    parentWho = [...new Set(tasks.partsOf(parent).filter((x) => x && x.who && !x.closedAt).map((x) => x.who))].filter(member);
     if (!parentWho.length) {
-      const members = new Set((rec.agents || []).map(String));
-      const owned = tasks.ownerIn(tasks.treeOf(rec), parent, members);
+      const owned = tasks.ownerIn(tasks.treeOf(rec), parent, new Set((rec.agents || []).map(String)));
       parentWho = owned ? owned.who : [];
     }
   }
-  const forParent = parentWho.filter(notMe).filter((m) => !others.includes(m));
+  const forParent = parentWho.filter(notMe).filter((m) => !others.some((o) => sameAgentName(o, m, false)));
   const everyone = others.concat(forParent);
   if (!everyone.length) return [];
   const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
   const projName = clean(rec.name || projectId);
   const who = clean(by) || 'An agent';
   const offHere = projects.swarmOffSet(projectId);
-  const departed = (m) => !projectHasAgent(rec, String(m), false);
   const note = clean(t.builtNote || '');
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + parent.number + ')' : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
-  const fits = (m) => lineFor(m, note).length <= messages.spillLimit();
   const out = [];
   for (const m of everyone) {
     if (offHere.has(String(m))) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: projects.SWARM_OFF_SENTENCE(m) }); continue; }
-    if (departed(m)) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' }); continue; }
-    const line = lineFor(m, fits(m) ? note : note.slice(0, 140) + '...');
-    let sent;
-    try { sent = chat.deliver(m, line, roster); }
-    catch (err) { sent = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
-    out.push({ agent: m, state: sent && sent.state, because: (sent && sent.because) || null });
+    if (!member(m)) { out.push({ agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' }); continue; }
+    const line = lineFor(m, note);
+    let outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
+      { projectId, task: t.number, person: false });
+    if (!outcome) {
+      try { outcome = await chat.deliverAsync(m, line, roster); }
+      catch (err) { outcome = { state: chat.DELIVERY.COULD_NOT, because: String((err && err.message) || 'we could not reach that agent') }; }
+    }
+    out.push({ agent: m, state: outcome && outcome.state, because: (outcome && outcome.because) || null,
+      ...(outcome && outcome.state === messages.HELD_STATE ? { heldUntil: outcome.heldUntil || null } : {}),
+      ...(outcome && outcome.heldFor === 'signin' ? { heldFor: 'signin' } : {}) });
   }
   return out;
 }
@@ -21615,7 +21620,7 @@ const server = http.createServer(async (req, res) => {
   if (taskBuilt && req.method === 'POST') {
     const id = decodeSegment(taskBuilt[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    readBody(req).then((raw) => {
+    readBody(req).then(async (raw) => {   // #6330: async, for the lines a new mark sends (chat.deliverAsync)
       let body = null;
       try { body = JSON.parse(raw || '{}'); } catch { body = null; }
       if (!body || typeof body !== 'object' || Array.isArray(body)) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
@@ -21675,8 +21680,15 @@ const server = http.createServer(async (req, res) => {
       }
       if (!viaScreen && out.changed) builtMarks.push(Date.now());
       /* #6330: an agent's new mark (not a clear, not the same mark again) tells the people the work goes to. */
-      const delivered = !viaScreen && body.clear !== true && out.changed === true
-        ? tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster) : null;
+      let delivered = null;
+      if (!viaScreen && body.clear !== true && out.changed === true) {
+        /* The mark is recorded by now, so nothing here may fail it: a throw answers 200 with nobody told. */
+        try { delivered = await tellBuiltMark(id, out.task, by, panelessCaller(tokenSender), roster); }
+        catch (err) {
+          process.stderr.write('task built: could not tell the people task ' + out.task.number + ' goes to: ' + ((err && err.message) || err) + '\n');
+          delivered = [];
+        }
+      }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered } : {}) });
     }).catch((err) => {
       sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') });

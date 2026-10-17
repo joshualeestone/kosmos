@@ -176,6 +176,120 @@ test('the typed line says who marked which task built, the note, how to reply, a
   }
 });
 
+test('a parent nobody holds directly hands to whoever holds it through its own parents (tasks.ownerIn)', async () => {
+  const top = tasks.create(projectId, { sentence: 'Open the store', who: 'ivy' }).number;
+  const middle = tasks.create(projectId, { sentence: 'Set up payments', parent: top }).number;
+  const leaf = tasks.create(projectId, { sentence: 'Add the card form', who: 'mona', parent: middle }).number;
+  const r = await mark(leaf, asAgent('mona'));
+  assert.deepEqual(told(r), ['ivy'], 'the holder up the tree was not told: ' + JSON.stringify(r.json));
+});
+
+test('a swarm switched off in this project is not told, and the answer says why', async () => {
+  const n = tasks.create(projectId, { sentence: 'Update the docs', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Proofread', who: 'zed' });
+  tasks.addPart(projectId, n, { sentence: 'Screenshots', who: 'ivy' });
+  projects.setSwarmOn(projectId, 'zed', false);
+  try {
+    const r = await mark(n, asAgent('mona'));
+    const zed = r.json.delivered.find((d) => d.agent === 'zed');
+    assert.equal(zed.state, 'could_not');
+    assert.equal(zed.because, projects.SWARM_OFF_SENTENCE('zed'));
+    // CONTROL: ivy on the same task was attempted, not filtered.
+    assert.notEqual(r.json.delivered.find((d) => d.agent === 'ivy').because, projects.SWARM_OFF_SENTENCE('ivy'), JSON.stringify(r.json));
+  } finally {
+    projects.setSwarmOn(projectId, 'zed', true);
+  }
+});
+
+test('quotes and newlines in a note cannot break the line or its reply instruction', async () => {
+  const chat = require('./engine/chat');
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    const n = tasks.create(projectId, { sentence: 'Fix the banner', who: 'mona' }).number;
+    tasks.addPart(projectId, n, { sentence: 'Check it', who: 'zed' });
+    const r = await mark(n, asAgent('mona'), { note: 'said "done"\nbut "check" it' });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const typed = pastedMessages(sends);
+    assert.equal(typed.length, 1, JSON.stringify(typed));
+    const quoted = typed[0].match(/built: "([^"]*)" - reply in the task: kosmos task message \S+ \d+ "\.\.\."$/);
+    assert.ok(quoted, 'the line lost its framing: ' + typed[0]);
+    assert.doesNotMatch(quoted[1], /["\n]/);
+  } finally {
+    chat.resetForTests();
+  }
+});
+
+test('a failure while working out who to tell never fails the mark: 200, recorded, nobody told', async () => {
+  const n = tasks.create(projectId, { sentence: 'Archive the old site', who: 'mona' }).number;
+  tasks.addPart(projectId, n, { sentence: 'Redirects', who: 'zed' });
+  const real = projects.swarmOffSet;
+  projects.swarmOffSet = () => { throw new Error('the store could not be read'); };
+  try {
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.deepEqual(r.json.delivered, []);
+    assert.equal(tasks.byNumber(projects.readAll().find((x) => x.id === projectId), n).builtBy, 'mona', 'the mark was not recorded');
+  } finally {
+    projects.swarmOffSet = real;
+  }
+});
+
+/* As server.limittask-5805.test.js builds an agent out of usage: its card says rate_limited, its pane shows the limit. */
+function chicagoDay(ms) {
+  const p = {};
+  for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }).formatToParts(new Date(ms))) p[x.type] = x.value;
+  return `${p.month} ${p.day}`;
+}
+const RULE = '─'.repeat(80) + '\n';
+const LIMIT_SCREEN = '❯ hello\n'
+  + `  ⎿  You've hit your weekly limit · resets ${chicagoDay(Date.now() + 3 * 24 * 3600e3)} at 3pm (America/Chicago)\n`
+  + '✻ Sautéed for 0s · done 10:35 PM\n' + RULE + '❯ \n' + RULE + '  zed · Opus 4.8 · 7d 100%\n';
+
+test('an agent out of usage is not typed into: its line is kept (#5805), and an idle one is typed into', async () => {
+  const chat = require('./engine/chat');
+  const messages = require('./engine/messages');
+  const limitqueue = require('./engine/limitqueue');
+  limitqueue.resetForTests();
+  fleet.install([
+    fleet.agent('mona', { state: 'idle' }), fleet.agent('ivy', { state: 'idle' }),
+    fleet.agent('zed', { state: 'rate_limited', runner: 'claude', command: 'claude', screen: LIMIT_SCREEN }),
+  ]);
+  const sends = [];
+  try {
+    chat.setRunner((args) => {
+      sends.push(args);
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: args.join(' ').includes('zed') ? LIMIT_SCREEN : '', err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    chat.setPauser(() => {});
+    const n = tasks.create(projectId, { sentence: 'Ship the newsletter', who: 'mona' }).number;
+    tasks.addPart(projectId, n, { sentence: 'Write it', who: 'zed' });
+    tasks.addPart(projectId, n, { sentence: 'Send it', who: 'ivy' });
+    const r = await mark(n, asAgent('mona'));
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    const zed = r.json.delivered.find((d) => d.agent === 'zed');
+    assert.equal(zed.state, messages.HELD_STATE, 'the limited agent was not kept: ' + JSON.stringify(zed));
+    assert.equal(limitqueue.list('zed').length, 1, 'nothing kept for zed');
+    // CONTROL: the idle assignee on the same task was typed into.
+    assert.equal(r.json.delivered.find((d) => d.agent === 'ivy').state, 'placed', JSON.stringify(r.json));
+    assert.equal(pastedMessages(sends).length, 1, 'only ivy is typed into: ' + JSON.stringify(pastedMessages(sends)));
+  } finally {
+    chat.resetForTests();
+    messages.resetForTests();
+    limitqueue.resetForTests();
+    // Back to this file's fleet (not board.restore(): that returns the roster from before, which later tests cannot use).
+    fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('zed', { state: 'idle' }), fleet.agent('ivy', { state: 'idle' })]);
+  }
+});
+
 test('alone on a task with no parent: an empty list, nothing sent', async () => {
   const n = tasks.create(projectId, { sentence: 'Rename a file', who: 'mona' }).number;
   const r = await mark(n, asAgent('mona'));
