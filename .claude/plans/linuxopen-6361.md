@@ -41,3 +41,10 @@ onto main once that lands; never merge first. Renet handed the card over and rev
   no terminal prints no nonce and exits 1; no display at a terminal (script(1)) prints it; a non-enforcing board gives
   the plain address; a failed proof is neither opened nor printed even at a terminal with a display; the macOS opener
   is unchanged. Mutants: the original cmd_open reds 5 of 6; dropping the terminal guard reds the no-terminal arm.
+
+## Follow-up copy (PigeonPete, 07:23)
+boardsession-6358 (#6358) adds Linux copy to the not-signed-in panel in web/index.html: "Signing a local browser tab
+back in is not available on Linux yet", pinned in web.win32-board-copy.test.js (a match on that sentence and a
+doesNotMatch on /kosmos open/). This card makes that sentence false. Merge order is Renet, Kitty, then 6358: if #6361
+lands after 6358, changing that copy and its pins (the full-path `kosmos open`, then Reload) is this card's; if it
+lands first, tell PigeonPete and he updates it on his branch.
