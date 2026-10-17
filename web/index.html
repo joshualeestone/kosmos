@@ -2206,7 +2206,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-check { flex: none; width: 13px; height: 13px; color: var(--gold); visibility: hidden; }
 .worldsw-row[aria-current="true"] .worldsw-check { visibility: visible; }
 /* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
-a[data-computer-open][aria-busy="true"] { cursor: progress; opacity: .6; }
+a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: underline dotted; }
 .worldsw-row[aria-current="true"] { font-weight: 600; }
 .worldsw-rowname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .worldsw-new { display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 4px; padding: 9px 8px 5px;
@@ -30645,6 +30645,20 @@ function computersLinkTarget(a) {
    paired with the codes compared there); otherwise, or when anything here fails, the plain address opens and asks for
    a sign-in as before. A modified click (new tab, new window) and a browser keep the plain link. */
 let computersOpening = false;
+/* Review 4: a script navigation ignores the link's rel=noreferrer and would send this board's address as Referer to
+   the other computer. A throwaway unmarked link that says noreferrer goes instead (computersOpenClick ignores it: it
+   has no data-computer-open). Where there is no page to put it in, the plain assign. */
+function computersGo(to) {
+  try {
+    const l = document.createElement('a');
+    l.href = to;
+    l.rel = 'noreferrer';
+    l.hidden = true;
+    document.body.appendChild(l);
+    l.click();
+    l.remove();
+  } catch { window.location.assign(to); }
+}
 function computersOpenClick(e) {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const a = e.target && e.target.closest ? e.target.closest('a[data-computer-open]') : null;
@@ -30653,7 +30667,7 @@ function computersOpenClick(e) {
   try { url = new URL(a.href); } catch { return; }
   if (url.protocol !== 'https:') return;
   e.preventDefault();
-  if (computersOpening) return;   // one at a time: a second click waits for the first
+  if (computersOpening) return;   // one at a time: a click while one is out is ignored
   computersOpening = true;
   // Said while the ticket is made (review 2: up to 8 s of a link that looked dead).
   try { a.setAttribute('aria-busy', 'true'); } catch {}
@@ -30664,7 +30678,7 @@ function computersOpenClick(e) {
     settled = true;
     computersOpening = false;
     try { a.removeAttribute('aria-busy'); } catch {}
-    window.location.assign(to);
+    computersGo(to);
   };
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   // The plain address after 8 s whatever the fetch does (with or without AbortController).

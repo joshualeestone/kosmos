@@ -16,11 +16,13 @@ plain address as before.
 - web/index.html: computersLinkTarget marks every such link (`data-computer-open`, an attribute so a copied row keeps
   it); one document click listener (computersOpenClick) takes a plain left click on a marked https link in the app,
   POSTs `/api/remote/open-ticket {address}`, and goes to the address with the ticket, or without it on any failure
-  (8 s cut). One at a time.
+  (8 s cut). One at a time (a click while one is out is ignored). The navigation goes through a throwaway
+  noreferrer link (computersGo), so this board's address is not sent as Referer (review 4).
 - server.js `POST /api/remote/open-ticket`: refused (403) unless the request was made on this computer's own screen:
-  isViaScreen (no agent token, a browser's header) AND not through Kosmos+ (the tunnel sets x-forwarded-host and
-  x-forwarded-for on everything it forwards, replacing whatever a visitor sent; pinned by a test in the relay's
-  openticket-6406 branch). So a phone let in to this computer cannot use this computer's key to reach the others. The address must be one an account's computer can have
+  isViaScreen (no agent token, a browser's header) AND madeOnThisComputer (review 4: loopback Host AND loopback
+  Origin AND no forwarding header; Kosmos+ sets x-forwarded-for on everything and x-forwarded-host on all but a
+  webhook, pinned by a test in the relay's openticket-6406 branch). A reverse proxy of the person's own fails the
+  Origin half even if it adds no header or rewrites Host. So a phone let in to this computer cannot use this computer's key to reach the others. The address must be one an account's computer can have
   (account-computers validAddress under the coordinator's domain).
 - engine/remote.js openTicket: `open-ticket --state-dir --to https://<address>`, local only; only a base64url ticket
   is handed back.
@@ -69,3 +71,6 @@ plain address as before.
   script-navigation limits stated.
 - 3 sonnet: the 8 s fallback tested (a request that never answers: one plain navigation, busy cleared, a late
   answer ignored). Not taken: a spoken busy state (the wait is short and ends in a navigation either way).
+- 4 opus: no Referer to the other computer (a throwaway noreferrer link; the browser check asserts the navigating
+  link's rel); "on this computer" is positive (madeOnThisComputer: loopback Host and Origin, nothing forwarded; a
+  person's own reverse proxy fails it; unit arms for each); the busy style keeps contrast; wording.

@@ -192,7 +192,8 @@ const FOUR = {
     // ---- Arm 4, #6406 step 2: in the app, a real click asks this computer for a ticket and opens the other computer
     //      with it in the fragment. LAST: it navigates away from the page. ----
     let landed = null;
-    await page.route('https://desk-mini.kosmosplus.example/**', (route) => { landed = route.request().url(); return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>desk-mini</title>' }); });
+    let landedReferer = null;
+    await page.route('https://desk-mini.kosmosplus.example/**', (route) => { landed = route.request().url(); landedReferer = route.request().headers().referer || ''; return route.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>desk-mini</title>' }); });
     await page.evaluate(async (four) => {
       try { Object.defineProperty(window, 'webkit', { value: { messageHandlers: { kosmosBadge: { postMessage() {} } } }, configurable: true, writable: true }); } catch {}
       window.__ticket = 'TkT_abcdefghijklmnopqrstuvwxyz-0123456789';
@@ -203,12 +204,19 @@ const FOUR = {
       for (let i = 0; i < 40 && (window.__computersServed || 0) <= before; i++) await new Promise((r) => setTimeout(r, 25));
       await new Promise((r) => setTimeout(r, 100));
     }, FOUR);
+    let goRel = null;
+    await page.exposeFunction('__noteGo', (rel) => { goRel = rel; }).catch(() => {});
+    await page.evaluate(() => { const real = HTMLAnchorElement.prototype.click; HTMLAnchorElement.prototype.click = function () { try { window.__noteGo(this.rel + '|' + this.hasAttribute('data-computer-open')); } catch {} return real.call(this); }; });
     const asked = page.waitForURL(/desk-mini\.kosmosplus\.example/, { timeout: 5000 }).catch(() => null);
     await page.click('#worldsw-computers-list a.worldsw-row[href="https://desk-mini.kosmosplus.example/"]');
     await asked;
     const url = page.url();
     ok(`${t} #6406 step 2: in the app, clicking another computer opens it with this computer's ticket (#kpt=)`,
       url === 'https://desk-mini.kosmosplus.example/#kpt=TkT_abcdefghijklmnopqrstuvwxyz-0123456789' && !!landed, JSON.stringify({ url, landed }));
+    /* Review 4: no Referer reaches the other computer. (This page is a file:// one, which sends none anyway; what the
+       arm adds is that the navigation went through a link that says noreferrer.) */
+    ok(`${t} #6406 step 2: no Referer reaches the other computer, and the navigation goes through an unmarked noreferrer link`,
+      landedReferer === '' && goRel === 'noreferrer|false', JSON.stringify({ landedReferer, goRel }));
 
     await page.close();
   }

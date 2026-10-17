@@ -11686,7 +11686,8 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
 });
 
 test('kosmos#6406: a ticket to open another computer is only for this computer\'s own screen, never through Kosmos+', async () => {
-  const page = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' };
+  // The app's page: a browser's header and this board's own loopback Origin (Node's fetch sends no Origin itself).
+  const page = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base };
   const body = JSON.stringify({ address: 'tmnt.kosmosplus.com' });
   for (const [what, headers, extra] of [
     ['a process', { 'content-type': 'application/json' }, {}],
@@ -11700,6 +11701,22 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
     assert.equal(r.status, 403, what + ' got a ticket: ' + r.body);
     assert.match(JSON.parse(r.body).error, /Only the Kosmos app on this computer can open another computer directly/, what);
   }
+  /* Review 4: "on this computer" is positive (loopback Host AND Origin, nothing forwarded), so a reverse proxy of the
+     person's own (AGENT_WORKFORCE_ALLOWED_HOSTS) that adds no header, or rewrites Host to loopback, still fails. */
+  const { madeOnThisComputer } = require('./server');
+  const here = { host: '127.0.0.1:16180', origin: 'http://127.0.0.1:16180' };
+  assert.equal(madeOnThisComputer(here), true, 'the app window on this computer');
+  assert.equal(madeOnThisComputer({ host: 'localhost:16180', origin: 'http://localhost:16180' }), true);
+  for (const [what, h] of [
+    ['a proxy name, no forwarded header', { host: 'board.example.com', origin: 'https://board.example.com' }],
+    ['a proxy that rewrites Host to loopback', { host: '127.0.0.1:16180', origin: 'https://board.example.com' }],
+    ['no Origin', { host: '127.0.0.1:16180' }],
+    ['no Host', { origin: 'http://127.0.0.1:16180' }],
+    ['x-forwarded-for', { ...here, 'x-forwarded-for': '203.0.113.9' }],
+    ['x-forwarded-host', { ...here, 'x-forwarded-host': 'laptop.kosmosplus.com' }],
+    ['Forwarded', { ...here, forwarded: 'for=203.0.113.9' }],
+    ['a look-alike name', { host: '127.0.0.1.evil.example', origin: 'http://127.0.0.1.evil.example' }],
+  ]) assert.equal(madeOnThisComputer(h), false, what);
   /* An address no computer of the account can have is refused before the tunnel. */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
