@@ -369,21 +369,26 @@ _rt_suite_max_of() {   # <value> -> a whole number from 1 to 999 ("08" is not oc
   v=$((10#$v)); [ "$v" -ge 1 ] || v=1
   printf '%s' "$v"
 }
-_rt_suite_max="$(_rt_suite_max_of "${KOSMOS_SUITE_MAX:-2}")"
-if command -v _kosmos_marker_dir >/dev/null 2>&1; then
-  _rt_cap_file="$(_kosmos_marker_dir)/suite-max"
-  if [ -e "$_rt_cap_file" ]; then
-    _rt_cap="$(head -1 "$_rt_cap_file" 2>/dev/null | tr -d '[:space:]')"
-    _rt_cap="$(_rt_suite_max_of "$_rt_cap")"
-    if [ "$_rt_cap" -lt "$_rt_suite_max" ]; then _rt_suite_max="$_rt_cap"; fi
+# The variable is read once here (it is unset before the tests); the file is read again on every poll of the wait
+# (_rt_box_clear), so a run already queued obeys a cap written while it waits.
+_rt_suite_own_max="$(_rt_suite_max_of "${KOSMOS_SUITE_MAX:-2}")"
+_rt_suite_max_now() {
+  local m="$_rt_suite_own_max" f cap
+  if command -v _kosmos_marker_dir >/dev/null 2>&1; then
+    f="$(_kosmos_marker_dir)/suite-max"
+    if [ -e "$f" ]; then
+      cap="$(_rt_suite_max_of "$(head -1 "$f" 2>/dev/null | tr -d '[:space:]')")"
+      if [ "$cap" -lt "$m" ]; then m="$cap"; fi
+    fi
   fi
-fi
+  printf '%s' "$m"
+}
 _rt_suite_check=1
 { [ "${KOSMOS_TESTS_IGNORE_SUITE:-0}" = 1 ] || _kosmos_pid_is_test_fixture "$$" "$0"; } 2>/dev/null && _rt_suite_check=0
 _rt_box_clear() {
   kosmos_refuse_if_machine_claimed "this test run" || return 1
   if [ "$_rt_suite_check" = 1 ]; then
-    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$((_rt_suite_max - 1))" || return 1
+    kosmos_refuse_if_suite_live "this test run" "KOSMOS_TESTS_IGNORE_SUITE=1 runs anyway" "$(($(_rt_suite_max_now) - 1))" || return 1
   fi
   if [ "${KOSMOS_TESTS_IGNORE_HARNESS:-0}" != 1 ]; then
     kosmos_refuse_if_harness_live "this test run" "KOSMOS_TESTS_IGNORE_HARNESS=1 runs anyway" || return 1

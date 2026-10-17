@@ -1230,6 +1230,21 @@ out="$(rt_e2e sprobe-two KOSMOS_SUITE_MAX=08)"; rc=$?
 { [ "$rc" -eq 1 ] && has "$out" "an install harness" && ! has "$out" "test suites (tools/run-tests.sh) are"; } \
   && pass "#6334 KOSMOS_SUITE_MAX=08 is eight, not an octal error" \
   || fail "#6334 KOSMOS_SUITE_MAX=08 did not allow two others (rc=$rc, $(printf '%s' "$out" | tail -3))"
+# #6334: a run already waiting obeys a cap file written while it waits (the file is read on every poll). Ask 1 sees two
+# live suites (it waits) and writes suite-max 1; ask 2 on sees one. Read once, the run would start at ask 2 and stop at
+# the stand-in harness; read on every poll, it keeps waiting and gives up at its bound naming the one suite.
+SMAXW="$T/smaxw"; mkdir -p "$SMAXW"
+cat > "$T/sprobe-capwhile" <<SH
+#!/bin/sh
+n=\$(cat "$SMAXW/asks" 2>/dev/null || echo 0); n=\$((n + 1)); echo "\$n" > "$SMAXW/asks"
+if [ "\$n" -eq 1 ]; then printf '1\\n' > "$SMAXW/suite-max"; printf '%s bash tools/run-tests.sh\\n%s bash tools/run-tests.sh\\n' "$SUITE" "$SUITE2"; exit 0; fi
+printf '%s bash tools/run-tests.sh\\n' "$SUITE"
+SH
+chmod +x "$T/sprobe-capwhile"
+out="$(rt_e2e sprobe-capwhile KOSMOS_RUN_MARKER_DIR="$SMAXW" KOSMOS_NO_WAIT=0 KOSMOS_WAIT_EVERY_S=1 KOSMOS_WAIT_MAX_S=3 KOSMOS_WAIT_QUEUE_CEIL_S=6)"; rc=$?
+{ [ "$rc" -eq 1 ] && [ "$(cat "$SMAXW/asks" 2>/dev/null || echo 0)" -ge 2 ] && has "$out" "a test suite (tools/run-tests.sh) is already running" && ! has "$out" "an install harness"; } \
+  && pass "#6334 a run already waiting obeys a suite-max written while it waits" \
+  || fail "#6334 a waiting run ignored a suite-max written while it waited (rc=$rc, asks=$(cat "$SMAXW/asks" 2>/dev/null), $(printf '%s' "$out" | tail -2))"
 kill "$SUITE2" 2>/dev/null; wait "$SUITE2" 2>/dev/null; SUITE2=""
 # #6334: the Mac-wide cap file lowers the limit for every run; junk in it reads as 1; it never raises the limit.
 SMAX="$T/smax"; mkdir -p "$SMAX"
