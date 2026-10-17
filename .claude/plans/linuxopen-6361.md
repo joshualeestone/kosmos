@@ -13,7 +13,9 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   - Linux with `DISPLAY` or `WAYLAND_DISPLAY` and `xdg-open` on PATH: `xdg-open`.
   - Anything else: no opener.
 - No opener:
-  - a non-enforcing board (no nonce): print the plain address, exit 0;
+  - a non-enforcing board (no token, no nonce): print the plain address, exit 0;
+  - an enforcing board that answered without a nonce: its plain page cannot sign in, so say the one-time address could
+    not be made and give the command to try again, exit 1;
   - with a nonce, on a person's terminal (`[ -t 1 ]` and not `_invoked_by_agent`, the CLI's own agent check): print
     the one-time sign-in address, say it works once within 2 minutes
     (NONCE_TTL_MS = 120000, engine/boardauth.js) and not to share it, exit 0;
@@ -32,6 +34,9 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   move; an unused nonce expires in 2 minutes.
 
 ## Weakest premise
+- An opener that fails may still have reached a browser that used the one-time address before failing, so after a
+  failure the address is offered as "if no browser opened". On Linux over `ssh -X` with no desktop, xdg-open may hand
+  it to a text browser in the terminal (www-browser), which would use it there.
 - "A terminal" is `[ -t 1 ]`: a terminal that is itself recorded (`script -a`, tmux `pipe-pane`, a logged ssh
   session) keeps the one-time address in that record. It works once, within 2 minutes.
 - An agent is detected the way the rest of the CLI detects one (`_invoked_by_agent`: its session or token variable,
@@ -50,7 +55,7 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
   xdg-open on PATH.
 
 ## Checks
-`cli.open-linux-6361.test.js` (12 tests, the CLI run as Linux through `KOSMOS_PLATFORM`, a stub xdg-open on PATH):
+`cli.open-linux-6361.test.js` (13 tests, the CLI run as Linux through `KOSMOS_PLATFORM`, a stub xdg-open on PATH):
 - Linux with DISPLAY opens the one-time address with xdg-open; Wayland alone counts as a display.
 - No display, no terminal: no one-time address, exits 1, says why, gives the full-path command, never "sign in there".
 - No display, at a terminal (script(1)): the one-time address is printed.
@@ -61,6 +66,7 @@ on main as 67c15b9192 (PR #6394), and this branch now sits on main. Renet handed
 - A failed xdg-open at a terminal still hands over the address and exits non-zero; a failed opener on an enforcing
   board as Darwin, not at a terminal, prints no address and exits non-zero.
 - A platform that is neither: no opener runs.
+- An enforcing board that answers without a nonce: no dead-end plain address (CONTROL: without a token it is).
 - A source check that Darwin keeps /usr/bin/open and the old default is gone.
 Mutants: the original cmd_open reds 5 of the first 6; dropping the terminal guard, the agent check, or the fallback
 each reds its arm.

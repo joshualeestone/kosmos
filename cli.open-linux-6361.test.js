@@ -50,7 +50,7 @@ function setToken(on) {
 }
 
 /* A board stand-in: proves itself when `prove`, and mints NONCE at /api/board-nonce. */
-function withStub({ prove }, fn) {
+function withStub({ prove, noNonce = false }, fn) {
   const server = http.createServer((req, res) => {
     req.on('data', () => {});
     req.on('end', () => {
@@ -63,7 +63,7 @@ function withStub({ prove }, fn) {
       }
       if (req.method === 'POST' && u.pathname === '/api/board-nonce') {
         res.writeHead(200, { 'content-type': 'application/json' });
-        return res.end(JSON.stringify({ nonce: NONCE }));
+        return res.end(JSON.stringify(noNonce ? {} : { nonce: NONCE }));
       }
       res.writeHead(200, { 'content-type': 'text/html' });
       res.end('<title>Kosmos</title>Agent Workforce');
@@ -123,7 +123,7 @@ test('#6361: on Linux with no display and no terminal, the one-time address is n
   assert.doesNotMatch(r.out, new RegExp(NONCE), 'the one-time sign-in address went into a pipe');
   assert.match(r.out, /not a person's terminal, so the one-time sign-in address is not printed/);
   // The full path, not the bare name, which is not always on PATH.
-  assert.match(r.out, new RegExp('In a terminal on this computer, run: ' + HOME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/bin/kosmos open'));
+  assert.match(r.out, new RegExp('In a terminal on this computer, run: "' + HOME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/bin/kosmos" open'));
   assert.doesNotMatch(r.out, /sign in there/, 'it sends the person to a page with no way to sign in');
   assert.equal(r.code, 1, 'no way in was given, so it is not a success');
 }));
@@ -208,7 +208,7 @@ test('#6361: an opener that fails on an enforcing board, not at a terminal, ends
   setToken(true);
   const failing = path.join(BIN, 'fail-open.sh');
   fs.writeFileSync(failing, '#!/bin/sh\nexit 5\n', { mode: 0o755 });
-  // As macOS: the shared failure path is the Darwin one too.
+  // KOSMOS_OPEN_BIN wins before the platform is read, so this is the failure path every platform shares (Darwin's too).
   const r = await open(port, { platform: 'Darwin', openBin: failing });
   assert.match(r.out, /Could not open a browser from here\./);
   assert.doesNotMatch(r.out, new RegExp(NONCE), 'a failed open put the one-time address in a pipe');
@@ -221,4 +221,19 @@ test('#6361: an agent is told to ask the person, not given a step to take itself
   const r = await open(port, { agent: true });
   assert.match(r.out, /Tell the person who runs this computer to run, in a terminal on it: /);
   assert.doesNotMatch(r.out, new RegExp(NONCE));
+}));
+
+test('#6361: an enforcing board that answers without a nonce is not handed over as a dead-end plain address', () => withStub({ prove: true, noNonce: true }, async (port) => {
+  setToken(true);
+  const r = await open(port);
+  assert.match(r.out, /could not make a one-time sign-in address/, 'a page that cannot sign in was handed over as the way in');
+  assert.doesNotMatch(r.out, /Go to the dashboard yourself/);
+  assert.notEqual(r.code, 0);
+  // CONTROL: with no token (not enforcing), the same answer is the plain address, which works there.
+  setToken(false);
+  try {
+    const p = await open(port);
+    assert.match(p.out, /Go to the dashboard yourself: http/);
+    assert.equal(p.code, 0, p.out);
+  } finally { setToken(true); }
 }));
