@@ -3508,7 +3508,7 @@ function blockRules(sessionName, cliShown) {
       `When you have built one and it is waiting to be released or checked, mark it:`,
       `\`${cliShown} task built <project-id> <task-number> "what is left"\`. Closing the task clears the mark.`,
       // #6330: the note now reaches people, so say who.
-      `The note is typed to the task's other assignees and to the holders of the nearest open task above it that someone holds.`,
+      `The note is typed to the task's other assignees and to the holders of the nearest held task above it, unless a closed task comes first; the command prints who was told.`,
     ],
     /* #4771 (Josh's 0.7.15 report): a pause the person asked for in the room never reached the Prompter, so an agent
        held every task by hand. Taught to every member, not only those holding tasks (review 1: a coordinator with no
