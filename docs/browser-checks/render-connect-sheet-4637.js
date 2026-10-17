@@ -171,7 +171,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       // #6405: the phone's row carries its age; the computer's row has none (its first_seen is its first ask, not this one).
       const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 1 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
-        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
+        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay'], ['codelabel', '.askcodetype label']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
       /* kosmos#6314 (Josh 11:30): a NEW request scrolls the Kosmos+ section's requests into view; the same requests
          repainting never move the page again. Precondition first, so this cannot pass on a page too short to scroll. */
@@ -373,8 +373,8 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.evaluate(() => pollAsk());
       await page.waitForSelector('#askcode-d-nw', { timeout: 5000 }).catch(() => {});
       await page.click('#askcode-d-nw'); await page.keyboard.type('102938');
-      pending = [{ ...pending[0], code: '475 610' }];   // laptop6 has a new code; this page has not read it yet
-      const nw = await page.evaluate(async () => { await askAct('allow', 'd-nw'); return (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '); });
+      pending = [{ ...pending[0], code: '475 610' }];   // laptop6 has a new code, and this page reads it before the press
+      const nw = await page.evaluate(async () => { await pollAsk(); await askAct('allow', 'd-nw'); return (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '); });
       chk(/laptop6 has a new code\. Type the new one from laptop6, then press Allow\./.test(nw) && !/That is not the code/.test(nw) && !allowBodies['d-nw'],
         `${tag} #6404: typed for a code that changed before the press: "has a new code", nothing sent`, nw);
       /* #6404 review 5: the person typed the NEW code from the other screen before this page read it: Allow reads the list
