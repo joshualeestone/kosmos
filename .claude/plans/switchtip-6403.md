@@ -42,6 +42,11 @@ The tip:
   once after this ships, in each browser and at each address they use. Accepted: it is one line, dismissible, and explains a control they
   may not have noticed. Phones over Kosmos+ never show the switcher (the phone menu lists computers instead), so they
   never get the tip; the phone menu is its own way in.
+- Any end of this computer's wait to be allowed forces a read (most often it was let in; a cancelled or expired wait
+  costs the same bounded follow-ups, about six signed calls once). Accepted: telling "let in" from the panel's state
+  would duplicate the pairing state machine for a few reads.
+- A tab hidden through the whole follow-up window gets one plain read when shown again, not the follow-ups.
+- render-computers-4648 is not seeded: it runs with the multi-Kosmos switch on, where the tip never appears.
 - Back to one computer, a tip still up goes with the switcher; it counts as seen only if it was laid out where a person
   could see it (review 9, narrowed in review 15).
 - A board whose last answer was "not signed in" makes no look-back reads until its Kosmos+ panel sees it on and
@@ -62,10 +67,11 @@ The tip:
 - 11 opus: Escape listens in the capture phase on window (a dialog's own Escape no longer closes first and takes the
   tip with it), ignores a key already claimed; the drop arm sets up its own tip; the dialog CONTROL models a dialog
   whose handler runs first.
-- 15 opus: a stale "not signed in" cleared when the Kosmos+ panel sees the computer enrolled; comments.
-- 14 sonnet: a real mouse click over a control placed under the tip (and its CONTROL); stale comments fixed.
-- 13 opus: a leftover Escape comment replaced; mobile-shots guidance; per-address wording.
 - 12 sonnet: Escape handling removed (every Escape finding traced to it); a real hit test for clicks on the tip.
+- 13 opus: a leftover Escape comment replaced; mobile-shots guidance; per-address wording.
+- 14 sonnet: a real mouse click over a control placed under the tip (and its CONTROL); stale comments fixed.
+- 15 opus: a stale "not signed in" cleared when the Kosmos+ panel sees the computer enrolled; comments.
+- 16 sonnet: limits stated (any end of a wait, a hidden follow-up window, render-computers not seeded); log order.
 
 ## Steps
 1. web/index.html: COMPUTERS_* state, worldswTipOnce / worldswTipMarkSeen / worldswTipHide, computersReadSoon, the hooks

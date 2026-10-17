@@ -30180,11 +30180,11 @@ function worldswTipMarkSeen(force) {
   COMPUTERS_TIP_SHOWN = true;
   try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
 }
-/* #6403: the switcher went away (back to one computer): the tip goes too, without counting as seen. */
 /* #6403: the Kosmos+ panel sees this computer on and enrolled, so a "not signed in" answer from before is stale. */
 function computersSignedInNow(r) {
   if (r && r.on === true && r.enrolled === true) COMPUTERS_SIGNED_OUT = false;
 }
+/* #6403: the switcher went away (back to one computer): the tip goes too (seen only if it was laid out before). */
 function worldswTipDrop() {
   const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
   const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
