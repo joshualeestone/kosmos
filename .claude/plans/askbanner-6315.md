@@ -42,4 +42,5 @@ request brings it back. The request cards on the Kosmos+ page are unchanged.
 - With N requests the line says "N devices want to connect"; a dismiss puts away the N waiting at that moment, even
   if one replaced another without the count changing. Accepted: the line names a count, not devices.
 - Review puts the notice away before anything is decided (Josh's ruling): a request left unanswered after Review
-  is marked only by the Kosmos+ nav dot and the cards there, until a new request comes.
+  is marked only by the Kosmos+ nav dot and the cards there, until a new request comes. A connected-here line put
+  away by Review is the same: Review opens Kosmos+, where its card (and its Undo) shows.
