@@ -24631,13 +24631,14 @@ function openAddMemberModal() {
    empties it at once rather than at the next poll. Same roster as paintOneProject, so pjNotice's pruning
    of the retry marks agrees between the two. */
 function paintRailPjNotice() {
+  const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
+  // kosmos#6324: the map first, so it does not depend on the notice's element being there.
+  if (typeof paintRailTeamMap === 'function') paintRailTeamMap(op);   // typeof: tests lift paintRailPjNotice alone
   const rn = document.getElementById('alist-pj-notice');
   if (!rn) return;
-  const op = (document.body.classList.contains('consolidated') && PJ_CURRENT) ? pjById(PJ_CURRENT) : null;
   pjKeepOpenFocus(rn, () => setIfChanged(rn, op ? pjNeedsNotice(op.agents || [], pjRedHere) + pjNotice(op.agents || [], op.id) : ''));   // #5688: who needs you, first
   const rs = document.getElementById('alist-pj-notice-said');
   if (rs && rs.dataset.pj && (!op || rs.dataset.pj !== String(op.id))) { rs.textContent = ''; rs.dataset.pj = ''; }
-  if (typeof paintRailTeamMap === 'function') paintRailTeamMap(op);   // typeof: tests lift paintRailPjNotice alone
 }
 /* kosmos#6324: the rail's team map, for the open project in the consolidated layout (op), or nothing. Rides
    paintRailPjNotice, so it is painted wherever the notice is: each poll, a project read and a layout switch. */

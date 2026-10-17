@@ -146,6 +146,16 @@ test('#6324: leaving the project empties a map that was open', () => {
   assert.equal(r.els['alist-teammap'].innerHTML, '', 'the gone project\'s members stayed in the rail');
 });
 
+test('#6324: the rail map paints without the notice element (it does not ride the notice\'s early return)', () => {
+  const { p, board } = build('RailNoNotice');
+  const r = rig({ consolidated: true, current: p.id, projects: [p], board });
+  r.open.add(String(p.id));
+  delete r.els['alist-pj-notice'];
+  r.paint();
+  assert.equal(r.els['alist-teammap'].hidden, false, 'with no notice element the map did not paint');
+  assert.ok(nodesIn(r.els['alist-teammap'].innerHTML).length === 3, 'with no notice element the map lost its members');
+});
+
 test('#6324: the page wires the rail map: a closed button in the rail head, and member clicks open the agent', () => {
   const head = PAGE.slice(PAGE.indexOf('<div class="railhead" id="rail-agents"'), PAGE.indexOf('<div class="alist" id="alist"'));
   assert.match(head, /<button class="btn-quiet pj-tmbtn alist-tmbtn" id="alist-teammap-btn" type="button" aria-expanded="false" aria-controls="alist-teammap" hidden>Team map<\/button>/,
