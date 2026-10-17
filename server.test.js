@@ -11717,6 +11717,14 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
     ['Forwarded', { ...here, forwarded: 'for=203.0.113.9' }],
     ['a look-alike name', { host: '127.0.0.1.evil.example', origin: 'http://127.0.0.1.evil.example' }],
   ]) assert.equal(madeOnThisComputer(h), false, what);
+  /* Review 6: and the socket. The same headers from a socket elsewhere on the network are refused. */
+  const { ticketCallerHere } = require('./server');
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: here }), true);
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: here }), true);
+  for (const peer of ['192.168.1.20', '10.0.0.5', undefined]) {
+    assert.equal(ticketCallerHere({ socket: { remoteAddress: peer }, headers: here }), false, String(peer));
+  }
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: { ...here, 'x-forwarded-for': '1.2.3.4' } }), false);
   /* An address no computer of the account can have is refused before the tunnel. */
   for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
     const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });

@@ -4219,6 +4219,11 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
    sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
    board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
    the phone's page is on the proxy's own name. */
+/* The socket is this computer's too (review 5: headers alone can be written by a caller elsewhere on the network;
+   Kosmos+ reaches the board over loopback, which is why the header rule stays). Defined below LOOPBACK_PEERS' use. */
+function ticketCallerHere(req) {
+  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
+}
 function madeOnThisComputer(headers) {
   const h = headers || {};
   if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
@@ -11018,9 +11023,7 @@ const server = http.createServer(async (req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        // And the socket itself is this computer's (review 5): headers alone can be written by a caller elsewhere on the
-        // network. Kosmos+ reaches the board over loopback too, which is why the header rule stays.
-        if (!isLoopbackPeer(req) || !madeOnThisComputer(req.headers) || !isViaScreen(req, body)) {
+        if (!ticketCallerHere(req) || !isViaScreen(req, body)) {
           sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
           return;
         }
@@ -25059,7 +25062,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  madeOnThisComputer, // kosmos#6406: the ticket route's "on this computer" rule, for its test
+  madeOnThisComputer, ticketCallerHere, // kosmos#6406: the ticket route's "on this computer" rule, for its test
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
