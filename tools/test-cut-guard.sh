@@ -516,7 +516,7 @@ out="$(KOSMOS_PROCESS_ANCESTOR_PROBE="$T/ancestor-none" KOSMOS_SUITE_SELF_PID="$
 # command line, so a real suite can show as several candidates).
 sleep 3600 </dev/null >/dev/null 2>&1 & SUITE2=$!
 bash -c 'sleep 3600 </dev/null >/dev/null 2>&1 & wait' </dev/null >/dev/null 2>&1 & PAIRP=$!
-trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" 2>/dev/null; rm -rf "$T"' EXIT
+trap 'kill "${SUITE:-}" "${SUITE2:-}" "${PAIRP:-}" "${PAIRC:-}" 2>/dev/null; rm -rf "$T" "$FR"' EXIT
 q_ready "$SUITE2"; q_ready "$PAIRP" 'bash*'
 PAIRC=""; for _i in $(seq 1 30); do PAIRC="$(pgrep -P "$PAIRP" | head -1)"; [ -n "$PAIRC" ] && break; sleep 0.1; done
 [ -n "$PAIRC" ] || fail "FIXTURE: the #6334 parent stand-in never started its child"
@@ -549,6 +549,9 @@ out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$SUITE
 out="$(sg sprobe-live junk)"; rc=$?
 [ "$rc" -eq 1 ] && pass "#6334 a third argument that is not a number allows no other suite" \
   || fail "#6334 a junk allowance let a run start beside a suite (rc=$rc, $out)"
+out="$( _kosmos_suite_roots() { cat >/dev/null; }; sg sprobe-two 1 )"; rc=$?
+[ "$rc" -eq 1 ] && pass "#6334 a roots walk that returns nothing counts every candidate (two live, one allowed: refused)" \
+  || fail "#6334 an empty roots walk let a run start beside two suites (rc=$rc, $out)"
 out="$(printf '%s bash tools/run-tests.sh\n%s bash tools/run-tests.sh\n' "$DEAD" "$SUITE" | _kosmos_suite_roots)"
 { has_pid "$out" "$SUITE" && ! has_pid "$out" "$DEAD"; } && pass "#6334 a candidate gone by the roots walk is not counted as a suite of its own" \
   || fail "#6334 _kosmos_suite_roots counted a gone pid ($out)"
