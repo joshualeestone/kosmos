@@ -150,6 +150,45 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             four.computers && !four.listInMenu && !four.newInMenu && four.sepAbove === '0px' && !four.plural, JSON.stringify(four));
           ok(`${t} a screen reader: the openable one is a menu button and a Tab stop`,
             four.expanded === 'false' && four.tab === null, JSON.stringify({ four: [four.expanded, four.tab] }));
+          /* #6403: the switcher appears without a reload once another computer is there, with a one-line tip the first time. */
+          const tip = await page.evaluate(async ({ worlds }) => {
+            const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
+            try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {}
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            const before = { shown: vis('worldsw'), tip: vis('worldsw-tip') };
+            // The page looked at again a minute or more after the last answer reads again (the window's focus).
+            COMPUTERS_READ_AT = Date.now() - 61 * 1000;
+            window.__which = 'four';
+            window.dispatchEvent(new Event('focus'));
+            await new Promise((r) => setTimeout(r, 150));
+            const after = { shown: vis('worldsw'), tip: vis('worldsw-tip'), says: (document.getElementById('worldsw-tip') || {}).textContent || '' };
+            document.getElementById('worldsw-btn').click(); await new Promise((r) => setTimeout(r, 60));
+            const opened = { tip: vis('worldsw-tip'), menu: vis('worldsw-menu') };
+            worldswClose();
+            return { before, after, opened };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: one computer: no switcher, no tip`, !tip.before.shown && !tip.before.tip, JSON.stringify(tip));
+          ok(`${t} #6403: another computer arrives and the window is looked at again: the switcher shows with its one-line tip, no reload`,
+            tip.after.shown && tip.after.tip && /Switch between your computers here\./.test(tip.after.says), JSON.stringify(tip));
+          ok(`${t} #6403: opening the menu puts the tip away`, tip.opened.menu && !tip.opened.tip, JSON.stringify(tip));
+          /* CONTROL for the focus read: a look back within a minute of the last answer does not read again. */
+          const recent = await page.evaluate(async ({ worlds }) => {
+            window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
+            window.__which = 'four';
+            window.dispatchEvent(new Event('focus'));
+            await new Promise((r) => setTimeout(r, 150));
+            return { shown: !document.getElementById('worldsw').hidden };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403 CONTROL: looked at again within a minute: no extra read, still nothing top-left`, !recent.shown, JSON.stringify(recent));
+          /* Shown once: after a reload with two computers from the start, no tip. */
+          await page.reload();
+          const again = await page.evaluate(async ({ worlds }) => {
+            const fr = document.getElementById('firstrun'); if (fr) fr.hidden = true;
+            window.__which = 'four'; worldswRender(worlds, {}); await computersFetch();
+            const t = document.getElementById('worldsw-tip');
+            return { shown: !document.getElementById('worldsw').hidden, tip: !!t && !t.hidden };
+          }, { worlds: WORLDS });
+          ok(`${t} #6403: the tip shows once; after a reload the switcher shows without it`, again.shown && !again.tip, JSON.stringify(again));
           /* After a good read of four, a read that FAILS must not lock the menu or lose the name (review round 1). */
           const after = await page.evaluate(async () => {
             window.__which = 'down';   // what production sends when Kosmos+ does not answer (always a 200)
@@ -254,6 +293,6 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
   }
   console.log(problems.length ? `FAIL ${problems.length}:\n  ${problems.join('\n  ')}` : 'all checks passed');
   console.log(`${pass}/${pass + problems.length} passed`);
-  // 2 engines x 2 themes x (16 arms off + 1 control) = 68 (#6396: two one-computer asserts became one; two hide arms, x2 layouts).
-  process.exit(problems.length || pass + problems.length < 68 ? 1 : 0);
+  // 2 engines x 2 themes x (21 arms off + 1 control) = 88 (#6396: two one-computer asserts became one; two hide arms, x2 layouts; #6403: five).
+  process.exit(problems.length || pass + problems.length < 88 ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
