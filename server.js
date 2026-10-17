@@ -1113,11 +1113,19 @@ function* proofAgentTokens(k) {
   c.ids = ids;
   if (ids.has(k)) yield ids.get(k);
 }
+/* #6358: the gate judged on the request's header or query token alone, its cookie removed. For the few routes that
+   MINT a credential which outlives a browser session (a board nonce, an agent token): a session acts for the person
+   in the dashboard, but it must not mint what outlasts it. No page calls these routes; their callers send the header.
+   Built field by field: headers can be a getter on the request. */
+function boardTokenOkWithoutCookie(req) {
+  return boardTokenOk({ url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) });
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
   // filesystem-free for the unauthenticated case, not only the active-token one.
-  if (!boardauth.presentedToken(req, ROUTING_BASE)) return false;
+  // #6358: a cookie whose session ended presents nothing, so a signed-out tab's every poll stays off the disk too.
+  if (!boardauth.presentsCredential(req, ROUTING_BASE)) return false;
   if (boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) return true;
   let others;
   try {
@@ -5577,12 +5585,17 @@ const server = http.createServer(async (req, res) => {
     // A valid ?token= on a nav (from `kosmos open` / the native app) sets the
     // cookie and redirects to the clean URL; runs on every route so the operator
     // can land tokenized on the shell and have later /api calls carry the cookie.
-    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method });
+    // #6358: `accepts` is the gate's own test (boardTokenOk, #3055's other worlds included), so a `?token=` signs in
+    // exactly when the same token in a header would be let through. Only a token this board holds in memory (the
+    // worlds known at start) reaches it, so a made-up `?token=` costs no disk read.
+    const inMemoryToken = (t) => [...(KNOWN_WORLD_TOKENS || new Map()).values()].some((k) => boardauth.matches(t, k));
+    const boot = boardauth.bootstrap({ token: boardAuthState.token, req, routingBase: ROUTING_BASE, method: req.method,
+      accepts: (t) => inMemoryToken(t) && boardTokenOk({ url: '/', headers: { [boardauth.HEADER_NAME]: t } }) });
     if (boot) {
-      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a durable
-         cookie is actually taken -- moved here from install/setup.sh, which could
+      /* #2030: the reauth marker is seeded at REDEMPTION -- the moment a browser
+         is actually signed in -- moved here from install/setup.sh, which could
          only see the open DISPATCHED, not redeemed. #2073: BOTH a `?boot=` nonce
-         redemption AND a `?token=` bootstrap take the durable cookie in this same
+         redemption AND a `?token=` bootstrap set the cookie (a session, #6358) in this same
          302 (bootstrap sets it either way), so both are that moment. Seeding on
          the `?token=` path too is what lets the app-only install (the native app
          loads with `?token=`, never a browser `?boot=`) mark the machine
@@ -5595,6 +5608,17 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(302, { location: boot.location, 'set-cookie': boot.setCookie, 'cache-control': 'no-store' });
       res.end();
       return;
+    }
+    /* #6358: a cookie given out before sessions held one of this account's tokens, and a browser keeps it for up
+       to 400 days. A cookie whose value is one of this account's tokens in memory is that cookie: end it on this answer, so the
+       browser stops carrying it. Only then: a cookie that is no token here (another board's) is left alone, and so
+       is a session a restart forgot (it is no credential, and the next sign-in overwrites it). */
+    // Against the tokens already in memory (the active one and the worlds known at start), so a stale tab's every
+    // request costs no disk read.
+    const oldCookie = boardauth.cookieToken(req);
+    if (oldCookie && boardauth.sessionToken(oldCookie) === null
+        && (boardauth.matches(oldCookie, boardAuthState.token) || inMemoryToken(oldCookie))) {
+      res.setHeader('set-cookie', boardauth.clearedCookieHeader());
     }
     const sensitive = pathname.startsWith('/api/') || WRITE_METHODS.has(req.method);
     // REMOTE_AGENT_ROUTES (POST /api/report, /api/reply) are exempt HERE because a
@@ -5690,6 +5714,14 @@ const server = http.createServer(async (req, res) => {
      the `if (boardAuthState.on)` gate, so a nonce is never redeemed on a board that
      is not enforcing. */
   if (pathname === '/api/board-nonce' && req.method === 'POST') {
+    /* #6358: a nonce redeems for a NEW session, so minting one takes a board token itself (header or query), never
+       a session cookie. Otherwise a session could mint its own successor in one request and renew itself past
+       SESSION_MAX_MS. (This closes that one-request mint; it does not cap what a live session can do through the
+       page, which includes starting agents that run as this account.) Every minting caller (kosmos open, open-board.js, the staging check) sends the header. */
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     sendJson(res, 200, { nonce: boardauth.mintNonce() });
     return;
   }
@@ -16534,6 +16566,11 @@ const server = http.createServer(async (req, res) => {
      lists that name. The operator hands the returned token to the
      remote agent as KOSMOS_AGENT_TOKEN. */
   if (pathname === '/api/agent-token' && req.method === 'POST') {
+    // #6358: an agent token outlives any browser session, so a session cookie alone does not mint one.
+    if (boardAuthState.on && !boardTokenOkWithoutCookie(req)) {
+      sendJson(res, 403, { error: boardTokenRefusal(req, '') });
+      return;
+    }
     readBody(req)
       .then((buf) => {
         let body;
@@ -23475,7 +23512,7 @@ function start(port = PORT) {
          link() and RETURNS THE TOKEN ON DISK, so every process -- winner or loser
          of the race -- ends up serving the same token clients read. A prod board
          (nothing sandboxed) enforces and gets a persisted mode-600 token, reused
-         across restarts so the operator's cookie survives one; a fully-sandboxed
+         across restarts for the CLI and the app (browser sessions do NOT survive one, #6358); a fully-sandboxed
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */

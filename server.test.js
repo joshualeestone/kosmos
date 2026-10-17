@@ -7868,6 +7868,7 @@ test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read othe
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
     assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
+    assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project the board\'s gate will refuse to create (#6358)');
     // CONTROL: flag OFF with the same failed read must show cannot-read.
     box.innerHTML = '';
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();

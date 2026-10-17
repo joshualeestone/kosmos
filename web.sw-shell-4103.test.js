@@ -108,3 +108,16 @@ test('#4103: the shell cache is a new version, so a copy the old worker poisoned
   // #4798 moved it on again (v3): the manifest it caches gained the maskable icons. Any version after v1 drops the poisoned copy.
   assert.match(src, /const SHELL_CACHE = 'kosmos-shell-v3';/);
 });
+
+test('#6358: a sign-in navigation (?token= / ?boot=) is left to the network: the worker never answers it, so a down board commits nothing', () => {
+  const w = worker(async () => { throw new TypeError('the board is down'); });
+  for (const u of ['https://hers.kosmosplus.com/?token=T', 'https://hers.kosmosplus.com/?tab=a&boot=N']) {
+    let responded = false;
+    w.handlers.fetch({ request: { method: 'GET', url: u, mode: 'navigate' }, respondWith() { responded = true; }, waitUntil() {} });
+    assert.equal(responded, false, 'the worker answered a sign-in navigation (' + u + '); with the cached shell it would commit at the sign-in address');
+  }
+  // CONTROL: an ordinary navigation is still the worker's, network-first with the offline shell.
+  let ordinary = false;
+  w.handlers.fetch({ request: { method: 'GET', url: 'https://hers.kosmosplus.com/?tab=a', mode: 'navigate' }, respondWith() { ordinary = true; }, waitUntil() {} });
+  assert.equal(ordinary, true, 'an ordinary navigation must still be answered by the worker');
+});

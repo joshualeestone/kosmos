@@ -95,7 +95,7 @@ test.before(async () => {
 async function hit(p, { headers = {}, method = 'GET' } = {}) {
   const res = await fetch(base + p, { method, headers, redirect: 'manual' });
   await res.text().catch(() => {});
-  return { code: res.status, loc: res.headers.get('location') };
+  return { code: res.status, loc: res.headers.get('location'), setCookie: res.headers.get('set-cookie') };
 }
 
 test('DANGEROUS answer: an enforcing board still REFUSES a tokenless request', async () => {
@@ -112,8 +112,16 @@ test('#3055 POSITIVE: the world the browser LEFT (another of THIS account\'s wor
   // what lets the switch-back go through.
   assert.notEqual((await hit('/api/status', { headers: { 'x-kosmos-board-token': OTHER_TOK } })).code, 403,
     'the other-world token (header) must be accepted');
-  assert.notEqual((await hit('/api/status', { headers: { cookie: `kosmos_board=${OTHER_TOK}` } })).code, 403,
-    'the other-world token (cookie -- the real post-switch shape) must be accepted');
+  // #6358: the cookie is a session now, and a world switch restarts the board, so the real post-switch shape is a
+  // browser (the app) signing in again with the world it holds the token for: ?token=<other world> mints a session.
+  const boot = await hit(`/?token=${OTHER_TOK}`);
+  assert.equal(boot.code, 302, 'another of this account\'s worlds signs in');
+  const m = (boot.setCookie || '').match(/kosmos_board=([0-9a-f]{64});/);
+  assert.ok(m, 'a session cookie: ' + boot.setCookie);
+  assert.notEqual((await hit('/api/status', { headers: { cookie: `kosmos_board=${m[1]}` } })).code, 403,
+    'the other-world session (cookie) must be accepted');
+  assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${OTHER_TOK}` } })).code, 403,
+    'the other world\'s token itself in a cookie is refused (#6358)');
 });
 
 test('#3055 POSITIVE on a WRITE method (POST /api/worlds/active is a mutation): other-world token admitted past the gate', async () => {
@@ -131,6 +139,9 @@ test('CROSS-ACCOUNT (#1946): a FOREIGN account\'s world token -- a real file on 
   assert.equal((await hit('/api/status', { headers: { 'x-kosmos-board-token': FOREIGN_TOK } })).code, 403,
     'a token from a world outside this account\'s registry must be refused');
   assert.equal((await hit('/api/status', { headers: { cookie: `kosmos_board=${FOREIGN_TOK}` } })).code, 403);
+  // #6358: and it cannot sign in: a foreign ?token= gets no session.
+  const boot = await hit(`/?token=${FOREIGN_TOK}`);
+  assert.ok(!/kosmos_board=/.test(boot.setCookie || ''), 'a foreign token is handed no session');
 });
 
 test('NEGATIVE: random garbage is REFUSED', async () => {

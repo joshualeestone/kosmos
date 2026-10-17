@@ -10,7 +10,7 @@
 # 🛑 NOT "curl /api/* without a cookie and expect 200". A no-cookie 403 is enforcement
 # working correctly (#1946), not the bug. This exercises the REAL browser-first-nav
 # flow the way `setup.sh` + a browser do it (#1979/#2030): mint a single-use nonce with
-# the board token (off argv), redeem `?boot=<nonce>` for the durable cookie, THEN use
+# the board token (off argv), redeem `?boot=<nonce>` for the session cookie, THEN use
 # that cookie on a sensitive /api/* route and assert it is NOT refused. A red here is
 # #2023 - a fresh session cannot reach the board it just updated to. It also confirms
 # the #2030 self-heal fired (the redemption wrote `.reauth-seeded`).
@@ -152,12 +152,12 @@ if [ -n "${KOSMOS_GATE_EXPECT_VERSION:-}" ] && [ "$BOARD_VERSION" != "$KOSMOS_GA
 fi
 
 # 2. Redeem it the way the browser's first navigation does: GET /?boot=<nonce> must
-#    302 and set the durable cookie. This is the exact step #2023 left broken.
+#    302 and set the session cookie. This is the exact step #2023 left broken.
 CJ="$(mktemp "${TMPDIR:-/tmp}/staging-exp-cookie.XXXXXXXX")" || { say "mktemp failed - cannot tell"; exit 2; }
 REDEEM_CODE="$(curl -sS -m 15 -o /dev/null -c "$CJ" -w '%{http_code}' "$URL/?boot=$NONCE" 2>/dev/null || true)"
 if ! grep -q 'kosmos_board' "$CJ" 2>/dev/null; then
   rm -f "$CJ"
-  say "FAIL (#2023): redeeming the browser-open nonce did NOT set the durable cookie (HTTP $REDEEM_CODE)."
+  say "FAIL (#2023): redeeming the browser-open nonce did NOT set the session cookie (HTTP $REDEEM_CODE)."
   say "  A fresh browser cannot authenticate to the board it just updated to - the outage class."
   exit 1
 fi
@@ -202,6 +202,6 @@ if [ "$SEEDED_BEFORE" = 0 ] && [ ! -f "$ROOT/.reauth-seeded" ]; then
   say "warn: session is usable but the redemption did NOT write .reauth-seeded (the #2030 marker) - the board may predate #2030; worth a look."
 fi
 
-say "USABLE on ${BOARD_VERSION:-an unread version}: a fresh session minted a nonce, redeemed the durable cookie, and reached /api/accounts (HTTP $API_CODE)."
+say "USABLE on ${BOARD_VERSION:-an unread version}: a fresh session minted a nonce, redeemed the session cookie, and reached /api/accounts (HTTP $API_CODE)."
 say "  The post-update board experience works - the #2023 class is not present."
 exit 0

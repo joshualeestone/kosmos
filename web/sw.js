@@ -108,6 +108,11 @@ self.addEventListener('fetch', (event) => {
   // network untouched, so a cached account response can never be served.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/v1/')) return;
 
+  /* #6358: a sign-in navigation (?token= / ?boot=) is left to the network alone. With the cached shell as a
+     fallback, a sign-in that met a down board would commit at the sign-in address, and the Mac app reads a page
+     still carrying token= as the board refusing it. Without the worker, a down board commits nothing. */
+  if (req.mode === 'navigate' && (url.searchParams.has('token') || url.searchParams.has('boot'))) return;
+
   /* App-shell navigations: network-first so an online open always gets the
      freshest board (the whole app is one no-store HTML file), falling back to
      the cached shell only when offline. */

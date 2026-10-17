@@ -38,10 +38,28 @@ test('tokenOkAny(): the DANGEROUS answer -- nothing presented is NOT ok', () => 
 test('tokenOkAny(): a presented token matching ANY list member is ok (header + cookie + query)', () => {
   // matches the SECOND member (the "other world" case: not the first/active token)
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ header: 'OTHER' }), routingBase: B }), true);
-  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=OTHER' }), routingBase: B }), true);
+  // #6358: a cookie is a session; one minted for OTHER is OTHER's, and the raw token as a cookie is refused.
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('OTHER') }), routingBase: B }), true);
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=OTHER' }), routingBase: B }), false);
+  assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ cookie: 'kosmos_board=' + boardauth.mintSession('FOREIGN') }), routingBase: B }), false);
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: { url: '/api/x?token=OTHER', headers: {} }, routingBase: B }), true);
   // matches the FIRST member too
   assert.equal(boardauth.tokenOkAny({ tokens: ['ACTIVE', 'OTHER'], req: req({ header: 'ACTIVE' }), routingBase: B }), true);
+});
+
+test('#6358: bootstrap() signs in with a ?token= the gate accepts (another world), and its session is that world\'s', () => {
+  const accepts = (t) => t === 'OTHER';
+  const b = boardauth.bootstrap({ token: 'ACTIVE', req: { url: '/?token=OTHER', headers: {} }, routingBase: B, method: 'GET', accepts });
+  const m = b && b.setCookie.match(/^kosmos_board=([0-9a-f]{64});/);
+  assert.ok(m, 'another world\'s token signs in when the gate accepts it');
+  assert.equal(boardauth.sessionToken(m[1]), 'OTHER');
+  assert.equal(boardauth.tokenOkAny({ tokens: ['OTHER'], req: req({ cookie: 'kosmos_board=' + m[1] }), routingBase: B }), true);
+  assert.equal(boardauth.bootstrap({ token: 'ACTIVE', req: { url: '/?token=FOREIGN', headers: {} }, routingBase: B, method: 'GET', accepts }), null,
+    'a token the gate refuses does not sign in');
+  assert.equal(boardauth.bootstrap({ token: 'ACTIVE', req: { url: '/?token=OTHER', headers: {} }, routingBase: B, method: 'GET' }), null,
+    'with no accepts, only the active token signs in, as before');
+  assert.equal(boardauth.bootstrap({ token: 'ACTIVE', req: { url: '/?token=OTHER', headers: {} }, routingBase: B, method: 'GET', accepts: () => 'yes' }), null,
+    'accepts must answer true exactly: a truthy non-boolean is no');
 });
 
 test('tokenOkAny(): a token matching NONE of the list is NOT ok (the cross-account logic boundary)', () => {
