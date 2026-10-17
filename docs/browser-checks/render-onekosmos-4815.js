@@ -159,7 +159,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             const vis = (id) => { const el = document.getElementById(id); return !!el && !el.hidden && el.getClientRects().length > 0; };
             try { localStorage.removeItem('kosmos.switcherTipSeen'); } catch {} COMPUTERS_TIP_SHOWN = false;
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
-            const before = { shown: vis('worldsw'), tip: vis('worldsw-tip') };
+            const before = { shown: vis('worldsw'), tip: !document.getElementById('worldsw-tip').hidden };   // the tip's own state
             // The page looked at again a minute or more after the last answer reads again (the window's focus).
             COMPUTERS_READ_AT = Date.now() - 61 * 1000;
             window.__which = 'four';

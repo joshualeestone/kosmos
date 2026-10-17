@@ -30154,7 +30154,7 @@ function computersReadSoon(force) {
   if (MULTI_KOSMOS || COMPUTERS_OPENABLE) return;
   // A forced read in a tab nobody can see waits for it to be looked at (the visibilitychange listener reads then).
   if (document.hidden) { if (force) COMPUTERS_STALE_WHILE_HIDDEN = true; return; }
-  if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 60 * 1000;
+  if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000;
   // A look back: at most once a minute after any read, and never while Kosmos+ is failing (the backoff is in charge).
   else if (COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
   computersFetch().catch(() => {});
@@ -30193,10 +30193,11 @@ function worldswComputersSeen(rows, good) {
     /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
        computer) and each read is a signed call to Kosmos+ (review round 4). */
     const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
-    /* #6403: still one computer just after an Allow or being let in: Kosmos+ may not list the new one yet, so look once
-       more soon rather than in five minutes. */
+    /* #6403: still one computer just after an Allow or being let in: Kosmos+ may not list the new one yet, so look again
+       soon rather than in five minutes. */
+    /* Every 15 s for the 90 s after a forced read (Kosmos+ lists the new computer once it has connected, which can take a
+       while): a handful of reads, once per pairing. */
     const expecting = good && !COMPUTERS_OPENABLE && Date.now() < COMPUTERS_EXPECT_UNTIL;
-    if (expecting) COMPUTERS_EXPECT_UNTIL = 0;
     const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1))
       : (!COMPUTERS_OPENABLE ? (expecting ? Math.min(15000, first) : 5 * 60 * 1000) : 0);
     /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
@@ -31996,10 +31997,12 @@ async function worldHideSubmit() {
     if (tipX) tipX.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
     // Escape puts the tip away too, unless something else is open (the menu, a dialog) and Escape is theirs.
     document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
       const tip = document.getElementById('worldsw-tip');
+      if (!tip || tip.hidden || !document.getElementById('worldsw-menu').hidden) return;
       // A dialog box keeps aria-modal while its wrapper is hidden, so "open" is a box the person can see (as the / shortcut checks).
-      const dialogOpen = [...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0);
-      if (e.key === 'Escape' && tip && !tip.hidden && document.getElementById('worldsw-menu').hidden && !dialogOpen) worldswTipHide();
+      if ([...document.querySelectorAll('[aria-modal="true"]')].some((m) => m.getClientRects().length > 0)) return;
+      worldswTipHide();
     });
   }
 })();
@@ -51153,6 +51156,7 @@ async function paintPlus() {
     const wasWaiting = PLUS_JOIN_WAITING;
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
     // #6403: the wait ended (most often this computer was let in, so the account has another): read the computers now.
+    // paintPlus runs while the Kosmos+ section is on screen, which is where pairing happens; elsewhere the look-back reads.
     if (wasWaiting && !PLUS_JOIN_WAITING && r.on === true && typeof computersReadSoon === 'function') computersReadSoon(true);
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
