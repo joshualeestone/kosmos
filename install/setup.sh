@@ -852,11 +852,15 @@ verify_download() {
 # does not name a channel, so a signed staging build newer than the install passes on a prod install.
 _UM_DIR=""   # never inherited: it names the folder holding the fetched manifest between the two phases
 _UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so post carries on as pre said
+_UM_SAID=""  # never inherited: the "not checked" line was already said this run (early, then pre)
 update_manifest_ok() {
-  local phase="$1" stage="$2" dest="$3" v rc=0 out arg
+  # #6473: phase "early" runs before fetch_tmux: it fetches the manifest and checks only its signature and version
+  # (tarball "-"), and keeps it in _UM_DIR so fetch_tmux can hold tmux to it and "pre" need not fetch it again.
+  local phase="$1" stage="$2" dest="$3" v rc=0 out arg tb
   [ -f "$dest/app/engine/manifest-verify.js" ] && [ -f "$dest/runtime/bin/node" ] && [ -x "$dest/runtime/bin/node" ] || {
     # Skipped, not refused: re-running the installer is the documented repair for a damaged install. Said truly.
-    if [ "$phase" = pre ] && [ -e "$dest/app" ]; then
+    if { [ "$phase" = early ] || { [ "$phase" = pre ] && [ -z "${_UM_SAID:-}" ]; }; } && [ -e "$dest/app" ]; then
+      _UM_SAID=yes
       if [ -f "$dest/app/engine/manifest-verify.js" ]; then
         info "this install's own runtime is missing, so it cannot check the update's manifest; the update goes on unchecked"
       else
@@ -869,7 +873,7 @@ update_manifest_ok() {
     info "could not read which version to install, so the update could not be checked and was not installed"
     return 1
   fi
-  if [ "$phase" = pre ]; then
+  if [ "$phase" = early ] || { [ "$phase" = pre ] && [ -z "$_UM_DIR" ] && [ -z "$_UM_NOKEY" ]; }; then
     _UM_NOKEY=""
     _UM_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/kosmos-manifest.XXXXXX")" || { _UM_DIR=""; info "could not make a folder to check the update in, so it was not installed"; return 1; }
     curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json" -o "$_UM_DIR/manifest.json" 2>/dev/null \
@@ -877,26 +881,45 @@ update_manifest_ok() {
       rm -rf "$_UM_DIR"; _UM_DIR=""
       info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
       return 1; }
-    arg="-"
-  else
-    [ -z "$_UM_NOKEY" ] || { _UM_NOKEY=""; return 0; }
-    [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || {
-      [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""
-      info "the update's signed manifest went missing, so it was not installed"; return 1; }
-    arg="$stage"
   fi
+  case "$phase" in
+    early) arg="-"; tb="-" ;;
+    pre)   [ -z "$_UM_NOKEY" ] || return 0
+           [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || { info "the update's signed manifest went missing, so it was not installed"; return 1; }
+           arg="-"; tb="$stage/kosmos.tar.gz" ;;
+    *)     [ -z "$_UM_NOKEY" ] || { _UM_NOKEY=""; return 0; }
+           [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || {
+             [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""
+             info "the update's signed manifest went missing, so it was not installed"; return 1; }
+           arg="$stage"; tb="$stage/kosmos.tar.gz" ;;
+  esac
   out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
-    "$_UM_DIR/manifest.sig" "$stage/kosmos.tar.gz" "$arg" "$v" "$dest" 2>&1)" || rc=$?
-  if [ "$phase" != pre ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
+    "$_UM_DIR/manifest.sig" "$tb" "$arg" "$v" "$dest" 2>&1)" || rc=$?
+  if [ "$phase" = post ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
   case "$rc" in
     0) return 0 ;;
-    3) [ "$phase" != pre ] || _UM_NOKEY=yes
+    3) [ "$phase" = post ] || _UM_NOKEY=yes
        info "$out, so the update's manifest is not checked"; return 0 ;;
     # Only the verifier's own one-line reason is shown; anything else (node itself failing) gets a plain sentence.
     1) case "$out" in *"
 "*|''|node:*) out="the update could not be checked" ;; esac
        info "$out, so it was not installed"; return 1 ;;
     *) info "the update could not be checked, so it was not installed"; return 1 ;;
+  esac
+}
+# #6473: hold the downloaded tmux bundle ($1) to the tmux_sha256 of the manifest phase "early" kept, using the installed
+# copy at $2. Nothing to hold it to (no verifier installed, or no key pinned): returns 0, as the manifest check does.
+update_tmux_ok() {
+  local tgz="$1" dest="$2" rc=0 out
+  [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || return 0
+  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" tmux "$_UM_DIR/manifest.json" \
+    "$_UM_DIR/manifest.sig" "$tgz" "${TARGET_VERSION:-}" "$dest" 2>&1)" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    *) case "$out" in *"
+"*|''|node:*) out="the terminal manager could not be checked" ;; esac
+       rm -rf "$_UM_DIR"; _UM_DIR=""
+       info "$out, so it was not installed"; return 1 ;;
   esac
 }
 
@@ -1285,6 +1308,8 @@ fetch_tmux() {
     # is the failure this whole file is written against.
     curl -fL --progress-bar "$url" -o "$stage/tmux.tar.gz" || { rm -rf "$stage"; return 1; }
     verify_download "$stage/tmux.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
+    # #6473: held to the signed manifest (fetched by update_manifest_ok early) before tar or anything in it runs.
+    if [ "$(uname -s)" = "Darwin" ] && ! update_tmux_ok "$stage/tmux.tar.gz" "$KOSMOS_HOME"; then rm -rf "$stage"; return 1; fi
     tar -xzf "$stage/tmux.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
     rm -f "$stage/tmux.tar.gz"
   fi
@@ -1322,6 +1347,8 @@ install_kosmos() {
   mkdir -p "$stage" || { rm -rf "$stage"; return 1; }
   local from_network=no
   if [ -n "${KOSMOS_SRC:-}" ]; then
+    # #6473: a manifest fetched early (for a network tmux) has no further use with a local copy here.
+    [ -z "$_UM_DIR" ] || { rm -rf "$_UM_DIR"; _UM_DIR=""; }
     info "using local copy: $KOSMOS_SRC"
     [ -d "$KOSMOS_SRC" ] || { rm -rf "$stage"; return 1; }
     cp -R "$KOSMOS_SRC/." "$stage/" || { rm -rf "$stage"; return 1; }
@@ -3949,6 +3976,11 @@ else
   # URL (the binaries inside carry ad-hoc signatures; nothing here is Apple-
   # signed, and saying "signed" would overclaim). Kept as a function so the
   # clean-machine test can point it at a local file.
+# #6473: on an update, fetch and check the target's signed manifest BEFORE tmux, so tmux is held to it too (a local
+# KOSMOS_TMUX_SRC and KOSMOS_SRC both: nothing comes from the network, nothing to check).
+if [ "$(uname -s)" = "Darwin" ] && { [ -z "${KOSMOS_TMUX_SRC:-}" ] || [ -z "${KOSMOS_SRC:-}" ]; }; then
+  update_manifest_ok early "" "$KOSMOS_HOME" || die "Could not check the update against its signed release. The line above says why."
+fi
 fetch_tmux "$KOSMOS_HOME/tmux" || die "Could not set up the terminal manager. The lines above say why, and whether trying again can help."
 fi
 ok

@@ -1268,7 +1268,16 @@ fi
 
 
 step "== 4. build =="
+# #6473: the served tmux pair goes into dist BEFORE the build, so the manifest the build writes (and this cut signs)
+# records its sha256 and installs can hold tmux to it. A tmux rebuild must therefore ride with a cut: republishing the
+# pair between cuts makes every checking install refuse updates until the next one.
+[ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no tmux bundle pair in $SITE/dist (a fresh site checkout has none: fetch the served pair from ${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz and .sha256 into $SITE/dist, or build one with tools/build-tmux-bundle.sh); the build cannot record it"; exit 1; }
+mkdir -p "$REPO/dist" && cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
+_tm_want="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
+_tm_got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tmux_sha256 || ""' "$REPO/dist/kosmos-arm64.manifest.json")"
+[ -n "$_tm_want" ] && [ "$_tm_want" = "$_tm_got" ] && [ "$(shasum -a 256 < "$REPO/dist/tmux-arm64.tar.gz" | awk '{print $1}')" = "$_tm_want" ] \
+  || { echo "the build's manifest does not record the tmux bundle this cut serves (#6473): manifest '${_tm_got}', pair '${_tm_want}'"; exit 1; }
 
 step "== 4b. a real install from the bundle just built, sandboxed, before anything is served (#624) =="
 # 🛑 EVERY EARLIER CHECK MEASURED THE BYTES. Step 3 ran the suite, 9b proves

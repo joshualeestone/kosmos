@@ -1065,6 +1065,7 @@ KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknow
 KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
 KM_PINNED_KEYS="$KM_PINNED_KEYS" \
 KM_SETUP_SHA="$(shasum -a 256 "$REPO/install/setup.sh" | awk '{print $1}')" \
+KM_TMUX_SHA="$( [ -f "$OUT/tmux-$ARCH.tar.gz.sha256" ] && awk 'NR==1{print $1}' "$OUT/tmux-$ARCH.tar.gz.sha256" )" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
@@ -1082,6 +1083,9 @@ const m = {
   pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
   // #6468 ask 3: the installer this release publishes (/setup, /setup-staging), checked before an update runs it.
   setup_sha256: e.KM_SETUP_SHA,
+  // #6473: the tmux bundle served beside this release (release.sh copies the served pair into dist before step 4);
+  // absent from a local build that has no tmux pair, which no release ships (release.sh checks it is here).
+  ...(e.KM_TMUX_SHA ? { tmux_sha256: e.KM_TMUX_SHA } : {}),
   files,
 };
 fs.writeFileSync(e.KOSMOS_MANIFEST_OUT, JSON.stringify(m, null, 1) + "\n");

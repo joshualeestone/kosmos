@@ -160,7 +160,20 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
   }
 }
 
-module.exports = { verify, verifySetup, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
+/* #6473: the tmux bundle the installer fetches is held to the tmux_sha256 the same signed manifest records (the build
+ * copies the served tmux pair in before it writes the manifest). Exit 0 matches, 1 refused (a mismatch, or a manifest
+ * that records no tmux: every release this code updates to records it), 3 no key pinned. */
+function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEYS }) {
+  const r = verify({ manifest, sig, tarball: null, stage: '-', version, installedVersion, keys, skipTarball: true });
+  if (r.code !== 0) return r;
+  let m;
+  try { m = JSON.parse(fs.readFileSync(manifest, 'utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  if (typeof m.tmux_sha256 !== 'string') return { code: 1, why: `the signed manifest for ${version} records no tmux bundle` };
+  if (sha256File(tmux) !== m.tmux_sha256) return { code: 1, why: 'the terminal manager download does not match its signed release' };
+  return { code: 0, why: `the terminal manager matches the signed manifest for ${version}` };
+}
+
+module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
 
 if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
@@ -168,13 +181,24 @@ if (require.main === module && process.argv[2] === 'run-setup') {
   let code;
   try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('Kosmos: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
   process.exit(code);
+} else if (require.main === module && process.argv[2] === 'tmux') {
+  // <installed node> manifest-verify.js tmux <manifest> <sig> <tmux.tar.gz> <version> <installed-home>
+  const [manifest, sig, tmux, version, home] = process.argv.slice(3);
+  let r;
+  try {
+    let installedVersion = '';
+    try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
+    r = verifyTmux({ manifest, sig, tmux, version, installedVersion });
+  } catch (e) { r = { code: 1, why: 'the terminal manager could not be checked (' + (e && e.code || 'error') + ')' }; }
+  process.stdout.write(r.why + '\n');
+  process.exit(r.code);
 } else if (require.main === module) {
   const [manifest, sig, tarball, stage, version, home] = process.argv.slice(2);
   let r;
   try {
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
-    r = verify({ manifest, sig, tarball, stage, version, installedVersion });
+    r = verify({ manifest, sig, tarball, stage, version, installedVersion, skipTarball: tarball === '-' });
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };
   }
