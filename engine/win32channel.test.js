@@ -188,7 +188,10 @@ test('#570 7c-4 the supervisor does NOT time out a message it has already handed
      unsure. idleMs is shorter than the caller's timeout so the old defect would
      answer first. */
   const s = serving('pending', { idleMs: 200, onSay: () => { /* still writing */ } });
-  const r = await ask('pending', 'hello', s.pipe, { timeoutMs: 900 });
+  /* #1765: without the owner check, which on Windows takes longer than this 200 ms idle timer
+     before anything is written; this is about the supervisor's timer after handover, and
+     win32channel.owner-1765.test.js covers the check. */
+  const r = await ask('pending', 'hello', s.pipe, { timeoutMs: 900, checkServer: null });
   assert.equal(r.ok, false);
   assert.equal(r.unsure, true, r.because);
   assert.doesNotMatch(r.because, /nothing arrived/);
