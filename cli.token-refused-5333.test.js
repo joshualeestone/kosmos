@@ -25,6 +25,11 @@ const { execFile } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const WIN = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js');
+// #1765: the Windows CLI sends a token only to a board that proves it holds it; the stub below proves the agent token.
+const { answerProof } = require('./test-support/proof-listener-1765');
+// #1765: the Windows arm reads its board token from a data folder of its own (none there), never this computer's.
+const WIN_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-5333-windata-'));
+test.after(() => fs.rmSync(WIN_DATA, { recursive: true, force: true }));
 const TOKEN = 'cd'.repeat(32);
 const { NO_MATCH } = require('./engine/sendertoken');
 const HINT = 'Kosmos could not match the agent token this session sent';
@@ -60,6 +65,7 @@ function withStub(because, fn, opts) {
   const errorShape = !!(opts && opts.errorShape);   // answer msg as { error } (403), the defensive arm
   const json = (res, body) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)); };
   const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [TOKEN])) return;
     const route = req.url.split('?')[0];
     if (route === '/api/inbox') { res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }); return res.end(because + '\n'); }
     req.resume();
@@ -88,8 +94,8 @@ function run(file, args, env) {
   }));
 }
 
-function envFor(port, home, token) {
-  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: '', TMUX_PANE: '' };
+function envFor(port, home, token, data) {
+  const env = { ...process.env, KOSMOS_PORT: String(port), KOSMOS_HOME: home, AGENT_WORKFORCE_DATA: data || '', TMUX_PANE: '' };
   delete env.KOSMOS_AGENT_TOKEN_ONLY;
   if (token === null) delete env.KOSMOS_AGENT_TOKEN; else env.KOSMOS_AGENT_TOKEN = token;
   return env;
@@ -152,7 +158,7 @@ for (const args of VERBS) {
     const home = makeHome();
     try {
       await withStub(NO_MATCH, async (port) => {
-        const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN));
+        const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN, WIN_DATA));
         assert.ok(got.out.includes(NO_MATCH), `the board's sentence is kept: ${got.out}`);
         assert.ok(got.stderr.includes(HINT), `the way back is said, on stderr: ${got.out}`);
         assertRecovery(got.stderr);
@@ -160,14 +166,14 @@ for (const args of VERBS) {
         assert.ok(!got.stdout.includes(HINT), 'stdout carries the board\'s answer alone');
         if (args[0] === 'whoami') assert.equal(got.code, 0, 'whoami exits as before'); else assert.equal(got.code, 1, 'exits 1, as before (never 3, a maybe)');
         for (const tok of [null, NOT_HEX]) {
-          const none = await run(process.execPath, [WIN, ...args], envFor(port, home, tok));
+          const none = await run(process.execPath, [WIN, ...args], envFor(port, home, tok, WIN_DATA));
           assert.ok(none.out.includes(NO_MATCH), `CONTROL: the stub answered without a token: ${none.out}`);
           assert.ok(!none.out.includes(HINT), 'CONTROL: no token sent (none, or not a bare hex one), no hint');
         }
       });
       for (const other of [OTHER, QUOTED]) {
         await withStub(other, async (port) => {
-          const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN));
+          const got = await run(process.execPath, [WIN, ...args], envFor(port, home, TOKEN, WIN_DATA));
           assert.ok(got.out.includes(other.slice(0, 20)), `CONTROL: the stub's refusal reached the output: ${got.out}`);
           assert.ok(!got.out.includes(HINT), 'CONTROL: another refusal, or the sentence quoted inside one, is not a token refusal');
         });
@@ -185,7 +191,7 @@ test('#5333 both CLIs: a refusal shaped { error: <sentence> } gets the hint too'
       const mac = await run(CLI, ['msg', 'mara', 'hello'], envFor(port, home, TOKEN));
       assert.ok(mac.out.includes(NO_MATCH), `the stub answered: ${mac.out}`);
       assert.ok(mac.stderr.includes(HINT), `Mac: the error arm says the way back: ${mac.out}`);
-      const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN));
+      const win = await run(process.execPath, [WIN, 'msg', 'mara', 'hello'], envFor(port, home, TOKEN, WIN_DATA));
       assert.ok(win.out.includes(NO_MATCH), `the stub answered: ${win.out}`);
       assert.ok(win.stderr.includes(HINT), `Windows: the error arm says the way back: ${win.out}`);
     }, { errorShape: true });
