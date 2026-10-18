@@ -8,11 +8,15 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 # One fake ipa: $1 name, $2 aps-environment ("" = absent), $3 get-task-allow, $4 application-identifier,
-# $5 team-identifier ("" = absent).
+# $5 team-identifier ("" = absent), $6 "shots" to make the executable carry the screenshot switch (#6262).
 make_ipa() {
   local dir="$work/$1"
   mkdir -p "$dir/Payload/Kosmos.app"
   cp /usr/bin/true "$dir/Payload/Kosmos.app/Kosmos"
+  if [ "${6:-}" = shots ]; then   # a real executable holding the string: appended bytes would not sign
+    printf 'int main(void){static const char *s="KOSMOS_SHOTS_URL";return s[0]==0;}\n' > "$dir/m.c"
+    cc -o "$dir/Payload/Kosmos.app/Kosmos" "$dir/m.c" || { echo "could not compile $1"; return 1; }
+  fi
   /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Kosmos' -c "Add :CFBundleIdentifier string ${4#*.}" "$dir/Payload/Kosmos.app/Info.plist" >/dev/null   # the id the fixture signs (#4089)
   local ents="$dir/ents.plist"
   /usr/libexec/PlistBuddy -c 'Clear dict' "$ents" >/dev/null 2>&1 || true
@@ -57,6 +61,16 @@ expect preview-build        0 production  false $T.io.kosmos.app.preview $T     
 expect preview-as-default   1 production  false $T.io.kosmos.app.preview $T     $T
 expect real-as-preview      1 production  false $T.io.kosmos.app     $T         $T io.kosmos.app.preview
 expect preview-other-team   1 production  false ZZZZZ99999.io.kosmos.app.preview ZZZZZ99999 $T io.kosmos.app.preview
+
+# #6262: a store-signed app that carries the screenshot switch is refused, and for that reason.
+make_ipa shots-build production false $T.io.kosmos.app $T shots >/dev/null
+out=$("$here/check-ipa-entitlements.sh" "$work/shots-build.ipa" "$T"); rc=$?
+if [ "$rc" -ne 0 ] && [ "$(printf '%s\n' "$out" | tail -1)" = "VERDICT: FAIL" ] \
+  && printf '%s\n' "$out" | grep -q 'KOSMOS_STORE_SHOTS'; then
+  echo "PASS  shots-build (refused as the screenshot build)"
+else
+  echo "FAIL  shots-build: wanted the screenshot-build refusal, got rc=$rc"; printf '%s\n' "$out" | sed 's/^/      /'; fail=1
+fi
 
 # An unsigned app is refused, and for that reason, not read as "no entitlements, nothing wrong".
 make_ipa unsigned production false $T.io.kosmos.app $T >/dev/null
