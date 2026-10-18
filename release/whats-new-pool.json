@@ -735,7 +735,7 @@
     },
     {
       "title": "Phone notifications start on",
-      "line": "Phone notifications now start on once this computer is connected to Kosmos+. If you switched them off, they stay off.",
+      "line": "Phone notifications to the Kosmos phone app (still in testing) now start on once this computer is connected to Kosmos+. An off stays off.",
       "icon": "phone",
       "rank": 1,
       "since": "0.7.58",
