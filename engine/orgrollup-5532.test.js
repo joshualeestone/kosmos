@@ -429,7 +429,7 @@ test('#5532 rollup review 7: a refresh keeps the accepted words (found by the ha
   await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
   accept(root, ['agent names'], true);
   await oe.refresh({ root, remote: c });
-  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false, capConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
+  assert.deepEqual(oe.acceptedConsent({ root }), { reports: ['agent names'], usageConsented: true, policyConsented: false, everyKosmosConsented: false, everyKosmosUsageConsented: false, capConsented: false }, 'a refresh lost the accepted words, so the rollup would stop with no reason given');
 });
 
 test('#5532 wiring: the words are found only for the hash on the record, and only while it may report', async (t) => {
@@ -453,7 +453,7 @@ test('#5532 wiring: the real enroll path remembers the words shown, and usage is
     const c = coordinator();
     const r0 = await oe.enroll('ACME-JOIN-1234', true, { root, remote: c, consentHash: HASH, consent: { reports: lines, backsUp: [], readers: ['you'], never: [] } });
     assert.equal(r0.ok, true, JSON.stringify(r0));
-    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false, capConsented: false }, JSON.stringify(lines));
+    assert.deepEqual(oe.acceptedConsent({ root }), { reports: lines, usageConsented: usage, policyConsented: false, everyKosmosConsented: false, everyKosmosUsageConsented: false, capConsented: false }, JSON.stringify(lines));
   }
 });
 
@@ -1053,4 +1053,83 @@ test('#6309: reaching the heads-up or the cap is a change; the count moving is n
     { used: 1, cap: 1000, warn: false, over: false }, { used: 1, cap: 1000, warn: false, over: false, month: '2026-13' }, 'x', null]) {
     assert.equal('policyUsage' in r.build({ world: 'w', policyUsage: bad }), false, JSON.stringify(bad));
   }
+});
+
+test('#5532 sender: under words naming usage, usage is read once for a send and not at all when nothing is due', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  let reads = 0;
+  let gathers = 0;
+  const base = sources();
+  const src = sources({
+    snapshot: () => { gathers += 1; return base.snapshot(); },
+    usageByDay: async () => { reads += 1; return { byDay: { '2026-10-07': { 'claude-opus-4-1': { input_tokens: 9 } } }, complete: true }; },
+  });
+  const first = await r.tick({ root, remote: c, sources: src, now: T0 });
+  assert.equal(first.sent, true, JSON.stringify(first));
+  assert.equal(reads, 1, 'usage was not read exactly once for the send');
+  const body = c.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.deepEqual(body.usage.map((u) => [u.model, u.input]), [['claude-opus-4-1', 9]], JSON.stringify(body.usage));
+  assert.equal(body.usageWithheld, false);
+  // Past the change window, so the tick gathers and decides on the signature (nothing changed), not on the window.
+  const second = await r.tick({ root, remote: c, sources: src, now: T0 + r.CHANGE_MIN_MS + 60e3 });
+  assert.equal(second.sent, false, 'CONTROL: nothing was due: ' + JSON.stringify(second));
+  assert.equal(gathers, 2, 'CONTROL: the second tick did not gather, so it never reached the decision');
+  assert.equal(reads, 1, 'usage was read on a tick that sent nothing');
+});
+
+test('#5532 sender: under words that do not name usage, a send reads none; a failed read is withheld, never 0', async (t) => {
+  const T0 = Date.UTC(2026, 9, 7, 12);
+  // Words that name no usage: the send goes, and the reader is never called.
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names'], false);
+  let reads = 0;
+  const counted = sources({ usageByDay: async () => { reads += 1; return { byDay: {}, complete: true }; } });
+  const sent = await r.tick({ root, remote: c, sources: counted, now: T0 });
+  assert.equal(sent.sent, true, 'CONTROL: the send went: ' + JSON.stringify(sent));
+  assert.equal(reads, 0, 'usage was read under words that do not name it');
+  // Words that do, and a reader that fails: the body says withheld, not "no usage".
+  const root2 = world(t);
+  const c2 = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root: root2, remote: c2 });
+  accept(root2, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const failing = sources({ usageByDay: async () => { throw new Error('scan failed'); } });
+  const res = await r.tick({ root: root2, remote: c2, sources: failing, now: T0 });
+  assert.equal(res.sent, true, JSON.stringify(res));
+  const body = c2.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.deepEqual(body.usage, []);
+  assert.equal(body.usageWithheld, true, 'a failed usage read was sent as zero usage');
+});
+
+test('#5532 sender: a usage read slower than the wait goes out as withheld on a real send', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root, ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day'], true);
+  const slow = sources({ usageByDay: () => new Promise(() => {}) });
+  const t0 = Date.now();
+  const res = await r.tick({ root, remote: c, sources: slow, now: Date.UTC(2026, 9, 7, 12), usageReadMs: 20 });
+  assert.ok(Date.now() - t0 < 10000, 'the tick did not use the wait it was given');
+  assert.equal(res.sent, true, JSON.stringify(res));
+  const body = c.sent.filter((x) => x.route === r.ROUTE)[0].body;
+  assert.equal(body.usageWithheld, true, 'a read that never answered was not withheld on the send');
+  assert.deepEqual(body.usage, []);
+});
+
+test('#5532: another Kosmos\'s usage needs ONE accepted line naming both every Kosmos and usage', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  const EVERY_ONLY = 'the agent, project and activity lines above from every Kosmos on this computer, not only this one';
+  const USAGE_ONLY = 'how many tokens the sessions launched in your agents\' folders used each day';
+  const BOTH = 'the agent, project, activity and token use lines above from every Kosmos on this computer, not only this one';
+  accept(root, [USAGE_ONLY, EVERY_ONLY], true);
+  assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, false, 'two lines, each naming one half, read as one line naming both');
+  accept(root, [USAGE_ONLY, BOTH], true);
+  assert.equal(oe.acceptedConsent({ root }).everyKosmosUsageConsented, true, 'CONTROL: the line naming both was not read');
 });

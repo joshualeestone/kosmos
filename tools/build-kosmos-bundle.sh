@@ -400,6 +400,7 @@ menu:Edit
   item:Select All	shortcut:cmd+a	action:selectAll:	target:-
 menu:View
   item:Reload	shortcut:cmd+r	action:reloadBoard:	target:set
+  item:Back to This Computer	shortcut:cmd+shift+h	action:backToThisComputer:	target:set
 menu:Window
   item:Minimize	shortcut:cmd+m	action:performMiniaturize:	target:-
   item:Zoom	shortcut:-	action:performZoom:	target:-

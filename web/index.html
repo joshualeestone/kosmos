@@ -507,10 +507,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { grid-area: dev; }
   .askreq .askwho { grid-area: who; }
   .askreq .asksay { grid-area: say; }
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-area: code; }
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { grid-area: code; }
   .askreq .acts { grid-area: acts; }
   /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
   .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
+  /* #6404: Allow short of six digits is aria-disabled (still reachable); it stays blue on the card, dimmed like other ones. */
+  .askreq .acts .btn.uprime[aria-disabled="true"], .askreq .acts .btn.uprime[aria-disabled="true"]:hover { background: #2f57c4; opacity: .8; cursor: not-allowed; }
   .askreq .askwho b { color: #fff; font-size: 1.05rem; }
   .askreq .askwho span { color: #9fb0d4; white-space: nowrap; }   /* "a moment ago" stays on one line (review NIT) */
   .askreq .askdev { background: rgba(126,160,240,.14); }
@@ -519,17 +521,27 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #6404: the joining computer's code, typed by the person, as large as the code it replaces. */
+  #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { margin: 6px 0 2px; display: grid; gap: 4px; }
+  .askreq .askcodetype label { color: #c3cde3; font-size: .85rem; }
+  .askreq .askcodein { width: 8.2em; max-width: 100%; box-sizing: border-box; padding: 4px 10px; border-radius: 8px;
+                       border: 1px solid #6f86c4; background: rgba(255,255,255,.06); color: #fff;
+                       font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; }
+  /* On a phone the Settings rule that keeps every field at 16px (so iOS does not zoom) outranks the rule above;
+     this keeps the code field as large as the code it replaces (1.9rem is over 16px, so iOS does not zoom either). */
+  #panel-settings #plus-asks .askreq .askcodein { font-size: 1.9rem; }
+  .askreq .askcodein::placeholder { color: #93a3c6; }
+  .askreq .askcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
   /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
      sits on the page, so it takes the page's ink). */
   #plus-join .askcodebig { color: var(--k-ink); }
   #plus-join .plus-join-say { margin: 8px 0 0; }
   #plus-join .acts { margin-top: 6px; }
-  /* kosmos#6314: the two steps on the waiting computer; after a match, the next action leads and the code steps back. */
+  /* kosmos#6314: the steps on the waiting computer; after a match, the next action leads (#6404: the code stays large). */
   #plus-join .plus-join-steps { margin: 6px 0 0; padding-left: 1.25rem; color: var(--k-ink-2); }
   #plus-join .plus-join-steps li { margin: 3px 0; }
   #plus-join .plus-join-done::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2fa36b; margin-right: 8px; vertical-align: 1px; }
   #plus-join .plus-join-next { margin: 6px 0 0; color: var(--k-ink); font-weight: 600; }
-  #plus-join .plus-join-code-small { margin: 6px 0 0; font: 600 1rem/1.3 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .1em; color: var(--k-ink-2); }
   /* While this computer waits to be allowed, the pairing is the page's one job (Josh 11:37). */
   #plus-flow.plus-joining #plus-devices, #plus-flow.plus-joining #plus-org { display: none !important; }
   /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
@@ -2790,6 +2802,8 @@ body.filter-attn #orgview .onode:not([data-attn]) { opacity: .26; }
             border: 1px solid var(--k-rule); border-radius: 999px; padding: 2px 10px; }
 .oa-note { font-size: 13px; color: var(--k-ink-2); }
 .oa-open { font-size: 13px; color: var(--k-ink); }
+/* kosmos#6406 step 2: a link to another computer while this computer makes its ticket (computersOpenClick). */
+a[data-computer-open][aria-busy="true"] { cursor: progress; text-decoration: underline dotted; }
 .oa-cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); }
 .oa-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; text-decoration: none;
            background: var(--k-surface); color: var(--k-ink); border: 1px solid var(--k-rule);
@@ -18591,9 +18605,36 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4194: the phone app is in testing, so a Mac user without it is not misled into thinking it can be installed. -->
       <p class="dhint" id="phone-notify-testing" style="margin:6px 0 0;">The Kosmos phone app is still in testing. For now it is an Android test build, and it is not in the App Store or Google Play yet. Until it is on your phone, these will not reach your phone.</p>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
-        <div><b>Buzz my phone when an agent needs me</b>
-          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time when an agent needs you or answers you, never what they said. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
+        <div><b>Buzz my phone about my agents</b>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. Turn this on, then choose below what buzzes your phone. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
         <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
+      </div>
+      <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
+           (the client unhides it in paintKinds). Each button toggles its own kind through
+           PUT /api/phone-notify { kind, on }; the server's `kinds` says which are on. postedRoom
+           is off by default (a busy room is opt-in); the rest are on. -->
+      <div id="phone-notify-kinds" style="margin-top:6px;" hidden>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent needs me</div>
+          <button class="btn" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent answers me</div>
+          <button class="btn" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent replies to a post of mine</div>
+          <button class="btn" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When work is ready for my check</div>
+          <button class="btn" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When anyone posts in a project room I am on
+            <p class="dhint" style="margin:2px 0 0;">Off to start with, so a busy room does not fill your phone. At most one buzz per room every few minutes.</p></div>
+          <button class="btn" id="pn-kind-postedRoom" data-kind="postedRoom" type="button" aria-pressed="false">Off</button>
+        </div>
       </div>
       <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
       <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
@@ -19612,6 +19653,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="plus-forget-ask" hidden>
         <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-required" hidden></p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -20649,7 +20691,9 @@ function pnavFill(name) {
       const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
       it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
       // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
-      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || '');
+        // kosmos#6406 step 2: and its mark, so in the app it opens with a ticket as the row does.
+        if (row.hasAttribute('data-computer-open')) it.setAttribute('data-computer-open', '1'); }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -30591,7 +30635,79 @@ function computersInApp() {
    page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
 function computersLinkTarget(a) {
   if (!computersInApp()) a.target = '_blank';
+  // kosmos#6406 step 2: marked, so a plain click in the app opens it with a ticket (computersOpenClick). An attribute,
+  // not a listener (one document listener reads it); the phone menu's copy of a row copies it (pnavFill).
+  try { a.setAttribute('data-computer-open', '1'); } catch {}
 }
+/* kosmos#6406 step 2 (Josh 11:32: "i want to access your machine kosmos in my kosmos app"): in the Kosmos app, a plain
+   click on a link to another of the person's computers asks this computer for a ticket (POST /api/remote/open-ticket,
+   only for a request made on this computer's own screen) and opens the other computer with it in the address's
+   fragment (#kpt=). That computer lets the window in with no sign-in when it trusts this computer's key (they were
+   paired with the codes compared there); otherwise, or when anything here fails, the plain address opens and asks for
+   a sign-in as before. A modified click (new tab, new window) and a browser keep the plain link. */
+let computersOpening = false;
+/* Review 4: a script navigation ignores the link's rel=noreferrer and would send this board's address as Referer to
+   the other computer. A throwaway unmarked link that says noreferrer goes instead (computersOpenClick ignores it: it
+   has no data-computer-open). Where there is no page to put it in, the plain assign. */
+function computersGo(to) {
+  try {
+    const l = document.createElement('a');
+    l.href = to;
+    l.rel = 'noreferrer';
+    l.hidden = true;
+    document.body.appendChild(l);
+    l.click();
+    l.remove();
+  } catch { window.location.assign(to); }
+}
+function computersOpenClick(e) {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const a = e.target && e.target.closest ? e.target.closest('a[data-computer-open]') : null;
+  if (!a || !computersInApp()) return;
+  let url;
+  try { url = new URL(a.href); } catch { return; }
+  if (url.protocol !== 'https:') return;
+  e.preventDefault();
+  if (computersOpening) return;   // one at a time: a click while one is out is ignored
+  computersOpening = true;
+  // Said while the ticket is made (review 2: up to 8 s of a link that looked dead).
+  try { a.setAttribute('aria-busy', 'true'); } catch {}
+  const plain = url.origin + url.pathname + url.search;
+  let settled = false;
+  const openAt = (to) => {
+    if (settled) return;
+    settled = true;
+    computersOpening = false;
+    try { a.removeAttribute('aria-busy'); } catch {}
+    computersGo(to);
+  };
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  // The plain address after 8 s whatever the fetch does (with or without AbortController).
+  const cut = setTimeout(() => { if (ctl) ctl.abort(); openAt(plain); }, 8000);
+  fetch('/api/remote/open-ticket', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ address: url.host }),
+    signal: ctl ? ctl.signal : undefined,
+  })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((b) => {
+      clearTimeout(cut);
+      const t = b && typeof b.ticket === 'string' && /^[A-Za-z0-9_-]{20,2048}$/.test(b.ticket) ? b.ticket : '';
+      openAt(t ? plain + '#kpt=' + t : plain);
+    })
+    .catch(() => { clearTimeout(cut); openAt(plain); });
+}
+if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('click', computersOpenClick);
+/* kosmos#6406: a window already signed in on this computer gets this page, not the gate page, so a ticket another
+   computer sent along (#kpt=) is taken out of the address here, unused, as the gate page would. */
+try {
+  if (typeof location !== 'undefined' && /(^#|&)kpt=/.test(location.hash || '')) {
+    // Only the kpt key goes; anything else in the fragment stays.
+    const rest = String(location.hash).replace(/^#/, '').split('&').filter((p) => p && !/^kpt=/.test(p)).join('&');
+    history.replaceState(history.state, '', location.pathname + location.search + (rest ? '#' + rest : ''));
+  }
+} catch {}
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
@@ -50283,16 +50399,41 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
    attempt, so its first_seen is the FIRST ask, never this one. Josh's laptop read "23 hours ago" for a fresh request. */
 function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer')); }
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
+/* #6404: what the person typed for a computer's code, kept across repaints and forgotten when the code changes. */
+// The tunnel's pairing code is six digits in two groups (pairsas), so digits alone are the code; revisit if it gains letters.
+function askDigits(v) { return String(v || '').replace(/\D/g, ''); }
+function askTypedFor(d) {
+  const t = ASK.typed && ASK.typed[d.device_id];
+  return t && t.code === d.code ? t.v : '';
+}
+function askTyped(id, v) {
+  const d = ASK.devices.find((x) => x.device_id === id);
+  if (!d) return;
+  ASK.typed = ASK.typed || {};
+  ASK.typed[id] = { code: d.code, v: v };
+}
 function askWrite(el, html) {
   if (!el) return;
   /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
      button that had focus is found again by what it does and for whom, and focus goes back to it. */
   const a = document.activeElement;
-  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '', code: a.dataset.askcode || '',
+    at: a.dataset.askcode ? [a.selectionStart, a.selectionEnd] : null } : null;
   setLive(el, html);
+  // #6404: a code field gets back what was typed for this code (kept out of the markup).
+  for (const f of el.querySelectorAll('.askcodein')) {
+    const d = ASK.devices.find((x) => x.device_id === f.dataset.askcode);
+    const v = d ? askTypedFor(d) : '';
+    if (f.value !== v) f.value = v;
+  }
   if (had && !el.contains(document.activeElement)) {
-    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
-    if (back) back.focus();
+    const back = had.code ? Array.from(el.querySelectorAll('.askcodein')).find((f) => f.dataset.askcode === had.code)
+      : Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    if (back) {
+      back.focus();
+      // #6404: a rebuilt code field keeps the person's place in what they typed.
+      if (had.at && back.value) back.setSelectionRange(Math.min(had.at[0], back.value.length), Math.min(had.at[1], back.value.length));
+    }
   }
   for (const s of el.querySelectorAll('[data-ask-ago]')) {
     const t = askAgo(Number(s.dataset.askAgo) || 0);
@@ -50435,7 +50576,7 @@ function paintAsk() {
     const joiningRow = askComputerRow(d);
     const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+    /* #4794 (Mona Lisa's words), #6404: a computer joining shows its code on its own screen; the person types it here. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
     const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
     /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
@@ -50444,7 +50585,7 @@ function paintAsk() {
       ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
-    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed' || e.because === 'code_new' || e.because === 'code_short');
     const staleTag = tagged && e.code !== d.code;
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
@@ -50456,27 +50597,41 @@ function paintAsk() {
        and browser words match: the asking device names itself, so free text never goes into this sentence. Anything else
        keeps "the device in your hand". */
     const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
-    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
+    /* #6404: for a computer the person TYPES the code shown on it; this computer's own code is not shown, so Allow
+       cannot be pressed without reading the other screen (one click used to send this computer's own code). */
+    const typing = !!(d.joining_computer && d.code && !waitLine);
+    const typed = typing ? askTypedFor(d) : '';
+    const say = d.joining_computer ? (d.code ? 'Type the code shown on ' + name + ', then press Allow.' : '')
       : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
-      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+      : e.because === 'code_short' ? 'Type the six digits shown on ' + name + ', then press Allow.'
+      : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
+      : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press Allow.'
+      : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed Allow. Type the new one from ' + name + ', then press Allow.'
+        : 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.')
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
             : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
-    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
       '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
-      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
+      /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
+         rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
+      (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
+        '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
+        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
+      (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -50506,7 +50661,7 @@ function paintAsk() {
   ASK.shownKey = waiting.join(',');
 }
 async function askAct(act, id, at) {
-  const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
+  let d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { askNoteDismiss(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
   // 'open' and 'note-dismiss' exist only on the compact notice, whose paint wrote ASK.noteKeys.
   if (act === 'note-dismiss') {
@@ -50546,14 +50701,49 @@ async function askAct(act, id, at) {
   }
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
+  // Only the two buttons act on a request; anything else (#6404: a click that reached here from elsewhere) does nothing.
+  if (act !== 'allow' && act !== 'deny') return;
   const verb = act === 'allow' ? 'allow' : 'deny';
+  /* #6404: for a computer, what the person typed is checked here, digit for digit, against the code this computer worked
+     out, and then it is what Allow sends (in the tunnel's "ddd ddd" form), so the tunnel checks the person's entry too.
+     A wrong one never reaches the tunnel (it would read as "the code changed"). Before calling it wrong, the list is read
+     once more: the other computer may have a new code this page has not seen yet, and the person typed that one. */
+  let typedCode;
+  if (verb === 'allow' && d.joining_computer && d.code) {
+    const t = ASK.typed && ASK.typed[id];
+    // What the field shows (typing for an earlier code is not shown, so it does not count).
+    const v = askDigits(askTypedFor(d));
+    const refuse = (because) => {
+      ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because };
+      for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+      paintAsk();
+      const f = document.getElementById('askcode-' + id);
+      if (f) { f.focus(); if (because !== 'code_short') f.select(); }
+    };
+    // The field went blank because the code changed after the person typed: say so, not "type all six".
+    if (!v && t && askDigits(t.v) && t.code !== d.code) { refuse('code_new'); return; }
+    if (v.length !== 6) { refuse('code_short'); return; }
+    if (v !== askDigits(d.code)) {
+      if (typeof pollAsk === 'function') await pollAsk();
+      const now = ASK.devices.find((x) => x.device_id === id);
+      if (now && now.code && v === askDigits(now.code)) { d = now; t.code = now.code; }
+      else {
+        if (now) d = now;
+        // Typed for a code that has since changed: say so, not "that is not the code".
+        refuse(now && t.code !== now.code ? 'code_new' : 'code_typed');
+        return;
+      }
+    }
+    typedCode = v.slice(0, 3) + ' ' + v.slice(3);
+  }
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
-      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
+      /* #4794, #6404: Allow for a joining computer carries the code the person TYPED; the tunnel refuses any other. */
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
   } catch { res = null; }
   if (res && res.ok) {
+    if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
@@ -50578,6 +50768,29 @@ document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
+/* #6404: typing the joining computer's code. Allow wakes at six digits without a repaint; Enter presses it. */
+for (const cid of ['askcard', 'plus-asks']) {
+  const host = document.getElementById(cid);
+  host.addEventListener('input', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f) return;
+    const id = f.dataset.askcode;
+    askTyped(id, f.value);
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === id);
+    const d = ASK.devices.find((x) => x.device_id === id);
+    const e2 = ASK.done[id];
+    const held = !d || (e2 && e2.state === 'error' && e2.because === 'code_changed' && e2.code === d.code && Date.now() - e2.at < 60000);
+    // Short of six digits Allow stays reachable (aria-disabled, so Tab from here lands on it, never on Not me); a press says why.
+    if (allow) { allow.disabled = !!held; if (!held && askDigits(f.value).length !== 6) allow.setAttribute('aria-disabled', 'true'); else allow.removeAttribute('aria-disabled'); }
+  });
+  host.addEventListener('keydown', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f || e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.askcode);
+    if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
+  });
+}
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -51178,6 +51391,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
+    if (typeof plusForgetRequiredOnRead === 'function') plusForgetRequiredOnRead();   // kosmos#6367
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
@@ -51609,17 +51823,17 @@ function paintPlusJoin() {
     + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
     + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
-  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
-     the code steps back, small and grey. */
+  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads. */
+  /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Now press Allow on ' + name + other + '.</p>'
-    + '<p class="plus-join-code-small" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
+    + '<p class="plus-join-next">Waiting for ' + name + (other ? other + ',' : '') + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
+    + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
-      : '<p class="plus-join-say">If ' + name + (other ? other + ',' : '') + ' showed this same code when you allowed it, press The codes match.</p>') + plusJoinCode(code) +
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Once ' + name + ' says this computer is connected, press The codes match here.</li></ol>'
+      : '<p class="plus-join-say">If you typed this code on ' + name + (other ? other + ',' : '') + ' to allow this computer, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
@@ -51857,7 +52071,32 @@ const PLUS_FORGET_WORDS = {
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
+/* kosmos#6367: when this is the work Kosmos and its company's policy requires reports, the confirm says what removing
+   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too.
+   "Stops reporting" only while it reports now; a Kosmos not reporting yet (words to accept, or waiting for its print)
+   is told only that it cannot report once removed, which is true either way. */
+const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
+const PLUS_FORGET_REQUIRED_IDLE = 'Your company requires this computer to report to it. Once it is removed, it cannot report.';
+function plusForgetRequiredLine(st) {
+  if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
+  const line = st.reporting === true ? PLUS_FORGET_REQUIRED : PLUS_FORGET_REQUIRED_IDLE;
+  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, line) : line;
+}
+/* Filled when the confirm opens, and again when a read of /api/org lands while it is open (plusOrgMaybe): pressed
+   before the pane's first read, the confirm would otherwise stay without the line however long it stays open. */
+function plusForgetRequiredPaint(on) {
+  const req = document.getElementById('plus-forget-required');
+  if (!req) return;
+  const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
+  req.textContent = line; req.hidden = !line;
+}
+// A read of /api/org has landed: an open Remove confirm takes the new state's line, and a closed one is left alone.
+function plusForgetRequiredOnRead() {
+  const ask = document.getElementById('plus-forget-ask');
+  if (ask && !ask.hidden) plusForgetRequiredPaint(true);
+}
 function plusForgetArm(on) {
+  plusForgetRequiredPaint(on);
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
@@ -84559,11 +84798,35 @@ setInterval(ageCheckedStamp, 1000);
   function el(id) { return document.getElementById(id); }
   function setMsg(text) { var m = el('phone-notify-msg'); if (m) m.textContent = text || ''; }
 
+  // #6254: the per-kind sub-switches, in the page's order.
+  var KIND_BTNS = ['needsYou', 'replied', 'postedMention', 'ready', 'postedRoom'];
+  /* Paint the sub-switches from the board's `kinds`. Shown ONLY while the whole
+     feature is on and connected -- off, not connected, or unavailable all hide
+     the block, so a kind can be changed only when it could actually send. Each
+     button reads its own stored value ('On'/'Off'); the server resolves the
+     defaults, so a missing value never shows here. */
+  function paintKinds(st) {
+    var box = el('phone-notify-kinds');
+    if (!box) return;
+    var show = !!(st && st.available && st.connected && st.on && st.kinds);
+    box.hidden = !show;
+    if (!show) return;
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      var name = KIND_BTNS[i];
+      var b = el('pn-kind-' + name);
+      if (!b) continue;
+      var on = st.kinds[name] === true;
+      b.textContent = on ? 'On' : 'Off';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
   /* Paint from what the board said: on/off, and whether this computer is
      connected to Kosmos+. */
   var current = null;
   function paint(st) {
     current = st;
+    paintKinds(st);   // #6254: the sub-switches follow the master on every paint (hidden unless on + connected)
     // Shown only when the board says phone notifications are available (the
     // ship gate in engine/phonenotify.js); hidden otherwise, including when the
     // setting could not be read.
@@ -84621,13 +84884,47 @@ setInterval(ageCheckedStamp, 1000);
     }).then(function (result) { busy = false; return result; });
   }
 
+  // #6254: toggle one sub-switch. Only while the master is on and connected (the
+  // buttons are hidden otherwise, but guard anyway); a refused PUT shows the
+  // board's words and leaves the switches at the last good paint.
+  var kindBusy = false;
+  function toggleKind(name) {
+    if (kindBusy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
+    if (KIND_BTNS.indexOf(name) === -1) return Promise.resolve(false);
+    kindBusy = true;
+    var want = !current.kinds[name];
+    return fetch(API, {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: name, on: want }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok) { paint(current); setMsg(body.error || 'That did not work. Please try again.'); return false; }
+        paint(body);
+        return true;
+      });
+    }).catch(function () {
+      paint(current);
+      setMsg('That did not work. Please try again.');
+      return false;
+    }).then(function (result) { kindBusy = false; return result; });
+  }
+
   // Exposed so a browser-check can drive these without simulating clicks.
   window.kosmosRegisterServiceWorker = registerServiceWorker;
   window.kosmosPhoneNotifyToggle = toggle;
+  window.kosmosPhoneNotifyKindToggle = toggleKind;   // #6254
 
   function wire() {
     var btn = el('phone-notify-toggle');
     if (btn) btn.addEventListener('click', function () { toggle(); });
+    // #6254: wire each sub-switch to its own kind (an IIFE pins `name` per button).
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      (function (name) {
+        var kb = el('pn-kind-' + name);
+        if (kb) kb.addEventListener('click', function () { toggleKind(name); });
+      })(KIND_BTNS[i]);
+    }
     load();
     registerServiceWorker();
   }

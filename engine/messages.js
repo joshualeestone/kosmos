@@ -2934,6 +2934,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
+         `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
+         A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
+      ...(answered ? { repliesToPerson: answered.operator === true } : {}),
       /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
          the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };

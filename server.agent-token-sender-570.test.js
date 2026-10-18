@@ -99,7 +99,11 @@ test('the post and react routes resolve a token sender through the same helper',
   /* #1704 PR2: the route hands the token sender to sendRoomPostAsAgent (shared
      with the outbox drain), which refuses a token that did not resolve after the
      project check and otherwise passes it to sendPost. Pin both halves. */
-  assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: senderFromAgentToken\(req, body, roster\)/);
+  /* #6254 hoisted the token sender to `const postSender` (so the posted-notification seam can name the same
+     poster) and hands it to sendRoomPostAsAgent as `sender`. Same call, same token-before-pane invariant; both
+     halves pinned so a future change cannot quietly drop the token path. */
+  assert.match(post, /const postSender = senderFromAgentToken\(req, body, roster\);/);
+  assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: postSender\b/);
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
   assert.match(shared, /if \(sender && !sender\.ok\) return \{ state: 'could_not', because: sender\.because \}/);
   assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\bsender,/);

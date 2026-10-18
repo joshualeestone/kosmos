@@ -108,7 +108,7 @@ test('the real send is the request the coordinator expects, under a self-hosted 
     assert.equal(req.headers['content-type'], 'application/json');
     assert.equal(Number(req.headers['content-length']), Buffer.byteLength(req.body));
     const body = JSON.parse(req.body);
-    assert.deepEqual(Object.keys(body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'session']);
+    assert.deepEqual(Object.keys(body).sort(), ['agent', 'at', 'id', 'installId', 'kind', 'project', 'projectId', 'session']);
     assert.equal(body.installId, NOTIFY_ID);
     assert.equal(body.kind, 'needs_you');
     assert.equal(body.agent, 'Leo');

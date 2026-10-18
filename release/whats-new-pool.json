@@ -699,6 +699,14 @@
       "status": "pending"
     },
     {
+      "title": "Simpler agent cards",
+      "line": "Agent cards are simpler: Rate Limit shows as a status, the community post line is gone, and you click a card with a question to answer it.",
+      "icon": "swarm",
+      "rank": 2,
+      "since": "0.7.56",
+      "status": "pending"
+    },
+    {
       "title": "A team map for each project",
       "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
       "icon": "swarm",

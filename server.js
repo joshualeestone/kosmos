@@ -529,6 +529,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
+    /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -1112,6 +1115,14 @@ function* proofAgentTokens(k) {
   c.at = Date.now();
   c.ids = ids;
   if (ids.has(k)) yield ids.get(k);
+}
+/* kosmos#6406 (review 8): a second signal, independent of the forwarding headers, for the ticket route. On a board that
+   enforces its token, the app window carries the board COOKIE; Kosmos+ strips a visitor's board cookie and sends the
+   token as a header instead (kosmos-relay proxy.rs strip_cookie_named(.., BOARD_COOKIE_NAME)), so a phone through it
+   has no cookie. A board that enforces nothing (a sandboxed test board) has no cookie to ask for. */
+function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
+  if (!state || !state.on) return true;
+  return !!boardauth.cookieToken(req) && check(req);   // presentedToken reads the cookie first, so check judges it
 }
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
@@ -4209,6 +4220,28 @@ const ROUTING_BASE = 'http://localhost';
 // check got it exactly backwards -- routing `//localhost/x` (port 80, not us)
 // while refusing `//localhost:4317/x` (us).
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/* kosmos#6406 step 2: whether a request was made on THIS computer itself, for the one route that signs with its key to
+   open another of the account's computers. All three, positively: addressed to a loopback name (Host); sent by a page
+   on a loopback name (Origin, which a browser always sends on a POST); and forwarded by nothing that says so (Kosmos+
+   sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
+   board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
+   the phone's page is on the proxy's own name. */
+function madeOnThisComputer(headers) {
+  const h = headers || {};
+  if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
+  const nameOf = (v, withScheme) => {
+    try { return new URL(withScheme ? String(v) : 'http://' + String(v)).hostname.replace(/\.$/, '').toLowerCase(); } catch { return ''; }
+  };
+  if (typeof h.host !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.host, false))) return false;
+  if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
+  return true;
+}
+/* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
+   Kosmos+ reaches the board over loopback, which is why the header rule stays). */
+function ticketCallerHere(req) {
+  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
+}
 
 /**
  * Extra hostnames this server will answer to, comma-separated.
@@ -9816,7 +9849,12 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
+        // master turn-on/off (unchanged). Any present `kind` (even a non-string) goes to setKind, which
+        // refuses an unknown kind with a 400, so a malformed kind can never fall through to the master path.
+        const saved = ('kind' in body)
+          ? await phonenotify.setKind(body.kind, body.on)
+          : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -10837,7 +10875,9 @@ const server = http.createServer(async (req, res) => {
          the board cannot accept them itself (the coordinator refuses a family's enroll without wordsShown), so the
          joined view offers to show them (preview { review: true }, then Accept with wordsShown). */
       const wordsNeeded = !!(here && rec && rec.org && rec.org.kind === 'family' && !accepted);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
+      const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
@@ -10976,6 +11016,37 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not ask for a new code' }));
+    return;
+  }
+  /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
+     for a request made on THIS computer's own screen (madeOnThisComputer: loopback Host and Origin, nothing forwarded;
+     the Kosmos+ headers are pinned in kosmos-relay's proxy tests), so a phone let in here, through Kosmos+ or a proxy
+     of the person's own, cannot use this computer's key to reach the other computers; and with no agent token
+     (isViaScreen). Kosmos+ rewrites Host and Origin to loopback and connects over loopback, so for a phone through it
+     the forwarding headers and the board cookie (boardCookieHere: Kosmos+ strips it) are what refuse it. A local
+     process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
+     tunnel with this computer's key itself. The address must be one an account's computer can have. */
+  if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!ticketCallerHere(req) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
+          return;
+        }
+        const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+        const domain = accountComputers.computerDomain(remote.COORDINATOR());
+        if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+          sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+          return;
+        }
+        const got = await remote.openTicket(address);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ticket: got.data.ticket });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -16962,9 +17033,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: postSender,
           senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
@@ -16977,6 +17049,22 @@ const server = http.createServer(async (req, res) => {
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
+        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
+        // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
+        // posts come from the screen, not this token route). The tap target is the app's call (the room for
+        // posted, the agent for the other kinds); the board sends both session and project so it can route.
+        try {
+          if (postSender && postSender.ok && delivery && delivery.id) {
+            const pj = projects.get(body.project, roster);
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+              id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
+              session: (postSender.card && postSender.card.sessionName) || null,
+              // #6254: the room's project id (not just its name) so a posted tap opens the room.
+              project: pj ? pj.name : null, projectId: pj ? pj.id : null });
+          }
+        } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
            that this agent is working in THIS project -- "the activity carries which
            project it belongs to". Carry that project onto the poster's state so the
@@ -21641,7 +21729,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -21797,7 +21885,9 @@ const server = http.createServer(async (req, res) => {
       /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
+          // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -21837,6 +21927,17 @@ const server = http.createServer(async (req, res) => {
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
+      }
+      // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
+      // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
+      // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
+      // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        try {
+          const pj = projects.get(id, roster);
+          phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+        } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {
@@ -24972,6 +25073,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test

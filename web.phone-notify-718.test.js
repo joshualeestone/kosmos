@@ -28,15 +28,20 @@ const flush = () => new Promise((r) => setTimeout(r, 5));
 function load(opts) {
   opts = opts || {};
   const calls = { fetch: [], registered: false };
-  const mk = (extra) => Object.assign({ textContent: '', hidden: true, disabled: false, href: '#' }, extra);
+  const mk = (extra) => Object.assign({ textContent: '', hidden: true, disabled: false, href: '#', setAttribute() {} }, extra);
+  const clickable = (extra) => mk(Object.assign({ _click: null, addEventListener(ev, cb) { if (ev === 'click') this._click = cb; } }, extra));
+  const KINDS = ['needsYou', 'replied', 'postedMention', 'ready', 'postedRoom'];   // #6254
   const elements = {
-    'phone-notify-toggle': mk({ disabled: true, textContent: 'Turn on', _click: null,
-      addEventListener(ev, cb) { if (ev === 'click') this._click = cb; } }),
+    'phone-notify-toggle': clickable({ disabled: true, textContent: 'Turn on' }),
     'phone-notify-msg': mk(),
     'phone-notify-step': mk(),
     'phone-notify': mk({ hidden: true }),
+    'phone-notify-kinds': mk({ hidden: true }),   // #6254: the sub-switch container
   };
-  let state = Object.assign({ available: true, on: false, connected: true }, opts.state);
+  for (const name of KINDS) elements['pn-kind-' + name] = clickable({ textContent: '' });   // #6254: one button per kind
+  // #6254: the per-kind defaults the server resolves (postedRoom off, the rest on).
+  const DEFAULT_KINDS = { needsYou: true, replied: true, postedMention: true, ready: true, postedRoom: false };
+  let state = Object.assign({ available: true, on: false, connected: true, kinds: Object.assign({}, DEFAULT_KINDS) }, opts.state);
   const navigator = opts.noSW ? {} : { serviceWorker: { register() { calls.registered = true; return Promise.resolve({}); } } };
   const win = { console: { warn() {} } };
   const domHandlers = {};
@@ -51,14 +56,20 @@ function load(opts) {
     if (opts.fetchFails) return Promise.reject(new Error('offline'));
     if (method === 'PUT') {
       if (opts.putError) return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: opts.putError }) });
-      state = Object.assign({}, state, { on: JSON.parse(init.body).on });
+      const put = JSON.parse(init.body);
+      if (typeof put.kind === 'string') {   // #6254: a sub-switch PUT { kind, on }
+        state = Object.assign({}, state, { kinds: Object.assign({}, state.kinds, { [put.kind]: put.on }) });
+      } else {
+        state = Object.assign({}, state, { on: put.on });
+      }
     }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(state) });
   };
   // eslint-disable-next-line no-new-func
   new Function('navigator', 'window', 'document', 'fetch', BLOCK)(navigator, win, document, fetchStub);
   const e = elements;
-  return { win, calls, domHandlers, section: e['phone-notify'], btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'] };
+  return { win, calls, domHandlers, section: e['phone-notify'], btn: e['phone-notify-toggle'], msg: e['phone-notify-msg'], step: e['phone-notify-step'],
+    kindsBox: e['phone-notify-kinds'], kindBtn: (name) => e['pn-kind-' + name], state: () => state };   // #6254
 }
 
 test('load, off and connected: Turn on, no phone step shown, worker registered', async () => {
@@ -147,6 +158,68 @@ test('ship gate open: the section shows (the control for the closed arm)', async
   const h = load();
   h.domHandlers.DOMContentLoaded(); await flush();
   assert.equal(h.section.hidden, false);
+});
+
+/* #6254: the per-kind sub-switches under the master. */
+test('#6254: the sub-switches are hidden while off, shown and painted from kinds when on', async () => {
+  const off = load();
+  off.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(off.kindsBox.hidden, true, 'the sub-switches showed while phone notifications are off');
+
+  const on = load({ state: { on: true } });
+  on.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(on.kindsBox.hidden, false, 'the sub-switches stayed hidden with the master on');
+  assert.equal(on.kindBtn('needsYou').textContent, 'On', 'needsYou defaults on');
+  assert.equal(on.kindBtn('ready').textContent, 'On', 'ready defaults on');
+  assert.equal(on.kindBtn('postedRoom').textContent, 'Off', 'postedRoom defaults off');
+});
+
+test('#6254: clicking a sub-switch PUTs { kind, on } and repaints from the answer', async () => {
+  const h = load({ state: { on: true } });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(h.kindBtn('postedRoom').textContent, 'Off');
+  h.kindBtn('postedRoom')._click(); await flush();
+  const put = h.calls.fetch.find((c) => c.method === 'PUT');
+  assert.deepEqual(put.body, { kind: 'postedRoom', on: true }, 'the sub-switch did not PUT its own kind turning on');
+  assert.equal(h.kindBtn('postedRoom').textContent, 'On', 'the switch did not repaint on after the PUT');
+  // CONTROL: a second click turns it back off (the PUT carries the flipped value, the paint follows).
+  h.kindBtn('postedRoom')._click(); await flush();
+  const puts = h.calls.fetch.filter((c) => c.method === 'PUT');
+  assert.deepEqual(puts[puts.length - 1].body, { kind: 'postedRoom', on: false });
+  assert.equal(h.kindBtn('postedRoom').textContent, 'Off');
+});
+
+test('#6254: a sub-switch does nothing while the master is off (no PUT)', async () => {
+  const h = load();   // master off
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(await h.win.kosmosPhoneNotifyKindToggle('ready'), false, 'a sub-switch acted with the master off');
+  assert.equal(h.calls.fetch.filter((c) => c.method === 'PUT').length, 0, 'a sub-switch PUT went out with the master off');
+});
+
+test('#6254: turning the master off hides the sub-switches again', async () => {
+  const h = load({ state: { on: true } });
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(h.kindsBox.hidden, false);
+  await h.win.kosmosPhoneNotifyToggle();   // master off
+  assert.equal(h.kindsBox.hidden, true, 'the sub-switches stayed shown after turning the master off');
+});
+
+test('#6254: the client exposes kosmosPhoneNotifyKindToggle()', async () => {
+  const h = load();
+  h.domHandlers.DOMContentLoaded(); await flush();
+  assert.equal(typeof h.win.kosmosPhoneNotifyKindToggle, 'function');
+});
+
+test('#6254: the page carries the sub-switch container and one button per kind, hidden to start', () => {
+  const start = PAGE.indexOf('<div id="phone-notify-kinds"');
+  assert.ok(start > -1, 'the sub-switch container is gone');
+  assert.match(PAGE.slice(start, start + 70), /hidden/, 'the sub-switch container is not hidden in the markup');
+  for (const name of ['needsYou', 'replied', 'postedMention', 'ready', 'postedRoom']) {
+    assert.match(PAGE, new RegExp('id="pn-kind-' + name + '"[^>]*data-kind="' + name + '"'), 'missing the ' + name + ' sub-switch button');
+  }
+  // postedRoom ships Off in the markup (its default); a default-on kind ships On.
+  assert.match(PAGE, /id="pn-kind-postedRoom"[^>]*aria-pressed="false"[^>]*>Off</);
+  assert.match(PAGE, /id="pn-kind-ready"[^>]*aria-pressed="true"[^>]*>On</);
 });
 
 test('the section is hidden in the page markup, before any script runs', () => {

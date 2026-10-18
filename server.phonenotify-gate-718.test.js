@@ -96,7 +96,10 @@ test('gate closed: the setting reads unavailable and off, whatever the file says
   phonenotify.setAvailableForTests(false);
   t.after(() => phonenotify.setAvailableForTests(phonenotify.PHONE_APP_CAN_RECEIVE));   // back to the shipped gate, whatever the order
   const st = await call('GET', '/api/phone-notify');
-  assert.deepEqual(st.json, { available: false, on: false, connected: true });
+  // #6254: the status shape carries the per-kind defaults in both branches (one shape for the Settings UI);
+  // while unavailable they are inert (available:false + on:false are the gate, kinds change nothing here).
+  assert.deepEqual(st.json, { available: false, on: false, connected: true,
+    kinds: { needsYou: true, postedMention: true, postedRoom: false, ready: true, replied: true } });
 });
 
 test('gate closed: turning on is refused and the tunnel never runs', async (t) => {
