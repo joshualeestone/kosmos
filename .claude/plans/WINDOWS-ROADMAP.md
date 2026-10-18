@@ -66,8 +66,8 @@ below for history.
   win32 (`WINDOWS_SIGNIN_HOST_ENABLED=false`), so first-run sign-in is a copy-paste
   PowerShell line via the stuck-card hatch — Josh's product call whether v1 accepts that.
 - **DUNS filed for a new entity → Azure code-signing** (removes the SmartScreen warning;
-  addresses #3015). Seam ready (AUTHENTICODE-SEAM in win32update.js); blocked only on the
-  external cert timeline.
+  addresses #3015). Signing has landed: setup.ps1 checks the signer on a fresh install, and
+  since updater-sig-win-1765 the in-app updater checks it too (win32update.js B4, the same pins).
 
 ## The one-line state (2026-09-12, ~16:00 UTC)
 

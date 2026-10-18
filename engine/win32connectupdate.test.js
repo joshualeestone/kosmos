@@ -41,6 +41,7 @@ const win32board = require('./win32board');
 const win32update = require('./win32update');
 const connectUpdate = require('./win32connectupdate');
 const { buildZip } = require('../test-support/zipfixture');
+const { SIGNED_KOSMOS } = require('../test-support/signedkosmos');
 
 test.after(() => {
   win32board.setRunner(null);
@@ -193,6 +194,8 @@ function seamsFor(c, s, sim) {
       fetch: s ? s.fetch : async () => { throw new Error('this case must not reach the network'); },
       freeBytes: () => 64 * 1024 * 1024 * 1024,
       runStagedNode: () => NODE_VERSION + '\n',
+      /* #1765: the staged Kosmos.exe here is a stub; Windows' answer for a published build stands in for it. */
+      checkSignature: () => SIGNED_KOSMOS,
       log: (line) => c.log.push(line),
       /* Production starts the helper detached with the anchored node.exe; here it runs in this process, with
          no mayStartBoard seam, so the helper's own mode reader decides whether a board is started. */

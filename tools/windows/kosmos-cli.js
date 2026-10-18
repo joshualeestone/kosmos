@@ -108,6 +108,7 @@ const USAGE = {
     '  kosmos task activity <project-id> <task-number>              read a task\'s conversation, oldest first, in this computer\'s local time',
     '  kosmos task built <project-id> <task-number> ["note"]  mark it built; with checks, the note says how each went',
     '      --clear                                                  take the built mark off',
+    '      --file <path>                                            send the delivered file\'s fingerprint (sha256) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
@@ -947,6 +948,8 @@ async function taskList(ctx, args) {
       : x.builtAt ? '[built] ' + (x.projectPaused === true ? '[project paused] ' : '')
         : x.projectPaused === true ? '[on hold] ' : '')) + words + who + by + up + kids + rep);
     if (dw) ctx.out(dw);
+    // #6330 slice 2, as install/kosmos: a built task's fingerprint, so the next agent can check its copy.
+    if (x.builtAt && /^sha256:[0-9a-f]{64}$/.test(x.builtFingerprint || '')) ctx.out('    fingerprint ' + x.builtFingerprint + (x.builtFingerprintBy ? ', sent by ' + q(x.builtFingerprintBy) : ''));
   }
   return 0;
 }
@@ -1184,22 +1187,41 @@ function taskHoldAs(want) {
    off with --clear. Presents the agent token, as message does, so the board names who marked it. */
 async function taskBuilt(ctx, args) {
   const [project, num] = args;
-  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)'); return 2; }
+  if (!project || !num) { ctx.err('Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)'); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
-  /* kosmos#4889, as install/kosmos: --clear is built's one option; any other --word is refused, and past a bare --
-     everything is the note. */
+  /* kosmos#4889, as install/kosmos: --clear and (#6330) --file <path> are built's options; any other --word is
+     refused, and past a bare -- everything is the note. */
   const rest = args.slice(2);
-  let clear = false, past = false;
+  let clear = false, past = false, file = null, wantFile = false;
   const words = [];
   for (const a of rest) {
+    if (wantFile) { file = a; wantFile = false; continue; }
     if (!past && a === '--') { past = true; continue; }
     if (!past && a === '--clear') { clear = true; continue; }
-    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"]   (a note on how each check went, if it has checks; or --clear to take the mark off)', a); return 2; }
+    if (!past && a === '--file') { wantFile = true; continue; }   // #6330 slice 2
+    if (!past && /^--[A-Za-z]/.test(a)) { refuseOption(ctx, 'task built', 'Usage: kosmos task built <project-id> <task-number> ["note"] [--file <path>]   (a note on how each check went, if it has checks; --file sends the delivered file\'s fingerprint; or --clear to take the mark off)', a); return 2; }
     words.push(a);
   }
+  if (wantFile) { ctx.err('--file needs the path of the delivered file.'); return 2; }
   const note = words.join(' ');
   if (clear && note) { ctx.err('--clear takes the mark off, so it takes no note. Run it without the note.'); return 2; }
-  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '' });
+  /* #6330 slice 2: the delivered file's sha256, hashed here; the board never reads the file. */
+  let fingerprint = null;
+  if (file !== null) {
+    if (clear) { ctx.err('--clear takes the mark off, so it takes no file. Run it without --file.'); return 2; }
+    /* In chunks, as shasum streams on the Mac: a whole-file read refuses anything over 2 GiB (review 1). */
+    const hash = require('node:crypto').createHash('sha256');
+    let fd = null;
+    try {
+      if (!fs.statSync(file).isFile()) throw new Error('not a file');
+      fd = fs.openSync(file, 'r');
+      const buf = Buffer.alloc(1 << 20);
+      for (let got; (got = fs.readSync(fd, buf, 0, buf.length, null)) > 0;) hash.update(buf.subarray(0, got));
+    } catch { ctx.err('Kosmos cannot read that file: ' + file + '. Name the delivered file.'); return 2; }
+    finally { if (fd !== null) fs.closeSync(fd); }
+    fingerprint = 'sha256:' + hash.digest('hex');
+  }
+  const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/built', { note, clear, from_pane: '', ...(fingerprint ? { fingerprint } : {}) });
   if (!r.reached) {
     return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
       : ctx.unreachable('mark that task');

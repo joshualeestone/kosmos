@@ -457,6 +457,11 @@ const BLOCK = [
   '',
   '`kosmos task built <project-id> <task-number> "1 met. 2 met. 3 not met: <why>"`',
   '',
+  'If the work is a file, add `--file <path>`: the next agents are sent its fingerprint',
+  'to check their copy against (`shasum -a 256 <file>` on a Mac, `(Get-FileHash <file>).Hash`',
+  'on Windows, which prints capitals: the case does not matter). If you change the file,',
+  'mark it again with `--file`: your own mark without it drops the fingerprint.',
+  '',
   '**Work that comes back on a schedule is one task that repeats,** not a new task',
   'each time: a report every morning, a check every hour. Add it as above (or use',
   'the task you were given), with checks for what each run should find, then set',
@@ -1104,8 +1109,14 @@ function block() {
  *     WEAKEST PREMISE, NAMED: that the one line lowers acknowledgement-loop posting.
  *     Not measured; the board's count of ack runs stopped is the measure, and
  *     agents that already edited the reactions section never see the line.
+ *  33. kosmos#6330 slice 2. An agent marking a task built can send the delivered
+ *     file's fingerprint (`--file <path>`), and the next agents are typed it. The
+ *     tasks section now says so and how to check a copy on each platform. No new
+ *     heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents will pass --file when the work is a file.
+ *     Not measured; the count of built marks carrying builtFingerprint is the measure.
  */
-const DOCTRINE_VERSION = 32;
+const DOCTRINE_VERSION = 33;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

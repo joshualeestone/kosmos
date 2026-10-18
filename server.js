@@ -529,6 +529,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
+    /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -9848,7 +9851,12 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
+        // master turn-on/off (unchanged). Any present `kind` (even a non-string) goes to setKind, which
+        // refuses an unknown kind with a 400, so a malformed kind can never fall through to the master path.
+        const saved = ('kind' in body)
+          ? await phonenotify.setKind(body.kind, body.on)
+          : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -16999,9 +17007,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: postSender,
           senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
@@ -17014,6 +17023,22 @@ const server = http.createServer(async (req, res) => {
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
+        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
+        // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
+        // posts come from the screen, not this token route). The tap target is the app's call (the room for
+        // posted, the agent for the other kinds); the board sends both session and project so it can route.
+        try {
+          if (postSender && postSender.ok && delivery && delivery.id) {
+            const pj = projects.get(body.project, roster);
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+              id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
+              session: (postSender.card && postSender.card.sessionName) || null,
+              // #6254: the room's project id (not just its name) so a posted tap opens the room.
+              project: pj ? pj.name : null, projectId: pj ? pj.id : null });
+          }
+        } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
            that this agent is working in THIS project -- "the activity carries which
            project it belongs to". Carry that project onto the poster's state so the
@@ -21678,7 +21703,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -21834,7 +21859,9 @@ const server = http.createServer(async (req, res) => {
       /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
+          // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -21874,6 +21901,17 @@ const server = http.createServer(async (req, res) => {
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
+      }
+      // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
+      // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
+      // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
+      // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        try {
+          const pj = projects.get(id, roster);
+          phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+        } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {
