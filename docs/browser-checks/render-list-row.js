@@ -98,8 +98,8 @@ const { chromium } = require('playwright');
      the point of this paragraph. Under 56rem `.lrow` collapses to `34px 1fr`
      and the cells after the name stack in column 2 as separate rows (a not-running
      row's empty `.lmodel` excepted, which takes none; a running never-recorded row's `.lmodel` holds only a .vh
-     sentence since #6516, so it keeps a zero-height row and the gap, and the phone arm's model-line read below says
-     nothing for that row). An
+     sentence since #6516, so it keeps a zero-height row and the gap; the phone arm below reads the SHOWN text, with .vh
+     removed, and checks such a row as holding only that sentence instead of a full-width model line). An
      empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
      it. The 1400x900 arm will never see that, and the phone arm below reads
      the model and memory cells, not the empty task row. It has been true
@@ -151,17 +151,23 @@ const { chromium } = require('playwright');
       const box = (sel) => { const e = row.querySelector(sel); if (!e || !e.getClientRects().length) return null; const r = e.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), bottom: Math.round(r.bottom), width: Math.round(r.width) }; };
       const m = row.querySelector('.lmodel');
       return { agent: row.dataset.agent, running: !row.classList.contains('notrunning'),
-        text: m ? m.textContent.trim() : null,
+        // #6516: what is SHOWN, with .vh removed (.vh clips its text, so textContent and innerText both still return it);
+        // a never-recorded running row's cell holds only the .vh sentence.
+        text: m ? (() => { const c = m.cloneNode(true); c.querySelectorAll('.vh').forEach((v) => v.remove()); return c.textContent.trim(); })() : null,
+        vhOnly: !!(m && m.children.length === 1 && m.querySelector(':scope > .vh') && m.querySelector('.vh').textContent.trim()),
         name: box('.lname'), title: box('.ltitle'), model: box('.lmodel'), mem: box('.lmem') };
     }));
     const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     const on = rows.filter((r) => r.running);
     say(on.length > 0, 'at ' + width + 'px the list has running rows to read', rows.length + ' rows, ' + on.length + ' running');
+    // #6516: and at least one shows a model, so the full-width check below cannot pass with nothing to measure.
+    say(on.some((r) => !!r.text), 'at ' + width + 'px a running row shows a model to measure', JSON.stringify(on.map((r) => r.agent + ':' + (r.text || ''))));
     for (const r of on) {
       const at = 'at ' + width + 'px ' + r.agent;
       say(!!r.title && !!r.name && r.title.left === r.name.left && r.title.top >= r.name.bottom,
         at + "'s role sits under the name, not in the avatar column", JSON.stringify(r));
-      say(!!r.text && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
+      if (r.vhOnly && !r.text) say(true, at + "'s model cell holds only the screen-reader sentence (#6516: never recorded)", JSON.stringify(r));
+      else say(!!r.text && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
       say(!!r.model && !!r.name && r.model.left === r.name.left && r.model.top >= r.name.bottom,
         at + "'s model sits under the name, not in the avatar column", JSON.stringify(r));
       say(!!r.mem && !!r.model && r.mem.left === r.name.left && r.mem.top >= r.model.bottom,

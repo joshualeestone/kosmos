@@ -20,6 +20,9 @@ off, on every row whose launch was never recorded (every row on a board set up b
 - Weakest premise: an empty model cell is clear enough on a list where the card and agent page say why.
 - Known and accepted (review 1 NIT): below 56rem the cell no longer matches `.lmodel:empty`, so it keeps its grid row
   (zero height, the 8px row gap). Less space than the visible sentence took before.
+  Likewise on the phone remote layout (html.kremote), where .lmodel is pinned to grid row 3: a 2px empty row.
+- render-list-row.js (live board): its phone arm reads the shown text (.vh removed), checks a never-recorded running row
+  as holding only the screen-reader sentence, and requires a running row that shows a model.
 
 ## Checks
 - web.made-before.test.js: the cell is the .vh sentence for never-recorded; "Unknown Model" and a real model are shown
