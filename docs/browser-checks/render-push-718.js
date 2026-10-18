@@ -276,7 +276,7 @@ function check(name, pass, detail) {
   check('the push handler called showNotification with the mapped notification (observed in the worker)',
     !!call && (calls || []).length === 1 &&
       call.title === 'Scorpion needs you' &&
-      call.body === 'In Kosmos Inside Out' &&
+      call.body === 'in Kosmos Inside Out' &&
       call.url === TAP_URL,
     captureErr || JSON.stringify(calls).slice(0, 240));
   /* How that call settled. Headed it must RESOLVE. Headless Chromium keeps
@@ -312,7 +312,7 @@ function check(name, pass, detail) {
   if (HEADED) {
     const hit = shown.find((n) =>
       n.title === 'Scorpion needs you' &&
-      n.body === 'In Kosmos Inside Out' &&
+      n.body === 'in Kosmos Inside Out' &&
       n.url === TAP_URL);
     check('the delivered coordinator push produced the mapped notification', !!hit,
       JSON.stringify(shown).slice(0, 240));

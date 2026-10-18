@@ -176,10 +176,13 @@ self.addEventListener('fetch', (event) => {
    scheme) so a tap opens her board. We render a plain-language line from those
    fields, still preferring an explicit title/body if some future producer sends
    one. An unknown kind falls back to the generic headline below, so a new kind is
-   never dropped -- only phrased generically until it is listed here. */
+   never dropped -- only phrased generically until it is listed here.
+   #6487: these words are the catalog's (docs/phone-notifications.md, "Wording") and the
+   coordinator's (kosmos-relay push.rs notice_text), which now sends title and body
+   itself; this table is the fallback for a push without a title. */
 const KIND_HEADLINE = {
   needs_you: 'needs you',
-  posted: 'posted an update',
+  posted: 'posted',
   replied: 'replied',
   // #6254: a task marked built -- work waiting for the person's check.
   ready: 'has work ready for you',
@@ -269,20 +272,20 @@ function notificationFor(event) {
     // defensive; it costs one line to never drop a push over a shape surprise.
     if (!data || typeof data !== 'object') data = {};
   }
+  // #6487: a title from the coordinator is shown as it is, with its body only when it sent one (it sends none when
+  // there is no project). Without a title, the same words from the kind: "<Agent> <verb>", and "in <Project>" or
+  // no body; an unknown kind is "<Agent> has something for you" with no body.
   let title = (typeof data.title === 'string' && data.title) ? data.title : '';
   let body = (typeof data.body === 'string' && data.body) ? data.body : '';
-  if (!title || !body) {
+  if (!title) {
     const agent = (typeof data.agent === 'string' && data.agent) ? data.agent : 'An agent';
-    const headline = KIND_HEADLINE[data.kind] || 'has an update';
-    if (!title) title = agent + ' ' + headline;
-    if (!body) {
-      body = (typeof data.project === 'string' && data.project)
-        ? ('In ' + data.project)
-        : 'Open Kosmos to see what happened.';
-    }
+    // Own keys only, so a kind such as "toString" is not read from the prototype.
+    const known = Object.prototype.hasOwnProperty.call(KIND_HEADLINE, data.kind);
+    title = agent + ' ' + (known ? KIND_HEADLINE[data.kind] : 'has something for you');
+    body = known && typeof data.project === 'string' && data.project ? 'in ' + data.project : '';
   }
   const options = {
-    body: body,
+    body: body || undefined,
     icon: data.icon || '/icons/kosmos-192.png',
     badge: data.badge || '/icons/kosmos-192.png',
     // Distinct events show as distinct notifications (tag by event id), so a
