@@ -109,8 +109,13 @@ test('#6488: while waiting to turn on by itself, Settings looks again (30 s, and
   const hf = load({ fetchFails: true, win: { setTimeout: (fn, ms) => { tf.push(ms); return 1; }, clearTimeout: () => {} } });
   hf.domHandlers.DOMContentLoaded(); await flush();
   assert.deepEqual(tf, [30000], 'a failed read stopped the second looks');
-  // On, off by the person's choice, or Kosmos+ off here: nothing to wait for, so no timer.
-  for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }, { connected: false, on: false }]) {
+  // Kosmos+ not on here: still looks, less often (connecting in this page turns it on with no press here).
+  const tn = [];
+  const hn = load({ state: { connected: false, on: false }, win: { setTimeout: (fn, ms) => { tn.push(ms); return 1; }, clearTimeout: () => {} } });
+  hn.domHandlers.DOMContentLoaded(); await flush();
+  assert.deepEqual(tn, [120000], 'not connected did not look again every 2 minutes');
+  // On, or off by the person's choice: nothing to wait for, so no timer.
+  for (const state of [{ connected: true, on: true }, { connected: true, on: false, offByChoice: true }]) {
     const t2 = [];
     const h2 = load({ state, win: { setTimeout: (fn, ms) => { t2.push(ms); return 1; }, clearTimeout: () => {} } });
     h2.domHandlers.DOMContentLoaded(); await flush();

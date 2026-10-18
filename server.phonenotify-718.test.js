@@ -887,12 +887,12 @@ test('#6488: status says when the off was the person\'s choice', async () => {
   assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, true, 'removing the computer forgot the choice in status');
 });
 
-test('#6488: a stopped schedule is forgotten, so a later sign-in poke still runs the default', async () => {
+test('#6488: a stopped schedule is forgotten, so a later poke does not go to it', async () => {
   let calls = 0;
   const ctl = phonenotify.startDefaultOn({ schedule: () => ({ unref() {} }), ensure: async () => { calls += 1; return null; } });
   await ctl.whenIdle();
   ctl.stop();
-  // Not connected here, so the real default answers null; a stopped schedule's poke would answer undefined.
+  // With no schedule the poke answers null (under the test runner it runs nothing); a stopped schedule's would be undefined.
   assert.strictEqual(await phonenotify.pokeDefaultOn(), null, 'the poke went to a stopped schedule');
   assert.equal(calls, 1, 'the stopped schedule ran again');
 });
@@ -968,4 +968,20 @@ test('#6488: a sub-switch set over a file we cannot read is refused, and the fil
   assert.equal(r.code, 400, r.text);
   assert.equal(fs.readFileSync(PN_FILE(), 'utf8'), 'not json', 'the unreadable file (maybe an off) was replaced');
   assert.equal(phonenotify.masterChoice(), 'off', 'a sub-switch write turned an off we cannot read into never touched');
+});
+
+test('#6488: a kept off we cannot read still keeps the default off after a reconnect, and is not copied as the person\'s', async () => {
+  enrol();
+  const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
+  fs.writeFileSync(CHOICE, 'garbled');
+  assert.equal(phonenotify.masterChoice(), 'off', 'an unreadable kept off read as never touched');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: under the test runner a connect poke with no schedule mints nothing (route tests sign in on fake tunnels)', async () => {
+  enrol();
+  assert.ok(process.env.NODE_TEST_CONTEXT, 'premise: running under node --test');
+  assert.strictEqual(await phonenotify.pokeDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });

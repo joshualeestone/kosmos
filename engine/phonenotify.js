@@ -97,6 +97,13 @@ const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choi
 function choiceSaysOff() {
   try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
 }
+/** The kept copy is there but cannot be read: like phone-notify.json, it then reads as off for masterChoice (it may
+    have been the person's off), but is never treated as positive evidence of one. */
+function choiceUnreadable() {
+  let text;
+  try { text = fs.readFileSync(choiceFile(), 'utf8'); } catch (e) { return !(e && e.code === 'ENOENT'); }
+  try { const c = JSON.parse(text); return !(c && typeof c === 'object' && !Array.isArray(c)); } catch { return true; }
+}
 /** phone-notify.json, read cleanly, records an off: the marker, or a token or notifyId with the switch not on. */
 function stateSaysOff() {
   try {
@@ -160,12 +167,12 @@ function readState() {
     explicit off, and an off we cannot read is never turned on for the person. */
 function masterChoice() {
   let text;
-  try { text = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' && !choiceSaysOff() ? 'unset' : 'off'; }
+  try { text = fs.readFileSync(file(), 'utf8'); } catch (e) { return e && e.code === 'ENOENT' && !choiceSaysOff() && !choiceUnreadable() ? 'unset' : 'off'; }
   let parsed;
   try { parsed = JSON.parse(text); } catch { return 'off'; }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return 'off';
   if (parsed.on === true) return 'on';
-  if (parsed.off === 'person' || choiceSaysOff()) return 'off';
+  if (parsed.off === 'person' || choiceSaysOff() || choiceUnreadable()) return 'off';
   if (typeof parsed.token === 'string' && parsed.token !== '') return 'off';
   // A notifyId is also only saved by a turn-on (and kept by turnOff), so it is the same evidence as a token.
   if (typeof parsed.notifyId === 'string' && parsed.notifyId !== '') return 'off';
@@ -207,7 +214,8 @@ function writeState(next) {
 function status() {
   if (!available) return { available: false, on: false, connected: plusLive(), kinds: readState().kinds, offByChoice: false, defaultBecause: null };
   const s = readState();
-  // #6488: offByChoice says the person turned it off (so Settings does not promise it turns on by itself).
+  // #6488: offByChoice: it stays off until a press (the person turned it off, or a settings file we cannot read), so
+  // Settings does not promise it turns on by itself.
   const offByChoice = !s.on && masterChoice() === 'off';
   // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
   // #6488: connected means Kosmos+ is live here (signed in AND switched on), the only state anything is sent in.
@@ -261,7 +269,7 @@ async function doTurnOn({ quiet } = {}) {
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use.' };
   const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
-  if (!saved.ok) return { ...saved, minted: true };
+  if (!saved.ok) return { ok: false, minted: true, because: 'This setting could not be saved on this computer.' };
   writeChoice(false);   // #6488: turning on undoes the person's earlier off
   return saved;
 }
@@ -289,7 +297,7 @@ async function setKind(name, on) {
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   // #6488: a settings file we cannot read may hold the person's off; writing the sub-switch would replace it with a
   // never-touched file the default then turns on. Refuse instead, and leave the file as it is.
-  if (masterChoice() === 'off' && !choiceSaysOff() && !stateSaysOff()) {
+  if (masterChoice() === 'off' && !choiceSaysOff() && !stateSaysOff()) {   // unreadable (either file): leave it be
     return { ok: false, because: 'this setting could not be read, so it was not changed' };
   }
   const s = readState();
@@ -329,7 +337,8 @@ async function ensureDefaultOn() {
     // and nothing about agents goes there until they switch it back on (Settings reads it as not connected).
     if (!plusLive()) { defaultBecause = null; return null; }
     const r = await turnOn({ quiet: true });
-    defaultBecause = r && r.ok === false ? String(r.because || '') || null : null;
+    // A refusal made here before anything was sent (busy signing in) is not a reason worth showing; it retries soon.
+    defaultBecause = r && r.ok === false && r.notSent !== true ? String(r.because || '') || null : null;
     return r;
   } catch { return null; }
 }
@@ -346,7 +355,8 @@ let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can
     that failed after its mint succeeded (`minted`) waits the longest, because each retry replaces the token at the
     coordinator. A failure is logged once per reason, with the raw reason (`detail`). Only one timer is ever
     pending, and runs never overlap (a poke while one is out runs after it).
-    Real startup only (server.js). Returns { stop, poke, whenIdle, waitMs, stopped } (poke and the rest for tests). */
+    Started by server.js at real startup (not under the test runner). Returns { stop, poke, whenIdle, waitMs,
+    stopped } (poke and the rest for tests). */
 function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}) {   // both injectable for tests
   let lastBecause = null;
   let wait = DEFAULT_ON_EVERY_MS;
@@ -407,7 +417,13 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
 /** #6488: sign-in just connected this computer: run the default now, through the schedule when it is running, so a
     long wait left from before is reset. Never throws. */
 function pokeDefaultOn() {
-  try { return defaultOn ? defaultOn.poke() : ensureDefaultOn(); } catch { return Promise.resolve(null); }
+  try {
+    if (defaultOn) return defaultOn.poke();
+    // Under the test runner nothing starts the real schedule (server.js), and a route test's sign-in must not mint
+    // through its fake tunnel; a test that wants the default runs it itself.
+    if (process.env.NODE_TEST_CONTEXT) return Promise.resolve(null);
+    return ensureDefaultOn();
+  } catch { return Promise.resolve(null); }
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
