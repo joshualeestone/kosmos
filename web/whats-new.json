@@ -1,6 +1,11 @@
 {
-  "version": "0.7.57",
+  "version": "0.7.58",
   "highlights": [
+    {
+      "icon": "phone",
+      "title": "Phone notifications start on",
+      "line": "Phone notifications now start on once this computer is connected to Kosmos+. If you switched them off, they stay off."
+    },
     {
       "icon": "shield",
       "title": "Add several computers in one sitting",
@@ -23,14 +28,6 @@
       "icon": "tasks",
       "title": "Quiet projects stop flagging you",
       "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
-    },
-    {
-      "icon": "phone",
-      "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
-      "platforms": [
-        "mac"
-      ]
     }
   ]
 }

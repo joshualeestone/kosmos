@@ -732,6 +732,14 @@
       "rank": 2.8,
       "since": "0.7.57",
       "status": "pending"
+    },
+    {
+      "title": "Phone notifications start on",
+      "line": "Phone notifications now start on once this computer is connected to Kosmos+. If you switched them off, they stay off.",
+      "icon": "phone",
+      "rank": 1,
+      "since": "0.7.58",
+      "status": "pending"
     }
   ]
 }
