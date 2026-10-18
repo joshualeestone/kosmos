@@ -8,7 +8,8 @@ iOS app and the Android app.
 > **As shipped, 2026-10-17 (kosmos#6262 step 7).** The coordinator sends APNs for real since the relay main
 > `56d980fe` deploy (20:33 CDT; measured record on #3763). The env template sets the four `KOSMOS_APNS_*` values
 > and leaves `KOSMOS_PUSH` unset, so Steps 3 and 8 became one deploy and there is no log-only window. Web push is
-> unchanged (still on). The board's send lock has been open in source since #4220 (2026-09-28) and is in the
+> unchanged (still on). The board's send lock has been open in source since #4220 (phonegate-4194, merged
+> 2026-09-28; the "merges only if Josh approves #4194" lines below are the earlier state) and is in the
 > production board (0.7.54). A phone gets a push once its app has registered and that Mac's Phone notifications
 > switch is on. To stop sending, use the kill switch in Step 3b. **Wherever the steps below describe
 > `KOSMOS_PUSH=log`, sending held back, or Step 8 as the moment sending starts, that is the earlier plan, kept for
@@ -23,6 +24,7 @@ Every step says who can do it:
 Every step also says how to check it worked and how to undo it. Do the steps in order. A step
 that fails stops the list: undo it, fix the cause, and start that step again.
 
+The dated 2026-10-17 notes were checked against kosmos-relay `main` at `56d980fe` and its deploy record on #3763.
 Facts here were re-read on 2026-09-27 from kosmos `main` at `1901b9e57`,
 kosmos-relay `main` at `ad43f2a0`, the live coordinator's `/v1/meta`, and the
 deploy rows on #3763. Both repos move on, so the named files and checks are
@@ -228,7 +230,9 @@ No deploy step copies a key file, and the template only holds its path.
 ### 3b. Deploy
 
 **As shipped on 2026-10-17 (kosmos#6262):** run Step 3a first. The service reads the key once, at startup, and
-falls back to log-only if it cannot. Then deploy with `INSTALL_ENV=1`. The check is the journal line
+falls back to log-only if it cannot (the journal then says `apns: the APNs key file could not be read; notifications
+to the app are only logged`). A key placed or replaced after a deploy needs `systemctl restart kosmos-coordinator`.
+Then deploy with `INSTALL_ENV=1`. The check is the journal line
 `apns: sending with token auth` with `bundles=1` (`bundles=0` is trap 1), not the log-only line below. To send one
 test notice to an account's phones, run the box-only operator command as root, as the service's user with its env
 and sandbox:
@@ -250,8 +254,9 @@ broken key). The box env now holds `KOSMOS_PUSH=log`, so to undo it later, mark 
 (`#KOSMOS_PUSH=`) rather than deleting it: the deploy's env check refuses to drop a value the box has that the
 template no longer names.
 
-Everything from here to the end of 3b (what it turns on and off, the check, and the log-only notes inside them) is
-the earlier log-only plan and no longer applies: nothing is held back, and web push stays on.
+Three items below are the earlier log-only plan and no longer apply: the "What this turns on" bullet, the "What this
+turns off" bullet, and the Check's `apns: log only` journal line (the line to see is the one above). Nothing is held
+back, and web push stays on. The rest of the Check and the whole Undo still apply.
 
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
