@@ -36,3 +36,5 @@ Validation: render-tasks-view-3559 (headless, queued turn) All checks passed inc
 
 
 Post-review change 12:05 (Mona Lisa design review): the status group heading carries a 9px bottom margin (measured 9/9 on all six groups; the check asserts 8-10). render-tasks-view-3559 All checks passed at 47a5a3b4cc; 12 shots re-taken there, 0 overflow, 0 errors, fix shots looked at. Rehashed.
+
+Rebased 14:20 onto main after the 0.7.57 lift (clean, 7 commits); web.*.test.js + browser-checks-selectors 2985/2985 on the new base; rehashed.
