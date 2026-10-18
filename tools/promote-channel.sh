@@ -204,6 +204,39 @@ if [ "$FAMILY" = mac ]; then
   MANIFEST="$(read_field manifest)"
   reject_pathy manifest "$MANIFEST"
   [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: the staging pointer advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
+  # #6468 ask 2: a prod install running a release that ships engine/manifest-verify.js refuses any update whose
+  # manifest is not signed by a pinned key, so promoting such a version past those installs would strand them.
+  # A .sig that is there must verify; a missing one refuses once the release prod serves NOW checks signatures
+  # (a version cut before signing can still be promoted over a prod that does not check them).
+  _sign_js="$(cd "$(dirname "$0")" && pwd)/lib/manifest-sign.js"
+  if [ -f "$SITE/dist/$MANIFEST.sig" ]; then
+    node "$_sign_js" verify "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" >/dev/null \
+      || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
+    # Round 7: and under the keys prod's CURRENT release pins, which is what its installs check with.
+    _cur="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _cur=""
+    if [ -n "$_cur" ]; then
+      reject_pathy manifest "$_cur"
+      _vu=0; [ -f "$SITE/dist/$_cur" ] && { node "$_sign_js" verify-under "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/$_cur" >/dev/null || _vu=$?; } || _vu=2
+      case "$_vu" in
+        0) : ;;
+        1) echo "promote-channel: $MANIFEST.sig is not signed by a key prod's current release ($_cur) accepts - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: prod's current manifest ($_cur) cannot be read to tell which keys its installs accept - refusing (#6468)" >&2; exit 1 ;;
+      esac
+    fi
+  else
+    _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
+    [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
+    if [ -n "$_prod_manifest" ]; then
+      # A prod pointer that names a manifest promote cannot read is "cannot tell", which refuses: reading it as "prod
+      # does not check signatures" would strand every install that does.
+      _ns=0; [ -f "$SITE/dist/$_prod_manifest" ] && { node "$_sign_js" needs-sig "$SITE/dist/$_prod_manifest" || _ns=$?; } || _ns=2
+      case "$_ns" in
+        1) : ;;
+        0) echo "promote-channel: $MANIFEST has no .sig, and the release prod serves now ($_prod_manifest) checks signatures - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: $MANIFEST has no .sig, and prod's current manifest ($_prod_manifest) cannot be read to tell whether its installs check signatures - refusing (#6468)" >&2; exit 1 ;;
+      esac
+    fi
+  fi
 
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
   # board is provably broken for a fresh session (#2023) -> refuse, never forceable; 2 =

@@ -839,6 +839,67 @@ verify_download() {
   return 0
 }
 
+# #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
+# by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
+# keys), never by the new build or by this script, so an install that has the check holds every later update to it.
+# Two phases, one per call: `pre` BEFORE the tarball is unpacked (signature, version, not older than installed, the
+# tarball's sha), so a hostile archive never reaches tar; `post` after unpacking (every file, exactly). $1 the phase,
+# $2 the stage (its tarball at $2/kosmos.tar.gz), $3 the installed home. The manifest and its .sig (the versioned,
+# immutable names release.sh publishes) are fetched into a private folder OUTSIDE the stage, which the archive can
+# therefore never plant a link in; `post` (or any refusal) removes it. An install with no verifier (from before
+# this, or not a Kosmos home yet) has nothing to check with, and says so. The verifier runs with NODE_OPTIONS unset.
+# LIMITS: the tmux bundle is fetched and run before this, checked only against its unsigned .sha256; the manifest
+# does not name a channel, so a signed staging build newer than the install passes on a prod install.
+_UM_DIR=""   # never inherited: it names the folder holding the fetched manifest between the two phases
+_UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so post carries on as pre said
+update_manifest_ok() {
+  local phase="$1" stage="$2" dest="$3" v rc=0 out arg
+  [ -f "$dest/app/engine/manifest-verify.js" ] && [ -f "$dest/runtime/bin/node" ] && [ -x "$dest/runtime/bin/node" ] || {
+    # Skipped, not refused: re-running the installer is the documented repair for a damaged install. Said truly.
+    if [ "$phase" = pre ] && [ -e "$dest/app" ]; then
+      if [ -f "$dest/app/engine/manifest-verify.js" ]; then
+        info "this install's own runtime is missing, so it cannot check the update's manifest; the update goes on unchecked"
+      else
+        info "this install predates signed releases, so the update's manifest is not checked"
+      fi
+    fi
+    return 0; }
+  v="${TARGET_VERSION:-}"
+  if [ -z "$v" ]; then
+    info "could not read which version to install, so the update could not be checked and was not installed"
+    return 1
+  fi
+  if [ "$phase" = pre ]; then
+    _UM_NOKEY=""
+    _UM_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/kosmos-manifest.XXXXXX")" || { _UM_DIR=""; info "could not make a folder to check the update in, so it was not installed"; return 1; }
+    curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json" -o "$_UM_DIR/manifest.json" 2>/dev/null \
+      && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json.sig" -o "$_UM_DIR/manifest.sig" 2>/dev/null || {
+      rm -rf "$_UM_DIR"; _UM_DIR=""
+      info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
+      return 1; }
+    arg="-"
+  else
+    [ -z "$_UM_NOKEY" ] || { _UM_NOKEY=""; return 0; }
+    [ -n "$_UM_DIR" ] && [ -f "$_UM_DIR/manifest.json" ] || {
+      [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""
+      info "the update's signed manifest went missing, so it was not installed"; return 1; }
+    arg="$stage"
+  fi
+  out="$(env -u NODE_OPTIONS "$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$_UM_DIR/manifest.json" \
+    "$_UM_DIR/manifest.sig" "$stage/kosmos.tar.gz" "$arg" "$v" "$dest" 2>&1)" || rc=$?
+  if [ "$phase" != pre ] || [ "$rc" != 0 ]; then rm -rf "$_UM_DIR"; _UM_DIR=""; fi
+  case "$rc" in
+    0) return 0 ;;
+    3) [ "$phase" != pre ] || _UM_NOKEY=yes
+       info "$out, so the update's manifest is not checked"; return 0 ;;
+    # Only the verifier's own one-line reason is shown; anything else (node itself failing) gets a plain sentence.
+    1) case "$out" in *"
+"*|''|node:*) out="the update could not be checked" ;; esac
+       info "$out, so it was not installed"; return 1 ;;
+    *) info "the update could not be checked, so it was not installed"; return 1 ;;
+  esac
+}
+
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
@@ -1352,7 +1413,17 @@ install_kosmos() {
     _kp_emit downloaded
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     _kp_emit installing
-    tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
+    # #6468 ask 2: held to the installed copy's signed-manifest check, the archive itself before tar reads it and every
+    # unpacked file before anything runs. Not on Linux (its updates are not built or signed here yet).
+    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok pre "$stage" "$dest"; then
+      rm -rf "$stage"
+      return 1
+    fi
+    tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { [ -z "$_UM_DIR" ] || rm -rf "$_UM_DIR"; _UM_DIR=""; rm -rf "$stage"; return 1; }
+    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok post "$stage" "$dest"; then
+      rm -rf "$stage"
+      return 1
+    fi
     rm -f "$stage/kosmos.tar.gz"
   fi
   # ⚠️ THE STAGE IS VERIFIED, THEN SWAPPED. On the update path the old

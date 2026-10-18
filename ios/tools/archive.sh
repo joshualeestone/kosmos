@@ -12,12 +12,23 @@
 # It refuses io.kosmos.app under any team but Kosmos Agent Manager, Inc.'s (#6262, #4089).
 #
 # Run for real, it signs with -allowProvisioningUpdates: with an API key, that CREATES a distribution
-# certificate and provisioning profile in the team's account if none fits. --check-config never does.
+# certificate and provisioning profile in the team's account if none fits. With KOSMOS_IOS_PROFILE (below) the profile
+# and certificate are named, so none is needed or expected to be made (the flag stays, as in the first upload).
+# --check-config never creates either.
+#
+# KOSMOS_IOS_PROFILE=<profile name> signs by hand instead (#6262): the archive and the export both use an
+# Apple Distribution certificate and that App Store profile, made beforehand (by the API or in the portal). This Mac
+# then needs the certificate with its private key in the login keychain (usable by codesign), and the profile installed
+# where Xcode finds it. Automatic signing archives with a development profile first, which needs a registered device; a
+# new team has none, and Xcode then stops with "Your team has no devices from which to generate a provisioning profile".
+# The name is checked by --check-config too: no apostrophe, double quote or backslash and no leading space (PlistBuddy
+# drops or strips those), no dollar sign (xcodebuild expands it in the archive, the export does not), not empty (unset the variable to sign automatically), and no control character, refused as
+# well to be safe.
 #
 # --build is required: App Store Connect refuses a build number it has seen before, so the number is
 # chosen on purpose for every upload rather than read from the project.
 #
-# The Team ID comes from ios/Signing.xcconfig and nowhere else. Signing is automatic, so the Mac
+# The Team ID comes from ios/Signing.xcconfig and nowhere else. Signing is automatic by default, so the Mac
 # running this needs Xcode signed in to an Apple ID on that team (Xcode, Settings, Accounts), or an
 # App Store Connect API key given as ASC_KEY_PATH (the AuthKey_<id>.p8 file), ASC_KEY_ID and
 # ASC_ISSUER_ID. --upload needs the key.
@@ -89,6 +100,19 @@ if [ "$bundle_lc" = "io.kosmos.app" ] && [ "$team" != "$kosmos_team" ]; then
   echo "archive.sh: io.kosmos.app is built only under Kosmos Agent Manager, Inc.'s team ($kosmos_team), not $team: the bundle id is registered there." >&2
   exit 1
 fi
+# #6262: the hand-signing profile name, checked before the dry run's exit so --check-config sees it. PlistBuddy
+# drops a name with an apostrophe and strips quotes and backslashes, so the export would name another profile.
+# A deny-list of what PlistBuddy mangles (plus control characters, to be safe), on the whole string: a grep is
+# per line, so a newline slipped by.
+if [ -n "${KOSMOS_IOS_PROFILE+x}" ]; then
+  bad=0
+  case "$KOSMOS_IOS_PROFILE" in ''|' '*|*\'*|*\"*|*\\*|*\$*) bad=1 ;; esac   # $: xcodebuild expands it, the export does not
+  [ "$(printf '%s' "$KOSMOS_IOS_PROFILE" | LC_ALL=C tr -d '[:cntrl:]')" = "$KOSMOS_IOS_PROFILE" ] || bad=1
+  if [ "$bad" -eq 1 ]; then
+    echo "archive.sh: KOSMOS_IOS_PROFILE is '${KOSMOS_IOS_PROFILE}': a profile name here has no apostrophe, double quote, backslash, dollar sign or control character, and does not start with a space. Rename the profile or unset it." >&2
+    exit 1
+  fi
+fi
 if [ "$check_only" -eq 1 ]; then
   echo "archive.sh: signing settings ok: $bundle under team $team"
   exit 0
@@ -116,22 +140,25 @@ rm -rf "$out"
 mkdir -p "$out"
 archive="$out/Kosmos.xcarchive"
 
-# The export options are committed without a team; this copy gets the one from Signing.xcconfig.
+# The export options are committed without a team; this copy gets the one from Signing.xcconfig. export-options.sh
+# also sets hand signing when KOSMOS_IOS_PROFILE is given, and prints the archive's matching build settings (#6262).
 options="$out/ExportOptions.plist"
-cp "$here/ExportOptions.plist" "$options"
-/usr/libexec/PlistBuddy -c "Add :teamID string $team" "$options"
+"$here/export-options.sh" "$team" "$bundle" "$options" "${KOSMOS_IOS_PROFILE:-}" > "$out/build-settings"
+manual=()
+while IFS= read -r line; do manual+=("$line"); done < "$out/build-settings"
+[ -z "${KOSMOS_IOS_PROFILE:-}" ] || echo "== signing by hand: Apple Distribution, profile '$KOSMOS_IOS_PROFILE'"
 
 echo "== archive: team $team, build $build"
 xcodebuild -project "$ios/Kosmos.xcodeproj" -scheme Kosmos -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$archive" \
   DEVELOPMENT_TEAM="$team" PRODUCT_BUNDLE_IDENTIFIER="$bundle" \
-  CURRENT_PROJECT_VERSION="$build" "${auth[@]}" archive
+  CURRENT_PROJECT_VERSION="$build" ${manual[@]+"${manual[@]}"} "${auth[@]}" archive
 
 echo "== export"
 xcodebuild -exportArchive -archivePath "$archive" -exportOptionsPlist "$options" \
   -exportPath "$out/export" "${auth[@]}"
 
-ipa=$(find "$out/export" -maxdepth 1 -name '*.ipa' | head -1)
+ipa=$(find "$out/export" -maxdepth 1 -name '*.ipa' 2>/dev/null | head -1 || true)   # a missing export dir is "no .ipa" too
 [ -n "$ipa" ] || { echo "archive.sh: the export wrote no .ipa into $out/export" >&2; exit 1; }
 
 echo "== check $ipa"
