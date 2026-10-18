@@ -24,10 +24,13 @@ const { spawn } = require('node:child_process');
 const BRIDGE_FILE = path.join(__dirname, '..', 'bin', 'agy-report-bridge.js');
 const TRACE_FILE = path.join(__dirname, '..', 'test-support', 'agy-bridge-trace.js');   // #5576
 const bridge = require(BRIDGE_FILE);
+const { answerProof, boardTokens } = require('../test-support/boardproof-stub');
 
-function standInBoard() {
+/* #1765: `holds` is what the board this stands in for holds (read per request), so it proves those tokens. */
+function standInBoard(holds = () => []) {
   const seen = [];
   const server = http.createServer((req, res) => {
+    if (answerProof(req, res, holds)) return;
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
@@ -110,17 +113,18 @@ const stderrOf = (t) => (t.length <= 1600 ? t : t.slice(0, 300) + ' [...] ' + t.
 const howItEnded = (r) => JSON.stringify((r.tries || [r]).map((x) => ({ code: x.code, signal: x.signal, error: x.error, stderr: stderrOf(String(x.err || '')) })));
 
 test('#4417: the launch event reports idle from the new pane, with its launch token', async (t) => {
-  const board = await standInBoard();
-  const pane = '%seed-' + process.pid;
   /* An empty store root, so the child finds no board token of this Mac's to send to the stand-in (review 1). */
   const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-data-'));
+  let launchToken = '';   // #1765: the token the try under way carries, which the board it stands in for minted
+  const board = await standInBoard(() => boardTokens(data, launchToken));
+  const pane = '%seed-' + process.pid;
   const env = { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: 'abc123' };
   try {
     /* Each try carries its own launch token, and only the LAST try's reports count: a try the runner killed after its
        report left would otherwise read as a double report, even one the stand-in records after the retry began
        (reviews 6 and 7). The count of 1 below still catches a bridge that reports twice in one run. */
     let tryNo = 0;
-    const r = await runBridge(bridge.LAUNCH_EVENT, env, (e, v) => { tryNo += 1; return runOnce(e, { ...v, KOSMOS_AGENT_TOKEN: 'abc123' + tryNo }); });
+    const r = await runBridge(bridge.LAUNCH_EVENT, env, (e, v) => { tryNo += 1; launchToken = 'abc123' + tryNo; return runOnce(e, { ...v, KOSMOS_AGENT_TOKEN: launchToken }); });
     const token = 'abc123' + tryNo;   // hex only: the bridge sends no other token
     // A retry that rescued the run is printed, so how often the runner kills a child can be counted, not hidden.
     if (r.tries.length > 1) t.diagnostic('#5560: the bridge child was retried: ' + howItEnded(r));
@@ -319,7 +323,7 @@ test('#5576: the bridge child carries the trace preload, and it records the fds 
   const data = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-agyseed-trace-'));   // a local require, as the file's other tests do
   let board = null;
   try {
-    board = await standInBoard();
+    board = await standInBoard(() => boardTokens(data, String(process.env.KOSMOS_AGENT_TOKEN || '').trim()));
     const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: data, KOSMOS_PORT: String(board.port), TMUX_PANE: '%trace-' + process.pid });
     assert.equal(r.code, 0, howItEnded(r));
     const fds = '0:\\w+@\\d+ 1:\\w+@\\d+ 2:\\w+@\\d+';
@@ -405,7 +409,7 @@ test('#5576 fix: the real bridge holds a freed fd 0 before its report, so the re
   fs.writeFileSync(closer, 'void process.stdout;\nrequire("node:fs").closeSync(0);\n');
   let board = null;
   try {
-    board = await standInBoard();
+    board = await standInBoard(() => boardTokens(dir, String(process.env.KOSMOS_AGENT_TOKEN || '').trim()));
     const r = await runBridge('Stop', { ...process.env, AGENT_WORKFORCE_DATA: dir, KOSMOS_PORT: String(board.port), TMUX_PANE: '%free0-' + process.pid,
       NODE_OPTIONS: '--require ' + JSON.stringify(closer) });
     assert.equal(r.code, 0, howItEnded(r));

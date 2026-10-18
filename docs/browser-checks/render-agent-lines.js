@@ -133,7 +133,7 @@ const chk = (ok, label, extra) => {
         const vhrCs = vhr ? getComputedStyle(vhr) : null;
         const rWord = vhr ? vhr.textContent.trim() : '';
         /* the .lstate text with the .vh word removed = what the EYE sees in that
-           cell (an answerBtn / "Working now" label is legitimately here on some
+           cell (a "Working now" label is legitimately here on some
            rows; the state WORD must not be). */
         const rLeftover = ls ? ls.textContent.replace(rWord, '').trim() : '';
         const lav = r.querySelector('.lav'); const lnm = r.querySelector('.lname');
@@ -146,11 +146,11 @@ const chk = (ok, label, extra) => {
           lnameOpacity: lnm ? getComputedStyle(lnm).opacity : null,
           /* the state WORD must not appear as visible text outside its .vh, on ANY
              row -- robust to fixture order (does not care which row is first) and
-             to a needs-you row's visible answerBtn (that is not the state word). */
+             to a "Working now" label (that is not the state word). */
           wordLeaked: rWord.length > 0 && rLeftover.includes(rWord),
           /* the state word is kept in .vh AND that .vh is clipped -- checked on
              EVERY row, not just the first, so a needs-you row (whose .lstate also
-             carries a visible answerBtn) is verified to still hide its WORD. */
+             carried an Answer link until #6400) is verified to still hide its WORD. */
           wordHidden: !!vhr && vhr.textContent.trim().length > 0 && !!vhrCs && parseInt(vhrCs.width) <= 2 && vhrCs.overflow === 'hidden',
         };
       }
@@ -196,9 +196,9 @@ const chk = (ok, label, extra) => {
       chk(!!m.stateWord, 'the state word is kept for screen readers (a11y)', m.stateWord);
       chk(m.vhClipped, 'the state word is visually hidden (.vh clipped), not a visible line', 'clipped=' + m.vhClipped);
       /* Per-row and order-robust: no row shows its OWN state word as visible text
-         (an answerBtn / "Working now" label is allowed; the waiting/idle/busy word
+         (a "Working now" label is allowed; the waiting/idle/busy word
          is not). Replaces an earlier first-row-only check that a fixture reorder
-         could have false-failed on a needs-you row's visible answerBtn.
+         could have false-failed on a needs-you row.
          #3187-followup (Josh 6.72): this covers EVERY row, the stopped one included. A
          state-'stopped' agent (.lrow.off, donnie) renders through the SAME row template as
          the running states and wraps its "Not running" label in a clipped .vh -- measured,
@@ -240,7 +240,7 @@ const chk = (ok, label, extra) => {
       chk(washOf('april') !== washOf('mikey') && washOf('mikey') !== washOf('raph') && washOf('april') !== washOf('raph'),
         'the three state washes are distinct', 'w/i/n differ');
       /* #3131: the WORD is hidden on EVERY row, not only the first (april). This catches a
-         needs-you row -- whose .lstate also carries a visible answerBtn -- failing to wrap its
+         needs-you row failing to wrap its
          state word in .vh, and (per the note above) the stopped row too, which hides "Not
          running" in a clipped .vh like the rest. */
       chk(allRows.length > 0 && allRows.every((v) => v.wordHidden),

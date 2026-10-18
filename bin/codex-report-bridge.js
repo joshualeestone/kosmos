@@ -110,6 +110,17 @@ function headersFor(env) {
   return headers;
 }
 
+/* #1765: a token goes only to a listener that proves it already holds it (engine/boardproof.js). Another account can
+   listen on this port while the board is down. Proven through the same fetch the send uses. An engine without that
+   module (older than this file), or none found at all, or one that fails to load,
+   cannot check, and the send goes ahead as before. `timeoutMs` bounds the proof; each
+   caller gives it at most half its own bound and sends in what is left, so the proof never adds to that bound. */
+async function mayCarry(port, headers, fetchImpl, timeoutMs) {
+  let bp;
+  try { bp = require(require('node:path').join(engineDir(), 'boardproof')); } catch { return true; }
+  return bp.mayCarryTokensTo(`http://127.0.0.1:${port}`, headers, { fetchImpl: fetchImpl || fetch, timeoutMs });
+}
+
 function main() {
   let event;
   try { event = JSON.parse(process.argv[2] || ''); } catch { return; }
@@ -146,13 +157,15 @@ function main() {
 
   const headers = headersFor(process.env);
 
+  // #1765: one deadline for the proof and the report (see mayCarry).
+  const deadline = Date.now() + TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-  fetch(`http://127.0.0.1:${port}/api/report`, {
-    method: 'POST',
-    headers,
-    body,
-    signal: controller.signal,
+  let timer = null;
+  mayCarry(port, headers, undefined, Math.floor(TIMEOUT_MS / 2)).then((ok) => {
+    const left = deadline - Date.now();
+    if (!ok || left <= 0) return null;
+    timer = setTimeout(() => controller.abort(), left);
+    return fetch(`http://127.0.0.1:${port}/api/report`, { method: 'POST', headers, body, signal: controller.signal });
   }).catch(() => { /* a missed report must never become a failed turn */ })
     .finally(() => clearTimeout(timer));
 }
@@ -246,9 +259,15 @@ async function hookMain(io) {
   const port = Number(env.KOSMOS_PORT) || 16180;
   const headers = o.headers || headersFor(env);
   const doFetch = o.fetchImpl || fetch;
+  // #1765: one deadline for the proof and the keeps (see mayCarry).
+  const bound = o.keepTimeoutMs || KEEP_TIMEOUT_MS;
+  const deadline = Date.now() + bound;
+  if (!(await mayCarry(port, headers, doFetch, Math.max(1, Math.floor(bound / 2))))) return;
+  const left = deadline - Date.now();
+  if (left <= 0) return;
   await Promise.all(keeps.map((body) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), o.keepTimeoutMs || KEEP_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), left);
     return Promise.resolve()
       /* The answer is read under the same timer (review 3: a board that sent its headers and stalled its body held the
          hook 20 s once the timer was cleared on the headers). */
@@ -267,4 +286,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { patchPaths, keepRequestsFor, hookMain, headersFor, KEEP_MAX, KEEP_TIMEOUT_MS };
+module.exports = { patchPaths, keepRequestsFor, hookMain, headersFor, KEEP_MAX, KEEP_TIMEOUT_MS, TIMEOUT_MS };

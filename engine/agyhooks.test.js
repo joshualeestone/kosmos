@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { answerProof, boardTokens } = require('../test-support/boardproof-stub');
 const { execFileSync, spawnSync } = require('node:child_process');
 
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'agyhooks-'));
@@ -163,8 +164,11 @@ test('#4043: a board that never answers costs at most the bridge\'s own budget',
   const server = http.createServer(() => { /* never answer */ });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
-  // #4796: a data root of its own, so the bridge reads no live board token.
-  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
+  // #4796: a data root of its own, so the bridge reads no live board token. #1765: and no agent token, as
+  // tools/run-tests.sh runs it, so the child carries no token, asks for no proof, and sends straight to the silent
+  // board whoever runs this: the wait below is the send's. A token-bearing send meets the proof first, and its bound
+  // is tested in bridges.board-proof-1765.test.js.
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_AGENT_TOKEN: '', KOSMOS_PORT: String(port), TMUX_PANE: '%slow-' + process.pid };
   try { fs.rmSync(bridge.markerFile(env), { force: true }); } catch { /* none */ }
   const { spawn } = require('node:child_process');
   const start = Date.now();
@@ -304,7 +308,10 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
   const { spawn } = require('node:child_process');
   const store = require('./store');
   const seen = [];
+  // #1765: the stub is the board each call is launched against, so it holds what those calls carry (filled by stop).
+  const boardHolds = new Set();
   const server = http.createServer((req, res) => {
+    if (answerProof(req, res, () => [...boardHolds])) return;
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {
@@ -324,6 +331,7 @@ test('#4491: the bridge presents the agent\'s token, and the board token only wh
     /* KOSMOS_AGENT_TOKEN_ONLY cleared: an agent that exports it in its own pane must not turn the board-token arm red
        on a direct `node --test` (tools/run-tests.sh clears it too, a direct run does not). */
     const env = { ...process.env, KOSMOS_AGENT_TOKEN_ONLY: '', AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    for (const t of boardTokens(env.AGENT_WORKFORCE_DATA, String(env.KOSMOS_AGENT_TOKEN || '').trim())) boardHolds.add(t);
     const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));
@@ -744,7 +752,10 @@ test('#4491: token-only, the Antigravity bridge sends the agent\'s token alone; 
   const { spawn } = require('node:child_process');
   const store = require('./store');
   const seen = [];
+  // #1765: the stub is the board each call is launched against, so it holds what those calls carry (filled by stop).
+  const boardHolds = new Set();
   const server = http.createServer((req, res) => {
+    if (answerProof(req, res, () => [...boardHolds])) return;
     req.resume();
     req.on('end', () => { seen.push(req.headers); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"recorded":true}'); });
   });
@@ -756,6 +767,7 @@ test('#4491: token-only, the Antigravity bridge sends the agent\'s token alone; 
     panes.push(pane);
     // #4796: a data root of its own in the literal; every call also names its own in `extra`, which wins.
     const env = { ...process.env, AGENT_WORKFORCE_DATA: path.join(SB, 'data-4796'), KOSMOS_AGENT_TOKEN_ONLY: '', KOSMOS_PORT: String(port), TMUX_PANE: pane, ...extra };
+    for (const t of boardTokens(env.AGENT_WORKFORCE_DATA, String(env.KOSMOS_AGENT_TOKEN || '').trim())) boardHolds.add(t);
     const child = spawn(process.execPath, [BRIDGE_FILE, 'Stop'], { env, stdio: ['pipe', 'ignore', 'ignore'] });
     child.on('error', reject);
     child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('bridge exited ' + code))));

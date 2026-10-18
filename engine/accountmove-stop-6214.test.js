@@ -4,6 +4,14 @@
  * #6214: stopping a running account move. Driven with its dependencies stated, as accountmove-6173.test.js is: what is
  * asserted is what a stop does with each agent (already restarted, mid-restart, not reached), what the person reads,
  * that a hand change made since the move is kept (Liu Kang m5659), and that nothing is left held.
+ *
+ * #6231 item 7: the put-backs no longer run inside stop() on the board's thread. stop() flags the move and ANSWERS AT
+ * ONCE; each not-reached agent is put back on its old account in the move's own async tail (start's finally), OFF the
+ * board's thread, through deps.putBackAsync, and stays HELD until its own put-back settles. So a not-reached agent reads
+ * as `pending` in the stop answer and gets its final sentence on a later read() once the batch settles; the move stays
+ * running (busy() true, so Update and a board restart stay refused) until the last put-back settles. These tests drive
+ * that: they await `out.done` before reading the finals, and a `slow` put-back lets them observe the move still running,
+ * and the agent still held, mid-put-back.
  */
 
 const test = require('node:test');
@@ -13,34 +21,46 @@ const accountmove = require('./accountmove');
 const REFUSED = 'refused-by-create';
 const RESTARTED = 'restarted-by-remove';
 
-/* Each agent's saved account lives in `saved`; setAccount and putBack write it, readAccount reads it. */
-function deps({ saved = {}, putBackRefuses = [], unreadable = [] } = {}) {
-  const pending = new Map(), order = [], held = new Set(), putBacks = [];
+/* Each agent's saved account lives in `saved`; setAccount and the put-back write it, readAccount reads it.
+   #6231 item 7: the board wires putBackAsync (win32: removal.putBackAsync; linux/mac: Promise.resolve(create.restoreAccount)),
+   and the engine's async tail awaits it. `slow` holds a put-back open until the test calls d.settlePutBack(name), so a
+   test can observe the move still running (busy) and the agent still held while its put-back is in flight. `putBacks`
+   records each write in order; `noted` records deps.leftOnOld (the #6174 note), covered in depth by accountmove-notes-6231. */
+function deps({ saved = {}, putBackRefuses = [], unreadable = [], slow = [] } = {}) {
+  const pending = new Map(), order = [], held = new Set(), putBacks = [], noted = [], slowGate = new Map();
   const names = { '/acct/old': 'old@example.com', '/acct/new': 'new@example.com', '/acct/other': 'other@example.com' };
+  const write = (n, dir) => {
+    putBacks.push([n, dir]);
+    if (putBackRefuses.includes(n)) return { outcome: REFUSED, because: 'that account is signed out' };
+    saved[n] = dir;
+    return { outcome: 'changed', account: { email: dir === null ? 'default@example.com' : names[dir] } };
+  };
   return {
-    pending, order, held, putBacks, saved,
+    pending, order, held, putBacks, noted, saved, slowGate,
+    settlePutBack: (n) => { const g = slowGate.get(n); if (g) { slowGate.delete(n); g(); } },
     moveRefusal: () => null,   // #6190: nothing else holds these agents
     hold: (ns) => ns.forEach((n) => held.add(n)),
     release: (n) => held.delete(n),
     setAccount: (n, dir) => { saved[n] = dir; return { outcome: 'changed', account: { email: names[dir] } }; },
     readAccount: (n) => { if (unreadable.includes(n)) throw new Error('unreadable'); return n in saved ? saved[n] : null; },
-    putBack: (n, dir) => {
-      putBacks.push([n, dir]);
-      if (putBackRefuses.includes(n)) return { outcome: REFUSED, because: 'that account is signed out' };
-      saved[n] = dir;
-      return { outcome: 'changed', account: { email: dir === null ? 'default@example.com' : names[dir] } };
+    /* The async put-back the move's tail awaits. A `slow` agent's put-back parks until the test settles it. */
+    putBackAsync: (n, dir) => {
+      if (slow.includes(n)) return new Promise((resolve) => slowGate.set(n, () => resolve(write(n, dir))));
+      return Promise.resolve(write(n, dir));
     },
+    putBack: (n, dir) => write(n, dir),   // the sync seam; the async tail uses putBackAsync
     REFUSED,
     forget: () => {},
     restartAsync: (n) => { order.push(n); return new Promise((resolve) => pending.set(n, resolve)); },
     RESTARTED,
+    leftOnOld: (n) => { noted.push(n); },
   };
 }
 const tick = () => new Promise((r) => setImmediate(r));
 
 test.afterEach(() => accountmove.resetForTests());
 
-test('#6214: a stop keeps the restarted result, lets the one mid-restart finish, and puts the rest back', async () => {
+test('#6214: a stop keeps the restarted result, lets the one mid-restart finish, and puts the rest back (in the tail)', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old', di: null } });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy', 'di'] }, d);
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
@@ -51,25 +71,28 @@ test('#6214: a stop keeps the restarted result, lets the one mid-restart finish,
   assert.equal(s.status, 200);
   assert.equal(s.body.stopped, true);
   assert.equal(s.body.waitingFor, 'bo', 'the answer names the agent whose restart finishes first');
+  /* #6231 item 7: the stop answers at once; the not-reached agents are still pending here, put back off the thread. */
   assert.deepEqual(s.body.agents.map((a) => [a.name, a.outcome]),
-    [['al', 'changed'], ['bo', 'pending'], ['cy', 'stopped'], ['di', 'stopped']]);
-  assert.deepEqual(d.putBacks, [['cy', '/acct/old'], ['di', null]], 'only the unreached are put back, the default account as null');
-  assert.equal(d.saved.cy, '/acct/old');
-  assert.equal(d.saved.di, null);
-  assert.equal(s.body.agents[2].because, 'you stopped the move before their turn. They stay on old@example.com.');
-  assert.equal(s.body.agents[3].because, 'you stopped the move before their turn. They stay on default@example.com.');
-  assert.equal(s.body.agents[2].account, undefined, 'a put-back agent does not carry the new account');
-  assert.deepEqual([...d.held], ['bo'], 'the unreached are released at once; the one mid-restart keeps its hold');
-  assert.equal(accountmove.busy(), true, 'the move still runs until the restart under way ends');
+    [['al', 'changed'], ['bo', 'pending'], ['cy', 'pending'], ['di', 'pending']]);
+  assert.deepEqual(d.putBacks, [], 'no put-back has run yet: they happen in the async tail, after the answer');
+  assert.deepEqual([...d.held].sort(), ['bo', 'cy', 'di'], 'the not-reached stay held until their own put-back settles (contract 3b); only the already-restarted al is released');
+  assert.equal(accountmove.busy(), true, 'the move still runs: the restart under way, then the put-backs');
 
   d.pending.get('bo')({ outcome: RESTARTED, steps: [] });
   await out.done;
   assert.deepEqual(d.order, ['al', 'bo'], 'nothing after the stop is restarted');
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old'], ['di', null]], 'only the unreached are put back, the default account as null');
+  assert.equal(d.saved.cy, '/acct/old');
+  assert.equal(d.saved.di, null);
+
   const end = accountmove.read(out.body.id);
   assert.equal(end.done, true);
   assert.equal(end.stopped, true);
   assert.equal(end.waitingFor, undefined, 'a finished move waits for nobody');
-  assert.deepEqual(end.agents.map((a) => a.outcome), ['changed', 'changed', 'stopped', 'stopped'], 'the mid-restart one ends as its restart said');
+  assert.deepEqual(end.agents.map((a) => a.outcome), ['changed', 'changed', 'stopped', 'stopped'], 'the mid-restart one ends as its restart said; the rest are put back');
+  assert.equal(end.agents[2].because, 'you stopped the move before their turn. They stay on old@example.com.');
+  assert.equal(end.agents[3].because, 'you stopped the move before their turn. They stay on default@example.com.');
+  assert.equal(end.agents[2].account, undefined, 'a put-back agent does not carry the new account');
   assert.equal(d.held.size, 0, 'nothing is left held');
   assert.equal(accountmove.busy(), false, 'the board is released');
 });
@@ -79,14 +102,15 @@ test('#6214 (Liu Kang m5659): an account changed by hand since the move saved it
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
   d.saved.bo = '/acct/other';   // the person moved bo by hand while al restarted
   const s = accountmove.stop();
-  assert.deepEqual(d.putBacks, [], 'no write over the hand change');
-  assert.equal(d.saved.bo, '/acct/other');
-  const bo = s.body.agents[1];
-  assert.equal(bo.outcome, 'stopped');
-  assert.equal(bo.because, 'you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.');
-  assert.equal(d.held.has('bo'), false);
+  assert.equal(s.body.agents[1].outcome, 'pending', '#6231 item 7: bo\'s final appears after the answer, from the tail');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  assert.deepEqual(d.putBacks, [], 'no write over the hand change (the tail re-reads and leaves it alone)');
+  assert.equal(d.saved.bo, '/acct/other');
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'stopped');
+  assert.equal(bo.because, 'you stopped the move before their turn, and their account had been changed since the move saved it, so we left it as it is now.');
+  assert.equal(d.held.size, 0);
   assert.equal(accountmove.busy(), false);
 });
 
@@ -95,44 +119,48 @@ test('#6214: a hand change back to the default account is a change too (null is 
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
   d.saved.bo = null;
   accountmove.stop();
-  assert.deepEqual(d.putBacks, []);
-  assert.equal(d.saved.bo, null);
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  assert.deepEqual(d.putBacks, [], 'the move does not write over a hand change back to the default account');
+  assert.equal(d.saved.bo, null);
+  assert.equal(accountmove.read(out.body.id).agents[1].outcome, 'stopped');
 });
 
 test('#6214: a put-back that is refused is said as saved and not restarted', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, putBackRefuses: ['bo'] });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
   const s = accountmove.stop();
-  const bo = s.body.agents[1];
-  assert.equal(bo.outcome, 'partial');
-  assert.equal(bo.because, 'We saved new@example.com, but you stopped the move before its turn and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.');
-  assert.equal(d.held.has('bo'), false);
+  assert.equal(s.body.agents[1].outcome, 'pending');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'partial');
+  assert.equal(bo.because, 'We saved new@example.com, but you stopped the move before its turn and we could not put it back on its old account (that account is signed out). It is still on the old account until it restarts.');
+  assert.equal(d.held.size, 0);
 });
 
 test('#6214: an agent whose account could not be read when the move saved it is not put back', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, unreadable: ['bo'] });
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
   const s = accountmove.stop();
-  assert.deepEqual(d.putBacks, []);
-  assert.equal(s.body.agents[1].outcome, 'partial');
-  assert.match(s.body.agents[1].because, /we could not put it back on its old account \(we could not read which account it was on\)\./);
+  assert.equal(s.body.agents[1].outcome, 'pending');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  assert.deepEqual(d.putBacks, []);
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'partial');
+  assert.match(bo.because, /we could not put it back on its old account \(we could not read which account it was on\)\./);
 });
 
 test('#6214: without readAccount (a caller that never wired it) a stop still ends the move and puts nothing back', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
   delete d.readAccount;
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
-  const s = accountmove.stop();
-  assert.deepEqual(d.putBacks, []);
-  assert.equal(s.body.agents[1].outcome, 'partial');
+  accountmove.stop();
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  assert.deepEqual(d.putBacks, []);
+  assert.equal(accountmove.read(out.body.id).agents[1].outcome, 'partial');
   assert.equal(accountmove.busy(), false);
   assert.equal(d.held.size, 0);
 });
@@ -145,9 +173,10 @@ test('#6214: a second stop changes nothing and says so; a stop with no move runn
   const again = accountmove.stop();
   assert.equal(again.status, 200);
   assert.equal(again.body.already, true);
-  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'put back once');
+  assert.deepEqual(d.putBacks, [], 'the second stop starts no put-back: none has run yet, they are in the tail');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'bo is put back once, in the tail');
   assert.equal(accountmove.stop().status, 409, 'after the move ended, nothing is running');
 });
 
@@ -160,10 +189,11 @@ test('#6214: a stop while the first agent restarts leaves only that one restarte
   assert.deepEqual(d.order, ['al']);
   const end = accountmove.read(out.body.id);
   assert.deepEqual(end.agents.map((a) => a.outcome), ['partial', 'stopped', 'stopped']);
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old'], ['cy', '/acct/old']]);
   assert.equal(d.held.size, 0);
 });
 
-test('#6214: the board wires the stop route, the strict account read and the put-back, and says a refusal can stop the move', () => {
+test('#6214: the board wires the stop route, the strict account read, the sync + async put-back, and says a refusal can stop the move', () => {
   const fs = require('node:fs');
   const server = fs.readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
   const routeAt = server.indexOf("pathname === '/api/agents/account' && req.method === 'POST'");
@@ -175,6 +205,11 @@ test('#6214: the board wires the stop route, the strict account read and the put
   assert.match(call, /readAccount: \(n\) => \{\n\s+const job = create\.readJob\(create\.cleanName\(n\)\);\n\s+if \(!job\) throw new Error\('its launch job could not be read'\);\n\s+return job\.configDir \|\| null;\n\s+\},/,
     'the move cannot read an agent\'s account strictly');
   assert.match(call, /putBack: \(n, dir\) => create\.restoreAccount\(n, dir\),/, 'a stop cannot put an agent back, or puts it back through setAccount\'s destination checks');
+  /* #6231 item 7: the async put-back the tail awaits -- win32 drives it off the board thread; linux/mac wrap the sync
+     put-back in a resolved promise (already non-blocking). */
+  assert.ok(call.includes('putBackAsync:'), 'the move wires an async put-back for the tail');
+  assert.match(call, /removal\.putBackAsync\(n, dir\)/, 'win32 drives the async put-back off the board thread');
+  assert.match(call, /Promise\.resolve\(create\.restoreAccount\(n, dir\)\)/, 'linux/mac wrap the sync put-back in a resolved promise');
   /* The stop route is matched before the read route, whose pattern would otherwise take "stop" for a move id (and as a
      GET it would not, but a later method change must not make it). */
   const stopAt = server.indexOf("if (pathname === '/api/agents/account-moves/stop' && req.method === 'POST') {");
@@ -202,13 +237,14 @@ test('#6214: once a stopped move ends, nothing holds the board, so an Update is 
 
 test('#6214: a put-back whose account has no name the board can read says "their old account"', async () => {
   const d = deps({ saved: { al: '/acct/old', bo: '/codex/old' } });
-  d.putBack = (n, dir) => { d.putBacks.push([n, dir]); d.saved[n] = dir; return { outcome: 'created', because: null, account: null }; };
+  d.putBackAsync = (n, dir) => { d.putBacks.push([n, dir]); d.saved[n] = dir; return Promise.resolve({ outcome: 'created', because: null, account: null }); };
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
-  const s = accountmove.stop();
-  assert.equal(s.body.agents[1].outcome, 'stopped');
-  assert.equal(s.body.agents[1].because, 'you stopped the move before their turn. They stay on their old account.');
+  accountmove.stop();
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  const bo = accountmove.read(out.body.id).agents[1];
+  assert.equal(bo.outcome, 'stopped');
+  assert.equal(bo.because, 'you stopped the move before their turn. They stay on their old account.');
 });
 
 test('#6214 with #6190: an agent the move refused because a restart still held it is left alone by a stop', async () => {
@@ -217,10 +253,96 @@ test('#6214 with #6190: an agent the move refused because a restart still held i
   const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy'] }, d);
   assert.equal(d.saved.bo, '/acct/old', 'PRECONDITION: the refused agent was never written');
   const s = accountmove.stop();
-  assert.deepEqual(s.body.agents.map((a) => [a.name, a.outcome]), [['al', 'pending'], ['bo', 'refused'], ['cy', 'stopped']]);
+  assert.deepEqual(s.body.agents.map((a) => [a.name, a.outcome]), [['al', 'pending'], ['bo', 'refused'], ['cy', 'pending']]);
   assert.equal(s.body.agents[1].because, 'Bo is still being restarted.', 'the refusal keeps its own sentence');
-  assert.deepEqual(d.putBacks, [['cy', '/acct/old']], 'only the unreached agent the move wrote is put back');
   d.pending.get('al')({ outcome: RESTARTED, steps: [] });
   await out.done;
+  const end = accountmove.read(out.body.id);
+  assert.deepEqual(end.agents.map((a) => [a.name, a.outcome]), [['al', 'changed'], ['bo', 'refused'], ['cy', 'stopped']]);
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old']], 'only the unreached agent the move wrote is put back');
   assert.equal(d.held.size, 0);
+});
+
+/* ------------------------------------------------------------------------------------------------------------------ *
+ * #6231 item 7 contracts (Splinter's ruling, quoted on #6183): the put-backs run in the move's async tail, off the
+ * board's thread, each agent held until its own put-back settles; the move stays running until the last settles.
+ * ------------------------------------------------------------------------------------------------------------------ */
+
+test('#6231 item 7 (contract 1): a slow put-back keeps the move running (busy) until it settles, so an Update stays refused', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, slow: ['bo'] });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  const s = accountmove.stop();
+  assert.equal(s.body.agents[1].outcome, 'pending', 'bo is pending in the stop answer');
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick(); await tick();
+  assert.ok(d.slowGate.has('bo'), 'PRECONDITION: bo\'s put-back is parked in flight, not yet written');
+  assert.deepEqual(d.putBacks, [], 'the put-back has not been written yet');
+  assert.equal(accountmove.busy(), true, 'the move still runs while bo\'s put-back is in flight -- Update/board restart stay refused');
+  assert.equal(accountmove.read(out.body.id).done, false, 'the move is not done until the last put-back settles');
+  d.settlePutBack('bo');
+  await out.done;
+  assert.equal(accountmove.busy(), false, 'once the last put-back settles the move ends and Update is allowed through');
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']]);
+  assert.equal(accountmove.read(out.body.id).agents[1].outcome, 'stopped');
+});
+
+test('#6231 item 7 (contract 3b): a not-reached agent stays held until its own put-back settles, then is released', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, slow: ['bo'] });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick(); await tick();
+  assert.ok(d.slowGate.has('bo'), 'PRECONDITION: bo\'s put-back is in flight');
+  assert.equal(d.held.has('bo'), true, 'bo stays held while its put-back writes, so a same-agent switch is refused and cannot land over the put-back');
+  d.settlePutBack('bo');
+  await out.done;
+  assert.equal(d.held.has('bo'), false, 'bo is released only after its own put-back settles');
+  assert.equal(d.held.size, 0);
+});
+
+test('#6231 item 7 (contract 3): a hand change landing mid-batch is still detected for a not-yet-put-back agent', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old' }, slow: ['bo'] });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy'] }, d);
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick(); await tick();
+  assert.ok(d.slowGate.has('bo'), 'PRECONDITION: bo\'s put-back is parked, cy not reached yet');
+  d.saved.cy = '/acct/other';   // the person moves cy by hand while bo's put-back is in flight
+  d.settlePutBack('bo');
+  await out.done;
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'bo is put back; cy is not written over');
+  assert.equal(d.saved.cy, '/acct/other', 'cy keeps the hand change (the per-agent re-read stays atomic with its write)');
+  const cy = accountmove.read(out.body.id).agents[2];
+  assert.equal(cy.outcome, 'stopped');
+  assert.match(cy.because, /their account had been changed since the move saved it/);
+});
+
+test('#6231 item 7: a caller that wired only the sync putBack (no putBackAsync) still puts back, run inline', async () => {
+  // putBackBefore's canWrite accepts a sync-only putBack; putBackOne must then honour that by running it inline,
+  // or canWrite would be a lie and the agent would be refused with "putBackAsync is not a function".
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' } });
+  delete d.putBackAsync;
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'the put-back ran through the sync putBack');
+  assert.equal(accountmove.read(out.body.id).agents[1].outcome, 'stopped');
+  assert.equal(d.held.size, 0);
+});
+
+test('#6231 item 7 (contract 4): a second stop while the put-backs are still running is a no-op and says so', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old' }, slow: ['bo'] });
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo'] }, d);
+  accountmove.stop();
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick(); await tick();
+  assert.ok(d.slowGate.has('bo'), 'PRECONDITION: a put-back is in flight');
+  const again = accountmove.stop();
+  assert.equal(again.status, 200);
+  assert.equal(again.body.already, true, 'the second stop changes nothing and says the move is already stopping');
+  assert.deepEqual(d.putBacks, [], 'it starts no extra put-back');
+  d.settlePutBack('bo');
+  await out.done;
+  assert.deepEqual(d.putBacks, [['bo', '/acct/old']], 'bo is put back exactly once across both stops');
 });

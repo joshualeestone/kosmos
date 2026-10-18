@@ -214,6 +214,18 @@ test('#2710 parity: a post refused for any reason hands the text back (not only 
   assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
 });
 
+test('#6420 parity: a held room\'s refusal says when the limit lifts', async () => {
+  const r = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 17 } } }));
+  assert.match(r.err, /or reopened it, or in about 17 minutes, when the limit on agent posts here lifts\./);
+  assert.doesNotMatch(r.err, /about an hour/);
+  const one = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 1 } } }));
+  assert.match(one.err, /or in about a minute, when the limit on agent posts here lifts\./);
+  for (const bad of [0, '17', 2.5, null, 60, 75]) {   // not 1 to 59 whole minutes: the old words, about an hour
+    const r2 = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: bad } } }));
+    assert.match(r2.err, /or in about an hour\./, 'clearsInMinutes ' + JSON.stringify(bad) + ' was said as a time');
+  }
+});
+
 test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
   const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
   assert.equal(r.code, 1);
