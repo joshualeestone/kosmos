@@ -116,13 +116,18 @@ function verifySetup({ manifest, sig, setup, version, installedVersion, keys = K
   return { code: 0, why: `the installer matches the signed manifest for ${version}` };
 }
 
-/* run-setup: what the in-app update (engine/update.js) and `kosmos update` (install/kosmos) run instead of
+/* 🛑 A FROZEN INTERFACE. `run-setup <setup-url> <release-base> <version> <installed-home>` and its exit codes (0 or
+ * the installer's own, 96 not fetched, 97 refused) are also called by .pkg files already downloaded (#6474), which
+ * run against whatever NEWER copy of this file is installed. Add forms; never reorder or remove these.
+ * run-setup: what the in-app update (engine/update.js) and `kosmos update` (install/kosmos) run instead of
  * `curl <setup> | sh`. Downloads the installer and the target version's manifest and .sig into a private folder,
  * checks them with THIS (installed) copy, and only then runs the installer with sh, passing stdio and the environment
  * through. Returns the installer's exit code, or 97 (a sentence on stderr) when it was not run. */
-const NOT_RUN = 97;
+const NOT_RUN = 97;      // refused: the installer or its manifest did not check out (a retry gives the same answer)
+const NOT_FETCHED = 96;  // a download failed (a retry can succeed: a half-published deploy, the network)
 function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
   const say = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
+  const sayFetch = (why) => { process.stderr.write('Kosmos: ' + why + ', so the installer was not run.\n'); return NOT_FETCHED; };
   if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
   if (!home) return say('the installed copy could not be found');
   let dir;
@@ -131,10 +136,10 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     const get = (url, out) => spawnSync('curl', ['-fsSL', '--connect-timeout', '30', '--speed-limit', '1024', '--speed-time', '60', url, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] }).status === 0;
     const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
     const b = String(base || '').replace(/\/+$/, '');
-    if (!get(setupUrl, files.setup)) return say('the installer could not be downloaded');
+    if (!get(setupUrl, files.setup)) return sayFetch('the installer could not be downloaded');
     // arm64 only, as setup.sh's ARCH is on a Mac (an Intel Mac is refused before any update is offered).
     if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
-      return say(`the signed manifest for ${version} could not be downloaded`);
+      return sayFetch(`the signed manifest for ${version} could not be downloaded`);
     }
     let installedVersion = '';
     try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
@@ -147,15 +152,15 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
     delete env.NODE_OPTIONS;
     // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
     const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
-    // 97 is reserved for "not run": an installer that exits 97 itself is reported as a plain failure.
-    if (run.status === NOT_RUN) return 1;
+    // 96 and 97 are reserved for "not run": an installer that exits either itself is reported as a plain failure.
+    if (run.status === NOT_RUN || run.status === NOT_FETCHED) return 1;
     return typeof run.status === 'number' ? run.status : 1;
   } finally {
     try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 }
 
-module.exports = { verify, verifySetup, runSetup, NOT_RUN, KEYS, listFiles };
+module.exports = { verify, verifySetup, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
 
 if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>

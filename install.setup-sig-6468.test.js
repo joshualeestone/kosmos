@@ -17,7 +17,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
-const { verifySetup, NOT_RUN } = require('./engine/manifest-verify.js');
+const { verifySetup, NOT_RUN, NOT_FETCHED } = require('./engine/manifest-verify.js');
 const VERIFIER = fs.readFileSync(path.join(__dirname, 'engine', 'manifest-verify.js'), 'utf8');
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
 const PUB = publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
@@ -92,7 +92,7 @@ test('run-setup: a tampered installer, a missing .sig, or an unknown version run
   assert.equal(r.ran, false);
   assert.match(r.err, /does not match its signed release, so the installer was not run/);
   r = runSetup(home('1.2.0'), host('1.2.3', { noSig: true }), '1.2.3');
-  assert.equal(r.code, NOT_RUN, r.err);
+  assert.equal(r.code, NOT_FETCHED, r.err + ' (a download that failed is 96, retryable, not 97)');
   assert.equal(r.ran, false);
   r = runSetup(home('1.2.0'), host('1.2.3'), '');
   assert.equal(r.code, NOT_RUN, r.err);
@@ -119,12 +119,23 @@ test('the board words exit 97 as "could not be checked", not as a crash', () => 
   assert.match(src, /if \(s\.code === 97\) return \{[^}]*because: 'the update could not be checked against its signed release, so nothing was installed\. Try again in a few minutes'/);
 });
 
-test('run-setup: an installer that exits 97 itself is reported as 1, never as "not run"; no home is refused', () => {
+test('run-setup: an installer that exits 97 or 96 itself is reported as 1, never as "not run"; no home is refused', () => {
   const r = runSetup(home('1.2.0'), host('1.2.3', { setupBody: 'exit 97\n' }), '1.2.3');
   assert.equal(r.code, 1, r.err);
+  assert.equal(runSetup(home('1.2.0'), host('1.2.3', { setupBody: 'exit 96\n' }), '1.2.3').code, 1);
   const hst = host('1.2.3');
   const x = spawnSync(process.execPath, [path.join(home('1.2.0'), 'app', 'engine', 'manifest-verify.js'), 'run-setup',
     'file://' + hst.setup, 'file://' + hst.dist, '1.2.3', ''], { encoding: 'utf8' });
   assert.equal(x.status, NOT_RUN, x.stderr);
   assert.match(x.stderr, /installed copy could not be found/);
+});
+
+test('run-setup: a refusal is 97 and a failed download is 96, so a caller retries only what a retry can fix', () => {
+  const refused = host('1.2.3');
+  fs.appendFileSync(refused.setup, 'planted\n');
+  assert.equal(runSetup(home('1.2.0'), refused, '1.2.3').code, NOT_RUN);
+  assert.equal(runSetup(home('1.3.0'), host('1.2.3'), '1.2.3').code, NOT_RUN, 'older than installed is a refusal, not a download');
+  const gone = host('1.2.3');
+  fs.rmSync(gone.setup);
+  assert.equal(runSetup(home('1.2.0'), gone, '1.2.3').code, NOT_FETCHED);
 });

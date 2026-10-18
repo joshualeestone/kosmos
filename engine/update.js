@@ -692,6 +692,7 @@ function readStatusRecord() {
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
+  if (s.code === 96) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be downloaded, so nothing was installed. Try again in a few minutes', log: installLog() };
   if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
