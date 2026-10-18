@@ -97,7 +97,9 @@ const { chromium } = require('playwright');
      🛑 SO THE CASE #986 ACTUALLY CHANGED IS NOT COVERED HERE, AND SAYING SO IS
      the point of this paragraph. Under 56rem `.lrow` collapses to `34px 1fr`
      and the cells after the name stack in column 2 as separate rows (a not-running
-     row's empty `.lmodel` excepted, which takes none). An
+     row's empty `.lmodel` excepted, which takes none; a running never-recorded row's `.lmodel` holds only a .vh
+     sentence since #6516, so it keeps a zero-height row and the gap, and the phone arm's model-line read below says
+     nothing for that row). An
      empty `.ltask` there is an empty ROW, and `row-gap: 8px` is still spent on
      it. The 1400x900 arm will never see that, and the phone arm below reads
      the model and memory cells, not the empty task row. It has been true

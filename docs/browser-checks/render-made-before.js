@@ -107,10 +107,10 @@ function chk(ok, label, extra) {
       const vh = r && r.querySelector('.vh');
       const box = vh ? vh.getBoundingClientRect() : null;
       return { rickShown: shown(r), rickText: r ? r.textContent.trim() : null, rickVhOnly: !!(r && r.children.length === 1 && vh),
-        rickVhBox: box ? [Math.round(box.width), Math.round(box.height)] : null, bobShown: shown(b) };
+        rickVhBox: box ? [Math.round(box.width), Math.round(box.height)] : null, rickVhDisplay: vh ? getComputedStyle(vh).display : null, bobShown: shown(b) };
     });
-    chk(lists.rickShown === '' && lists.rickVhOnly && !!lists.rickVhBox && lists.rickVhBox[0] <= 1 && lists.rickVhBox[1] <= 1,
-      '#6516 the list cell shows nothing for a never-recorded agent (its only child is the 1px .vh span)', JSON.stringify(lists));
+    chk(lists.rickShown === '' && lists.rickVhOnly && !!lists.rickVhBox && lists.rickVhBox[0] === 1 && lists.rickVhBox[1] === 1 && lists.rickVhDisplay !== 'none',
+      '#6516 the list cell shows nothing for a never-recorded agent (its only child is the 1x1 .vh span, not display:none, which would hide it from a screen reader too)', JSON.stringify(lists));
     chk(lists.rickText === 'Made before Kosmos recorded this', '#6516 and keeps the ruled sentence for a screen reader', JSON.stringify(lists));
     chk(!!lists.bobShown && lists.bobShown !== 'Made before Kosmos recorded this', '#6516 CONTROL: a recorded agent\'s list cell still shows its model', JSON.stringify(lists));
     await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
