@@ -359,7 +359,7 @@ test('#5532 widening (board review 9): the child answers only "enrolled" for suc
   const main = src.slice(src.indexOf('async function main'));
   const check = main.indexOf('oe.holdsEnrollment()');
   assert.ok(check > 0, 'the child does not check holdsEnrollment');
-  assert.ok(check < main.indexOf('oe.siblingId()') && check < main.indexOf('rollup.gather()'), 'the child reads or mints before it knows the Kosmos is free');
+  assert.ok(check < main.indexOf('oe.siblingId()') && check < main.indexOf('rollup.gather('), 'the child reads or mints before it knows the Kosmos is free');
 });
 
 test('#5532 widening (board review 9): a run whose read went stale while another sent stands down', async (t) => {
@@ -603,4 +603,98 @@ test('#5532 widening: otherWorlds lists every other Kosmos (hidden ones too) wit
 test('#5532 widening: the child runs on its own and answers one line of JSON (an unknown mode is a refusal, not a read)', () => {
   const out = execFileSync(process.execPath, [path.join(__dirname, 'orgrollup-child.js'), 'nope'], { env: process.env, encoding: 'utf8' });
   assert.deepEqual(JSON.parse(out.trim()), { ok: false, because: 'unknown mode' });
+});
+
+test('#5532: another Kosmos is read without usage unless the accepted words name it (the child is told usage only then)', () => {
+  const fsr = require('node:fs');
+  const pathr = require('node:path');
+  const rollupSrc = fsr.readFileSync(pathr.join(__dirname, 'orgrollup.js'), 'utf8');
+  const childSrc = fsr.readFileSync(pathr.join(__dirname, 'orgrollup-child.js'), 'utf8');
+  assert.ok(rollupSrc.includes('gatherIn)(w.env, otherUsage)'), 'sendOthers no longer passes the consent to the child read');
+  assert.ok(rollupSrc.includes('const otherUsage = c.accepted.usageConsented === true && c.accepted.everyKosmosUsageConsented === true;'),
+    'another Kosmos\'s usage is no longer keyed on words naming usage for every Kosmos');
+  assert.ok(/'gather'\]\.concat\(usage === true \? \['usage'\] : \[\]\)/.test(rollupSrc), 'gatherIn no longer tells the child usage only when consented');
+  assert.ok(childSrc.includes("rollup.gather(undefined, { usage: usageArg === 'usage', usageReadMs: rollup.CHILD_USAGE_READ_MS })")
+    && childSrc.includes('main(process.argv[2], process.argv[3])'), 'the child no longer reads usage only when told usage');
+});
+
+test('#5532: under words naming usage, the child is asked for usage, and another Kosmos\'s count goes with it (an incomplete one truncated)', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+  rec.consentHash = HASH;
+  fs.writeFileSync(f, JSON.stringify(rec));
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
+    reports: ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day',
+      'the agent, project, activity and token use lines above from every Kosmos on this computer, not only this one'], usageConsented: true } } }));
+  const asked = [];
+  const o = others({ beta: Object.assign(inv('Ada'), { usageIncomplete: true }), gamma: inv('Bo') });
+  const inner = o.gatherIn;
+  o.gatherIn = async (env, usage) => { asked.push(usage); return inner(env); };
+  const res = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.equal(res.sent, true, JSON.stringify(res));
+  assert.deepEqual(asked, [true, true], 'the children were not told the words name usage');
+  const b = rollups(c);
+  const beta = b.find((x) => x.world === BETA);
+  assert.deepEqual(beta.usage.map((u) => [u.model, u.input]), [['gpt-5.1', 5]], 'another Kosmos\'s usage did not go under words naming it');
+  assert.equal(beta.usageWithheld, false);
+  assert.equal(beta.truncated, true, 'an incomplete count from another Kosmos was sent as the whole');
+  assert.equal(b.find((x) => x.world === GAMMA).truncated, false, 'CONTROL: a complete count is not marked truncated');
+});
+
+test('#5532: under words that do not name usage, the children are told not to read it', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  accept(root);
+  const asked = [];
+  const o = others({ beta: inv('Ada'), gamma: inv('Bo') });
+  const inner = o.gatherIn;
+  o.gatherIn = async (env, usage) => { asked.push(usage); return inner(env); };
+  const res = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.equal(res.sent, true, JSON.stringify(res));
+  assert.deepEqual(asked, [false, false], 'a child was asked for usage the words do not name');
+});
+
+test('#5532: a usage line for this Kosmos alone does not send another Kosmos\'s usage', async (t) => {
+  const root = world(t);
+  const c = coordinator();
+  await oe.enroll('ACME-JOIN-1234', true, { root, remote: c });
+  const f = path.join(root, oe.ENROLLMENT_FILE);
+  const rec = JSON.parse(fs.readFileSync(f, 'utf8'));
+  rec.consentHash = HASH;
+  fs.writeFileSync(f, JSON.stringify(rec));
+  // The usage line, and an every-Kosmos line that names only agents, projects and activity.
+  fs.writeFileSync(path.join(root, oe.CONSENT_FILE), JSON.stringify({ order: [HASH], byHash: { [HASH]: {
+    reports: ['agent names', 'how many tokens the sessions launched in your agents\' folders used each day', EVERY], usageConsented: true } } }));
+  const asked = [];
+  // A child answer that says its count was incomplete, though it was not asked for one: the parent drops that too.
+  const o = others({ beta: Object.assign(inv('Ada'), { usageIncomplete: true }), gamma: inv('Bo') });
+  const inner = o.gatherIn;
+  o.gatherIn = async (env, usage) => { asked.push(usage); return inner(env); };
+  const res = await r.tick(Object.assign({ root, remote: c, sources: sources(), now: T0 }, o));
+  assert.equal(res.sent, true, JSON.stringify(res));
+  assert.deepEqual(asked, [false, false], 'a child was asked for usage the every-Kosmos line does not name');
+  const siblings = rollups(c).filter((b) => b.world !== oe.readEnrollment({ root }).world);
+  assert.equal(siblings.length, 2, 'CONTROL: both other Kosmoses reported');
+  for (const x of siblings) {
+    assert.equal(x.usageWithheld, true, 'another Kosmos sent usage under a usage line for this Kosmos alone');
+    assert.deepEqual(x.usage, []);
+    assert.equal(x.truncated, false, 'a withheld sibling body was marked truncated by a count it was not asked for');
+  }
+});
+
+test('#5532: the child reads usage only when its argument is usage', async () => {
+  const child = require('./orgrollup-child');
+  const realGather = r.gather;
+  const asked = [];
+  r.gather = async (src, opts) => { asked.push(opts && opts.usage); return { agents: [], projects: [], usageByDay: {}, lastActive: null, partial: false }; };
+  try {
+    await child.main('gather', 'usage');
+    await child.main('gather');
+    await child.main('gather', 'nousage');
+  } finally { r.gather = realGather; }
+  assert.deepEqual(asked, [true, false, false], 'the child read usage without being told usage, or not when told');
 });
