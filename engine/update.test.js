@@ -435,12 +435,18 @@ test('the installer URL is a positional parameter, never interpolated into the s
      added `; rm -f "$4"` and the marker positional so the shell removes the
      in-flight marker on finish -- a surviving marker means an interrupted
      install). The URL is still $1 and still never interpolated. */
-  assert.match(call, /'-c',\s*'curl -fsSL "\$1" \| sh; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
+  /* #6468 ask 3: no `curl | sh` any more. $5 (this node) runs $6 (the installed engine/manifest-verify.js) run-setup with
+     the URL ($1), the release base ($7), the target version ($8) and the installed home ($9): it checks the installer
+     against the signed manifest and only then runs it. Every value is still its own positional. */
+  assert.match(call, /'-c',\s*'"\$5" "\$6" run-setup "\$1" "\$7" "\$8" "\$9"; code=\$\?; printf "%s %s\\n" "\$code" "\$3" > "\$2"; if \[ "\$4" != \/dev\/null \]; then rm -f "\$4"; fi',\s*'sh',\s*setupUrl\(\)/,
     'the installer command is no longer the reviewed shape: ' + call);
+  assert.ok(!/\|\s*sh\b/.test(call.slice(call.indexOf("'-c'"), call.indexOf("'sh',"))), 'the installer is piped into sh again: ' + call);
+  assert.ok(/startedMarker,\s*process\.execPath,\s*path\.join\(__dirname, 'manifest-verify\.js'\),\s*releaseBase\(\),\s*target,\s*installedRoot\(\) \|\| ''\]/.test(SRC),
+    'the verifier, base, version and home no longer ride as positionals $5 to $9');
   /* The three trailing positionals, asserted on the wider source since the
      slice above stops at the URL: the status file is $2, the stamp is $3, the
      marker is $4, none interpolated. */
-  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*startedMarker\]/.test(SRC),
+  assert.ok(/setupUrl\(\),\s*statusFile,\s*lastAttempt\.startedAt,\s*startedMarker,/.test(SRC),
     'the status file, the start stamp and the marker no longer ride as positionals');
 
   /* And the unsafe shapes, by name. A template literal or a concatenation

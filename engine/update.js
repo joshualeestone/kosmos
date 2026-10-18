@@ -691,6 +691,8 @@ function readStatusRecord() {
   const s = readStatusRaw();
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
+  // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
+  if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
 /* #1728. A surviving start marker (see markInstallStarted) means the attempt
@@ -1235,7 +1237,11 @@ function beginInstall(opts) {
     liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
     return;
   }
-  const child = spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker], {
+  /* #6468 ask 3: never `curl | sh` any more. THIS (installed) copy's node and engine/manifest-verify.js download the
+     installer and the target version's signed manifest, check the installer against it, and only then run it with sh
+     (run-setup). Exit 97 is "not run" (refused), recorded like any other code; readStatusRecord words it. */
+  const target = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
+  const child = spawn('/bin/sh', ['-c', '"$5" "$6" run-setup "$1" "$7" "$8" "$9"; code=$?; printf "%s %s\n" "$code" "$3" > "$2"; if [ "$4" != /dev/null ]; then rm -f "$4"; fi', 'sh', setupUrl(), statusFile, lastAttempt.startedAt, startedMarker, process.execPath, path.join(__dirname, 'manifest-verify.js'), releaseBase(), target, installedRoot() || ''], {
     detached: true,
     stdio: 'ignore',
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
