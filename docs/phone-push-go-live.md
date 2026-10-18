@@ -29,6 +29,9 @@ the durable references. Commit ids say exactly what was checked this time.
   notification-tap routing. Relay #170's Mac-offline answer is relay-server
   code, so it needs the separate relay deploy in Step 3c. Neither deploy ships
   #174's `gate.html`, which is tunnel code and waits for the Mac release.
+- **2026-10-17 (kosmos#6262): APNs is on as well.** The template now sets the four APNs settings and
+  `KOSMOS_PUSH` stays unset, so from the relay main `56d980fe` deploy the coordinator sends APNs for real beside
+  web push (Step 2's note). The bullet below is the earlier state, kept for the record.
 - **Production web push is real, while APNs registration remains off.**
   `coordinator/src/main.rs` selects `VapidSender` unless `KOSMOS_PUSH=log`.
   The four APNs settings remain commented in
@@ -111,7 +114,7 @@ record and its seller name cannot be undone, which is why item 2 is Josh's decis
 the key at `/etc/kosmos-coordinator/apns.p8`), and **`KOSMOS_PUSH` is not set at all**. So Steps 3 and 8 happen as one
 deploy: APNs sends for real from that deploy on, as web push already did. Nothing reaches a phone until the phone
 registers (the TestFlight app, signed in) and its computer's Phone notifications switch is on. The board's lock is open
-since 0.7.54 (`PHONE_APP_CAN_RECEIVE`, #4220). Deployed 2026-10-17 20:33 CDT as relay main `56d980fe`; the measured
+since #4220 set `PHONE_APP_CAN_RECEIVE` to true (2026-09-28). Deployed 2026-10-17 20:33 CDT as relay main `56d980fe`; the measured
 record is on #3763. The rest of this step is the earlier plan, kept for the record.
 
 **Turns on after:** the coordinator deploy in Step 3. A Mac release or APK
@@ -180,6 +183,9 @@ probably cannot sit under `/root` or `/home`, and the service user must be able 
 
 ## Step 3. Deploy the coordinator with sending held back [Josh]
 
+**As shipped on 2026-10-17 (kosmos#6262): sending was not held back.** See Step 3b's note; this step and Step 8
+happened as one deploy.
+
 **Carries:** the coordinator portions of relay #169, #171, #172, #173 and
 #174, plus the APNs registration settings from Step 2. The #3763 rows are
 the deployment record. This does not carry relay #161 or #174's `gate.html`,
@@ -211,17 +217,27 @@ No deploy step copies a key file, and the template only holds its path.
 
 **As shipped on 2026-10-17 (kosmos#6262):** run Step 3a first. The service reads the key once, at startup, and
 falls back to log-only if it cannot. Then deploy with `INSTALL_ENV=1`. The check is the journal line
-`apns: sending with token auth`, not the log-only line below. To send one test notice to an account's phones, run
-the box-only operator command as the service's user, with its env and sandbox:
+`apns: sending with token auth` with `bundles=1` (`bundles=0` is trap 1), not the log-only line below. To send one
+test notice to an account's phones, run the box-only operator command as root, as the service's user with its env
+and sandbox:
 
     systemd-run --wait --pipe -p User=kosmos-coordinator -p Group=kosmos-coordinator \
       -p EnvironmentFile=/etc/kosmos-coordinator.env -p Environment=KOSMOS_DATA_DIR=/var/lib/kosmos-coordinator \
       -p ProtectSystem=strict -p ProtectHome=yes -p ReadWritePaths=/var/lib/kosmos-coordinator \
       -p UMask=0077 -p PrivateTmp=yes -p NoNewPrivileges=yes \
-      /usr/local/bin/kosmos-coordinator apns-test --email <the account's email>
+      /usr/local/bin/kosmos-coordinator apns-test --email person@example.com
 
-It prints one line per phone with Apple's answer, for example `refused (403 InvalidProviderToken)`, which is the
-team and key mismatch from Step 2's trap 2.
+Put the account's email in place of `person@example.com`. It prints a summary line (delivered, refused or
+unreachable, skipped), then one line per phone with Apple's answer, for example `refused (403 InvalidProviderToken)`,
+which is the team and key mismatch from Step 2's trap 2. A phone the person denied is skipped, not sent to.
+
+**To stop sending (the kill switch):** set `KOSMOS_PUSH=log` in the template and redeploy with `INSTALL_ENV=1`.
+That stops browser web push too, since one setting governs both. To undo it later, mark the line as deliberately
+unset (`#KOSMOS_PUSH=`) rather than deleting it: the deploy's env check refuses to drop a value the box has that the
+template no longer names.
+
+The "What this turns on", "What this turns off" and "Check" items below are the earlier log-only plan and no longer
+apply: nothing is held back, and web push stays on.
 
 - **Command:** `INSTALL_ENV=1 bash deploy/deploy-coordinator.sh`, from a clean kosmos-relay
   `main`.
@@ -273,6 +289,7 @@ control. Record the live build and rollback anchor on #3763 when deployed.
 **Carries:** a signed TestFlight build of `io.kosmos.app`. It turns on native APNs registration
 and tap handling on an iPhone after Step 3 allows the bundle id. It does not
 open the Mac's send lock or make Step 8's log-only coordinator send for real.
+(2026-10-17: there is no log-only window any more; the coordinator sends from the Step 3 deploy on.)
 
 **Superseded 2026-10-15 (kosmos #6262): no preview app was ever created, and the build is now
 `io.kosmos.app` under Kosmos Agent Manager, Inc.** The interim plan is kept below for the record.
@@ -525,7 +542,8 @@ lacks `mac-request` (`tools/lib/connector-verbs.sh`), because turning phone
 notifications on needs it. So the tunnel from Step 6 must be the one inside
 this release.
 
-**Between this release and Step 8:** a user who turns the switch on reaches
+**Between this release and Step 8:** (superseded 2026-10-17, kosmos#6262: the coordinator already sends, so a phone
+that has registered gets the push as soon as its Mac's switch is on.) a user who turns the switch on reaches
 the coordinator, but no push reaches any phone, because the coordinator still
 runs `KOSMOS_PUSH=log`. The 30-minute needs_you email is not part of that: it can still arrive
 while `needs_you_email` is on, phone or not. Only ship this release once steps 4 and 5 have an app
@@ -572,7 +590,8 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 ## Step 8. Let the coordinator send [Josh]
 
 **Not needed as written (2026-10-17, kosmos#6262):** `KOSMOS_PUSH` was never set to log (see Step 2), so there is
-nothing to turn off. The coordinator sends from the Step 3 deploy on.
+nothing to turn off. The coordinator sends from the Step 3 deploy on. Its check (below) still applies to that deploy;
+to stop sending, see the kill switch in Step 3b.
 
 **Carries:** a second coordinator env deploy. This turns APNs delivery from
 log-only to real sending after the apps and Mac release are ready. It changes
