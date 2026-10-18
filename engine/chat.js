@@ -211,8 +211,75 @@ const CODEX_ENTER_GAP_MS = 500;
 let pauser = null;
 const deliveryQueues = new Map();
 /* #6249: per pane, the last line the board typed and saw left unsent in the box (its wire), so the next delivery can
-   press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it. */
-const unsentWires = new Map();   // target -> { wire, at, seq }
+   press Enter on THAT line, which is ours, rather than leave the agent blocked until a person clears it.
+   kosmos#6436: `seen` is what the box showed when the line was left (whitespace squashed). On an 80x24 agent pane a
+   long line scrolls, so the box shows only its end, which on screen looks like a line whose start a person deleted;
+   the box showing exactly `seen` again is what tells the two apart. Kept on disk (UNSENT_FILE), so a board restart
+   does not leave the agent refused behind its own line. */
+const unsentWires = new Map();   // target -> { wire, at, seq, seen }
+const UNSENT_FILE = () => path.join(store.ROOT, 'unsent-lines.json');
+let unsentLoaded = false;
+/* Each remembered line gets its own id (a retry scheduled for one line never acts on another, whatever the clock says). */
+let unsentIdNext = 0;
+/* A line not seen in the box for longer than this (each delivery or retry that finds it there starts the day again) is
+   neither pressed nor loaded after a restart. Hours, not the old 10 minutes (an
+   agent sat idle 30 to 60 minutes behind one), and not forever: a memory that outlived its line could meet the same
+   words put back in the box later (the person's own up-arrow history) and press them. */
+const UNSENT_KEEP_MS = 24 * 60 * 60 * 1000;
+const UNSENT_LIGHT_MS = 60 * 1000;   // the light record: just past its one retry (30 s)
+function loadUnsent() {
+  if (unsentLoaded) return;
+  unsentLoaded = true;
+  let raw = null;
+  try { raw = JSON.parse(fs.readFileSync(UNSENT_FILE(), 'utf8')); } catch { return; }
+  if (!raw || typeof raw !== 'object') return;
+  for (const [target, e] of Object.entries(raw)) {
+    /* A seq names a message row of the process that wrote it, so a loaded line carries none. */
+    if (e && typeof e.wire === 'string' && e.wire && Date.now() - (Number(e.at) || 0) <= UNSENT_KEEP_MS) {
+      unsentIdNext += 1;
+      unsentWires.set(target, { id: unsentIdNext, wire: e.wire, at: Number(e.at) || 0, seq: null, seen: typeof e.seen === 'string' ? e.seen : '' });
+    }
+  }
+}
+/* At most this many lines are kept (the oldest go first), so a pane that never comes back cannot grow the file. One
+   writer is assumed: the board, one per account folder. Another process writing the same file would drop its lines. */
+const UNSENT_KEEP = 100;
+function saveUnsent() {
+  if (unsentWires.size > UNSENT_KEEP) {
+    const oldest = [...unsentWires.entries()].sort((a, b) => a[1].at - b[1].at).slice(0, unsentWires.size - UNSENT_KEEP);
+    for (const [target] of oldest) unsentWires.delete(target);
+  }
+  const out = {};
+  for (const [target, e] of unsentWires) if (!e.light) out[target] = { wire: e.wire, at: e.at, seen: e.seen || '' };
+  try {
+    const file = UNSENT_FILE();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = file + '.' + process.pid + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(out), { mode: 0o600 });
+    try { fs.renameSync(tmp, file); } catch (err) { try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ } throw err; }
+  } catch (err) {
+    // Best effort: the line is still remembered for this run, but a restart would lose it, so it is said.
+    process.stderr.write('chat: could not keep the unsent-lines record (' + (err && err.message) + '); a restart forgets it\n');
+  }
+}
+function recallUnsent(target) {
+  loadUnsent();
+  const e = unsentWires.get(target) || null;
+  /* A light record (an unread watch: the line usually went, so it may sit in the agent's own history) lives only past its
+     one retry: a person recalling those words later must never have them pressed. */
+  const life = e && e.light ? UNSENT_LIGHT_MS : UNSENT_KEEP_MS;
+  if (e && Date.now() - e.at > life) { forgetUnsent(target); return null; }
+  return e;
+}
+function rememberUnsent(target, entry) {
+  loadUnsent();
+  if (!entry.id) { unsentIdNext += 1; entry = { ...entry, id: unsentIdNext }; }
+  unsentWires.set(target, entry);
+  saveUnsent();
+}
+function forgetUnsent(target) { loadUnsent(); if (unsentWires.delete(target)) saveUnsent(); }
+/* kosmos#6436 test seam: what a board restart does to the memory (gone from the process, still on disk). */
+function restartUnsentForTests() { unsentWires.clear(); unsentLoaded = false; }
 /* #6256 item 2: each remembered line has a number, given back on its verdict (`unsentSeq`), so whoever recorded that
    line can be told when a later delivery sends it (the hook below): chat itself does not know message ids. */
 let unsentSeq = 0;
@@ -222,8 +289,25 @@ function tellEarlierSubmitted(seq) {
   if (!earlierSubmittedHook) return;
   try { earlierSubmittedHook(seq, new Date().toISOString()); } catch { /* a record that fails is not the delivery's failure */ }
 }
-/* Round 2: a remembered line older than this is not sent: read hours later it would land ahead of newer words. */
-const UNSENT_REMEMBER_MS = 10 * 60 * 1000;
+/* kosmos#6436: a line the board left unsent is pressed again on its own after these delays, so the agent is not left
+   idle until someone next writes to it (agents sat idle 30 to 60 minutes behind one). A line is pressed late only within
+   its day (UNSENT_KEEP_MS): while it is in the box nothing newer can be typed in, so sending it then keeps the order. A
+   retry that finds a delivery typing there is spent (that delivery presses the line itself); the next one still runs.
+   Round 12: a hold can outlast all three (a permission prompt answered ten minutes later, a usage limit), so a line still
+   stuck after the last is tried again every UNSENT_TAIL_MS, for at most a day from when its retries were set (the bound
+   holds even when a press that does not take starts the line's day again). One chain per line: a newer set ends the older. */
+const UNSENT_RETRY_MS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
+const UNSENT_TAIL_MS = 10 * 60 * 1000;
+const UNSENT_DONE = new Set(['sent', 'empty', 'gone']);   // pressRememberedNow's answers after which nothing is left to try
+let unsentChainNext = 0;
+/* The test seam for those retries: (ms, fn) => void. Unset with an injected tmux runner, nothing is scheduled (a test
+   that wants them sets it); unset in production, a real unref'd timer. */
+let unsentRetryScheduler = null;
+function setUnsentRetryScheduler(fn) { unsentRetryScheduler = typeof fn === 'function' ? fn : null; }
+/* kosmos#6436: the board's roster now (server.js sets it). A retry runs minutes after its delivery, so it passes every
+   gate (typingGate) on the roster as it is then, not the card it was scheduled with. Unset: no retry presses anything. */
+let rosterSource = null;
+function setRosterSource(fn) { rosterSource = typeof fn === 'function' ? fn : null; }
 
 function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
@@ -254,6 +338,10 @@ function resetForTests() {
   DRY_RUN = true;
   deliveryQueues.clear();
   unsentWires.clear();
+  unsentLoaded = true;
+  try { fs.rmSync(UNSENT_FILE(), { force: true }); } catch { /* the sandbox's own file */ }
+  unsentRetryScheduler = null;
+  rosterSource = null;
   MOVED_TELL = null;   // #5400
 }
 
@@ -810,7 +898,7 @@ function pasteWire(target, wire) {
  * placed: `placed` meant only that tmux took the Enter. So for a Claude Code pane the board now reads the input box
  * before it pastes (never behind text that is not ours), right before the Enter (never with text that is not
  * ours), and after it (still there and only ours: one more Enter on the async path; else said as unsubmitted, and a
- * line left there that is only ours is sent by the next delivery within 10 minutes).
+ * line left there that is only ours is pressed again by its retries and before the next delivery, kosmos#6436).
  *
  * The input box is read from an ANSI capture (`capture-pane -e`), measured on Claude Code 2.1.296 to 2.1.300:
  *   - the LIVE box is the last line that starts with ❯ and a NO-BREAK SPACE (U+00A0). Prompts already sent, a line
@@ -837,12 +925,33 @@ function composerHolds(text, wire) {
      start. The box was empty before the paste, so text from anyone else is not a run of ours. */
   return w.includes(t) ? 'ours' : 'other';
 }
-/* Round 6, tightened in round 8: before pressing Enter on a line the board left earlier, the box must hold exactly
-   that line: a person who cut it down anywhere, or added to it, is not sent. A line too long to show whole (a box
-   that scrolled) is never pressed on: its hidden rows could hold anything; it is refused and the card says so. */
+/* Round 6, tightened in round 8: the box holds exactly that line: a person who cut it down anywhere, or added to it,
+   is not this. A box that scrolled is decided by rememberedShows below (kosmos#6436). */
 function composerIsAll(text, wire) {
   const t = squash(text);
   return !!t && t === squash(wire);
+}
+/* kosmos#6436: the box shows the board's remembered line and nothing else. All of it; or, for a long line on a small
+   pane (it scrolls, and only its end shows, ❯ drawn on the first VISIBLE row): exactly what the box showed when the
+   line was left there, or any end of the line at least SCROLLED_MIN long (a pane resized since, by a person attaching,
+   wraps the same end to a different length, and requiring the old length left the agent blocked for good).
+   What this cannot see, stated: the rows above the visible end. A person who typed there (cursor moved to the start
+   and back) would be sent with it, and a person who cut a long line of ours down on purpose would have the rest sent.
+   Text added after ours, or other text on screen, is never pressed. */
+const SCROLLED_MIN = 200;
+/* The rows a box draws once it has scrolled (measured: 7 at 80x24; fewer on a shorter pane). A box drawing fewer
+   shows all it holds, so the wider end rule does not apply to it. */
+const SCROLLED_ROWS = 4;
+/* `exact`: only all of the line, or exactly what the box showed when it was left (the unattended retries use this;
+   the wider SCROLLED_MIN end, on a box that has scrolled, is left to a delivery). `seen` counts only at the length
+   composerHolds asks of a piece of ours. */
+function rememberedShows(text, kept, exact = false, rows = 0) {
+  if (!kept) return false;
+  if (composerIsAll(text, kept.wire)) return true;
+  const t = squash(text);
+  if (!t || !squash(kept.wire).endsWith(t)) return false;
+  if (kept.seen && t === kept.seen && t.length >= 20) return true;
+  return !exact && t.length >= SCROLLED_MIN && rows >= SCROLLED_ROWS;
 }
 /* Round 9: does the box still hold the end of what we pasted (its last 20 characters, or all of a shorter message)? */
 function stillHoldsOurEnd(text, wire) {
@@ -853,7 +962,7 @@ function stillHoldsOurEnd(text, wire) {
 function readComposer(target) {
   const got = tmux(['capture-pane', '-e', '-p', '-t', target, '-S', '-200']);
   if (!got.ran || got.status !== 0) return { ok: false };
-  return composerText(got.out);
+  return status.composerText(got.out, { rows: true });
 }
 /* Only Claude Code's box is read this way; other runners draw their own and keep today's verdict. */
 const composerReadable = (card) => !!card && String(card.runner || 'claude') === 'claude';
@@ -869,15 +978,16 @@ function inputBoxEmpty(card) {
 const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
-/* #6256 item 3: says what happens next, so nobody types it again by hand (the 10 minutes are UNSENT_REMEMBER_MS). */
-const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos tries to send it first with the next thing it types to this agent within 10 minutes, if the box shows only that line';
+/* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
+const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
 const UNSENT_OTHER_BECAUSE = 'it went into its input box, which then held other text too, so Enter was not pressed again; it is sitting there unsent';
 const NOT_OURS_BECAUSE = 'its input box already holds text that was not sent, so this was not typed behind it';
 const UNSENT_NOT_PRESSED_BECAUSE = 'it went into its input box, which by then held other text too, so Enter was not pressed; it is sitting there unsent';
 /**
  * #6249: after the Enter, watch the box. `mayRetry` (the async path only, round 2): the synchronous path holds the
  * board while it waits, so it only watches; a line it leaves unsent is remembered and sent by the next delivery.
- * Yields { wait: ms } for the driver (synchronous or not, as the gap is); returns { outcome, retried }: 'sent' (it
+ * Yields { wait: ms } for the driver (synchronous or not, as the gap is); returns { outcome, retried } (and `text`, the
+ * box as read, on 'unsent': settle records it as `seen`): 'sent' (it
  * emptied), 'unread' (no live box to read: a menu or the turn's own screen, so today's verdict stands), 'unsent'
  * (only ours still there after the settle, and after the one retry where there is one), 'other' (something besides ours:
  * the person's typing or another sender's text, so Enter is NEVER pressed on it).
@@ -899,13 +1009,13 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
       waited += SUBMIT_LOOK_MS;
       continue;
     }
-    if (retried || !mayRetry) return { outcome: 'unsent', retried };
-    if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried };   // never an Enter into what it became
+    if (retried || !mayRetry) return { outcome: 'unsent', retried, text: box.text };
+    if (!verifyAtSend(card).ok) return { outcome: 'unsent', retried, text: box.text };   // never an Enter into what it became
     const now = readComposer(target);   // round 4: read again right before it, so nothing typed meanwhile goes with ours
     if (!now.ok) return { outcome: 'unread', retried };   // round 6: a box that cannot be read is not someone's text
     if (composerHolds(now.text, wire) !== 'ours') return { outcome: now.text ? 'other' : 'sent', retried };
     const again = tmux(['send-keys', '-t', target, 'Enter']);
-    if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried };
+    if (!again.ran || again.status !== 0) return { outcome: 'unsent', retried, text: now.text };
     retried = true;
     waited = 0;
   }
@@ -919,6 +1029,133 @@ function confirmedVerdict(placed, result) {
     ...placed, state: DELIVERY.UNCONFIRMED, queued: false, unsubmitted: true,
     because: result.outcome === 'other' ? UNSENT_OTHER_BECAUSE : UNSENT_BECAUSE,
   };
+}
+
+/* kosmos#6436: press Enter on the board's own remembered line in `target`, with no new line behind it, under the same
+   gates as a delivery and the holds an automatic sender passes. Cheap looks first (the box, the exact match), so a
+   retry that can press nothing never pays for a roster. Answers 'sent' (the box emptied; the line is forgotten and its
+   message row told), or why nothing was sent: 'gone' (nothing remembered), 'busy' (a delivery is typing there),
+   'unread', 'empty' (two reads agree the box is empty; forgotten), 'changed' (it shows something else, never
+   pressed; remembered), 'gate' (no roster, a hold, or a delivery gate refused), 'pane', or 'unsent' (tmux refused the
+   Enter, or the watch did not see it go; remembered, and its day starts again only when the box still shows it).
+   The waits do not hold the board; its tmux reads are synchronous, as a delivery's are. */
+async function pressRememberedNow(target, card) {
+  const kept = recallUnsent(target);
+  if (!kept) return 'gone';
+  if (deliveryQueues.has(target)) return 'busy';
+  const box = readComposer(target);
+  if (!box.ok) return 'unread';
+  /* The box is empty: our line went (sent, or cleared by hand), so it is forgotten. Only on two reads that agree a look
+     (SUBMIT_LOOK_MS, 60 ms) apart: one read caught mid-redraw must not drop a line that is still there, which would leave the agent refused
+     behind it again. A box holding other text keeps the memory (a person who adds to our line and then deletes the
+     addition leaves our line there), and is never pressed; the day bound ends it. */
+  if (!box.text) {
+    if (pauser) await pauser(SUBMIT_LOOK_MS);
+    else if (!runner) await new Promise((resolve) => setTimeout(resolve, SUBMIT_LOOK_MS));
+    const again = readComposer(target);
+    if (!again.ok) return 'unread';
+    if (again.text) return 'changed';
+    const still = recallUnsent(target);
+    if (still && still.id === kept.id) forgetUnsent(target);
+    return 'empty';
+  }
+  if (!rememberedShows(box.text, kept, true)) return 'changed';   // other text, or a resized pane: left to a delivery
+  /* Every hold an automatic sender passes (a menu up, a usage limit or sign-out, a quota) and every gate a delivery
+     passes before a keystroke (a question being answered, the trust dialog, a paused swarm, quiet hours, the usage
+     cap, Claude Code's menus and prompts read fresh: an Enter on a permission prompt would approve it), on the roster
+     as it is now. The wire (envelope included) is judged as the line. The pane must still be this one. */
+  let roster = null;
+  try { roster = rosterSource ? rosterSource() : null; } catch { roster = null; }
+  if (!Array.isArray(roster) || !card || !card.sessionName) return 'gate';
+  const name = card.sessionName;
+  try {
+    if (menuHeldVerdict(name, roster) || accountHeldVerdict(name, roster) || quotaHeldVerdict(name, roster)) return 'gate';
+  } catch { return 'gate'; }
+  const gate = typingGate(name, kept.wire, roster, '', '', new Date().toISOString());
+  if (!gate.ok) return 'gate';
+  if (paneTarget(gate.allowed.card) !== target) return 'pane';
+  if (!composerReadable(gate.allowed.card)) return 'pane';   // only a Claude Code box is read this way
+  card = gate.allowed.card;
+  /* Read again right before the Enter: the gates took time, and the box must still be only our line. */
+  const now = readComposer(target);
+  if (!now.ok) return 'unread';
+  if (!now.text || !rememberedShows(now.text, kept, true)) return 'changed';
+  if (!verifyAtSend(card).ok) return 'pane';
+  /* The pane is busy while this runs (deliver refuses a pane in deliveryQueues, deliverAsync waits behind it), so no
+     line is pasted while this one is being watched. */
+  let release = () => {};
+  const mark = new Promise((resolve) => { release = resolve; });
+  deliveryQueues.set(target, mark);
+  try {
+    const pressed = tmux(['send-keys', '-t', target, 'Enter']);
+    if (!pressed.ran || pressed.status !== 0) return 'unsent';
+    /* The full watch (the box can take about a second to empty); the waits between looks do not hold the board (#4468).
+       While it runs (about 1.5 s) a person's line to this pane is refused as busy, nothing typed. */
+    const steps = submitConfirmSteps(card, target, kept.wire, false, SUBMIT_SETTLE_MS);
+    let step = steps.next();
+    while (!step.done) {
+      if (pauser) await pauser(step.value.wait);
+      else if (!runner) await new Promise((resolve) => setTimeout(resolve, step.value.wait));
+      step = steps.next();
+    }
+    const outcome = step.value && step.value.outcome;
+    const still = recallUnsent(target);
+    const mine = still && still.id === kept.id;
+    if (outcome === 'sent') {
+      if (mine) forgetUnsent(target);   // only the line this retry pressed
+      if (kept.seq != null) tellEarlierSubmitted(kept.seq);
+      return 'sent';
+    }
+    /* Only a box read still holding only ours starts the day again; 'unread' (the screen changed) and 'other' do not. */
+    if (outcome === 'unsent' && mine) rememberUnsent(target, { ...still, at: Date.now() });
+    return 'unsent';
+  } finally {
+    if (deliveryQueues.get(target) === mark) deliveryQueues.delete(target);
+    release();
+  }
+}
+/* kosmos#6436: the retries after an unsent verdict. Each one that finds the line gone (sent, emptied, or replaced by a
+   newer one) does nothing; one that finds a newer line remembered leaves it to that line's own retries. */
+function scheduleUnsentRetries(target, card, delays = UNSENT_RETRY_MS) {
+  const kept = recallUnsent(target);
+  if (!kept) return;
+  /* One set at a time per line: a delivery that remembers the line again only adds a set once the last is done.
+     retriesUntil lives in memory only (saveUnsent keeps wire, at and seen): a restart schedules none anyway. */
+  const lastMs = delays[delays.length - 1];
+  if (kept.retriesUntil && Date.now() < kept.retriesUntil) return;
+  kept.retriesUntil = Date.now() + lastMs;
+  unsentChainNext += 1;
+  kept.retryChain = unsentChainNext;
+  const id = kept.id, chain = kept.retryChain, since = Date.now();
+  const schedule = unsentRetryScheduler || (runner ? null : (ms, fn) => {
+    const t = setTimeout(fn, ms);
+    if (t && typeof t.unref === 'function') t.unref();
+  });
+  if (!schedule) return;
+  delays.forEach((ms, i) => {
+    schedule(ms, () => {
+      const now = recallUnsent(target);
+      if (!now || now.id !== id) return;   // gone, or a newer line with retries of its own
+      Promise.resolve().then(() => pressRememberedNow(target, card)).then((answer) => {
+        if (i === delays.length - 1 && !UNSENT_DONE.has(answer)) scheduleUnsentTail(target, card, id, chain, since, schedule);
+      }).catch(() => { /* a retry that fails is not the delivery's failure */ });
+    });
+  });
+}
+/* Round 12: one more try every UNSENT_TAIL_MS while the line is still this chain's and still stuck. A light record has
+   no tail (it lives 60 s); a newer set of retries (a delivery that met the line again) ends this chain. */
+function scheduleUnsentTail(target, card, id, chain, since, schedule) {
+  const kept = recallUnsent(target);
+  if (!kept || kept.id !== id || kept.light || kept.retryChain !== chain) return;
+  if (Date.now() + UNSENT_TAIL_MS - since > UNSENT_KEEP_MS) return;
+  kept.retriesUntil = Date.now() + UNSENT_TAIL_MS;   // a delivery meanwhile adds no second chain
+  schedule(UNSENT_TAIL_MS, () => {
+    const now = recallUnsent(target);
+    if (!now || now.id !== id || now.retryChain !== chain) return;
+    Promise.resolve().then(() => pressRememberedNow(target, card)).then((answer) => {
+      if (!UNSENT_DONE.has(answer)) scheduleUnsentTail(target, card, id, chain, since, schedule);
+    }).catch(() => { /* a retry that fails is not the delivery's failure */ });
+  });
 }
 
 /* ── who may be sent to ──────────────────────────────────────────────────── */
@@ -1757,19 +1994,11 @@ function claudeMenuRefusal(card, sessionName, roster) {
   return kind === 'shape' ? CLAUDE_WAITING_SENTENCE : null;   // other wording, or one of Claude Code's own pickers
 }
 
-/**
- * Put one message into one agent's session.
- *
- * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
- * verdict a screen can render as-is. See `DELIVERY` for the three states and
- * for the one fact that separates them: whether anything of the person's text
- * could have reached the pane. None of them says the agent knows anything.
- */
-function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
-  const at = new Date().toISOString();
-  const problem = messageProblem(raw);
-  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
-
+/* kosmos#6436: the gates a line passes before anything is typed into an agent's pane, in their order: who it is, a
+   question being answered, the trust dialog, a paused swarm, quiet hours and the usage cap, the Codex hooks dialog, and
+   Claude Code's own menus and prompts (a fresh read). Answers a verdict (nothing typed) or { ok: true, allowed }; a
+   verdict never carries `ok`. deliverWithGap and pressRememberedNow both pass here, so they cannot drift apart. */
+function typingGate(sessionName, raw, roster, envelope, trailer, at) {
   const allowed = addressable(sessionName, roster);
   if (!allowed.ok) {
     return { state: DELIVERY.COULD_NOT, because: allowed.because, at, paneState: null, paneNote: null };
@@ -1862,6 +2091,26 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     try { menu = claudeMenuRefusal(allowed.card, sessionName, roster); } catch { menu = null; }   // deliver never throws
     if (menu) return { state: DELIVERY.COULD_NOT, because: menu, at, paneState: null, paneNote: null };
   }
+  return { ok: true, allowed };
+}
+
+/**
+ * Put one message into one agent's session.
+ *
+ * ⚠️ NEVER THROWS, and never claims more than a keystroke. The return is a
+ * verdict a screen can render as-is. See `DELIVERY` for the three states and
+ * for the one fact that separates them: whether anything of the person's text
+ * could have reached the pane. None of them says the agent knows anything.
+ */
+function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronousGap) {
+  const at = new Date().toISOString();
+  const problem = messageProblem(raw);
+  if (problem) return { state: DELIVERY.COULD_NOT, because: problem, at, paneState: null, paneNote: null };
+
+  /* kosmos#6436: every gate before the first keystroke, shared with the retry that presses a line left unsent. */
+  const gate = typingGate(sessionName, raw, roster, envelope, trailer, at);
+  if (!gate.ok) return gate;
+  const allowed = gate.allowed;
 
   /**
    * ⚠️ THE ENVELOPE IS PREPENDED AFTER THE LENGTH CHECK, NEVER BEFORE IT, and
@@ -1988,11 +2237,15 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
          all of it ours): press Enter on it once, watch the box empty (as after any Enter), and then type this line as
          usual, so the two go in order and never as one. If it does not empty, the text is still there and this line is
          refused with the sentence that says so. Anything else in the box is never submitted. */
-      const kept = unsentWires.get(target);
-      const earlier = kept && Date.now() - kept.at <= UNSENT_REMEMBER_MS ? kept.wire : null;
-      if (kept && !earlier) unsentWires.delete(target);
-      if (earlier && composerIsAll(box.text, earlier) && verifyAtSend(allowed.card).ok) {
-        unsentWires.delete(target);
+      const kept = recallUnsent(target);
+      const earlier = kept ? kept.wire : null;
+      /* kosmos#6436: the earlier line passes the gates as a line of its own: a bare command let through in quiet hours or
+         on a paused swarm must not carry a work line in ahead of it. */
+      const shows = !!earlier && rememberedShows(box.text, kept, false, box.rows);   // the cheap look first
+      let earlierGated = false;
+      if (shows) { try { earlierGated = typingGate(sessionName, earlier, roster, '', '', at).ok === true; } catch { earlierGated = false; } }
+      if (shows && earlierGated && verifyAtSend(allowed.card).ok) {
+        forgetUnsent(target);
         const pressed = tmux(['send-keys', '-t', target, 'Enter']);
         if (pressed.ran && pressed.status === 0) {
           /* Round 8: a short watch (measured: the box empties 25 to 93 ms after an Enter), so even the async path is
@@ -2000,15 +2253,19 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
           const steps = submitConfirmSteps(allowed.card, target, earlier, false, EARLIER_SETTLE_MS);
           let step = steps.next();
           while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
-          if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; tellEarlierSubmitted(kept.seq); }
+          if (step.value && step.value.outcome === 'sent') { earlierSubmitted = true; if (kept.seq != null) tellEarlierSubmitted(kept.seq); }
           box = readComposer(target);   // round 10: always read it again: a person may have started typing meanwhile
         }
         /* #6256 item 4: a box slower than the short watch (or an Enter tmux refused) still holds exactly our earlier
            line: remember it again, with its own time and number, so the next delivery can still press it. This one is
-           refused below, as before. Bounded (review 5): it keeps its first time, so it is pressed at most once per delivery
-           and never after 10 minutes. Known gap (review 3): if the Enter did take and the box only emptied later, no
-           follow-up row is written; an empty box later cannot say whether it was sent or cleared by hand. */
-        if (!earlierSubmitted && box.ok && composerIsAll(box.text, earlier)) unsentWires.set(target, kept);
+           refused below, as before. It keeps its id and number, so its own retries (kosmos#6436) still know it.
+           Known gap (review 3): if the Enter did take and the box only emptied later, no follow-up row is written; an
+           empty box later cannot say whether it was sent or cleared by hand. */
+        if (!earlierSubmitted && box.ok && rememberedShows(box.text, kept, false, box.rows)) {
+          /* Still there: a full record's day runs from now; a light record keeps its time and its one retry. */
+          rememberUnsent(target, kept.light ? kept : { ...kept, at: Date.now() });
+          scheduleUnsentRetries(target, allowed.card, kept.light ? UNSENT_RETRY_MS.slice(0, 1) : UNSENT_RETRY_MS);
+        }
       }
       /* busy (round 2): a sweep that counts its tries waits for the box rather than spend them on it. */
       if (box.ok && box.text) {
@@ -2163,11 +2420,22 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   const needsConfirm = (v) => !!v && v.state === DELIVERY.PLACED && composerReadable(allowed.card);
   const settle = (v, result) => {
     let seq = null;
-    if (result && result.outcome === 'unsent') {   // only ours is there: the next line may send it
+    /* `seen` only when it is an end of ours (a box still drawing our start shows a beginning, which no later read can
+       match as the end). */
+    const endSeen = (t) => { const q = squash(t); return q && squash(wire).endsWith(q) ? q : ''; };
+    if (result && result.outcome === 'unsent') {   // only ours is there: the next line, or a retry, may send it
       unsentSeq += 1;
       seq = unsentSeq;
-      unsentWires.set(target, { wire, at: Date.now(), seq });
-    } else unsentWires.delete(target);
+      rememberUnsent(target, { wire, at: Date.now(), seq, seen: endSeen(result.text) });
+      scheduleUnsentRetries(target, allowed.card);
+    } else if (result && result.outcome === 'unread') {
+      /* kosmos#6436: no box to read after the Enter (the turn's screen, or a dialog drawn over it). Usually the line
+         went; if it did not, nothing would know it is ours. Remembered lightly (in this process only, never written to
+         disk, no `seen`, no message row) with one retry: it forgets it on two empty reads and presses it only when
+         the box shows all of it; a later delivery that finds it there presses it first, as for any remembered line. */
+      rememberUnsent(target, { wire, at: Date.now(), seq: null, seen: '', light: true });
+      scheduleUnsentRetries(target, allowed.card, UNSENT_RETRY_MS.slice(0, 1));
+    } else forgetUnsent(target);
     const out = confirmedVerdict(v, result);
     const told = seq == null ? out : { ...out, unsentSeq: seq };
     return told.state === v.state ? told : { ...told, paneNote: noteFor(told.state) };
@@ -4539,7 +4807,8 @@ module.exports = {
   dmReactions, dmReactionPills, reactDirect, dmReactionNews, dmReactionNote, markDmReactionsTold, dmNoteMayRide,
   dmStandingQuestionNote, dmQuestionTold, markDmQuestionTold,   // #5943
   chunkUtf8, pasteToEnterMs, PASTE_CHUNK_BYTES,
-  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_REMEMBER_MS,   // #6249
+  composerText, composerHolds, SUBMIT_SETTLE_MS, SUBMIT_LOOK_MS, UNSENT_RETRY_MS, UNSENT_TAIL_MS,   // #6249, kosmos#6436
+  setUnsentRetryScheduler, restartUnsentForTests, setRosterSource,   // kosmos#6436
   deliver, deliverAutomatic, deliverAutomaticAsync, deliverAsync, menuHeld, limitHeldVerdict, signinHeldVerdict, accountHeldVerdict, limitable, limitReleased, limitQueueReleased, interrupt, stopHelpers, WIN32_NO_KEYS_SENTENCE, NO_WINDOW_BECAUSE, answerGeminiQuotaStop, answerCodexHooks, answerQuestionMenu, closeQuestionMenu, permissionAnswerable, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   withQuestionRow,
   withAccountRow,

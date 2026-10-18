@@ -62,13 +62,13 @@ const LATER = 'a later line that is long enough to read';
 test.beforeEach(() => { chat.resetForTests(); messages.resetForTests(); try { fs.rmSync(messages.LOG, { force: true }); } catch { /* fresh */ } });
 test.after(() => { chat.setRunner(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-test('#6256 item 3: the unsent sentence says Kosmos tries to send it with the next message, and when', () => {
+test('#6256 item 3, kosmos#6436: the unsent sentence says Kosmos presses it again on its own and before the next message', () => {
   const board = fleet.install([fleet.agent('al', { state: 'idle' })]);
   try {
     arm([EMPTY, box(MSG)]);
     const v = chat.deliver('al', MSG, board.agents);
     assert.equal(v.unsubmitted, true, 'PRECONDITION: left in the box');
-    assert.match(v.because, /still sitting there, and Kosmos tries to send it first with the next thing it types to this agent within 10 minutes, if the box shows only that line/);
+    assert.match(v.because, /still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line/);
   } finally { board.restore(); }
 });
 

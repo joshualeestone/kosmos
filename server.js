@@ -24015,6 +24015,8 @@ function start(port = PORT) {
         if (!movedRecs.roster) { try { movedRecs.roster = safeRoster(); } catch { movedRecs.roster = []; } }
         return movedRecs.roster;
       };
+      /* kosmos#6436: a retry on a line left unsent passes the same gates as a delivery, on the roster as it is then. */
+      chat.setRosterSource(() => safeRoster());
       chat.setMovedTell({
         owed: (session) => {
           const ft = require('./engine/failovertell');

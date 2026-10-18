@@ -291,16 +291,17 @@ test('#6249 round 1: no retry Enter once the pane is no longer an agent\'s (asyn
   } finally { board.restore(); }
 });
 
-test('#6249 round 2: a remembered line older than ten minutes is not sent', () => withAgent({}, (roster) => {
+test('#6249 round 2, reversed by kosmos#6436: a remembered line hours old is still sent first (refusing left the agent idle for good)', () => withAgent({}, (roster) => {
   arm([EMPTY, box(MSG)]);
   assert.equal(chat.deliver('al', MSG, roster).unsubmitted, true, 'PRECONDITION');
   const realNow = Date.now;
-  Date.now = () => realNow() + chat.UNSENT_REMEMBER_MS + 1000;
+  Date.now = () => realNow() + 3 * 60 * 60 * 1000;
   try {
-    const t = arm([box(MSG)]);
+    const t = arm([box(MSG), EMPTY, EMPTY, box('a later line'), EMPTY]);
     const v = chat.deliver('al', 'a later line', roster);
-    assert.equal(v.inputHeld, true, 'refused plainly');
-    assert.equal(t.enters(), 0, 'the old line is not sent hours later');
+    assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+    assert.equal(v.earlierSubmitted, true, 'the old line went first: nothing newer could have got in while it held the box');
+    assert.equal(t.enters(), 2);
   } finally { Date.now = realNow; }
 }));
 
