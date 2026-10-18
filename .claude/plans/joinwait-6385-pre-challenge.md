@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: joinwait-6385
-diff_hash: 83c35c9a8e477a0a045806ab586c5b1bac87e62af6f5dd76fd7819bb0fdba42f
+diff_hash: 774b0ba1e38e44141c12be4a73f3dd635bb8ddfabe1180486228be2c122c49d4
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-17T17:52:00Z
@@ -20,6 +20,9 @@ converged: true
 Validation: the full suite PASSED on Mortals at 3270d6cd9c (hash 83c35c9a8e47). render-connect-sheet-4637 PASSED
 (rc=0, 121 checks), its new #6385 arm passing at 1400 and 390 wide. Origin: every finding recorded BRANCH (the blame
 lookup was not run mechanically).
+Re-rebased 2026-10-17 21:14 onto the frozen 0.7.56 main (15b4f16a03), clean, range of 6 commits. Re-validated at
+0b8aaf4473: the full suite PASSED on Mortals (hash 774b0ba1e38e, 23:52), and render-connect-sheet-4637 PASSED (139
+checks, 0 failed; the #6385 arm at 1400 and 390).
 Held: Josh's 11:16 ruling (no new visible UI until his clean-up cards ship), so this branch does not merge yet.
 
 ### Per-Iteration Breakdown
