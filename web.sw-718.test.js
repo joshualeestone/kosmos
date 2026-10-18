@@ -124,21 +124,23 @@ test('notificationFor maps the coordinator payload to who/what + a Mac click-thr
     id: 'evt-1', address: 'study.kosmosplus.com',
   }));
   assert.equal(title, 'Scorpion needs you');
-  assert.equal(options.body, 'In Kosmos Inside Out');
+  assert.equal(options.body, 'in Kosmos Inside Out');   // #6487: "in", lower case
   assert.equal(options.data.url, 'https://study.kosmosplus.com/');
   assert.equal(options.tag, 'kosmos-evt-1');
 });
 
 test('notificationFor renders each kind, and falls back safely', () => {
-  assert.equal(notificationFor(ev({ kind: 'posted', agent: 'Sonya' })).title, 'Sonya posted an update');
+  assert.equal(notificationFor(ev({ kind: 'posted', agent: 'Sonya' })).title, 'Sonya posted');   // #6487
   assert.equal(notificationFor(ev({ kind: 'replied', agent: 'Sonya' })).title, 'Sonya replied');
   assert.equal(notificationFor(ev({ kind: 'ready', agent: 'Sonya' })).title, 'Sonya has work ready for you');   // #6254
-  assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya' })).title, 'Sonya has an update');
+  assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya' })).title, 'Sonya has something for you');   // #6487
+  assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya', project: 'P' })).options.body, undefined, 'an unknown kind has no body');
+  // A kind that names something every object has is still an unknown kind.
+  assert.equal(notificationFor(ev({ kind: 'toString', agent: 'Sonya' })).title, 'Sonya has something for you');
   // No agent -> a generic actor, never undefined text.
   assert.equal(notificationFor(ev({ kind: 'needs_you' })).title, 'An agent needs you');
-  // No project -> a plain prompt, not an empty body.
-  assert.equal(notificationFor(ev({ kind: 'needs_you', agent: 'Raiden' })).options.body,
-    'Open Kosmos to see what happened.');
+  // #6487: no project -> no body at all (the title says who and what; the filler line is gone).
+  assert.equal(notificationFor(ev({ kind: 'needs_you', agent: 'Raiden' })).options.body, undefined);
   // No address -> the board on this origin, not a broken link.
   assert.equal(notificationFor(ev({ kind: 'needs_you', agent: 'Raiden' })).options.data.url, '/');
 });
@@ -147,14 +149,18 @@ test('notificationFor honors an explicit title/body and survives a payload-less 
   const explicit = notificationFor(ev({ title: 'Custom', body: 'Text' }));
   assert.equal(explicit.title, 'Custom');
   assert.equal(explicit.options.body, 'Text');
-  // A push with no data at all must not throw and must render a default.
+  // #6487: the coordinator's own title, with no body when it sent none (no project), is shown as it is.
+  const bare = notificationFor(ev({ title: 'The coordinator words', body: null, kind: 'needs_you', agent: 'Leo', project: 'P' }));
+  assert.equal(bare.title, 'The coordinator words', 'the worker rebuilt a title the coordinator sent');
+  assert.equal(bare.options.body, undefined, 'a filler body was added under the coordinator\'s title');
+  // A push with no data at all must not throw and must render a default title.
   const none = notificationFor({ data: null });
-  assert.ok(none.title && none.options.body, 'a payload-less push produced an empty notification');
+  assert.equal(none.title, 'An agent has something for you', 'a payload-less push produced an empty notification');
   // A valid but NON-OBJECT body (JSON null, a number, a bare string) must also
   // render a default rather than throwing on a property read and dropping the push.
   for (const weird of [null, 42, 'a bare string', true]) {
     const n = notificationFor(ev(weird));
-    assert.ok(n.title && n.options.body, 'a non-object push body (' + JSON.stringify(weird) + ') was dropped');
+    assert.equal(n.title, 'An agent has something for you', 'a non-object push body (' + JSON.stringify(weird) + ') was dropped');
   }
 });
 
