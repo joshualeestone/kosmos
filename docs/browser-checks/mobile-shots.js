@@ -1232,7 +1232,9 @@ const SCREENS = [
      project-head, where a top-level project's lone crumb is hidden in today's look. */
   { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {
     const ids = await subprojectFixture(page, data);
-    await at(page, '?project=' + encodeURIComponent(ids.launchA));   // a fresh load reads the fixture just made
+    await openTab(page, 'projects');
+    // The page read its projects before the fixture was made: read them again, then open the sub-project.
+    await page.evaluate(async (id) => { await loadProjects(); openProject(id); }, ids.launchA);
     try {
       await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
     } catch (e) {   // say what was on screen instead, so a failed shot can be put right
