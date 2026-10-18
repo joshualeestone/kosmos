@@ -17,3 +17,14 @@ description a screen reader reads; the cannot-tell decision line (a warning) sta
 
 ## Verified
 - web.*.test.js + browser-checks-selectors 2985/2985.
+
+## Review log
+### Iteration 1 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] title and aria-describedby both carry the text (ACCEPTED: one announcement in practice)
+- [NIT] phones have no hover, so on a phone the explanation reaches screen-reader users only (ACCEPTED as the cost of less text; stated on the card)
+- [NIT] aria-describedby on a non-focusable h3 is announced unevenly (ACCEPTED: the hidden span sits right after the heading, so a document-order read reaches it; keeping it outside the h3 keeps h3 text equal to the label, which other checks read)
+- [NIT] the paragraph margin under the heading is gone (CHECKED in the shots)
+
+## Verified
+- render-tasks-view-3559 (headless, queued turn): All checks passed, incl. the new #6482 arm (6 ordinary groups: no visible paragraph, title set, hidden description equal to it).
+- web.*.test.js + browser-checks-selectors 2985/2985.
