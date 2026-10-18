@@ -118,3 +118,13 @@ test('the board words exit 97 as "could not be checked", not as a crash', () => 
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'update.js'), 'utf8');
   assert.match(src, /if \(s\.code === 97\) return \{[^}]*because: 'the update could not be checked against its signed release, so nothing was installed\. Try again in a few minutes'/);
 });
+
+test('run-setup: an installer that exits 97 itself is reported as 1, never as "not run"; no home is refused', () => {
+  const r = runSetup(home('1.2.0'), host('1.2.3', { setupBody: 'exit 97\n' }), '1.2.3');
+  assert.equal(r.code, 1, r.err);
+  const hst = host('1.2.3');
+  const x = spawnSync(process.execPath, [path.join(home('1.2.0'), 'app', 'engine', 'manifest-verify.js'), 'run-setup',
+    'file://' + hst.setup, 'file://' + hst.dist, '1.2.3', ''], { encoding: 'utf8' });
+  assert.equal(x.status, NOT_RUN, x.stderr);
+  assert.match(x.stderr, /installed copy could not be found/);
+});
