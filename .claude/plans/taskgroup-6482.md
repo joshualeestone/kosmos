@@ -28,3 +28,10 @@ description a screen reader reads; the cannot-tell decision line (a warning) sta
 ## Verified
 - render-tasks-view-3559 (headless, queued turn): All checks passed, incl. the new #6482 arm (6 ordinary groups: no visible paragraph, title set, hidden description equal to it).
 - web.*.test.js + browser-checks-selectors 2985/2985.
+### Iteration 2 (opus): no BLOCKER or WARNING findings (converged)
+- [NIT] the .vh span can be heard twice (description, then in reading order) (DECIDED: keep it readable; round 1 found aria-describedby on a heading announced unevenly, and being heard twice beats not being heard)
+- [NIT] no hover on a phone or keyboard (ACCEPTED: the card's trade, stated on the card and in the PR)
+- Checked: the tasks-groups screen always finds a heading with every data set, an error row if not, lands below the sticky bar; no registry needs the name; static tests 48/48 and 31/31.
+
+## Shots
+~/work/design-shots/kosmos-6482 (commit 176195d7ea): tasks, tasks-groups, tasks-scheduled x desktop/iPhone 15 x light/dark, 12 shots, 0 overflow, 0 errors; all looked at.
