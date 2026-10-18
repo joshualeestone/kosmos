@@ -24,7 +24,7 @@ test('#6515: no rule hides or removes the unknown track outside the list cell', 
   }
   assert.ok(rules.length >= 2, 'expected the track rules to be found (control)');
   for (const r of rules) {
-    if (!/visibility:\s*hidden|display:\s*none/.test(r)) continue;
+    if (!/visibility:\s*hidden|display:\s*none|opacity:\s*0(?![.\d])/.test(r)) continue;
     const sel = r.slice(0, r.indexOf('{')).trim();
     assert.match(sel, /^\.lmem \.bar\.unknown$/, `a hide rule reaches beyond the list cell: ${sel}`);
   }
