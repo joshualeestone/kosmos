@@ -56,7 +56,7 @@ The other windows are separate: "work ready" and "replied to your post" each hav
 agent can buzz once for each inside the same 5 minutes. The windows are kept in memory, so restarting Kosmos resets them.
 
 Tapping a notification opens that agent's page, even for a project post (or the board's home when the agent's name has
-capitals, dots or more than 64 characters). A reply, a crash, a stuck terminal and a helper giving up never carry a project, so their
+capitals, spaces or dots, or is longer than 64 characters). A reply, a crash, a stuck terminal and a helper giving up never carry a project, so their
 body is `in Kosmos` today and none under the new wording. A reply to the person's post uses only the "replies to a post
 of mine" switch; it does not fall back to the room switch when that one is off.
 
