@@ -1053,8 +1053,15 @@ _odd="$(kosmos_bundle_odd_names "$STAGE")"
 [ -z "$_odd" ] || { echo "FAIL: the bundle holds names the signed manifest cannot list exactly (#6468), first ones:" >&2; printf '%s\n' "$_odd" | sed -n '1,5p' >&2; exit 1; }
 # The keys installs of this build will accept go in its signed manifest (pinned_keys). An empty list would make the
 # next cut refuse its own key with a misleading sentence, so a failed read stops the build here instead.
-KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).KEYS))' "$STAGE/app/engine/manifest-verify.js" 2>/dev/null)" || KM_PINNED_KEYS=""
-case "$KM_PINNED_KEYS" in ''|'[]') echo "FAIL: could not read the pinned keys from app/engine/manifest-verify.js (#6468)" >&2; exit 1 ;; esac
+# 0.7.57 cut (12:00): STAGE is RELATIVE (dist/kosmos-bundle), and require() of a bare relative path is a PACKAGE
+# lookup, not a file, so this failed only inside a cut (an absolute path by hand worked). The path is made absolute in
+# the shell AND resolved in node, and the error is shown, not dropped (dropping it hid the cause for a whole cut).
+# tools.pinned-keys-read.test.js runs these lines with a relative STAGE.
+_pk_file="$(cd "$STAGE/app/engine" && pwd)/manifest-verify.js"
+_pk_err="$(mktemp "${TMPDIR:-/tmp}/kosmos-pinned-keys.XXXXXX")"
+KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(require("path").resolve(process.argv[1])).KEYS))' "$_pk_file" 2>"$_pk_err")" || KM_PINNED_KEYS=""
+case "$KM_PINNED_KEYS" in ''|'[]') echo "FAIL: could not read the pinned keys from app/engine/manifest-verify.js (#6468):" >&2; sed -n '1,8p' "$_pk_err" >&2; rm -f "$_pk_err"; exit 1 ;; esac
+rm -f "$_pk_err"
 ( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
 KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
 KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \

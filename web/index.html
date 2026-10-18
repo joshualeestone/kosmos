@@ -7743,6 +7743,10 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    opens on it). */
 @media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
+/* #6479: "Nothing back yet." steps aside while the line under it shows the agent working, so the thread ends on
+   one line rather than two. Keyed on the slot's own state (paintBusy sets it), so an auth failure in the same slot
+   does not hide it, and the quiet-and-not-working case it exists for is unchanged. */
+#d-sec-talk:has(#d-busy[data-state="working"]:not([hidden])) .dmquiet { display: none; }
 /* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
    size, line breaks as written, and bounded so a long answer scrolls instead of pushing the composer away. */
 .dmunsent-text { margin: 6px 0 0; padding: 8px 12px; border-left: 3px solid var(--k-rule); color: var(--k-ink);
@@ -18616,7 +18620,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dhint" id="phone-notify-testing" style="margin:6px 0 0;">The Kosmos phone app is still in testing. For now it is an Android test build, and it is not in the App Store or Google Play yet. Until it is on your phone, these will not reach your phone.</p>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
         <div><b>Buzz my phone about my agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. Turn this on, then choose below what buzzes your phone. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. Turn this on, then choose below what buzzes your phone.</p></div>
         <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
       </div>
       <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
@@ -39520,7 +39524,8 @@ function paintBusy(fresh, name) {
   const staleWorking = workingSampleIsStale(fresh);
   const show = (working && !staleWorking) || !!(fresh && fresh.state === 'auth_failed');
   el.hidden = !show;
-  if (!show) { el.innerHTML = ''; el.dataset.busyKey = ''; return; }
+  if (!show) { el.innerHTML = ''; el.dataset.busyKey = ''; delete el.dataset.state; return; }
+  el.dataset.state = working ? 'working' : 'auth_failed';   // #6479: which line the slot holds; the #d-sec-talk:has(#d-busy[data-state="working"]) rule beside .dmnone reads it
   /* ⚠️ THE SAME AVATAR THE CARD DRAWS, off the same route, with the same
      initials fallback — Josh asked for the face and a second way of drawing one
      would drift from the board's. `aria-hidden` because the sentence beside it
@@ -71011,7 +71016,7 @@ function dmOwesLine(owes) {
       + esc(owes.unsent.text) + '</blockquote></div>';
   }
   if (!pjOldEnoughToJudge(owes.lastHeardAt)) return '';
-  return '<p class="dmnone">Nothing back yet.</p>';
+  return '<p class="dmnone dmquiet">Nothing back yet.</p>';
 }
 
 function pjOldEnoughToJudge(at) {

@@ -14,6 +14,10 @@
  *   MENU ANSWER  a DM owed 10 minutes, then a menu button pressed 30 seconds ago (a `wire` row): the line still shows,
  *            because the grace is timed from the message owed (the engine's lastHeardAt), not from the button.
  *            (A TYPED answer to a question is not told apart: a known limit, recorded on #4340.)
+ *   WORKING  #6479: OWES, with the agent working: the line steps aside, because "<name> is working…" under it already
+ *            says the agent is on it. It is still drawn (shown 1) but not visible, and the working line is.
+ *   AUTH FAILED  #6479: OWES, with the same slot showing a sign-in failure instead: the line stays visible.
+ *   STOPPED  #6479: OWES, working and then idle on the same page: the line comes back once the agent stops.
  * Every arm also asserts the thread's message rows really rendered, so a "no line" arm cannot pass on a blank paint.
  * Harness posture mirrors render-agentdm-3414.js: load over file://, answer the thread poll from the fixture,
  * set CURRENT, call paintTalk.
@@ -49,6 +53,9 @@ const ARMS = [
   { name: 'GRACE', rows: [dm(0.5)], owes: 'owes', line: false },
   { name: 'NOT DELIVERED', rows: [dm(5, chat.DELIVERY.COULD_NOT)], owes: 'clear', line: false },
   { name: 'MENU ANSWER', rows: [dm(10), { ...dm(0.5), text: 'Yes, and don\'t ask again', wire: '2' }], owes: 'owes', line: true },
+  { name: 'WORKING', rows: [dm(5)], owes: 'owes', line: false, drawn: true, busy: 'working' },
+  { name: 'AUTH FAILED', rows: [dm(5)], owes: 'owes', line: true, busy: 'auth_failed' },
+  { name: 'STOPPED', rows: [dm(5)], owes: 'owes', line: true, busy: 'working', then: 'idle' },
 ];
 
 (async () => {
@@ -80,15 +87,23 @@ const ARMS = [
         document.querySelectorAll('body > *').forEach((el) => { el.inert = false; });
       }, fx);
       await page.evaluate(() => paintTalk('april', 'April'));
+      // #6479: the busy slot is painted off the status card, as the poll does (paintBusy after paintTalk).
+      if (arm.busy) await page.evaluate((st) => paintBusy({ sessionName: 'april', name: 'April', state: st }, 'April'), arm.busy);
+      if (arm.then) await page.evaluate((st) => paintBusy({ sessionName: 'april', name: 'April', state: st }, 'April'), arm.then);
       await page.waitForTimeout(300);
       const seen = await page.evaluate((line) => {
         const box = document.getElementById('d-dmthread');
         const hits = box ? [...box.querySelectorAll('.dmnone')].filter((p) => p.textContent.trim() === line) : [];
-        return { box: !!box, rows: box ? box.querySelectorAll('.msg').length : 0, shown: hits.length, visible: hits.some((p) => p.checkVisibility()) };
+        const busy = document.getElementById('d-busy');
+        return { box: !!box, rows: box ? box.querySelectorAll('.msg').length : 0, shown: hits.length, visible: hits.some((p) => p.checkVisibility()),
+          busyVisible: !!(busy && !busy.hidden && busy.checkVisibility()) };
       }, LINE);
       chk(seen.box && seen.rows === arm.rows.length, arm.name + ': the DM thread rendered its ' + arm.rows.length + ' row(s)', JSON.stringify(seen));
       if (arm.line) chk(seen.shown === 1 && seen.visible, arm.name + ': "' + LINE + '" shows under the thread', JSON.stringify(seen));
+      else if (arm.drawn) chk(seen.shown === 1 && !seen.visible, arm.name + ': "' + LINE + '" is drawn but hidden', JSON.stringify(seen));
       else chk(seen.shown === 0, arm.name + ': "' + LINE + '" does not show', JSON.stringify(seen));
+      if (arm.busy && !arm.then) chk(seen.busyVisible, arm.name + ': the busy slot shows its line', JSON.stringify(seen));
+      if (arm.then) chk(!seen.busyVisible, arm.name + ': the busy slot is empty once the agent stopped', JSON.stringify(seen));
       chk(errs.length === 0, arm.name + ': no page errors', errs.join(' | '));
       await page.close();
     }
