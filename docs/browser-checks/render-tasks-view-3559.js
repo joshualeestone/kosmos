@@ -786,11 +786,15 @@ function chk(ok, label, extra) {
           return [...document.querySelectorAll('#tsk-groups .tsk-grp:not([data-unknown])')].filter((g) => g.querySelector(':scope > h3')).map((g) => {
             const h = g.querySelector(':scope > h3'); const id = h.getAttribute('aria-describedby'); const d = id && document.getElementById(id);
             const r = d && d.getBoundingClientRect();
+            const mb = parseFloat(getComputedStyle(h).marginBottom);
+            const list = g.querySelector('.tsk-list'); const gap = list ? Math.round(list.getBoundingClientRect().top - h.getBoundingClientRect().bottom) : null;
             return { head: h.textContent, title: h.getAttribute('title') || '', desc: d ? d.textContent : null,
-              hidden: !!r && r.width <= 1 && r.height <= 1, paras: g.querySelectorAll(':scope > p.why').length };
+              hidden: !!r && r.width <= 1 && r.height <= 1, paras: g.querySelectorAll(':scope > p.why').length, mb, gap };
           });
         });
-        chk(quiet.length >= 2 && quiet.every((q) => q.paras === 0 && q.title.length > 10 && q.desc === q.title && q.hidden),
+        /* Mona Lisa's review: the heading carries an 8 to 10px bottom margin (the removed paragraph's 9px), and the list
+           sits at least that far below it. */
+        chk(quiet.length >= 2 && quiet.every((q) => q.paras === 0 && q.title.length > 10 && q.desc === q.title && q.hidden && q.mb >= 8 && q.mb <= 10 && q.gap >= 8),
           `${tag} #6482: each ordinary group shows only its heading and count; its explanation is hover text and a hidden description`, JSON.stringify(quiet));
         /* #4053 (Josh picked option C, then taller; approved v2 mock): every tile has a 36px round tinted badge with a
            19px line icon beside its number, the label below it 10px on, 16px 16px 15px padding and one shared height
