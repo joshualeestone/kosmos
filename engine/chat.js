@@ -294,8 +294,8 @@ function tellEarlierSubmitted(seq) {
    its day (UNSENT_KEEP_MS): while it is in the box nothing newer can be typed in, so sending it then keeps the order. A
    retry that finds a delivery typing there is spent (that delivery presses the line itself); the next one still runs.
    Round 12: a hold can outlast all three (a permission prompt answered ten minutes later, a usage limit), so a line still
-   stuck after the last is tried again every UNSENT_TAIL_MS, for at most a day from its first retry (the bound holds even
-   when a press that does not take starts the line's day again). One chain per line: a newer set ends the older. */
+   stuck after the last is tried again every UNSENT_TAIL_MS, for at most a day from when its retries were set (the bound
+   holds even when a press that does not take starts the line's day again). One chain per line: a newer set ends the older. */
 const UNSENT_RETRY_MS = [30 * 1000, 2 * 60 * 1000, 5 * 60 * 1000];
 const UNSENT_TAIL_MS = 10 * 60 * 1000;
 const UNSENT_DONE = new Set(['sent', 'empty', 'gone']);   // pressRememberedNow's answers after which nothing is left to try

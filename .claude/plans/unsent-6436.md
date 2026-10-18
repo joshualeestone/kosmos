@@ -80,10 +80,15 @@ from a delivery, which carries the card the pane check needs).
   its time and one retry; comments honest (id and number kept; submitConfirmSteps returns text). Test pins it.
 - [x] Round 12 (sonnet): a hold that outlasts all three retries (a permission prompt answered ten minutes later, a usage
   limit) no longer strands the line: a full record still stuck after the last retry is tried every 10 min
-  (UNSENT_TAIL_MS), one chain per line (retryChain; a newer set ends the older), for at most a day from its first
-  retry even when a press that does not take starts its day again. Light records have no tail. The unsent sentence
+  (UNSENT_TAIL_MS), one chain per line (retryChain; a newer set ends the older), for at most a day from when its
+  retries were set even when a press that does not take starts its day again. Light records have no tail. The unsent sentence
   says so. Tests: held through four tries then pressed; CONTROL a sent line gets no tail; the day bound. Mutants: the
   tail call, the day bound.
+- [x] Round 13 (opus): NO NEW FINDINGS at blocker or warning. Nits taken: the bound is a day from when the retries
+  were set (the comment said the first retry), and the day-bound test pins a floor too (a halved bound mutant caught).
+  Declined: a thrown press ending the chain (nothing on that path throws today; a retry that fails is said nowhere
+  either, as before).
+- [x] Converged at round 13.
 - [ ] Challenge loop convergence, validation, proof, PR, merge
 
 ## Stated limit (round 1)

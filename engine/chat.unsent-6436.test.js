@@ -478,6 +478,7 @@ test('kosmos#6436 (round 12) CONTROL: a line the last retry sent gets no tail; a
     }
     assert.ok(stuck.enters() > 1, 'PRECONDITION: the tail did press it');
     assert.ok(tails < 500, 'the chain ended');
-    assert.ok(tails * chat.UNSENT_TAIL_MS <= 24 * 60 * 60 * 1000, 'within a day of the first retry, ' + tails + ' tails');
+    assert.ok(tails * chat.UNSENT_TAIL_MS <= 24 * 60 * 60 * 1000, 'within a day of when the retries were set, ' + tails + ' tails');
+    assert.ok(tails >= Math.floor(24 * 60 * 60 * 1000 / chat.UNSENT_TAIL_MS) - 2, 'and close to a full day, not cut short: ' + tails + ' tails');
   } finally { Date.now = realNow; }
 }));
