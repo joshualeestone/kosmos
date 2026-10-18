@@ -42033,7 +42033,10 @@ function fitDetailName() {
 const AGENT_FILES_SHOWN = 10;   // as many as the project page's Files list shows
 let AGENT_FILES_EPOCH = 0;
 let AGENT_FILES_STAMP = null;
-function agentFileRow(f) {
+/* #6497 (Mona's 0.7.56 noise pass): `compact` is the agent page's narrow Files panel. A full date on every row cut the
+   names to a few letters there, so it shows the size only, as the project page's Files panel does; the date is the
+   row's hover text. The Files screen (View All) keeps the date on the row. */
+function agentFileRow(f, compact = false) {
   // A BUTTON: it opens a file, so it must be reachable from the keyboard.
   const b = document.createElement('button');
   b.type = 'button';
@@ -42046,7 +42049,9 @@ function agentFileRow(f) {
   const w = document.createElement('span');
   w.className = 'pj-doc-w';
   const when = f.modified ? new Date(f.modified) : null;
-  w.textContent = (when && !isNaN(when) ? when.toLocaleDateString() + ' · ' : '') + pjSize(f.size);
+  const day = when && !isNaN(when) ? when.toLocaleDateString() : '';
+  w.textContent = (day && !compact ? day + ' · ' : '') + pjSize(f.size);
+  if (day && compact) b.title = f.name + ', changed ' + day;
   b.append(n, w);
   return b;
 }
@@ -42169,7 +42174,7 @@ async function paintAgentFiles(sessionName) {
     return;
   }
   msg.textContent = '';
-  for (const f of files) list.append(agentFileRow(f));
+  for (const f of files) list.append(agentFileRow(f, true));   // #6497: the narrow panel, size only
   // #3994 (Josh, 11:18 and again 16:14 on 0.6.99): View All whenever there is a file, even one,
   // because it is the way to the Files screen and its Open in Finder button.
   if (all) all.hidden = false;
