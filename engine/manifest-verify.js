@@ -4,7 +4,11 @@
  * Run by install/setup.sh with the INSTALLED copy's own node and this INSTALLED file, never the new build's, so the
  * build already on the computer is what decides whether to trust the new one:
  *
- *   <installed node> <installed app>/engine/manifest-verify.js <manifest> <sig> <tarball> <stage> <version> <installed-version>
+ *   <installed node> <installed app>/engine/manifest-verify.js <manifest> <sig> <tarball> <stage|-> <version> <installed-home>
+ *
+ * Called twice: with stage "-" BEFORE the tarball is unpacked (signature, version and tarball sha, so a hostile archive
+ * never reaches tar), then with the unpacked stage (every file). The installed version is read from
+ * <installed-home>/app/package.json; an install whose version cannot be read is refused, not waved through.
  *
  * The manifest (tools/build-kosmos-bundle.sh, #776) names the tarball's sha256 and every file's sha256. The release
  * signs its exact bytes with an ed25519 key kept on the release Mac (tools/release.sh); the public keys it may be
@@ -82,8 +86,10 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   const want = parseVersion(version);
   if (!want || m.version !== version) return { code: 1, why: `the signed manifest is for ${m.version}, not ${version}` };
   const have = parseVersion(installedVersion);
-  if (have && older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
+  if (!have) return { code: 1, why: 'the installed version could not be read, so the update could not be checked' };
+  if (older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
+  if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
   if (!Array.isArray(m.files)) return { code: 1, why: 'the signed manifest lists no files' };
   const listed = new Map(m.files.map((f) => [f.path, f.sha256]));
   let found;
@@ -99,9 +105,11 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
 module.exports = { verify, KEYS, listFiles };
 
 if (require.main === module) {
-  const [manifest, sig, tarball, stage, version, installedVersion] = process.argv.slice(2);
+  const [manifest, sig, tarball, stage, version, home] = process.argv.slice(2);
   let r;
   try {
+    let installedVersion = '';
+    try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
     r = verify({ manifest, sig, tarball, stage, version, installedVersion });
   } catch (e) {
     r = { code: 1, why: 'the update could not be checked (' + (e && e.code || 'error') + ')' };

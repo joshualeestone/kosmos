@@ -204,6 +204,20 @@ if [ "$FAMILY" = mac ]; then
   MANIFEST="$(read_field manifest)"
   reject_pathy manifest "$MANIFEST"
   [ -n "$MANIFEST" ] && [ -f "$SITE/dist/$MANIFEST" ] || { echo "promote-channel: the staging pointer advertises manifest '${MANIFEST:-<none>}', which is not in $SITE/dist - refusing to promote a pointer to a missing manifest" >&2; exit 1; }
+  # #6468 ask 2: a prod install running a release that ships engine/manifest-verify.js refuses any update whose
+  # manifest is not signed by a pinned key, so promoting such a version past those installs would strand them.
+  # A .sig that is there must verify; a missing one refuses once the release prod serves NOW checks signatures
+  # (a version cut before signing can still be promoted over a prod that does not check them).
+  _sign_js="$(cd "$(dirname "$0")" && pwd)/lib/manifest-sign.js"
+  if [ -f "$SITE/dist/$MANIFEST.sig" ]; then
+    node "$_sign_js" verify "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" >/dev/null \
+      || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
+  else
+    _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
+    if [ -n "$_prod_manifest" ] && [ -f "$SITE/dist/$_prod_manifest" ] && node "$_sign_js" needs-sig "$SITE/dist/$_prod_manifest"; then
+      echo "promote-channel: $MANIFEST has no .sig, and the release prod serves now ($_prod_manifest) checks signatures - refusing; its installs would refuse this update (#6468)" >&2; exit 1
+    fi
+  fi
 
   # THE EXPERIENCE GATE (#2063). 0 = a fresh session can use the board -> promote; 1 = the
   # board is provably broken for a fresh session (#2023) -> refuse, never forceable; 2 =
