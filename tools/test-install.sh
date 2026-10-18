@@ -1158,15 +1158,25 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
       chmod u+w "$SB/home/app" "$SB/home/app/engine" "$_iv" 2>/dev/null || true
       if node -e '
         const c = require("crypto"), fs = require("fs");
-        const [iv, m, sig] = process.argv.slice(1);
+        const [iv, m, sig, tm, st] = process.argv.slice(1);
         const { privateKey, publicKey } = c.generateKeyPairSync("ed25519");
         const pub = publicKey.export({ type: "spki", format: "der" }).toString("base64");
         const src = fs.readFileSync(iv, "utf8");
         const out = src.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = [" + JSON.stringify(pub) + "];");
         if (out === src) process.exit(4);
         fs.writeFileSync(iv, out);
+        // #6473: the update now holds tmux to the manifest too; a local build made before its tmux pair existed
+        // records none, so name the pair this sandbox serves (the bytes the update will fetch).
+        const mj = JSON.parse(fs.readFileSync(m, "utf8"));
+        // #6468 ask 3 likewise for the installer, only when the build recorded none (a value that differs is a real
+        // bundle/installer mismatch, and the refusal is the right answer).
+        const h = (f) => c.createHash("sha256").update(fs.readFileSync(f)).digest("hex");
+        let changed = false;
+        if (!mj.tmux_sha256 && tm) { mj.tmux_sha256 = h(tm); changed = true; }
+        if (!mj.setup_sha256 && st) { mj.setup_sha256 = h(st); changed = true; }
+        if (changed) fs.writeFileSync(m, JSON.stringify(mj, null, 1) + "\n");
         fs.writeFileSync(sig, c.sign(null, fs.readFileSync(m), privateKey).toString("base64") + "\n");
-      ' "$_iv" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig"; then _mansig=yes; fi
+      ' "$_iv" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig" "$SB/dist/tmux-arm64.tar.gz" "$SETUP"; then _mansig=yes; fi
     fi
     if [ "$_mansig" = yes ]; then
       echo "== a connect computer updates with no board (#4382) =="
