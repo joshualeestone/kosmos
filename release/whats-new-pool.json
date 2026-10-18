@@ -716,7 +716,7 @@
     },
     {
       "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window here after you open another computer.",
+      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
       "icon": "phone",
       "platforms": [
         "mac"
@@ -727,7 +727,7 @@
     },
     {
       "title": "Joining says why it waits",
-      "line": "A computer joining your Kosmos+ account now says, after a minute, that your other computer adds one computer at a time.",
+      "line": "A computer joining your Kosmos+ account now says, after a minute with no code, that your other computer adds one at a time.",
       "icon": "shield",
       "rank": 2.8,
       "since": "0.7.57",

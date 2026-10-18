@@ -27,7 +27,7 @@
     {
       "icon": "phone",
       "title": "A way back to this computer",
-      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window here after you open another computer.",
+      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window to this computer after you open another.",
       "platforms": [
         "mac"
       ]
