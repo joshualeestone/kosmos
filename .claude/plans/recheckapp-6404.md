@@ -57,3 +57,6 @@ check, everything reads as before.
 - 4 sonnet: no new actionable findings (the cancel gap is stated and carded as #6429; a read-order race traced by the
   reviewer as unreachable on a successful round). Converged.
 - Tunnel review 24 asked for the typed-code requirement to be tested here: a wrong code on a check's Confirm sends nothing (arm added).
+- kosmos#6429 (decided, option 2): the joining computer's step 3 says what happens if the check is cancelled on the
+  other computer (it ends by itself within ten minutes; check again), instead of a new signed "cancelled" message.
+  Rejected for now: a new mailbox kind. Weakest premise: that cancelling a check is rare. Would change: it is common.
