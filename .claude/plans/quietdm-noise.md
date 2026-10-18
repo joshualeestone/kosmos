@@ -28,5 +28,6 @@ consolidated view and the board bar), so a browser without it is already broken 
 showing both lines, as today.
 
 ## Tests
-render-dm-owes-4340.js: WORKING (drawn but hidden; busy line visible) and AUTH FAILED (visible) arms, each shown red
-under a mutation (rule removed; data-state forced to working). web.dm-unsent-4612.test.js expects the new class.
+render-dm-owes-4340.js: WORKING (drawn but hidden; busy line visible), AUTH FAILED (visible) and STOPPED (working then
+idle on the same page: visible again) arms, each shown red under a mutation (rule removed; data-state forced to working;
+the slot never hidden). docs/browser-checks/README.md describes the three arms. web.dm-unsent-4612.test.js expects the new class.

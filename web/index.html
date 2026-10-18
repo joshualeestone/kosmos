@@ -39525,7 +39525,7 @@ function paintBusy(fresh, name) {
   const show = (working && !staleWorking) || !!(fresh && fresh.state === 'auth_failed');
   el.hidden = !show;
   if (!show) { el.innerHTML = ''; el.dataset.busyKey = ''; delete el.dataset.state; return; }
-  el.dataset.state = working ? 'working' : 'auth_failed';   // #6479: which line the slot holds (the #6479 rule beside .dmnone reads it)
+  el.dataset.state = working ? 'working' : 'auth_failed';   // #6479: which line the slot holds; the #d-sec-talk:has(#d-busy[data-state="working"]) rule beside .dmnone reads it
   /* ⚠️ THE SAME AVATAR THE CARD DRAWS, off the same route, with the same
      initials fallback — Josh asked for the face and a second way of drawing one
      would drift from the board's. `aria-hidden` because the sentence beside it
