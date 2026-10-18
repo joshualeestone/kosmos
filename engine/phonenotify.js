@@ -97,6 +97,14 @@ const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choi
 function choiceSaysOff() {
   try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
 }
+/** phone-notify.json, read cleanly, records an off: the marker, or a token or notifyId with the switch not on. */
+function stateSaysOff() {
+  try {
+    const p = JSON.parse(fs.readFileSync(file(), 'utf8'));
+    if (!p || typeof p !== 'object' || Array.isArray(p) || p.on === true) return false;
+    return p.off === 'person' || (typeof p.token === 'string' && p.token !== '') || (typeof p.notifyId === 'string' && p.notifyId !== '');
+  } catch { return false; }
+}
 function writeChoice(off) {
   try {
     fs.mkdirSync(path.dirname(choiceFile()), { recursive: true, mode: 0o700 });
@@ -197,12 +205,13 @@ function writeState(next) {
 /** What the Settings screen shows. Never the token. While the ship gate is
     closed it is off and unavailable, whatever the file says. */
 function status() {
-  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds, offByChoice: false, defaultBecause: null };
+  if (!available) return { available: false, on: false, connected: plusLive(), kinds: readState().kinds, offByChoice: false, defaultBecause: null };
   const s = readState();
   // #6488: offByChoice says the person turned it off (so Settings does not promise it turns on by itself).
   const offByChoice = !s.on && masterChoice() === 'off';
   // defaultBecause: why it has not turned on by itself yet (Settings says it instead of promising), or null.
-  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds, offByChoice,
+  // #6488: connected means Kosmos+ is live here (signed in AND switched on), the only state anything is sent in.
+  return { available: true, on: s.on, connected: plusLive(), kinds: s.kinds, offByChoice,
     defaultBecause: !s.on && !offByChoice ? defaultBecause : null };
 }
 
@@ -284,22 +293,28 @@ async function setKind(name, on) {
     Kosmos+ (minting needs the connection). Does nothing while the ship gate is closed, while not connected, or when
     the person chose either way. Through turnOn, so it mints exactly as the Settings button does and shares its
     one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
+/** #6488: connected to Kosmos+ AND its switch on. Signing in leaves files on disk after the person switches Kosmos+
+    off; that is not a computer anything about agents may be sent from. A read that fails reads as off. */
+function plusLive() {
+  try { return remote.enrolled() === true && remote.read().on === true; } catch { return false; }
+}
+
 let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
 async function ensureDefaultOn() {
   try {
     if (!available) return null;
     const choice = masterChoice();
-    // An off that lives only in phone-notify.json (one from before #6488, a token held with the switch off, or a file
-    // we cannot read) goes with that file when this computer is removed. Copy it to choiceFile while it is still
-    // here: no network, no connection needed, and tried again on every run if a write failed.
-    if (choice === 'off' && !choiceSaysOff()) writeChoice(true);
+    // An off that lives only in phone-notify.json (one from before #6488: a token or notifyId held with the switch
+    // off) goes with that file when this computer is removed. Copy it to choiceFile while it is still here: no
+    // network, no connection needed, and tried again on every run if a write failed. Only positive evidence is
+    // copied: a file we cannot read still keeps the default from turning it on (masterChoice), but one bad read
+    // (a crash-damaged file, a passing read error) must not become a permanent off for someone who never chose.
+    if (choice === 'off' && !choiceSaysOff() && stateSaysOff()) writeChoice(true);
     if (!remote.enrolled()) { defaultBecause = null; return null; }
     if (choice !== 'unset') { defaultBecause = null; return null; }
     // Signed in but Kosmos+ switched off on this computer: the person took it off Kosmos+, so nothing is minted
-    // and nothing about agents goes there until they switch it back on.
-    let plusOn = false;
-    try { plusOn = remote.read().on === true; } catch { plusOn = false; }
-    if (!plusOn) { defaultBecause = 'Kosmos+ is switched off on this computer.'; return null; }
+    // and nothing about agents goes there until they switch it back on (Settings reads it as not connected).
+    if (!plusLive()) { defaultBecause = null; return null; }
     const r = await turnOn({ quiet: true });
     defaultBecause = r && r.ok === false ? String(r.because || '') || null : null;
     return r;
@@ -307,7 +322,7 @@ async function ensureDefaultOn() {
 }
 
 const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
-const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;   // after a mint we could not use (each retry replaces the token)
+const DEFAULT_ON_MAX_MS = 60 * 60 * 1000;   // after a mint we could not use (each retry replaces the token)
 const DEFAULT_ON_FAIL_MAX_MS = 30 * 60 * 1000;   // any other failure: nothing was replaced, so retry within the half hour
 let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can poke it
 
@@ -334,7 +349,7 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
   };
   function handle(r) {
     let connected = null;
-    try { connected = remote.enrolled() === true; } catch { /* unknown: no reset */ }
+    connected = plusLive();   // signed in and switched on; switching Kosmos+ back on counts as connecting
     const changed = connected !== null && wasConnected !== null && connected !== wasConnected;
     if (changed) wait = DEFAULT_ON_EVERY_MS;   // a first failure right after connecting retries soon
     if (connected !== null) wasConnected = connected;
@@ -475,7 +490,7 @@ function happened(event) {
     const s = readState();
     if (!s.on || !s.token || !s.notifyId) return;
     if (!s.kinds[route.sw]) return;   // #6254: this kind's sub-switch is off
-    if (!remote.enrolled()) return;
+    if (!plusLive()) return;   // #6488: signed in is not enough; Kosmos+ switched off here sends nothing
     if (route.cls) {
       const ckey = route.cls + ':' + route.key;
       const now = clock();

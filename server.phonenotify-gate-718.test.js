@@ -51,6 +51,10 @@ test.before(async () => {
   phonenotify.setSender((url, headers, body) => sent.push(JSON.parse(body)));
   fs.mkdirSync(STATE, { recursive: true });
   for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(path.join(STATE, f), 'x');
+  // #6488: and Kosmos+ switched on here (remote.json), which sending needs as well as the sign-in.
+  const remoteFile = require('./engine/remote').FILE;
+  fs.mkdirSync(path.dirname(remoteFile), { recursive: true });
+  fs.writeFileSync(remoteFile, JSON.stringify({ on: true }));
   // A switch already on with a token, as if written before the gate closed.
   fs.writeFileSync(path.join(STATE, 'phone-notify.json'), JSON.stringify({ on: true, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
 });
