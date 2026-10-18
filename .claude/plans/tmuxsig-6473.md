@@ -37,3 +37,6 @@ A real cut and test-install.sh end to end (need a built, signed bundle).
   for verifySetup on the base branch), no-key line now mentions the terminal manager (FIXED), tests for no-key through
   every phase and no-verifier fetching nothing (ADDED); text-position tests (ACCEPTED), local Kosmos + network tmux
   runs the full version check (ACCEPTED: it is a real check on what is downloaded)
+### Iteration 2 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] the capability grep matched early2 (FIXED: whole word, -E, measured on the real line and three controls)
+- [NIT] an unreadable served tmux pair refuses even with the opt-in; local KOSMOS_SRC + network tmux runs the full check; text-only release tests (ACCEPTED)
