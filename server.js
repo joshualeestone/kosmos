@@ -24529,8 +24529,9 @@ function start(port = PORT) {
       // (requiring server.js in a test does not reach this block).
       try { stuckterminal.clearAll(); } catch { /* never block boot */ }
       // #6488: phone notifications on by default for a computer connected to Kosmos+ whose person never touched the
-      // switch (engine/phonenotify.js masterChoice). Real startup only, like the sweeps below.
-      try { phonenotify.startDefaultOn(); } catch { /* never block boot */ }
+      // switch (engine/phonenotify.js masterChoice). Not under the test runner: a test file that calls start() would
+      // otherwise run the real schedule against its fixtures.
+      try { if (!process.env.NODE_TEST_CONTEXT) phonenotify.startDefaultOn(); } catch { /* never block boot */ }
       const crashLoopTick = setInterval(() => {
         try {
           /* Review 1: read the run files themselves, not the live roster. Between crashes a looping agent has no

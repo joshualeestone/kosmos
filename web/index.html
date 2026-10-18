@@ -85294,9 +85294,10 @@ setInterval(ageCheckedStamp, 1000);
     if (typeof t !== 'function') return;
     if (relook && typeof c === 'function') c(relook);
     relook = null;
-    // A failed read (st null, the board restarting) keeps looking too, so the section comes back by itself. Not while
-    // Kosmos+ is off here: nothing can turn it on then, and coming back to the page looks again (wire).
-    if (!st || (st.available && st.connected && !st.on && !st.offByChoice)) relook = t(function () { relook = null; if (busy) relookLater(current); else load(); }, 30000);
+    // A failed read (st null, the board restarting) keeps looking too, so the section comes back by itself. While
+    // Kosmos+ is not on here, look less often (2 minutes): connecting in this page turns it on with no press here.
+    var every = !st || st.connected ? 30000 : 120000;
+    if (!st || (st.available && !st.on && !st.offByChoice)) relook = t(function () { relook = null; if (busy) relookLater(current); else load(); }, every);
   }
 
   function load() {
