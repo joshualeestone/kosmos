@@ -21,3 +21,7 @@ The test passes whatever install the person running it has; a guard proves it.
 ## Against my own work
 #6474's review asked for HOME sandboxing "for every arm"; I sandboxed run_arm and did not check the arms that bypass it.
 The test was green on the Mac that had no checker installed, which is the only Mac it ran on before merge.
+
+## Review log
+### Iteration 1 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] none material. Checked: nothing after the export reads the real HOME (curl/shasum by absolute path, http.server, Homebrew node); no remaining escape (run_arm, ARM 4, CONTROL #4319 all inherit the sandbox); the guard asserts the decoy would hand off; run-tests.sh globs root *.test.js; test:shell still runs the shell test.
