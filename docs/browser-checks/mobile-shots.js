@@ -634,6 +634,20 @@ const SCREENS = [
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForFunction(() => { const b = document.querySelector('#pj-head-pause'); return b && !b.hidden && /Pause/.test(b.textContent); }, null, { timeout: 8000 });
   } },
+  /* #6501: the project page with task 1 marked built, so its card reads "Task 1 (built)" and "Built, waiting for you to check
+     it". Marked from the page (as the person) and cleared after, so no later screen shoots it built. */
+  { name: 'project-built', owner: 'PigeonPete', go: async (page, data) => {
+    const st = await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), data.projectId);
+    if (st !== 200) throw new Error('project-built: could not mark task 1 built (status ' + st + ')');
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.waitForSelector('#pj-tasklist .tkcard-built', { state: 'visible', timeout: 15000 });
+    // On a phone the Tasks column is below the room: bring the built card into the shot.
+    await page.evaluate(() => document.querySelector('#pj-tasklist .tkcard-built').closest('.tkcard').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
+  }, after: async (page, data) => {
+    await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
+  } },
   { name: 'project-paused', owner: 'Mona Lisa', go: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }) }), data.projectId);
     await openTab(page, 'projects');

@@ -382,6 +382,8 @@
 .pjs-hook-reveal code { font-family: var(--font-mono); font-size: .8125rem; }
 .pjs-hook-confirm { margin-top: 8px; font-size: .875rem; }
 .tkcard-from { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
+/* #6501: an open task marked built says so on its own line, not under one agent's name (whoever marked it). */
+.tkcard-built { display: block; font-size: .75rem; color: var(--k-ink-2); margin-top: 2px; }
 /* .tsk-from sits in a Tasks row's meta line and takes that line's span style on purpose. */
 /* .tsk-paused (#5864) sits in the same meta line and takes the same span style on purpose. */
 
@@ -11081,6 +11083,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--nl-green); flex: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard-who:not(:has(b))::before { background: none; box-shadow: inset 0 0 0 1.5px var(--nl-ink-3); }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tksay,
+:root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkcard-built,
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tkunk { grid-column: 2 / -1; grid-row: 2; font-size: .75rem; font-style: normal; color: var(--nl-ink-3); text-decoration: none; }
 :root[data-look="new"] body:not(.consolidated) #pj-one-view .pjsplit .tkcard .tsk-chip { grid-column: 4; grid-row: 1; border: 0; background: none; padding: 0; font: 400 .8125rem var(--font-ui); color: var(--nl-ink-3); }
 /* #4470: the left box's section headings as drawn: sentence case in the drawing's grey, no
@@ -64894,11 +64897,17 @@ function paintProjectTasks(p) {
        slacking". #761 item 8's null-case fix (taskClaimHtml, above) keeps
        this same discipline: the real `because` the engine computed, never
        an invented "issue" word standing in for it. */
-    const sayHtml = taskClaimHtml(t.claim);
+    /* #6501 (agent feedback): an open task marked built read here as unfinished work, its agent's claim beside it. It says
+       it is built and waiting on the person (Josh's "Built but waiting" tile), in its label and on a line of its own, not
+       under one agent's name (the person or another agent may have marked it); its claim is not shown, in any of its
+       three forms (on it, not on it, or why we could not check): a built task waits on the person, not the agent. A held task reads
+       held, as the engine's taskState has it (hold wins over built). Closing stays on the task's page. */
+    const builtOpen = typeof t.builtAt === 'string' && t.builtAt !== '' && !t.closedAt && t.onHold !== true;
+    const sayHtml = builtOpen ? '' : taskClaimHtml(t.claim);
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      // A task on hold, or in a paused project, does not say On a schedule (built or not: this card does not show built).
+      // A task on hold, or in a paused project, does not say On a schedule. (A repeating task is never built: engine/tasks.js drops the mark.)
       who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
@@ -64931,13 +64940,13 @@ function paintProjectTasks(p) {
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
       + partOf
-      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
+      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : builtOpen ? ' (built)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
       + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
-      + who + chip + '</button>';
+      + who + (builtOpen ? '<span class="tkcard-built">Built, waiting for you to check it</span>' : '') + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write

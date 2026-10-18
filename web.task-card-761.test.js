@@ -403,3 +403,37 @@ test('#2762: a STRANGER holding the name lends neither the picture nor its versi
   assert.doesNotMatch(html, /april\/avatar/,
     "an avatar URL was drawn for a name held by a stranger");
 });
+
+/* #6501 (agent feedback): an open task marked built read on this card as unfinished work, with its agent's claim. It now
+   says it is built and waiting on the person, in its label and in place of the claim. */
+test('#6501: a built open task says "(built)" and, on a line of its own, "Built, waiting for you to check it"', () => {
+  const base = {
+    number: 4, sentence: 'Book the photographer', who: 'april', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'Book the photographer', closedAt: null }],
+    progress: { done: 0, total: 1, closed: false, assigned: 1 },
+    claim: { claimed: true, about: 'april' },
+  };
+  const BUILT = { builtAt: '2026-10-18T12:00:00Z', builtBy: 'mikey' };
+  const html = (task) => runPaintProjectTasks({ ...PROJECT, tasks: [task] }).els['pj-tasklist'].innerHTML;
+  const built = html({ ...base, ...BUILT });
+  assert.match(built, /<span class="tkcard-n">Task 4 \(built\)<\/span>/, built);
+  assert.match(built, /<span class="tkcard-built">Built, waiting for you to check it<\/span>/, built);
+  // Review 1: not under the agent's name (Mikey marked it, April is on it), and the claim is not shown.
+  assert.match(built, /<span class="tkcard-who-b"><b>April<\/b><\/span>/, 'the built line or a claim sits under the agent\'s name: ' + built);
+  assert.doesNotMatch(built, /says it is on this/, 'a built task still reads as work in progress');
+  // Review 1: nobody on it (a person can mark it built) still says built.
+  const nobody = html({ ...base, ...BUILT, who: null, parts: [{ id: 1, who: null, sentence: 'Book the photographer', closedAt: null }],
+    progress: { done: 0, total: 1, closed: false, assigned: 0 }, claim: null });
+  assert.match(nobody, /Task 4 \(built\)/, nobody);
+  assert.match(nobody, /tkcard-built">Built, waiting for you to check it/, nobody);
+  // Review 1: a held task reads held (the engine's taskState: hold wins over built), so it never says built.
+  const held = html({ ...base, ...BUILT, onHold: true });
+  assert.match(held, /Task 4/, 'PRE-CONTROL: the held task is drawn: ' + held);
+  assert.doesNotMatch(held, /\(built\)|waiting for you to check/, 'a held task says built: ' + held);
+  // CONTROL: the same task not built keeps its plain label and the claim. (A closed task is not drawn in this column, so
+  // the closedAt check guards only a future change to that.)
+  const open = html(base);
+  assert.match(open, /<span class="tkcard-n">Task 4<\/span>/);
+  assert.match(open, /says it is on this/);
+  assert.doesNotMatch(open, /tkcard-built/);
+});

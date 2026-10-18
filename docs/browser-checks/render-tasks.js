@@ -478,6 +478,22 @@ const MEMBER = 'taskmate';
     if (!/Sort task 6\b/.test(capTitles[0] || '')) die('#3172: the newest task (6) is not on top: ' + JSON.stringify(capTitles));
     if (capTitles.some((t) => /Sort task 1\b/.test(t))) die('#3172: the OLDEST task (1) is shown, so the sort ran AFTER the slice: ' + JSON.stringify(capTitles));
 
+    /* #6501: a task marked built says so on its card ("Task 6 (built)") rather than reading as unfinished work, and a
+       task beside it that is not built keeps its plain label (the CONTROL). Marked from this page, as the person. */
+    const marked = await p.evaluate(async (id) => {
+      const r = await fetch('/api/project/' + id + '/task/6/built', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+      return r.status;
+    }, capId);
+    if (marked !== 200) die('#6501: could not mark task 6 built from the page (status ' + marked + ')');
+    await p.waitForFunction(() => [...document.querySelectorAll('#pj-tasklist .tkcard-n')].some((e) => /\(built\)/.test(e.textContent)), null, { timeout: 15000 })
+      .catch(() => {});
+    const builtCards = await p.evaluate(() => [...document.querySelectorAll('#pj-tasklist .tkcard')].map((c) => ({
+      n: (c.querySelector('.tkcard-n') || {}).textContent || '', t: (c.querySelector('.tkcard-t') || {}).textContent || '', all: c.innerText })));
+    const six = builtCards.find((c) => /Sort task 6\b/.test(c.t));
+    const five = builtCards.find((c) => /Sort task 5\b/.test(c.t));
+    if (!six || six.n !== 'Task 6 (built)') die('#6501: the built task\'s label does not say built: ' + JSON.stringify(six));
+    if (!five || five.n !== 'Task 5' || /built/i.test(five.all)) die('#6501 CONTROL: a task not built reads as built: ' + JSON.stringify(five));
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
     console.log('TASKS DRIVE OK: empty-box invitation centred (#2926), creation and view both pages (no trap, Escape inert, draft survives Back), column/door split, chip-is-status, THE JOIN (report -> says-line -> joined note, nothing before the report), done and reopen round trip, #3172 newest-first cap (6 tasks -> newest five, oldest hidden), fixture tmux only, 0 page errors; shots in ' + OUT);
   } finally {
