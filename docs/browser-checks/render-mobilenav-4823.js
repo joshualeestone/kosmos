@@ -143,6 +143,7 @@ const teardownFails = [];
     };
     const open = async (host, theme, opts) => {
       const ctx = await browser.newContext(Object.assign({ viewport: { width: 430, height: 932 }, colorScheme: theme, hasTouch: true, serviceWorkers: 'block' }, opts || {}));
+      await ctx.addInitScript(() => { try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {} });   // #6403: the switcher's one-time tip is not this check's subject
       if (engine === 'webkit' && host === 'remote.test') {
         // remote.test answered by the same board on loopback; the Host header stays remote.test, which the board accepts.
         // Self-contained (kosmos#5921): this route outlives the page at teardown, so a fetch or fulfil it cannot finish

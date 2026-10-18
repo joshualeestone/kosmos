@@ -2188,6 +2188,15 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 }
 .worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
 .worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }
+/* kosmos#6403 (Josh 11:30): the first time the switcher appears, one line under it says how to switch; shown once. */
+.worldsw-tip { position: absolute; top: calc(100% + 6px); left: 0; z-index: 39; display: flex; align-items: center; gap: 6px;
+  width: max-content; max-width: min(320px, calc(100vw - 88px)); padding: 6px 6px 6px 10px; font-size: 13px; color: var(--k-ink); background: var(--bg-elevated);
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card);
+  cursor: pointer; }   /* a click anywhere on it puts it away, never on a control hidden under it */
+.worldsw-tip[hidden] { display: none; }
+.worldsw-tip-x { flex: none; border: 0; background: none; color: var(--k-ink-2); cursor: pointer; font-size: 16px; line-height: 1;
+  min-width: 24px; min-height: 24px; border-radius: 6px; }
+.worldsw-tip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
 .worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
   min-width: 224px; max-width: 320px; padding: 6px; background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
@@ -12378,6 +12387,7 @@ window.kosmosMeasureScrollbarWidth();
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
+      <div class="worldsw-tip" id="worldsw-tip" hidden><span id="worldsw-tip-text">Switch between your computers here.</span><button class="worldsw-tip-x" id="worldsw-tip-x" type="button" aria-label="Dismiss tip">&times;</button></div>
       <!-- #2238: the rows are now ACTIONABLE. Each non-active row is a native <button>
            that switches the active Kosmos (POST /api/worlds/active); the active row is a
            non-interactive div marked aria-current. Native buttons are keyboard-operable
@@ -30146,16 +30156,77 @@ let COMPUTERS_OPENABLE = false;
 let COMPUTERS_RETRY_T = null;
 let COMPUTERS_STALE_WHILE_HIDDEN = false;
 let COMPUTERS_FAILS = 0;
+let COMPUTERS_READ_AT = 0;   // #6403: when the last read started (computersFetch), so a look within a minute does not read
+let COMPUTERS_TIP_SHOWN = false;   // #6403: once per page even where localStorage is refused (a private window)
+let COMPUTERS_EXPECT_UNTIL = 0;   // #6403: a forced read may come before Kosmos+ lists the new computer: follow-ups for 90 s
+let COMPUTERS_STALE_FORCED = false;   // #6403: a forced read was owed while the tab was hidden; the read on return is one
+let COMPUTERS_SIGNED_OUT = false;   // #6403: the last answer said this computer is not signed in to Kosmos+
+/* #6403: the switcher's one-line tip, the first time this browser sees it appear. Shown once (remembered when a person
+   could see it, worldswTipMarkSeen); it goes on its close button, a click on it, or when the menu is opened. */
+function worldswTipOnce() {
+  let seen = COMPUTERS_TIP_SHOWN;
+  try { seen = seen || localStorage.getItem('kosmos.switcherTipSeen') === '1'; } catch {}
+  const tip = document.getElementById('worldsw-tip');
+  if (!seen && tip) {
+    tip.hidden = false;
+    // Seen once a person can see it (worldswTipMarkSeen); the switcher is shown just after this.
+    setTimeout(worldswTipMarkSeen, 0);
+    // The switcher's own description while the tip is up, so a screen reader hears it on the button (a region that
+    // starts hidden is not announced reliably).
+    const btn = document.getElementById('worldsw-btn'); if (btn) btn.setAttribute('aria-describedby', 'worldsw-tip-text');
+  }
+}
+/* #6403: the tip counts as seen when a person can see it: the tab is showing and the tip is laid out (a phone over
+   Kosmos+ hides the switcher). Checked after it shows, when the tab is shown and when the window is resized; putting it
+   away counts too. Until then a reload shows it again. */
+/* #6403: the resize listener's own name (worldswTipMarkSeen's first argument is a force flag, not an event). */
+function worldswTipOnResize() { worldswTipMarkSeen(); }
+function worldswTipMarkSeen(force) {
+  const tip = document.getElementById('worldsw-tip');
+  if (!force && (!tip || tip.hidden || document.hidden || tip.getClientRects().length === 0)) return;
+  COMPUTERS_TIP_SHOWN = true;
+  try { localStorage.setItem('kosmos.switcherTipSeen', '1'); } catch {}
+}
+/* #6403: the Kosmos+ panel sees this computer on and enrolled, so a "not signed in" answer from before is stale. */
+function computersSignedInNow(r) {
+  if (r && r.on === true && r.enrolled === true) COMPUTERS_SIGNED_OUT = false;
+}
+/* #6403: the switcher went away (back to one computer): the tip goes too (seen only if it was laid out before). */
+function worldswTipDrop() {
+  const tip = document.getElementById('worldsw-tip'); if (tip) tip.hidden = true;
+  const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
+}
+function worldswTipHide() {
+  const tip = document.getElementById('worldsw-tip');
+  if (tip && !tip.hidden) worldswTipMarkSeen(true);   // put away (close button, a click on it, the menu): seen
+  if (tip) tip.hidden = true;
+  const btn = document.getElementById('worldsw-btn'); if (btn) btn.removeAttribute('aria-describedby');
+}
+/* #6403: read the computers again now, while there is nowhere to go yet: after this computer allows another, when this
+   one is let in, or when the page is looked at again a minute or more after the last read started. */
+function computersReadSoon(force) {
+  if (MULTI_KOSMOS || COMPUTERS_OPENABLE) return;
+  // A forced read in a tab nobody can see waits for it to be looked at (the visibilitychange listener reads then).
+  if (document.hidden) { if (force) { COMPUTERS_STALE_WHILE_HIDDEN = true; COMPUTERS_STALE_FORCED = true; } return; }
+  if (force) COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000;
+  // A look back: at most once a minute after any read, and never while Kosmos+ is failing (the backoff is in charge).
+  else if (COMPUTERS_SIGNED_OUT || COMPUTERS_FAILS > 0 || Date.now() - COMPUTERS_READ_AT < 60 * 1000) return;
+  computersFetch().catch(() => {});
+}
 /* Called by computersRender with the rows it kept and whether an answer arrived. Only an ANSWER changes
    the name or whether there is anywhere to go (review round 1): a failed read keeps the last good answer, so one
    relay hiccup cannot lock the menu shut, and says so inside the menu. */
-function worldswComputersSeen(rows, good) {
+function worldswComputersSeen(rows, good, signedOut) {
   // With several Kosmoses on, today's menu is untouched: it hides the section on any failure (review round 5).
   if (MULTI_KOSMOS) return;
   if (good) {
     const me = rows.find((c) => c.this === true);
     THIS_COMPUTER_NAME = me ? me.name : '';
+    const was = COMPUTERS_OPENABLE;
     COMPUTERS_OPENABLE = rows.length >= 2;
+    if (was && !COMPUTERS_OPENABLE) worldswTipDrop();   // #6403: nowhere to switch to any more: the tip goes with it
+    COMPUTERS_SIGNED_OUT = signedOut === true;   // #6403: not signed in to Kosmos+, so a look back has nothing to find
+    if (COMPUTERS_OPENABLE && !was) worldswTipOnce();
   } else if (COMPUTERS_OPENABLE) {
     const box = document.getElementById('worldsw-computers');
     const list = document.getElementById('worldsw-computers-list');
@@ -30178,7 +30249,11 @@ function worldswComputersSeen(rows, good) {
     /* Failures back off, 15 s doubling to 5 min, since some never clear on their own (an old connector, a refused
        computer) and each read is a signed call to Kosmos+ (review round 4). */
     const first = Number.isFinite(window.__kosmosComputersRetryMs) ? Math.max(100, window.__kosmosComputersRetryMs) : 15000;
-    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1)) : (!COMPUTERS_OPENABLE ? 5 * 60 * 1000 : 0);
+    /* Every 15 s for the 90 s after a forced read (Kosmos+ lists the new computer once it has connected, which can take a
+       while): a handful of reads, once per pairing. */
+    const expecting = good && !COMPUTERS_OPENABLE && Date.now() < COMPUTERS_EXPECT_UNTIL;
+    const wait = !good ? Math.min(5 * 60 * 1000, first * 2 ** (COMPUTERS_FAILS - 1))
+      : (!COMPUTERS_OPENABLE ? (expecting ? Math.min(15000, first) : 5 * 60 * 1000) : 0);
     /* Either way, a hidden tab waits (it reads when it is next looked at, the visibility listener below), and an
        open menu is not repainted under the person (it reads when the menu is next opened). */
     const tick = () => {
@@ -30577,6 +30652,7 @@ function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
   const btn = document.getElementById('worldsw-btn');
   if (!menu || !btn || !menu.hidden) return;
+  if (typeof worldswTipHide === 'function') worldswTipHide();   // #6403: they found it (typeof: lifted alone by a test)
   menu.hidden = false;
   btn.setAttribute('aria-expanded', 'true');
   computersFetch().catch(() => {});   // kosmos#4648: the other computers, read fresh on each open
@@ -30603,6 +30679,8 @@ function computerAddressOk(a, domain) {
 let COMPUTERS_GEN = 0;
 async function computersFetch() {
   const gen = ++COMPUTERS_GEN;
+  // #6403: every read counts for the minute a look back waits (boot, timers, the menu, a stale tab), not only its own.
+  try { COMPUTERS_READ_AT = Date.now(); } catch { /* lifted alone by a test */ }
   /* Hide last time's list until THIS read lands: a state word from an earlier open ("Online")
      must never be shown as current (a probe can take seconds). */
   const box = document.getElementById('worldsw-computers');
@@ -30723,7 +30801,7 @@ function computersRender(data) {
      one-Kosmos helpers do not exist; a lifted copy behaves as before. */
   const good = !!data && (data.ok === true || data.signedIn === false);
   // Only this computer (or nothing): there is nowhere else to go, so the section stays hidden.
-  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good); if (typeof pnavRefresh === 'function') pnavRefresh(); return; }
+  if (rows.length < 2) { list.textContent = ''; box.hidden = true; if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good, !!data && data.signedIn === false); if (typeof pnavRefresh === 'function') pnavRefresh(); return; }
   list.textContent = '';
   for (const c of rows) {
     /* Only an ONLINE computer is a link. An offline one would open a browser error page (the
@@ -30760,7 +30838,7 @@ function computersRender(data) {
     list.appendChild(row);
   }
   box.hidden = false;
-  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good);
+  if (typeof worldswComputersSeen === 'function') worldswComputersSeen(rows, good, !!data && data.signedIn === false);
   /* #4823: the phone menu's computers level copies these rows; refill it from whichever answer this was. */
   if (typeof pnavRefresh === 'function') pnavRefresh();
 }
@@ -32050,8 +32128,21 @@ async function worldHideSubmit() {
     document.addEventListener('visibilitychange', () => {
       const menu = document.getElementById('worldsw-menu');
       // Back in view: read now, unless the menu is open (it read when it opened; never repaint it under the person).
-      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) { COMPUTERS_STALE_WHILE_HIDDEN = false; computersFetch().catch(() => {}); }
+      if (!document.hidden && COMPUTERS_STALE_WHILE_HIDDEN && !(menu && !menu.hidden)) {
+        COMPUTERS_STALE_WHILE_HIDDEN = false;
+        if (COMPUTERS_STALE_FORCED) { COMPUTERS_STALE_FORCED = false; COMPUTERS_EXPECT_UNTIL = Date.now() + 90 * 1000; }   // #6403: its follow-ups too
+        computersFetch().catch(() => {});
+      }
+      else if (!document.hidden) computersReadSoon(false);   // #6403
+      if (!document.hidden) worldswTipMarkSeen();   // #6403: a tip shown while the tab was hidden is seen now
     });
+    window.addEventListener('focus', () => computersReadSoon(false));   // #6403: the app window looked at again
+    window.addEventListener('resize', worldswTipOnResize);   // #6403: a layout that now shows the switcher (named, so the layout resize
+    // handler stays the page's only arrow-form one: web.consolidated-breakpoint.test.js anchors on it)
+    // The close button, or a click anywhere on the tip (a person clicking a popover to dismiss it), puts it away.
+    const tipEl = document.getElementById('worldsw-tip');
+    if (tipEl) tipEl.addEventListener('click', () => { worldswTipHide(); document.getElementById('worldsw-btn').focus(); });
+    // No Escape for the tip on purpose (#6403 review 12): Escape belongs to the page's dialogs, menus and composer.
   }
 })();
 // #3051 + #3360: the upper-right user menu popover. Same shape as wireWorldsw above: the
@@ -50745,6 +50836,8 @@ async function askAct(act, id, at) {
   if (res && res.ok) {
     if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
+    // #6403. Only a joining computer: a row that was a computer (was_a_computer) cannot be allowed, its Allow is disabled.
+    if (act === 'allow' && d.joining_computer && typeof computersReadSoon === 'function') computersReadSoon(true);
   } else {
     const said = res ? await res.json().catch(() => null) : null;
     const why = said && said.error;
@@ -51317,7 +51410,23 @@ async function paintPlus() {
        (review 6) belongs to the pairing it ended: a new wait clears it too. */
     if (r.on !== true) plusJoinReset();
     else if (stat.state === 'waiting-allow') PLUS_JOIN_NOTE = null;
+    // #6403: signed in and on (an earlier read may have said "not signed in"): look-backs may read again.
+    if (typeof computersSignedInNow === 'function') computersSignedInNow(r);
+    const wasWaiting = PLUS_JOIN_WAITING;
     PLUS_JOIN_WAITING = r.on === true && (stat.state === 'waiting-allow' || plusJoinLive(PLUS_JOIN));
+    // #6403: the wait ended (most often this computer was let in, so the account has another): read the computers now.
+    // paintPlus runs while the Kosmos+ section is on screen, which is where pairing happens; elsewhere the look-back reads.
+    // Either sign counts, once per wait: the status left "waiting to be allowed" (this computer was let in), or the join
+    // block closed. The block can stay open after the Allow with an ending (a code that ran out), so the status is the
+    // one that says it first (CI's render-connect-sheet-4637 found the block alone never closing there).
+    const heldNow = r.on === true && stat.state === 'waiting-allow';
+    if (heldNow) PLUS_LETIN_READ = false;
+    const letIn = (wasWaiting && !PLUS_JOIN_WAITING) || (PLUS_LETIN_HELD && !heldNow);
+    PLUS_LETIN_HELD = heldNow;
+    if (letIn && r.on === true && !PLUS_LETIN_READ && typeof computersReadSoon === 'function') {
+      PLUS_LETIN_READ = true;
+      computersReadSoon(true);
+    }
     if (PLUS_JOIN_WAITING) plusJoinTick();
     else {
       if (PLUS_JOIN) { PLUS_JOIN = null; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0; }
@@ -51709,6 +51818,8 @@ document.getElementById('plus-org-leave-yes').addEventListener('click', plusOrgL
 /* var, not let: paintPlus reads these, and a call before this line runs must not hit the temporal dead zone. */
 var PLUS_JOIN = null;          // the last /api/remote/join answer, or null
 var PLUS_JOIN_WAITING = false; // paintPlus: on, and the tunnel says waiting-allow
+var PLUS_LETIN_HELD = false;   // #6403: the last paint said waiting-allow
+var PLUS_LETIN_READ = false;   // #6403: this wait's ending already asked for a read of Your computers
 var PLUS_JOIN_BUSY = false;
 var PLUS_JOIN_AT = 0;
 var PLUS_JOIN_MSG = '';        // a failed "The codes match", said once under the button
@@ -51723,12 +51834,14 @@ var PLUS_JOIN_NOTE = null;     // {kind: 'ranout' | 'matched', name}: how a pair
 var PLUS_JOIN_CODE_MS = 600 * 1000;   // var: paintPlusJoin may run before this line
 var PLUS_JOIN_MSG_AT = 0;      // #6353: when a Try again refusal was said (it goes after PLUS_JOIN_CODE_MS)
 var PLUS_JOIN_RETRY_AT = 0;    // #6353: when a Try again was accepted (its promise goes after PLUS_JOIN_CODE_MS)
+var PLUS_JOIN_NOCODE_AT = 0;   // #6385: when this wait for a code began (0: not waiting for one)
+var PLUS_JOIN_SLOW_MS = 60 * 1000;   // #6385: a wait this long with no code says why it can take a while
 /* Forget, Off, or never enrolled: nothing of an earlier pairing may show, and the read on load is owed again. A round in
    flight is dropped (GEN). Only acts when something is set, so the 5-second repaint does not churn GEN. */
 function plusJoinReset() {
   if (!PLUS_JOIN && !PLUS_JOIN_NOTE && !PLUS_JOIN_WAITING && !PLUS_JOIN_PROBED && !PLUS_JOIN_PROBE_TRIES) return;
   PLUS_JOIN = null; PLUS_JOIN_NOTE = null; PLUS_JOIN_WAITING = false; PLUS_JOIN_GEN += 1; PLUS_JOIN_CODE_AT = 0;
-  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0;
+  PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0; PLUS_JOIN_NOCODE_AT = 0;
   paintPlusJoin();
 }
 /* #6353 (Mona Lisa's review): while a Try again is owed, or (#6387) every try is used, nothing is being waited on, so
@@ -51794,7 +51907,9 @@ function paintPlusJoin() {
      pairing is the page's only job, so the devices list (empty until it is allowed) and the company block step aside. */
   { const flow = document.getElementById('plus-flow'); if (flow && flow.classList) flow.classList.toggle('plus-joining', !!live && j.held === true); }
   let html;
+  let waits = false;   // #6385: this paint draws a wait for a code (the two branches below that do)
   if (!live) {
+    PLUS_JOIN_NOCODE_AT = 0;   // #6385: no pairing, no wait
     if (!note) { if (el.innerHTML) el.innerHTML = ''; return; }
     /* An ending, said once under the status: it does not take the coordinator's sentence (review 6: an outage after it
        must still be said). */
@@ -51841,11 +51956,13 @@ function paintPlusJoin() {
   else if (j.held !== true && stale) html = '<p class="plus-join-say">' + (named ? name : 'Your other computer') + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';   // kosmos#6386, as the ending above
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
-  else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
-    ? '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>'   // the tunnel no longer owes the attempt (its Try again lapses too)
-    : '<p class="plus-join-say">That code ran out. A new one is on its way.</p>';
+  else if (j.confirm_expired && PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS)
+    html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';   // the tunnel no longer owes the attempt (its Try again lapses too)
+  else if (j.confirm_expired) { waits = true; html = '<p class="plus-join-say">That code ran out. A new one is on its way.</p>' + plusJoinSlowLine(); }
   else if (stale) html = '<p class="plus-join-say">That code ran out.</p><p class="plus-join-next">Kosmos is checking with your other computer.</p>';
-  else html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>';
+  else { waits = true; html = '<p class="plus-join-say">Working out the code with ' + name + other + '...</p>' + plusJoinSlowLine(); }
+  /* #6385: any other state is not a wait for a code, so the next wait starts its own minute. */
+  if (!waits) PLUS_JOIN_NOCODE_AT = 0;
   /* The block repaints every few seconds; an identical write is skipped so a screen reader is not re-read it. A write that
      does happen keeps keyboard focus on the same control (a refusal line timing out rebuilds the block). */
   if (el.__lastJoin !== html) {
@@ -51853,6 +51970,19 @@ function paintPlusJoin() {
     el.innerHTML = html; el.__lastJoin = html;
     if (fid) { const n = document.getElementById(fid); if (n && n.focus) n.focus(); }
   }
+}
+/* #6385: the computer that allows answers one new computer at a time, one about every 10 minutes (the tunnel's
+   ANSWER_EVERY_SECS, 600), and this computer is not told when it is waiting its turn. So after a minute with no code
+   this says so. It cannot tell that is the reason (the other computer may have stopped for good: tries used up, its
+   daily limit, or this sign-in asked of another computer), so it says it as the likely one and points to where the
+   real reason shows: the other computer's Kosmos+ page (JOIN_WAIT_WORDS, its Waiting for you card). */
+function plusJoinSlowLine() {
+  if (!PLUS_JOIN_NOCODE_AT) PLUS_JOIN_NOCODE_AT = Date.now();
+  if (Date.now() - PLUS_JOIN_NOCODE_AT < PLUS_JOIN_SLOW_MS) return '';
+  /* The minutes are the code's own lifetime here (PLUS_JOIN_CODE_MS, the tunnel's REVEAL_TIMEOUT_SECS), which the tunnel's
+     answer pace equals (pairing.rs: ANSWER_EVERY_SECS = REVEAL_TIMEOUT_SECS). A hint, not an instruction: fhint. */
+  return '<p class="fhint plus-join-slow">Your other computer adds one computer at a time, about one every '
+    + Math.round(PLUS_JOIN_CODE_MS / 60000) + ' minutes, so if you are adding more than one, this one may be waiting its turn. Keep this open. If no code comes, Settings, then Kosmos+, on your other computer says why it is waiting.</p>';
 }
 /* #6353: Try again. The tunnel starts one new attempt on its next round, so the page reads the pairing straight after. */
 document.getElementById('plus-join').addEventListener('click', async (e) => {
