@@ -271,12 +271,21 @@ of the engine's own helpers, run with the bundle's node:
   - **The same build or an older one** starts the installed Kosmos and re-points nothing.
     The installed copy itself does nothing new. A folder somebody chose on purpose (not a
     cleaned-up one), with nothing installed, runs where it is, unless it is outside the
-    person's profile and other people on the PC can change it (#1765): then Kosmos runs
-    nothing from it and says to open it from Downloads, which installs it. Only the person,
-    SYSTEM, Administrators and TrustedInstaller may hold rights that change the folder or
-    what is in it (or rename it away, on a folder above it), and one of them must own it;
-    a folder whose permissions cannot be read is refused too. This covers the uninstall run
-    from that folder as well.
+    person's profile and other people on the PC can change it (#1765): then the launcher
+    runs nothing from it (the uninstall included) and points nothing at it, and says to
+    download Kosmos again into the Downloads folder in the person's own user folder, which
+    installs it. Only the person, SYSTEM, Administrators and TrustedInstaller may hold rights
+    that change the folder, the code in it the launcher starts (Kosmos.exe, runtime\,
+    runtime\node.exe, app\, app\server.js, open-board.js) or, on a folder above it, rename
+    it away; one of them must own each; accounts are compared by SID, so a domain group such
+    as Domain Admins is not one of them. A folder whose permissions cannot be read, or a
+    drive with none (FAT, exFAT), is refused too. It is not a defence against a folder that
+    was already changed: Kosmos.exe itself comes from that folder. A copy that already ran
+    in place from such a folder before this check keeps its logon task and in-app updates
+    there; its Start menu entry now opens to the refusal. The fresh copy from Downloads
+    installs itself and points Kosmos at the installed copy, so the board starts from there
+    from the next sign-in (a board already serving from the old folder runs on until then),
+    and the old folder can be deleted after that.
   - **When Kosmos cannot install itself** it says so in a plain note, never a question,
     and runs from where it is; it tries again the next time. The old Move Kosmos / Keep
     it here question and its per-folder memory are gone; the uninstall still deletes a

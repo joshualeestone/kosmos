@@ -172,9 +172,10 @@ class KosmosLauncher
         string opener = Path.Combine(here, "open-board.js");
         string app = Path.Combine(here, "app");
 
-        // #1765: 🛑 NOTHING FROM THIS FOLDER RUNS ABOVE THIS CHECK, NOT EVEN THE UNINSTALL. Every errand below runs
-        // runtime\node.exe and app\ from here, so a folder outside this person's profile that other people on this
-        // PC can change is refused before any of it (UnsafeRunFolderReason).
+        // #1765: 🛑 THIS LAUNCHER STARTS NOTHING FROM ITS FOLDER ABOVE THIS CHECK, NOT EVEN THE UNINSTALL. Every errand
+        // below runs runtime\node.exe and app\ from here, or points the Start menu and the logon task here, so a folder
+        // outside this person's profile that other people on this PC can change is refused before any of it
+        // (UnsafeRunFolderReason, which also says what this does not guard).
         string unsafeFolder = UnsafeRunFolderReason(here);
         if (unsafeFolder != null) return RefuseUnsafeFolder(here, unsafeFolder, wantsUninstall);
 
@@ -394,31 +395,41 @@ class KosmosLauncher
     //
     // Kosmos installs itself into %LOCALAPPDATA%\Programs\Kosmos (MoveTarget), inside the person's profile, where
     // only they, SYSTEM and administrators can write. A copy somebody put somewhere deliberate (C:\Kosmos, D:\Apps)
-    // runs where it is (RunInstallerDuties), and every launch, the logon task's board and each agent then load
-    // runtime\node.exe and app\ from that folder. Outside the profile a folder usually inherits write access for
-    // every local account (C:\ gives Authenticated Users Modify on what is made in it), so another person on this
-    // PC could change the code Kosmos runs as this person.
+    // runs where it is (RunInstallerDuties): it points the Start menu, Settings > Apps and the logon task at that
+    // folder, and the board and each agent then run runtime\node.exe and app\ from it. Outside the profile a folder
+    // usually inherits write access for every local account (C:\ gives Authenticated Users Modify on what is made in
+    // it), so another person on this PC could change the code Kosmos runs as this person.
+    //
+    // WHAT THIS GUARDS, AND WHAT IT DOES NOT. From such a folder this launcher runs nothing (no node, no uninstall,
+    // no hand-off or update), and so points nothing at it: no Start menu entry, no Settings > Apps entry, no logon
+    // task. It is NOT a boundary against a folder that was already changed: this Kosmos.exe, and a Kosmos.exe.config
+    // beside it, come from the same folder and are loaded before this check runs. Nor does it reach a copy that
+    // already runs in place from before this check: its logon task and the in-app updater carry on there, without
+    // this launcher, until a copy installed in the profile takes over (the README says so).
     //
     // 🔑 WHY REFUSE, NOT LOCK THE FOLDER DOWN. Kosmos never creates such a folder: the person extracted the zip
     // there, so there is no moment of creation to set a safe ACL at, and the files may already have been changed
     // by the time Kosmos first runs. Rewriting the ACL of a folder the person chose could also take away access
-    // they meant to give. Refusing, before anything from the folder runs, matches the install design: the one
-    // place Kosmos installs to is already safe, and the refusal says how to get there (open the copy from
-    // Downloads, which installs it, #3286).
+    // they meant to give. Refusing matches the install design: the one place Kosmos installs to is already safe,
+    // and the refusal says how to get there (a fresh copy opened from the profile's Downloads installs itself, #3286).
     //
     // WHAT IS SAFE. Only this user, SYSTEM, Administrators and TrustedInstaller may be given rights that change
-    // anything (write or add files, delete, change permissions or owner), and one of them must own it:
+    // anything (write or add files, delete, change permissions or owner), and one of them must own each thing read:
     //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
     //     it, because that is where the code is;
+    //   - the code inside it that this launcher starts or points at (Kosmos.exe, runtime\, runtime\node.exe, app\,
+    //     app\server.js, open-board.js), read on their own: a file made there by another account while the folder
+    //     let them is theirs, and its owner can always change its permissions, whatever the folder now says;
     //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
     //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
     // CREATOR OWNER and OWNER RIGHTS stand for the owner, who is checked. A deny entry is never counted, so a deny
     // can only make the answer stricter than Windows'. An ACL that cannot be read, or a missing one (a FAT or exFAT
-    // drive), is refused.
-    // ⚠️ WEAKEST PART: the run folder's own entries stand for its files. A file inside given extra rights on its
-    // own (which takes someone who could already change permissions there) is not looked at. A folder inside the
-    // profile is trusted by where it is, not read, as the profile is this person's; a junction from the profile
-    // to somewhere else is taken at its profile path.
+    // drive), is refused. Accounts are compared by SID, never by name: a domain group (Domain Admins, say) is not
+    // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
+    // ⚠️ WEAKEST PART: below those six, a file inside is taken at the folder's word (reading every file would cost
+    // a launch far more than these few milliseconds). A folder inside the profile is trusted by where it is, not
+    // read, as the profile is this person's; a junction from the profile to somewhere else is taken at its
+    // profile path.
     // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
     internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
@@ -431,10 +442,14 @@ class KosmosLauncher
     const int WRITE_OWNER = 0x80000;
     const int GENERIC_ALL = 0x10000000;
     const int GENERIC_WRITE = 0x40000000;
-    // Any of these on the run folder (or reaching what is inside it) lets the holder change what Kosmos runs.
+    // Any of these on the run folder (or reaching what is inside it), or on the code in it, lets the holder change
+    // what Kosmos runs.
     internal const int RunFolderChangeRights = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
     // On a folder above it, these let the holder rename the run folder's branch away and put another in its place.
     internal const int AncestorChangeRights = FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
+
+    // The code in a build that this launcher starts or points the Start menu at, read on its own.
+    internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "app", "app\\server.js", "open-board.js" };
 
     static readonly string[] TrustedWriterSids = {
         "S-1-5-18",      // SYSTEM
@@ -460,6 +475,10 @@ class KosmosLauncher
         catch { return sid.Value; }
     }
 
+    // What is read, and how: the run folder (its entries for what is inside count too), a file or folder of code
+    // inside it (its own entries; a folder's for what is inside it too), or a folder above it.
+    internal enum AclScope { RunFolder, Code, Above }
+
     // Null when Kosmos may run from this folder; otherwise what makes it unsafe, in one line for support
     // (the person reads RefuseUnsafeFolder's words, not this).
     internal static string UnsafeRunFolderReason(string here)
@@ -473,32 +492,45 @@ class KosmosLauncher
         catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
         if (me == null) return "this account could not be read";
         string folder = full.TrimEnd('\\', '/');
-        bool runFolder = true;
-        while (!string.IsNullOrEmpty(folder))
+        string problem = OtherWriterOf(folder, me, AclScope.RunFolder);
+        if (problem != null) return problem;
+        foreach (string entry in RunFolderCode)
         {
-            string problem = OtherWriterOf(folder, me, runFolder);
+            string item = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, entry);
+            // A missing one is not this check's to report: the checks after it say what is missing.
+            if (!File.Exists(item) && !Directory.Exists(item)) continue;
+            problem = OtherWriterOf(item, me, AclScope.Code);
             if (problem != null) return problem;
+        }
+        while (true)
+        {
             string up;
             try { up = Path.GetDirectoryName(folder.EndsWith(":") ? folder + "\\" : folder); }
             catch { up = null; }
             if (up == null) break;
             up = up.TrimEnd('\\', '/');
-            if (string.Equals(up, folder, StringComparison.OrdinalIgnoreCase)) break;
+            if (up.Length == 0 || string.Equals(up, folder, StringComparison.OrdinalIgnoreCase)) break;
             folder = up;
-            runFolder = false;
+            problem = OtherWriterOf(folder, me, AclScope.Above);
+            if (problem != null) return problem;
         }
         return null;
     }
 
-    // Who, other than the trusted few, can change this folder (or, for the run folder, what is inside it).
-    static string OtherWriterOf(string folder, System.Security.Principal.SecurityIdentifier me, bool runFolder)
+    // Who, other than the trusted few, can change this (or, for the run folder and a folder of code, what is
+    // inside it).
+    static string OtherWriterOf(string target, System.Security.Principal.SecurityIdentifier me, AclScope scope)
     {
-        string shown = folder.EndsWith(":") ? folder + "\\" : folder;
+        string shown = target.EndsWith(":") ? target + "\\" : target;
+        bool isFolder = scope != AclScope.Code || Directory.Exists(shown);
         System.Security.AccessControl.RawSecurityDescriptor descriptor;
         try
         {
-            System.Security.AccessControl.DirectorySecurity security = Directory.GetAccessControl(shown,
-                System.Security.AccessControl.AccessControlSections.Access | System.Security.AccessControl.AccessControlSections.Owner);
+            System.Security.AccessControl.AccessControlSections sections =
+                System.Security.AccessControl.AccessControlSections.Access | System.Security.AccessControl.AccessControlSections.Owner;
+            System.Security.AccessControl.FileSystemSecurity security = isFolder
+                ? (System.Security.AccessControl.FileSystemSecurity)Directory.GetAccessControl(shown, sections)
+                : File.GetAccessControl(shown, sections);
             descriptor = new System.Security.AccessControl.RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
         }
         catch (Exception e) { return "who can change " + shown + " could not be read (" + e.Message + ")"; }
@@ -511,13 +543,14 @@ class KosmosLauncher
         System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
         bool hasDacl = (descriptor.ControlFlags & System.Security.AccessControl.ControlFlags.DiscretionaryAclPresent) != 0;
         if (acl == null || !hasDacl) return "anyone can change " + shown + " (it has no permissions, as on a FAT or exFAT drive)";
-        int rights = runFolder ? RunFolderChangeRights : AncestorChangeRights;
+        int rights = scope == AclScope.Above ? AncestorChangeRights : RunFolderChangeRights;
+        // Entries only for what is inside count where what is inside is code: the run folder and a folder of code.
+        bool insideCounts = scope != AclScope.Above && isFolder;
         foreach (System.Security.AccessControl.GenericAce ace in acl)
         {
             bool inheritOnly = (ace.AceFlags & System.Security.AccessControl.AceFlags.InheritOnly) != 0;
             bool reachesInside = (ace.AceFlags & (System.Security.AccessControl.AceFlags.ObjectInherit | System.Security.AccessControl.AceFlags.ContainerInherit)) != 0;
-            // An entry only for what is inside: it counts on the run folder (that is the code), not above it.
-            if (inheritOnly && (!runFolder || !reachesInside)) continue;
+            if (inheritOnly && (!insideCounts || !reachesInside)) continue;
             System.Security.AccessControl.CommonAce common = ace as System.Security.AccessControl.CommonAce;
             if (common == null) return "an entry Kosmos cannot read gives rights on " + shown;
             if (common.AceQualifier == System.Security.AccessControl.AceQualifier.AccessDenied) continue;
@@ -529,14 +562,19 @@ class KosmosLauncher
         return null;
     }
 
-    // The plain-language refusal: what is wrong, and the one thing to do about it.
+    // The plain-language refusal: what is wrong, and what to do about it. The Downloads folder named is the one
+    // inside this person's own user folder, spelled out: a Downloads folder moved to another drive is outside the
+    // profile and would be refused the same way.
     internal static string UnsafeFolderMessage(string here, string reason, bool uninstalling)
     {
         string folder = FullPathOrNull(here) ?? here;
+        string profile = FullPathOrNull(userProfileFolder());
+        string downloads = profile != null ? Path.Combine(profile, "Downloads") : "the Downloads folder in your own user folder";
+        string fresh = "Download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change.";
         string what = uninstalling ? "Kosmos will not run its uninstall from " : "Kosmos will not start from ";
         string fix = uninstalling
-            ? "Move the Kosmos folder into your Downloads folder and open Kosmos.exe from there once. Kosmos then installs itself in a folder only you can change, and you can uninstall it from Settings > Apps."
-            : "Move the Kosmos folder into your Downloads folder and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change.";
+            ? fresh + " You can then uninstall it from Settings > Apps, and once you have next signed in to Windows, delete " + folder + "."
+            : fresh + " Once you have next signed in to Windows, you can delete " + folder + ".";
         return what + folder + ", because other people who use this computer may be able to change the files in that folder, and Kosmos would run whatever they put there.\n\n"
             + fix + "\n\nDetails: " + reason + ".";
     }

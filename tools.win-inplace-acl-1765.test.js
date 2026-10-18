@@ -77,7 +77,10 @@ test('#1765: the rights that count, and the only accounts that may hold them', (
 test('#1765: the refusal is plain, says what to do, and carries no em dash', () => {
   const message = slice('internal static string UnsafeFolderMessage(', '\n    }\n');
   assert.match(message, /other people who use this computer may be able to change the files in that folder/);
-  assert.match(message, /Move the Kosmos folder into your Downloads folder and open Kosmos\.exe from there/);
+  assert.match(message, /Download Kosmos again, extract it into " \+ downloads \+ ", and open Kosmos\.exe from there/);
+  // The Downloads folder named is the profile's own, spelled out: one moved to another drive would be refused too.
+  assert.match(message, /string downloads = profile != null \? Path\.Combine\(profile, "Downloads"\)/);
+  assert.match(message, /You can then uninstall it from Settings > Apps, and once you have next signed in to Windows, delete /);
   assert.doesNotMatch(slice('// ---- a folder other people can change (#1765)', 'static int FailInsideZip()'), /\u2014/);
 });
 
@@ -156,11 +159,11 @@ function baselineOrSkip(t) {
 test('#1765: the run folder: only this user, SYSTEM and Administrators may change it or what is inside it', WINDOWS_ONLY, (t) => {
   if (!needsBuild(t) || !baselineOrSkip(t)) return;
   const cases = [
-    ['Users may modify', [USERS + ':(OI)(CI)M'], /^UNSAFE .*Users can change /],
-    ['Everyone may write', [EVERYONE + ':(OI)(CI)W'], /^UNSAFE .*Everyone can change /],
-    ['Authenticated Users may modify the files inside only', [AUTH_USERS + ':(OI)(IO)M'], /^UNSAFE .*Authenticated Users can change /],
-    ['Users may delete what is inside', [USERS + ':(DC)'], /^UNSAFE .*Users can change /],
-    ['Users may change its permissions', [USERS + ':(WDAC)'], /^UNSAFE .*Users can change /],
+    ['Users may modify', [USERS + ':(OI)(CI)M'], /^UNSAFE .+ can change /],
+    ['Everyone may write', [EVERYONE + ':(OI)(CI)W'], /^UNSAFE .+ can change /],
+    ['Authenticated Users may modify the files inside only', [AUTH_USERS + ':(OI)(IO)M'], /^UNSAFE .+ can change /],
+    ['Users may delete what is inside', [USERS + ':(DC)'], /^UNSAFE .+ can change /],
+    ['Users may change its permissions', [USERS + ':(WDAC)'], /^UNSAFE .+ can change /],
     ['Users may read and run it', [USERS + ':(OI)(CI)RX'], /^SAFE$/],
   ];
   for (const [label, grant, expected] of cases) {
@@ -187,7 +190,7 @@ test('#1765: a folder above it counts only for what would let someone swap the b
   lockDown(parent);
   icacls(parent, '/grant', USERS + ':(DC)');
   let answer = probe(run, NOT_MY_PROFILE);
-  assert.match(answer, /^UNSAFE .*Users can change /);
+  assert.match(answer, /^UNSAFE .+ can change /);
   assert.ok(answer.includes(parent) && !answer.includes(run), 'the reason does not name the parent: ' + answer);
   // The parent passes Modify down only (inherit-only), which the run folder does not take: safe.
   const run2 = sandboxFolder('run');
@@ -204,6 +207,38 @@ test('#1765: a folder above it counts only for what would let someone swap the b
   assert.equal(probe(run3, NOT_MY_PROFILE), 'SAFE');
 });
 
+test('#1765: the code inside is read on its own, whatever the run folder says', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t) || !baselineOrSkip(t)) return;
+  const build = () => {
+    const f = sandboxFolder('run');
+    lockDown(f);
+    fs.mkdirSync(path.join(f, 'runtime'));
+    fs.writeFileSync(path.join(f, 'runtime', 'node.exe'), '');
+    fs.mkdirSync(path.join(f, 'app'));
+    fs.writeFileSync(path.join(f, 'app', 'server.js'), '');
+    return f;
+  };
+  const clean = build();
+  assert.equal(probe(clean, NOT_MY_PROFILE), 'SAFE', 'a locked build with its code inside was refused');
+  // node.exe given to Users on its own (as a file made there while the folder let them would be theirs to give).
+  const file = build();
+  icacls(path.join(file, 'runtime', 'node.exe'), '/grant', USERS + ':(M)');
+  let answer = probe(file, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(file, 'runtime', 'node.exe')), 'the reason does not name node.exe: ' + answer);
+  // app\ cut off from the folder's entries, with its own for Users.
+  const app = build();
+  icacls(path.join(app, 'app'), '/inheritance:r', '/grant:r', '*' + mySid + ':(OI)(CI)F', USERS + ':(OI)(CI)M');
+  answer = probe(app, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(app, 'app')), 'the reason does not name app: ' + answer);
+  // A file below the six is taken at the folder's word (the plan's named weak spot), so this stays safe.
+  const deep = build();
+  fs.writeFileSync(path.join(deep, 'app', 'other.js'), '');
+  icacls(path.join(deep, 'app', 'other.js'), '/grant', USERS + ':(M)');
+  assert.equal(probe(deep, NOT_MY_PROFILE), 'SAFE');
+});
+
 test('#1765: a folder inside this person\'s profile is not read; a missing folder is refused', WINDOWS_ONLY, (t) => {
   if (!needsBuild(t)) return;
   const profile = fs.realpathSync.native(os.homedir());
@@ -218,8 +253,18 @@ test('#1765: a folder inside this person\'s profile is not read; a missing folde
 
 // A real-looking build: the launcher, a node.exe, and an app\server.js that only leaves a mark. No manifest, so the
 // launcher does none of its installer duties, and no open-board.js, so it opens no window.
+function sweepDriveRoot(drive) {
+  let names = [];
+  try { names = fs.readdirSync(drive); } catch { return; }
+  for (const n of names) {
+    if (!/^kosmos-acl-test-(open|locked)-[0-9a-f]{8}$/.test(n)) continue;
+    const f = path.join(drive, n);
+    try { if (Date.now() - fs.statSync(f).mtimeMs > 60 * 60 * 1000) fs.rmSync(f, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }); } catch { /* another account's, or in use */ }
+  }
+}
 function stubBuild(t, label) {
   const drive = (process.env.SystemDrive || 'C:') + '\\';
+  sweepDriveRoot(drive);
   const folder = path.join(drive, 'kosmos-acl-test-' + label + '-' + crypto.randomBytes(4).toString('hex'));
   try { fs.mkdirSync(folder); } catch (e) { t.skip('cannot make a folder at ' + drive + ' (' + e.code + ')'); return null; }
   made.push(folder);
@@ -246,7 +291,7 @@ test('#1765: from a folder at the drive root that Users can change, Kosmos.exe r
   const r = runLauncher(folder, []);
   assert.equal(r.code, 1, r.out);
   assert.match(r.out, /Kosmos will not start from .*kosmos-acl-test-open-[0-9a-f]+, because other people who use this computer may be able to change the files in that folder/);
-  assert.match(r.out, /Details: .*Users can change /);
+  assert.match(r.out, /Details: .+ can change /);
   assert.ok(!fs.existsSync(path.join(folder, 'ran.txt')), 'the folder\'s server.js ran');
   const u = runLauncher(folder, ['--uninstall']);
   assert.equal(u.code, 1, u.out);
