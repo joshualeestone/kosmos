@@ -121,7 +121,18 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       sameRow, height: db ? db.getBoundingClientRect().height : 0, quietListed: quietHtml !== '' };
     const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
       uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
+    /* #6484: a member whose restart failed while it was asking its own question carries restartFailed (no disruption):
+       it is drawn red like its card; the same member without restartFailed stays a calm Question (CONTROL). */
+    const fh = document.createElement('div');
+    document.body.appendChild(fh);
+    const askM = Object.assign(mk('needs_you'), { name: 'Fay', stateReportedBy: 'agent', needsYouHere: null });
+    fh.innerHTML = '<div class="pj-members">' + pjMember(Object.assign({}, askM, { restartFailed: true }), true, false, true)
+      + pjMember(askM, true, false, true) + '</div>';
+    const fr = fh.querySelectorAll('.pj-member');
+    const failed6484 = { failedRed: !!(fr[0] && fr[0].querySelector('.pj-face .lwarn')) && /\bpjm-attn\b/.test(fr[0] ? fr[0].className : ''),
+      failedClass: fr[0] ? fr[0].className : '', calmWarn: !!(fr[1] && fr[1].querySelector('.pj-face .lwarn')), calmClass: fr[1] ? fr[1].className : '' };
     return {
+      failed6484,
       also5692,
       dismiss6341,
       counted5688,
@@ -190,6 +201,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!q6341.controlRed) fail.push('#6341 CONTROL: a member needing you about another project is not drawn red (the quiet arm below proves nothing)');
   if (q6341.quietWarn || /\bpjm-attn\b/.test(q6341.quietClass || '')) fail.push('#6341: a member the engine marked quiet is still drawn red on the project (' + q6341.quietClass + ')');
   if (d6341.quietListed) fail.push('#6341: a member the engine marked quiet (dismissed) was listed again in the block');
+  const f6484 = r.failed6484 || {};
+  if (!f6484.failedRed) fail.push('#6484: a member whose restart failed while asking a question is not drawn red (' + f6484.failedClass + ')');
+  if (f6484.calmWarn || /\bpjm-attn\b/.test(f6484.calmClass || '')) fail.push('#6484 CONTROL: the same member without a failed restart is drawn red, not a calm Question (' + f6484.calmClass + ')');
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
