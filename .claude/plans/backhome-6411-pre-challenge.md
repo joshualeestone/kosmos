@@ -28,6 +28,9 @@ are not in that log, and CI on the PR counts them); swiftc of native-app/main.sw
 `--kosmos-app-mode-selftest`: all good (154 rows), SELFTEST_EXIT=0. The new native-app.backhome-6411.test.js was not
 in that list and was not run locally; CI on the PR runs it.
 
+
+Added after the proof was first written: the branch's own native-app.backhome-6411.test.js was missing from the validation script's fixed file list, so it was then run on its own through queued-heavy at ff57aec4 (the squash plus this proof; same code), together with the two count pins and native-app.cmdcomma-6411.test.js: 66 tests, 66 pass, 0 fail (NEW_EXIT=0).
+
 ### Per-Iteration Breakdown
 
 #### Iteration 1 (pre-rebase branch)
