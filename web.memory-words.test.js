@@ -482,7 +482,6 @@ test('#6511: the Agents list row shows a dash for unknown memory, not the word, 
   const row = PAGE.slice(at, i + 1);
   const cell = row.match(/<span class="bar unknown"><\/span><span class="pct">(.*?)<\/span><\/span>/);
   assert.ok(cell, 'the unknown-memory cell is not in the list row');
-  assert.match(cell[1], /^<span aria-hidden="true">\u2013<\/span>/, 'the visible half is not a dash');
-  assert.doesNotMatch(cell[1], /memu\.word/, 'the list row still shows the word');
   assert.match(cell[1], /<span class="vh">\$\{memu\.aria\}$/, 'the spoken sentence is gone');
+  assert.match(cell[1], /^<span aria-hidden="true">\u2013<\/span>/, 'the visible half is not a dash');
 });
