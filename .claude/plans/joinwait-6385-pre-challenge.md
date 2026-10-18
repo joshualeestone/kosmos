@@ -23,6 +23,9 @@ lookup was not run mechanically).
 Re-rebased 2026-10-17 21:14 onto the frozen 0.7.56 main (15b4f16a03), clean, range of 6 commits. Re-validated at
 0b8aaf4473: the full suite PASSED on Mortals (hash 774b0ba1e38e, 23:52), and render-connect-sheet-4637 PASSED (139
 checks, 0 failed; the #6385 arm at 1400 and 390).
+Re-rebased 2026-10-18 01:40 after the 0.7.56 hold lifted (main +30, clean; the diff hash unchanged). Re-validated
+on that base: the full suite PASSED on Mortals at c5fe13bbfb (hash 774b0ba1e38e, 02:20). Splinter 21:16 and 01:37:
+merge for 0.7.57 (one new line).
 Held: Josh's 11:16 ruling (no new visible UI until his clean-up cards ship), so this branch does not merge yet.
 
 ### Per-Iteration Breakdown
