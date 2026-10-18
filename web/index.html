@@ -22702,47 +22702,17 @@ function lrow(a) {
   const av = (typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? swarmCluster(a, 34, { decorative: true }) : a.hasAvatar
     ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
     : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
-  /* ⚠️ A VISIBLE WORD, NOT AN EMPTY SLOT. This rendered a dashed track beside a
-     BLANK percent, which reads as "0% used, room to spare" -- the inverse of
-     the truth. The words existed only in the `.vh` span, so a screen-reader
-     user had the fact and a sighted person had a bar that looked reassuring.
-     ⚠️ AND THE LIST IS HALF THE BOARD: the layout is user-selectable, so paying
-     this debt on `card()` alone left the other half without it. The unknown
-     caption went onto the card and its neighbour was left holding the defect,
-     which is the shape this branch has repeated all day.
-     ⚠️ THE WORD, NOT A GLYPH, and never blank (Mona Lisa's ruling). `.pct` is a
-     `min-width`, not a fixed column, so the cell GROWS for either unknown word and the
-     flex bar beside it shrinks -- the outcome is fine and the earlier claim that
-     it "already sizes for 100%" described a property the rule does not have.
-     The two channels then match
-     the card's -- dashed bar for shape, word for identity. The pack does not
-     draw this row at all, which is why nobody checked it: it depicts this state
-     only on a card. */
-  /* ⚠️ ONE CALL, read twice, and the spoken half is the SENTENCE rather than
-     the word with a noun stuck on the end. The suffix pattern was written for
-     "Unknown memory" and announced the other branch as "Not yet read memory".
-     Both must come from the same derivation of the same context, or the visible
-     cell and what a screen reader hears could disagree about which unknown
-     this is. */
+  /* ⚠️ NEVER AN EMPTY SLOT. This once rendered a dashed track beside a BLANK percent, which reads as "0% used,
+     room to spare", the inverse of the truth. The list is half the board (the layout is user-selectable), so the
+     unknown state has to be drawn here, not only on the card.
+     #6511 (Mona's noise pass; she approved it) REVERSES her earlier "the word, not a glyph" ruling: the eye gets a
+     dash, which is never blank, and #3501 named both unknown words meaningless. So a sighted person no longer
+     tells "not yet read" from "unknown" on this row. The ear still does: the visually hidden span carries
+     memUnknown's SENTENCE (never the word with a noun stuck on, which announced "Not yet read memory"), and the
+     dash is aria-hidden so it adds nothing to the accessible name. The agent page keeps the word. */
   const memu = memUnknown(a.context);
-  /* ⚠️ THE ACCESSIBLE NAME IS THE WORD PLUS THIS SPAN, CONCATENATED, and the
-     version before this got that wrong twice over. It announced
-     "Not yet read memory" (a noun stuck on whichever word arrived), then
-     "Not yet read memory: Nothing has been recorded for it so far." — the same
-     noun, now followed by a sentence restating the fact.
-     ⚠️ AND THE WORD IS `aria-hidden` HERE NOW, exactly as it is on the card,
-     with the SENTENCE in the visually-hidden span. Three attempts at completing
-     the visible word failed the same way: "Not yet read memory" and
-     "Not yet read memory for this agent" and "Not yet read memory: Nothing has
-     been recorded" all parse as "memory [we have] not yet read" — a statement
-     about OUR reading, which is the other branch's meaning. The head of the
-     phrase carried it; no suffix could fix that.
-     🔑 The card solved this already: shape and word for the eye, sentence for
-     the ear. The list row has no ring, so it carries the sentence itself. Now
-     both halves of the board explain the state the same way, which is what the
-     shared derivation was for. */
   const mem = pct === null
-    ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
+    ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">–</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
