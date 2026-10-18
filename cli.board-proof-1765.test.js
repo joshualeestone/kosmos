@@ -262,3 +262,38 @@ test('#1765 CONTROL: from the checkout (no runtime) the same squatter DOES recei
   await cli(port, ['accounts']);
   assert.equal(tokenSent(seen), true, 'the control did not see the token arrive, so the squatter arm proves nothing');
 }));
+
+/* kosmos#6464: `kosmos connect` carries a service key in the BODY, and the proof is keyed on the board token. With no
+   board token there is nothing to prove with, so the installed CLI refuses rather than send the key unproven. */
+function connectWith(port, dataDir) {
+  return new Promise((resolve, reject) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: dataDir, KOSMOS_PORT: String(port), KOSMOS_HOME: HOME };
+    for (const v of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_AGENT_TOKEN_ONLY', 'KOSMOS_AGENT_SESSION', 'KOSMOS_WORLD', 'KOSMOS_PROOF_DEBUG', 'TMUX', 'TMUX_PANE', 'http_proxy', 'https_proxy', 'all_proxy', 'ALL_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY']) delete env[v];
+    const child = spawn(CLI, ['connect', 'brave-search'], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.stdin.end('svc-key-6464');
+    const t = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.on('close', (code, sig) => {
+      clearTimeout(t);
+      if (typeof code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '). ' + out)); return; }
+      resolve({ code, out });
+    });
+  });
+}
+
+test('kosmos#6464: with no board token, the installed CLI refuses to send a service key, and the listener gets nothing', { timeout: 30000 }, () => withStub({ prove: false }, async (port, seen) => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-6464-notoken-'));
+  try {
+    const r = await connectWith(port, empty);
+    assert.equal(r.code, 1, r.out);
+    assert.match(r.out, /could not read its board token[\s\S]*Nothing was sent/, r.out);
+    assert.ok(!seen.some((q) => q.method === 'POST'), 'a request carrying the key reached the listener: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
+  } finally { fs.rmSync(empty, { recursive: true, force: true }); }
+}));
+
+test('kosmos#6464 CONTROL: with the board token, a board that proves itself receives the key', { timeout: 30000 }, () => withStub({ prove: true }, async (port, seen) => {
+  await connectWith(port, DATA);
+  assert.ok(seen.some((q) => q.method === 'POST' && /\/token$/.test(new URL(q.url, 'http://x').pathname)), 'the key never reached a board that proved itself: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
+}));
