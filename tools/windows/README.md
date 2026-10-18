@@ -270,7 +270,13 @@ of the engine's own helpers, run with the bundle's node:
     one previous build is kept, as the updater keeps one.
   - **The same build or an older one** starts the installed Kosmos and re-points nothing.
     The installed copy itself does nothing new. A folder somebody chose on purpose (not a
-    cleaned-up one), with nothing installed, runs where it is.
+    cleaned-up one), with nothing installed, runs where it is, unless it is outside the
+    person's profile and other people on the PC can change it (#1765): then Kosmos runs
+    nothing from it and says to open it from Downloads, which installs it. Only the person,
+    SYSTEM, Administrators and TrustedInstaller may hold rights that change the folder or
+    what is in it (or rename it away, on a folder above it), and one of them must own it;
+    a folder whose permissions cannot be read is refused too. This covers the uninstall run
+    from that folder as well.
   - **When Kosmos cannot install itself** it says so in a plain note, never a question,
     and runs from where it is; it tries again the next time. The old Move Kosmos / Keep
     it here question and its per-folder memory are gone; the uninstall still deletes a
