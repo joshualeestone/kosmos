@@ -1228,6 +1228,14 @@ const SCREENS = [
      fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
      tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
+  /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
+     project-head, where a top-level project's lone crumb is hidden in today's look. */
+  { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {
+    const ids = await subprojectFixture(page, data);
+    await openTab(page, 'projects');
+    await page.evaluate((id) => openProject(id), ids.launchA);
+    await page.waitForFunction(() => { const c = document.getElementById('pj-crumb'); return !!c && !!c.querySelector('.pj-crumb-lead') && c.getClientRects().length > 0; }, null, { timeout: 8000 });
+  } },
   { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
     await subprojectFixture(page, data);
     await at(page, '?tab=tasks');
