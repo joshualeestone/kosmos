@@ -227,6 +227,20 @@ const FIT_DIALOG_PICKER = (which) => {
         const viewHidden = pjView0 ? pjView0.hidden : null; if (pjView0) pjView0.hidden = false;
         out.topCrumbShown = shown(topCrumbEl);
         out.topBackShown = shown(document.getElementById('pj-back'));
+        // Review 1: hiding the crumb is safe only because the heading names the project; pin that it does.
+        { const nm = document.getElementById('pj-one-name'); out.topNameShown = shown(nm) && nm.textContent.trim() === 'Kosmos'; }
+        // Review 1: on an upright tablet Tasks moves above the heading (#6107), so the crumb stays shown there.
+        document.body.classList.add('pj-tasks-top');
+        out.topCrumbShownTasksTop = shown(topCrumbEl);
+        document.body.classList.remove('pj-tasks-top');
+        // And pjPhoneOrder is what sets it: with only the upright-tablet query matching it marks the body; with none, not.
+        { const realMM = window.matchMedia;
+          try {
+            window.matchMedia = (q) => ({ matches: q === PJ_TABLET_MQ, media: q, addEventListener() {}, removeEventListener() {} });
+            pjPhoneOrder(); out.tabletSetsClass = document.body.classList.contains('pj-tasks-top');
+            window.matchMedia = (q) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} });
+            pjPhoneOrder(); out.notTabletClears = !document.body.classList.contains('pj-tasks-top');
+          } finally { window.matchMedia = realMM; pjPhoneOrder(); } }
         document.documentElement.setAttribute('data-look', 'new');
         out.topCrumbShownNewLook = shown(topCrumbEl);
         document.documentElement.removeAttribute('data-look');
@@ -301,7 +315,9 @@ const FIT_DIALOG_PICKER = (which) => {
     ok(t + ' #2928 detail: a top-level project is a single protected crumb with no lead', anc.detailErr === null && anc.topCrumbCur === 'Kosmos' && anc.topHasLead === false, JSON.stringify({ cur: anc.topCrumbCur, hasLead: anc.topHasLead }));
     // #6480: today's look shows a top-level project's name once (the heading), not again in the crumb; its back
     // chevron stays. The new look keeps the crumb (its visible title). CONTROL: a sub-project's trail is shown.
-    ok(t + ' #6480 detail: a top-level project\'s crumb is not shown in today\'s look; the back chevron is', anc.detailErr === null && anc.topCrumbShown === false && anc.topBackShown === true, JSON.stringify({ crumb: anc.topCrumbShown, back: anc.topBackShown }));
+    ok(t + ' #6480 detail: a top-level project\'s crumb is not shown in today\'s look; the back chevron and the heading are', anc.detailErr === null && anc.topCrumbShown === false && anc.topBackShown === true && anc.topNameShown === true, JSON.stringify({ crumb: anc.topCrumbShown, back: anc.topBackShown, name: anc.topNameShown }));
+    ok(t + ' #6480 review 1: with Tasks above the heading (an upright tablet), the top-level crumb stays shown', anc.detailErr === null && anc.topCrumbShownTasksTop === true, JSON.stringify({ tasksTop: anc.topCrumbShownTasksTop }));
+    ok(t + ' #6480 review 1: pjPhoneOrder marks an upright tablet (body.pj-tasks-top) and clears it elsewhere', anc.detailErr === null && anc.tabletSetsClass === true && anc.notTabletClears === true, JSON.stringify({ set: anc.tabletSetsClass, cleared: anc.notTabletClears }));
     ok(t + ' #6480 detail: the new look keeps the top-level crumb (its visible title)', anc.detailErr === null && anc.topCrumbShownNewLook === true, JSON.stringify({ newLook: anc.topCrumbShownNewLook }));
     ok(t + ' #6480 CONTROL: a sub-project\'s trail is shown in today\'s look', anc.detailErr === null && anc.subCrumbShown === true, JSON.stringify({ sub: anc.subCrumbShown }));
     // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
