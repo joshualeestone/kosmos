@@ -115,6 +115,8 @@ test('the sentence never claims the folders are at risk', async () => {
      agents whose folders are sitting there. */
   const wrap = await paint({ ok: true, missing: ['brigitte'] });
   assert.match(wrap.innerHTML, /folders and everything\s+they remember are untouched/);
+  // #6518: the body no longer restates the headline ("so they stop when it does").
+  assert.doesNotMatch(wrap.innerHTML, /so they stop when/);
 });
 
 test('#6320: agents that could not be checked are named, with no button for them', async () => {
@@ -132,6 +134,11 @@ test('#6320: agents that could not be checked are named, with no button for them
   assert.match(both.innerHTML, /One of your agents will not come back/);
   assert.match(both.innerHTML, /data-survival-fix/);
   assert.match(both.innerHTML, /data-survival-unknown>ava</);
+  // #6518: under the first headline the second one does not repeat "if you restart this computer".
+  assert.match(both.innerHTML, /We could not check one more agent\./);
+  assert.equal((both.innerHTML.match(/if you restart this computer/g) || []).length, 1, 'the restart said more than once');
+  const twoMore = await paint({ ok: true, missing: ['rick'], unknown: ['ava', 'bob'] });
+  assert.match(twoMore.innerHTML, /We could not check 2 more agents\./);
   // CONTROL: an older board that sends no unknown list behaves as before.
   const old = await paint({ ok: true, missing: [] });
   assert.equal(old.hidden, true);

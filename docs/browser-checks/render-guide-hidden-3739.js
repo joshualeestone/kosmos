@@ -64,9 +64,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(/Ida/.test(board.listText), 'CONTROL: the Agents list is drawn and names the ordinary agent');
     say(!/Josh|Kosmos Guide/.test(board.listText), 'the guide is not in the Agents list');
     say(String(board.total).trim() === '1', 'the Agents tile counts one agent, not the guide', 'tile=' + board.total);
-    const bannerOn = /agents? (is|are) sitting idle/.test(board.banner);
+    /* #6517: the connection banner no longer counts idle agents at all (the count repeated the
+       Idle tile), so the guide cannot be counted there; the Agents tile line above still checks it. */
+    const bannerOn = /cannot reach a Claude subscription/.test(board.banner);
     say(bannerOn, 'CONTROL: the connection banner is on screen, so the next line can fail');
-    say(bannerOn && /\b1 agent is sitting idle/.test(board.banner), 'the connection banner does not count the guide');
+    say(bannerOn && !/sitting idle/.test(board.banner), 'the connection banner names no idle count (#6517)');
 
     await page.goto(URL + '/?tab=detail&agent=guidebot', { waitUntil: 'networkidle' });
     await page.waitForTimeout(800);

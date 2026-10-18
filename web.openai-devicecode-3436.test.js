@@ -120,15 +120,19 @@ test('both polls paint only in device mode, and both starts record the mode', ()
 test('the Windows explainer is on both sign-in steps, and the new copy has no em dash', () => {
   const { windowsCopyTable } = build(undefined);
   const t = windowsCopyTable();
-  assert.equal((HTML.match(/<span data-win-copy="openaiSubHow">/g) || []).length, 2);
-  for (const k of ['openaiSubHow', 'openaiSubOpen', 'openaiSubCodeLead', 'openaiSubCodeLeadAt', 'openaiSubRawLead']) {
+  // #6521: Settings keeps openaiSubHow; the first-run step has frOpenaiSubHow, without the sentence its lead says.
+  assert.equal((HTML.match(/<span data-win-copy="openaiSubHow">/g) || []).length, 1);
+  assert.equal((HTML.match(/<span data-win-copy="frOpenaiSubHow">/g) || []).length, 1);
+  for (const k of ['openaiSubHow', 'frOpenaiSubHow', 'openaiSubOpen', 'openaiSubCodeLead', 'openaiSubCodeLeadAt', 'openaiSubRawLead']) {
     assert.equal(typeof t[k], 'string', k + ' is missing from the Windows copy table');
     assert.ok(!/—|&mdash;/.test(t[k]), k + ' carries an em dash');
   }
   assert.match(t.openaiSubHow, /^Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code/);
+  assert.match(t.frOpenaiSubHow, /^Kosmos opens OpenAI&rsquo;s sign-in page in your browser and shows you a short code/);
+  assert.doesNotMatch(t.frOpenaiSubHow, /own subscription/, '#6521: the first-run panel repeats its step lead');
   // 0.6.96: the link is the way back to the page Kosmos already opened.
   assert.equal(t.openaiSubOpen, 'Open the sign-in page again');
   assert.equal((HTML.match(/data-win-copy="openaiSubOpen">Open the sign-in page<\/a>/g) || []).length, 2, 'both open links keep the Mac words and carry the Windows key');
   // The Mac sentence is still the markup's own text.
-  assert.equal((HTML.match(/<span data-win-copy="openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password\./g) || []).length, 2);
+  assert.equal((HTML.match(/<span data-win-copy="(fr)?openaiSubHow">Kosmos opens OpenAI's sign-in in your browser and never sees your password\./gi) || []).length, 2);
 });

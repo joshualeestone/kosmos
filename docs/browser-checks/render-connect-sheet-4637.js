@@ -11,9 +11,9 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *
  * What this pins, and why each line can fail:
  *  - another of the person's computers joining (#4773's joining_computer) reads "Your computer "windowsbox" wants to
- *    join", with "Type the code shown on windowsbox, then press Allow." (#6404); a phone beside it (the CONTROL) keeps its
+ *    join", named once there (#6522: no "Type the code shown on" line; the field reads "Code"); a phone beside it (the CONTROL) keeps its
  *    own name and the device-in-your-hand line;
- *  - each sheet carries the Kosmos+ brand, the code (for a computer, the field for it) once as one large line read out a character at a time, then
+ *  - each sheet carries no Kosmos+ brand line (#6519: the Kosmos+ page already says it), the code (for a computer, the field for it) once as one large line read out a character at a time, then
  *    Allow and a quiet Not me (no Deny, no letter boxes);
  *  - Allow on the computer turns its sheet into "windowsbox is connected." with where to remove it;
  *  - on another page the notice says the sheet's words ("Your computer "windowsbox" wants to join." for one, "2 devices want
@@ -28,8 +28,8 @@ const PC2_ID = 'computer:40aa54e6686da825d85e6f0971e5ee74';
  *    phone's Allow sends none); with no code yet a quiet line says why (code_wait, Mona Lisa's words; an unknown value
  *    gets the default) and Allow is disabled; a refused code ("code_changed") is worded;
  *  - #4794: on the computer WAITING, #plus-join replaces the coordinator's sentence: working out, the code with "The
- *    codes match" (which posts that code), (#6314, #6404) "The codes match. Waiting for <name>, your other computer, to allow this computer. If you have not yet, type this
- *    code there and press Allow." with the code
+ *    codes match" (which posts that code), (#6314, #6404, #6522) "The codes match. If you have not yet, type this code on <name>, your
+ *    other computer, and press Allow." with the code
  *    still large (it is typed there), ran out, too many tries;
  *  - 1400 and 390 wide, no sideways scroll, no page errors.
  *
@@ -173,7 +173,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       // #6405: the phone's row carries its age; the computer's row has none (its first_seen is its first ask, not this one).
       const nowrap = await page.evaluate(() => { const t = [...document.querySelectorAll('#plus-ask-rows .askreq .askwho span')]; return t.length === 1 && t.every((e) => getComputedStyle(e).whiteSpace === 'nowrap'); });
       const contrast = await page.evaluate((fn) => { const w = eval(fn); const pick = (sel) => document.querySelector('#plus-ask-rows ' + sel);
-        return Object.fromEntries([['brand', '.askbrand'], ['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay'], ['codelabel', '.askcodetype label']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
+        return Object.fromEntries([['time', '.askwho span'], ['notme', '.btn.quiet'], ['say', '.asksay'], ['codelabel', '.askcodetype label']].map(([k, sel]) => [k, pick(sel) ? Math.round(w(pick(sel)) * 100) / 100 : 0])); }, WORST_CONTRAST);
       chk(Object.values(contrast).every((r) => r >= 4.5), `${tag} the sheet's small text reads on the navy (4.5:1 against every stop of its gradient)`, JSON.stringify(contrast));
       /* kosmos#6314 (Josh 11:30): a NEW request scrolls the Kosmos+ section's requests into view; the same requests
          repainting never move the page again. Precondition first, so this cannot pass on a page too short to scroll. */
@@ -191,14 +191,14 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       else chk(scroll.hidden && scroll.shown && scroll.stayed, `${tag} #6314: a new request scrolls into view on Kosmos+, once (scrolled away first: off screen; new: on screen; same again: not moved)`, JSON.stringify(scroll));
       const pc = sheets.find((x) => /windowsbox/.test(x.head)) || {};
       const ph = sheets.find((x) => /iPhone/.test(x.head)) || {};
-      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === 'Type the code shown on windowsbox, then press Allow.',
+      chk(pc.head === 'Your computer "windowsbox" wants to join' && pc.say === '',   // #6522: named once, in the heading
         `${tag} a computer joining reads as one of your own computers`, JSON.stringify(pc));
       chk(ph.head === 'iPhone wants to connect to your Kosmos' && /Allow only if this code is showing on the device in your hand\./.test(ph.say) && !/signed it in/.test(ph.say),
         `${tag} CONTROL: a phone keeps its own name and the device-in-your-hand line`, JSON.stringify(ph));
-      chk(sheets.length === 2 && sheets.every((x) => /kosmos\+/i.test(x.brand) && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
-        `${tag} each sheet: the Kosmos+ brand, a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
+      chk(sheets.length === 2 && sheets.every((x) => x.brand === '' && x.boxes === 0 && x.size >= 28 && x.aboveActs && x.inside && x.headShare >= 0.5 && JSON.stringify(x.acts) === JSON.stringify(['Allow', 'Not me'])),
+        `${tag} each sheet: no Kosmos+ brand line (#6519), a headline across the sheet, the code once and large (no boxes), directly above Allow and Not me`, JSON.stringify(sheets));
       chk(ph.code === 'K7-4M' && ph.label === 'K 7, 4 M', `${tag} the code is read out a character at a time`, JSON.stringify([ph.code, ph.label]));
-      chk(pc.field && pc.field.label === 'Code on windowsbox' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
+      chk(pc.field && pc.field.label === 'Code' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
         `${tag} #6404: a computer's sheet has one labelled field for the code on windowsbox, never shows (or speaks) this computer's code, and Allow waits`, JSON.stringify(pc));
       chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
       /* #6404 review 1: clicking the field's label, then the field, as a person would, sends nothing and turns nobody away. */
@@ -426,7 +426,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const rk = await page.evaluate(() => { const r = document.querySelector('#plus-ask-rows .askreq'); const a = r && r.querySelector('[data-ask="allow"]');
         return r ? { head: (r.querySelector('.askwho b') || {}).textContent || '', say: (r.querySelector('.asksay') || {}).textContent || '', button: a ? a.textContent : '',
           label: a ? a.getAttribute('aria-label') : '', field: !!r.querySelector('.askcodein'), own: r.innerHTML.indexOf('135 246') > -1 } : null; });
-      chk(rk && rk.head === 'Your computer "boxc" wants to finish its code check' && rk.say === 'Type the code shown on boxc, then press Confirm.' && rk.button === 'Confirm'
+      chk(rk && rk.head === 'Your computer "boxc" wants to finish its code check' && rk.say === '' && rk.button === 'Confirm'
         && /^Confirm the code check for computer boxc$/.test(rk.label) && rk.field && !rk.own,
         `${tag} #6404: a code check reads as finishing one, with the field and Confirm, and never shows this computer's code`, JSON.stringify(rk));
       /* Tunnel review 24: the tunnel's defence against a coordinator's own hello on the joining computer rests on this
@@ -532,7 +532,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       await page.click('#plus-join-match');
       await page.waitForFunction(() => /Matched\./.test(document.getElementById('plus-join').innerText), null, { timeout: 5000 }).catch(() => {});
       jr = await readJoin();
-      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*Waiting for homemac, your other computer, to allow this computer\. If you have not yet, type this code there and press Allow\./.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button,
+      chk(confirmBody && confirmBody.code === '482 915' && /^The codes match\.\s*If you have not yet, type this code on homemac, your other computer, and press Allow\./.test(jr.text) && !/Waiting for/.test(jr.text) && jr.code === '482 915' && jr.size >= 28 && !jr.button,
         `${tag} #4794/#6314 waiting: "The codes match" posts the code shown; then the next action leads and (#6404) the code stays large`, JSON.stringify({ confirmBody, jr }));
       /* Review 5: the tunnel reports a code that ran out unconfirmed as an ending only once this computer is no longer
          held (while held it says needs_retry instead, #6353), so the shape is connected, not held, no code. */
@@ -627,7 +627,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       join = { ...join, held: true, failed: false, needs_retry: true, confirm_expired: true, confirmed: false, join_code: '', on: null };
       jr = await readJoin();
       const retryBtn = await page.evaluate(() => { const b = document.getElementById('plus-join-retry'); return b ? { text: b.textContent, enabled: !b.disabled } : null; });
-      chk(jr.shown && jr.text === 'A new code is needed to finish pairing. When you are at both computers, press Try again for a new code. Try again' && !jr.button && retryBtn && retryBtn.enabled && jr.pill === 'Needs you',
+      chk(jr.shown && jr.text === 'A new code is needed to finish pairing. When you are at both computers, press Try again. Try again' && !jr.button && retryBtn && retryBtn.enabled && jr.pill === 'Needs you',
         `${tag} #6353 waiting: a code that ran out waits for Try again, says so, and the pill says Needs you`, JSON.stringify({ jr, retryBtn }));
       /* Every try used: the refusal paints the failed recovery at once, never Try again beside "Too many tries". */
       retryRefuse = 'attempts_used';
