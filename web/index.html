@@ -4684,6 +4684,9 @@ body:not(.consolidated) #pj-one-view > .pj-crumbrow { margin: 4px 0 10px; }
 /* #3104 (Josh, 6.68): the consolidated view's left project list already shows
    where you are, so the breadcrumb is redundant here -- hide it. */
 html[data-layout="consolidated"] body.consolidated #pj-one-view .pj-crumbrow { display: none; }
+/* #6480: a top-level project's crumb is only its own name, which the heading repeats one line lower, so it is hidden
+   and the back chevron stays. Not in the new look, where the crumb is the visible title (#4470). */
+:root:not([data-look="new"]) #pj-one-view .pj-crumb.pj-crumb-only { display: none; }
 .pj-back { background: none; border: 0; padding: 2px; color: var(--k-ink-2); cursor: pointer;
            display: inline-flex; flex: none; border-radius: 6px; }
 .pj-back:hover { background: var(--k-sunk); color: var(--k-ink); }
@@ -68248,7 +68251,8 @@ function paintOneProject() {
      every test to mock the node, and a partial render never throws. */
   /* #2928: the breadcrumb is the FULL location, current project included
      ("Project / Subproject / ThisProject"), where #2487 showed only the
-     ancestors. A top-level project shows its own name as the single crumb. The
+     ancestors. A top-level project shows its own name as the single crumb (hidden in
+     today's look since #6480, where the heading repeats it; the new look shows it as its title). The
      back chevron beside it (#pj-back) goes up one nesting level or to the list;
      its target is decided at click time from the then-current project. */
   const crumbEl = document.getElementById('pj-crumb');
@@ -68300,6 +68304,10 @@ function paintOneProject() {
     } else {
       crumbEl.innerHTML = '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
     }
+    /* #6480: a top-level project's only crumb is its own name, which the heading says one line lower, so today's look
+       hides it (CSS .pj-crumb-only) and keeps the back chevron. The new look keeps it: there the crumb IS the visible
+       title ("Projects / Name") and #pj-one-name is visually hidden. */
+    crumbEl.classList.toggle('pj-crumb-only', !ancNodes.length);
   }
   /* #2928: name the back chevron's live target so a screen-reader user hears where it
      goes ("Back to Kosmos" / "Back to all projects"), not a bare "Back". Set here from
