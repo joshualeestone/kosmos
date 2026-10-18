@@ -28,3 +28,9 @@ runs the build's own lines with a relative STAGE and would have failed before th
 ## Why the earlier checks missed it
 The build's manifest writer was exercised by hand with KM_PINNED_KEYS passed in, and the pinned-key read itself was
 only ever run with absolute paths; test-install.sh's update block needs a built bundle and never ran before the cut.
+
+## Review log
+### Iteration 1 (opus): 0 BLOCKERs, no code WARNINGs (converged)
+- [WARNING] (state, not code) the reviewer read the tree before the commit landed (MOOT: committed and pushed 61bc071d80)
+- [NIT] a missing app/engine folder exits via the shell cd error, not the FAIL line (ACCEPTED: kosmos_bundle_odd_names already refuses a stage without app/); CDPATH exported in a cut would make the cd print and the read refuse visibly (ACCEPTED: fails safe)
+- Checked: no other shell-embedded require() of an argv/env path in build-kosmos-bundle.sh, release.sh, test-install.sh; manifest-sign.js loads the verifier via __dirname; run-tests.sh globs root *.test.js.
