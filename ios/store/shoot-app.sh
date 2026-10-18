@@ -6,8 +6,8 @@
 # store team (docs/browser-checks/mobile-shots.js --keep --data store), so no real account, agent or Mac appears.
 #
 # Two sizes, light and dark, the same four screens in store order:
-#   6.3/  iPhone 17          1206x2622  meets App Store Connect's required display (Dynamic Island, medium; 1179x2556 also does)
-#   6.9/  iPhone 17 Pro Max  1320x2868  the large size; optional, shown on the biggest phones
+#   6.3-light, 6.3-dark  iPhone 17          1206x2622  meets App Store Connect's required display (Dynamic Island, medium; 1179x2556 also does)
+#   6.9-light, 6.9-dark  iPhone 17 Pro Max  1320x2868  the large size; optional, shown on the biggest phones
 # filed as screenshots/<size>-<theme>/NN-name.png with no alpha channel. The status bar shows full signal and battery
 # and the time the run started, not Apple's 9:41: the board dates the sample messages from now, and a chat whose
 # messages were sent after the phone's clock reads as a fault.

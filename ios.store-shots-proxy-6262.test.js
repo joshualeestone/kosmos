@@ -31,6 +31,7 @@ const PROXY = path.join(__dirname, 'ios', 'store', 'shots-proxy.js');
 const CHECKOUT = fs.mkdtempSync(path.join(os.tmpdir(), 'shots-proxy-'));
 fs.mkdirSync(path.join(CHECKOUT, 'web', 'icons'), { recursive: true });
 fs.writeFileSync(path.join(CHECKOUT, 'web', 'icons', 'kosmos-32.png'), 'png');
+fs.writeFileSync(path.join(CHECKOUT, 'secret.png'), 'png');   // in the checkout but not under web/: not shipped
 const PNG = (res) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end('png'); };
 
 const ROUTES = {
@@ -47,6 +48,11 @@ const ROUTES = {
   '/leak-u': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"p":"' + [...os.homedir()].map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('') + '"}'); },
   '/leak-ent': (res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>' + [...os.homedir()].map((c) => '&#' + c.charCodeAt(0) + ';').join('') + '</p>'); },
   '/hdr': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-disposition': 'attachment; filename="' + os.homedir() + '/notes.txt"' }); res.end('{}'); },
+  // Echoes what the board was asked with, so the arms can see the rewrite; and redirects within the board.
+  '/echo': (res, req) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ host: req.headers.host, origin: req.headers.origin || null, referer: req.headers.referer || null })); },
+  '/moved': (res, req) => { res.writeHead(302, { location: 'http://' + req.headers.host + '/api/status' }); res.end(); },
+  '/leak-mixed': (res) => { const h = os.homedir(), cut = Math.floor(h.length / 2); res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"p":"' + encodeURIComponent(h.slice(0, cut)) + [...h.slice(cut)].map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('') + '"}'); },
+  '/leak-slash': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"p":"' + os.homedir().split('/').join('\\/') + '"}'); },
   '/gzip': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }); res.end(zlib.gzipSync('{"a":1}')); },
   '/stream': (res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: hello\n\n'); setTimeout(() => res.end(), 50); },
   '/chunked': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"a":'); setTimeout(() => res.end('1}'), 20); },
@@ -137,6 +143,28 @@ test('a request for another host name is refused (a page reaching the proxy by D
   assert.equal(r.status, 403);
   await logged(/^REFUSED /m);
   assert.equal((await get('/api/status')).status, 200);   // its own address still answers
+});
+
+test('the board is asked as itself: Host, Origin and Referer are its own address, and its redirects point back here', async () => {
+  const e = JSON.parse((await get('/echo', { origin: base, referer: base + '/x?y=1' })).body);
+  assert.equal(e.host, '127.0.0.1:' + board.address().port);
+  assert.equal(e.origin, 'http://127.0.0.1:' + board.address().port);
+  assert.equal(e.referer, 'http://127.0.0.1:' + board.address().port + '/x?y=1');
+  const m = await get('/moved');
+  assert.equal(m.status, 302);
+  assert.equal(m.headers.location, base + '/api/status');
+});
+
+test('a path that climbs out of web/ is not a shipped file, even when the file exists', async () => {
+  assert.equal((await get('/icons/..%2f..%2fsecret.png')).status, 502);
+  await logged(/^LEAK \/icons\/\.\.%2f\.\.%2fsecret\.png: a picture or media file that is not one the product ships/m);
+});
+
+test('a home path that mixes encodings, or uses JSON\'s escaped slash, is refused', async () => {
+  for (const p of ['/leak-mixed', '/leak-slash']) {
+    assert.equal((await get(p)).status, 502, p);
+    await logged(new RegExp('^LEAK ' + p + ': .*home:', 'm'));   // the home path itself, whatever else is named
+  }
 });
 
 test('a sibling of the checkout is not swapped', async () => {
