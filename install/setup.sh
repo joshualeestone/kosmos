@@ -350,11 +350,15 @@ sealed_requirement() {
 # loads are covered by the signed manifest (#6468 ask 2), an older genuine release passes this check (the manifest's
 # version binding covers that), and the check is only as trusted as the copy of this script that runs it (ask 3).
 # RECOVERY when a genuine release changes a part's signer: every install refuses it, the install line included (it
-# finds the installed copy too), so such a release must first ship one that relaxes the check for that part.
+# finds the installed copy too), so such a release must first ship one that relaxes the check for that part. The
+# refusal does not tell the person to uninstall and reinstall: a fresh install has no copy to hold the update to, so
+# that is exactly the way around this check for a forged build. KNOWN GAP: a swap interrupted after the old app/ was
+# removed leaves those parts missing, and the rerun holds only the runtime to its signer.
 update_signer_ok() {
   local stage="$1" dest="$2" part req deep d desc unheld=""
   for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
-    [ -e "$dest/$part" ] && [ ! -L "$dest/$part" ] || continue
+    [ -e "$dest/$part" ] || [ -L "$dest/$part" ] || continue
+    if [ -L "$dest/$part" ]; then unheld="$unheld $part"; continue; fi
     # Matched on codesign's own lines, never on the whole output (which carries the path).
     desc="$(/usr/bin/codesign -dv "$dest/$part" 2>&1)" || :
     case "
@@ -383,7 +387,7 @@ Signature=adhoc
     deep=""; case "$part" in *.app) deep="--deep";; esac
     # shellcheck disable=SC2086  # $deep is one flag or nothing
     if [ -L "$stage/$part" ] || ! /usr/bin/codesign --verify $deep --strict "-R=$req" "$stage/$part" >/dev/null 2>&1; then
-      info "the update's $part is not signed by the same developer as this install, so it was not installed (reinstalling after an uninstall is the way past this if it persists)"
+      info "the update's $part is not signed by the same developer as this install, so it was not installed. Nothing on this computer was changed; please report this."
       return 1
     fi
   done
