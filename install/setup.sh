@@ -391,7 +391,7 @@ Signature=adhoc
       return 1
     fi
   done
-  [ -z "$unheld" ] || info "this install is a local build (not signed for release:$unheld), so the update's signatures were not checked"
+  [ -z "$unheld" ] || info "this install was not signed for release (local build or older:$unheld), so the update's signatures were not checked"
   return 0
 }
 # Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the
