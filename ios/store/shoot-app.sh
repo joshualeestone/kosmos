@@ -30,9 +30,8 @@ work="$(mktemp -d "${TMPDIR:-/tmp}/ios-app-shots-XXXXXX")"
 board_pid=""; proxy_pid=""; sims=()
 cleanup() {
   [ -n "$proxy_pid" ] && kill "$proxy_pid" 2>/dev/null
-  # SIGINT is the board's Ctrl-C: it stops and deletes its data.
-  # SIGINT is what mobile-shots.js listens for (its own handler; a background job's default would ignore it).
-  # Wait up to 20s for it to delete its data, then make sure it is gone.
+  # SIGINT is the board's Ctrl-C (mobile-shots.js's own handler; a background job's default would ignore it): it
+  # stops and deletes its data. Wait up to 20s for that, then make sure it is gone.
   if [ -n "$board_pid" ] && kill -INT "$board_pid" 2>/dev/null; then
     for _ in $(seq 1 40); do kill -0 "$board_pid" 2>/dev/null || break; sleep 0.5; done
     kill -TERM "$board_pid" 2>/dev/null
@@ -72,6 +71,12 @@ for _ in $(seq 1 240); do
 done
 if grep -q 'LEAK GUARD' "$work/board.log"; then fail "mobile-shots.js's leak guard stopped the board run"; fi
 [ -n "$base" ] || { tail -5 "$work/board.log"; fail "the throwaway board did not come up"; }
+# The board stays up even when a screen errored before its page check ran, so ask for each screen's own clean
+# line ("ok    <screen>--..."; a FLAG line carries the error or the note) rather than trusting "stays up".
+for name in "${order[@]}"; do
+  grep -q "^ok    ${name}--" "$work/board.log" \
+    || { grep -E "^(FLAG|ERROR)" "$work/board.log" | head -3; fail "mobile-shots.js did not read $name cleanly, so its leak guard did not cover it"; }
+done
 
 lan="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
 [ -n "$lan" ] || fail "this Mac has no network address for the app to reach the board at"
@@ -101,9 +106,11 @@ for d in "${devices[@]}"; do
   xcrun simctl boot "$udid" && xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the $size simulator did not boot"
   xcrun simctl install "$udid" "$app" || fail "could not install the app on $size"
   xcrun simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
-    --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+    --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 \
+    || fail "could not set the $size status bar to 9:41"
   for theme in light dark; do
-    xcrun simctl ui "$udid" appearance "$theme"
+    xcrun simctl ui "$udid" appearance "$theme" || fail "could not switch the $size simulator to $theme"
+    [ "$(xcrun simctl ui "$udid" appearance 2>/dev/null)" = "$theme" ] || fail "the $size simulator is not in $theme"
     for name in "${order[@]}"; do
       xcrun simctl terminate "$udid" io.kosmos.app >/dev/null 2>&1
       SIMCTL_CHILD_KOSMOS_SHOTS_URL="$url$(path_for "$name")" xcrun simctl launch "$udid" io.kosmos.app >/dev/null \
@@ -115,6 +122,7 @@ for d in "${devices[@]}"; do
   done
 done
 
+if grep -q '^UPSTREAM' "$work/proxy.log"; then fail "the board broke off an answer mid-run; a picture may be half loaded"; fi
 if grep -q '^REFUSED' "$work/proxy.log"; then fail "something other than this Mac reached the proxy; nothing filed"; fi
 if grep -q '^LEAK' "$work/proxy.log"; then grep '^LEAK' "$work/proxy.log" | head -5; fail "the proxy's leak guard refused an answer; nothing filed"; fi
 
