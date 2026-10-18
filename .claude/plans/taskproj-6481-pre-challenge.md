@@ -28,6 +28,9 @@ squashed commit then passed (GATE_EXIT=0, both overrides read). run-tests.sh run
 checks themselves, so the two edited checks (render-tasks-view-3559.js, render-taskhover-4880.js) did not execute in
 this run; CI's browser-check workflows run them.
 
+
+The two browser checks this branch edits were then run on their own through queued-heavy at the squashed tree: docs/browser-checks/render-tasks-view-3559.js 313 PASS, 0 FAIL (exit 0), including the 390 px title-to-meta gap and the long subproject title; render-taskhover-4880.js 114 PASS, 0 FAIL (exit 0).
+
 ### Per-Iteration Breakdown
 
 #### Iteration 1
