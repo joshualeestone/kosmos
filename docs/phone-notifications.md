@@ -1,19 +1,36 @@
 # Phone notifications: every message type and its wording
 
 kosmos#6487 (Josh, 2026-10-18: "We should configure a list of all of the message types we could send and document").
-DRAFT. The shipped rows were read from the code on 2026-10-18; the push path's owner has not confirmed them yet.
+Shipped rows read from the code on 2026-10-18 and confirmed by the push path's owner (kosmos#6487; the event table with
+its server.js lines is in that card's comments).
 
 ## How a notification travels
 A computer running Kosmos decides that something happened (`engine/phonenotify.js`, called from `server.js`) and sends
 the coordinator a short event: its kind, the agent, the project, and an id. The coordinator turns the event into the
-words on the phone (`coordinator/src/apns.rs` `payload` for iPhone, `push.rs` for the web) and sends it through Apple.
+words on the phone for iPhone (`coordinator/src/apns.rs` `payload`, sent through Apple), and the board's `sw.js` builds
+the same words for Android and the browser (web push). Both must match this page; a test checks them.
 **The words of a message are never sent**: the notification says that something happened and who, and the
 conversation opens on a tap.
 
-Nothing is sent until the person turns phone notifications on (the master switch is off by default) and has a phone
-signed in. Each kind below has its own switch under that.
+Nothing is sent until phone notifications are on (the master switch; its default is changing to on under kosmos#6488)
+and a phone is signed in. Each kind below has its own switch under that.
 
-## Shipped
+## Wording (the plain templates, to ship now)
+Short and plain: the title says who and what; the body names the project, and is left out when there is none
+(everything is in Kosmos, so saying "in Kosmos" adds nothing).
+
+| Kind | Title | Body |
+|---|---|---|
+| needs_you | `<Agent> needs you` | `in <Project>`, or no body |
+| replied | `<Agent> replied` | `in <Project>`, or no body |
+| posted | `<Agent> posted` | `in <Project>` |
+| ready | `<Agent> has work ready for you` | `in <Project>`, or no body |
+| anything else | `<Agent> has something for you` | no body |
+
+Changed from what ships today: the body said `on <Project>` (now `in`, as Josh wrote it), and `in Kosmos` when there
+was no project (now no body).
+
+## Shipped today
 
 | Event | When | Title | Body | Switch, default | Repeats |
 |---|---|---|---|---|---|
