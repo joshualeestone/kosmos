@@ -341,27 +341,47 @@ sealed_requirement() {
 # #6468 ask 1: an update must come from whoever signed the build already installed. Each signed part of the new build
 # in the stage ($1) must satisfy the designated requirement of the same part installed at $2: the identifier and the
 # signing team, read from the installed copy, so no Team ID is spelled here (runtime/bin/node is Node's own team, the
-# rest are ours). Runs BEFORE anything in the stage is run. A part the installed copy does not have, or whose
-# installed signature is ad-hoc (a cdhash requirement: a local or test build), or unsigned, is not checked, and says
-# so: there is no release signer to hold it to. A tarball from a compromised host cannot meet a Developer ID
-# requirement it was not signed for. LIMIT: this guards the signed binaries only; app/ JS and bin/kosmos are covered
-# by the signed manifest (#6468 ask 2), and the check is only as trusted as the copy of this script that runs it.
+# rest are ours). Runs BEFORE anything in the stage is run. A part the installed copy does not have is not checked
+# (the stage's own gates refuse a missing node or connector, and the app falls back to wrapping kosmos-app, which is).
+# An installed part that is ad-hoc signed (a local or test build) or unsigned has no release signer to hold the new one
+# to, so it is not checked and the run says so once; an installed part whose signature cannot be READ is a refusal.
+# A folder on a part's path that is a symlink is refused too (codesign would follow it to the installed files).
+# LIMIT: this holds the signed BINARIES to their signer, nothing else. The app's JS, bin/kosmos and anything node
+# loads are covered by the signed manifest (#6468 ask 2), an older genuine release passes this check (the manifest's
+# version binding covers that), and the check is only as trusted as the copy of this script that runs it (ask 3).
+# RECOVERY when a genuine release changes a part's signer: every install refuses it, the install line included (it
+# finds the installed copy too), so such a release must first ship one that relaxes the check for that part.
 update_signer_ok() {
-  local stage="$1" dest="$2" part req deep
+  local stage="$1" dest="$2" part req deep d desc unheld=""
   for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
     [ -e "$dest/$part" ] && [ ! -L "$dest/$part" ] || continue
+    desc="$(/usr/bin/codesign -dv "$dest/$part" 2>&1)" || :
+    case "$desc" in
+      *"not signed at all"*|*"(adhoc"*|*",adhoc"*) unheld="$unheld $part"; continue ;;
+    esac
     req="$(/usr/bin/codesign -d -r- "$dest/$part" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')" || req=""
     case "$req" in
-      ''|*cdhash*) info "the installed $part is not a signed release, so the new one's signature is not checked"; continue ;;
+      ''|*cdhash*)
+        info "this install's $part signature could not be read, so the update was not installed"
+        return 1 ;;
     esac
-    if [ ! -e "$stage/$part" ]; then continue; fi
+    d="$part"
+    while [ "$d" != "${d%/*}" ]; do
+      d="${d%/*}"
+      if [ -L "$stage/$d" ]; then
+        info "the update's $d is a link, so it was not installed"
+        return 1
+      fi
+    done
+    if [ ! -e "$stage/$part" ] && [ ! -L "$stage/$part" ]; then continue; fi
     deep=""; case "$part" in *.app) deep="--deep";; esac
     # shellcheck disable=SC2086  # $deep is one flag or nothing
     if [ -L "$stage/$part" ] || ! /usr/bin/codesign --verify $deep --strict "-R=$req" "$stage/$part" >/dev/null 2>&1; then
-      info "the update's $part is not signed by the same developer as this install, so it was not installed"
+      info "the update's $part is not signed by the same developer as this install, so it was not installed (reinstalling after an uninstall is the way past this if it persists)"
       return 1
     fi
   done
+  [ -z "$unheld" ] || info "this install is a local build (not signed for release:$unheld), so the update's signatures were not checked"
   return 0
 }
 # Does the account's own config (slice 1, write_install_config) name THIS install? Same anchored match as the

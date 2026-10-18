@@ -9,6 +9,10 @@
  * no keychain or certificate is needed, and a copy keeps its signature. The forged parts are ad-hoc re-signed copies,
  * which is what a tarball built without the release key looks like.
  *
+ * LIMIT: Apple's binaries are signed "anchor apple", so these arms exercise the identifier clause of a requirement,
+ * never the team clause a Developer ID requirement carries. The arms marked REAL INSTALL use this Mac's own signed
+ * Kosmos (Developer ID, team and identifier) and skip where there is none, which includes CI.
+ *
  *   node --test install.update-signer-6468.test.js
  */
 const test = require('node:test');
@@ -95,7 +99,49 @@ it('an ad-hoc (local build) install is not held to a signer, and says so', () =>
   const dest = tree('/bin/ls', '/bin/cat', { adhoc: ['runtime/bin/node', 'app/bin/kosmos-tunnel'] });
   const r = check(tree('/bin/cat', '/bin/ls', { adhoc: ['runtime/bin/node'] }), dest);
   assert.equal(r.code, 0, r.out);
-  assert.match(r.out, /installed runtime\/bin\/node is not a signed release/);
+  assert.match(r.out, /local build \(not signed for release: runtime\/bin\/node app\/bin\/kosmos-tunnel\)/);
+  assert.equal(r.out.split('\n').filter(Boolean).length, 1, 'one line, not one per part');
+});
+
+it('a symlinked folder on a part\'s path is refused, though codesign would pass the files behind it', () => {
+  const dest = tree('/bin/ls', '/bin/cat');
+  const stage = fs.mkdtempSync(path.join(tmpRoot, 't-'));
+  fs.mkdirSync(path.join(stage, 'app'));
+  fs.symlinkSync(path.join(dest, 'runtime'), path.join(stage, 'runtime'));
+  fs.symlinkSync(path.join(dest, 'app', 'bin'), path.join(stage, 'app', 'bin'));
+  const r = check(stage, dest);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /runtime is a link/);
+});
+
+// REAL INSTALL: the .app branch (--deep) and the team clause, against this Mac's own Developer ID Kosmos.
+const REAL = path.join(os.homedir(), '.local', 'share', 'kosmos', 'app', 'Kosmos.app');
+const realSigned = MAC === true && fs.existsSync(REAL)
+  && /TeamIdentifier=[A-Z0-9]{10}/.test(spawnSync('/usr/bin/codesign', ['-dv', REAL], { encoding: 'utf8' }).stderr);
+const real = (name, fn) => test(name, { skip: realSigned ? false : 'no Developer ID signed Kosmos installed here' }, fn);
+function realTree() {
+  const root = fs.mkdtempSync(path.join(tmpRoot, 'real-'));
+  fs.mkdirSync(path.join(root, 'app'));
+  execFileSync('/usr/bin/ditto', [REAL, path.join(root, 'app', 'Kosmos.app')]);
+  execFileSync('/bin/chmod', ['-R', 'u+w', root]);
+  return root;
+}
+real('REAL INSTALL: a copy of the signed Kosmos.app is accepted (the --deep branch)', () => {
+  const r = check(realTree(), realTree());
+  assert.equal(r.code, 0, r.out);
+});
+real('REAL INSTALL: a file changed inside the signed Kosmos.app is refused', () => {
+  const stage = realTree();
+  fs.appendFileSync(path.join(stage, 'app', 'Kosmos.app', 'Contents', 'Info.plist'), '\n');
+  const r = check(stage, realTree());
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos\.app is not signed by the same developer/);
+});
+real('REAL INSTALL: the same app re-signed ad-hoc (no release key) is refused', () => {
+  const stage = realTree();
+  execFileSync('/usr/bin/codesign', ['--force', '--deep', '-s', '-', path.join(stage, 'app', 'Kosmos.app')], { stdio: 'ignore' });
+  const r = check(stage, realTree());
+  assert.equal(r.code, 1, r.out);
 });
 
 it('the installer calls it before the new runtime is first run, on the downloaded path only', () => {
