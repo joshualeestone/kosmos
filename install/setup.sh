@@ -854,7 +854,7 @@ _UM_DIR=""   # never inherited: it names the folder holding the fetched manifest
 _UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so post carries on as pre said
 update_manifest_ok() {
   local phase="$1" stage="$2" dest="$3" v rc=0 out arg
-  [ -f "$dest/app/engine/manifest-verify.js" ] && [ -x "$dest/runtime/bin/node" ] || {
+  [ -f "$dest/app/engine/manifest-verify.js" ] && [ -f "$dest/runtime/bin/node" ] && [ -x "$dest/runtime/bin/node" ] || {
     # Skipped, not refused: re-running the installer is the documented repair for a damaged install. Said truly.
     if [ "$phase" = pre ] && [ -e "$dest/app" ]; then
       if [ -f "$dest/app/engine/manifest-verify.js" ]; then
