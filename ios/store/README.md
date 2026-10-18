@@ -100,8 +100,8 @@ address is `shots-proxy.js` in front of a throwaway board filled with an invente
 appears: the tool's leak guard reads the four screens first, and the proxy reads every text answer the board gives
 the app with the same checks (in its encoded forms too), lets a picture or file through only at the path of one
 the product itself ships (or empty), and stops the run on anything else. iOS CI checks that the store build never carries the switch
-(`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar reads 9:41 with full signal, as Apple's
-own pictures do.
+(`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar shows full signal and battery and the time
+the run started (not Apple's usual 9:41), so it agrees with the times on the messages.
 
 Two things are staged so the pictures show a computer that is set up, which the empty test board is not, as the
 earlier sets did: each invented agent has its own folder, and the board's "Claude subscription" status reads

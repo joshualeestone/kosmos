@@ -8,8 +8,9 @@
 # Two sizes, light and dark, the same four screens in store order:
 #   6.3/  iPhone 17          1206x2622  meets App Store Connect's required display (Dynamic Island, medium; 1179x2556 also does)
 #   6.9/  iPhone 17 Pro Max  1320x2868  the large size; optional, shown on the biggest phones
-# filed as screenshots/<size>-<theme>/NN-name.png with no alpha channel. The status bar reads 9:41, full signal and
-# battery, as Apple's own pictures do.
+# filed as screenshots/<size>-<theme>/NN-name.png with no alpha channel. The status bar shows full signal and battery
+# and the time the run started, not Apple's 9:41: the board dates the sample messages from now, and a chat whose
+# messages were sent after the phone's clock reads as a fault.
 #
 # Needs: Xcode with an iOS simulator runtime (xcodebuild -downloadPlatform iOS), Python with Pillow, the pw-runtime
 # for mobile-shots.js, and this Mac on a network (the app reaches the board at this Mac's network address, which
@@ -99,6 +100,7 @@ path_for() {
   esac
 }
 
+clock="$(date +%-I:%M)"   # the status bar's time, so it agrees with the board's message times (header)
 devices=("6.3:com.apple.CoreSimulator.SimDeviceType.iPhone-17" "6.9:com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max")
 mkdir -p "$work/raw"
 for d in "${devices[@]}"; do
@@ -107,9 +109,9 @@ for d in "${devices[@]}"; do
   sims+=("$udid")
   xcrun simctl boot "$udid" && xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the $size simulator did not boot"
   xcrun simctl install "$udid" "$app" || fail "could not install the app on $size"
-  xcrun simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
+  xcrun simctl status_bar "$udid" override --time "$clock" --dataNetwork wifi --wifiMode active --wifiBars 3 \
     --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100 \
-    || fail "could not set the $size status bar to 9:41"
+    || fail "could not set the $size status bar to $clock"
   for theme in light dark; do
     xcrun simctl ui "$udid" appearance "$theme" || fail "could not switch the $size simulator to $theme"
     [ "$(xcrun simctl ui "$udid" appearance 2>/dev/null)" = "$theme" ] || fail "the $size simulator is not in $theme"
