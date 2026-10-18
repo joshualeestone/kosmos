@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recheckapp-6404
-diff_hash: 47b55a70d4cfdf145effdc74902ef91e75b5e028d58cc22973a033f2610f285e
+diff_hash: b2a7c0958da9f0f01b0b2423177b5f0e145a86626a422b4da23a2450aee3e48d
 validation: passed (after rebasing onto typedcode-6404, itself rebased on main: engine/remote.joincode-4794 20/20, engine/remote.test.js 229/229, server.test.js 359/359, web.allow-card 12/12, web.plus-tab and web.plus-stale 0 failing; both browser-check gates 0. render-connect-sheet-4637's arms start a board, so PR CI's browser-checks job runs them)
 subdir_audit: passed
 timestamp: 2026-10-18T02:30:31Z
@@ -55,3 +55,5 @@ with the tunnel half, kosmos-relay #442, and ships with or after it. Stacked on 
 
 ### Strengths (across all iterations)
 - Confirm sends the code typed from the joining computer, never this computer's own (the tunnel's defence rests on it)
+
+Re-rebased 2026-10-18 05:40 CDT onto main (it was DIRTY after #6440 and #6435 merged). Conflicts in engine/remote.js, server.js, web/index.html were both-sides-added (openTicket / joinRecheck routes and functions; #6385 slow line / recheck handler; the wait line now carries both the recheck wording and #6385's slow line). Re-validated: web.*.test.js + browser-checks-selectors + server.test.js 3332/3332. CI runs the connect-sheet check.
