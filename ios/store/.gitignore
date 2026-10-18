@@ -1,0 +1,3 @@
+# shoot-app.sh swaps each set through these; a run killed between its renames can leave one (#6262)
+.shots-new-*/
+.shots-old-*/

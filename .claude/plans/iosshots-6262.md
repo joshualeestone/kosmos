@@ -37,7 +37,7 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   passes all four agents with zero hits, a wrong one is refused with LEAK on all four.
 - `ios/store/shoot-app.sh`: build with the flag, board via `mobile-shots.js --keep --data store` (its own leak guard
   reads the same four screens first), proxy on this Mac's network address, iPhone 17 (6.3, required) and iPhone 17
-  Pro Max (6.9) simulators, light and dark, status bar 9:41, alpha dropped, filed as screenshots/<size>-<theme>/.
+  Pro Max (6.9) simulators, light and dark, status bar at the run's own time (review 10: the board dates messages from now, so 9:41 contradicted them), alpha dropped, filed as screenshots/<size>-<theme>/.
 - `ios/tools/check-no-shots-flag.sh` + an iOS CI step: the Release app and the archive's app must not carry the
   switch; a real Release build made WITH the switch must fail on the found-it line (control). Measured locally:
   FAIL on a Debug and a Release shots build, PASS on a plain Release build. archive.sh's export check
@@ -81,7 +81,7 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
 
 ## Deferred (review 9)
 - **The fixed settle (10s per screen) is the only readiness signal.** A slow box could photograph a half-drawn
-  page and still pass; every picture is read by eye before it is filed, and network quiet is no signal with the
+  page and still pass; the filed pictures are read by eye before they are committed, and network quiet is no signal with the
   page polling every few seconds. Revisit if a half-drawn picture is ever found.
 - **The switch check's control is a simulator Release build, not a device archive built with the switch.** The
   marker is a string literal the code reads, so it is in any build that compiles the switch in; not measured on
