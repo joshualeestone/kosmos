@@ -13,6 +13,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const cp = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -51,9 +52,15 @@ test('#1765: a Valid signature by anyone else, or under any other chain, is refu
   assert.match(refused({ signer: 'OpenJS Foundation' }), /^the update's Kosmos\.exe is signed by 'OpenJS Foundation', not by Kosmos Agent Manager, Inc\.$/);
   assert.match(refused({ signer: 'Kosmos Agent Manager, Inc. ' }), /is signed by/, 'a near match is not the signer');
   assert.match(refused({ signer: '' }), /is signed by ''/);
+  /* Lookalikes. JS's toLowerCase folds the Kelvin sign (U+212A) to 'k'; PowerShell's -ne does not. */
+  for (const lookalike of ['\u212Aosmos Agent Manager, Inc.', '\uFF2Bosmos Agent Manager, Inc.', 'Kosmos Agent Manager\u2013 Inc.', 'Kosmos Agent Manager, Inc.\u200B']) {
+    assert.match(refused({ signer: lookalike }), /is signed by/, JSON.stringify(lookalike));
+  }
   const notMicrosoft = /^the update's Kosmos\.exe signature does not come from Microsoft's code-signing service for Kosmos Agent Manager, Inc\. \(its chain ends at /;
   assert.match(refused({ rootThumbprint: 'A'.repeat(40) }), notMicrosoft);
   assert.match(refused({ rootThumbprint: '' }), notMicrosoft);
+  assert.match(refused({ rootThumbprint: SIGNED_KOSMOS.rootThumbprint.replace('F', '\uFF26') }), notMicrosoft);
+  assert.match(refused({ chain: [SIGNED_KOSMOS.chain[0], 'CN=Microsoft ID Verified C\u043Ede Signing PCA 2021, O=Microsoft Corporation, C=US', SIGNED_KOSMOS.chain[3]] }), notMicrosoft, 'a Cyrillic o in the intermediate');
   assert.match(refused({ chain: [] }), /\(its chain ends at nothing\)$/);
   assert.match(refused({ chain: SIGNED_KOSMOS.chain.filter((s) => !/PCA/.test(s)) }), notMicrosoft, 'no ID Verified intermediate');
   /* The pattern is anchored at both ends, as setup.ps1's ^...\z is. */
@@ -86,6 +93,20 @@ test('#1765: the signer, root and intermediate the updater requires are exactly 
 
 /* ─── Windows' own answer ──────────────────────────────────────────────────────────────────── */
 
+/* A Valid answer needs Microsoft's Identity Verification root (2020) in this computer's root store, as
+   setup.ps1's check does. Every supported Windows has it; a box that does not is said, not failed. */
+function microsoftRootInstalled() {
+  if (!ON_WINDOWS) return false;
+  try {
+    const out = cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `[Console]::Out.Write([string](Test-Path -LiteralPath 'Cert:\\LocalMachine\\Root\\${win32update.EXPECTED_ROOT_THUMBPRINT}'))`],
+    { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    return out.trim() === 'True';
+  } catch { return false; }
+}
+const ROOT_THERE = microsoftRootInstalled();
+const WITH_ROOT = { ...WINDOWS_ONLY, skip: WINDOWS_ONLY.skip || (!ROOT_THERE && 'Microsoft Identity Verification Root 2020 is not installed on this computer') };
+
 let scratch = null;
 function scratchCopy(name, bytes) {
   if (!scratch) scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sig-1765-'));
@@ -96,8 +117,8 @@ function scratchCopy(name, bytes) {
 }
 test.after(() => { if (scratch) fs.rmSync(scratch, { recursive: true, force: true }); });
 
-test('#1765 on Windows: the committed, signed Kosmos.exe passes, chained as setup.ps1 requires', WINDOWS_ONLY, () => {
-  const sig = win32update.authenticodeOf(KOSMOS_EXE, 60000);
+test('#1765 on Windows: the committed, signed Kosmos.exe passes, chained as setup.ps1 requires', WITH_ROOT, async () => {
+  const sig = await win32update.authenticodeOf(KOSMOS_EXE, 60000);
   assert.equal(sig.status, 'Valid');
   assert.equal(sig.signer, 'Kosmos Agent Manager, Inc.');
   assert.equal(sig.rootThumbprint, 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2');
@@ -105,18 +126,18 @@ test('#1765 on Windows: the committed, signed Kosmos.exe passes, chained as setu
   /* A copy elsewhere (a path with a space and a quote) is the same file to Windows: the path rides in the
      environment, not the command. */
   const copy = scratchCopy("Kosmos o'clock.exe", fs.readFileSync(KOSMOS_EXE));
-  assert.equal(win32update.signatureRefusal(win32update.authenticodeOf(copy, 60000)), null);
+  assert.equal(win32update.signatureRefusal(await win32update.authenticodeOf(copy, 60000)), null);
 });
 
-test('#1765 on Windows: a copy with one byte changed is refused', WINDOWS_ONLY, () => {
+test('#1765 on Windows: a copy with one byte changed is refused', WINDOWS_ONLY, async () => {
   const bytes = Buffer.from(fs.readFileSync(KOSMOS_EXE));
   bytes[0x400] ^= 0xff;
-  const sig = win32update.authenticodeOf(scratchCopy('Kosmos.exe', bytes), 60000);
+  const sig = await win32update.authenticodeOf(scratchCopy('Kosmos.exe', bytes), 60000);
   assert.equal(sig.status, 'HashMismatch');
   assert.match(win32update.signatureRefusal(sig), /not validly signed \(Windows says: HashMismatch\)/);
 });
 
-test('#1765 on Windows: the same launcher with its signature cut off is refused', WINDOWS_ONLY, () => {
+test('#1765 on Windows: the same launcher with its signature cut off is refused', WINDOWS_ONLY, async () => {
   /* The certificate table is the tail of the file, named by the optional header's Security entry
      (verify-launcher.ps1 reads it the same way); dropping it and zeroing the entry is the unsigned image. */
   const k = Buffer.from(fs.readFileSync(KOSMOS_EXE));
@@ -127,23 +148,50 @@ test('#1765 on Windows: the same launcher with its signature cut off is refused'
   const unsigned = Buffer.from(k.subarray(0, secOff));
   unsigned.writeUInt32LE(0, dirs + 32);
   unsigned.writeUInt32LE(0, dirs + 36);
-  const sig = win32update.authenticodeOf(scratchCopy('Kosmos.exe', unsigned), 60000);
+  const sig = await win32update.authenticodeOf(scratchCopy('Kosmos.exe', unsigned), 60000);
   assert.equal(sig.status, 'NotSigned');
   assert.match(win32update.signatureRefusal(sig), /not validly signed \(Windows says: NotSigned\)/);
 });
 
-test('#1765 on Windows: an exe validly signed by someone else is refused', WINDOWS_ONLY, () => {
+test('#1765 on Windows: an exe validly signed by someone else is refused', WITH_ROOT, async () => {
   /* This node.exe: Node.js's own release is Authenticode-signed by the OpenJS Foundation, measured
      (2026-10-17) under the very same Microsoft ID Verified chain and root as Kosmos.exe. So the chain
      alone proves nothing here; the signer's name is what refuses it. */
-  const sig = win32update.authenticodeOf(process.execPath, 60000);
+  const sig = await win32update.authenticodeOf(process.execPath, 60000);
   if (sig.status !== 'Valid') { assert.ok(win32update.signatureRefusal(sig)); return; }
   assert.notEqual(sig.signer, 'Kosmos Agent Manager, Inc.');
   assert.match(win32update.signatureRefusal(sig), /^the update's Kosmos\.exe is signed by '.+', not by Kosmos Agent Manager, Inc\.$/);
 });
 
-test('#1765 on Windows: a file that is not there is an answer Windows gives, not a pass', WINDOWS_ONLY, () => {
-  let sig = null;
-  try { sig = win32update.authenticodeOf(path.join(os.tmpdir(), `kosmos-sig-1765-missing-${process.pid}.exe`), 60000); } catch { sig = null; }
-  assert.ok(win32update.signatureRefusal(sig), 'a missing file passed');
+test('#1765 on Windows: a file that is not there cannot be checked, which is a refusal', WINDOWS_ONLY, async () => {
+  const missing = path.join(os.tmpdir(), `kosmos-sig-1765-missing-${process.pid}.exe`);
+  await assert.rejects(win32update.authenticodeOf(missing, 60000), (e) => {
+    assert.doesNotMatch(e.message, /Command failed|powershell\.exe/i, 'the reason is the command line, not what went wrong');
+    assert.ok(e.message.length > 0);
+    return true;
+  });
+});
+
+/* A signer name with characters the console's code page lacks must reach the decision as itself. A
+   throwaway self-signed certificate (made in the current user's store and removed at once; its root is
+   never trusted) signs a copy, so Windows' status is not Valid, but its signer name is what is compared. */
+const SIGN_WITH_CN = [
+  "$ErrorActionPreference = 'Stop'",
+  "$cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject ('CN=' + $env:KOSMOS_TEST_CN) -CertStoreLocation Cert:\\CurrentUser\\My -NotAfter (Get-Date).AddDays(1)",
+  'try { [void] (Set-AuthenticodeSignature -LiteralPath $env:KOSMOS_TEST_EXE -Certificate $cert -HashAlgorithm SHA256) }',
+  "finally { Remove-Item -LiteralPath ('Cert:\\CurrentUser\\My\\' + $cert.Thumbprint) -Force }",
+].join('\n');
+function signedByLookalike(cn) {
+  const exe = scratchCopy('Kosmos.exe', fs.readFileSync(KOSMOS_EXE));
+  cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SIGN_WITH_CN],
+    { windowsHide: true, timeout: 120000, env: { ...process.env, KOSMOS_TEST_CN: cn, KOSMOS_TEST_EXE: exe }, stdio: ['ignore', 'pipe', 'pipe'] });
+  return exe;
+}
+
+test('#1765 on Windows: a signer whose name only looks like Kosmos Agent Manager reaches the check as itself, and is refused', WINDOWS_ONLY, async () => {
+  for (const cn of ['\uFF2Bosmos Agent Manager, Inc.', '\u212Aosmos Agent Manager, Inc.', 'Kosmos Agent Manager\u2013 Inc.']) {
+    const sig = await win32update.authenticodeOf(signedByLookalike(cn), 60000);
+    assert.equal(sig.signer, cn, 'the signer name was changed on its way out of PowerShell');
+    assert.match(win32update.signatureRefusal({ ...sig, status: 'Valid' }), /is signed by '.+', not by Kosmos Agent Manager, Inc\.$/, cn);
+  }
 });

@@ -323,16 +323,27 @@ function runStagedNode(nodeExe, timeoutMs) {
  * #1765: what Windows says about an exe's Authenticode signature, the same questions
  * tools/windows/setup.ps1's Assert-KosmosSignature asks: the status, the signer's common name, and
  * the chain built with the certificates the signature carries (revocation and the leaf's expiry are
- * Authenticode's to judge, as there). Returns `{ status, signer, rootThumbprint, chain: [subject...] }`;
- * throws when Windows PowerShell does not answer. The decision is signatureRefusal's, in JS.
+ * Authenticode's to judge, as there). Resolves `{ status, signer, rootThumbprint, chain: [subject...] }`;
+ * rejects, with a sentence, when Windows PowerShell does not answer or answers in a shape it cannot
+ * read. The decision is signatureRefusal's, in JS.
  *
  * Windows PowerShell 5.1 by its full path, its own Microsoft.PowerShell.Security imported by full
  * path (setup.ps1's Import-SecurityModule: a PSModulePath inherited from PowerShell 7 finds 7's copy
  * first, which 5.1 cannot load). The exe's path rides in the environment, not the command, so no
  * quoting can change what is run.
+ *
+ * 🛑 THE ANSWER IS WRITTEN AS PURE ASCII. Redirected, PowerShell 5.1 writes in the console's code page
+ * and best-fits what that page lacks (measured: a fullwidth K came out as 'K', an en dash as '-'), so
+ * a lookalike signer could read as the real one. Every non-ASCII character is escaped as \uXXXX inside
+ * PowerShell before it is written (and the output encoding is set to UTF-8 besides); JSON.parse turns
+ * the escapes back into the real characters, which signatureRefusal then refuses.
+ *
+ * Asynchronous, so the board keeps answering while Windows is asked (about a second, at most the
+ * time limit).
  */
 const SIGNATURE_SCRIPT = [
   "$ErrorActionPreference = 'Stop'",
+  'try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false } catch { }',
   "Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')",
   '$f = $env:KOSMOS_SIGNED_FILE',
   '$s = Get-AuthenticodeSignature -LiteralPath $f',
@@ -349,34 +360,66 @@ const SIGNATURE_SCRIPT = [
   '  if ($elements.Count) { $root = [string] $elements[$elements.Count - 1].Thumbprint }',
   '  $subjects = @($elements | ForEach-Object { [string] $_.Subject })',
   '}',
-  '[Console]::Out.Write((ConvertTo-Json -Compress -InputObject @{ status = [string] $s.Status; signer = [string] $signer; rootThumbprint = $root; chain = $subjects }))',
+  '$json = ConvertTo-Json -Compress -InputObject @{ status = [string] $s.Status; signer = [string] $signer; rootThumbprint = $root; chain = $subjects }',
+  "$json = [regex]::Replace($json, '[^\\x00-\\x7F]', { param($m) '\\u{0:x4}' -f [int][char] $m.Value })",
+  '[Console]::Out.Write($json)',
 ].join('\n');
 
-function authenticodeOf(exe, timeoutMs) {
-  const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const out = cp.execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE_SCRIPT], {
-    encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, KOSMOS_SIGNED_FILE: exe },
+/** The first line of what PowerShell said on stderr, without its position and category lines. */
+function powershellReason(stderr) {
+  const line = String(stderr || '').split(/\r?\n/).map((l) => l.trim())
+    .find((l) => l && !/^(At line:|\+|CategoryInfo|FullyQualifiedErrorId)/.test(l));
+  return line ? line.slice(0, 200) : null;
+}
+
+function authenticodeOf(exe, timeoutMs, env) {
+  const e = env || process.env;
+  const ps = path.win32.join(e.SystemRoot || process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const unreadable = 'Windows PowerShell answered in a form Kosmos could not read';
+  return new Promise((resolve, reject) => {
+    cp.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE_SCRIPT], {
+      encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024,
+      env: { ...process.env, KOSMOS_SIGNED_FILE: exe },
+    }, (err, stdout, stderr) => {
+      if (err) {
+        if (err.killed || err.code === 'ETIMEDOUT') { reject(Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' })); return; }
+        if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
+        reject(new Error(powershellReason(stderr) || `Windows PowerShell ended with code ${err.code}`));
+        return;
+      }
+      let j = null;
+      try { j = JSON.parse(String(stdout).trim()); } catch { j = null; }
+      if (!j || typeof j !== 'object' || Array.isArray(j)) { reject(new Error(unreadable)); return; }
+      const chain = j.chain === null || j.chain === undefined ? [] : [].concat(j.chain);
+      resolve({ status: String(j.status || ''), signer: String(j.signer || ''), rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String) });
+    });
   });
-  const j = JSON.parse(String(out).trim());
-  const chain = j.chain === null || j.chain === undefined ? [] : [].concat(j.chain);
-  return { status: String(j.status || ''), signer: String(j.signer || ''), rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String) };
+}
+
+/** Printable ASCII only. The pins are ASCII, and JS's toLowerCase folds some non-ASCII lookalikes
+    into ASCII letters (the Kelvin sign U+212A becomes 'k'), which PowerShell's -ne does not. */
+const PRINTABLE_ASCII = /^[\x20-\x7e]*$/;
+function asciiEqualIgnoringCase(a, b) {
+  const fold = (x) => x.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+  return PRINTABLE_ASCII.test(a) && PRINTABLE_ASCII.test(b) && fold(a) === fold(b);
 }
 
 /**
  * #1765: the update's Kosmos.exe is refused unless its signature is Valid, its signer is
  * EXPECTED_SIGNER and its chain runs through Microsoft's ID Verified code-signing CA to the pinned
- * root: setup.ps1's Assert-KosmosSignature, rule for rule (PowerShell's -ne and -match ignore case,
- * so these do too). Returns the sentence to refuse with, or null. Pure.
+ * root: setup.ps1's Assert-KosmosSignature, rule for rule. PowerShell's -ne and -match ignore case,
+ * so these ignore ASCII case; a signer, root or intermediate with anything outside printable ASCII is
+ * refused outright. Returns the sentence to refuse with, or null. Pure.
  */
 function signatureRefusal(sig) {
-  const s = sig || {};
+  const s = sig && typeof sig === 'object' ? sig : {};
   if (s.status !== 'Valid') return `the update's Kosmos.exe is not validly signed (Windows says: ${s.status || 'nothing'})`;
   const signer = String(s.signer || '');
-  if (signer.toLowerCase() !== EXPECTED_SIGNER.toLowerCase()) return `the update's Kosmos.exe is signed by '${signer}', not by ${EXPECTED_SIGNER}`;
+  if (!asciiEqualIgnoringCase(signer, EXPECTED_SIGNER)) return `the update's Kosmos.exe is signed by '${signer}', not by ${EXPECTED_SIGNER}`;
   const chain = Array.isArray(s.chain) ? s.chain.map(String) : [];
   const root = String(s.rootThumbprint || '');
-  if (!root || root.toLowerCase() !== EXPECTED_ROOT_THUMBPRINT.toLowerCase() || !chain.some((subject) => EXPECTED_INTERMEDIATE_PATTERN.test(subject))) {
+  const intermediate = chain.some((subject) => PRINTABLE_ASCII.test(subject) && EXPECTED_INTERMEDIATE_PATTERN.test(subject));
+  if (!asciiEqualIgnoringCase(root, EXPECTED_ROOT_THUMBPRINT) || !intermediate) {
     return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (its chain ends at ${chain.length ? chain[chain.length - 1] : 'nothing'})`;
   }
   return null;
@@ -1287,7 +1330,7 @@ function unpack(ctx, bytes) {
 
 /* ─── B4 ─────────────────────────────────────────────────────────────────────────────────── */
 
-function verifyStaged(ctx, latest) {
+async function verifyStaged(ctx, latest) {
   const staged = ctx.staged;
   const manifest = readJson(path.join(staged, 'manifest.json'));
   if (!manifest) refuse('the update has no readable manifest.json');
@@ -1312,7 +1355,7 @@ function verifyStaged(ctx, latest) {
   const stagedExe = path.join(staged, 'Kosmos.exe');
   let sig;
   try {
-    sig = ctx.checkSignature(stagedExe, ctx.limits.signatureTimeoutMs);
+    sig = await ctx.checkSignature(stagedExe, ctx.limits.signatureTimeoutMs, ctx.env);
   } catch (e) {
     const why = e && e.code === 'ETIMEDOUT' ? `Windows did not answer within ${Math.round(ctx.limits.signatureTimeoutMs / 1000)} seconds` : firstLine(e);
     refuse(`the signature of the update's Kosmos.exe could not be checked (${why})`);
@@ -1355,7 +1398,8 @@ function verifyStaged(ctx, latest) {
  *   expectVersion  when given, the version the person accepted; a pointer that moved is refused
  *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
- * runStagedNode, checkSignature (#1765: `(exe, timeoutMs) => { status, signer, rootThumbprint, chain }`),
+ * runStagedNode, checkSignature (#1765: `(exe, timeoutMs, env) => { status, signer, rootThumbprint, chain }`,
+ * or a promise of it),
  * liveExecutionAllowed, limits, log, lockHooks, and boardTask
  * (`{ startedByTask(), status() }`, B0's board-task preconditions), or, on a computer that connects to
  * agents elsewhere (#4382), connectComputer (`{ connects(), boardAnswers() }`, connectComputerRefusal) in
@@ -1442,7 +1486,7 @@ async function prepare(opts) {
       unpack(ctx, downloaded.bytes);
       sha256 = downloaded.sha256;
     }
-    const verified = verifyStaged(ctx, latest);
+    const verified = await verifyStaged(ctx, latest);
     result = { ok: true, version: latest.version, sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
     if (ctx.source) result.source = ctx.source;
     if (typeof o.whileLocked === 'function') o.whileLocked(result, ctx);

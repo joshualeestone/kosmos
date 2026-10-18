@@ -1575,7 +1575,9 @@ test('a real Kosmos build stages end to end under the real caps, and its real no
     fs.writeFileSync(path.join(c.root, 'app', 'package.json'), JSON.stringify({ version: '0.0.1' }));
     /* The real free-disk reading, and on Windows the real runner over the real staged node.exe. */
     const opts = prepareOpts(c, site(zip, { pointer: pointerBody(zip, { version }) }), { freeBytes: undefined });
-    if (ON_WINDOWS) delete opts.runStagedNode;
+    /* On Windows the real release is checked end to end: its own node.exe runs, and Windows is asked
+       about its own Kosmos.exe (#1765). */
+    if (ON_WINDOWS) { delete opts.runStagedNode; delete opts.checkSignature; }
     const r = await win32update.prepare(opts);
     assert.equal(r.ok, true, r.because);
     assert.equal(r.version, version);
