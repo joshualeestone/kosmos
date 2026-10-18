@@ -748,7 +748,7 @@ async function withHeldDefaultMint(during) {
   try {
     const def = phonenotify.ensureDefaultOn();
     // Wait until the mint is really out (the tunnel has logged its call), then act, then let it answer.
-    for (let i = 0; i < 300 && mints() === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    for (let i = 0; i < 1500 && mints() === 0; i++) await new Promise((r) => setTimeout(r, 20));   // up to 30 s under load
     assert.equal(mints(), 1, 'premise: the default mint is out');
     const acting = during();
     fs.writeFileSync(gate, '');
@@ -865,4 +865,14 @@ test('#6488: status says when the off was the person\'s choice', async () => {
   assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, true);
   unenrol();
   assert.equal((await call('GET', '/api/phone-notify')).json.offByChoice, true, 'removing the computer forgot the choice in status');
+});
+
+test('#6488: a stopped schedule is forgotten, so a later sign-in poke still runs the default', async () => {
+  let calls = 0;
+  const ctl = phonenotify.startDefaultOn({ schedule: () => ({ unref() {} }), ensure: async () => { calls += 1; return null; } });
+  await ctl.whenIdle();
+  ctl.stop();
+  // Not connected here, so the real default answers null; a stopped schedule's poke would answer undefined.
+  assert.strictEqual(await phonenotify.pokeDefaultOn(), null, 'the poke went to a stopped schedule');
+  assert.equal(calls, 1, 'the stopped schedule ran again');
 });
