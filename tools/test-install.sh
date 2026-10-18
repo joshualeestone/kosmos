@@ -269,7 +269,9 @@ KOSMOS_DEFAULT_PORT="$(sed -n 's/^  _kosmos_default_port=\([0-9][0-9]*\)$/\1/p' 
 # board, the same pid before and after, missed a 1 s curl 5 times in 6 at load 39, read as "free" after the run, and
 # failed a 0.7.56 cut. lsof names the listener; a TCP connect covers one lsof cannot see (another account's), and the
 # kernel completes a connect even when the process is too loaded to answer. Busy/free, not the pid: a board restart
-# (a new pid) is #5831's check below, kept out of the release gate on purpose.
+# (a new pid) is #5831's check below, kept out of the release gate on purpose. lsof is called by name on purpose, so
+# tools/test-install-portprobe-6457.sh can stub it to prove the connect arm alone; a missing lsof leaves that arm.
+# Not covered by either arm, as before with curl: another account's board bound only to ::1.
 _ti_port_busy() {   # <port>: 0 if something is listening on it
   [ -n "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ] && return 0
   /usr/bin/nc -z -G 3 127.0.0.1 "$1" >/dev/null 2>&1
@@ -303,7 +305,7 @@ LIVE_BOARD_SEEN=yes
 # ⚠️ 4460-4499 IS DELIBERATELY NOWHERE NEAR THE DEFAULT. Anything this suite
 # leaks must be litter rather than something a real install would find.
 PORT=4460
-while curl -s -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null; do
+while _ti_port_busy "$PORT"; do   # #6457: a loaded board on 4460 must read taken, not free
   PORT=$((PORT + 1))
   [ "$PORT" -lt 4500 ] || { echo "FAIL: no free port found in 4460-4499" >&2; exit 1; }
 done
@@ -470,7 +472,7 @@ closing_checks() {
   chk "no sandbox path registered with LaunchServices" "! grep -qF \"$SB\" \"$LSDUMP\""
   chk "sysnever still untouched at the end" "[ \"\$(stat -f %Fm \"$SB/sysnever\")\" = \"$SYSNEVER_MTIME\" ] && [ -z \"\$(ls -A \"$SB/sysnever\")\" ]"
 
-  echo "== nothing was left answering on the product's default port =="
+  echo "== nothing was left listening on the product's default port =="
   DEFAULT_PORT_AFTER=free
   _ti_port_busy "$KOSMOS_DEFAULT_PORT" && DEFAULT_PORT_AFTER=busy   # #6457: listening, not answering in time
   # Same shape as the real-folders checks below: it reports the BEFORE state too,
