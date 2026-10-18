@@ -19651,6 +19651,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="plus-forget-ask" hidden>
         <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-required" hidden></p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -51314,6 +51315,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
+    if (typeof plusForgetRequiredOnRead === 'function') plusForgetRequiredOnRead();   // kosmos#6367
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
@@ -51993,7 +51995,32 @@ const PLUS_FORGET_WORDS = {
   /* Not "still connected": a rare engine failure can come after the key is gone. Say only that it did not finish. */
   failed: (why) => 'Removing it did not finish: ' + why + '. Try again in a moment.',
 };
+/* kosmos#6367: when this is the work Kosmos and its company's policy requires reports, the confirm says what removing
+   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too.
+   "Stops reporting" only while it reports now; a Kosmos not reporting yet (words to accept, or waiting for its print)
+   is told only that it cannot report once removed, which is true either way. */
+const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
+const PLUS_FORGET_REQUIRED_IDLE = 'Your company requires this computer to report to it. Once it is removed, it cannot report.';
+function plusForgetRequiredLine(st) {
+  if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
+  const line = st.reporting === true ? PLUS_FORGET_REQUIRED : PLUS_FORGET_REQUIRED_IDLE;
+  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, line) : line;
+}
+/* Filled when the confirm opens, and again when a read of /api/org lands while it is open (plusOrgMaybe): pressed
+   before the pane's first read, the confirm would otherwise stay without the line however long it stays open. */
+function plusForgetRequiredPaint(on) {
+  const req = document.getElementById('plus-forget-required');
+  if (!req) return;
+  const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
+  req.textContent = line; req.hidden = !line;
+}
+// A read of /api/org has landed: an open Remove confirm takes the new state's line, and a closed one is left alone.
+function plusForgetRequiredOnRead() {
+  const ask = document.getElementById('plus-forget-ask');
+  if (ask && !ask.hidden) plusForgetRequiredPaint(true);
+}
 function plusForgetArm(on) {
+  plusForgetRequiredPaint(on);
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
