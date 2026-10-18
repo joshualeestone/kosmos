@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pushdefault-6488
-diff_hash: 6f7ab81bcef7d0f4e7b35bf6e135bd2ca15a4812c71f4560655c5aa80b984d8a
+diff_hash: 443323026c5e7b816e2e42813cf300fd397dea448b8b62d5ebab20abf192c9ed
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T17:44:33Z
@@ -185,7 +185,7 @@ ones were edges that the previous round's fixes had just exposed. Every fix has 
 **Converged**: no new actionable findings.
 
 ### Final validation
-- Full suite (yarn test, tools/run-tests.sh): passed on b086eed3eb (queued-heavy turn, END rc=0 12:40 CDT): node 21983 tests, 21685 pass, 0 fail, 0 cancelled, 298 skipped; shell-shard 1/1 all 252 passed. Rebased onto main 2026-10-18 14:2x CDT (one conflict, the Settings hint line #6489 had changed: kept this branch's words without the needs-you email sentence #6489 removed); the phone and quiet-DM tests pass on the rebased tree, and CI runs the full suite on it
+- Full suite (yarn test, tools/run-tests.sh): passed on b086eed3eb (queued-heavy turn, END rc=0 12:40 CDT): node 21983 tests, 21685 pass, 0 fail, 0 cancelled, 298 skipped; shell-shard 1/1 all 252 passed. Rebased onto main 2026-10-18 14:2x CDT (one conflict, the Settings hint line #6489 had changed: kept this branch's words without the needs-you email sentence #6489 removed); the phone and quiet-DM tests pass on the rebased tree, and CI runs the full suite on it. CI on that head failed 1 of 21988: main's #6489 control pinned the hint's old words; updated to the new words (that control is the only change)
 - Neighbouring files, run every round: 786/786 including server.test.js.
 - Browser check docs/browser-checks/render-push-718.js, headless on a sandbox board: 38/38. A control that broke one sentence failed it.
 - Both browser-check gates (#1720, #2518) pass.
