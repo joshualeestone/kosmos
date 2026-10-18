@@ -871,7 +871,7 @@ update_manifest_ok() {
   # Round 1 (#6473): this runs the INSTALLED copy, which can be older than this installer. One that does not list
   # "early" (manifest-verify capabilities line) cannot do the signature-only check or the tmux check, so early is
   # skipped: pre fetches the manifest itself, as before, and the terminal manager goes unchecked this once.
-  if [ "$phase" = early ] && ! /usr/bin/grep -q "manifest-verify capabilities:.* early" "$dest/app/engine/manifest-verify.js"; then
+  if [ "$phase" = early ] && ! /usr/bin/grep -Eq "manifest-verify capabilities:( [a-z0-9-]+)* early( |\$)" "$dest/app/engine/manifest-verify.js"; then
     info "this install checks the update's own files, but not yet its terminal manager download (it will after this update)"
     return 0
   fi
