@@ -19,4 +19,5 @@ rows today, so the #5942 two-line form stays only as a fallback. A row with no s
   comment says the route sends an age only for question rows, and the two-line form is a fallback. NITs: a count
   assertion that passed on the regression --> FIXED and checked against main; wording from PJ_NEEDS_WHY --> FIXED;
   de-duplicate by agent id, not by display name --> FIXED; andList --> not in the page, so ", " is kept.
-- [ ] Round 2, validation, proof, PR, merge after the 0.7.57 lift.
+- [x] Round 2 (sonnet): no new blocker or warning; the engine claim was verified independently. NIT: the shot screen waits on the combined line (both classes) --> FIXED. NIT: the wording is spliced from PJ_NEEDS_WHY --> kept (the test pins it).
+- [ ] Validation, proof, PR, merge after the 0.7.57 lift.

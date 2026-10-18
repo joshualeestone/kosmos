@@ -1233,8 +1233,8 @@ const SCREENS = [
   { name: 'tasks-decision', owner: 'PigeonPete', go: async (page) => {
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
-    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting-who', { state: 'attached', timeout: 8000 });
-    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
+    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
     await page.waitForTimeout(300);
   } },
   { name: 'tasks-subprojects', owner: 'Mona Lisa', go: async (page, data) => {
