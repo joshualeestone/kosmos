@@ -27,6 +27,7 @@ const cli = require('./tools/windows/kosmos-cli');
 const outbox = require('./engine/outbox');
 const sendertoken = require('./engine/sendertoken');
 const { WORLD_HEADER } = require('./engine/launchidentity');
+const { answerProof } = require('./test-support/proof-listener-1765');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -37,6 +38,8 @@ function clear() { fs.rmSync(outbox.outboxDir(), { recursive: true, force: true 
 function withWrongWorldBoard(fn) {
   const seen = [];
   const server = http.createServer((req, res) => {
+    // #1765: the CLI asks the board to prove it holds the agent's token before sending it; this board does.
+    if (answerProof(req, res, [minted.token])) return;
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {

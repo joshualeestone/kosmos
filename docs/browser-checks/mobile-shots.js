@@ -191,8 +191,9 @@ const newLook = async (page) => {
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
-   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
-async function openConsAgents(page) {
+   with it) to say consolidated (stubConsolidatedStyle), and openConsAgents reloads the page. Screens that stub it set
+   noServiceWorker. */
+async function stubConsolidatedStyle(page) {
   /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
      its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
@@ -205,6 +206,9 @@ async function openConsAgents(page) {
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
     } catch { await r.abort().catch(() => {}); }
   });
+}
+async function openConsAgents(page) {
+  await stubConsolidatedStyle(page);
   // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (a run with
   // MSHOTS_TABLET_LAYOUT=tabs would otherwise keep these screens on tabs).
   await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
@@ -1038,6 +1042,28 @@ const SCREENS = [
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
   } },
+  /* kosmos#6349: the consolidated rail's project notice, capped and with more below, so its bottom fades. Grown from
+     copies of the notice's own row (no invented markup) until it outruns the cap; the layout is applied, not saved, and
+     every screen starts on a freshly loaded board; the style read is stubbed (stubConsolidatedStyle). Desktop only: the consolidated view exists at >= 960px. */
+  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await stubConsolidatedStyle(page);   // a later style read says consolidated too, so it cannot undo the layout mid-shot
+    // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (as openConsAgents).
+    await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.evaluate(() => applyLayout('consolidated', true));
+    await page.waitForFunction(() => { const b = document.getElementById('alist-pj-notice'); return !!(b && b.querySelector('.pnotice')); }, null, { timeout: 8000 });
+    await page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice'), row = box.querySelector('.pnotice');
+      box.setAttribute('aria-live', 'off');
+      for (let n = 0; n < 30 && box.scrollHeight <= box.clientHeight * 1.6; n++) box.appendChild(row.cloneNode(true));
+    });
+    await page.waitForFunction(() => document.getElementById('alist-pj-notice').hasAttribute('data-more'), null, { timeout: 5000 });
+  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded
+    const ok = await page.evaluate(() => document.documentElement.getAttribute('data-layout') === 'consolidated'
+      && document.getElementById('alist-pj-notice').hasAttribute('data-more'));
+    if (!ok) throw new Error('rail-notice-more: the shot is not of a faded rail notice in the consolidated layout');
+  } },
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
   { name: 'cons-agents', owner: 'Ice Cream Kitty', desktopOnly: true, noServiceWorker: true, go: async (page) => {
@@ -1585,7 +1611,13 @@ const SCREENS = [
      lines out again, as the #5752 screen above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    /* #6420: the room's budget scales with its size (engine/messages.js roomCap), so the seed fills THIS project's
+       budget, sized as the room route and the valve size it (messages.roomRecipientsOf). */
+    const msgs = require(path.join(REPO, 'engine', 'messages'));
+    const proj = require(path.join(REPO, 'engine', 'projects')).readAll().find((x) => x && x.id === data.projectId);
+    if (!proj) throw new Error('#6420: the seeded project ' + data.projectId + ' is not in the registry, so its budget cannot be read');
+    const size = msgs.roomRecipientsOf(proj.agents);
+    const cap = msgs.roomCap(require(path.join(REPO, 'engine', 'limits')).caps(), size);
     const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
     const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
     data.heldLines = [
@@ -1596,6 +1628,8 @@ const SCREENS = [
         stopped: true, at: ago(4) }),
     ];
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
+    // The premise, checked here rather than read off a later timeout: the room reads held at its own size.
+    if (!msgs.roomHeld(data.projectId, Date.now(), size)) throw new Error('#6420: the seed did not hold the room at its own budget (' + cap + ')');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });

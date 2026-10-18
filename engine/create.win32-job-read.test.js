@@ -544,3 +544,121 @@ test('on darwin readJob still reads the plist, and setModel rewrites it without 
   assert.equal(create.trustAgentFolder('nomac', { platform: 'darwin' }).because,
     'this agent has no Kosmos launch job, so there was no folder to trust');
 });
+
+/* ── #6231 item 7: the win32 put-back as an ASYNC step generator ──────────────
+ * restoreAccountSteps mirrors the sync restoreAccount command-for-command but YIELDS
+ * the keep-its-switch /Query (win32job.taskEnabledSteps) and the /Create (win32job.installSteps)
+ * as steps, so a stopped move's Windows put-backs run off the board's thread under
+ * remove.js's async driver. The re-read in restoreAccountPrep stays SYNC (through the
+ * scheduler's runner) and completes before the first yield (#6231 contract 3); only the
+ * job rewrite is yielded. These drive the generator and answer each yielded exec the way
+ * remove.js's runner would, asserting the SAME registered definition the sync form writes.
+ * ───────────────────────────────────────────────────────────────────────────*/
+
+/* Drive a win32 step generator: feed each yielded { exec:[file,args,opts] } the given
+   answer, collect the exec specs. Shape matches remove.win32-restart-3431.test.js. */
+function driveSteps(gen, answerExec) {
+  const sent = [];
+  let res = gen.next();
+  while (!res.done) {
+    assert.ok(res.value && Array.isArray(res.value.exec), 'a win32 step yielded no exec: ' + JSON.stringify(res.value));
+    sent.push(res.value.exec);
+    res = gen.next(answerExec(res.value.exec));
+  }
+  return { ret: res.value, sent, verbs: sent.map((x) => x[1][0]) };
+}
+
+/* Answer a yielded schtasks exec from a task table, in the ASYNC-runner shape win32StepResult
+   reads ({ ok, stdout }/{ ok, stderr }) -- NOT win32job.run's { ok, out }. /Query /XML returns the
+   registered definition XML; /Create reads the transient /XML file (while it still exists) into
+   `made`, then returns `createResult` (default: an ok /Create). */
+const STEP_NO_SUCH = { ok: false, stderr: 'ERROR: The system cannot find the file specified.' };
+function answerSteps(tasks, made, createResult) {
+  return (exec) => {
+    const [file, args] = exec;
+    assert.equal(file, 'schtasks.exe', 'a put-back step ran something other than schtasks');
+    const tn = args[args.indexOf('/TN') + 1];
+    if (args[0] === '/Query' && args.includes('/XML')) {
+      const spec = tasks[tn];
+      if (!spec) return STEP_NO_SUCH;
+      return { ok: true, stdout: job.taskXml({ ...spec, enabled: spec.disabled ? false : spec.enabled }, XML_ENV) };
+    }
+    if (args[0] === '/Create') {
+      const rec = { args: args.slice() };
+      try { rec.xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).toString('utf16le'); } catch { rec.xml = ''; }
+      made.push(rec);
+      return createResult || { ok: true, stdout: '' };
+    }
+    throw new Error('a put-back yielded an unexpected step: ' + args.join(' '));
+  };
+}
+
+test('#6231 item 7: restoreAccountSteps drives a codex put-back off the thread -- yields /Query then /Create, returns CREATED, writes the old account back', () => {
+  const tasks = { 'Kosmos\\agent-cx': taskFor('cx', { runner: 'codex', model: 'gpt-x', claudeBin: 'C:\\bin\\codex.exe' }) };
+  scheduler(tasks);               // answers the SYNC prep read (readJobVerdict) AND makes commandsAreReal() true
+  fs.mkdirSync(create.workerDir('cx'), { recursive: true });
+  const made = [];
+  const d = driveSteps(create.restoreAccountSteps('cx', CODEX_WORK), answerSteps(tasks, made));
+  assert.equal(d.ret.outcome, create.OUTCOME.CREATED, 'the async put-back was refused: ' + (d.ret && d.ret.because));
+  assert.deepEqual(d.verbs, ['/Query', '/Create'], 'the step form yields the keep-its-switch /Query (taskEnabledSteps) then the /Create, in order');
+  assert.equal(made.length, 1, 'exactly one re-register');
+  const spec = registeredSpec(made[0]);
+  assert.equal(spec.runner, 'codex');
+  assert.equal(spec.configDir, path.resolve(CODEX_WORK), 'the put-back wrote the OLD codex home back');
+  assert.equal(spec.model, 'gpt-x', 'every other field is kept as it was');
+});
+
+test('#6231 item 7: restoreAccountSteps whose /Create fails says "could not update ... startup task", never a silent success', () => {
+  const tasks = { 'Kosmos\\agent-cx': taskFor('cx', { runner: 'codex' }) };
+  scheduler(tasks);
+  fs.mkdirSync(create.workerDir('cx'), { recursive: true });
+  const made = [];
+  const d = driveSteps(create.restoreAccountSteps('cx', CODEX_WORK),
+    answerSteps(tasks, made, { ok: false, stderr: 'ERROR: Access is denied.' }));
+  assert.equal(d.ret.outcome, create.OUTCOME.REFUSED);
+  assert.match(d.ret.because, /could not update .*startup task in Task Scheduler .*Access is denied/);
+  assert.deepEqual(d.verbs, ['/Query', '/Create'], 'it still issued the /Create before reporting the failure');
+});
+
+test('#6231 item 7: a Qwen put-back ABANDONED mid-drive (the async cap) rolls the Qwen profile back, not leaving it on the old account', () => {
+  // The async driver abandons restoreAccountSteps at its cap by calling gen.return(). restoreAccountPrep has
+  // already written the Qwen account to the OLD dir BEFORE the job write, and restoreAccountFinish (which rolls
+  // that back on a failed write) never runs on an abandon -- so without the generator's finally the record would
+  // name the old account while the job stayed on the new one. The finally must restore what prep read.
+  const store = require('./store');
+  const QWEN_HOME = path.join(HOME, '.kosmos-qwen-work');   // basename starts with the Qwen DIR_PREFIX -> jobProvider 'alibaba'
+  fs.mkdirSync(QWEN_HOME, { recursive: true });
+  const tasks = { 'Kosmos\\agent-qw': taskFor('qw', { runner: 'codex', configDir: QWEN_HOME }) };
+  scheduler(tasks);
+  fs.mkdirSync(create.workerDir('qw'), { recursive: true });
+  store.writeProfile('qw', { qwenAccount: '/new-qwen-acct' });   // the move had set it to the new account
+  const made = [];
+  const answer = answerSteps(tasks, made);
+  const gen = create.restoreAccountSteps('qw', '/old-qwen-acct');
+  let res = gen.next();                                   // -> the keep-its-switch /Query (taskEnabledSteps); the staleness re-read is the SYNC readAccount/readJobVerdict in prep
+  assert.equal(res.value.exec[1][0], '/Query', 'the first step is the keep-its-switch read');
+  assert.equal(store.readProfile('qw').qwenAccount, '/old-qwen-acct', 'prep wrote the put-back (old) account before the job');
+  res = gen.next(answer(res.value.exec));                 // answer /Query -> yields the /Create
+  assert.equal(res.value.exec[1][0], '/Create', 'the second step is the job write');
+  gen.return();                                           // ABANDON before the /Create settles, as the cap does
+  assert.equal(store.readProfile('qw').qwenAccount, '/new-qwen-acct', 'the finally rolled the Qwen record back to what prep read');
+  assert.equal(made.length, 0, 'the /Create was never answered');
+});
+
+test('#6231 item 7: restoreAccountSteps on a task no longer registered refuses BEFORE any /Create (the keep-its-switch safety)', () => {
+  /* The job is readable at prep time (the sync read finds it), but the keep-its-switch /Query the step form issues
+     comes back "no such task": the shared win32RewriteGate must refuse without re-registering. */
+  const tasks = { 'Kosmos\\agent-cx': taskFor('cx', { runner: 'codex' }) };
+  scheduler(tasks);
+  fs.mkdirSync(create.workerDir('cx'), { recursive: true });
+  const made = [];
+  const answerGone = (exec) => {
+    if (exec[1][0] === '/Query' && exec[1].includes('/XML')) return STEP_NO_SUCH;   // vanished since the prep read
+    return answerSteps(tasks, made)(exec);
+  };
+  const d = driveSteps(create.restoreAccountSteps('cx', CODEX_WORK), answerGone);
+  assert.equal(d.ret.outcome, create.OUTCOME.REFUSED);
+  assert.match(d.ret.because, /no longer in Task Scheduler/);
+  assert.deepEqual(d.verbs, ['/Query'], 'no /Create was yielded: the gate refused first');
+  assert.equal(made.length, 0, 'nothing was re-registered');
+});

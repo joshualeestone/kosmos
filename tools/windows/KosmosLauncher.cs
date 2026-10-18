@@ -2539,7 +2539,11 @@ class KosmosLauncher
     // The address to open, from open-board.js --print-url: the board's own address, with a boot
     // nonce on an enforcing board. Anything else it prints, or a failure to run it, is the plain
     // address, which is what the browser path falls back to as well.
-    static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
+    // #1765: except when the opener refused (it exits OpenerRefusedExit and names no address: on an enforcing
+    // board, nothing showed it is this account's board), or named no address in any other way while a board token
+    // is on disk. Then NotConfirmed, and the window loads nothing: its own web profile holds the board's sign-in
+    // cookie, which goes to whatever answers at 127.0.0.1.
+    internal static string ResolveBoardAddress(string here, string node, string opener, string app, int port)
     {
         string plain = "http://127.0.0.1:" + port;
         try
@@ -2548,16 +2552,51 @@ class KosmosLauncher
             {
                 string said = p.StandardOutput.ReadToEnd();
                 p.WaitForExit();
-                foreach (string line in said.Split('\n'))
-                {
-                    string candidate = line.Trim();
-                    if (candidate == plain || candidate.StartsWith(plain + "/", StringComparison.Ordinal)) return candidate;
-                }
+                string named = AddressNamed(said, port);
+                if (named != null) return named;
+                if (p.ExitCode == OpenerRefusedExit) return NotConfirmed;
             }
         }
-        catch { /* the plain address, below */ }
-        return plain;
+        catch { /* the plain address, below, or NotConfirmed */ }
+        // #1765: no address named, however the opener ended. On an enforcing board (its token on disk) nothing has
+        // shown it is this account's board, so the window loads nothing rather than the plain address.
+        return TaskbarBadge.ReadBoardToken() != null ? NotConfirmed : plain;
     }
+
+    // #1765: open-board.js's exit code when it refused to open anything (tools/kosmos-open-board.js sets
+    // process.exitCode = OPENER_REFUSED_EXIT on those paths only; a code node itself never uses, so a crash is not
+    // read as a refusal), and the answer that stands for it here.
+    internal const int OpenerRefusedExit = 10;
+    // How long the browser fallback waits for the opener: its default 20 s board wait, its 7.5 s check and its 15 s
+    // mint (tools/kosmos-open-board.js), and some room.
+    const int OpenerBrowserWaitCapMs = 60000;
+    internal const string NotConfirmed = "";
+
+    // The board's own address (plain, or with a path such as ?boot=) on a line of what the opener printed, or null.
+    internal static string AddressNamed(string said, int port)
+    {
+        string plain = "http://127.0.0.1:" + port;
+        foreach (string line in (said ?? "").Split('\n'))
+        {
+            string candidate = line.Trim();
+            if (candidate == plain || candidate.StartsWith(plain + "/", StringComparison.Ordinal)) return candidate;
+        }
+        return null;
+    }
+
+    internal const string NotConfirmedPage =
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>Kosmos</title><style>"
+        + "html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;text-align:center;"
+        + "font:15px 'Segoe UI',sans-serif;color:#555;background:#fafafa;padding:0 2em}"
+        + "@media (prefers-color-scheme:dark){body{color:#bbb;background:#1e1e1e}}"
+        + "</style></head><body>Kosmos could not confirm it was reaching your own Kosmos, so nothing was opened.<br>"
+        + "If Kosmos is starting or restarting, open Kosmos.exe again in a minute.</body></html>";
+
+    const string BrowserUnknownMessage =
+        "Kosmos took too long to confirm it was reaching your own Kosmos. If no Kosmos page opened in your browser, open Kosmos.exe again in a minute.";
+
+    const string BrowserNotConfirmedMessage =
+        "Kosmos could not confirm it was reaching your own Kosmos, so it did not open your browser. If Kosmos is starting or restarting, open Kosmos.exe again in a minute.";
 
     // What a double-click did before the window existed: the opener opens the board in the
     // default browser. Then the box that says why, because a browser tab where a window was
@@ -2565,12 +2604,29 @@ class KosmosLauncher
     static int OpenInBrowserInstead(string here, string node, string opener, string app, int port, string why, bool noRuntime)
     {
         string opened = null;
-        try { using (Process.Start(OpenerStartInfo(here, node, opener, app, port, false))) { } }
+        bool refused = false;
+        bool unknown = false;   // the opener ran past its cap: it may have opened the browser, or not
+        // #1765: wait for the opener, so a refusal (nothing opened) is said as one, not as "opened in your browser".
+        try
+        {
+            using (Process p = Process.Start(OpenerStartInfo(here, node, opener, app, port, false)))
+            {
+                // Bounded: past the opener's own worst case (its wait, check and mint), the outcome is told as unknown.
+                if (!p.WaitForExit(OpenerBrowserWaitCapMs)) { try { p.Kill(); } catch { /* it ended meanwhile */ } unknown = true; }
+                // As the window reads it (ResolveBoardAddress): the refusal code, or any failure while a token is on disk.
+                else refused = p.ExitCode == OpenerRefusedExit || (p.ExitCode != 0 && TaskbarBadge.ReadBoardToken() != null);
+            }
+        }
         catch (Exception e) { opened = e.Message; }
         string detail = "\n\n(" + why + ")";
         if (opened != null)
         {
             ShowMessageBox("Kosmos could not open your browser (" + opened + ").\n\nOpen http://127.0.0.1:" + port + " in your browser yourself." + detail, true);
+            return 1;
+        }
+        if (refused || unknown)
+        {
+            ShowMessageBox((unknown ? BrowserUnknownMessage : BrowserNotConfirmedMessage) + detail, true);
             return 1;
         }
         ShowMessageBox((noRuntime ? NoWindowMessage : WindowWouldNotOpenMessage) + detail, false);
@@ -3212,6 +3268,8 @@ class BoardWindowForm : System.Windows.Forms.Form
     // The --print-url answer, asked again each time Kosmos.exe is opened while this window is up.
     readonly Func<string> resolveBoardAddress;
     bool signingInAgain;
+    // #1765: the opener refused to name an address (KosmosLauncher.NotConfirmed), so the window shows why and loads nothing.
+    bool boardNotConfirmed;
 
     // Set when this PC could not host the window after all: RunBoardWindow then opens the browser.
     internal string RuntimeProblem;
@@ -3368,6 +3426,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         controller.MoveFocus(0);
         if (mode == KosmosLauncher.ComputerMode.Connect) LoadConnect();
         else if (boardAddress != null) NavigateToBoard();
+        else if (boardNotConfirmed) webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
         else webView.NavigateToString(KosmosLauncher.StartingPage);
     }
 
@@ -3378,7 +3437,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         {
             string resolved = null;
             try { resolved = resolveBoardAddress(); } catch { /* the plain address, below */ }
-            if (resolved == null) resolved = "http://127.0.0.1:" + port;
+            if (resolved == null) resolved = TaskbarBadge.ReadBoardToken() != null ? KosmosLauncher.NotConfirmed : "http://127.0.0.1:" + port;   // #1765, as ResolveBoardAddress
             try { BeginInvoke(new Action(() => BoardAddressResolved(resolved))); }
             catch { /* the window closed before the board answered */ }
         });
@@ -3392,6 +3451,12 @@ class BoardWindowForm : System.Windows.Forms.Form
     internal void BoardAddressResolved(string address)
     {
         if (mode == KosmosLauncher.ComputerMode.Connect) return;
+        if (address == KosmosLauncher.NotConfirmed)
+        {
+            boardNotConfirmed = true;
+            if (webView != null) webView.NavigateToString(KosmosLauncher.NotConfirmedPage);
+            return;
+        }
         boardAddress = KosmosLauncher.WithModeQuery(address, mode);
         if (webView != null) NavigateToBoard();
     }
@@ -3424,6 +3489,14 @@ class BoardWindowForm : System.Windows.Forms.Form
         // window forward (and goes back to sign-in if its last load failed, as the Mac's Reload does).
         // Nothing here ever starts the board.
         if (mode == KosmosLauncher.ComputerMode.Connect) { if (connectLoadFailed) LoadConnect(); return; }
+        // #1765: a window showing that the board could not be confirmed asks again, from the start.
+        if (boardNotConfirmed && !signingInAgain && resolveBoardAddress != null)
+        {
+            boardNotConfirmed = false;
+            if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
+            ResolveBoardAddressInBackground();
+            return;
+        }
         if (!navigatedToBoard || signingInAgain || resolveBoardAddress == null) return;
         signingInAgain = true;
         Thread resolve = new Thread(() =>
@@ -3887,6 +3960,7 @@ class BoardWindowForm : System.Windows.Forms.Form
         connectLoadFailed = false;
         navigatedToBoard = false;
         boardAddress = null;
+        boardNotConfirmed = false;
         if (webView != null) webView.NavigateToString(KosmosLauncher.StartingPage);
         string task = boardTask;
         string exe = Assembly.GetExecutingAssembly().Location;
@@ -4265,6 +4339,117 @@ public class NavigationCompleted : ICoreWebView2NavigationCompletedEventHandler
     }
 }
 
+// #1765: before this process sends the board token, the listener on the board port shows it already holds that
+// token. Every account on a Windows computer uses the same port, so whatever answers there is not always this
+// account's board. The exchange is engine/boardproof.js's, byte for byte (tools.win-launcher-board-proof-1765.test.js
+// checks this against it): GET /api/board-proof?n=<32 hex nonce>&k=<16 hex key id>, answered with
+// {"proof": HMAC-SHA256(token, "kosmos-board-proof\0" + "127.0.0.1" + "\0" + port + "\0" + nonce)} in hex, which is
+// checked here with our own copy of the token. The request carries no token, only the key id (a hash prefix).
+static class BoardProof
+{
+    internal const string ProofPath = "/api/board-proof";
+    internal const string KeyIdTag = "kosmos-board-proof-key\0";
+    internal const string ProofTag = "kosmos-board-proof\0";
+    internal const string ClientAddress = "127.0.0.1";
+    internal const int NonceBytes = 16;
+    internal const int KeyIdHex = 16;
+    internal const int ProofHex = 64;
+    internal const int AnswerMaxBytes = 4096;
+
+    static string Hex(byte[] bytes)
+    {
+        StringBuilder s = new StringBuilder(bytes.Length * 2);
+        foreach (byte b in bytes) s.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+        return s.ToString();
+    }
+
+    internal static string KeyId(string token)
+    {
+        using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+            return Hex(sha.ComputeHash(Encoding.UTF8.GetBytes(KeyIdTag + token))).Substring(0, KeyIdHex);
+    }
+
+    internal static string Proof(string token, string nonce, int port)
+    {
+        using (System.Security.Cryptography.HMACSHA256 mac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(token)))
+            return Hex(mac.ComputeHash(Encoding.UTF8.GetBytes(ProofTag + ClientAddress + "\0" + port.ToString(System.Globalization.CultureInfo.InvariantCulture) + "\0" + nonce)));
+    }
+
+    // A fresh random nonce for every check, so an answer recorded for one check cannot serve another.
+    internal static string NewNonce()
+    {
+        byte[] bytes = new byte[NonceBytes];
+        using (System.Security.Cryptography.RandomNumberGenerator rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+        return Hex(bytes);
+    }
+
+    static bool IsLowerHex(string s, int length)
+    {
+        if (s == null || s.Length != length) return false;
+        foreach (char c in s) if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) return false;
+        return true;
+    }
+
+    // Whether `answer` is the proof for this token, nonce and port. Compared in constant time.
+    internal static bool ProofMatches(string token, string nonce, string answer, int port)
+    {
+        if (string.IsNullOrEmpty(token) || !IsLowerHex(answer, ProofHex)) return false;
+        string want = Proof(token, nonce, port);
+        int diff = 0;
+        for (int i = 0; i < ProofHex; i++) diff |= want[i] ^ answer[i];
+        return diff == 0;
+    }
+
+    // The "proof" string in the board's answer, or null.
+    internal static string ProofIn(string body)
+    {
+        string raw = TaskbarBadge.JsonMember(body, "proof");
+        if (raw == null || raw.Length != ProofHex + 2 || raw[0] != '"' || raw[raw.Length - 1] != '"') return null;
+        return raw.Substring(1, ProofHex);
+    }
+
+    // Does the listener at 127.0.0.1:port hold `token`? False for no answer, a refusal, a timeout, an answer that
+    // is not a 200, longer than AnswerMaxBytes, or not the proof. One deadline covers the whole exchange: the
+    // request is aborted when it passes. Never throws.
+    internal static bool Holds(int port, string token, int timeoutMs)
+    {
+        if (string.IsNullOrEmpty(token) || timeoutMs <= 0) return false;
+        string nonce = NewNonce();
+        System.Net.HttpWebRequest request = null;
+        try
+        {
+            request = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://" + ClientAddress + ":" + port.ToString(System.Globalization.CultureInfo.InvariantCulture) + ProofPath + "?n=" + nonce + "&k=" + KeyId(token));
+            request.Proxy = null;   // loopback: never the system proxy
+            request.AllowAutoRedirect = false;   // a listener cannot send the check somewhere else
+            request.Timeout = timeoutMs;
+            request.ReadWriteTimeout = timeoutMs;
+            request.KeepAlive = false;
+            request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
+            System.Net.HttpWebRequest aborting = request;
+            using (new System.Threading.Timer(_ => { try { aborting.Abort(); } catch { /* already done */ } }, null, timeoutMs, Timeout.Infinite))
+            using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
+            {
+                if ((int)response.StatusCode != 200) return false;
+                byte[] buffer = new byte[AnswerMaxBytes + 1];
+                int got = 0;
+                using (Stream stream = response.GetResponseStream())
+                {
+                    int n;
+                    while (got < buffer.Length && (n = stream.Read(buffer, got, buffer.Length - got)) > 0) got += n;
+                }
+                if (got > AnswerMaxBytes) return false;
+                return ProofMatches(token, nonce, ProofIn(Encoding.UTF8.GetString(buffer, 0, got)), port);
+            }
+        }
+        catch (System.Net.WebException e)
+        {
+            if (e.Response != null) { try { e.Response.Close(); } catch { /* the answer was not a proof */ } }
+            return false;
+        }
+        catch { return false; }
+    }
+}
+
 // ---- #3996: the waiting count on the taskbar button, the Windows twin of the Mac Dock badge ----
 //
 // The number is the board's, never worked out here: counts.waiting on /api/status (engine/status.js
@@ -4416,7 +4601,7 @@ static class TaskbarBadge
 
     // The board token, or null when the board does not enforce one (it writes the file only then).
     // Read on every poll, never kept: it never leaves this process except in the request header.
-    static string ReadBoardToken()
+    internal static string ReadBoardToken()
     {
         try
         {
@@ -4440,6 +4625,17 @@ static class TaskbarBadge
             request.ReadWriteTimeout = ReadTimeoutMs;
             request.CachePolicy = new System.Net.Cache.RequestCachePolicy(System.Net.Cache.RequestCacheLevel.NoCacheNoStore);
             string token = ReadBoardToken();
+            // #1765: the token goes only to a listener that proves it already holds it (BoardProof, above), checked on
+            // every poll on purpose: the window outlives board restarts, and another listener can hold the port. Not
+            // proven is a miss, like no answer: nothing is sent.
+            // The check takes at most half the read's bound, and the read gets what is left, so a poll still ends
+            // within ReadTimeoutMs.
+            Stopwatch checking = Stopwatch.StartNew();
+            if (token != null && !BoardProof.Holds(port, token, ReadTimeoutMs / 2)) return false;
+            int left = ReadTimeoutMs - (int)checking.ElapsedMilliseconds;
+            if (left <= 0) return false;
+            request.Timeout = left;
+            request.ReadWriteTimeout = left;
             if (token != null) request.Headers[BoardTokenHeader] = token;
             string body;
             using (System.Net.HttpWebResponse response = (System.Net.HttpWebResponse)request.GetResponse())
