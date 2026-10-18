@@ -40,7 +40,7 @@ console.log(`  files     ${m.files.length}`);
 if [ "$want" != "$got" ]; then echo "MISMATCH: manifest says $want, served bytes are $got"; exit 1; fi
 echo "  artifact  sha256 matches the served bytes"
 mkdir -p "$T/x" && tar -xzf "$T/a.tar.gz" -C "$T/x"
-( cd "$T/x" && find bin app runtime VERSION -type f | LC_ALL=C sort | while read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$T/got.txt"
+( cd "$T/x" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$T/got.txt"
 "$NODE" -e '
 const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 process.stdout.write(m.files.map((f) => `${f.sha256}  ${f.path}`).join("\n") + "\n");

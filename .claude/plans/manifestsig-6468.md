@@ -67,3 +67,12 @@ differ from it, or whose version is older than the installed one, before anythin
   "<64 hex>  <name>" by position with IFS= read -r; measured: it reproduces the served 0.7.56 manifest exactly)
 - [NIT] first guard could SIGPIPE under pipefail (FIXED: || true), _UM_NOKEY not reset at pre (FIXED), the bad-.sig
   promote arm accepts any verify failure (NOTED: the Ss5 control shows the rest runs)
+### Iteration 5 (opus): 0 BLOCKERs, 1 should-fix
+- [WARNING] the name guard's `| head -3)" || _odd=""` threw the names away when SIGPIPE failed the pipe under pipefail
+  (3000 offenders passed) (FIXED: kosmos_bundle_odd_names lists every offender in full, no head in a pipe;
+  tools/test-bundle-names-6468.sh lifts it out and runs 5 arms incl. 3000 names; the old shape, run as a control,
+  loses all 3000; registered in package.json test:shell)
+- [NIT] verify-manifest.sh read names without IFS= (FIXED), stale guard comment (FIXED), prod manifest name not
+  reject_pathy-checked in promote (FIXED), the key's map row named the wrong file (FIXED on both Macs)
+- Self-caught while fixing: a test-only env switch that would have skipped the guard in a real build; removed before
+  commit (the test lifts the function instead).
