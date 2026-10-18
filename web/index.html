@@ -4332,6 +4332,9 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tsk-c); margin-right: 6px; vertical-align: 1px; flex: none; }
 .tsk-grp { margin-top: 24px; }
 .tsk-grp h3 { font-size: 1.0625rem; margin: 0; display: flex; align-items: center; gap: 3px; }
+/* #6482 (Mona Lisa's review): a status group's heading lost the paragraph that spaced it from its list (.why's 9px), so
+   it carries that gap itself. Only these headings: the cannot-tell one keeps its line, the by-project view is unchanged. */
+.tsk-grp > h3[aria-describedby] { margin-bottom: 9px; }
 .tsk-grp h3 .count { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-left: 6px; }
 .tsk-grp .why { margin: 1px 0 9px; color: var(--k-ink-2); font-size: .875rem; max-width: 76ch; }
 .tsk-list { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 12px; overflow: hidden; }
