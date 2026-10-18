@@ -1064,6 +1064,7 @@ KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA
 KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
 KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
 KM_PINNED_KEYS="$KM_PINNED_KEYS" \
+KM_SETUP_SHA="$(shasum -a 256 "$REPO/install/setup.sh" | awk '{print $1}')" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
@@ -1079,6 +1080,8 @@ const m = {
   built: { at: e.KM_BUILT, host: e.KM_HOST, macos: e.KM_MACOS },
   // #6468: the keys that installs of THIS build accept, so a later cut can check its key against what is served.
   pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
+  // #6468 ask 3: the installer this release publishes (/setup, /setup-staging), checked before an update runs it.
+  setup_sha256: e.KM_SETUP_SHA,
   files,
 };
 fs.writeFileSync(e.KOSMOS_MANIFEST_OUT, JSON.stringify(m, null, 1) + "\n");

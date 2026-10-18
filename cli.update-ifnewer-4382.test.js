@@ -54,12 +54,35 @@ function layout() {
 }
 layout();
 
+/* #6468 ask 3: `kosmos update` now has the installed copy check the installer against the target version's SIGNED
+   manifest before running it. The installed verifier here pins a throwaway key (as tools/test-install.sh does), and
+   reset() publishes a manifest + .sig per pointer version naming that stand-in installer's sha256. */
+const crypto = require('node:crypto');
+const SIGNER = crypto.generateKeyPairSync('ed25519');
+{
+  const iv = path.join(HOME, 'app', 'engine', 'manifest-verify.js');
+  const src = fs.readFileSync(iv, 'utf8');
+  const pub = SIGNER.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  const out = src.replace(/const KEYS = \[[\s\S]*?\];/, 'const KEYS = [' + JSON.stringify(pub) + '];');
+  if (out === src) throw new Error('the KEYS list moved; this fixture cannot pin its key');
+  fs.writeFileSync(iv, out);
+}
+function publishSigned(version, setupName, { setupSha } = {}) {
+  const sha = setupSha || crypto.createHash('sha256').update(fs.readFileSync(path.join(T, setupName))).digest('hex');
+  const m = path.join(DIST, 'kosmos-' + version + '-arm64.manifest.json');
+  fs.writeFileSync(m, JSON.stringify({ manifest: 1, version, arch: 'arm64', setup_sha256: sha, files: [] }) + '\n');
+  fs.writeFileSync(m + '.sig', crypto.sign(null, fs.readFileSync(m), SIGNER.privateKey).toString('base64') + '\n');
+}
+
 function reset({ prod, staging, consent, stamp } = {}) {
   for (const f of [RAN, path.join(HOME, 'logs', 'install.status'), path.join(HOME, 'logs', 'install.started'),
     path.join(DIST, 'latest.json'), path.join(DIST, 'latest-staging.json'), path.join(DATA, 'Kosmos', 'autoupdate.json'),
     path.join(DATA, 'Kosmos', 'source-channel')]) fs.rmSync(f, { force: true });
+  for (const f of fs.readdirSync(DIST)) if (/\.manifest\.json(\.sig)?$/.test(f)) fs.rmSync(path.join(DIST, f), { force: true });
   if (prod !== undefined) fs.writeFileSync(path.join(DIST, 'latest.json'), JSON.stringify({ version: prod }));
   if (staging !== undefined) fs.writeFileSync(path.join(DIST, 'latest-staging.json'), JSON.stringify({ version: staging }));
+  if (prod !== undefined && /^\d+\.\d+\.\d+$/.test(String(prod))) publishSigned(prod, 'setup');
+  if (staging !== undefined && /^\d+\.\d+\.\d+$/.test(String(staging)) && staging !== prod) publishSigned(staging, 'setup-staging');
   fs.mkdirSync(path.join(DATA, 'Kosmos'), { recursive: true });
   if (consent !== undefined) fs.writeFileSync(path.join(DATA, 'Kosmos', 'autoupdate.json'), consent);
   if (stamp !== undefined) fs.writeFileSync(path.join(DATA, 'Kosmos', 'source-channel'), stamp + '\n');
@@ -252,4 +275,41 @@ test('#4382: an install already under way here (a fresh logs/install.started) is
   const old = new Date(Date.now() - 31 * 60 * 1000);
   fs.utimesSync(MARK, old, old);
   assert.equal((await run(['--if-newer', '--install'])).last, 'updated 1.2.0');
+});
+
+/* #6468 ask 3: the installer runs only after the installed copy has checked it against the target's signed manifest. */
+test('#6468: an installer that does not match its signed release is not run: 97 recorded, failed, the reason logged', async () => {
+  reset({ prod: '1.2.0' });
+  publishSigned('1.2.0', 'setup', { setupSha: 'f'.repeat(64) });
+  const r = await run(['--if-newer']);
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.equal(r.last, 'failed 1.2.0');
+  assert.equal(ran(), '', 'the installer ran though it did not match');
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.status'), 'utf8'), /^97 /);
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /does not match its signed release, so the installer was not run/);
+});
+test('#6468: a missing signature, or a manifest signed by another key, runs nothing', async () => {
+  reset({ prod: '1.2.0' });
+  fs.rmSync(path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json.sig'));
+  let r = await run(['--if-newer']);
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.equal(ran(), '');
+  reset({ prod: '1.2.0' });
+  const m = path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json');
+  const stranger = crypto.generateKeyPairSync('ed25519');
+  fs.writeFileSync(m + '.sig', crypto.sign(null, fs.readFileSync(m), stranger.privateKey).toString('base64') + '\n');
+  r = await run(['--if-newer']);
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.equal(ran(), '');
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /not signed by the Kosmos release key/);
+});
+test('#6468: a release cut before ask 3 (its manifest names no installer) still updates, and says it ran unchecked', async () => {
+  reset({ prod: '1.2.0' });
+  const m = path.join(DIST, 'kosmos-1.2.0-arm64.manifest.json');
+  fs.writeFileSync(m, JSON.stringify({ manifest: 1, version: '1.2.0', arch: 'arm64', files: [] }) + '\n');
+  fs.writeFileSync(m + '.sig', crypto.sign(null, fs.readFileSync(m), SIGNER.privateKey).toString('base64') + '\n');
+  const r = await run(['--if-newer']);
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(ran(), /installer=setup/);
+  assert.match(fs.readFileSync(path.join(HOME, 'logs', 'install.log'), 'utf8'), /records no installer, so the installer is run unchecked/);
 });

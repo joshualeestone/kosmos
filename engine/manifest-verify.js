@@ -69,7 +69,7 @@ function isLink(p) {
   try { return fs.lstatSync(p).isSymbolicLink(); } catch { return false; }
 }
 
-function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS }) {
+function verify({ manifest, sig, tarball, stage, version, installedVersion, keys = KEYS, skipTarball = false }) {
   if (!keys.length) return { code: 3, why: 'no release signing key is pinned in this install' };
   const bytes = fs.readFileSync(manifest);
   let signature;
@@ -88,6 +88,7 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   const have = parseVersion(installedVersion);
   if (!have) return { code: 1, why: 'the installed version could not be read, so the update could not be checked' };
   if (older(want, have)) return { code: 1, why: `the update is ${version}, older than the installed ${installedVersion}` };
+  if (skipTarball) return { code: 0, why: `the signed manifest for ${version} is genuine` };
   if (typeof m.sha256 !== 'string' || sha256File(tarball) !== m.sha256) return { code: 1, why: 'the download does not match its signed manifest' };
   if (stage === '-') return { code: 0, why: `the download matches the signed manifest for ${version}` };
   if (!Array.isArray(m.files)) return { code: 1, why: 'the signed manifest lists no files' };
@@ -102,9 +103,62 @@ function verify({ manifest, sig, tarball, stage, version, installedVersion, keys
   return { code: 0, why: `the update matches the signed manifest for ${version}` };
 }
 
-module.exports = { verify, KEYS, listFiles };
+/* #6468 ask 3: check the installer script against the SIGNED manifest of the version being installed, before it runs.
+ * The build records setup_sha256 (install/setup.sh, the bytes the cut publishes as /setup and /setup-staging; the site
+ * deploy refuses to serve any other, #5032). Exit 0: it matches. 1: refused. 3: that release's manifest records no
+ * installer (cut before this), so there is nothing to check it against. */
+function verifySetup({ manifest, sig, setup, version, installedVersion, keys = KEYS }) {
+  const r = verify({ manifest, sig, tarball: null, stage: '-', version, installedVersion, keys, skipTarball: true });
+  if (r.code !== 0) return r;
+  let m;
+  try { m = JSON.parse(fs.readFileSync(manifest, 'utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  if (typeof m.setup_sha256 !== 'string') return { code: 3, why: `the signed manifest for ${version} records no installer` };
+  if (sha256File(setup) !== m.setup_sha256) return { code: 1, why: 'the installer does not match its signed release' };
+  return { code: 0, why: `the installer matches the signed manifest for ${version}` };
+}
 
-if (require.main === module) {
+/* run-setup: what the in-app update (engine/update.js) and `kosmos update` (install/kosmos) run instead of
+ * `curl <setup> | sh`. Downloads the installer and the target version's manifest and .sig into a private folder,
+ * checks them with THIS (installed) copy, and only then runs the installer with sh, passing stdio and the environment
+ * through. Returns the installer's exit code, or 97 (a sentence on stderr) when it was not run. */
+const NOT_RUN = 97;
+function runSetup({ setupUrl, base, version, home, spawnSync = require('child_process').spawnSync }) {
+  const say = (why) => { process.stderr.write('kosmos update: ' + why + ', so the installer was not run.\n'); return NOT_RUN; };
+  if (!/^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(String(version || ''))) return say('the version to install is not known');
+  let dir;
+  try { dir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'kosmos-setup-')); } catch { return say('there was no private folder to check the installer in'); }
+  try {
+    const get = (url, out) => spawnSync('curl', ['-fsSL', '--connect-timeout', '30', '--speed-limit', '1024', '--speed-time', '60', url, '-o', out], { stdio: ['ignore', 'ignore', 'inherit'] }).status === 0;
+    const files = { setup: path.join(dir, 'setup'), manifest: path.join(dir, 'manifest.json'), sig: path.join(dir, 'manifest.sig') };
+    const b = String(base || '').replace(/\/+$/, '');
+    if (!get(setupUrl, files.setup)) return say('the installer could not be downloaded');
+    if (!get(`${b}/kosmos-${version}-arm64.manifest.json`, files.manifest) || !get(`${b}/kosmos-${version}-arm64.manifest.json.sig`, files.sig)) {
+      return say(`the signed manifest for ${version} could not be downloaded`);
+    }
+    let installedVersion = '';
+    try { installedVersion = JSON.parse(fs.readFileSync(path.join(home, 'app', 'package.json'), 'utf8')).version; } catch { installedVersion = ''; }
+    const r = verifySetup({ manifest: files.manifest, sig: files.sig, setup: files.setup, version, installedVersion });
+    if (r.code === 1) return say(r.why);
+    if (r.code === 3) process.stderr.write('kosmos update: ' + r.why + ', so the installer is run unchecked.\n');
+    const env = { ...process.env };
+    delete env.NODE_OPTIONS;
+    // stdin is not handed on: under curl | sh the installer's stdin was its own bytes, so it never read one.
+    const run = spawnSync('/bin/sh', [files.setup], { stdio: ['ignore', 'inherit', 'inherit'], env });
+    return typeof run.status === 'number' ? run.status : 1;
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+module.exports = { verify, verifySetup, runSetup, NOT_RUN, KEYS, listFiles };
+
+if (require.main === module && process.argv[2] === 'run-setup') {
+  // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
+  const [setupUrl, base, version, home] = process.argv.slice(3);
+  let code;
+  try { code = runSetup({ setupUrl, base, version, home }); } catch (e) { process.stderr.write('kosmos update: the installer could not be checked (' + (e && e.code || 'error') + '), so it was not run.\n'); code = NOT_RUN; }
+  process.exit(code);
+} else if (require.main === module) {
   const [manifest, sig, tarball, stage, version, home] = process.argv.slice(2);
   let r;
   try {
