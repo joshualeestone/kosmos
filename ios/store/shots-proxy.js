@@ -20,6 +20,12 @@
  *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. Only image, font, audio and
  *   video answers pass unread. A hit, an encoded body or a stream is refused, never passed on, and printed as
  *   "LEAK" by kind and length only; shoot-app.sh then files nothing.
+ *   This reads SOURCE (the page's script and comments too), not only what a screen shows, which is stricter than
+ *   lib-leak-guard.js's own use on rendered text. So on a Mac whose user or host name is a word in a script or
+ *   comment the board serves (other than web/index.html, whose words the lib already exempts), every run stops
+ *   here. That is the safe direction: rename nothing to get past it, and do not widen an exemption.
+ *   An answer the board breaks off part way is refused and printed as "UPSTREAM", which shoot-app.sh treats as a
+ *   failed run (a half-loaded page would otherwise be photographed).
  *   One value is replaced before the check, not let through: the board writes where its `kosmos` command lives
  *   into every agent's instructions, and the throwaway board runs from this checkout, whose path holds this Mac's
  *   user name. On a customer's computer that is the installed command, ~/.local/share/kosmos/bin/kosmos, so the
@@ -54,7 +60,14 @@ const server = http.createServer((req, res) => {
   const pathname = new URL(req.url, board).pathname;
   const status = req.method === 'GET' && pathname === '/api/status';
   delete headers['accept-encoding'];   // every text answer is read (and /api/status rewritten), so ask for it plain
+  const broke = (why) => {
+    process.stderr.write('UPSTREAM ' + pathname + ': ' + why + '\n');
+    if (!res.headersSent) { res.writeHead(502); res.end(); } else res.destroy();
+  };
+  req.on('error', () => { /* the app went away mid-request: nothing to answer */ });
   const up = http.request({ host: board.hostname, port: board.port, method: req.method, path: req.url, headers }, (r) => {
+    r.on('error', () => broke('the answer broke off'));
+    r.on('aborted', () => broke('the answer was cut'));
     const out = { ...r.headers };
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
@@ -72,8 +85,10 @@ const server = http.createServer((req, res) => {
       const text = asInstalled(raw);
       const hits = hitsIn(text);
       if (hits.length) { leak(pathname, hits); res.writeHead(502); res.end(); return; }
+      if (!r.complete) return;   // 'aborted' already refused it
       let body = text === raw ? Buffer.concat(chunks) : Buffer.from(text);
-      delete out['content-length'];
+      // Sent whole with its own length: the board's framing and connection headers no longer describe it.
+      for (const h of ['content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete out[h];
       if (status && r.statusCode === 200) {
         try {
           const j = JSON.parse(body.toString('utf8'));
@@ -87,7 +102,7 @@ const server = http.createServer((req, res) => {
       res.end(body);
     });
   });
-  up.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+  up.on('error', () => broke('the board did not answer'));
   req.pipe(up);
 });
 server.listen(0, host, () => { ours = `http://${host}:${server.address().port}`; console.log('listening ' + ours); });
