@@ -214,6 +214,7 @@ if [ "$FAMILY" = mac ]; then
       || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
   else
     _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
+    [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
     if [ -n "$_prod_manifest" ]; then
       # A prod pointer that names a manifest promote cannot read is "cannot tell", which refuses: reading it as "prod
       # does not check signatures" would strand every install that does.

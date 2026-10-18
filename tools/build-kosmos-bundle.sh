@@ -1034,14 +1034,18 @@ tar -czf "$TARBALL_OUT" -C "$STAGE" bin app runtime VERSION
 MANIFEST_OUT="$OUT/kosmos-$ARCH.manifest.json"
 _pkg_version="$(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -p 'JSON.parse(require("fs").readFileSync(process.env.KOSMOS_PKG,"utf8")).version')"
 # #6468: installs check every file against this list, so the list must describe the tree exactly. It cannot list a
-# symlink (find -type f skips it, the installed verifier refuses it), and its one-name-per-line format cannot carry
-# a name with whitespace or a newline in it. So every name must be plain: letters, digits and . _ / @ + = , ~ % # ( ) -,
-# under bin/, app/ or runtime/, or VERSION itself (every name in the 0.7.56 bundle is). Anything else would ship a
-# release every checking install refuses, so the build refuses first.
-_odd="$(cd "$STAGE" && find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | head -3)" || true
-[ -z "$_odd" ] || { echo "FAIL: the bundle holds something that is not a plain file or folder (the signed manifest cannot list it): $_odd" >&2; exit 1; }
-_odd="$(cd "$STAGE" && find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | head -3)" || _odd=""
-[ -z "$_odd" ] || { echo "FAIL: a bundle file name the signed manifest cannot carry (only plain names, no spaces): $_odd" >&2; exit 1; }
+# symlink (find -type f skips it, the installed verifier refuses it), and a name with a newline in it would split
+# into two lines. The rule is stricter than that on purpose, so the build, tools/verify-manifest.sh and
+# engine/manifest-verify.js agree by construction: every name is plain (letters, digits and . _ / @ + = , ~ % # ( ) -,
+# no spaces) under bin/, app/ or runtime/, or VERSION itself. The 0.7.56 bundle's 362 names all are.
+# kosmos_bundle_odd_names lists every offender IN FULL (no head inside a pipe: under pipefail a SIGPIPE would fail the
+# pipeline and a fallback would throw the names away, measured with 3000 names). tools/test-bundle-names-6468.sh runs it.
+kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line
+  ( cd "$1" && { find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | sed 's/^/not a plain file: /'
+                 find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | sed 's/^/name the manifest cannot carry: /'; } ) || true
+}
+_odd="$(kosmos_bundle_odd_names "$STAGE")"
+[ -z "$_odd" ] || { echo "FAIL: the bundle holds names the signed manifest cannot list exactly (#6468), first ones:" >&2; printf '%s\n' "$_odd" | sed -n '1,5p' >&2; exit 1; }
 ( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
 KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
 KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
