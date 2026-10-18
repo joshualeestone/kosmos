@@ -25,3 +25,9 @@ the site installer unless it matches the signed manifest of the version prod ser
 
 ## Not run
 A real .pkg install (needs a built, notarized pkg).
+
+## Review log
+### Iteration 1 (sonnet): 0 BLOCKERs, 1 should-fix
+- [WARNING] the hand-off had no retry, regressing the 2026-09-15 half-publish hardening (FIXED: a 97 is retried on the same bounded _rmax/_rsleep budget; any other status is the answer)
+- [NIT] a broken installed node blocked the repair path (FIXED: a node -e 0 health probe in the gate falls back to the checksum path)
+- [NIT] the refusal said "kosmos update:" to a .pkg user (FIXED on the base branch: messages say Kosmos)
