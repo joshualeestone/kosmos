@@ -28,7 +28,7 @@ const RESTARTED = 'restarted-by-remove';
    records each write in order; `noted` records deps.leftOnOld (the #6174 note), covered in depth by accountmove-notes-6231. */
 function deps({ saved = {}, putBackRefuses = [], unreadable = [], slow = [] } = {}) {
   const pending = new Map(), order = [], held = new Set(), putBacks = [], noted = [], slowGate = new Map();
-  const names = { '/acct/old': 'old@example.com', '/acct/new': 'new@example.com', '/acct/other': 'other@example.com' };
+  const names = { '/acct/old': 'old@example.com', '/acct/new': 'new@example.com', '/acct/other': 'other@example.com', '/acct/default': 'default@example.com' };
   const write = (n, dir) => {
     putBacks.push([n, dir]);
     if (putBackRefuses.includes(n)) return { outcome: REFUSED, because: 'that account is signed out' };
@@ -41,7 +41,9 @@ function deps({ saved = {}, putBackRefuses = [], unreadable = [], slow = [] } = 
     moveRefusal: () => null,   // #6190: nothing else holds these agents
     hold: (ns) => ns.forEach((n) => held.add(n)),
     release: (n) => held.delete(n),
-    setAccount: (n, dir) => { saved[n] = dir; return { outcome: 'changed', account: { email: names[dir] } }; },
+    /* A move to '/acct/default' models the default account: setAccount writes its job configDir as null (readAccount then
+       reads back null, i.e. `job.configDir || null`) while the returned account still carries a concrete dir plus isDefault. */
+    setAccount: (n, dir) => { const isDefault = dir === '/acct/default'; saved[n] = isDefault ? null : dir; return { outcome: 'changed', account: { email: names[dir], dir, isDefault } }; },
     readAccount: (n) => { if (unreadable.includes(n)) throw new Error('unreadable'); return n in saved ? saved[n] : null; },
     /* The async put-back the move's tail awaits. A `slow` agent's put-back parks until the test settles it. */
     putBackAsync: (n, dir) => {
@@ -95,6 +97,34 @@ test('#6214: a stop keeps the restarted result, lets the one mid-restart finish,
   assert.equal(end.agents[2].account, undefined, 'a put-back agent does not carry the new account');
   assert.equal(d.held.size, 0, 'nothing is left held');
   assert.equal(accountmove.busy(), false, 'the board is released');
+});
+
+test('#6231 item 8: a move TO the default account still puts the not-reached agents back; the cached `to` is normalized to null (not the resolved dir), so the clobber guard does not spuriously fire', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old', di: '/acct/old' } });
+  const out = accountmove.start({ dir: '/acct/default', names: ['al', 'bo', 'cy', 'di'] }, d);
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick();
+  assert.deepEqual(d.order, ['al', 'bo'], 'bo is mid-restart; cy and di are not reached');
+
+  const s = accountmove.stop();
+  assert.equal(s.body.stopped, true);
+  assert.equal(d.saved.al, null, 'al was moved to the default account, whose job reads back as null (configDir || null)');
+
+  d.pending.get('bo')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+
+  /* The cached `to` for cy and di is the default account: setAccount reports { isDefault: true, dir: '/acct/default' }, and
+     savedTo normalizes that to null, exactly what readAccount returns for the default. So at put-back now (null) === a.to.dir
+     (null): the clobber guard passes and both are put back to their old account. Had `to` cached the resolved dir instead,
+     now !== a.to.dir would be (null !== '/acct/default') on every stop, falsely reading "changed since" and skipping every
+     put-back. That is the item-8 trap this test guards. */
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old'], ['di', '/acct/old']], 'the not-reached agents are put back, not skipped as "changed since"');
+  assert.equal(d.saved.cy, '/acct/old');
+  assert.equal(d.saved.di, '/acct/old');
+  assert.deepEqual(d.noted, [], 'no spurious leftOnOld note: the default-account `to` did not trip the clobber guard');
+
+  const end = accountmove.read(out.body.id);
+  assert.deepEqual(end.agents.map((a) => [a.name, a.outcome]), [['al', 'changed'], ['bo', 'changed'], ['cy', 'stopped'], ['di', 'stopped']]);
 });
 
 test('#6214 (Liu Kang m5659): an account changed by hand since the move saved it is kept, not put back', async () => {

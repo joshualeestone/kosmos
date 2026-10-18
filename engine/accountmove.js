@@ -146,6 +146,19 @@ function start(body, deps) {
     if (typeof deps.readAccount !== 'function') return { ok: false };
     try { return { ok: true, dir: deps.readAccount(name) }; } catch { return { ok: false }; }
   };
+  /* #6231 item 8: the `to` read used to be a second readNow(name) right after setAccount, which
+     busts the task-spec cache, so it forced one uncached schtasks /Query per agent. The job reads
+     its account back as exactly what setAccount just wrote, so take it from wrote.account instead
+     of the wire. Normalize as readAccount does (`job.configDir || null`): configDir is written as
+     isDefault ? null : dir. Reusing the DIR unconditionally would break a move to the DEFAULT
+     account, where readAccount reads null at put-back time while to.dir stayed a dir, so the stop
+     clobber guard (now !== a.to.dir) would fire on every stop and skip every put-back. Fall back
+     to a live read if the write did not carry an account, so a malformed write is not papered over. */
+  const savedTo = (wrote, name) => {
+    const acct = wrote && wrote.account;
+    if (!acct) return readNow(name);
+    return { ok: true, dir: acct.isDefault ? null : (acct.dir || null) };
+  };
   for (const name of names) {
     /* #6190: an agent a restart still holds is refused before its account is written, not after (the write used to land
        and only its restart was refused). The move's own hold comes after this loop, so this sees only earlier holds. */
@@ -166,7 +179,7 @@ function start(body, deps) {
       continue;
     }
     try { deps.forget(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
-    m.agents.push({ name, outcome: 'pending', wrote, account: wrote.account, from, to: readNow(name) });
+    m.agents.push({ name, outcome: 'pending', wrote, account: wrote.account, from, to: savedTo(wrote, name) });
   }
   moves.set(m.id, m);
   prune(Date.now());

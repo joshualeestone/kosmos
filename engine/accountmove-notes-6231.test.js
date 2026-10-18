@@ -31,7 +31,7 @@ function deps({ saved = {}, putBackRefuses = [], noPutBack = false, noteThrows =
     moveRefusal: () => null,
     hold: () => {},
     release: () => {},
-    setAccount: (n, dir) => { saved[n] = dir; return { outcome: 'changed', account: { email: 'new@example.com' } }; },
+    setAccount: (n, dir) => { saved[n] = dir; return { outcome: 'changed', account: { email: 'new@example.com', dir, isDefault: false } }; },
     readAccount: (n) => (n in saved ? saved[n] : null),
     /* #6231 item 7: the tail awaits putBackAsync. putBack is kept for the sync seam / any remaining sync caller. */
     putBackAsync: (n, dir) => Promise.resolve(write(n, dir)),
