@@ -2,6 +2,8 @@
 # #6262: an app headed for the store must not carry the App Store screenshot switch (KOSMOS_STORE_SHOTS), which
 # opens whatever address KOSMOS_SHOTS_URL names instead of Kosmos+. Only ios/store/shoot-app.sh builds with it;
 # this proves a built app does not, by the variable's name in the executable (present only when compiled in).
+# The name must stay longer than 15 bytes: Swift stores shorter strings inline, where grep cannot see them. iOS CI
+# builds a Release app WITH the switch and requires this check to fail on it, so a rename that blinds it goes red.
 # Usage: ios/tools/check-no-shots-flag.sh <path/to/Kosmos.app>   Ends with one VERDICT: line.
 set -u
 app="${1:-}"
