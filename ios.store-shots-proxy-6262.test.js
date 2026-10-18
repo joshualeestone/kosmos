@@ -42,6 +42,9 @@ const ROUTES = {
   // A sibling folder whose name starts with the checkout's: not this checkout, so it must not be swapped.
   '/sibling': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: CHECKOUT + '-other/x' })); },
   '/leak': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ where: os.homedir() + '/Documents' })); },
+  '/leak-pct': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ href: '/open?p=' + encodeURIComponent(os.homedir() + '/x') })); },
+  '/leak-u': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"p":"' + [...os.homedir()].map((c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')).join('') + '"}'); },
+  '/leak-ent': (res) => { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<p>' + [...os.homedir()].map((c) => '&#' + c.charCodeAt(0) + ';').join('') + '</p>'); },
   '/gzip': (res) => { res.writeHead(200, { 'content-type': 'application/json', 'content-encoding': 'gzip' }); res.end(zlib.gzipSync('{"a":1}')); },
   '/stream': (res) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write('data: hello\n\n'); setTimeout(() => res.end(), 50); },
   '/chunked': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"a":'); setTimeout(() => res.end('1}'), 20); },
@@ -142,6 +145,13 @@ test('an answer carrying this Mac\'s home path is refused and printed as LEAK', 
   assert.equal(r.status, 502);
   assert.ok(!r.body.includes(os.homedir()));
   await logged(/^LEAK \/leak: home:/m);
+});
+
+test('the home path is refused in its encoded forms too (percent, JSON \\u escape, HTML entity)', async () => {
+  for (const p of ['/leak-pct', '/leak-u', '/leak-ent']) {
+    assert.equal((await get(p)).status, 502, p);
+    await logged(new RegExp('^LEAK ' + p + ': home:', 'm'));
+  }
 });
 
 test('an encoded answer and an event stream are refused', async () => {

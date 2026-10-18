@@ -108,7 +108,7 @@ for d in "${devices[@]}"; do
   xcrun simctl boot "$udid" && xcrun simctl bootstatus "$udid" -b >/dev/null || fail "the $size simulator did not boot"
   xcrun simctl install "$udid" "$app" || fail "could not install the app on $size"
   xcrun simctl status_bar "$udid" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
-    --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100 \
+    --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100 \
     || fail "could not set the $size status bar to 9:41"
   for theme in light dark; do
     xcrun simctl ui "$udid" appearance "$theme" || fail "could not switch the $size simulator to $theme"
@@ -147,14 +147,17 @@ for size, theme in sets:
         im.convert('RGB').save(os.path.join(stage, f'{size}-{theme}', f'{i:02d}-{name}.png'), optimize=True)
 # Only once every shot was written, each set this script makes is swapped as a whole: built beside screenshots/
 # (same folder, so the swap is two renames), then old and new trade places. A run killed part way leaves each set
-# either old or new, never half-filled (between its two renames the old one is .shots-old-<set> beside it).
-# Anything else in screenshots/ is left alone.
+# either old or new, never half-filled; between its two renames the set is missing from screenshots/ and sits as
+# .shots-old-<set> beside it, and the next run puts that back before anything else (git also holds the committed
+# set). Anything else in screenshots/ is left alone.
 import shutil
 os.makedirs(dest, exist_ok=True)
 parent = os.path.dirname(dest)
 for size, theme in sets:
     name = f'{size}-{theme}'
     new, old, live = os.path.join(parent, '.shots-new-' + name), os.path.join(parent, '.shots-old-' + name), os.path.join(dest, name)
+    if os.path.isdir(old) and not os.path.isdir(live):
+        os.rename(old, live)   # a run killed between its two renames: put the old set back first
     for d in (new, old):
         shutil.rmtree(d, ignore_errors=True)
     shutil.copytree(os.path.join(stage, name), new)

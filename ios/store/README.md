@@ -98,8 +98,8 @@ that only this script sets: it opens a given address instead of Kosmos+ and skip
 address is `shots-proxy.js` in front of a throwaway board filled with an invented team
 (`docs/browser-checks/mobile-shots.js --keep --data store --remote`). No real account, agent, message or computer
 appears: the tool's leak guard reads the four screens first, and the proxy reads every text answer the board gives
-the app with the same checks, lets a picture or file through only at the path of one the product itself ships,
-and stops the run on anything else. iOS CI checks that the store build never carries the switch
+the app with the same checks (in its encoded forms too), lets a picture or file through only at the path of one
+the product itself ships (or empty), and stops the run on anything else. iOS CI checks that the store build never carries the switch
 (`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar reads 9:41 with full signal, as Apple's
 own pictures do.
 
@@ -112,7 +112,9 @@ path of a made-up user (`/Users/you/.local/share/kosmos/bin/kosmos`). No screen 
 hit still stops the run.
 
 **Worth knowing before upload.** In the chat shot your own messages carry a plain dark circle where a picture
-would be, because the test board has no profile picture for you. The project room opens on its newest
+would be, because the test board has no profile picture for you. It also ends "Nothing back yet.", because your
+last message is the newest one and Dana has not answered it; that is the board telling the truth, but a buyer may
+read it as a fault. The project room opens on its newest
 post, so on the 6.3-inch phone the first message is cut at the top; the app has no way to start it higher.
 
 **iPhone Duo.** Apple's page says: "Starting in April 2027, screenshots will be required for any app using the iOS

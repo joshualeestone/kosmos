@@ -59,6 +59,17 @@ const shipped = (p) => {
   try { f = path.resolve(WEB, '.' + decodeURIComponent(p)); } catch { return false; }   // a malformed % is not a file
   return f.startsWith(WEB + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile();
 };
+// The page decodes some text before showing it, so a value can arrive encoded: percent-encoded (%2FUsers%2F...),
+// as a JSON \u escape, or as an HTML entity. Each form is read, and a hit in any of them counts.
+const decodedForms = (t) => {
+  const forms = [t];
+  try { forms.push(decodeURIComponent(t)); } catch { forms.push(t.replace(/%([0-9a-f]{2})/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))); }
+  forms.push(t.replace(/\\u([0-9a-f]{4})/gi, (_, h) => String.fromCharCode(parseInt(h, 16))));
+  forms.push(t.replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&sol;/gi, '/'));
+  return forms;
+};
+const hitsInAnyForm = (t) => [...new Set(decodedForms(t).flatMap((f) => hitsIn(f)))];
 // The answers the guard can read as text. Anything else (a PDF, a zip, an attachment, no type at all) cannot be
 // read that way, so it passes only empty or as a shipped file.
 const TEXT = /^(text\/(?!event-stream)|application\/(json|javascript|x-javascript|manifest\+json|xml)\b|image\/svg\+xml)/i;
@@ -92,11 +103,11 @@ const server = http.createServer((req, res) => {
     const type = String(r.headers['content-type'] || '');
     const refuse = (why) => { leak(pathname, [why]); res.writeHead(502); res.end(); r.resume(); };
     // Binary media cannot be read as text (SVG is text and is read): only a file the product ships passes.
-    if (/^(image\/(?!svg)|font\/|audio\/|video\/)/.test(type)) {
+    if (/^(image\/(?!svg)|font\/|audio\/|video\/)/i.test(type)) {
       if (!shipped(pathname)) return refuse('a picture or media file that is not one the product ships (' + type.split(';')[0] + ')');
       res.writeHead(r.statusCode, out); r.pipe(res); return;
     }
-    if (/^text\/event-stream/.test(type)) return refuse('a stream, which cannot be read whole before it is sent');
+    if (/^text\/event-stream/i.test(type)) return refuse('a stream, which cannot be read whole before it is sent');
     if (r.headers['content-encoding'] && r.headers['content-encoding'] !== 'identity') {
       return refuse('an encoded answer the guard cannot read (' + r.headers['content-encoding'] + ')');
     }
@@ -110,7 +121,7 @@ const server = http.createServer((req, res) => {
       }
       const raw = Buffer.concat(chunks).toString('utf8');
       const text = asInstalled(raw);
-      const hits = hitsIn(text);
+      const hits = hitsInAnyForm(text);
       if (hits.length) { leak(pathname, hits); res.writeHead(502); res.end(); return; }
       let body = text === raw ? Buffer.concat(chunks) : Buffer.from(text);
       // Sent whole with its own length: the board's framing and connection headers no longer describe it.
