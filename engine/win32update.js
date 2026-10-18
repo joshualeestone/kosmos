@@ -173,7 +173,7 @@ const STAGED_NODE_ENV_KEYS = Object.freeze(['SystemRoot', 'windir', 'TEMP', 'TMP
 const EXPECTED_SIGNER = 'Kosmos Agent Manager, Inc.';
 const EXPECTED_ROOT_THUMBPRINT = 'F40042E2E5F7E8EF8189FED15519AECE42C3BFA2';
 const EXPECTED_INTERMEDIATE_PATTERN = /^CN=Microsoft ID Verified Code Signing PCA [0-9]{4}, O=Microsoft Corporation, C=US$/i;
-/** Get-AuthenticodeSignature on a ~7 KB exe answers in a second or two; a first PowerShell start
+/** Get-AuthenticodeSignature on the ~170 KB Kosmos.exe answers in a second or two; a first PowerShell start
     under an antivirus scan can take much longer. */
 const SIGNATURE_TIMEOUT_MS = 60 * 1000;
 
@@ -368,7 +368,7 @@ const SIGNATURE_SCRIPT = [
 /** The first line of what PowerShell said on stderr, without its position and category lines. */
 function powershellReason(stderr) {
   const line = String(stderr || '').split(/\r?\n/).map((l) => l.trim())
-    .find((l) => l && !/^(At line:|\+|CategoryInfo|FullyQualifiedErrorId)/.test(l));
+    .find((l) => l && !/^(#< CLIXML|At line:|\+|CategoryInfo|FullyQualifiedErrorId)/.test(l));
   return line ? line.slice(0, 200) : null;
 }
 
@@ -387,7 +387,8 @@ function authenticodeOf(exe, timeoutMs, env) {
     }, (err, stdout, stderr) => {
       if (err) {
         if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { reject(new Error('Windows PowerShell answered with far more than a signature')); return; }
-        if (err.killed || err.code === 'ETIMEDOUT') { reject(Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' })); return; }
+        if ((err.killed && err.signal === 'SIGTERM') || err.code === 'ETIMEDOUT') { reject(Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' })); return; }
+        if (err.signal) { reject(new Error(`Windows PowerShell was stopped (${err.signal})`)); return; }
         if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
         reject(new Error(powershellReason(stderr) || `Windows PowerShell ended with code ${err.code}`));
         return;
@@ -1692,7 +1693,8 @@ function keptPreviousBuild(root) {
 }
 
 /** The full check of a kept build before Kosmos will roll back to it, as a sentence, or null: every
-    required entry is there, and its own node.exe runs and reports a version. Read-only. */
+    required entry is there, and its own node.exe runs and reports a version. Read-only. Its Kosmos.exe
+    is not signature-checked: it is the build that was installed before (#1765; the plan's "Not covered"). */
 function keptBuildRefusal(dir, version, root, runNode) {
   const installed = (readJson(path.join(root, 'app', 'package.json')) || {}).version;
   if (installed && !update.newer(installed, version)) {

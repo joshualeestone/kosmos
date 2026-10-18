@@ -26,13 +26,14 @@ let rootSkip;
 function microsoftRootSkip() {
   if (rootSkip !== undefined) return rootSkip;
   if (process.platform !== 'win32') { rootSkip = 'asks Windows itself (Get-AuthenticodeSignature)'; return rootSkip; }
+  const ps = require('node:path').win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   let there = false;
   try {
-    const out = require('node:child_process').execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    const out = require('node:child_process').execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command',
       `[Console]::Out.Write([string](Test-Path -LiteralPath 'Cert:\\LocalMachine\\Root\\${SIGNED_KOSMOS.rootThumbprint}'))`],
     { encoding: 'utf8', windowsHide: true, timeout: 60000 });
     there = out.trim() === 'True';
-  } catch { there = false; }
+  } catch (e) { rootSkip = `could not ask Windows whether Microsoft's root is installed (${String((e && e.message) || e).split('\n')[0]})`; return rootSkip; }
   rootSkip = there ? false : 'Microsoft Identity Verification Root 2020 is not installed on this computer';
   return rootSkip;
 }
