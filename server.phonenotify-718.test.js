@@ -651,11 +651,13 @@ test('#6488: the board starts the default turn-on at real startup, not at requir
   assert.ok(cb > 0 && at > cb && at < wired, 'the default turn-on moved out of the listen callback');
   // And after every way of connecting: a register, the sign-up, the company sign-in, and switching Kosmos+ on. Each
   // handler's poke must come before that handler's answer (its sendJson 200), not somewhere later in the file.
+  const helper = src.indexOf('function phoneDefaultAfterConnect() {');
+  assert.ok(helper > 0 && src.indexOf('phonenotify.pokeDefaultOn()', helper) - helper < 120, 'the connect helper no longer pokes the default');
   for (const call of ['await remote.signinRegister(name)', 'await remote.setupComplete(code, name)', 'await remote.companyComplete(', 'remote.setOn(body.on)']) {
     const at2 = src.indexOf(call);
     assert.ok(at2 > 0, 'connect path not found: ' + call);
     const answer = src.indexOf('sendJson(res, 200', at2);
-    const poke = src.indexOf('phonenotify.pokeDefaultOn()', at2);
+    const poke = src.indexOf('phoneDefaultAfterConnect();', at2);
     assert.ok(poke > at2 && poke < answer, 'this way of connecting no longer runs the default turn-on: ' + call);
   }
 });
@@ -699,9 +701,10 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
       runs.shift()();
       await ctl.whenIdle();
     }
-    const want = [];
+    // The first run is startup (a change): it keeps the short wait; then each failure doubles, up to the cap.
+    const want = [phonenotify.DEFAULT_ON_EVERY_MS];
     for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < 9; w = Math.min(w * 2, phonenotify.DEFAULT_ON_FAIL_MAX_MS)) want.push(w);
-    assert.deepEqual(waits, want, 'the waits did not double up to the half-hour cap');
+    assert.deepEqual(waits, want, 'the waits did not start short and double up to the cap');
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_FAIL_MAX_MS, 'never reached the cap');
     ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
@@ -833,7 +836,7 @@ test('#6488: the wait goes back to short when this computer connects', async () 
     const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure });
     await ctl.whenIdle();
     runs.shift()(); await ctl.whenIdle();
-    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 4, 'premise: the wait grew');
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 2, 'premise: the wait grew (the startup run stays short)');
     unenrol();                                   // removed: nothing to do, short wait
     runs.shift()(); await ctl.whenIdle();
     assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
@@ -953,14 +956,16 @@ test('#6488: a press on Turn on while Kosmos+ is switched off here mints nothing
   enrolSwitchedOff();
   const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
   assert.equal(r.code, 400, r.text);
+  assert.match(r.json.error, /switch Kosmos\+ on for this computer first/, 'a signed-in computer was told to connect');
   assert.equal(fs.existsSync(TUNNEL_LOG), false, 'a signed mint went to Kosmos+ while its switch was off');
   assert.equal(phonenotify.readState().on, false);
 });
 
-test('#6488: a sub-switch set over a file we cannot read is not made the person\'s off', async () => {
+test('#6488: a sub-switch set over a file we cannot read is refused, and the file is left as it is', async () => {
   enrol();
   fs.writeFileSync(PN_FILE(), 'not json');
-  assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } })).code, 200);
-  assert.notEqual(JSON.parse(fs.readFileSync(PN_FILE(), 'utf8')).off, 'person', 'one bad read became the person\'s off');
-  assert.equal(phonenotify.masterChoice(), 'unset');
+  const r = await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } });
+  assert.equal(r.code, 400, r.text);
+  assert.equal(fs.readFileSync(PN_FILE(), 'utf8'), 'not json', 'the unreadable file (maybe an off) was replaced');
+  assert.equal(phonenotify.masterChoice(), 'off', 'a sub-switch write turned an off we cannot read into never touched');
 });

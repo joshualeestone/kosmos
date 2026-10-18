@@ -1425,6 +1425,13 @@ const githubdevice = require('./engine/githubdevice');
 const remote = require('./engine/remote');
 const accountComputers = require('./engine/account-computers'); // kosmos#4648
 const phonenotify = require('./engine/phonenotify');
+/* #6488: after every way of connecting this computer to Kosmos+ (a register, the sign-up, the company sign-in,
+   switching Kosmos+ on), the phone-notifications default runs at once instead of at the next tick. Not awaited.
+   It starts one signed call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout);
+   accepted, since the alternative is waiting for the next tick. */
+function phoneDefaultAfterConnect() {
+  try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
+}
 const styles = require('./engine/styles');
 const tips = require('./engine/tips');
 const inflight = require('./engine/inflight');
@@ -10514,12 +10521,7 @@ const server = http.createServer(async (req, res) => {
         const saved = remote.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
-        if (body.on === true) {
-          // #6488: connected just now: the phone-notifications default runs at once (not awaited). It starts one signed
-          // call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout); accepted, since
-          // the alternative is waiting for the next tick.
-          try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
-        }
+        if (body.on === true) phoneDefaultAfterConnect();
         sendJson(res, 200, { status: remote.status(), on: remote.read().on === true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -10565,10 +10567,7 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.setupComplete(code, name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
-        // #6488: connected just now: the phone-notifications default runs at once (not awaited). It starts one signed
-        // call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout); accepted, since
-        // the alternative is waiting for the next tick.
-        try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the sign-up' }));
@@ -10634,10 +10633,7 @@ const server = http.createServer(async (req, res) => {
           typeof body.second === 'string' ? body.second : null);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
-        // #6488: connected just now: the phone-notifications default runs at once (not awaited). It starts one signed
-        // call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout); accepted, since
-        // the alternative is waiting for the next tick.
-        try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, { ok: true, status: remote.status() });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not finish the company sign-in' }));
@@ -10834,10 +10830,7 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.signinRegister(name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
-        // #6488: connected just now: the phone-notifications default runs at once (not awaited). It starts one signed
-        // call, so a Remove pressed in the next moments waits for it (up to the mac-request timeout); accepted, since
-        // the alternative is waiting for the next tick.
-        try { phonenotify.pokeDefaultOn(); } catch { /* the startup tick catches it */ }
+        phoneDefaultAfterConnect();
         sendJson(res, 200, {
           ok: true,
           stage: got.data.stage,
