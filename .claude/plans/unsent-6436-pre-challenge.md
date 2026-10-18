@@ -16,19 +16,72 @@ converged: true
 **Converged:** Yes. Round 13 found no new BLOCKER or WARNING; its three nits were weighed (two taken, one declined).
 **Validation:** passed at d475463f5e (hash d0b1dd9ec9b4): 21,601 node tests, 0 failed; shell shard 246/246.
 
-Every round through 12 found something real, and the plan (`.claude/plans/unsent-6436.md`) records each one: the
-finding, the fix, the mutant that proves the fix's test can fail, and what was declined and why. In brief:
+### Per-Iteration Breakdown
 
-- **Round 1 (opus):** a resized pane re-wraps the visible end. Fixed with SCROLLED_MIN for deliveries; retries made async; file capped at 100 lines.
-- **Round 2 (sonnet):** a retry marks the pane busy; ids instead of milliseconds; retries take only the exact match.
-- **Round 3 (opus):** the memory lasts 24 h in use and on load; a retry that finds nothing of ours forgets the line; the four-row rule for the 200-character end.
-- **Round 4 (sonnet):** a line is forgotten only when two reads agree; one set of retries per line.
-- **Round 5 (opus), BLOCKER:** retries skipped the delivery gates. Fixed: typingGate extracted unchanged and passed on a fresh roster. Tested with a permission prompt (and a control without it).
-- **Rounds 6 to 8:** comments made honest; the box is read before the roster; only a Claude Code box is pressed.
-- **Round 9 (opus):** the earlier-line press inside a delivery passes the gates as its own line; an unread watch still remembers the line.
-- **Rounds 10 to 11:** that unread memory is light (in process only, one retry, 60 s).
-- **Round 12 (sonnet):** a hold that outlasts the three retries stranded the line. Fixed with a 10-minute tail, one chain per line, bounded to a day.
-- **Round 13 (opus):** no new findings.
+Full detail for every round is in `.claude/plans/unsent-6436.md`.
+
+#### Iteration 1
+**Reviewer model:** opus
+- [WARNING] a resized pane re-wraps the visible end, so the seen match misses --> FIXED: SCROLLED_MIN (deliveries only); mutant caught
+- [WARNING] retries held the board synchronously --> FIXED: async retries
+- [NIT] the file could grow without bound --> FIXED: at most 100 lines
+
+#### Iteration 2
+**Reviewer model:** sonnet
+- [WARNING] a retry could race a delivery --> FIXED: the pane is marked busy while it watches
+- [WARNING] the newer-line guard compared milliseconds --> FIXED: ids; tested
+- [WARNING] unattended retries took the loose 200-character end --> FIXED: exact match only
+
+#### Iteration 3
+**Reviewer model:** opus
+- [WARNING] a memory that outlives its line could press recalled words --> FIXED: 24 h in use and on load
+- [WARNING] the 200-character end on a box that never scrolled --> FIXED: four rows or more; mutant caught
+
+#### Iteration 4
+**Reviewer model:** sonnet
+- [WARNING] one mid-redraw read forgot a live line --> FIXED: two reads must agree; mutant caught
+- [NIT] several retry sets per line --> FIXED: retriesUntil
+
+#### Iteration 5
+**Reviewer model:** opus
+- [BLOCKER] the unattended retry skipped the delivery gates (an Enter on a permission prompt approves it) --> FIXED: typingGate on a fresh roster; permission-prompt test with control; mutant caught
+
+#### Iteration 6
+**Reviewer model:** sonnet
+- [NIT] comments and test titles overstated --> FIXED
+
+#### Iteration 7
+**Reviewer model:** opus
+- [WARNING] the retry skipped the automatic-sender holds --> FIXED: menu, account and quota holds; box read again before the Enter
+
+#### Iteration 8
+**Reviewer model:** sonnet
+- [WARNING] a retry could press a box that is not Claude Code --> FIXED: composerReadable
+- [NIT] a temp file left by a failed rename --> FIXED
+
+#### Iteration 9
+**Reviewer model:** opus
+- [WARNING] the earlier-line press carried a work line past a paused swarm --> FIXED: it passes the gates as its own line; mutant caught
+- [WARNING] an unread watch forgot the line --> FIXED: remembered; test with control
+
+#### Iteration 10
+**Reviewer model:** sonnet
+- [WARNING] the unread memory went to disk on a busy pane --> FIXED: light record, in process only, one retry
+
+#### Iteration 11
+**Reviewer model:** opus
+- [WARNING] a light record lived a full day --> FIXED: 60 s; test pins it
+
+#### Iteration 12
+**Reviewer model:** sonnet
+- [WARNING] retries ended at 5 min, so a longer hold stranded the line --> FIXED: a 10-minute tail, one chain per line, at most a day; mutants on the tail and the bound caught
+
+#### Iteration 13
+**Reviewer model:** opus
+- No new BLOCKER or WARNING findings.
+- [NIT] the comment said the bound runs from the first retry --> FIXED
+- [NIT] the day-bound test had no floor --> FIXED; a halved-bound mutant caught
+- [NIT] a thrown press ends the chain silently --> DECLINED: nothing on that path throws today
 
 Mutants caught: seen, retries, save, scrolled-min, rows, exact, two-read, gate, id, the tail call, the day bound, a
 halved day bound. Two survive by design, and the plan says so: the busy mark (redundant with the box read) and the load bound
