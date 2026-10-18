@@ -85254,7 +85254,7 @@ setInterval(ageCheckedStamp, 1000);
     if (typeof t !== 'function') return;
     if (relook && typeof c === 'function') c(relook);
     relook = null;
-    if (st && st.available && !st.on && !st.offByChoice) relook = t(function () { relook = null; if (!busy) load(); }, 30000);
+    if (st && st.available && !st.on && !st.offByChoice) relook = t(function () { relook = null; if (busy) relookLater(current); else load(); }, 30000);
   }
 
   function load() {

@@ -52,7 +52,7 @@ the durable references. Commit ids say exactly what was checked this time.
   are relay #161's per-Mac asset links and #174's sign-in gate that preserves
   the waiting agent. phonegate-4194 sets `PHONE_APP_CAN_RECEIVE` to `true` in
   `engine/phonenotify.js`; it merges only if Josh approves #4194. A Mac release
-  carrying it shows the Phone notifications setting (off by default), with a
+  carrying it shows the Phone notifications setting (off by default then; on by default since kosmos#6488), with a
   line saying the phone app is in testing.
 - **Android vc3 is built and proven.** The signed `io.kosmos.app` versionCode 3,
   versionName 0.1.2 APK is in Liu Kang's Files. Evidence in
@@ -588,7 +588,8 @@ KOSMOS_CUT_CHANNEL=staging bash tools/release.sh <version>
 **Check, on a staging install**
 (`curl -fsSL https://installkosmos.com/setup-staging | KOSMOS_UPDATE_CHANNEL=staging sh`):
 1. Settings, This computer, shows the "Phone notifications" section, with "Buzz my phone when
-   an agent needs me" and a "Turn on" button. It is off by default.
+   an agent needs me" and a "Turn on" button. It is off by default. (Since kosmos#6488 it turns on by itself once the
+   computer is connected, unless the person turned it off; this step is the earlier plan, kept for the record.)
 2. Pressing Turn on succeeds. It mints the Mac's notify credential through the new tunnel.
 3. Run the two staging gates in `docs/staging-channel.md`.
 

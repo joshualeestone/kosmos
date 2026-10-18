@@ -683,9 +683,9 @@ test('#6488: the default retries with a doubling wait, and waits the longest aft
       await ctl.whenIdle();
     }
     const want = [];
-    for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < 9; w = Math.min(w * 2, phonenotify.DEFAULT_ON_MAX_MS)) want.push(w);
-    assert.deepEqual(waits, want, 'the waits did not double up to the cap');
-    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_MAX_MS, 'never reached the cap');
+    for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < 9; w = Math.min(w * 2, phonenotify.DEFAULT_ON_FAIL_MAX_MS)) want.push(w);
+    assert.deepEqual(waits, want, 'the waits did not double up to the half-hour cap');
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_FAIL_MAX_MS, 'never reached the cap');
     ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
   // The mint succeeds but its answer cannot be used: the longest wait (each retry replaces the token there).
@@ -838,7 +838,7 @@ test('#6488: sign-in pokes the schedule: the long wait is reset and it tries now
     const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure: async () => { calls += 1; return { ok: false, because: 'x', detail: 'down' }; } });
     await ctl.whenIdle();
     for (let i = 0; i < 3; i++) { runs.shift()(); await ctl.whenIdle(); }
-    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 16, 'premise: the wait grew');
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_FAIL_MAX_MS, 'premise: the wait grew to its cap');
     const before = calls;
     await phonenotify.pokeDefaultOn();
     assert.equal(calls, before + 1, 'a poke did not try now');
@@ -875,4 +875,13 @@ test('#6488: a stopped schedule is forgotten, so a later sign-in poke still runs
   // Not connected here, so the real default answers null; a stopped schedule's poke would answer undefined.
   assert.strictEqual(await phonenotify.pokeDefaultOn(), null, 'the poke went to a stopped schedule');
   assert.equal(calls, 1, 'the stopped schedule ran again');
+});
+
+test('#6488: an off we cannot read is copied out too, so removing the computer cannot turn it on', async () => {
+  enrol();
+  fs.writeFileSync(PN_FILE(), 'not json');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  unenrol(); enrol();
+  assert.equal(phonenotify.masterChoice(), 'off', 'a corrupt file\'s off was lost to a reconnect');
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
 });

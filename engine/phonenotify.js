@@ -97,15 +97,6 @@ const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choi
 function choiceSaysOff() {
   try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
 }
-/** An off recorded only in phone-notify.json (a readable file, switch not on). Not an unreadable file: that reads as
-    off without being a choice we can copy. */
-function legacyOff() {
-  try {
-    const p = JSON.parse(fs.readFileSync(file(), 'utf8'));
-    return !!(p && typeof p === 'object' && !Array.isArray(p) && p.on !== true
-      && (p.off === 'person' || (typeof p.token === 'string' && p.token !== '')));
-  } catch { return false; }
-}
 function writeChoice(off) {
   try {
     fs.mkdirSync(path.dirname(choiceFile()), { recursive: true, mode: 0o700 });
@@ -292,9 +283,10 @@ async function ensureDefaultOn() {
   try {
     if (!available) return null;
     const choice = masterChoice();
-    // An off from before #6488 lives only in phone-notify.json (a token held, switch off), which removing this
-    // computer deletes. Copy it to choiceFile while it is still readable: no network, no connection needed.
-    if (choice === 'off' && !choiceSaysOff() && legacyOff()) writeChoice(true);
+    // An off that lives only in phone-notify.json (one from before #6488, a token held with the switch off, or a file
+    // we cannot read) goes with that file when this computer is removed. Copy it to choiceFile while it is still
+    // here: no network, no connection needed, and tried again on every run if a write failed.
+    if (choice === 'off' && !choiceSaysOff()) writeChoice(true);
     if (!remote.enrolled()) return null;
     if (choice !== 'unset') return null;
     return await turnOn({ quiet: true });
@@ -302,11 +294,12 @@ async function ensureDefaultOn() {
 }
 
 const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
-const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;
+const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;   // after a mint we could not use (each retry replaces the token)
+const DEFAULT_ON_FAIL_MAX_MS = 30 * 60 * 1000;   // any other failure: nothing was replaced, so retry within the half hour
 let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can poke it
 
 /** #6488: run ensureDefaultOn now, then again after DEFAULT_ON_EVERY_MS, so a computer connected later is turned on
-    without a restart. A failed turn-on waits twice as long each time, up to DEFAULT_ON_MAX_MS, and back to the
+    without a restart. A failed turn-on waits twice as long each time, up to DEFAULT_ON_FAIL_MAX_MS, and back to the
     short wait once there is nothing to do, or when this computer's connection changes; a refusal made on this
     computer before anything was sent (`notSent`: busy signing in or being removed) does not lengthen the wait. One
     that failed after its mint succeeded (`minted`) waits the longest, because each retry replaces the token at the
@@ -342,7 +335,7 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
         process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + why + '\n');
       }
       if (r.minted === true) wait = DEFAULT_ON_MAX_MS;
-      else if (r.notSent !== true && !changed) wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
+      else if (r.notSent !== true && !changed) wait = Math.min(wait * 2, DEFAULT_ON_FAIL_MAX_MS);
     } else {
       wait = DEFAULT_ON_EVERY_MS;
     }
@@ -486,4 +479,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
