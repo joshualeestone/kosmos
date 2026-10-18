@@ -4639,7 +4639,7 @@ html[data-layout="consolidated"] body.consolidated .pj-viewall { font-size: var(
    not a surface. */
 .pj-unread { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
   background: #d93a2f; color: #fff; font: 700 .6875rem/1 var(--font-ui); flex: none; align-self: center; margin-left: auto; }
-.pjpill .act, .pjpill .rest, .pjpill .haz { flex: none; }
+.pjpill .act, .pjpill .rest, .pjpill .haz, .pjpill .ask { flex: none; }
 /* The pack's .pc-a idiom: separate chips with a visible gap -- NO
    facepile overlap, no ring (an earlier cut invented one; the packshot
    draws plain gapped chips at 22px and pack wins). The aria-hidden
@@ -63126,11 +63126,13 @@ function pjNeedsNotice(roster, redHere) {
   if (!rows.length && !also.length) return '';
   const nameOf = (m) => String(m.name || m.sessionName || 'An agent');
   // #6341: Dismiss carries the reason the row shows, so the board keeps it only while that reason stands.
-  const line = (m, why, act, reason) => '<div class="pnrow"><span class="pnwho">' + esc(nameOf(m)) + '</span><span class="pnwhy">' + esc(why) + '</span>'
+  // #6483: the member the heading already names is not named again on its row (the buttons' labels still name it).
+  const line = (m, why, act, reason) => '<div class="pnrow">' + (m === named ? '' : '<span class="pnwho">' + esc(nameOf(m)) + '</span>') + '<span class="pnwhy">' + esc(why) + '</span>'
     + '<span class="pnacts"><button class="qopt" type="button" data-pn-open="' + esc(String(m.sessionName)) + '" aria-label="' + esc(act + ' ' + nameOf(m)) + '">' + act + '</button>'
     + '<button class="qopt pn-dismiss" type="button" data-pn-dismiss="' + esc(String(m.sessionName)) + '" data-pn-reason="' + esc(reason) + '" aria-label="' + esc('Dismiss ' + nameOf(m)) + '">Dismiss</button></span></div>';
   // The engine's needsYouKey (a question carries its words, so the next question is shown); the reason if absent.
   // Review 9: built as the engine builds it when a member arrives without needsYouKey, so the board never refuses it.
+  const named = (rows.length || also.length) === 1 ? (rows.length ? rows : also)[0] : null;
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + String(m.because || '').slice(0, 300) : m.needsYouHere);
   const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
@@ -64165,6 +64167,9 @@ function pjTilesUnknown() {
    none (Josh 2026-09-30), and it never shows Working or Issue it could not read. */
 function pjPillOf(p, unreadable) {
   const s = p.summary || {};
+  /* #6483: only agents' own questions (the engine's needsYouQuestions) read as the agent card reads them, a calm
+     "Question" with its "?" and no red; anything else that needs the person is still the red Issue. */
+  if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   /* kosmos#5391 option B (for Josh to choose; it bends #4730's "only a badge if something is running"): a project the
      person paused says so on its card, above Working (its agents may still be busy, but nothing is nudged or handed

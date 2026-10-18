@@ -158,6 +158,30 @@ function ok(name, cond, detail) {
       JSON.stringify(vis.map((r) => r.id + ':' + r.stripe)));
     ok(`${t} list: a hidden row carries no stripe`, folded.filter((r) => !r.shown).every((r) => !r.stripe),
       JSON.stringify(folded.filter((r) => !r.shown).map((r) => r.id + ':' + r.stripe)));
+    // #6483: a project whose only need is an agent's own question draws the agent card's calm "Question" pill (its "?",
+    // no warning triangle) and no red card; a project with a real need keeps the red Issue (the CONTROL).
+    for (const view of ['grid', 'list']) {
+      const q = await page.evaluate((view) => {
+        const mk = (id, name, summary) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: false,
+          summary, agents: [], description: '', unread: 0 });
+        PROJECTS = [mk('q-ask', 'Q asks', { total: 1, needsYou: 1, needsYouQuestions: 1 }), mk('r-issue', 'R issue', { total: 2, needsYou: 2, needsYouQuestions: 1 })];
+        PJ_AGENTS_UNREADABLE = false;
+        const list = document.getElementById('pj-list');
+        list.classList.toggle('asgrid', view === 'grid');
+        document.body.classList.toggle('pj-roadmap', view === 'list');
+        paintProjects();
+        const read = (id) => { const r = list.querySelector('.pj-row[data-project="' + id + '"]'); const pill = r && r.querySelector('.pjpill');
+          return r ? { attn: r.classList.contains('attn'), border: getComputedStyle(r).borderTopColor, pill: pill ? pill.textContent.trim() : null,
+            ask: !!(pill && pill.querySelector('.ask')), haz: !!(pill && pill.querySelector('.haz')),
+            pillBorder: pill ? getComputedStyle(pill).borderTopColor : null } : null; };
+        return { ask: read('q-ask'), issue: read('r-issue') };
+      }, view);
+      ok(`${t} ${view}: #6483 a question-only project says Question with the "?" glyph`, !!q.ask && q.ask.pill === 'Question' && q.ask.ask && !q.ask.haz, JSON.stringify(q.ask));
+      ok(`${t} ${view}: #6483 CONTROL a project with a real need still says Issue, red`, !!q.issue && q.issue.pill === 'Issue' && q.issue.attn && q.issue.haz, JSON.stringify(q.issue));
+      ok(`${t} ${view}: #6483 the question project is not red (no attn, its border is not the Issue card's)`,
+        !!q.ask && !!q.issue && !q.ask.attn && (view === 'list' || q.ask.border !== q.issue.border), JSON.stringify({ ask: q.ask && q.ask.border, issue: q.issue && q.issue.border }));
+    }
+
     // A blind roster: no project shows a badge, not even Working (it could not read it), and no
     // "we cannot see" text anywhere on the view. CONTROL: the same fixture read normally showed Working.
     const blindRows = await paint('list', false, true);

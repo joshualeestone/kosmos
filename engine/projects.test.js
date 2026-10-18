@@ -474,6 +474,7 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(described.summary.total, 3);
   assert.equal(described.summary.working, 1);
   assert.equal(described.summary.needsYou, 1, 'the question named this project');
+  assert.equal(described.summary.needsYouQuestions, 1, '#6483: the agent\'s own question is counted as a question');
   assert.equal(described.summary.needsYouElsewhere, 0);
   assert.equal(described.summary.needsYouInferred, 0, 'stated by the report itself');
   assert.equal(described.summary.unseen, 1, 'a summary that hides its own blind spot is the defect');
@@ -3022,6 +3023,7 @@ test('#3726: the project Issue count is the board\'s "needs the person" rule, no
   const row = projects.list(roster).find((p) => p.id === pj.id);
   assert.equal(row.agents.find((m) => m.sessionName === 'nika').reconnect.phase, 'gave_up', 'the member does not carry where the reconnect stands');
   assert.equal(row.summary.needsYou, 2, 'a given-up connection and a trust wait are not counted as needing the person');
+  assert.equal(row.summary.needsYouQuestions, 0, '#6483: a given-up connection and a trust wait are not questions, so the card keeps Issue');
   // Control: a reconnect still being tried ('retried' and 'waiting', the real phases before
   // 'gave_up') does not need the person yet.
   for (const phase of ['waiting', 'retried']) {
