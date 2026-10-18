@@ -80,3 +80,13 @@ differ from it, or whose version is older than the installed one, before anythin
 - [WARNING] a newline in a FOLDER name split into pieces that each looked plain, so nothing was flagged (FIXED: names
   with a newline are found by name, find -name $'*\n*' -print0; arm added; a mutant disabling it goes red)
 - [NIT] a missing stage or part read as "no offenders" (FIXED: each is an offender; two arms)
+### Iteration 7 (opus, whole branch): 0 BLOCKERs, 2 should-fix
+- [WARNING] the install harness signed with the REAL key wherever it ran (any branch, the shared Mac), minting trusted
+  updates (FIXED: a throwaway key; the sandboxed install's verifier is set to pin it; nothing in the harness reads
+  the secrets map now; measured on the real 0.7.56 manifest: the patched verifier accepts, the shipped one refuses)
+- [WARNING] every release-side check asked whether the key is pinned in the CHECKOUT, not in the installs out there;
+  a key rotation would pass every check and strand every install (FIXED: the build records pinned_keys in the signed
+  manifest; 1c refuses a key the served prod or staging release does not pin; promote verifies under prod's current
+  pinned_keys; manifest-sign.js check-served / verify-under, 3 test arms each way)
+- [NIT] the gate control's second copy lacked engine/ (MOOT: the harness no longer needs it; control back to main's)
+- [NIT] a verifier with its runtime gone said "predates signed releases" (FIXED: says the runtime is missing; arm)

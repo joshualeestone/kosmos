@@ -1059,6 +1059,7 @@ KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA:-unknown}" \
 KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
 KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
+KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).KEYS))' "$STAGE/app/engine/manifest-verify.js")" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;
@@ -1072,6 +1073,8 @@ const m = {
   connector: { signed_sha256: e.KM_TUNNEL_SIGNED, input_sha256: e.KM_TUNNEL_INPUT, commit: e.KM_TUNNEL_COMMIT },
   native_app: { signed_sha256: e.KM_NATIVE_APP_SIGNED },
   built: { at: e.KM_BUILT, host: e.KM_HOST, macos: e.KM_MACOS },
+  // #6468: the keys that installs of THIS build accept, so a later cut can check its key against what is served.
+  pinned_keys: JSON.parse(e.KM_PINNED_KEYS || "[]"),
   files,
 };
 fs.writeFileSync(e.KOSMOS_MANIFEST_OUT, JSON.stringify(m, null, 1) + "\n");

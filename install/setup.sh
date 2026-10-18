@@ -799,7 +799,14 @@ _UM_NOKEY="" # never inherited: set when pre found no pinned key (exit 3), so po
 update_manifest_ok() {
   local phase="$1" stage="$2" dest="$3" v rc=0 out arg
   [ -f "$dest/app/engine/manifest-verify.js" ] && [ -x "$dest/runtime/bin/node" ] || {
-    [ "$phase" != pre ] || [ ! -e "$dest/app" ] || info "this install predates signed releases, so the update's manifest is not checked"
+    # Skipped, not refused: re-running the installer is the documented repair for a damaged install. Said truly.
+    if [ "$phase" = pre ] && [ -e "$dest/app" ]; then
+      if [ -f "$dest/app/engine/manifest-verify.js" ]; then
+        info "this install's own runtime is missing, so it cannot check the update's manifest; the update goes on unchecked"
+      else
+        info "this install predates signed releases, so the update's manifest is not checked"
+      fi
+    fi
     return 0; }
   v="${TARGET_VERSION:-}"
   if [ -z "$v" ]; then

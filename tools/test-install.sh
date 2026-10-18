@@ -1148,14 +1148,25 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
     chk "the read-back states what is on disk" "grep -q \"on disk now: Kosmos $BUNDLE_V\" \"$SB/pinned.log\""
 
     # #6468 ask 2: this is an UPDATE over the install above, so its installed copy holds the update to a signed
-    # manifest. Signed here with the release key when this Mac has it (the release Mac, where the cut runs this);
-    # elsewhere the block is SKIPPED, counted, and a gate run refuses on the skip.
+    # manifest. NEVER the release key here (round 7: this harness runs on any branch, on any Mac, and a real signature
+    # on a test tree is a trusted update for every install). A throwaway ed25519 key instead: the sandboxed install's
+    # verifier is set to pin it (as install.manifest-sig-6468.test.js does), and the manifest is signed with it.
     _mansig=no
-    if [ -f "$HERE/dist/kosmos-arm64.manifest.json" ]; then
+    _iv="$SB/home/app/engine/manifest-verify.js"
+    if [ -f "$HERE/dist/kosmos-arm64.manifest.json" ] && [ -f "$_iv" ]; then
       cp "$HERE/dist/kosmos-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json"
-      _mk="$("${KOSMOS_SECRETS_MAP_BIN:-$HOME/.claude/scripts/secrets-map.sh}" path kosmos-manifest-signing 2>/dev/null)" || _mk=""
-      if [ -n "$_mk" ] && node "$HERE/tools/lib/manifest-sign.js" sign "$_mk" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" \
-           "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig" >/dev/null; then _mansig=yes; fi
+      chmod u+w "$SB/home/app" "$SB/home/app/engine" "$_iv" 2>/dev/null || true
+      if node -e '
+        const c = require("crypto"), fs = require("fs");
+        const [iv, m, sig] = process.argv.slice(1);
+        const { privateKey, publicKey } = c.generateKeyPairSync("ed25519");
+        const pub = publicKey.export({ type: "spki", format: "der" }).toString("base64");
+        const src = fs.readFileSync(iv, "utf8");
+        const out = src.replace(/const KEYS = \[[\s\S]*?\];/, "const KEYS = [" + JSON.stringify(pub) + "];");
+        if (out === src) process.exit(4);
+        fs.writeFileSync(iv, out);
+        fs.writeFileSync(sig, c.sign(null, fs.readFileSync(m), privateKey).toString("base64") + "\n");
+      ' "$_iv" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig"; then _mansig=yes; fi
     fi
     if [ "$_mansig" = yes ]; then
       echo "== a connect computer updates with no board (#4382) =="
@@ -1195,7 +1206,7 @@ if cp "$HERE/dist/tmux-arm64.tar.gz" "$HERE/dist/tmux-arm64.tar.gz.sha256" \
       chk "up to date: the look says current and exits 0" "rc_ok $RC && [ \"\$(printf '%s' \"$UPD\" | tail -1)\" = \"current $BUNDLE_V\" ]"
       rm -f "$SB/home/mode" "$SB/setup"
     else
-      echo "SKIP the connect-computer update (#4382): no release manifest-signing key on this Mac to sign its manifest (#6468)"
+      echo "SKIP the connect-computer update (#4382): the build left no manifest, or the install no verifier, to sign for (#6468)"
       SKIPS=$((SKIPS + 1))
     fi
     rm -f "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json" "$SB/dist/kosmos-$BUNDLE_V-arm64.manifest.json.sig"

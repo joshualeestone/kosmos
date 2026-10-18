@@ -18,9 +18,7 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 C="$(mktemp -d "${TMPDIR:-/tmp}/install-gate-control.XXXXXX")"; trap 'rm -rf "$C"' EXIT
 # #3691: test-support/ too. test-install.sh points the board at test-support/fake-tmux.sh
 # (#1651); a copy without it made the untouched arm red on every bundle, so nothing discriminated.
-# #6468: engine/ too. test-install.sh signs its update block's manifest with tools/lib/manifest-sign.js, which reads the
-# pinned keys from engine/manifest-verify.js; a copy without it made signing throw and the untouched arm red.
-mkdir -p "$C/repo"; cp -R install tools test-support engine package.json "$C/repo/"; cp -R dist "$C/repo/dist"
+mkdir -p "$C/repo"; cp -R install tools test-support package.json "$C/repo/"; cp -R dist "$C/repo/dist"
 # Two gate runs back to back share nothing but the machine's ports: the
 # harness picks a free port at start, and a board from the previous run can
 # still be winding down on it (measured: the second run's update pass went
@@ -63,11 +61,6 @@ busy_refusal() {
 settle
 g_rc=0; ( cd "$C/repo" && KOSMOS_INSTALL_GATE=1 bash tools/test-install.sh ) > "$C/green.log" 2>&1 || g_rc=$?
 [ "$g_rc" -eq 0 ] || busy_refusal "$C/green.log"
-# #6468: off the release Mac there is no manifest-signing key, so the gate's update block is a counted SKIP and the gate
-# run fails on it. That is not the gate's verdict on the bundle either: this control cannot answer here.
-if [ "$g_rc" -ne 0 ] && grep -q 'no release manifest-signing key on this Mac' "$C/green.log"; then
-  echo "SKIP: this Mac has no release manifest-signing key, so the gate's update block cannot run here (#6468); run this control on the release Mac."; exit 3
-fi
 if [ "$g_rc" -eq 0 ]; then ok "CONTROL: the untouched copy passes the gate ($(grep -E ' passed, ' "$C/green.log" | tail -1))"
 else bad "CONTROL: the untouched copy fails the gate, so nothing below discriminates: $(grep -E '^FAIL' "$C/green.log" | head -3 | tr '\n' ' ')"; echo "install-gate-control: $FAILS failures"; exit 1; fi
 # The bundle-shape defect: a file the installer's post-extract check expects

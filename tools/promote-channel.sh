@@ -212,6 +212,17 @@ if [ "$FAMILY" = mac ]; then
   if [ -f "$SITE/dist/$MANIFEST.sig" ]; then
     node "$_sign_js" verify "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" >/dev/null \
       || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
+    # Round 7: and under the keys prod's CURRENT release pins, which is what its installs check with.
+    _cur="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _cur=""
+    if [ -n "$_cur" ]; then
+      reject_pathy manifest "$_cur"
+      _vu=0; [ -f "$SITE/dist/$_cur" ] && { node "$_sign_js" verify-under "$SITE/dist/$MANIFEST" "$SITE/dist/$MANIFEST.sig" "$SITE/dist/$_cur" >/dev/null || _vu=$?; } || _vu=2
+      case "$_vu" in
+        0) : ;;
+        1) echo "promote-channel: $MANIFEST.sig is not signed by a key prod's current release ($_cur) accepts - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: prod's current manifest ($_cur) cannot be read to tell which keys its installs accept - refusing (#6468)" >&2; exit 1 ;;
+      esac
+    fi
   else
     _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
     [ -z "$_prod_manifest" ] || reject_pathy manifest "$_prod_manifest"
