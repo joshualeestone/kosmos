@@ -222,3 +222,39 @@ test('#5800 route: the JSON and the text view carry the hold, and a reopen clear
   assert.equal('held' in (await room(p.id, false)).json, false, 'a reopen did not clear the JSON hold');
   assert.doesNotMatch((await room(p.id, true)).text, /at its limit/, 'a reopen did not clear the text line');
 });
+
+/* #6420: the room route reads the hold at the room's own budget (it scales with the room), as the valve that would
+   refuse the next post does. A six-agent room with 100 arrivals in the hour is over the dial's budget (80) and under
+   its own (200): open, not "at its limit". */
+test('#6420 route: a six-agent room is read at its own budget', async () => {
+  const p = projects.create({ name: 'Six Route' });
+  for (const a of ['ann', 'bo', 'cy', 'di', 'ed', 'fay']) projects.addAgent(p.id, a);
+  const now = Date.now();
+  for (let i = 0; i < 20; i += 1) agentPost(p.id, now - 10 * MIN, 5);
+  assert.ok(20 * 5 > CAP(), 'CONTROL: these posts are over the dial\'s own room budget');
+  const j = await room(p.id, false);
+  assert.equal(j.code, 200, j.text);
+  assert.equal('held' in j.json, false, 'a six-agent room was read at the dial\'s budget: ' + j.text.slice(0, 300));
+  // CONTROL: past the room's own budget, the same route reads it held.
+  agentPost(p.id, now - 9 * MIN, CAP() * 2.5);
+  const k = await room(p.id, false);
+  assert.ok(k.json.held, 'past its own budget the room did not read held: ' + k.text.slice(0, 300));
+});
+
+/* #6420: the route sizes the room as the valve does, so a member removed from Kosmos but still on the project's record
+   does not count. Six on the record, one removed: the valve's budget is four recipients' (160), and 165 arrivals are
+   over it, so the room reads held, as the next post would be refused. */
+test('#6420 route: a removed member does not raise the room\'s budget', async () => {
+  const store = require('./engine/store');
+  const p = projects.create({ name: 'Six With One Gone' });
+  for (const a of ['gil', 'hal', 'ivy', 'jo', 'kit', 'lu']) projects.addAgent(p.id, a);
+  fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'lu', removedAt: iso(Date.now() - 60 * MIN) }]));
+  try {
+    const now = Date.now();
+    for (let i = 0; i < 33; i += 1) agentPost(p.id, now - 10 * MIN, 5);
+    assert.equal(messages.roomHeld(p.id, now, 5), null, 'CONTROL: counted with the removed member, the room would read open');
+    assert.equal(messages.roomRecipientsOf(['gil', 'hal', 'ivy', 'jo', 'kit', 'lu']), 4, 'the removed member was counted');
+    const j = await room(p.id, false);
+    assert.ok(j.json.held, 'the page read the room open while the valve would hold it: ' + j.text.slice(0, 300));
+  } finally { fs.rmSync(path.join(store.ROOT, 'removed.json'), { force: true }); }
+});

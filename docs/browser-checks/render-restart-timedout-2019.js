@@ -84,8 +84,10 @@ const { chromium } = require('playwright');
     say(!/\bOnline\b/.test(fTxt), 'failed restart: the card does not say Online (#4006)', JSON.stringify(fTxt));
     say(await pg.evaluate(() => cardStOf({ state: 'needs_you', disruption: { failed: true } }).pres === 'off'
       && cardStOf({ state: 'needs_you' }).pres !== 'off'), 'failed restart: presence is off, so Start this agent stays offered; CONTROL: a plain needs_you is not');
-    say(!/\bAnswer\b/.test(fTxt), 'failed restart: no Answer button, there is no question (#4006)', JSON.stringify(fTxt));
-    say(/\bAnswer\b/.test(await text('plainneeds')), 'CONTROL: a plain needs_you card still offers Answer');
+    // #6400: the answer route is the card itself (data-answer), not an Answer link in the pill.
+    const answers = (n) => pg.$eval(cardSel(n), (el) => el.hasAttribute('data-answer')).catch(() => 'missing');
+    say((await answers('failed')) === false, 'failed restart: no answer route, there is no question (#4006)', String(await answers('failed')));
+    say((await answers('plainneeds')) === true, 'CONTROL: a plain needs_you card still answers (the card is the route, #6400)', String(await answers('plainneeds')));
   } finally {
     await b.close();
   }

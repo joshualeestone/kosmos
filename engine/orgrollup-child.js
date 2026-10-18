@@ -5,7 +5,9 @@
  * the environment as an agent of it gets them (worlds.applyAgentWorldEnv), so every reader below resolves that
  * Kosmos's own store, exactly as its own board would. Each mode prints one line of JSON and exits.
  *
- *   node engine/orgrollup-child.js gather   ->  {"ok":true,"world":"<sibling id>","enrolled":false,"gathered":{...}}
+ *   node engine/orgrollup-child.js gather [usage]   ->  {"ok":true,"world":"<sibling id>","enrolled":false,"gathered":{...}}
+ *                                                (kosmos#5532: usage is read only with the `usage` argument, which the
+ *                                                board gives only under words naming usage for every Kosmos)
  *                                                or {"ok":true,"enrolled":true} for a Kosmos that may belong to a
  *                                                company (nothing read, nothing written)
  *   node engine/orgrollup-child.js tick     ->  {"ok":true,"result":{...}}   (the enrolled Kosmos's own rollup, when the
@@ -17,7 +19,7 @@
  * Each mode bounds itself; a tick stopped by its bound skips its `finally`, so its run lock ages out (plan: Gaps).
  */
 
-async function main(mode) {
+async function main(mode, usageArg) {
   /* `tick` SENDS, and checks no live-execution gate of its own: the board checks it before it starts this child
      (server.js orgRollupTick, pinned by server.orgenroll-5531.test.js). Not a general entry point (board review 16). */
   if (mode === 'tick') return { ok: true, result: await require('./orgrollup').tick() };
@@ -34,7 +36,8 @@ async function main(mode) {
      read: the one write a gather makes. Never its enrollment id (worldId), so if it later enrolls elsewhere the two
      companies cannot match it (board review 7). */
   const world = oe.siblingId();
-  const gathered = await rollup.gather();
+  // kosmos#5532: usage only when told 'usage' (the accepted words name it for every Kosmos); anything else reads none.
+  const gathered = await rollup.gather(undefined, { usage: usageArg === 'usage', usageReadMs: rollup.CHILD_USAGE_READ_MS });
   return { ok: true, world, enrolled: false, gathered };
 }
 
@@ -44,7 +47,7 @@ if (require.main === module) {
   const r = require('./orgrollup');
   const bound = process.argv[2] === 'tick' ? r.TICK_CHILD_TIMEOUT_MS : r.GATHER_TIMEOUT_MS;
   setTimeout(() => process.exit(1), bound).unref();
-  main(process.argv[2]).then(
+  main(process.argv[2], process.argv[3]).then(
     // Exit once the line is flushed (board review 1): a handle a reader left open must not turn every read into the
     // caller's timeout, which reads as no report.
     (out) => { process.stdout.write(JSON.stringify(out) + '\n', () => process.exit(0)); },

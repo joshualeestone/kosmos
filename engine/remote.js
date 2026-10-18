@@ -1219,8 +1219,8 @@ async function forgetNow() {
   let because = null;
   if (canRetire) {
     const r = await retireHere();
-    retired = r.ok === true;
-    because = r.ok ? null : retireReason(r);
+    retired = r.ok === true || retiredAlready(r);
+    because = retired ? null : retireReason(r);
   }
   try { fs.rmSync(STATE_DIR(), { recursive: true, force: true }); } catch { /* best effort; enrolled() re-reads */ }
   try { fs.rmSync(STATUS_FILE(), { force: true }); } catch { /* stale is worse than absent */ }
@@ -1958,7 +1958,7 @@ function recentlyVouched(settings = read()) {
 }
 /* kosmos#4794: the reasons kosmos-tunnel's devices.rs gives for a joining computer's empty code (pairing.rs wait_reason,
    plus was_a_computer). Anything else is dropped rather than shown. */
-const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer']);
+const CODE_WAITS = new Set(['attempts_used', 'asked_another_computer', 'another_computer', 'daily_limit', 'wait_a_few_minutes', 'was_a_computer', 'code_ran_out']);   // #6383: code_ran_out
 /* kosmos#4794: a computer's pairing code is two groups of three digits with one space, "482 915" (kosmos-relay
    crates/proto/src/pairsas.rs sas(): format!("{:03} {:03}")); the tunnel compares it exactly. A phone's match code never is. */
 const JOIN_CODE = /^\d{3} \d{3}$/;
@@ -1988,7 +1988,7 @@ function pendingDevices() {
       /* kosmos#4773/#4637: the waiting computer's name when the request is another of the person's own computers
          joining (the coordinator's `joining_computer`), else null for a phone or a browser. A computer name only. */
       // Lowercased first, as the coordinator names computers (signinRegister does the same), so "Josh-PC" keeps its wording.
-      // 🛑 It softens the page's prompt ("Allow it if <name> shows this same code"), so the coordinator must set it from its OWN
+      // 🛑 It changes the page's prompt (#6404: "Type the code shown on <name>"), so the coordinator must set it from its OWN
       // record of the person's signed-in computer (#4773), never from anything the requesting device says about itself.
       joining_computer: typeof d.joining_computer === 'string' && NAME_RULE.test(d.joining_computer.trim().toLowerCase()) ? d.joining_computer.trim().toLowerCase() : null,
       /* When this Mac last said no to this id, or 0: the re-ask sentence. */
@@ -2101,7 +2101,7 @@ async function deviceAllow(id, name, code) {
   }
   const args = deviceArgs('allow', id, true);
   if (typeof name === 'string' && DEVICE_NAME.test(name.trim())) args.push('--name', name.trim());
-  /* kosmos#4794: Allow for another of the person's computers carries the code the person was shown here; the tunnel
+  /* kosmos#4794: Allow for another of the person's computers carries the code the person typed here (#6404); the tunnel
      refuses it unless it is the code this computer worked out with that one (and ignores it for a phone). */
   if (typeof code === 'string' && JOIN_CODE.test(code)) args.push('--code', code);
   const r = await tracked(setupRun(args, null, retireTimeoutMs()));
@@ -2203,7 +2203,7 @@ const computerName = (v) => (typeof v === 'string' && NAME_RULE.test(v.trim().to
 /* A tunnel from before slice 1 has no `join` verb: clap refuses it with exit 2 before doing anything. */
 function joinUnsupported(r) {
   const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
-  return !r.ok && r.code === 2 && /unrecognized subcommand '?join'?/.test(said);
+  return !r.ok && r.code === 2 && /unrecognized subcommand '?(join|retry)'?/.test(said);   // #6353: retry is newer than join
 }
 /** One pairing round, then what the page may show: held, the code (or ""), whom it was asked of, and the
     failed / confirmed / confirm_expired states. Not enrolled means not joining, without asking the binary. */
@@ -2228,6 +2228,8 @@ async function joinStatus() {
     failed: d.failed === true,
     confirmed: d.confirmed === true,
     confirm_expired: d.confirm_expired === true,
+    /* #6353: the last code ran out and no new one comes until the person presses Try again here. */
+    needs_retry: d.needs_retry === true,
   } };
 }
 /** "The codes match": the person says the code on this screen is the one on the other computer. Local only; the
@@ -2250,6 +2252,27 @@ async function joinConfirm(code) {
   const d = got.data || {};
   if (d.confirmed !== true) return { ok: false, because: 'the code was not confirmed' };
   return { ok: true, because: null, data: { confirmed: true, with: computerName(d.with) } };
+}
+
+/** #6353, "Try again": the last code ran out, so allow ONE new attempt (the next round starts it). Local only. The
+    tunnel refuses when no code ran out or every try is used; both are tagged for the page to word. */
+async function joinRetry() {
+  { const b = busy(); if (b) return b; }
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  const r = await tracked(setupRun(['join', 'retry', '--state-dir', STATE_DIR()], null, retireTimeoutMs()));
+  if (joinUnsupported(r)) {
+    const noRetry = /unrecognized subcommand '?retry'?/.test((String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, ''));
+    return { ok: false, because: noRetry ? 'this version of Kosmos cannot ask for a new code yet' : 'this version of Kosmos cannot pair computers yet' };
+  }
+  if (!r.ok) {
+    const said = String(r.stderr || '') + '\n' + String(r.because || '');
+    if (/\bnothing_to_retry:/.test(said)) return { ok: false, because: 'nothing_to_retry' };
+    if (/\battempts_used:/.test(said)) return { ok: false, because: 'attempts_used' };
+  }
+  const got = parseSaid(r);
+  if (!got.ok) return got;
+  if (!got.data || got.data.retry !== true) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { retry: true } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -3013,6 +3036,19 @@ function retireReason(r) {
   const line = lines.find((l) => /Kosmos\+ /.test(l)) || String((r && r.because) || 'no reason given');
   return line.replace(/^Error:\s*/, '').replace(/:\s*<[\s\S]*$/, '').slice(0, 200);
 }
+/* kosmos#6390: Kosmos+ refused this computer's retire because it was retired already (removed on the account page).
+   That is the outcome a retire asks for, not a failure. The coordinator keeps the code (mac_retired) off the wire, so
+   this reads its sentence (relay auth.rs: "this computer was retired"; "this Mac" is the older wording), and only for a
+   401 on the retire route itself. The relay pins that sentence on its side (fedroom.rs
+   the_coordinators_retired_answer_is_final_here, person_copy_4628.rs); nothing in this repo reads auth.rs, so a
+   reworded sentence would bring back the old message here, never a wrong "retired". engine/fedseats.js
+   MAC_LEVEL_REFUSAL matches the same sentence among others; a reword changes both. */
+function retiredAlready(r) {
+  const said = String((r && r.stderr) || '');
+  // One line, as the tunnel writes a refusal (refusal_error): its prefix ("this Mac", or "this computer" on Windows), a
+  // sentence starting with the coordinator's words, then the status and the route, all on that line.
+  return /^(?:Error: )?Kosmos\+ refused this (?:Mac|computer): this (?:computer|Mac) was retired\b[^\n]*\(HTTP 401 on \/v1\/mac\/retire\)\s*$/m.test(said);
+}
 /* The one retire of this Mac at Kosmos+, signed with its own key. */
 const retireHere = () => setupRun(['retire', '--coordinator', COORDINATOR(), '--state-dir', STATE_DIR()], null, retireTimeoutMs());
 // 408 and 429 are "not now", not "no": retried like a server error.
@@ -3288,7 +3324,7 @@ async function signinRegister(name) {
   } };
 }
 
-module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured,
+module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameChoice, keepComputerNameChoice /* #5995 */, macIdHere, ADDR_META_MS, ADDR_READ_MS, SETUP_CLOSE_GRACE_MS, OFF_STANDING_TTL_MS, OFF_RETRY_MS, COORDINATOR, fedSeatArgs, fetchFederationLive, fetchMetaFlag, signinAddresses, thisComputerDeviceName, deviceNameFrom, lastJsonLine, secondReset, forget, macRequest, assistantChat, hostedAvailable, DEFAULT_RELAY, DEFAULT_COORDINATOR, configured, connectorFile,
   FILE,
   read,
   ownDeviceIds,
@@ -3328,6 +3364,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   deviceAllow,
   joinStatus,
   joinConfirm,
+  joinRetry,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment

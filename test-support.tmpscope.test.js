@@ -280,3 +280,88 @@ test('#6061 review 3: a file in the cwd whose name starts with two dots is named
   assert.equal(left.length, 1, String(entries(base)));
   assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8').split('\t')[0], '..dots-6061.test.js');
 });
+
+/* #6362: a kts- dir with no .kts-owner failed whole validations at random. Two ways, both reproduced: the sweep fails
+   part way (a process the file started still writing, or something it cannot remove) after it took .kts-owner, or a
+   process the file started makes the dir again after the file has ended. */
+const GUARD = path.join(__dirname, 'tools', 'lib', 'test-leak-guard.sh');
+const guardSays = (base) => {
+  const g = spawnSync('bash', ['-c', 'set -e; set -o pipefail; . "$1" && leak_kts_owners "$2"', 'g', GUARD, base], { encoding: 'utf8' });
+  assert.equal(g.status, 0, g.stderr);
+  return g.stdout;
+};
+
+test('#6362: a dir that survives its sweep gets its owner back, marked, and the guard names the file', (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX permissions and bash; this file is not in the Windows selection');
+  // root can delete through a read-only folder, so nothing would survive the sweep and the case cannot be made.
+  if (process.getuid && process.getuid() === 0) return t.skip('running as root: a 0o500 folder does not stop root');
+  const base = freshBase(t);
+  const victim = path.join(base, 'stuck-6362.test.js');
+  // A subfolder with no write permission cannot be emptied, so the sweep fails and the dir survives it.
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const fs=require('fs'),os=require('os'),p=require('path');
+const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');fs.chmodSync(d,0o500);\n`);
+  const unlock = () => { for (const n of entries(base)) { try { fs.chmodSync(path.join(base, n, 'locked'), 0o700); } catch { /* none */ } } };
+  try {
+    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+    // The lock only had to hold through the victim's sweep: undo it now, so an interrupt below leaves nothing locked.
+    unlock();
+    assert.equal(r.status, 0, String(r.stderr));
+    const left = entries(base).filter((n) => n.startsWith('kts-'));
+    assert.equal(left.length, 1, 'the locked subfolder did not keep the dir, so this cannot test what it is for: ' + entries(base));
+    assert.equal(fs.readFileSync(path.join(base, left[0], '.kts-owner'), 'utf8'), `stuck-6362.test.js\tpid ${r.pid}\tsurvived its sweep\n`);
+    assert.match(guardSays(base), /: made by stuck-6362\.test\.js \(pid \d+\); its exit sweep ran but the dir survived it \(.*\); it holds: locked\n$/);
+  } finally {
+    // Unlock before freshBase's own cleanup runs, or it cannot remove the base (a failure before the unlock above).
+    unlock();
+  }
+});
+
+test('#6362 control: the same file with nothing locked leaves nothing (so the arm above can fail)', (t) => {
+  const base = freshBase(t);
+  const victim = path.join(base, 'free-6362.test.js');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const fs=require('fs'),os=require('os'),p=require('path');
+const d=p.join(os.tmpdir(),'locked');fs.mkdirSync(d);fs.writeFileSync(p.join(d,'f'),'x');\n`);
+  const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+  assert.equal(r.status, 0, String(r.stderr));
+  assert.deepEqual(entries(base).filter((n) => n.startsWith('kts-')), []);
+});
+
+test('#6362: a process left running that makes the dir again after its test ended is listed by what it wrote', { timeout: 30000 }, async (t) => {
+  if (process.platform === 'win32') return t.skip('bash and POSIX process signals; this file is not in the Windows selection');
+  const base = freshBase(t);
+  const done = path.join(base, 'child-done');
+  // Written by the child on EVERY exit (done, gave up, base gone): only while it is missing is the pid still the child's.
+  // Inside base: once the test's cleanup removed base, the child's write fails (it never makes a dir), so nothing lands
+  // in the run's temp root.
+  const ended = path.join(base, 'child-ended');
+  const victim = path.join(base, 'leaves-a-child-6362.test.js');
+  // The child waits for its parent to end (and sweep), then makes a folder under the parent's TMPDIR, as a left
+  // running helper would. It acts only while this test's base exists and gives up after 20 s, so an interrupted run
+  // cannot leave it to remake the tree after cleanup.
+  const child = `const fs=require('fs'),os=require('os'),p=require('path');const parent=+process.argv[1];
+const end=()=>{try{fs.writeFileSync(${JSON.stringify(ended)},'')}catch{}};process.on('exit',end);
+const stop=Date.now()+20000;const t=setInterval(()=>{if(Date.now()>stop){clearInterval(t);return}try{process.kill(parent,0)}catch{clearInterval(t);
+if(!fs.existsSync(${JSON.stringify(base)}))return;try{fs.mkdirSync(p.join(os.tmpdir(),'helper-cache-6362'),{recursive:true})}finally{fs.writeFileSync(${JSON.stringify(done)},'')}}},20);`;
+  const pidFile = path.join(base, 'child-pid');
+  fs.writeFileSync(victim, `require(${JSON.stringify(SCOPE)});const {spawn}=require('child_process');
+const c=spawn(process.execPath,['-e',${JSON.stringify(child)},String(process.pid)],{detached:true,stdio:'ignore'});
+require('fs').writeFileSync(${JSON.stringify(pidFile)},String(c.pid));c.unref();\n`);
+  let childPid = null;
+  try {
+    const r = spawnSync(process.execPath, [victim], { cwd: base, env: { ...process.env, TMPDIR: base } });
+    try { childPid = Number(fs.readFileSync(pidFile, 'utf8')); } catch { /* checked by the status below */ }
+    assert.equal(r.status, 0, String(r.stderr));
+    // Up to 12 s for the child (a cold node start on a loaded machine can take seconds), inside a 30 s test budget
+    // that also covers the victim's own spawn.
+    for (const end = Date.now() + 12000; Date.now() < end && !fs.existsSync(done);) await new Promise((res) => setTimeout(res, 20));
+    assert.ok(fs.existsSync(done), 'the left-running child never wrote, so this cannot test what it is for');
+    const left = entries(base).filter((n) => n.startsWith('kts-'));
+    assert.equal(left.length, 1, String(entries(base)));
+    assert.equal(fs.existsSync(path.join(base, left[0], '.kts-owner')), false, 'the sweep left its owner, so this is not the case the card saw');
+    assert.match(guardSays(base), /: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 \(or its write failed\); it holds: helper-cache-6362\n$/);
+  } finally {
+    // On a failure above, end the child before freshBase removes the base, or its recursive mkdir would make it again.
+    // Only while it has not ended: it writes `ended` on every way out, so its absence means the pid is still the child's.
+    if (childPid && !fs.existsSync(ended)) { try { process.kill(childPid, 'SIGKILL'); } catch { /* it has ended */ } }
+  }
+});

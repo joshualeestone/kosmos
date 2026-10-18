@@ -132,6 +132,7 @@ test('notificationFor maps the coordinator payload to who/what + a Mac click-thr
 test('notificationFor renders each kind, and falls back safely', () => {
   assert.equal(notificationFor(ev({ kind: 'posted', agent: 'Sonya' })).title, 'Sonya posted an update');
   assert.equal(notificationFor(ev({ kind: 'replied', agent: 'Sonya' })).title, 'Sonya replied');
+  assert.equal(notificationFor(ev({ kind: 'ready', agent: 'Sonya' })).title, 'Sonya has work ready for you');   // #6254
   assert.equal(notificationFor(ev({ kind: 'weird', agent: 'Sonya' })).title, 'Sonya has an update');
   // No agent -> a generic actor, never undefined text.
   assert.equal(notificationFor(ev({ kind: 'needs_you' })).title, 'An agent needs you');

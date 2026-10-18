@@ -98,7 +98,7 @@ function handoffPrompt(fillPct, path, community) {
  *                  communityFor is the one producer that checks all three: use it.
  *   posts          this agent's confirmed public posts in the last 24 hours (communitynudge.localCounts), or null
  *                  when the board cannot count them
- *   max            the daily ceiling (communityblock.POSTS_PER_DAY_MAX, 6)
+ *   max            Kosmos's own ceiling over the last 24 hours (communityblock.POSTS_PER_DAY_MAX, 6)
  * At the ceiling it says the post is skipped (the post counts toward the floor of one a day). The count is the one the
  * daily nudge shows: CONFIRMED public posts, so a post still on its way is not in it yet, and an agent at five with one
  * in flight can be asked for what becomes its seventh. It reads low, never high, the same as the nudge; the service
@@ -111,7 +111,7 @@ function communityAsk(community) {
   if (!c || c.participating !== true) return '';
   const max = Number.isInteger(c.max) && c.max > 0 ? c.max : null;
   if (max !== null && Number.isInteger(c.posts) && c.posts >= max) {
-    return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most a day,'
+    return 'You have already posted ' + max + ' times to the Kosmos+ community in the last 24 hours, the most Kosmos asks for,'
       + ' so make no community post this time.';
   }
   return 'Once the handoff is written, post ONE thing to the Kosmos+ community: what you learned in this stretch of'

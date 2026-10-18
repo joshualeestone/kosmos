@@ -315,6 +315,13 @@ const STATES = {
           chk(foot.remove && foot.account && foot.remove.text === 'Remove this computer' && foot.account.text === 'View account'
             && Math.abs(foot.remove.y - foot.account.y) <= 6 && foot.remove.x < foot.account.x && red(foot.remove.color),
             `${t} #4080: the bottom row reads Remove this computer (red) at left, then View account at right`, JSON.stringify(foot));
+          /* #6402: the company block is ruled off from the devices block, so Lost your phone? does not head it. */
+          const rule = await page.evaluate(() => { const o = document.getElementById('plus-org'); const l = document.getElementById('plus-lost-open');
+            if (!o || o.getBoundingClientRect().height === 0) return { shown: false };
+            const cs = getComputedStyle(o);
+            return { shown: true, width: cs.borderTopWidth, style: cs.borderTopStyle, below: !l || l.getBoundingClientRect().bottom <= o.getBoundingClientRect().top };
+          });
+          chk(rule.shown && (rule.width === '1px' && rule.style === 'solid' && rule.below), `${t} #6402: the company block is ruled off under Lost your phone? (control: the block shows on a connected pane)`, JSON.stringify(rule));
           chk(foot.lost && foot.lost.text === 'Lost your phone?' && foot.inDevices && !foot.inFoot && foot.listBottom !== null && foot.lost.y >= foot.listBottom && foot.lost.bottom <= foot.remove.y,
             `${t} #5791: Lost your phone? sits under the device list, off the bottom row`, JSON.stringify(foot));
           /* "Lost your phone?" opens the reset in a dialog, focus on Close; Escape closes it and focus comes back. */

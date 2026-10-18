@@ -27,6 +27,7 @@ const cli = require('./tools/windows/kosmos-cli');
 const { removeTree } = require('./test-support/remove-tree');
 
 const TOKEN = 'ab'.repeat(16);
+const { answerProof } = require('./test-support/proof-listener-1765');
 /* What an agent writes: two lines, an accented letter, an emoji, and the characters a shell would run. */
 const BODY = 'line one caf\u00e9 `echo PWNED` $HOME "q"\nline two \u{1F680} end';
 
@@ -284,6 +285,8 @@ function removeZip(root) {
 function stubBoard() {
   const got = [];
   const server = http.createServer((q, s) => {
+    // #1765: the CLI asks the board to prove it holds the agent's token before sending it; this board does.
+    if (answerProof(q, s, [TOKEN])) return;
     const chunks = [];
     q.on('data', (c) => chunks.push(c));
     q.on('end', () => {

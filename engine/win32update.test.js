@@ -33,6 +33,7 @@ const win32update = require('./win32update');
 const win32zip = require('./win32zip');
 const worlds = require('./worlds');
 const { buildZip } = require('../test-support/zipfixture');
+const { SIGNED_KOSMOS, microsoftRootSkip } = require('../test-support/signedkosmos');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -81,7 +82,7 @@ function freshCase(o = {}) {
   fs.mkdirSync(anchor, { recursive: true });
   fs.writeFileSync(path.join(anchor, win32anchor.NODE_NAME), o.anchoredNode !== undefined ? o.anchoredNode : 'the anchored node.exe of 0.6.55');
   if (o.pointer !== null) fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), o.pointer || path.join(root, 'app', 'engine'));
-  return { dir, root, env, anchor, work: path.join(root, '.kosmos-update'), log: [], nodeRuns: [] };
+  return { dir, root, env, anchor, work: path.join(root, '.kosmos-update'), log: [], nodeRuns: [], signatureChecks: [] };
 }
 
 /** The files of a Kosmos build, in the shape tools/build-kosmos-windows.sh stages. */
@@ -143,6 +144,9 @@ function prepareOpts(c, s, over) {
     fetch: s ? s.fetch : async () => { throw new Error('this case must not reach the network'); },
     freeBytes: () => PLENTY_OF_DISK,
     runStagedNode: (exe) => { c.nodeRuns.push(exe); return NODE_VERSION + '\n'; },
+    /* #1765: the staged Kosmos.exe here is a stub, so Windows' answer for a published build stands in
+       for it; engine/win32update.signature-1765.test.js runs the real check. */
+    checkSignature: (exe) => { c.signatureChecks.push(exe); return SIGNED_KOSMOS; },
     liveExecutionAllowed: () => true,
     /* S3's board-task preconditions: a board its logon task started, registered and switched on. */
     boardTask: TASK_BOARD,
@@ -1556,7 +1560,7 @@ test('no name the build stages looks like a Windows short name, so refusing them
 
 const SAMPLE = process.env.KOSMOS_WIN_ZIP_SAMPLE;
 test('a real Kosmos build stages end to end under the real caps, and its real node.exe runs',
-  { timeout: 120000, skip: !SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this' }, async () => {
+  { timeout: 120000, skip: (!SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this') || (ON_WINDOWS && microsoftRootSkip()) }, async () => {
     const zip = fs.readFileSync(SAMPLE);
     const L = win32update.DEFAULT_LIMITS;
     const entries = win32zip.readZipDirectory(zip, {
@@ -1571,7 +1575,9 @@ test('a real Kosmos build stages end to end under the real caps, and its real no
     fs.writeFileSync(path.join(c.root, 'app', 'package.json'), JSON.stringify({ version: '0.0.1' }));
     /* The real free-disk reading, and on Windows the real runner over the real staged node.exe. */
     const opts = prepareOpts(c, site(zip, { pointer: pointerBody(zip, { version }) }), { freeBytes: undefined });
-    if (ON_WINDOWS) delete opts.runStagedNode;
+    /* On Windows the real release is checked end to end: its own node.exe runs, and Windows is asked
+       about its own Kosmos.exe (#1765). */
+    if (ON_WINDOWS) { delete opts.runStagedNode; delete opts.checkSignature; }
     const r = await win32update.prepare(opts);
     assert.equal(r.ok, true, r.because);
     assert.equal(r.version, version);
@@ -1903,8 +1909,10 @@ test('the --apply CLI with --yes reads "started by its task" from the board\'s o
     /* #2986: Task Scheduler's running is true or null (null whenever it cannot be told), so the CLI
        does not ask it; the stub says null, as a real read on a German Windows would. */
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    /* #4382: never this machine's own mode file: a run computer, as these cases are written for. */
+    readsConnect: () => false,
     begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
-      runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+      runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--base', BASE, '--port', '16555', '--world', 'default', '--yes'];
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1, 'another build answers');
@@ -2252,7 +2260,8 @@ test('#3286 --apply --from --report: the launcher reads one tagged line, and the
     /* A real install's board names its commit too (buildIdentity reads the manifest beside runtime\node.exe). */
     probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask }),
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
-    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+    readsConnect: () => false,
+    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, checkSignature: () => SIGNED_KOSMOS, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];
   assert.equal(await win32update.cliMain(argv, () => {}, seams(false)), 1);
@@ -2265,4 +2274,103 @@ test('#3286 --apply --from --report: the launcher reads one tagged line, and the
   const said = JSON.parse(out.join(''));
   assert.equal(said.source, source);
   assert.match(said.because, /stage the Kosmos in /);
+});
+/* --- #1765: the staged Kosmos.exe must carry the signature setup.ps1 requires of a fresh install --- */
+
+const REAL_KOSMOS_EXE = path.join(REPO, 'tools', 'windows', 'Kosmos.exe');
+/** The committed, signed launcher with one byte of its code flipped: its signature no longer matches. */
+function tamperedKosmosExe() {
+  const bytes = Buffer.from(fs.readFileSync(REAL_KOSMOS_EXE));
+  bytes[0x400] ^= 0xff;
+  return bytes;
+}
+/* Windows must call the committed Kosmos.exe Valid: Microsoft's root on this computer (test-support/signedkosmos.js). */
+const WITH_ROOT = { ...T, timeout: 120000, skip: microsoftRootSkip() };
+
+test('#1765: a staged Kosmos.exe Windows does not call validly signed is refused before anything staged runs, and nothing is left staged', T, async () => {
+  for (const [answer, pattern] of [
+    [{ ...SIGNED_KOSMOS, status: 'HashMismatch' }, /^the update's Kosmos\.exe is not validly signed \(Windows says: HashMismatch\)$/],
+    [{ status: 'NotSigned', signer: '', rootThumbprint: '', chain: [] }, /^the update's Kosmos\.exe is not validly signed \(Windows says: NotSigned\)$/],
+    [{ ...SIGNED_KOSMOS, signer: 'Someone Else, Inc.' }, /^the update's Kosmos\.exe is signed by 'Someone Else, Inc\.', not by Kosmos Agent Manager, Inc\.$/],
+    [{ ...SIGNED_KOSMOS, rootThumbprint: '0'.repeat(40) }, /does not come from Microsoft's code-signing service for Kosmos Agent Manager, Inc\./],
+  ]) {
+    const c = freshCase();
+    const r = await refusedWith(c, site(bundleZip()), pattern, { checkSignature: (exe) => { c.signatureChecks.push(exe); return answer; } });
+    assert.deepEqual(c.signatureChecks, [path.join(c.work, 'staged', 'Kosmos.exe')], 'the check was not asked of the STAGED Kosmos.exe');
+    assert.deepEqual(c.nodeRuns, [], 'the staged node.exe ran before the signature was checked');
+    assertCleanedUp(c, pattern);
+    assert.equal(r.ok, false);
+  }
+});
+
+test('#1765: a signature Windows could not check is a refusal, never a pass', T, async () => {
+  await refusedWith(freshCase(), site(bundleZip()), /^the signature of the update's Kosmos\.exe could not be checked \(spawn EACCES\)$/,
+    { checkSignature: () => { throw new Error('spawn EACCES'); } });
+  await refusedWith(freshCase(), site(bundleZip()), /^the signature of the update's Kosmos\.exe could not be checked \(Windows did not answer within 60 seconds\)$/,
+    { checkSignature: () => { throw Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' }); } });
+  await refusedWith(freshCase(), site(bundleZip()), /^the update's Kosmos\.exe is not validly signed \(Windows says: nothing\)$/,
+    { checkSignature: () => undefined });
+});
+
+test('#1765: the check is asked with the signature time limit', T, async () => {
+  const c = freshCase();
+  const asked = [];
+  const r = await win32update.prepare(prepareOpts(c, site(bundleZip()), { checkSignature: (exe, ms) => { asked.push(ms); return SIGNED_KOSMOS; } }));
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(asked, [60000]);
+  assert.equal(win32update.DEFAULT_LIMITS.signatureTimeoutMs, 60000);
+});
+
+test('#1765: begin() with an unsigned update starts nothing, writes no journal, and leaves the installed Kosmos as it was', T, async () => {
+  const c = freshCase();
+  const before = snapshot(SANDBOX, [c.work]);
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), {
+    checkSignature: () => ({ ...SIGNED_KOSMOS, status: 'HashMismatch' }),
+    spawn: () => assert.fail('nothing may be started'),
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /not validly signed \(Windows says: HashMismatch\)/);
+  assert.equal(fs.existsSync(path.join(c.anchor, JOURNAL_NAME)), false, 'a journal was written for an unsigned update');
+  assert.deepEqual(snapshot(SANDBOX, [c.work]), before, 'the installed Kosmos changed');
+});
+
+test('#1765 --from: a newer folder whose Kosmos.exe is not signed is refused like a download', T, async () => {
+  const c = withInstalledManifest(freshCase());
+  await refusedWith(c, null, /signed by 'Someone Else, Inc\.'/, { ...OFFLINE, source: downloadedBuild(c), checkSignature: () => ({ ...SIGNED_KOSMOS, signer: 'Someone Else, Inc.' }) });
+  assert.equal(fs.existsSync(path.join(c.work, 'staged')), false);
+});
+
+/* On this computer, Windows' own answer: no checkSignature seam, so prepare() asks Get-AuthenticodeSignature. */
+
+test('#1765 on Windows: a download carrying the committed, signed Kosmos.exe stages; the same with one byte changed is refused', WITH_ROOT, async () => {
+  const good = freshCase();
+  const ok = await win32update.prepare(prepareOpts(good, site(bundleZip({ extra: { 'Kosmos.exe': fs.readFileSync(REAL_KOSMOS_EXE) } })), { checkSignature: undefined }));
+  assert.equal(ok.ok, true, ok.because);
+  const bad = freshCase();
+  await refusedWith(bad, site(bundleZip({ extra: { 'Kosmos.exe': tamperedKosmosExe() } })), /^the update's Kosmos\.exe is not validly signed \(Windows says: HashMismatch\)$/, { checkSignature: undefined });
+  assert.deepEqual(bad.nodeRuns, []);
+  assertCleanedUp(bad, /HashMismatch/);
+});
+
+test('#1765 on Windows: the headless --apply --from --yes refuses an unsigned Kosmos.exe in words, and installs a signed one', WITH_ROOT, async () => {
+  const c = withInstalledManifest(freshCase());
+  const report = path.join(c.dir, 'report.txt');
+  const seams = {
+    probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask: true }),
+    boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    readsConnect: () => false,
+    /* No checkSignature: Windows is asked. */
+    begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+  };
+  const unsigned = downloadedBuild(c);   // its Kosmos.exe is the stub, which carries no signature
+  const before = snapshot(c.root, [c.work]);
+  const argv = (source) => ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];
+  assert.equal(await win32update.cliMain(argv(unsigned), () => {}, seams), 1);
+  assert.match(fs.readFileSync(report, 'utf8'), /^REFUSED the update's Kosmos\.exe is not validly signed \(Windows says: \w+\)\r\n$/);
+  assert.equal(fs.existsSync(path.join(c.anchor, JOURNAL_NAME)), false);
+  assert.deepEqual(snapshot(c.root, [c.work]), before, 'the installed Kosmos changed');
+  const signed = downloadedBuild(c, NEXT, { at: path.join(c.dir, 'Downloads', 'signed') });
+  fs.copyFileSync(REAL_KOSMOS_EXE, path.join(signed, 'Kosmos.exe'));
+  assert.equal(await win32update.cliMain(argv(signed), () => {}, seams), 0);
+  assert.equal(fs.readFileSync(report, 'utf8'), `STARTED ${c.root}\r\n`);
 });

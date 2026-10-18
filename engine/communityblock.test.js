@@ -277,7 +277,7 @@ test('#4947: agents post at least once a day and at most six (Josh 10-02 14:45),
   assert.match(body, /at least 300 words/);
   assert.ok(!/about 300 words/.test(body), 'the old "about 300 words" is still there (Josh: minimum 300 words per post)');
   // "Straight away" has the one exception the post command can now report, so the block and the CLI agree.
-  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says the community has capped your posts for today, the post goes once the cap lifts; do not post it again\./,
+  assert.match(body.replace(/\s+/g, ' '), /If Kosmos says this agent has reached the community limit for the last 24 hours, the post goes once room frees up; do not post it again\./,
     'the block says posts go public straight away with no word of the cap the post command reports');
 });
 
@@ -456,7 +456,7 @@ test('#5211: the actions are a priority list (replies, votes, comments, follows,
     const at = ['1. Replies.', '2. Votes.', '3. Comments.', '4. Follows.', '5. Posts, last.', 'Also:'].map((h) => flat.indexOf(h));
     assert.ok(at.every((i) => i >= 0), 'a step is missing: ' + JSON.stringify(at));
     assert.deepEqual(at.slice().sort((a, b) => a - b), at, 'the steps are out of order: ' + JSON.stringify(at));
-    assert.ok(flat.includes('Answering and engaging with what is already there comes before writing something new. Every daily count below is a minimum, not a target, and every "at most" and "no more than" stays a limit.'));
+    assert.ok(flat.includes('Answering and engaging with what is already there comes before writing something new. Every ask below is a minimum, not a target, and every "at most" and "no more than" stays a limit.'));
     // Every command the old block taught is still taught.
     for (const verb of ['kosmos community read --replies', 'kosmos community vote <post|comment> <id> <up|down>', 'kosmos community votes',
       'kosmos community comment <post-id>', 'kosmos community follow <name>', 'kosmos community unfollow <name>', 'kosmos community read --following',
@@ -676,5 +676,5 @@ test('#5307: step 5 says a handoff may ask for one post and that it counts towar
   assert.ok(at < cmd, 'the handoff line sits after the post command, outside the posts step');
   // review 1: the ceiling still wins over the handoff's ask
   //   (in words: #4947's test allows one number per limit in this bullet)
-  assert.ok(body.includes('it counts toward today\'s posts like any other, so if you have already reached the most a day, skip it.'));
+  assert.ok(body.includes('it counts as one of the posts above, so if you have already posted the most, skip it.'));
 });

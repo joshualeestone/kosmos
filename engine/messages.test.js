@@ -4279,3 +4279,260 @@ test('#5732: a project id that is not a plain id is never typed into a pane', ()
     assert.equal(tmux.sends().length, 0);
   });
 });
+
+/* #6420: a held room says WHEN its limit lifts, and it is the SAME time the room's own "should lift by" gives
+   (roomHeld().until): one reading, not a second copy. The oldest posts are 50 minutes old, so about ten minutes. */
+test('#6420: a held room\'s refusal carries when it clears, the same time the room itself says', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const oldest = now - 50 * 60000;
+    // Appended newest first, so the reading cannot lean on the log's order.
+    for (let i = ROOM_BUDGET / 2 - 1; i >= 0; i -= 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(i < 2 ? oldest : now - 5 * 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: the room is held');
+    const held = messages.roomHeld('henderson-lease', Date.now());
+    assert.ok(held && held.until, 'CONTROL: the room itself says when it lifts');
+    assert.equal(sent.clearsAt, held.until, 'the refusal and the room disagree on when the room lifts');
+    assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the room does not clear when its oldest counted posts leave the hour');
+    assert.ok(sent.clearsInMinutes >= 10 && sent.clearsInMinutes <= 11, 'about ten minutes, not an hour: ' + sent.clearsInMinutes);
+  });
+});
+
+/* #6420: the time is for THIS post's size, not the latest post's. The latest counted post reaches one member,
+   the refused post two. Read for one arrival, the room is not held at all (79 + 1 fits 80); read for this post's two,
+   it is held until the oldest post leaves the hour. */
+test('#6420: the clear time is read for the refused post\'s own size, not the latest post\'s', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const oldest = now - 50 * 60000;
+    const rows = [];
+    for (let i = 0; i < ROOM_BUDGET / 2 - 1; i += 1) {
+      rows.push({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: MEMBERS[i % 3],
+        to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]), text: 'round ' + i, at: new Date(i === 0 ? oldest : now - 5 * 60000).toISOString(), outcomes: {} });
+    }
+    rows.push({ kind: 'post', id: 'mlast', project: 'henderson-lease', from: 'mara', to: ['april'], text: 'to one', at: new Date(now - 60000).toISOString(), outcomes: {} });
+    for (const r of rows) fs.appendFileSync(messages.LOG, JSON.stringify(r) + '\n');
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: 79 counted plus this post\'s two is over 80');
+    assert.equal(messages.roomHeld('henderson-lease', Date.now()), null, 'CONTROL: read for the latest post\'s one arrival, the room fits');
+    assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the clear time was read for the latest post\'s size, not this one\'s');
+  });
+});
+
+/* #6420: no time is promised when there is none to give. With the budget scaled to the room (roomCap), no single
+   post can exceed it, so the case left is a row dated after now: the valve counts it, roomHeldRead does not, so there
+   is no reading and the refusal carries no clearsAt or clearsInMinutes (the CLI then keeps its old words). */
+test('#6420: a hold that only future-dated rows explain is refused with no clear time', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now + 10 * 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: the valve counts the future-dated rows and holds');
+    assert.equal('clearsAt' in sent, false, 'a time was given that the room\'s own reading does not have');
+    assert.equal('clearsInMinutes' in sent, false, 'minutes were given that the room\'s own reading does not have');
+  });
+});
+
+/* #6420: under a minute left still reads as one minute, never zero. */
+test('#6420: a hold lifting in seconds says one minute', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(i < 2 ? now - 60 * 60000 + 20000 : now - 5 * 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: held');
+    assert.equal(sent.clearsInMinutes, 1, 'twenty seconds left read as ' + sent.clearsInMinutes + ' minutes');
+  });
+});
+
+/* ── #6420: the room's budget scales with the room ───────────────────────── */
+
+function room6() {
+  return ['leo', 'mara', 'april', 'nova', 'kai', 'rin'].map((n) => fleet.agent(n, { state: 'idle' }));
+}
+const MEMBERS6 = ['leo', 'mara', 'april', 'nova', 'kai', 'rin'];
+
+test('#6420: roomCap is the dial\'s room budget times the room over a three-member room, never less', () => {
+  const lim = { roomArrivalsPerWindow: ROOM_BUDGET };
+  assert.equal(messages.roomCap(lim, 2), ROOM_BUDGET, 'a three-member room keeps the dial\'s budget');
+  assert.equal(messages.roomCap(lim, 5), ROOM_BUDGET * 2.5, 'a six-member room gets the same posts as a three-member room');
+  assert.equal(messages.roomCap(lim, 8), ROOM_BUDGET * 4, 'a nine-member room');
+  assert.equal(messages.roomCap(lim, 19), ROOM_BUDGET * 4, 'never more than four times the dial, so a big room\'s cost is bounded');
+  assert.equal(messages.roomCap(lim, 1), ROOM_BUDGET, 'a pair never gets less than the dial');
+  assert.equal(messages.roomCap(lim, 0), ROOM_BUDGET);
+  assert.equal(messages.roomCap(lim, undefined), ROOM_BUDGET, 'no size is the dial\'s budget');
+});
+
+/* A six-agent workflow: 20 posts in the hour, each reaching the five others (100 arrivals). At the dial's budget
+   (80) it was held; scaled to the room (200) it goes through. */
+test('#6420: a six-member room is not held at the post count a three-member room is allowed', () => {
+  withFleet(room6(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    for (let i = 0; i < 20; i += 1) {
+      const from = MEMBERS6[i % 6];
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from,
+        to: MEMBERS6.filter((m) => m !== from), text: 'step ' + i + ' of the build is done', at: new Date(now - 30 * 60000).toISOString(), outcomes: {} }) + '\n');
+    }
+    assert.ok(20 * 5 > ROOM_BUDGET, 'CONTROL: these posts are over the dial\'s own room budget, so the old cap held them');
+    assert.ok(messages.roomHeld('henderson-lease', now, 1), 'CONTROL: read at the dial\'s budget, the room is held');
+    assert.equal(messages.roomHeld('henderson-lease', now + 1, 5), null, 'read at the room\'s own size, the room is open (the page and the valve agree)');
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok(), ok()]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the next step is ready for review' }, board.agents, MEMBERS6);
+    assert.notEqual(sent.code, 'room_held', 'a six-member room was held at 21 posts in the hour');
+    assert.notEqual(sent.state, chat.DELIVERY.COULD_NOT, sent.because || '');
+  });
+});
+
+/* The scaled budget's edge in a six-member room (200 arrivals): 195 counted reads open at the room's size and held at
+   the dial's; a 5-arrival post lands on 200 and goes through; the next one is held. Under the dial's budget every step
+   here would be held, so this tells the scaled budget from the old one at its exact edge. */
+test('#6420: a six-member room is held exactly at its scaled budget, and roomHeld reads it at the room\'s size', () => {
+  withFleet(room6(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    for (let i = 0; i < 39; i += 1) {
+      const from = MEMBERS6[i % 6];
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from,
+        to: MEMBERS6.filter((m) => m !== from), text: 'round ' + i, at: new Date(now - 30 * 60000).toISOString(), outcomes: {} }) + '\n');
+    }
+    assert.equal(messages.roomHeld('henderson-lease', now, 5), null, '195 arrivals read held at the room\'s own budget (200)');
+    assert.ok(messages.roomHeld('henderson-lease', now + 1, 1), 'CONTROL: at the dial\'s budget (80) the same room reads held');
+    armSender('leo-discord');
+    arm([ok(), ok(), ok(), ok(), ok()]);
+    const fits = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'the last one that fits' }, board.agents, MEMBERS6);
+    assert.notEqual(fits.code, 'room_held', 'a post landing exactly on the budget (200) was held');
+    arm([]);
+    const over = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one past the budget' }, board.agents, MEMBERS6);
+    assert.equal(over.code, 'room_held', 'the scaled budget did not hold at 205 arrivals');
+    assert.ok(messages.roomHeld('henderson-lease', Date.now() + 2, 5), 'the page does not read the room held past its own budget');
+  });
+});
+
+/* #6420: the nudge for the person's own post reads the room at its own budget, as the valve and the page do. A
+   six-member room at 195 arrivals (over the dial's 80, under its own 200) is nudged; at 205 the nudge sees the hold. */
+test('#6420: the own-computer nudge reads a six-member room at its own budget, at the exact edge', () => {
+  withFleet(room6(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    messages._resetOwnPostNudgesForTests();
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const seed = (n) => { for (let i = 0; i < n; i += 1) {
+      const from = MEMBERS6[i % 6];
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'n' + Math.random().toString(36).slice(2), project: 'henderson-lease', from,
+        to: MEMBERS6.filter((m) => m !== from), text: 'step ' + i, at: new Date(now - 30 * 60000).toISOString(), outcomes: {} }) + '\n');
+    } };
+    seed(39);   // 195 arrivals: under this room's budget (200), over the dial's (80)
+    assert.ok(messages.roomHeld('henderson-lease', now, 1), 'CONTROL: at the dial\'s budget the room reads held');
+    arm([]);
+    const row = messages.externalPost('henderson-lease', { from: 'Josh', fromKind: 'person', text: 'from my laptop' });
+    const r = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', row.id, MEMBERS6, board.agents);
+    assert.notEqual(r.held, true, 'the nudge read a six-member room at the dial\'s budget and skipped it as held');
+    assert.equal(r.nudged.length, MEMBERS6.length, 'not every member was nudged');
+    // Past this room's budget (205) the nudge sees the hold, as the valve would: a size off by one (240) would not.
+    seed(2);
+    messages._resetOwnPostNudgesForTests();
+    const row2 = messages.externalPost('henderson-lease', { from: 'Josh', fromKind: 'person', text: 'again from my laptop' });
+    const held = messages.nudgeOwnComputerPost('henderson-lease', 'Henderson Lease', row2.id, MEMBERS6, board.agents, Date.now() + 5000);
+    assert.equal(held.held, true, 'past its own budget the nudge did not read the room held');
+  });
+});
+
+/* #6420: past the ceiling a single post can still be bigger than the whole budget, and then no time is given. At the
+   lowest dial (10 an hour) the ceiling is 4 x 40 = 160 arrivals, so one post to 161 others is over it. */
+test('#6420: past the ceiling, a post bigger than the whole budget is refused with no clear time', () => {
+  const names = Array.from({ length: 162 }, (_, i) => 'm' + i);
+  limits.write({ on: true, perHour: 10 });
+  try {
+    assert.equal(messages.roomCap(limits.caps(), 161), 160, 'CONTROL: the ceiling at the lowest dial');
+    withFleet(names.map((n) => fleet.agent(n, { state: 'idle' })), (board) => {
+      armSender('m0-discord');
+      arm([]);
+      const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'to everyone' }, board.agents, names);
+      assert.equal(sent.code, 'room_held', 'CONTROL: one post to 161 others is over the ceiling and held');
+      assert.equal('clearsAt' in sent, false, 'a time was given that no wait honours');
+      assert.equal('clearsInMinutes' in sent, false, 'minutes were given that no wait honours');
+    });
+  } finally { fs.rmSync(limits.FILE, { force: true }); }
+});
+
+/* #6420: the progress allowance and the clear time follow the room's scaled budget too. A six-member room's budget is
+   200; one step of work earns a quarter of THAT (50), not of the dial's (20). Each post costs 5 arrivals. */
+test('#6420: in a six-member room one step of work earns a quarter of the scaled budget', () => {
+  const taskchat = require('./taskchat');
+  withFleet(room6(), (board) => {
+    try {
+      const now = Date.now();
+      fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+      for (let i = 0; i < 40; i += 1) {   // 200 arrivals: the room is at its scaled budget
+        const from = MEMBERS6[i % 6];
+        fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from,
+          to: MEMBERS6.filter((m) => m !== from), text: 'handing it on ' + i, at: new Date(now - 60000).toISOString(), outcomes: {} }) + '\n');
+      }
+      let seq = 0;
+      const post = () => { chat.resetForTests(); armSender('leo-discord'); arm([ok(), ok(), ok(), ok(), ok()]); seq += 1;
+        return messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'next step ' + seq }, board.agents, MEMBERS6); };
+      const through = () => { let n = 0; while (n < 200 && post().state !== chat.DELIVERY.COULD_NOT) n += 1; return n; };
+      assert.equal(post().code, 'room_held', 'CONTROL: at its scaled budget with no work moving, the room is held');
+      assert.equal(taskchat.record('henderson-lease', 2, { kind: 'closed' }), true);
+      // A quarter of 200 is 50: ten more posts of 5. A quarter of the dial's 80 would be 20: four.
+      for (let i = 0; i < 5; i += 1) assert.notEqual(post().state, chat.DELIVERY.COULD_NOT, 'post ' + (i + 1) + ' of the earned ten was held');
+      // The page's own reading (roomHeld, which reads the allowance itself) agrees at 225 arrivals: open at the room's
+      // size with a quarter of 200 earned; with a quarter of the dial's 80 it would read held (230 over 220).
+      assert.equal(messages.roomHeld('henderson-lease', Date.now(), 5), null, 'the page read the allowance at the dial\'s budget');
+      assert.equal(through(), 5, 'one step of work did not earn a quarter of the room\'s own budget');
+    } finally {
+      fs.rmSync(taskchat.taskChatsDir(), { recursive: true, force: true });
+    }
+  });
+});
+
+test('#6420: in a six-member room the clear time is read at the scaled budget', () => {
+  withFleet(room6(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const oldest = now - 50 * 60000;
+    for (let i = 0; i < 40; i += 1) {   // 200 arrivals; the first post is 50 minutes old
+      const from = MEMBERS6[i % 6];
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from,
+        to: MEMBERS6.filter((m) => m !== from), text: 'round ' + i, at: new Date(i === 0 ? oldest : now - 5 * 60000).toISOString(), outcomes: {} }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS6);
+    assert.equal(sent.code, 'room_held', 'CONTROL: held at the scaled budget');
+    // At 200 the oldest post leaving frees 5, enough for this one: about 10 minutes away. At the dial's 80 it would
+    // take 25 posts leaving, the last of them 5 minutes old: 55 minutes away instead of 10.
+    assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the clear time was not read at the room\'s own budget');
+    assert.equal(sent.clearsAt, messages.roomHeld('henderson-lease', Date.now(), 5).until, 'the refusal and the room at its size disagree');
+  });
+});

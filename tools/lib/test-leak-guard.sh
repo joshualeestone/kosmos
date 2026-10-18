@@ -175,23 +175,83 @@ leak_family() {
     }'
 }
 
+# _kts_held <dir>: what a kts- dir holds besides .kts-owner (and tmpscope's .kts-owner.new), five names then a count, for leak_kts_owners (#6362).
+_kts_held() {
+  local d="$1" held n shown part=""
+  # The whole listing is read first (no early-closing pipe, which under set -e and pipefail could end the guard).
+  # find's own status, not the pipeline's (whose status is the last stage's). A walk that failed part way (an
+  # entry removed under it by a process still writing) keeps what it did print, marked incomplete.
+  held=$(find "$d" -mindepth 1 -maxdepth 1 ! -name .kts-owner ! -name .kts-owner.new 2>/dev/null) || part=" (listing incomplete)"
+  held=$(printf '%s\n' "$held" | sed 's|.*/||' | LC_ALL=C sort | sed '/^$/d')
+  n=$(printf '%s' "$held" | grep -c . || true)
+  shown=$(printf '%s\n' "$held" | sed -n '1,5p' | paste -sd ' ' -)
+  if [ "${n:-0}" -gt 5 ]; then shown="${shown} (and $((n - 5)) more)"; fi
+  if [ -n "$part" ] && [ -z "$shown" ]; then shown="(could not list)"; part=""; fi
+  printf '%s\n' "${shown:-nothing}${part}"
+}
+
 # leak_kts_owners <root>: one line per `kts-` dir left in <root>, naming the test file that made it. A `kts-` dir
 # is test-support/tmpscope.js's per-process TMPDIR, swept when that process exits, so one left behind means its
 # sweep did not run or failed (a kill it cannot catch, a process still running, an rmSync error); tmpscope writes
 # `.kts-owner` (#6061) so the report can say which file to look at. Safe under `set -e`: a read of an empty or
 # unterminated owner line (a kill during the write) still reports.
+# #6362: an owner line with a third field ("survived its sweep") means the sweep ran and the dir outlived it (a
+# process the file started was still writing there, or something in it could not be removed). A dir with NO owner can
+# be what a process the test started and left running leaves when it makes the dir again after the test ended (the
+# sweep took .kts-owner with it; reproduced for #6362, how often is not measured); a tmpscope older than #6061 or a
+# failed owner write leaves the same. So the report lists what the dir holds, whose names often say which test's
+# process it was.
 leak_kts_owners() {
-  local root="${1%/}" d owner pid
+  local root="${1%/}" d owner rest pid why shown unfinished aside
   for d in "$root"/kts-*; do
     [ -d "$d" ] || continue
+    # A dir the guard cannot search hides whether it has an owner, so it says only that.
+    if [ ! -x "$d" ]; then echo "  ${d##*/}: cannot be read here, so its owner is unknown"; continue; fi
     owner=""
+    if [ -f "$d/.kts-owner" ] && [ ! -r "$d/.kts-owner" ]; then echo "  ${d##*/}: its owner file cannot be read here"; continue; fi
     if [ -f "$d/.kts-owner" ]; then IFS= read -r owner < "$d/.kts-owner" || true; fi
+    # tmpscope rewrites a survived dir's owner aside (.kts-owner.new) and renames it in; a kill between the two leaves
+    # only the aside copy, which still names the file.
+    unfinished=""
+    if [ -e "$d/.kts-owner.new" ]; then
+      # Only the rewrite after a survived sweep writes .kts-owner.new, so its presence alone says the sweep ran.
+      if [ ! -r "$d/.kts-owner.new" ] && [ -z "$owner" ]; then
+        echo "  ${d##*/}: its exit sweep ran and the dir survived it, but its owner copy cannot be read here; it holds: $(_kts_held "$d")"
+        continue
+      fi
+      aside=""; [ -r "$d/.kts-owner.new" ] && { IFS= read -r aside < "$d/.kts-owner.new" || true; }
+      unfinished="; its owner rewrite did not finish"
+      [ -n "$aside" ] && owner=$aside
+      if [ -n "$owner" ]; then
+        owner="${owner%%$'\t'survived its sweep}"
+        # A line cut before its tab has no pid field: say so, or the marker would land where the pid is read.
+        case "$owner" in *$'\t'*) ;; *) owner="$owner"$'\t'"pid unknown" ;; esac
+        owner="$owner"$'\t'"survived its sweep"
+      else
+        echo "  ${d##*/}: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: $(_kts_held "$d")"
+        continue
+      fi
+    fi
     if [ -n "$owner" ]; then
       pid="pid unknown"
-      case "$owner" in *$'\t'*) pid=${owner#*$'\t'} ;; esac
-      echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); its exit sweep did not run (killed, still running, or the sweep failed)"
+      why="its exit sweep did not run (killed, still running, or the sweep failed)"
+      case "$owner" in
+        *$'\t'*)
+          rest=${owner#*$'\t'}
+          pid=${rest%%$'\t'*}
+          case "$rest" in *$'\t'"survived its sweep") why="its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed)" ;; esac ;;
+      esac
+      case "$why" in
+        *survived*) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why$unfinished; it holds: $(_kts_held "$d")" ;;
+        *) echo "  ${d##*/}: made by ${owner%%$'\t'*} ($pid); $why" ;;
+      esac
+    elif [ -f "$d/.kts-owner" ]; then
+      # An EMPTY owner file was cut while tmpscope wrote it at creation (its later rewrite goes aside and is renamed
+      # in, so it cannot empty one); a remade dir has none at all.
+      echo "  ${d##*/}: owner file empty (most likely the test was killed while tmpscope wrote it)"
     else
-      echo "  ${d##*/}: no owner recorded (made by a tmpscope older than #6061, or the write failed)"
+      shown=$(_kts_held "$d")
+      echo "  ${d##*/}: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: ${shown}"
     fi
   done
 }

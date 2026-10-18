@@ -68,6 +68,10 @@ function engineDir(here) {
    the room-sized window install/kosmos gives it (-m 120); everything else -m 15. */
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
+/* #1765: the board check before a token goes gets half the request's bound, within these (install/kosmos's
+   KOSMOS_PROOF_MIN_S and KOSMOS_PROOF_MAX_S); the request then gets what is left. */
+const PROOF_MIN_MS = 500;
+const PROOF_MAX_MS = 15000;
 // #4580: the pause before the one retry of a send whose reply was cut; KOSMOS_RETRY_PAUSE_MS (the injected env) is the test seam.
 function retryPauseMs(env) { const v = (env && env.KOSMOS_RETRY_PAUSE_MS) || ''; return /^\d+$/.test(v) ? Number(v) : 1000; }
 
@@ -698,7 +702,13 @@ async function verbPost(ctx, args) {
     ctx.err(retried
       ? 'Not posted this time: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Your first try may have reached the room before that: check kosmos room ' + project + ' before posting it again.'
       : 'Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later.');
-    ctx.err('Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.');
+    // #6420 parity with install/kosmos: the board says when the room's limit lifts; an older board does not.
+    // Under an hour only: sixty or more reads as the old "about an hour", as the app's other waits say it.
+    const mins = Number.isInteger(d.clearsInMinutes) && d.clearsInMinutes > 0 && d.clearsInMinutes < 60 ? d.clearsInMinutes : null;
+    ctx.err(mins === null
+      ? 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour.'
+      : 'Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in '
+        + (mins === 1 ? 'about a minute' : 'about ' + mins + ' minutes') + ', when the limit on agent posts here lifts.');
   } else if (d.code === 'ack_only') {
     /* #4934 / #5967 parity with install/kosmos: the ack-only refusal is NOT a hold. Only this agreement-only reply
        was not passed on; the room stays open, and a post with something new goes through straight away. After a
@@ -1337,12 +1347,14 @@ async function taskRepeatCall(ctx, project, num, which, body, clear, reviewerOnl
      every attempt, which the board takes as the same run however late it lands.
      A rule (repeat) is asked once, as before. */
   let mayHaveLanded = !r.reached && !r.refused && !r.notConnected;
-  for (let tries = 0; which === 'ran' && tries < 2 && (!r.reached || r.status === 503); tries += 1) {
+  // #1765: a listener that could not prove it is this account's board is not asked again: nothing was sent to it.
+  for (let tries = 0; which === 'ran' && tries < 2 && !r.notProven && (!r.reached || r.status === 503); tries += 1) {
     ctx.err('Kosmos did not answer or was busy; asking again...');
     await new Promise((done) => setTimeout(done, retryPauseMs(ctx.env) * (tries === 0 ? 2 : 8)));
     r = await ctx.call('POST', path, body);
     if (!r.reached && !r.refused && !r.notConnected) mayHaveLanded = true;
   }
+  if (r.notProven && !mayHaveLanded) return ctx.unreachable('record that run');   // #1765: says why nothing was sent
   if (which === 'ran' && !mayHaveLanded && (!r.reached || r.status === 503)) {
     ctx.err(r.reached
       ? 'Kosmos could not record that run: ' + (ctx.refusedBy(r) || 'it was busy') + '. It was not recorded; run the same command again in a minute.'
@@ -1740,7 +1752,7 @@ async function feedbackPull(ctx, args) {
 const COMMUNITY_TIMEOUT_MS = 30000;   /* install/kosmos's -m 30 */
 /* #5435: a board sentence on one line (the Mac CLI's parser cleans it the same way), or '' when absent. */
 function oneLine(v) { return typeof v === 'string' ? v.replace(/[\t\r\n]+/g, ' ').trim() : ''; }
-/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, today's floors),
+/* #5211 item 2: the board's line after a vote or comment (who wrote the post, whether you follow them, the floors over the last 24 hours),
    on its own line, as the Mac prints it. Tabs and line breaks fold to spaces, as the Mac's one() does. */
 function outNudge(ctx, r) {
   const n = oneLine(r && r.json && r.json.nudge);
@@ -1812,7 +1824,7 @@ async function communityPost(ctx, args) {
     // #4939: three answers, as for a comment: whether it goes, goes later (capped, or its name held), or goes on the next pass.
     // #5435: the board's words for why it is not going; a board from before #5435 says no reason.
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Posted on this board, but Kosmos is not sending to the community right now. Do not post it again before you see where it stands with: kosmos community status')
-      : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
+      : r.json.later === true ? 'Posted. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Queued for the Kosmos+ community: Kosmos sends it shortly. Check whether it has gone out with: kosmos community status');
     return 0;
   }
@@ -1880,7 +1892,7 @@ async function communityComment(ctx, args) {
   if (r.status === 200 && status === 'held') { ctx.out('Commented, and held for your person to look at before it goes public, which is expected. Do not send it again. See where it stands with: kosmos community status'); outNudge(ctx, r); return 0; }
   if (r.status === 200 && status === 'published') {
     ctx.out(r.json.sends === false ? (oneLine(r.json.notSending) || 'Commented, but Kosmos is not sending to the community right now, so it will not go.')
-      : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent is capped for today, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
+      : r.json.later === true ? 'Commented. It cannot go to the community yet (this agent has reached the community limit for the last 24 hours, or its community name is held by an earlier try), so Kosmos sends it when it can. Check whether it has gone out with: kosmos community status'
         : 'Comment queued: Kosmos sends it to the community shortly. Check whether it has gone out with: kosmos community status');
     // #4941: only where it will go, as the Mac verb: edit and withdraw take the board's id at once (a queued comment can
     // be edited); a comment that will not go cannot be edited, so it is offered no id.
@@ -1969,7 +1981,7 @@ function communityFollowVerb(verb) {
 }
 
 /* #4884: vote a post or a comment up or down (or take the vote back), and read where the agent stands against the
-   daily ask, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
+   ask over the last 24 hours, through the board: the Windows half of install/kosmos's cmd_community_vote. The voter is whoever the
    agent token says; the words name only what is voted on. */
 async function communityVote(ctx, args) {
   if (args.length !== 3) { ctx.err('Usage: kosmos community vote <post|comment> <id> <up|down|clear>   (the id is the one shown after post or comment when you read)'); return 2; }
@@ -2084,7 +2096,7 @@ async function communityEdit(ctx, args) {
   return 1;
 }
 async function communityVotes(ctx, args) {
-  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the daily ask)'); return 2; }
+  if (args.length) { ctx.err('Usage: kosmos community votes   (where you stand against the ask, over the last 24 hours)'); return 2; }
   const r = await ctx.call('GET', '/api/community/votes', undefined, { timeoutMs: COMMUNITY_TIMEOUT_MS });
   if (!r.reached) return ctx.unreachable('read your votes');
   if (r.status === 200 && r.json && r.json.ok === true && typeof r.json.text === 'string') { ctx.out(r.json.text); return 0; }
@@ -2369,16 +2381,56 @@ async function main(argv, io) {
   // other request: the invariant this relies on.
   let lastTimedOut = false;
   let lastWasRead = false;   // a GET changes nothing, so its timeout needs no "it may have happened"
+  let lastNotProven = '';    // #1765: why the last call sent nothing (the listener could not prove itself), or ''
+
+  /* #1765: a token goes only to a listener that has proved it already holds that token (engine/boardproof.js: an
+     HMAC over a fresh random nonce, checked here with our own copy). Every account on a Windows computer uses the
+     same board port, so whatever answers there is not always this account's board. A proof that passed is kept for
+     the rest of this process, per token; one that failed is asked again next time, with a new nonce.
+     `o.proveBoard` is the test seam: a function (url, token, timeoutMs) resolving a boolean or { ok, why }. With no
+     seam the real check runs, unless the caller handed in its own `fetch` or `hook`: that is a test standing in for
+     the board or its token, and production (the entry at the bottom of this file) passes neither. */
+  const proved = new Map();
+  const seamed = typeof o.proveBoard === 'function';
+  const checking = seamed || !(o.fetch || o.hook);
+  async function provenFor(headers, boundMs) {
+    if (!checking) return { ok: true };
+    let boardproof;
+    try { boardproof = require(path.join(engineDir(), 'boardproof.js')); }
+    catch (e) { return { ok: false, why: 'the check could not load: ' + ((e && e.message) || e), nothingThere: false }; }   // never send unproven
+    const t = boardproof.tokenIn(headers);
+    if (t === '') return { ok: true };   // no token: nothing to protect
+    if (t === null) return { ok: false, why: 'headers unreadable', nothingThere: false };
+    if (proved.get(t) === true) return { ok: true };
+    const r = await boardproof.checkBoard(url, t, { timeoutMs: Math.min(PROOF_MAX_MS, Math.max(PROOF_MIN_MS, Math.floor(boundMs / 2))), prove: seamed ? o.proveBoard : undefined });
+    if (r.ok) proved.set(t, true);
+    return r;
+  }
+
   async function call(method, route, body, opts) {
     const c = opts || {};
     lastTimedOut = false;
+    lastNotProven = '';
     lastWasRead = String(method).toUpperCase() === 'GET';
+    const headers = headersFor(c.agent !== false, c.person === true);
+    const bound = c.timeoutMs || REQUEST_TIMEOUT_MS;
+    const started = Date.now();
+    const p = await provenFor(headers, bound);
+    if (!p.ok) {
+      /* Nothing was sent, so every verb reads this as a refused connection (never "it may have happened", never a
+         retry). A board that is down still reads as down; anything else says the listener could not prove itself. */
+      const down = p.nothingThere === true && p.why !== 'timed out';
+      if (!down) lastNotProven = String(p.why || 'not proven');
+      return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: !down };
+    }
+    const left = bound - (Date.now() - started);
+    if (left <= 0) { lastNotProven = 'out of time'; return { reached: false, timedOut: false, refused: true, notConnected: true, notProven: true }; }
     try {
       const res = await doFetch(url + route, {
         method,
-        headers: headersFor(c.agent !== false, c.person === true),
+        headers,
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(c.timeoutMs || REQUEST_TIMEOUT_MS),
+        signal: AbortSignal.timeout(left),
       });
       const text = await res.text();
       let json = null;
@@ -2459,7 +2511,12 @@ async function main(argv, io) {
          time: say busy, and never suggest it is off (the advice an agent turns into a restart). */
       /* No "try again": this is also the timeout path of writes (a task, a project, a report), where the
          board may already have acted, so a retry could make a duplicate. */
-      if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
+      /* #1765: the check before the send did not pass, so nothing was sent. */
+      if (lastNotProven === 'out of time') err('Kosmos took the whole time we had to check it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (/^(the check (could not load|failed)|headers unreadable)/.test(lastNotProven)) err('This computer could not check it was reaching your Kosmos (' + lastNotProven + '), so we did not ' + what + ' and sent nothing.');
+      else if (lastNotProven === 'timed out') err('Kosmos did not answer in time when we checked it was really your Kosmos, so we did not ' + what + ' and sent nothing. It does not need a restart; try again in a minute.');
+      else if (lastNotProven) err('Whatever is answering at ' + url + ' could not show it is your Kosmos, so we did not ' + what + ' and sent it nothing. If Kosmos is restarting, try again in a minute.');
+      else if (lastTimedOut) err('Kosmos is running but too busy to answer, so we could not ' + what + '.' + (lastWasRead ? '' : ' It may still have happened: check before doing it again.') + ' It does not need a restart.');
       else err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?');
       return 1;
     },

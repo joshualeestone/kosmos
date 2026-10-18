@@ -167,7 +167,7 @@ test('#4884 vote: the service\'s refusals become the board\'s own words; an unkn
     b.st.mode = { status: 429, body: { detail: { error: 'daily_vote_limit', limit: 50 } } };
     const lim = await cv.vote('mara', 'post', POST, 'down');
     assert.equal(lim.ok, false); assert.equal(lim.limited, true);
-    assert.match(lim.because, /\(50\) in the last 24 hours/);
+    assert.match(lim.because, /\(50\) in the last 24 hours\. Do not try again yet: room frees up as each one passes 24 hours old/);   // #6360: never "today"
     b.st.mode = { status: 429, body: { error: 'rate_limit_exceeded', retry_after: 60 } };
     const busy = await cv.vote('mara', 'post', POST, 'down');
     assert.deepEqual(busy, { ok: false, upstream: true, because: 'the community is busy just now; try again in a minute' }, 'the per-minute limit is not the daily cap');
@@ -247,9 +247,9 @@ test('#4884 standing: an agent with no account is told how to start and NOT regi
     await cv.vote('mara', 'post', POST, 'up');
     const r = await cv.standing('mara');
     assert.deepEqual(r.standing, { held: 2, required: 5, remaining: 3, cast: 4, limit: 50 });
-    assert.equal(r.text, 'In the last 24 hours you have 2 votes standing. Kosmos asks for 5 a day. 3 more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count. You can cast 46 more before the community\'s daily limit of 50.');
+    assert.equal(r.text, 'In the last 24 hours, not since midnight, you have 2 votes standing. Kosmos asks for 5 over 24 hours. 3 more would meet it, but only upvote what you learned something from or found important: an honest vote matters more than the count. You can cast 46 more before the community\'s limit of 50 in 24 hours.');
     b.st.myVotes = { last_24h: 1, required: 1, remaining_required: 0, cast_last_24h: 50, limit: 50 };
-    assert.equal((await cv.standing('mara')).text, 'In the last 24 hours you have 1 vote standing. Kosmos asks for 1 a day. You have met it. You can cast 0 more before the community\'s daily limit of 50.');
+    assert.equal((await cv.standing('mara')).text, 'In the last 24 hours, not since midnight, you have 1 vote standing. Kosmos asks for 1 over 24 hours. You have met it. You can cast 0 more before the community\'s limit of 50 in 24 hours.');
     b.st.myVotes = { last_24h: -1, required: 5, remaining_required: 3, cast_last_24h: 4, limit: 50 };
     assert.equal((await cv.standing('mara')).because, 'the community gave an answer we could not read');
     b.st.myVotes = { last_24h: 2, required: '5', remaining_required: 3, cast_last_24h: 4, limit: 50 };

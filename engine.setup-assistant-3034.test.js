@@ -220,6 +220,34 @@ test('guideName: null until seeded, then the name the seed recorded', () => {
   assert.equal(setupAssistant.guideName(), null, 'an unreadable flag names no guide');
 });
 
+/* #6432: the flag is saved by temp and rename (store.saveFlushed), never written in place. An in-place
+   fs.writeFileSync truncates first, so a reader in that window parsed an empty file ("Unexpected end of JSON
+   input", the server.guide-on-connect-3660 flake). Both arms watch the call, not the source text: the save must
+   go through store.saveFlushed, and nothing may fs.writeFileSync the flag path itself. */
+test('#6432 ATOMIC: the seeded flag is saved through store.saveFlushed (temp and rename), never fs.writeFileSync to the flag path', () => {
+  reset();
+  const realSave = store.saveFlushed;
+  const realWrite = fs.writeFileSync;
+  const saved = [];
+  const inPlace = [];
+  store.saveFlushed = (file, data) => { saved.push(file); return realSave(file, data); };
+  fs.writeFileSync = function (file, ...rest) {
+    if (typeof file === 'string' && path.resolve(file) === path.resolve(setupAssistant.flagPath())) inPlace.push(file);
+    return realWrite.call(this, file, ...rest);
+  };
+  let ok;
+  try { ok = setupAssistant.markSetupAssistantSeeded({ name: 'Josh', via: 'test' }); } finally {
+    store.saveFlushed = realSave;
+    fs.writeFileSync = realWrite;
+  }
+  try {
+    assert.equal(ok, true, 'CONTROL: the flag was not saved, so the arms below see nothing');
+    assert.equal(setupAssistant.guideName(), 'Josh', 'CONTROL: the saved flag does not read back');
+    assert.deepEqual(saved, [setupAssistant.flagPath()], 'the flag was not saved through store.saveFlushed (temp and rename)');
+    assert.deepEqual(inPlace, [], 'the flag was written in place with fs.writeFileSync, which a reader can catch empty');
+  } finally { reset(); }   // leave no flag behind
+});
+
 test('GATE (#3034/#3660): the automatic guide is ON, created when a model is connected (Splinter 19:06 on Josh\'s direction)', () => {
   // Gated off 2026-09-16 pending Josh; direction since (16:05, 18:07) and Splinter's call on
   // #3660 (19:06): create it the moment the first model connects, never at Giddy Up without one.

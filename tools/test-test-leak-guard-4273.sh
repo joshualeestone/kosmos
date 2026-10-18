@@ -16,6 +16,8 @@ cleanup() {
   ps -Awwo pid=,command= 2>/dev/null | while read -r p rest; do
     case "$rest" in *"$work/"*) kill -KILL "$p" 2>/dev/null ;; esac
   done
+  # #6362: the permission cases lock fixtures (mode 000/300); unlock first, or an interrupt there leaves $work behind.
+  chmod -R u+rwx "$work" 2>/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -56,7 +58,7 @@ printf 'engine/killed-6061.test.js\tpid 4242\n' > "$root/kts-Ab12Cd/.kts-owner"
 out=$(leak_tmp_check "$root" "$work/allow"); rc=$?
 [ "$rc" -eq 1 ] && printf '%s\n' "$out" | grep -q 'temp: 2 x kts (not on the allowlist' && ok "a kts- leak fails the check like any family" || bad "kts leak: rc=$rc out=$out"
 printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/killed-6061.test.js (pid 4242); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: a kts- dir with an owner names the killed test file and pid" || bad "kts owner not named: $out"
-printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: a kts- dir without an owner says so rather than naming nothing" || bad "ownerless kts not reported: $out"
+printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: nothing' && ok "#6061: a kts- dir without an owner says so rather than naming nothing" || bad "ownerless kts not reported: $out"
 [ "$(printf '%s\n' "$out" | grep -c ': made by \|: no owner recorded')" -eq 2 ] && ok "#6061: one owner line per kts- dir, none for the other leaked family (brand-new)" || bad "owner lines wrong count: $out"
 # review 1: an owner line cut by a kill mid-write (no newline, or empty) still reports, even under set -e.
 printf 'engine/cut.test.js' > "$root/kts-Zz99Yy/.kts-owner"
@@ -64,7 +66,80 @@ rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
 [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: made by engine/cut.test.js (pid unknown); its exit sweep did not run (killed, still running, or the sweep failed)' && ok "#6061: an unterminated owner line with no tab is still named under set -e" || bad "unterminated owner under set -e: rc=$rc out=$out"
 : > "$root/kts-Zz99Yy/.kts-owner"
 rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
-[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded (made by a tmpscope older than #6061, or the write failed)' && ok "#6061: an empty owner file reads as no owner under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: owner file empty (most likely the test was killed while tmpscope wrote it)' && ok "#6061/#6362: an empty owner file reads as a cut owner line under set -e" || bad "empty owner under set -e: rc=$rc out=$out"
+# #6362: the sweep ran but a process the file started was still writing: tmpscope marks the owner line, and it is said.
+printf 'engine/spawns-6362.test.js\tpid 77\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/spawns-6362.test.js (pid 77); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed); it holds: nothing' && ok "#6362: a marked owner line says a process the file started was still writing" || bad "marked owner: rc=$rc out=$out"
+# #6362: a kill between tmpscope's aside write and its rename leaves only .kts-owner.new; it still names the file.
+rm -f "$root/kts-Ab12Cd/.kts-owner"; printf 'engine/aside-6362.test.js\tpid 88\tsurvived its sweep\n' > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: made by engine/aside-6362.test.js (pid 88); its exit sweep ran but the dir survived it (a process it started was still writing there, or something in it could not be removed); its owner rewrite did not finish; it holds: nothing' && ok "#6362: an unfinished owner rewrite still names the file" || bad "aside owner: rc=$rc out=$out"
+# The marked aside copy wins over an unmarked owner the sweep had not yet reached.
+printf 'engine/aside-6362.test.js\tpid 88\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/aside-6362.test.js (pid 88); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: a marked aside owner wins over an unmarked one" || bad "aside beside owner: rc=$rc out=$out"
+# An empty aside copy and no owner: the sweep ran, the rewrite was cut.
+rm -f "$root/kts-Ab12Cd/.kts-owner"; : > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but the owner rewrite was cut, so its owner is unknown; it holds: nothing' && ok "#6362: a cut aside copy says the sweep ran, not that the dir was remade" || bad "cut aside: rc=$rc out=$out"
+# Any aside copy proves the sweep ran: an unmarked one (cut mid-line) with no owner still names the file,
+printf 'engine/half-6362.test.js\tpid 5' > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/half-6362.test.js (pid 5); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an unmarked aside copy still says the sweep ran, and names the file" || bad "unmarked aside: rc=$rc out=$out"
+# a copy cut before its first tab still reads as survived, with the pid unknown,
+printf 'engine/cut-6362.test.js' > "$root/kts-Ab12Cd/.kts-owner.new"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/cut-6362.test.js (pid unknown); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an aside copy cut before its tab reads as survived, pid unknown" || bad "tabless aside: rc=$rc out=$out"
+# an unreadable copy with no owner says it cannot be read (non-root only),
+if [ "$(id -u)" != 0 ]; then
+  chmod 000 "$root/kts-Ab12Cd/.kts-owner.new"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362b" ) || rc=1
+  chmod 644 "$root/kts-Ab12Cd/.kts-owner.new"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362b" ] && printf '%s\n' "$out" | grep -qxF '  kts-Ab12Cd: its exit sweep ran and the dir survived it, but its owner copy cannot be read here; it holds: nothing' && ok "#6362: an unreadable aside copy says it cannot be read" || bad "unreadable aside: rc=$rc out=$out"
+fi
+# an unreadable copy beside a readable owner still says the sweep ran (non-root only),
+if [ "$(id -u)" != 0 ]; then
+  printf 'engine/beside-6362.test.js\tpid 4\n' > "$root/kts-Ab12Cd/.kts-owner"; chmod 000 "$root/kts-Ab12Cd/.kts-owner.new"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362c" ) || rc=1
+  chmod 644 "$root/kts-Ab12Cd/.kts-owner.new"; rm -f "$root/kts-Ab12Cd/.kts-owner"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362c" ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/beside-6362.test.js (pid 4); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an unreadable aside copy beside an owner still says the sweep ran" || bad "unreadable aside with owner: rc=$rc out=$out"
+fi
+# and an empty aside copy beside a good owner takes the name from the owner, not "did not run".
+: > "$root/kts-Ab12Cd/.kts-owner.new"; printf 'engine/kept-6362.test.js\tpid 6\n' > "$root/kts-Ab12Cd/.kts-owner"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q '  kts-Ab12Cd: made by engine/kept-6362.test.js (pid 6); its exit sweep ran but the dir survived it .*; its owner rewrite did not finish; it holds: nothing$' && ok "#6362: an empty aside copy beside an owner says the sweep ran" || bad "empty aside with owner: rc=$rc out=$out"
+rm -f "$root/kts-Ab12Cd/.kts-owner.new"
+printf 'x\tpid 1\n' > "$root/kts-Ab12Cd/.kts-owner"
+# #6362: a dir with no owner lists what it holds (the names a left-running process wrote), never .kts-owner itself.
+rm -f "$root/kts-Zz99Yy/.kts-owner"
+mkdir "$root/kts-Zz99Yy/boardkeychain-4491-Ab" "$root/kts-Zz99Yy/kosmos-sendwhy-5435-Cd"
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: no owner recorded: made again after its test ended, by a process that test started and left running, or by a tmpscope older than #6061 (or its write failed); it holds: boardkeychain-4491-Ab kosmos-sendwhy-5435-Cd' && ok "#6362: an owner-less dir names what it holds, under set -e and pipefail" || bad "owner-less contents: rc=$rc out=$out"
+for i in 1 2 3 4 5 6 7; do : > "$root/kts-Zz99Yy/f$i"; done
+rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+[ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'it holds: boardkeychain-4491-Ab f1 f2 f3 f4 (and 4 more)$' && ok "#6362: a long listing shows five and counts the rest" || bad "long listing: rc=$rc out=$out"
+# #6362: what the guard cannot see, it says it cannot see, rather than guessing a cause.
+if [ "$(id -u)" != 0 ]; then
+  # A dir it can search but not read (mode 300): no owner, and no listing, under any caller's options.
+  rm -f "$root/kts-Zz99Yy/.kts-owner"; chmod 300 "$root/kts-Zz99Yy"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+  rc2=0; out2=$( (set -e; leak_kts_owners "$root") ) || rc2=1
+  chmod 755 "$root/kts-Zz99Yy"
+  [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -q 'kts-Zz99Yy: no owner recorded: .*; it holds: (could not list)$' && ok "#6362: an unlistable owner-less dir says it could not be listed" || bad "unlistable dir: rc=$rc out=$out"
+  # The guard is a library: a caller WITHOUT pipefail (run-tests.sh has it) must get the same answer.
+  [ "$rc2" -eq 0 ] && printf '%s\n' "$out2" | grep -q 'kts-Zz99Yy: no owner recorded: .*; it holds: (could not list)$' && ok "#6362: the same without pipefail (find's own status is read)" || bad "unlistable dir without pipefail: rc=$rc2 out=$out2"
+  # A dir it cannot search (mode 000) hides its owner: it is not called owner-less, whatever is inside.
+  printf 'engine/hidden-6362.test.js\tpid 9\n' > "$root/kts-Zz99Yy/.kts-owner"; chmod 000 "$root/kts-Zz99Yy"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") ) || rc=1
+  chmod 755 "$root/kts-Zz99Yy"
+  [ "$rc" -eq 0 ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: cannot be read here, so its owner is unknown' && ok "#6362: an unsearchable dir says its owner is unknown, not that it has none" || bad "unsearchable dir: rc=$rc out=$out"
+  # An owner file it cannot read is not called empty.
+  chmod 000 "$root/kts-Zz99Yy/.kts-owner"
+  rc=0; out=$( (set -e; set -o pipefail; leak_kts_owners "$root") 2>"$work/err-6362" ) || rc=1
+  chmod 644 "$root/kts-Zz99Yy/.kts-owner"
+  [ "$rc" -eq 0 ] && [ ! -s "$work/err-6362" ] && printf '%s\n' "$out" | grep -qxF '  kts-Zz99Yy: its owner file cannot be read here' && ok "#6362: an unreadable owner file is said so, not called empty" || bad "unreadable owner: rc=$rc out=$out"
+fi
 rm -rf "$root/kts-Ab12Cd" "$root/kts-Zz99Yy"
 rm -rf "$root/brand-new-Qw12Er"
 leak_tmp_check "$root" "$work/allow" > /dev/null; rc=$?  # pipe-status-ok

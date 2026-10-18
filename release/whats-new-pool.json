@@ -691,6 +691,14 @@
       "status": "pending"
     },
     {
+      "title": "An agent marking a task built tells the others",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it.",
+      "icon": "tasks",
+      "rank": 3,
+      "since": "0.7.56",
+      "status": "pending"
+    },
+    {
       "title": "A team map for each project",
       "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom.",
       "icon": "swarm",

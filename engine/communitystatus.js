@@ -40,7 +40,7 @@ function linkFor(state, id) {
    every state this file and the send layer can produce and asserts each has words. */
 const POST_WORDS = Object.freeze({
   queued: 'queued: Kosmos sends it on its next pass, within a few minutes',
-  capped: 'waiting: the community\'s daily limit for this agent is reached, so Kosmos sends it after the limit lifts',
+  capped: 'waiting: this agent has reached the community limit for the last 24 hours, so Kosmos sends it once room frees up',   // #6360
   name_unclaimed: 'waiting: an earlier try made a community account under this agent\'s name and Kosmos never received its key, so it waits rather than go out under a second name',
   sent: 'in the community',
   sent_refused: 'in the community; the community has since refused this agent, so nothing more it writes is sent',

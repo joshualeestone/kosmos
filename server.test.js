@@ -4258,9 +4258,32 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       assert.match(api.lrow(leo), new RegExp(piece), 'the list row lost its ' + piece + ' column');
     }
 
-    // The answer route: gated on the tie, labelled with its visible word.
+    // The answer route: gated on the tie. #6400 (Josh 2026-10-17): the pill says only "Issue", so the route is the
+    // card itself (data-answer on its root), reached by a click or by Enter on its name button.
     const ask = api.card(mara);
-    assert.match(ask, /ansgo/, 'the needs_you card lost its answer route');
+    assert.match(ask, /^<div class="acard[^>]* data-answer="mara"/, 'the needs_you card lost its answer route');
+    assert.doesNotMatch(ask, /Answer &rarr;|class="ansgo"/, 'the pill carries an Answer link again (#6400)');
+    assert.match(ask, /<button class="namego" type="button" aria-label="Answer mara’s question">/,
+      'the keyboard path to the answer route does not say it answers (#6400; it used to be the Answer button\'s name)');
+    assert.match(api.card({ ...mara, isNamedOurs: false }), /aria-label="Open mara"/, 'CONTROL: a card with no answer route opens');
+
+    // #6398: a rate-limited card and list row say only the pill; the sentence is the pill's hover and screen-reader
+    // text (and the agent's page), never drawn on the board. Stuck past the threshold: the long sentence.
+    const limited = { ...mara, state: 'rate_limited', stateConfidence: 'structured', stateReported: true,
+      stuckError: { stuck: true, state: 'rate_limited', forMs: 45 * 60000 } };
+    const drawn = (html) => html.replace(/ title="[^"]*"/g, '').replace(/<span class="vh">[^<]*<\/span>/g, '');
+    for (const [where, html] of [['card', api.card(limited)], ['row', api.lrow(limited)]]) {
+      assert.match(html, /title="Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': the sentence is not the pill\'s hover text');
+      assert.match(html, /<span class="vh">\. Kosmos has seen this agent paused by a rate limit for about 45 minutes\./, where + ': a screen reader no longer hears the sentence');
+      assert.doesNotMatch(drawn(html), /paused by a rate limit|Usage limit/, where + ': the rate-limit sentence is drawn on the board again');
+    }
+    assert.match(api.card(limited), /<b>Rate Limit<\/b>/, 'the pill does not read Rate Limit');
+    assert.match(api.card({ ...limited, stuckError: null }), /<div class="atask"><\/div>/, 'a plain rate-limited card carries a sentence');
+    // CONTROL: a crash loop outranks the pill (Keeps stopping) and keeps its own sentence; no rate-limit hover on it.
+    const looping = api.card({ ...limited, crashLoop: { looping: true, count: 4 } });
+    assert.match(looping, /<b>Keeps stopping<\/b>/);
+    assert.match(looping, /restarted it 4 times/, 'a crash-looping rate-limited card lost its crash-loop sentence');
+    assert.doesNotMatch(looping, /<div class="astate[^"]*" title=/, 'a Keeps stopping pill carries the rate-limit hover');
     /* 🛑 WHERE THE ROUTE GOES, not just that it exists. Nothing tested the
        DESTINATION, which is how it went stale: the button was written when a
        project room was the only place a question could be answered, #119 put
@@ -4279,13 +4302,12 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
       'the answer button routes into a project room again, which is the screen it was moved off');
     assert.doesNotMatch(answerFrom, /showTab\('projects'\)/,
       'the answer button still switches to the Projects tab');
-    assert.match(ask, /aria-label="Answer /, 'the answer button accessible name lost its visible word');
     // The untied-needs_you shape cannot come through real routes (the
     // pipeline forces untied panes to unknown; that refusal is its own
     // tested fact elsewhere) -- so the gate's negative is driven by
     // perturbing the one field the gate reads, on an otherwise-real card.
-    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /ansgo/,
-      'a borrowed-name card offers a button into a thread that will refuse it');
+    assert.doesNotMatch(api.card({ ...mara, isNamedOurs: false }), /data-answer=/,
+      'a borrowed-name card offers a route into a thread that will refuse it');
 
     // Hostile names render inert in both views. The controls aim at the two
     // real failure modes: a live tag in text position, and a quote breaking
@@ -5079,12 +5101,6 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
     // an ink fill would pass every behavioural check.
     [/\.vt\.on \{ background: var\(--gold-bright\); color: #14161a; \}/,
      'the selected view-toggle state lost its gold (an ink fill inverts meaning in dark)'],
-    // The Answer control is the ONE card control whose function nothing
-    // else on the card duplicates (the card body opens detail, not the
-    // thread), so the undersized-target exceptions do not apply to it and
-    // it carries the retired .card-answer's SC 2.5.8 floor itself.
-    [/\.ansgo \{[^}]*min-height: 24px/,
-     'the Answer control lost its 24px minimum target (SC 2.5.8), shrinking back to a text-height target'],
     // The removed list's reassurance line is the sentence that makes the
     // light Remove confirmation honest; it rides inside paintRemoved's
     // generated html where no render drive currently reads it.
@@ -11651,6 +11667,16 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
     assert.equal(a.status, 403, 'devices/allow let a process through: ' + a.body);
     assert.match(JSON.parse(a.body).error, /Only a person at the Kosmos screen can allow a device/);
   }
+  /* #6353: Try again is screen-only too (a new attempt is a try; the press means a person is back). */
+  for (const [headers, extra] of [[notPage, {}], [agentPage, {}], [pageHeader, { token: 'f'.repeat(64) }]]) {
+    const t = await req('/api/remote/join/retry', { method: 'POST', headers, body: JSON.stringify({ ...extra }) });
+    assert.equal(t.status, 403, 'join/retry let a process through: ' + t.body);
+    assert.match(JSON.parse(t.body).error, /Only a person at the Kosmos screen can ask for a new code/);
+  }
+  /* Control: from the page it reaches joinRetry's own gate (this board is not enrolled), so the 403 is the guard. */
+  const viaPage = await req('/api/remote/join/retry', { method: 'POST', headers: pageHeader, body: '{}' });
+  assert.equal(viaPage.status, 400, viaPage.body);
+  assert.match(JSON.parse(viaPage.body).error, /finish the Plus sign-up first/);
   /* Control: deny and remove stay open to a process, so the 403 above is the allow guard and not the whole route.
      The 400 is the bad-id refusal (the id is deliberately invalid), not a success. */
   for (const verb of ['deny', 'remove']) {
