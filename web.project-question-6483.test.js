@@ -93,6 +93,13 @@ test('#6483 CONTROL: with two agents the heading counts them, so each row keeps 
   assert.equal((html.match(/class="pnwho"/g) || []).length, 2);
 });
 
+test('#6483 review 3: a notice whose only entry is an uncounted red row names that agent once too', () => {
+  const sam = { ...member('sam', 'Sam', null), state: 'needs_you', stateProject: 'other' };
+  const html = pjNeedsNotice([sam], (r) => r.sessionName === 'sam');
+  assert.match(html, /<b>Sam needs you\.<\/b>/, 'CONTROL: the heading names it');
+  assert.equal(html.includes('class="pnwho"'), false, 'the row still carries the name the heading says');
+});
+
 test('#6483: a named heading plus an "also" row: only the named member loses its name line', () => {
   const sam = { ...member('sam', 'Sam', null), state: 'needs_you', stateProject: 'other' };
   const html = pjNeedsNotice([member('cleo', 'Cleo', 'question'), sam], (r) => r.sessionName === 'sam');
