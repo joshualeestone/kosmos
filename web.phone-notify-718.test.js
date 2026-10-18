@@ -124,7 +124,7 @@ test('#6488: the Settings words follow whether the off was the person\'s choice'
     [{ connected: true, on: false, offByChoice: false }, /^Not on yet\. It turns on by itself, or press Turn on now\.$/],
     [{ connected: true, on: false, offByChoice: true }, /^Off\. Press Turn on to turn it on\.$/],
     [{ connected: true, on: true }, /^On for this computer\.$/],
-    [{ connected: true, on: false, defaultBecause: 'Kosmos+ is switched off on this computer.' }, /^Not on yet\. Kosmos\+ is switched off on this computer\.$/],
+    [{ connected: true, on: false, defaultBecause: 'Kosmos+ could not be reached just now. Try again in a minute.' }, /^Not on yet\. Kosmos\+ could not be reached just now\. Try again in a minute\.$/],
   ]) {
     const h = load({ state });
     h.domHandlers.DOMContentLoaded(); await flush();

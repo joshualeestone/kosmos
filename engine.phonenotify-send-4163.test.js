@@ -51,7 +51,11 @@ function runChild(coordinator, event) {
     EVENT: JSON.stringify(event),
     PN: path.join(__dirname, 'engine', 'phonenotify.js') };
   delete env.NODE_TEST_CONTEXT;
-  const script = "const pn = require(process.env.PN); pn.setAvailableForTests(true); pn.happened(JSON.parse(process.env.EVENT));";
+  // #6488: sending also needs Kosmos+ switched on here (remote.json on:true), written where this child's remote.js
+  // reads it, before happened() runs.
+  const script = "const fs = require('fs'); const p = require('path'); const r = require(p.join(p.dirname(process.env.PN), 'remote'));"
+    + " fs.mkdirSync(p.dirname(r.FILE), { recursive: true }); fs.writeFileSync(r.FILE, JSON.stringify({ on: true }));"
+    + " const pn = require(process.env.PN); pn.setAvailableForTests(true); pn.happened(JSON.parse(process.env.EVENT));";
   return new Promise((resolve) => {
     const started = Date.now();
     let stderr = '';
