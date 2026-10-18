@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: iossign-6262
-diff_hash: a46fd57410ac47a015630791102bfb9ef9cff9143374dddc6b7e0defdeddac12
+diff_hash: e139c81935360a1c4548a3e721362c78eb56a8f461deca615c9cda71391455c9
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T08:58:00Z
@@ -15,6 +15,7 @@ converged: true
 **Iterations:** 6
 **Converged:** Yes, at iteration 6 (two NITs, left so the reviewed code is the shipped code)
 The plan file was added after convergence (the PR gate requires one); docs only, the code and review verdict are unchanged, and the validation was re-run for the new hash.
+Rebased onto main afterwards (a conflict with the screenshots work in .github/workflows/ios.yml): one commit, the scripts byte-identical to the reviewed head 444f3d402, ios.yml keeps both notes; proof rehashed and validation re-run.
 **Total findings:** 0 BLOCKERs, 10 WARNINGs across iterations 1 to 5, all fixed
 **Fixed:** all WARNINGs and most NITs | **Deferred:** 0 | **Asked (awaiting user):** 0
 
