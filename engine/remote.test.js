@@ -2638,7 +2638,8 @@ test('#6389: a retire Kosmos+ refused outright is final: Remove wipes the key, n
   await remote.signinStart('her@example.com');
   await remote.signinVerify('her@example.com', '111111');
   assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
-  process.env.FAKE_TUNNEL_MODE = 'retire-refused';
+  // A 401 on the retire route for a reason other than "already retired" (#6390's control): definite, and not gone yet.
+  process.env.FAKE_TUNNEL_MODE = 'retire-401-other';
   try {
     const got = await remote.forget();
     assert.equal(got.ok, true);
@@ -3360,7 +3361,9 @@ test('#6390: a Forget whose retire is refused because the computer was already r
     try {
       const got = await remote.forget();
       assert.equal(got.retired, false, mode + ' read as retired');
-      assert.match(got.because, /could not be updated/, mode + ': ' + got.because);
+      // kosmos#6389: a 429 is "not now": the key is kept and the person is told it is not removed yet. The rest are final.
+      if (mode === 'retire-429') { assert.equal(got.kept, true, mode + ': kept for a retry'); assert.match(got.because, /not removed yet/, mode + ': ' + got.because); }
+      else assert.match(got.because, /could not be updated/, mode + ': ' + got.because);
     } finally { delete process.env.FAKE_TUNNEL_MODE; }
   }
 });
