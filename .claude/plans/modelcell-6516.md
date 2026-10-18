@@ -1,0 +1,26 @@
+# modelcell-6516: the Agents list does not repeat "Made before Kosmos recorded this" on every row
+
+Card: kosmos#6516 (Mona Lisa's review of #6511). On the Agents LIST the model cell showed #150's ruled sentence, cut
+off, on every row whose launch was never recorded (every row on a board set up before Kosmos).
+
+## Check first (the card's asks)
+- #150's ruling (closed by #454) set the WORDING, "Made before Kosmos recorded this", "wherever there was never anywhere
+  to look", paired with "Unknown Model" for the fault. It does not say every surface must show it. The words stay
+  unchanged, and the card and the agent page still show them.
+- Tests that lift modelLine: web.made-before.test.js (and the card in docs/browser-checks/render-made-before.js).
+
+## Change
+- `web/index.html`: `lmodelCell(a)` draws the list's model cell. When modelLine's answer is its never-recorded
+  sentence (recognised as `modelLine({ neverRecorded: true })`, so the sentence is written once), the cell holds it
+  in a `.vh` span: read to a screen reader, not shown. Any other answer, "Unknown Model" included, is shown as before.
+
+## Decisions
+- Hidden, not a dash: a dash says "unknown", which is the fault's meaning (#150's pair); empty plus a screen-reader
+  sentence loses nothing. Rejected: a title tooltip (a hover-only fact on a list row).
+- Weakest premise: an empty model cell is clear enough on a list where the card and agent page say why.
+
+## Checks
+- web.made-before.test.js: the cell is the .vh sentence for never-recorded; "Unknown Model" and a real model are shown
+  (CONTROLS); a model name is escaped; the list row calls lmodelCell. Mutation: reverting either fails its test.
+- render-made-before.js: in list view, Rick's cell shows nothing and keeps the sentence as text; Bob's shows his model
+  (CONTROL); the card still wears the sentence (existing check).

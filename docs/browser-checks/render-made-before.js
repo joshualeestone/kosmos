@@ -94,6 +94,22 @@ function chk(ok, label, extra) {
     });
     chk(!fit.over, 'the longer sentence fits the card without overflowing', JSON.stringify(fit));
 
+    // #6516: the Agents LIST does not repeat the sentence in Rick's model cell (it keeps it for a screen reader); Bob's
+    // cell still shows his model (CONTROL). The card above still wears it.
+    await page.click('[data-scope="agents"] .vt[data-layout="list"]');
+    await page.waitForSelector('.lrow[data-agent="rick"]', { timeout: 8000 });
+    const lists = await page.evaluate(() => {
+      const cell = (who) => document.querySelector('.lrow[data-agent="' + who + '"] .lmodel');
+      const r = cell('rick'); const b = cell('bob');
+      return { rickShown: r ? r.innerText.trim() : null, rickText: r ? r.textContent.trim() : null,
+        bobShown: b ? b.innerText.trim() : null };
+    });
+    chk(lists.rickShown === '', '#6516 the list cell shows nothing for a never-recorded agent', JSON.stringify(lists));
+    chk(lists.rickText === 'Made before Kosmos recorded this', '#6516 and keeps the ruled sentence for a screen reader', JSON.stringify(lists));
+    chk(!!lists.bobShown && lists.bobShown !== 'Made before Kosmos recorded this', '#6516 CONTROL: a recorded agent\'s list cell still shows its model', JSON.stringify(lists));
+    await page.click('[data-scope="agents"] .vt[data-layout="grid"]');
+    await page.waitForSelector('[data-agent="rick"] .amodel', { timeout: 8000 });
+
     // Rick's panel: explainer visible with the way in, picker refused pre-click.
     await page.click('[data-agent="rick"]');
     await page.waitForSelector('#panel-detail:not([hidden])');

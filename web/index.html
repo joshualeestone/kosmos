@@ -21578,6 +21578,14 @@ function asSentence(s) {
   if (!t) return '';
   return t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
 }
+/* #6516 (Mona Lisa's review of #6511): on the Agents LIST, #150's ruled sentence "Made before Kosmos recorded this" was
+   cut off and repeated on every row of a board set up before Kosmos. The list cell keeps it for a screen reader only; the
+   card and the agent page still show it, so #150's words are unchanged. Recognised by modelLine's own answer for a
+   never-recorded agent, so the sentence is written once, in modelLine. */
+function lmodelCell(a) {
+  const line = modelLine(a);
+  return line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line);
+}
 function modelLine(a) {
   /* Provider-first ("Claude Opus 5"), guarded so a modelName that already
      carries the provider does not become "Claude Claude...". The "Claude"
@@ -22735,7 +22743,7 @@ function lrow(a) {
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
-    <div class="lmodel">${esc(modelLine(a))}</div>
+    <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
 }
