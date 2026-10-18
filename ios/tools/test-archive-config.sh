@@ -2,9 +2,10 @@
 # Shows archive.sh's signing-settings checks can refuse as well as pass (kosmos #4089), on scratch copies of
 # ios/Signing.xcconfig: run with --check-config, so nothing is archived or uploaded.
 set -u
+unset KOSMOS_IOS_PROFILE   # #6262: an inherited value would run every default case in hand-signing mode
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+trap 'rm -rf "$work" "$here/../build/archive-999999"' EXIT   # the wiring cases below build into archive-999999
 stone="864QZ""69GF2"   # in pieces, as in archive.sh, so the cut-sign sweep does not count this file
 kosmos="6563JLN""5HF"   # Kosmos Agent Manager, Inc. (#6262), in pieces for the same reason as $stone
 fail=0
@@ -51,9 +52,54 @@ if [ "$lit" -eq 0 ] && [ "$ref" -ge 2 ]; then echo "PASS  project.pbxproj takes 
 
 # The real file passes as it stands (an inherited override must not redirect it).
 unset KOSMOS_IOS_XCCONFIG
+# #6262: a hand-signing profile name PlistBuddy would mangle is refused by --check-config; a plain one with spaces passes.
+printf 'DEVELOPMENT_TEAM = %s\nKOSMOS_BUNDLE_ID = %s\n' "$kosmos" io.kosmos.app > "$work/prof.xcconfig"
+for name in "Josh's App Store" 'a "quoted" one' ' leading' 'back\slash' 'cost $5' 'Store $HOME' '' "$(printf 'Good\nbad')" "$(printf 'tab\there')"; do
+  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config 2>&1 | grep -q 'KOSMOS_IOS_PROFILE is'; then echo "PASS  the profile name '$name' is refused"; else echo "FAIL  the profile name '$name' was not refused"; fail=1; fi
+done
+for name in 'Kosmos App Store' 'Kosmos, Inc. App Store + Push' 'Store/Dist & Co #2'; do
+  if KOSMOS_IOS_PROFILE="$name" KOSMOS_IOS_XCCONFIG="$work/prof.xcconfig" "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the profile name '$name' passes"; else echo "FAIL  the profile name '$name' was refused"; fail=1; fi
+done
+# #6262: what hand signing does to the export options and the archive's settings, via export-options.sh (the
+# helper archive.sh runs), and that without a profile nothing changes.
+pb=/usr/libexec/PlistBuddy
+settings=$("$here/export-options.sh" "$kosmos" io.kosmos.app "$work/auto.plist")
+if [ -z "$settings" ] && [ "$($pb -c 'Print :signingStyle' "$work/auto.plist")" = automatic ] && ! $pb -c 'Print :provisioningProfiles' "$work/auto.plist" >/dev/null 2>&1 \
+  && [ "$($pb -c 'Print :teamID' "$work/auto.plist")" = "$kosmos" ]; then echo "PASS  without a profile: automatic signing, the team, no profiles, no build settings"
+else echo "FAIL  without a profile the export options or build settings changed: [$settings]"; fail=1; fi
+for name in 'Kosmos App Store' 'Kosmos App Store ' 'Kosmos, Inc. App Store + Push'; do
+  settings=$("$here/export-options.sh" "$kosmos" io.kosmos.app "$work/man.plist" "$name"); rc=$?
+  want=$(printf '%s\n' CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Apple Distribution" "PROVISIONING_PROFILE_SPECIFIER=$name")
+  if [ "$rc" -eq 0 ] && [ "$settings" = "$want" ] && [ "$($pb -c 'Print :signingStyle' "$work/man.plist")" = manual ] \
+    && [ "$($pb -c 'Print :signingCertificate' "$work/man.plist")" = 'Apple Distribution' ] \
+    && [ "$($pb -c 'Print :provisioningProfiles:io.kosmos.app' "$work/man.plist")" = "$name" ]; then echo "PASS  the profile '$name' signs the export and the archive by hand"
+  else echo "FAIL  the profile '$name' did not set hand signing: rc=$rc [$settings]"; fail=1; fi
+done
+if "$here/export-options.sh" "$kosmos" io.kosmos.app "$work/bad.plist" "Josh's" >/dev/null 2>&1; then echo "FAIL  a name PlistBuddy drops was not refused by the read-back"; fail=1
+else echo "PASS  a name PlistBuddy drops is refused by the read-back"; fi
 if "$here/archive.sh" --check-config >/dev/null 2>&1; then echo "PASS  the project's own Signing.xcconfig"; else echo "FAIL  the project's own Signing.xcconfig is refused"; fail=1; fi
 # The override is refused on a real (non --check-config) run, before anything is built.
 out=$(KOSMOS_IOS_XCCONFIG="$work/real-under-kosmos.xcconfig" "$here/archive.sh" --build 1 2>&1); rc=$?
 if [ "$rc" -ne 0 ] && printf '%s' "$out" | grep -q 'for --check-config only'; then echo "PASS  the override is refused on a real archive (rc=$rc)"; else echo "FAIL  the override was not refused on a real archive (rc=$rc): $out"; fail=1; fi
+# #6262: archive.sh's own wiring, with a stand-in xcodebuild that records its arguments and builds nothing (so the run
+# stops after the export call, with no .ipa). Build 999999 under ios/build, removed by the trap.
+mkdir -p "$work/bin"
+printf '#!/bin/bash\n{ printf "%%s\\n" "$@"; echo ---; } >> "%s/xcodebuild.args"\n' "$work" > "$work/bin/xcodebuild"; chmod +x "$work/bin/xcodebuild"
+wired() {   # $1: profile or empty; prints the recorded arguments
+  rm -f "$work/xcodebuild.args"
+  ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" KOSMOS_IOS_PROFILE="$1" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1
+  cat "$work/xcodebuild.args" 2>/dev/null
+}
+args=$(unset KOSMOS_IOS_PROFILE; rm -f "$work/xcodebuild.args"; ( unset ASC_KEY_PATH ASC_KEY_ID ASC_ISSUER_ID; PATH="$work/bin:$PATH" "$here/archive.sh" --build 999999 ) >/dev/null 2>&1; cat "$work/xcodebuild.args" 2>/dev/null)
+plist=$(printf '%s\n' "$args" | grep -A1 -x -- -exportOptionsPlist | tail -1)
+if printf '%s\n' "$args" | grep -qx archive && ! printf '%s\n' "$args" | grep -q '^CODE_SIGN_STYLE=\|^PROVISIONING_PROFILE_SPECIFIER=' \
+  && [ "$(/usr/libexec/PlistBuddy -c 'Print :signingStyle' "$plist" 2>/dev/null)" = automatic ] && ! /usr/libexec/PlistBuddy -c 'Print :provisioningProfiles' "$plist" >/dev/null 2>&1; then echo "PASS  archive.sh without a profile archives and exports with no hand-signing settings"
+else echo "FAIL  archive.sh without a profile: $args"; fail=1; fi
+args=$(wired 'Kosmos App Store')
+plist=$(printf '%s\n' "$args" | grep -A1 -x -- -exportOptionsPlist | tail -1)
+if printf '%s\n' "$args" | grep -qx 'CODE_SIGN_STYLE=Manual' && printf '%s\n' "$args" | grep -qx 'CODE_SIGN_IDENTITY=Apple Distribution' \
+  && printf '%s\n' "$args" | grep -qx 'PROVISIONING_PROFILE_SPECIFIER=Kosmos App Store' && printf '%s\n' "$args" | grep -qx "DEVELOPMENT_TEAM=$kosmos" \
+  && [ "$(/usr/libexec/PlistBuddy -c 'Print :provisioningProfiles:io.kosmos.app' "$plist" 2>/dev/null)" = 'Kosmos App Store' ]; then echo "PASS  archive.sh with a profile hands xcodebuild the hand-signing settings and the export options"
+else echo "FAIL  archive.sh with a profile: $args"; fail=1; fi
 [ "$fail" -eq 0 ] && echo "VERDICT: PASS" || echo "VERDICT: FAIL"
 exit "$fail"

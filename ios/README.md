@@ -131,11 +131,17 @@ simulator running iOS 26.5 (the app targets iOS 16), loads the live Kosmos+ sign
     local or staging coordinator must list that id in `KOSMOS_APNS_BUNDLE_IDS` and hold an APNs key
     from the same team to test push on a device.
 - `tools/archive.sh --build <N>` archives the Release app, exports it for App Store Connect with
-  `tools/ExportOptions.plist` (the Team ID is added from `Signing.xcconfig`), and runs
+  a copy of `tools/ExportOptions.plist` that `tools/export-options.sh` writes, adding the Team ID from `Signing.xcconfig`, and runs
   `tools/check-ipa-entitlements.sh` on the exported `.ipa`: `aps-environment` must be
   `production`, `get-task-allow` must not be `true`, and the app must be signed by the team in
   `Signing.xcconfig` (app identifier `<team>.<KOSMOS_BUNDLE_ID>`, team identifier `<team>`). `--upload` then sends that same checked `.ipa` to App Store Connect
   (it needs an App Store Connect API key: `ASC_KEY_PATH`, `ASC_KEY_ID`, `ASC_ISSUER_ID`).
+- `KOSMOS_IOS_PROFILE=<profile name>` signs by hand: the archive and the export use an Apple Distribution
+  certificate and that App Store profile (for `<team>.<KOSMOS_BUNDLE_ID>`, with Push). Use it when the team has no
+  registered device: automatic signing archives with a development profile first and stops with "Your team has no
+  devices". The certificate and its private key must be in this Mac's login keychain, usable by `codesign`, and the
+  profile installed. The name may not hold an apostrophe, a double quote, a backslash, a dollar sign or a control character, start
+  with a space or be empty (`--check-config` refuses each; unset the variable to sign automatically). The first TestFlight build (#6262) was uploaded this way.
 - `--build` is required: App Store Connect refuses a build number it has already seen.
 - `archive.sh` refuses a malformed bundle id, or an empty or malformed Team ID, before it archives anything,
   and refuses `io.kosmos.app` under any team but Kosmos Agent Manager, Inc.'s (the bundle id is
