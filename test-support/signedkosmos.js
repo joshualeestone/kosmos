@@ -18,6 +18,22 @@ const SIGNED_KOSMOS = Object.freeze({
 });
 
 /**
+ * Run a script in Windows PowerShell 5.1 the way engine/win32update.js authenticodeOf does: by its full
+ * path, with no inherited PSModulePath (a PowerShell 7 or CI module path leaves 5.1 without its own
+ * modules, and so without the Cert: drive), and Microsoft.PowerShell.Security imported by its full path.
+ * Returns stdout; throws as execFileSync does.
+ */
+function windowsPowerShell(script, extraEnv, timeoutMs) {
+  const cp = require('node:child_process');
+  const ps = require('node:path').win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  const env = { ...process.env, ...(extraEnv || {}) };
+  for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
+  const prelude = "$ErrorActionPreference = 'Stop'; Import-Module -Name (Join-Path $PSHOME 'Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1')";
+  return cp.execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command', prelude + '\n' + script],
+    { encoding: 'utf8', windowsHide: true, timeout: timeoutMs || 60000, env, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+/**
  * Why a test that needs Windows to call the signed Kosmos.exe Valid cannot run here, or false when it can.
  * Valid needs Microsoft's Identity Verification root (2020) in this computer's root store, as setup.ps1's
  * check does; every supported Windows has it, and a box that does not is said, not failed. Asked once.
@@ -26,16 +42,16 @@ let rootSkip;
 function microsoftRootSkip() {
   if (rootSkip !== undefined) return rootSkip;
   if (process.platform !== 'win32') { rootSkip = 'asks Windows itself (Get-AuthenticodeSignature)'; return rootSkip; }
-  const ps = require('node:path').win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   let there = false;
   try {
-    const out = require('node:child_process').execFileSync(ps, ['-NoProfile', '-NonInteractive', '-Command',
-      `[Console]::Out.Write([string](Test-Path -LiteralPath 'Cert:\\LocalMachine\\Root\\${SIGNED_KOSMOS.rootThumbprint}'))`],
-    { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    /* Test-Path answers False for a drive that is not there, so the drive is asked about first: a
+       missing Cert: drive is "could not ask", never "not installed". */
+    const out = windowsPowerShell("[void] (Get-PSDrive -Name Cert -PSProvider Certificate); "
+      + `[Console]::Out.Write([string](Test-Path -LiteralPath 'Cert:\\LocalMachine\\Root\\${SIGNED_KOSMOS.rootThumbprint}'))`);
     there = out.trim() === 'True';
   } catch (e) { rootSkip = `could not ask Windows whether Microsoft's root is installed (${String((e && e.message) || e).split('\n')[0]})`; return rootSkip; }
   rootSkip = there ? false : 'Microsoft Identity Verification Root 2020 is not installed on this computer';
   return rootSkip;
 }
 
-module.exports = { SIGNED_KOSMOS, microsoftRootSkip };
+module.exports = { SIGNED_KOSMOS, microsoftRootSkip, windowsPowerShell };

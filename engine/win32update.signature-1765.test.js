@@ -13,13 +13,12 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const cp = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
 const win32update = require('./win32update');
-const { SIGNED_KOSMOS, microsoftRootSkip } = require('../test-support/signedkosmos');
+const { SIGNED_KOSMOS, microsoftRootSkip, windowsPowerShell } = require('../test-support/signedkosmos');
 
 const REPO = path.join(__dirname, '..');
 const SETUP_PS1 = path.join(REPO, 'tools', 'windows', 'setup.ps1');
@@ -180,8 +179,7 @@ const SIGN_WITH_CN = [
 ].join('\n');
 function signedByLookalike(cn) {
   const exe = scratchCopy('Kosmos.exe', fs.readFileSync(KOSMOS_EXE));
-  cp.execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', SIGN_WITH_CN],
-    { windowsHide: true, timeout: 120000, env: { ...process.env, KOSMOS_TEST_CN: cn, KOSMOS_TEST_EXE: exe }, stdio: ['ignore', 'pipe', 'pipe'] });
+  windowsPowerShell(SIGN_WITH_CN, { KOSMOS_TEST_CN: cn, KOSMOS_TEST_EXE: exe }, 120000);
   return exe;
 }
 
