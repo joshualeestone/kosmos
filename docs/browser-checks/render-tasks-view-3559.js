@@ -426,8 +426,13 @@ function chk(ok, label, extra) {
       chk(gaps.hintToGroup >= 16 && gaps.hintToGroup <= 32, `${tag} the gap from the Group by row to the first group is about half the old 49px`, JSON.stringify(gaps));
       chk(a.tiles.every((t) => t.n === EXPECT[t.k]), `${tag} each tile counts its group`, JSON.stringify(a.tiles));
       chk(!/Waiting on you|Done, check it|Categor/i.test(a.textNoWait), `${tag} no unprovable group or category is drawn`);
-      chk(a.waitLines.every((t) => /^(Waiting on you for \d+ (seconds|minutes?|hours?|days?)|Just started waiting on you)$/.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
-      chk(a.whoLines.length === 1 && /^Max: Waiting for your answer\.$/i.test(a.whoLines[0]), `${tag} #6157: the decision row names the agent that put it there (Max, asking) and why`, JSON.stringify(a.whoLines));
+      /* #6492: a question row with a known start says it once, "Max: Waiting for your answer for 14 seconds.", in one line
+         that is both the wait line and the who line; other rows keep the #5942 wording. */
+      const ASK_ONCE = /^Max: (Waiting for your answer for \d+ (seconds|minutes?|hours?|days?)|Just started waiting for your answer)\.$/;
+      chk(a.waitLines.every((t) => /^(Waiting on you for \d+ (seconds|minutes?|hours?|days?)|Just started waiting on you)$/.test(t) || ASK_ONCE.test(t)), `${tag} the only lines that rule leaves out are rows' own wait lines`, JSON.stringify(a.waitLines));
+      chk(a.whoLines.length === 1 && (/^Max: Waiting for your answer\.$/i.test(a.whoLines[0]) || ASK_ONCE.test(a.whoLines[0])), `${tag} #6157: the decision row names the agent that put it there (Max, asking) and why`, JSON.stringify(a.whoLines));
+      // The fixture's decision row is Max's question with a recorded start, so it must be the one line, not two.
+      chk(a.whoLines.length === 1 && ASK_ONCE.test(a.whoLines[0]) && a.waitLines.length === 1 && a.waitLines[0] === a.whoLines[0], `${tag} #6492: a question row with an age says it once (the age line and the who line are one line)`, JSON.stringify({ wait: a.waitLines, who: a.whoLines }));
       const cover = a.rows.find((r) => r.text === 'Approve the cover');
       chk(cover && /Needs Your Decision/.test(cover.group), `${tag} the task whose agent needs the person is under Needs Your Decision`, JSON.stringify(cover));
       chk(!/Archived away task|Old catalog/.test(a.text), `${tag} an archived project's tasks are left out`);
@@ -896,7 +901,8 @@ function chk(ok, label, extra) {
           await page.unroute('**/api/tasks?view=tasks*', noAge);
         }
         await page.evaluate(async () => { await tskLoad(); });   // back to the route's own rows for the arms after this
-        chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Waiting on you for 12 days' && agedBack === 0,
+        // #6492: the stamped row is Max's question, so its age is said in the who line, once.
+        chk(aged.n === 1 && aged.shown === 1 && aged.text === 'Max: Waiting for your answer for 12 days.' && agedBack === 0,
           `${tag} a decision row says how long it has waited on you, and says nothing with no known start (#5942)`, JSON.stringify({ aged, agedBack }));
         await page.fill('#tsk-search', 'podcast');
         /* Its own clear button: shown with text, clears and hides again. */

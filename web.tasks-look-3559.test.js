@@ -201,3 +201,37 @@ test('#6157: a decision row names the waiting agent and its reason; not a decisi
   assert.ok(!hostile.includes('<img src=x'), 'an agent name was drawn as HTML: ' + hostile);
   assert.match(hostile, /tsk-waiting-who">[^<]*&lt;img[^<]*: Kosmos needs you to look at it\.<\/div>/, hostile);
 });
+
+/* #6492 (Mona's 0.7.56 noise pass): a question row said it waits on you twice ("Waiting on you for N" and "Cleo: Waiting
+   for your answer."). With a known start and only question reasons it is one line with the name and the age; any other
+   reason, or no start, keeps the lines as they were. */
+test('#6492: a question row with a known start says it once: "<name>: Waiting for your answer for 3 hours."', () => {
+  const PJW = SCRIPT.match(/const PJ_NEEDS_WHY = \{[\s\S]*?\n\};/);
+  const AGO = new Function(page.liftAll(SCRIPT, ['agoWords']) + '\nreturn agoWords;')();
+  const realNow = Date.now;
+  Date.now = () => Date.parse('2026-10-12T16:00:00Z');
+  try {
+    const row = (over) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', PJW[0] + '\n' + GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+      { sel: new Set(), by: 'status' }, [REX], (s) => String(s), AGO, (x) => x.projectId + '#' + x.number)(T(over));
+    const name = new Function('LAST', page.liftAll(SCRIPT, ['tskAgentName']) + '\nreturn tskAgentName;')([REX])('rex');
+    const ask = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }] });
+    assert.ok(ask.includes('<div class="why tsk-waiting tsk-waiting-who">' + name + ': Waiting for your answer for 3 hours.</div>'), ask);
+    assert.doesNotMatch(ask, /Waiting on you/, 'the age line was said as well');
+    assert.equal((ask.match(/tsk-waiting/g) || []).length, 2, 'one line carrying both classes, not two lines: ' + ask);
+    assert.ok(row({ state: 'decision', waitingSince: '2026-10-12T15:59:58Z', waitingOn: [{ who: 'rex', reason: 'question' }] })
+      .includes(name + ': Just started waiting for your answer.</div>'));
+    // Two asks by the same agent name it once.
+    assert.ok(row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }, { who: 'rex', reason: 'question' }] })
+      .includes('>' + name + ': Waiting for your answer for 3 hours.</div>'));
+    // CONTROLS: another reason keeps both lines; a mixed row keeps both; no known start keeps the who line alone.
+    const trust = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'trust' }] });
+    assert.match(trust, /<div class="why tsk-waiting">Waiting on you for 3 hours<\/div>/);
+    assert.ok(trust.includes('<div class="why tsk-waiting-who">' + name + ': Waiting for you to approve it before it can start.</div>'), trust);
+    const mixed = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }, { who: 'rex', reason: 'crash_loop' }] });
+    assert.match(mixed, /Waiting on you for 3 hours/);
+    assert.match(mixed, /tsk-waiting-who">[^<]*Waiting for your answer\. /);
+    const noStart = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'question' }] });
+    assert.ok(noStart.includes('<div class="why tsk-waiting-who">' + name + ': Waiting for your answer.</div>'), noStart);
+    assert.doesNotMatch(noStart, /class="why tsk-waiting"/);
+  } finally { Date.now = realNow; }
+});
