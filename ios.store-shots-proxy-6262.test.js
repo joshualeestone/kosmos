@@ -57,12 +57,14 @@ test.after(async () => {
 
 function get(p) {
   return new Promise((resolve, reject) => {
-    http.get(base + p, (res) => {
+    const req = http.get(base + p, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
       res.on('error', reject);
     }).on('error', reject);
+    // A proxy that never answers must fail the arm, not hang the suite.
+    req.setTimeout(5000, () => req.destroy(new Error('the proxy did not answer ' + p + ' within 5s')));
   });
 }
 

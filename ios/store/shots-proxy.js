@@ -67,7 +67,6 @@ const server = http.createServer((req, res) => {
   req.on('error', () => { /* the app went away mid-request: nothing to answer */ });
   const up = http.request({ host: board.hostname, port: board.port, method: req.method, path: req.url, headers }, (r) => {
     r.on('error', () => broke('the answer broke off'));
-    r.on('aborted', () => broke('the answer was cut'));
     const out = { ...r.headers };
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
@@ -85,7 +84,7 @@ const server = http.createServer((req, res) => {
       const text = asInstalled(raw);
       const hits = hitsIn(text);
       if (hits.length) { leak(pathname, hits); res.writeHead(502); res.end(); return; }
-      if (!r.complete) return;   // 'aborted' already refused it
+      if (!r.complete) return;   // broken off: the 'error' handler has refused it
       let body = text === raw ? Buffer.concat(chunks) : Buffer.from(text);
       // Sent whole with its own length: the board's framing and connection headers no longer describe it.
       for (const h of ['content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete out[h];

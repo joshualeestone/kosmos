@@ -35,11 +35,14 @@ if grep -q '| ERROR\|OVERFLOW\|page error' "$raw/report.md"; then
 fi
 
 out="${1:-$(mktemp -d "${TMPDIR:-/tmp}/ios-webkit-shots-XXXXXX")}"
-case "$(cd "$out" 2>/dev/null && pwd -P)" in "$(cd "$here" && pwd -P)/screenshots"*) echo "VERDICT: FAIL (not into the store set; use shoot-app.sh)"; exit 1;; esac
-python3 - "$raw" "$out" "${order[@]}" <<'PY'
+python3 - "$raw" "$out" "$here/screenshots" "${order[@]}" <<'PY'
 import sys, os, glob
 from PIL import Image
-raw, dest, order = sys.argv[1], sys.argv[2], sys.argv[3:]
+raw, dest, store, order = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+# Never into the store set, including a folder there that does not exist yet (realpath needs no folder).
+d, st = os.path.realpath(dest), os.path.realpath(store)
+if d == st or d.startswith(st + os.sep):
+    sys.exit('not into the store set (ios/store/screenshots); the store set comes from shoot-app.sh')
 themes = ('light', 'dark')
 srcs = {(t, n): os.path.join(raw, f'{n}--appstore--{t}--webkit.png') for t in themes for n in order}
 missing = [s for s in srcs.values() if not os.path.exists(s)]
@@ -62,7 +65,7 @@ for theme in themes:
         os.remove(old)
     for f in sorted(os.listdir(os.path.join(stage, theme))):
         os.replace(os.path.join(stage, theme, f), os.path.join(d, f))
-        print('filed', f'screenshots/{theme}/{f}', Image.open(os.path.join(d, f)).size)
+        print('filed', f'{theme}/{f}', Image.open(os.path.join(d, f)).size)
 PY
 [ $? = 0 ] || { echo "VERDICT: FAIL (filing the shots failed)"; exit 1; }
 echo "filed under $out"
