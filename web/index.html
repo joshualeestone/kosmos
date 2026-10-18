@@ -22543,7 +22543,8 @@ function card(a) {
  * Both renderers read the same derivations (cardStOf/taskLine/modelLine/
  * roleLine/answerAttrs), so grid and list cannot disagree about an agent.
  * Memory here is a BAR (the row has no room for a ring); unknown memory is
- * the dashed bar with no number, never a guessed figure.
+ * a dash with no number, never a guessed figure (#6511), and its empty track
+ * is hidden but keeps its width (#6515).
  */
 /* #520, piece four: the rail row's ring and warning. Both are drawn into
    every list row and shown only in the consolidated view (the tabs' list
