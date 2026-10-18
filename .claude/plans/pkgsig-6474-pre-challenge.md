@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: pkgsig-6474
-diff_hash: e73c66ab54d70290d396021b784859e5c8d23659f76498efcfba4e3550cfc3fa
+diff_hash: fac3fd77e8d2b4e5a019920f201c39973783ebe2fc8f618017516822c5a4955a
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T12:00:54Z
@@ -51,3 +51,5 @@ Not run: a real .pkg install (needs a built, notarized pkg).
 - [NIT] pointer curl now capped (-m 60) (FIXED); a CDN briefly serving a new /setup with an old pointer is a hard 97 (ACCEPTED, weakest premise: the deploy swaps atomically; the checksum gate before it retries mixed pairs); KOSMOS_SETUP_URL to /setup-staging is held to the prod pointer (ACCEPTED: harness-only)
 ### Iteration 5 (sonnet): no BLOCKER or WARNING findings (converged)
 - [NIT] the version regex had no arm (FIXED: 5k, valid JSON with 1.2 keeps the checksum path; a mutant always passing the regex turns 5k red); grep -q run-setup is weak (ACCEPTED: node --check and the hand-off itself catch a verifier without it); the quoting test is syntax-only (ACCEPTED: ARMS 5 execute the string)
+
+Rebased 08:18 onto main after #6475 merged (clean, 7 commits). Revalidated: test-pkg-checksum-1670 (all), postinstall inline quoting, resolve-install-user, install-page-readable-3268, pkg-input-guard, pkg-arch-gate-1562 pass; install.installing-page, server.connect, install.setup-sig-6468 90/90. Rehashed against origin/main.
