@@ -69,6 +69,18 @@ const MAX_REQUEST_BYTES = 128 * 1024;
    a wedged supervisor cannot hold the board. */
 const SAY_TIMEOUT_MS = 8000;
 
+/* #1765: the most the helper waits for Windows to say who owns the pipe it reached, before it
+   writes anything (serverOwnerOf). Measured on the Windows box: about 0.35 to 0.55 s, almost all of
+   it Windows PowerShell starting. This is its own phase, outside SAY_TIMEOUT_MS, so the
+   conversation keeps its whole budget; say() waits this much longer for the helper on Windows. */
+const OWNER_CHECK_TIMEOUT_MS = 4000;
+
+/* The accounts a pipe Kosmos may write to can be owned by: this account (what a supervisor
+   started by its logon task creates), and the two that can already read this account's channel
+   key, so trusting them gives nothing away: Administrators (the owner Windows gives what an
+   administrator's full token creates, as with UAC turned off) and SYSTEM. */
+const TRUSTED_PIPE_OWNERS = ['S-1-5-32-544', 'S-1-5-18'];
+
 /** How often, and for how long, a supervisor retries a pipe the PREVIOUS one still
     holds. Under `conhost --headless`, `/End` kills only the host; the old supervisor
     keeps the pipe until its host watch fires, about a second, and a restart's `/Run`
@@ -281,6 +293,99 @@ function serve(name, opts) {
   };
 }
 
+/* ── who is answering (#1765) ───────────────────────────────────────────────── */
+
+/**
+ * 🛑 THE CLIENT CHECKS WHO HOLDS THE PIPE BEFORE IT WRITES ANYTHING. A named pipe's name is
+ * machine-wide, and whoever creates `\\.\pipe\kosmos-agent-<key>` first holds it: while an agent's
+ * supervisor is down, another account on this PC can create that name and wait. The board's
+ * request carries the agent's channel key and the person's words, so writing it to that pipe would
+ * hand both over. The token above proves the CALLER to the supervisor; this proves the SUPERVISOR's
+ * side to the caller.
+ *
+ * HOW: Windows PowerShell 5.1 opens the same pipe name and reads the owner of its security
+ * descriptor (NamedPipeClientStream.GetAccessControl), which Windows sets to the account that
+ * created the pipe; an account cannot make it name somebody else without an administrator's
+ * privileges. It also says which account it runs as, which is this helper's. Node itself has no way
+ * to ask (no GetNamedPipeServerProcessId, no security descriptor on a net.Socket).
+ *
+ * 🔑 WHY A SECOND CONNECTION ANSWERS FOR THE FIRST. It runs while the helper's own connection is
+ * open. A pipe name belongs to one creator for as long as any handle to it is open: libuv creates its
+ * first instance with FILE_FLAG_FIRST_PIPE_INSTANCE, so a supervisor cannot join a name somebody else
+ * holds, and the default security descriptor does not let another account add instances to a name
+ * the supervisor holds. So both connections reach pipes the same account created. If the holder
+ * closes its end between the two, the helper's own connection is dead and its write reaches nobody.
+ *
+ * ⚠️ WEAKEST PART: it costs a Windows PowerShell start per message (about half a second on the box),
+ * while the board waits in say(). And the helper's connection is made before the check, with the
+ * default impersonation level, as before this change: a holder without SeImpersonatePrivilege (an
+ * ordinary account) gets only an identification token from it.
+ *
+ * Resolves `{ owner, me }` (two SIDs); rejects, with a sentence, when Windows does not answer in time
+ * or in a shape it can read. The pipe's name rides in the environment, never the command line.
+ */
+const OWNER_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  '$rights = [System.IO.Pipes.PipeAccessRights]::ReadData -bor [System.IO.Pipes.PipeAccessRights]::ReadPermissions',
+  '$c = New-Object System.IO.Pipes.NamedPipeClientStream(".", $env:KOSMOS_PIPE_NAME, $rights, [System.IO.Pipes.PipeOptions]::None, [System.Security.Principal.TokenImpersonationLevel]::Anonymous, [System.IO.HandleInheritability]::None)',
+  '$c.Connect([int] $env:KOSMOS_PIPE_CONNECT_MS)',
+  'try { $owner = $c.GetAccessControl().GetOwner([System.Security.Principal.SecurityIdentifier]).Value } finally { $c.Dispose() }',
+  '$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
+  "[Console]::Out.Write('{\"owner\":\"' + $owner + '\",\"me\":\"' + $me + '\"}')",
+].join('\n');
+
+const PIPE_ROOT = '\\\\.\\pipe\\';
+const SID = /^S-1-[0-9]+(-[0-9]+)*$/;
+
+/** The first line of what PowerShell said on stderr, without its position and category lines. */
+function powershellReason(stderr) {
+  const line = String(stderr || '').split(/\r?\n/).map((l) => l.trim())
+    .find((l) => l && !/^(#< CLIXML|At line:|\+|CategoryInfo|FullyQualifiedErrorId)/.test(l));
+  return line ? line.slice(0, 160) : null;
+}
+
+function serverOwnerOf(at, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const full = String(at || '');
+    if (!full.toLowerCase().startsWith(PIPE_ROOT) || full.length === PIPE_ROOT.length) {
+      reject(new Error('that is not a pipe Windows can say the owner of'));
+      return;
+    }
+    const ps = path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const env = { ...process.env, KOSMOS_PIPE_NAME: full.slice(PIPE_ROOT.length), KOSMOS_PIPE_CONNECT_MS: String(Math.max(500, timeoutMs - 1000)) };
+    /* An inherited PowerShell 7 module path is what makes 5.1 load the wrong modules
+       (engine/win32update.js authenticodeOf); nothing here needs one. */
+    for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
+    cp.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', OWNER_SCRIPT], {
+      encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024, env,
+    }, (err, stdout, stderr) => {
+      if (err) {
+        if (err.killed || err.signal || err.code === 'ETIMEDOUT') { reject(new Error('Windows did not say in time')); return; }
+        if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
+        reject(new Error(powershellReason(stderr) || 'Windows PowerShell ended with code ' + err.code));
+        return;
+      }
+      let j = null;
+      try { j = JSON.parse(String(stdout).trim()); } catch { j = null; }
+      if (!j || typeof j !== 'object' || typeof j.owner !== 'string' || typeof j.me !== 'string') {
+        reject(new Error('Windows answered in a form Kosmos could not read'));
+        return;
+      }
+      resolve({ owner: j.owner, me: j.me });
+    });
+  });
+}
+
+/** Null when the pipe's owner may be written to; otherwise the sentence the caller is told. Pure. */
+function ownerRefusal(answer) {
+  const a = answer || {};
+  if (typeof a.me !== 'string' || !SID.test(a.me) || typeof a.owner !== 'string' || !SID.test(a.owner)) {
+    return 'we could not confirm its channel belongs to you, so we did not type anything';
+  }
+  if (a.owner === a.me || TRUSTED_PIPE_OWNERS.includes(a.owner)) return null;
+  return 'its channel is held by another account on this computer, so we did not type anything';
+}
+
 /* ── the client half ────────────────────────────────────────────────────────── */
 
 /**
@@ -320,8 +425,9 @@ function say(name, text, opts) {
       encoding: 'utf8',
       /* A little longer than the child's own deadline, so the child is the one
          that reports a timeout and it reports it as a sentence rather than as a
-         killed process. */
-      timeout: timeout + 2000,
+         killed process. #1765: on Windows the child also asks who holds the pipe
+         first, in a phase with its own bound, so it is given that much longer. */
+      timeout: timeout + 2000 + (process.platform === 'win32' ? OWNER_CHECK_TIMEOUT_MS : 0),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
       env: Object.assign({}, process.env, { KOSMOS_CHANNEL_TIMEOUT_MS: String(timeout) }),
@@ -462,9 +568,33 @@ function clientMain(name, text, opts) {
     ? { ok: false, unsure: true, because: 'its channel closed before it told us what happened, so we cannot tell whether it arrived' }
     : { ok: false, because: 'its channel closed before we could hand anything over, so we did not type anything' }));
 
-  sock.on('connect', () => {
+  /* #1765: on Windows, who holds the pipe is asked before a byte is written (serverOwnerOf). A test
+     passes its own `checkServer`, or null for none. Off Windows there is no named pipe to ask about:
+     the address is a unix socket, which only a test uses. */
+  const checkServer = o.checkServer !== undefined ? o.checkServer
+    : (process.platform === 'win32' ? (where) => serverOwnerOf(where, OWNER_CHECK_TIMEOUT_MS) : null);
+  const send = () => {
     sock.write(JSON.stringify({ v: 1, token: got.secret, type: 'say', text: String(text) }) + '\n');
     wrote = true;
+  };
+  sock.on('connect', () => {
+    if (!checkServer) { send(); return; }
+    /* The conversation's own deadline waits while Windows is asked: the check has its own bound
+       (OWNER_CHECK_TIMEOUT_MS), and nothing has been written, so every way this ends is a
+       definite no. */
+    sock.setTimeout(0);
+    let asked;
+    try { asked = Promise.resolve(checkServer(at)); } catch (e) { asked = Promise.reject(e); }
+    asked.then((answer) => {
+      if (settled) return;
+      const refused = ownerRefusal(answer);
+      if (refused) { finish({ ok: false, because: refused }); return; }
+      sock.setTimeout(timeout);
+      send();
+    }, (e) => {
+      if (settled) return;
+      finish({ ok: false, because: 'we could not confirm its channel belongs to you (' + String((e && e.message) || 'no answer').slice(0, 160) + '), so we did not type anything' });
+    });
   });
   return sock;
 }
@@ -486,6 +616,6 @@ if (require.main === module) {
 }
 
 module.exports = {
-  PIPE_PREFIX, MAX_REQUEST_BYTES, SAY_TIMEOUT_MS,
-  pipePath, secretPath, ensureSecret, sameSecret, serve, say, clientMain,
+  PIPE_PREFIX, MAX_REQUEST_BYTES, SAY_TIMEOUT_MS, OWNER_CHECK_TIMEOUT_MS, TRUSTED_PIPE_OWNERS,
+  pipePath, secretPath, ensureSecret, sameSecret, serve, say, clientMain, serverOwnerOf, ownerRefusal,
 };
