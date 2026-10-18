@@ -10819,6 +10819,9 @@ const server = http.createServer(async (req, res) => {
         const got = await remote.signinRegister(name);
         if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
         try { remote.ensure(); } catch { /* status says what happened */ }
+        // #6488: a computer connected just now gets the phone-notifications default at once, not at the next tick.
+        // Not awaited: the answer below does not wait on a mint.
+        try { phonenotify.ensureDefaultOn(); } catch { /* the startup tick catches it */ }
         sendJson(res, 200, {
           ok: true,
           stage: got.data.stage,
