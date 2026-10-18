@@ -7,6 +7,7 @@
  *
  *   node --test tools.windows-kosmos-cli-handoff-6506.test.js
  */
+require('./test-support/tmpscope');   // #4273: first, so every mkdtemp dir here (incl. the per-test artifact dirs) is contained and removed
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
