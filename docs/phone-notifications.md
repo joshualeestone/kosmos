@@ -9,7 +9,7 @@ Read from the code on 2026-10-18 and checked against the push path owner's table
 - **Window**: a few minutes after a notification during which another of the same sort is not sent.
 - **Episode**: one stretch of the same trouble, from when it starts until it clears.
 - **Session name**: the agent's short internal name, such as `leo`, as opposed to the name shown on screen.
-- **The agent's token**: the private key each agent uses when it posts, so Kosmos knows the post is really from it.
+- **The agent's token**: the private pass each agent uses when it posts, so Kosmos knows the post is really from it.
 
 ## How a notification travels
 A computer running Kosmos notices that something happened and sends the coordinator a short event: its kind, the
@@ -51,7 +51,7 @@ email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is no
 |---|---|---|---|---|---|
 | An agent needs you (its report) | an agent's report changes to needing the person, including when it stops to ask permission for something | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
 | An agent needs you (keeps crashing) | 3 runs of an agent end on their own within 30 minutes, each lasting 2 minutes or less; restarts Kosmos makes itself do not count (told once per loop) | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
-| An agent needs you (stuck) | an agent's sign-in has been expired for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (stuck) | an agent's sign-in or key has stopped working for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (a helper gave up) | one to two minutes after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent answered you | an agent writes to the person in its direct chat (whether or not the person wrote first) | `<Agent> replied` | `in Kosmos` (a reply carries no project) | When an agent answers me, on | every reply |
 | An agent replied to your post | an agent's project post is a reply to one of the person's own posts (it carries the reply link), sent with the agent's own token | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
@@ -74,7 +74,8 @@ needs-you is not sent; for the idle nudge and the first-reply reminder it is cle
 Antigravity quota helper) is cleared once the agent is working again, but once the agent stops showing needs-you without
 being back at work, it is sent.
 
-Tapping a notification opens that agent's page, even for a project post (or the board's home when the agent's session name has
+In the Android app a tap first opens the Kosmos+ sign-in page, and one more tap opens the agent (the same happens in
+plain Chrome on a phone that has the app). Otherwise a tap opens that agent's page, even for a project post (or the board's home when the agent's session name has
 anything but lowercase letters, digits, `-` and `_`, starts with `-` or `_`, or is longer than 64 characters). A reply, a crash, a stuck terminal and a helper giving up never carry a project, so their
 body is `in Kosmos` today and none under the new wording. A reply or post written while Kosmos was closed, and delivered later, does
 not buzz, and neither does a post sent without the agent's token. A reply to the person's post uses only the "replies
@@ -88,12 +89,12 @@ Sound: the default sound on iPhone; on Android and the browser, whatever the dev
 
 | Event | When it would fire | Wording | Status |
 |---|---|---|---|
-| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per day | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
+| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
 
 A computer can send needs-yous only after someone has pressed Turn on (that is what gives it the key the coordinator
 checks). If kosmos#6488 makes notifications on without that press, every connected computer becomes eligible for this
 email, including people who never set up a phone. **And nothing in Kosmos acknowledges a needs-you
-yet** (not the board, and not the iPhone or Android app in this repo), so with the flag on, the first needs-you from each agent each day would be emailed after 30 minutes, even one the
+yet** (not the board, and not the iPhone or Android app in this repo), so with the flag on, the first needs-you from each agent in any 24 hours would be emailed after 30 minutes, even one the
 person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you that turned 30 minutes old while the
 coordinator was running with the flag off is never emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
 sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
