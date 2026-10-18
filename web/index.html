@@ -65055,7 +65055,7 @@ const TSK_DECISION_UNKNOWN = 'Kosmos could not read your agents just now, so it 
 function tskDot(g, n) {
   return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
 }
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set() };
+const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set(), oneProjectInView: false };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -65206,6 +65206,47 @@ function tskSort(list, mode) {
     out.sort((a, b) => ((at(a.createdAt) || 0) - (at(b.createdAt) || 0)) * dir);
   }
   return out;
+}
+/* kosmos#6481 (the card and its decision comments): whether every row in view is in one and the same project, so
+   naming it under each title says nothing. (#6396 is the same idea for a different label, the computer name in the
+   top left; it is not a ruling about this line.) A task with no project counts as a project of its own, so one
+   project beside such a task keeps the line; an empty view is false (no rows, nothing to leave out). Pure (the tests
+   lift it). */
+function tskRowsShareOneProject(rows) {
+  const list = rows || [];
+  if (!list.length) return false;
+  const first = list[0].projectId;
+  if (first == null || first === '') return false;
+  return list.every((t) => t.projectId === first);
+}
+/* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects", the number the separate "N open tasks
+   across M projects" line used to give. Until the tasks are read it just says Tasks. Pure (the tests lift it).
+   `scoped` is the view before the tile (Project filter, search and Created window applied): the title is the total
+   the tiles break down, and a picked tile is a view within it. It counts the open tasks; M is the projects those same
+   open tasks are on, so the title can never say "1 Task on 2 Projects".
+   One preposition, "on", for a named project. A picked project is named by its leaf name ("5 Tasks on Launch"): the
+   crumb above carries the path (#3029). With no project picked and every task in view in one project, the rows leave
+   the project line out (#6481), so the title names it once, by the full path the rows would have shown ("3 Tasks on
+   Book A › Launch"), there being no crumb for context. It names a project only when it counts at least one task:
+   with nothing open and no project picked it is just "0 Tasks". */
+function tskTitle(read, picked, scoped) {
+  if (!read) return 'Tasks';
+  const rows = scoped || [];
+  const open = rows.filter((t) => t.state !== 'closed');
+  const head = open.length + (open.length === 1 ? ' Task' : ' Tasks');
+  if (picked) return head + ' on ' + picked.chain[picked.chain.length - 1];
+  if (!open.length) return head;
+  if (tskRowsShareOneProject(rows)) return head + ' on ' + pjChainText(tskChainOf(rows[0]));
+  const onProjects = new Set(open.map((t) => t.projectId)).size;
+  return head + ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects');
+}
+/* #6481: whether the rows leave out their project line. Decided on every task in view, open or closed (before the
+   tile, so a tile never hides the line by itself): true when they are all in one project and something else on
+   screen names it, the crumb (a project picked) or the title (at least one open task). With no project picked and
+   only closed tasks, the title says "0 Tasks", so the rows keep the line. Pure (the tests lift it). */
+function tskLeaveOutProjectLine(scoped, picked) {
+  const rows = scoped || [];
+  return tskRowsShareOneProject(rows) && (!!picked || rows.some((t) => t.state !== 'closed'));
 }
 /* The rows the view shows: project, window and search (not the tile, which only narrows the
    groups drawn; the tiles' own counts are taken before it). */
@@ -65365,7 +65406,11 @@ function tskRow(t, at) {
     + (g && TSK.by !== 'project' ? ' (' + esc(g.l) + ')' : '') + '"></label>'
     + '<div class="t">' + partOf + '<span class="n">#' + Number(t.number) + '</span>'
     + '<button type="button" class="tl" data-open-task="' + esc(tskKey(t)) + '">' + esc(t.sentence) + '</button>'
-    + '<div class="meta"><button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(projChain) + '</button>'
+    /* #6481: the line naming the project is left out (tskLeaveOutProjectLine) when every task in view, open or
+       closed, is in one project and the crumb or the title names it. Search still finds the task by its project's
+       name: tskMatches reads the task's fields, never this line. A repaint that removes a focused project button
+       sends focus to the Project filter (tskFocusRestore's fallback). */
+    + '<div class="meta">' + (TSK.oneProjectInView ? '' : '<button type="button" data-open-project="' + esc(t.projectId) + '">' + esc(projChain) + '</button>')
     /* #5864: a BUILT task in a paused project sits in Built but waiting, so its row says the project is paused (the CLI
        prints [project paused]); a held row needs no note, its group already says it. */
     + (t.projectPaused === true && t.state === 'built' ? '<span class="tsk-paused">project paused</span>' : '')
@@ -65482,19 +65527,10 @@ function tskPaint() {
     else delete back.dataset.openProject;
   }
   const scoped = tskScoped(all, TSK, now);
-  const open = scoped.filter((t) => t.state !== 'closed');
-  /* #3949 (Josh, 09-26 19:30): the title IS the count: "30 Tasks on 2 Projects" (open tasks in the current scope, the
-     number the separate "N open tasks across M projects" line used to give). Scoped to one project it names it
-     ("5 Tasks on Newsletter"), as the title did before. Until the tasks are read it just says Tasks. */
-  /* N is the projects those same open tasks are on, from the same filtered array, so the title can never say
-     "1 Task on 2 Projects" (review round 11). With nothing open and no project picked it is just "0 Tasks"; with a
-     project picked it names it ("0 Tasks on Newsletter"). It counts before the tile: the title is the total the
-     tiles break down, and a picked tile is a view within it (as the count line it replaced was). */
-  const onProjects = new Set(open.map((t) => t.projectId)).size;
-  document.getElementById('tsk-title').textContent = !TSK.data ? 'Tasks'
-    : open.length + (open.length === 1 ? ' Task' : ' Tasks')
-      /* #3029: the picked project's own name; the crumb above carries the path. */
-      + (picked ? ' on ' + picked.chain[picked.chain.length - 1] : open.length ? ' on ' + onProjects + (onProjects === 1 ? ' Project' : ' Projects') : '');
+  /* The title and the rows' project line both read this one array: every task in view, open or closed, after the
+     Project filter, search and Created window and before the tile, so they always agree and a tile changes neither. */
+  document.getElementById('tsk-title').textContent = tskTitle(TSK.data, picked, scoped);
+  TSK.oneProjectInView = tskLeaveOutProjectLine(scoped, picked);
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));

@@ -15,7 +15,9 @@
  *    (tasks.setBuilt), and its row says who marked it and what is left. Needs Your Decision's task is a real one: its agent
  *    (Max) reports a question about its project, and the pane is asking,
  *  - #3949 layout: no left Projects column; the title is the count ("8 Tasks on 2 Projects", the projects
- *    those open tasks are on) with no separate count line; Project and Created: dropdowns on one row;
+ *    those open tasks are on; #6481: "2 Tasks on Newsletter" with that project picked, and with no project picked
+ *    and every task in view in one project it names it, "4 Tasks on Newsletter", its full path for a subproject)
+ *    with no separate count line; Project and Created: dropdowns on one row;
  *    Group by, Sort and a compact search (after Sort, "/" focuses it, Esc clears it) under the tiles;
  *    no tile hint,
  *  - a row sits in the group its evidence says (the agent that named its task is In progress),
@@ -255,6 +257,54 @@ function chk(ok, label, extra) {
         chk(m.pills.length > 0 && m.pills.every(([, hit]) => hit >= 44), `[${label}] drawn pills keep their size and get a 44px tap overlay (#4226 review)`, JSON.stringify(m.pills));
         chk(m.hitMiss.length === 0, `[${label}] a tap at the edge of each title's and each agent's 44px area lands on that control, not a neighbour (#4226 review)`, JSON.stringify(m.hitMiss.slice(0, 6)));
         chk(!m.sideways, `[${label}] no sideways scroll`, String(m.sideways));
+        /* #6481: a row at 390, with and without the project button on its meta line. Under (hover: none) the title
+           button's padding-block (11px 15px, cancelled by equal negative margins) reaches 15px below its text, and the
+           meta line's 16px margin-top counts from the line box, so the title button's rect ends about 1px above the
+           meta line. The gap is therefore measured from the title TEXT (the .tl rect's bottom less its computed
+           padding-bottom) to the top of the meta line's first child, whatever it is (the "added ..." span guarantees
+           one today). Measured 2026-10-18 in Chromium at 390x844 with touch: 16px on a two-project row (first child the
+           project button) and 16px on a one-project row (first child a span). 12 to 20 allows rounding and a font
+           change; a doubled margin (32) or an overlap (below 0) fails. Inside the row, and nothing scrolls sideways. */
+        const metaGap = () => page.evaluate(() => {
+          const r = [...document.querySelectorAll('#tsk-groups .tsk-row')].find((x) => x.getClientRects().length > 0);
+          const rect = (e) => { const b = e.getBoundingClientRect(); return { l: Math.round(b.left), r: Math.round(b.right), t: Math.round(b.top), b: Math.round(b.bottom) }; };
+          const meta = r && r.querySelector('.meta'); const tl = r && r.querySelector('.tl'); const first = meta && meta.firstElementChild;
+          const textBottom = tl ? tl.getBoundingClientRect().bottom - parseFloat(getComputedStyle(tl).paddingBottom) : null;
+          return { button: !!(meta && meta.querySelector('[data-open-project]')), row: r ? rect(r) : null,
+            gap: first && textBottom !== null ? Math.round(first.getBoundingClientRect().top - textBottom) : null,
+            first: first ? rect(first) : null, firstTag: first ? first.tagName + '.' + first.className : '',
+            sideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+        });
+        const gapOk = (x) => x.first && x.row && x.gap !== null && x.gap >= 12 && x.gap <= 20
+          && x.first.l >= x.row.l && x.first.r <= x.row.r && x.first.b <= x.row.b && !x.sideways;
+        const two = await metaGap();   // All projects: Spring launch and Newsletter in view
+        chk(two.button && gapOk(two), `[${label}] #6481 CONTROL: a two-project row keeps its project button, and the meta line sits 12 to 20px below the title text, inside the row`, JSON.stringify(two));
+        await page.selectOption('#tsk-projsel', news.id);
+        await page.waitForTimeout(200);
+        const one = await metaGap();
+        chk(!one.button && gapOk(one), `[${label}] #6481 a one-project row: no project button, and the meta line sits 12 to 20px below the title text, inside the row`, JSON.stringify(one));
+        /* #6481: the longest new title, no Project filter and one subproject in view, so the title carries its full path.
+           It paints rows set in the page (TSK.data), not read from the server, through the real tskPaint, tskTitle and
+           CSS, and measures in the same synchronous call, so no read can repaint between. */
+        const longTitle = await page.evaluate(() => {
+          const keep = { data: TSK.data, proj: TSK.proj, q: TSK.q, tile: TSK.tile, win: TSK.win };
+          TSK.data = [{ projectId: 'sub6481', projectName: 'Print partner and the new paper stock for the autumn list',
+            projectPath: ['Spring catalogue relaunch with the regional sales teams'], number: 1, sentence: 'Order the samples',
+            state: 'nobody', who: [], whoNames: [], createdAt: new Date().toISOString() }];
+          TSK.proj = null; TSK.q = ''; TSK.tile = null; TSK.win = 0;
+          tskPaint();
+          const el = document.getElementById('tsk-title'); const head = el.parentElement;
+          const b = el.getBoundingClientRect(); const hb = head.getBoundingClientRect();
+          const out = { text: el.textContent, sw: el.scrollWidth, cw: el.clientWidth, h: Math.round(b.height), lh: parseFloat(getComputedStyle(el).lineHeight),
+            right: Math.round(b.right), headRight: Math.round(hb.right), inner: innerWidth,
+            pageSideways: document.documentElement.scrollWidth > document.documentElement.clientWidth };
+          Object.assign(TSK, keep); tskPaint();
+          return out;
+        });
+        chk(/^1 Task on Spring catalogue relaunch with the regional sales teams \u203a Print partner/.test(longTitle.text)
+          && longTitle.sw <= longTitle.cw && longTitle.right <= longTitle.headRight && longTitle.right <= longTitle.inner
+          && !longTitle.pageSideways && longTitle.h >= longTitle.lh * 1.5,
+          `[${label}] #6481 the longest unfiltered title (a subproject's full path) wraps inside its row and the window, with no clipping or sideways scroll`, JSON.stringify(longTitle));
       } else {
         const phoneSized = m.fields.filter(([, px]) => px >= 16);
         const hits = m.targets.filter(([q, , [w]]) => /tsk-hit/.test(q) && w >= 44);
@@ -555,7 +605,8 @@ function chk(ok, label, extra) {
         const oneTitle = await page.evaluate(() => document.getElementById('tsk-title').textContent.trim());
         await page.fill('#tsk-search', '');
         await page.evaluate(() => document.getElementById('tsk-search').blur());
-        chk(oneTitle === '1 Task on 1 Project', `${tag} a search leaving one task titles it "1 Task on 1 Project"`, JSON.stringify(oneTitle));
+        /* #6481: that one task is on one project, so the rows leave the project out and the title names it. */
+        chk(oneTitle === '1 Task on Spring launch', `${tag} a search leaving one task titles it "1 Task on Spring launch"`, JSON.stringify(oneTitle));
         /* "/" never reaches past an open modal: New task's dialog open, focus on its own Cancel button, "/" leaves focus
            there (review round 11: the guard had looked for a <dialog> the app does not use). */
         await page.click('#tsk-new');
@@ -677,9 +728,19 @@ function chk(ok, label, extra) {
         await page.fill('#tsk-search', 'rex');
         let rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(rows.length === 3 && rows.includes('Order proof copies') && rows.includes('Clean up bounced addresses') && rows.includes('Ship the signup form'), `${tag} search finds tasks by agent name`, JSON.stringify(rows));
+        /* #6481: each row's project line, read off the drawn rows (null: the row has none). */
+        const projLines = () => page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row')]
+          .map((r) => { const b = r.querySelector('.meta [data-open-project]'); return b ? b.textContent : null; }));
+        let lines = await projLines();
+        chk(lines.length === 3 && lines.every((x) => x === 'Spring launch' || x === 'Newsletter') && new Set(lines).size === 2,
+          `${tag} #6481 CONTROL: with two projects in view every row names its project`, JSON.stringify(lines));
         await page.selectOption('#tsk-projsel', news.id);
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify([...rows].sort()) === JSON.stringify(['Clean up bounced addresses', 'Ship the signup form']), `${tag} search combines with the project dropdown`, JSON.stringify(rows));
+        lines = await projLines();
+        const filteredTitle = await page.evaluate(() => document.getElementById('tsk-title').textContent.trim());
+        chk(lines.length === 2 && lines.every((x) => x === null) && filteredTitle === '2 Tasks on Newsletter',
+          `${tag} #6481 with the Project filter on one project, no row repeats the project name, and the title is as before`, JSON.stringify({ lines, filteredTitle }));
         await page.fill('#tsk-search', '');
         /* The crumb's "All tasks" empties the crumb: focus lands on the project dropdown, not the body. */
         await page.focus('#tsk-crumb [data-proj=""]');
@@ -687,6 +748,16 @@ function chk(ok, label, extra) {
         await page.waitForTimeout(200);
         const crumbFocus = await page.evaluate(() => ({ id: document.activeElement.id, value: document.getElementById('tsk-projsel').value }));
         chk(crumbFocus.id === 'tsk-projsel' && crumbFocus.value === '', `${tag} the crumb's All tasks keeps focus (on the project dropdown, now All projects)`, JSON.stringify(crumbFocus));
+        /* #6481: searching a project's name with All projects still finds its tasks, and with only that project in view
+           the rows leave its name out. */
+        await page.fill('#tsk-search', 'newsletter');
+        rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
+        lines = await projLines();
+        const searchTitle = await page.evaluate(() => document.getElementById('tsk-title').textContent.trim());
+        chk(JSON.stringify([...rows].sort()) === JSON.stringify(['Clean up bounced addresses', 'Pick a newsletter sender name', 'Ship the signup form', 'Welcome email for new subscribers'])
+          && lines.every((x) => x === null), `${tag} #6481 search by project name finds its tasks, and the rows leave the one project out`, JSON.stringify({ rows, lines }));
+        /* With no Project filter, the title is what names the one project. */
+        chk(searchTitle === '4 Tasks on Newsletter', `${tag} #6481 with no Project filter and one project in view, the title names it once`, JSON.stringify(searchTitle));
         await page.fill('#tsk-search', 'podcast');
         rows = await page.evaluate(() => [...document.querySelectorAll('#tsk-groups .tsk-row .tl')].map((x) => x.textContent));
         chk(JSON.stringify(rows) === JSON.stringify(['Book the podcast tour']), `${tag} search finds a task by what it says`, JSON.stringify(rows));
