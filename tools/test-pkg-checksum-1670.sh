@@ -48,7 +48,7 @@ pass "lifted the verification out of the shipped postinstall"
 WWW="$T/www"; mkdir -p "$WWW"
 # The fake installer also records the directory it was run from (#4319), so an arm can check the
 # verify directory is gone afterwards. macOS mktemp -d ignores TMPDIR, so the path cannot be predicted.
-printf '#!/bin/sh\ntouch "%s/RAN"\ndirname "$0" > "%s/DIR"\n' "$T" "$T" > "$WWW/setup"
+printf '#!/bin/sh\ntouch "%s/RAN"\nprintf x >> "%s/RANS"\ndirname "$0" > "%s/DIR"\n' "$T" "$T" "$T" > "$WWW/setup"
 GOOD=$(/usr/bin/shasum -a 256 "$WWW/setup" | /usr/bin/awk '{print $1}')
 cd "$WWW" || exit 1
 "$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
@@ -86,7 +86,7 @@ export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
 # #6474: HOME is sandboxed. The lifted block hands off to an INSTALLED Kosmos at $HOME/.local/share/kosmos when it has
 # a verifier, so the real HOME would make these arms depend on (and run against) this Mac's own install.
 mkdir -p "$T/nohome"
-run_arm() { rm -f "$T/RAN" "$T/DIR"; HOME="${ARM_HOME:-$T/nohome}" /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
+run_arm() { rm -f "$T/RAN" "$T/RANS" "$T/DIR"; HOME="${ARM_HOME:-$T/nohome}" /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
 # #4319: the verify directory the installer ran from must be gone once the run ends.
 verify_dir_gone() {
   _vd=$(cat "$T/DIR" 2>/dev/null)
@@ -159,11 +159,11 @@ sign(c.createHash("sha256").update(fs.readFileSync(setup)).digest("hex"));
 ' "$REPO" "$K" "$WWW" "$WWW/setup" || { fail "ARMS 5: could not build the fake signed install"; }
 HO="$IH/.local/share/HANDOFF"; F96="$IH/.local/share/FAIL96"
 rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
-if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ] && [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5a: an existing install checks the installer against its signed release (the hand-off ran once), then runs it"
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5a (installer ran exactly once): an existing install checks the installer against its signed release (the hand-off ran once), then runs it"
 else fail "ARM 5a: the signed, matching installer must run THROUGH the installed copy (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
 # ARM 5d: a 96 (a download that failed) is retried, and the second try runs it.
 rm -f "$HO"; printf 1 > "$F96"; out=$(ARM_HOME="$IH" run_arm); rc=$?
-if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ] && [ "$(cat "$HO" 2>/dev/null)" = xx ]; then pass "ARM 5d: a failed download (96) is retried, and the retry runs it"
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ "$(cat "$HO" 2>/dev/null)" = xx ]; then pass "ARM 5d (installer ran exactly once): a failed download (96) is retried, and the retry runs it"
 else fail "ARM 5d: a 96 must be retried (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
 # ARM 5g: a 96 that never clears ends after the retry budget with the safe-to-retry sentence, and nothing ran.
 rm -f "$HO"; printf 99 > "$F96"; out=$(ARM_HOME="$IH" run_arm); rc=$?
@@ -185,7 +185,7 @@ const c = require("crypto");
 fs.writeFileSync(m + ".sig", c.sign(null, fs.readFileSync(m), c.createPrivateKey(fs.readFileSync(process.argv[2]))).toString("base64") + "\n");
 ' "$WWW" "$IH/.local/share/signer.pem"
 rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
-if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "ARM 5b: an installer the signed release does not name is NOT run, though its checksum matches"
+if [ "$rc" -eq 97 ] && [ ! -f "$T/RAN" ] && has "$out" "this Mac already has Kosmos, and its own check refused this installer"; then pass "ARM 5b (exit 97, the .pkg sentence): an installer the signed release does not name is NOT run, though its checksum matches"
 else fail "ARM 5b: a mismatch with the signed release must refuse and not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
 if has "$out" "does not match its signed release, so the installer was not run"; then pass "ARM 5b: and says the installer does not match its signed release"; else fail "ARM 5b: and says why: $out"; fi
 if [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5b: a refusal (97) is not retried (the hand-off ran exactly once)"; else fail "ARM 5b: a refusal must run the hand-off once and not again (calls=$(cat "$HO" 2>/dev/null))"; fi
@@ -195,6 +195,18 @@ rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
 if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ] && [ ! -e "$HO" ]; then pass "ARM 5e: a broken installed node keeps the checksum path, so the .pkg still repairs it"
 else fail "ARM 5e: a node that will not run must keep the checksum path (rc=$rc, hand-off=$([ -e "$HO" ] && echo yes || echo no)): $out"; fi
 rm -f "$K/runtime/bin/node"; mv "$K/runtime/bin/node.real" "$K/runtime/bin/node"
+# ARM 5i (review 4): a HALF-WRITTEN package.json that a pattern would pass, and a TRUNCATED verifier that still names
+# run-setup, both keep the checksum path (the installed node parses the one and syntax-checks the other).
+mv "$K/app/package.json" "$K/app/package.json.real"; printf '{"name":"kosmos","version":"1.2.0",' > "$K/app/package.json"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5i: a half-written package.json keeps the checksum path"
+else fail "ARM 5i: a half-written package.json must keep the checksum path (rc=$rc): $out"; fi
+mv "$K/app/package.json.real" "$K/app/package.json"
+cp "$K/app/engine/manifest-verify.js" "$T/mv.real"; head -c 4000 "$T/mv.real" > "$K/app/engine/manifest-verify.js"; printf '\n// run-setup\nfunction (' >> "$K/app/engine/manifest-verify.js"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5j: a truncated verifier keeps the checksum path"
+else fail "ARM 5j: a truncated verifier must keep the checksum path (rc=$rc): $out"; fi
+cp "$T/mv.real" "$K/app/engine/manifest-verify.js"
 # ARM 5f: an installed version that will not READ keeps the checksum path too.
 mv "$K/app/package.json" "$K/app/package.json.real"; printf '{\n' > "$K/app/package.json"
 rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?

@@ -50,3 +50,7 @@ A real .pkg install (needs a built, notarized pkg).
 ### Iteration 3 (sonnet): 0 BLOCKERs, 1 should-fix
 - [WARNING] an unreadable latest.json gave an empty version, which run-setup refused (97): a network blip ended the install with a misleading sentence (FIXED: an empty version is a 96, retried; arm 5h; a mutant dropping it turns 5h red)
 - [NIT] 5b no-retry assertion also passed with no hand-off (FIXED: exactly one call); checksum gate still first (DOCUMENTED as deliberate); loose version grep (ACCEPTED: falls back safely)
+### Iteration 4 (opus): 0 BLOCKERs, 2 should-fix
+- [WARNING] the health gate was looser than the verifier: a half-written package.json passed a pattern, and a truncated verifier that names run-setup ended with neither an installer run nor a stated refusal (FIXED: the installed node parses package.json and runs node --check on the verifier; arms 5i, 5j; a mutant restoring a pattern gate turns 5e, 5i, 5j red)
+- [WARNING] tests could not see a double installer run, nor the .pkg refusal sentence (FIXED: the fixture installer counts runs; 5a and 5d require exactly one; 5b requires exit 97 and the sentence; a double-run mutant turns 5a and 5d red)
+- [NIT] pointer curl now capped (-m 60) (FIXED); a CDN briefly serving a new /setup with an old pointer is a hard 97 (ACCEPTED, weakest premise: the deploy swaps atomically; the checksum gate before it retries mixed pairs); KOSMOS_SETUP_URL to /setup-staging is held to the prod pointer (ACCEPTED: harness-only)
