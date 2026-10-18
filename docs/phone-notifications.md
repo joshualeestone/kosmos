@@ -1,72 +1,89 @@
 # Phone notifications: every message type and its wording
 
 kosmos#6487 (Josh, 2026-10-18: "We should configure a list of all of the message types we could send and document").
-Shipped rows read from the code on 2026-10-18 and confirmed by the push path's owner (kosmos#6487; the event table with
-its server.js lines is in that card's comments).
+Read from the code on 2026-10-18 and checked against the push path owner's table on that card.
 
 ## How a notification travels
-A computer running Kosmos decides that something happened (`engine/phonenotify.js`, called from `server.js`) and sends
-the coordinator a short event: its kind, the agent, the project, and an id. The coordinator turns the event into the
-words on the phone for iPhone (`coordinator/src/apns.rs` `payload`, sent through Apple). The same words are built
-twice more for web push (Android and the browser): by the coordinator's `coordinator/src/sw.js` and by this repo's
-`web/sw.js`. All three must match this page; tests check them.
-**The words of a message are never sent**: the notification says that something happened and who, and the
-conversation opens on a tap.
+A computer running Kosmos notices that something happened and sends the coordinator a short event: its kind, the
+agent, the project when there is one, and an id. The coordinator turns that into the words on the phone, through Apple
+for an iPhone and through web push for Android and the browser.
 
-Nothing is sent until phone notifications are on (the master switch; its default is changing to on under kosmos#6488)
-and a phone is signed in. Each kind below has its own switch under that.
+**The words of a message are never sent.** A notification says who did what, and the conversation opens on a tap.
 
-## Wording (the plain templates, to ship now)
+**Phone notifications are off until the person turns them on** (the master switch is off by default today; kosmos#6488
+changes that). Then a notification goes out only when all of these hold: the kind's own switch is on, this computer is
+connected to Kosmos+, the coordinator allows this computer, and the phone has not been turned away.
+
+## Wording (the plain templates, to ship)
 Short and plain: the title says who and what; the body names the project, and is left out when there is none
-(everything is in Kosmos, so saying "in Kosmos" adds nothing).
+(everything is in Kosmos, so "in Kosmos" adds nothing).
 
 | Kind | Title | Body |
 |---|---|---|
 | needs_you | `<Agent> needs you` | `in <Project>`, or no body |
 | replied | `<Agent> replied` | `in <Project>`, or no body |
-| posted | `<Agent> posted` | `in <Project>` |
+| posted | `<Agent> posted` | `in <Project>`, or no body |
 | ready | `<Agent> has work ready for you` | `in <Project>`, or no body |
-| anything else | `<Agent> has something for you` | no body |
 
-Changed from what ships today: the body said `on <Project>` (now `in`, as Josh wrote it), and `in Kosmos` when there
-was no project (now no body).
+Changed from what ships today: the body said `on <Project>` (now `in`, as Josh wrote it), and `in Kosmos` when there was
+no project (now no body).
+
+**Not yet in force.** The words are built in three places, and they must be changed to match this table: the
+coordinator's iPhone builder, the coordinator's web-push worker, and this repo's `web/sw.js`. Ice Cream Kitty makes that
+change after kosmos#6488, with tests that keep all three equal to this table. No test reads this page yet.
 
 ## Shipped today
 
-| Event | When | Title | Body | Switch, default | Repeats |
+| Event | When it fires | Title | Body today | Settings switch, default | How often |
 |---|---|---|---|---|---|
-| An agent needs you | an agent's report asks for the person; or it keeps crashing, is stuck at its terminal, or works outside its limits | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | Needs you, on | at most once per agent per 5 minutes |
-| An agent answered you | an agent replies to the person's direct message | `<Agent> replied` | `on <Project>`, or `in Kosmos` | Replies, on | every reply |
-| An agent posted for you | a project post that names the person | `<Agent> posted` | `on <Project>` | Mentions, on | at most once per agent per 5 minutes |
-| Any project post | any other project post (opt-in) | `<Agent> posted` | `on <Project>` | Every project post, off | at most once per project per 10 minutes |
-| Work ready for you | an agent marks a task built | `<Agent> has work ready for you` | `on <Project>`, or `in Kosmos` | Work ready, on | at most once per agent per 5 minutes |
-| Anything else | a kind the coordinator does not know | `<Agent> has something for you` | `in Kosmos` | (none) | (none) |
+| An agent needs you (its report) | an agent's report changes to needing the person | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
+| An agent needs you (keeps crashing) | an agent restarts again and again, each run short | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (stuck) | an agent's terminal is stuck on a prompt for some minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (a helper gave up) | one of the agent's helpers gives up, for example when its quota or its nudges run out | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent answered you | an agent replies to the person's direct message | `<Agent> replied` | `in Kosmos` (a reply carries no project) | When an agent answers me, on | every reply |
+| An agent replied to your post | an agent's project post answers a post the person wrote | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
+| Any agent post in a room | an agent posts in a project room the person is on | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When anyone posts in a project room I am on, off | at most once per room per 10 minutes |
+| Work ready for you | an agent marks a task built | `<Agent> has work ready for you` | `on <Project>`, or `in Kosmos` | When work is ready for my check, on | at most once per agent per 5 minutes |
+| Test notice | the operator sends a test from the coordinator | `Kosmos has something for you` | `in Kosmos` | none (operator only) | on demand |
+
+An event of any other kind cannot reach a phone: the computer and the coordinator both refuse a kind they do not know.
+
+Sound: the default sound on every kind. Grouping: none yet; each notification stands alone.
 
 ## Built, not on
 
-| Event | Where | Wording | Status |
+| Event | When it would fire | Wording | Status |
 |---|---|---|---|
-| An agent needs you, by email | coordinator `delivery.rs` (`agent_needs_you_words`), sent by the `notify.rs` sweep | says `on <Project>` | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production, so nothing sends today |
+| An agent needs you, by email | a needs-you left unanswered for 30 minutes; at most once per agent per account per day | says `on <Project>` | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production, so nothing sends today |
 
-The Settings hint that the phone switch "may also send you an email" is not true while that flag is off.
-
-Sound: the default sound on every kind. Grouping: none yet (each notification stands alone).
+If that flag is turned on after kosmos#6488 makes the master switch on by default, every connected computer becomes
+eligible for this email, including people who never set up a phone.
 
 ## Proposed (Josh, 2026-10-18)
+Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
+for a project.
+
+On a phone these fall into the notification's two lines, the bold title and the text under it. Split that way:
 
 | Event | Title | Body | Status |
 |---|---|---|---|
-| Direct message from an agent | `<Agent>` | `<message>`, shortened | proposed |
-| Project post | `<Agent> in <Project>` | `<message>`, shortened | proposed |
+| Direct message from an agent | `<Agent> said` | `<message>`, shortened | proposed |
+| Project post | `<Agent> commented in <Project>` | `<message>`, shortened | proposed |
 
-Josh's wording: "<Agent> said <message>" for a direct message and "<Agent> commented in <Project>: <message>" for a
-project.
+**This puts the words of a message on the lock screen.** Today those words never leave the computer, so it needs a
+decision before it is built. Three ways:
+1. The computer sends the text with the event. Simplest, but the words then pass through the coordinator and Apple.
+2. The phone fetches the text from the computer itself when the notification arrives, so the coordinator and Apple
+   still carry only "something happened". On an iPhone that is a notification service extension; on Android and the
+   browser, the web-push worker fetches before it shows the notification. If the computer is asleep or offline, the
+   plain notification above shows instead. More to build.
+3. Keep today's no-words notifications and only change their wording.
 
-**This puts the words of a message on the lock screen, and through the coordinator and Apple, which today never
-see them.** Three ways to do it, to decide before it is built:
-1. The computer sends the text with the event. The simplest, but the words leave the computer for the coordinator and
-   Apple.
-2. The iPhone fetches the text itself when the notification arrives (a notification service extension), so the
-   coordinator and Apple still carry only "something happened". The words stay between the computer and the phone,
-   at the cost of more to build.
-3. Keep today's no-words notifications and only improve their wording.
+Recommended: option 2. The call is Josh's.
+
+## Where the code lives
+The computer side: `engine/phonenotify.js` (kinds, switches, how often), called from `server.js`. The words:
+kosmos-relay `coordinator/src/apns.rs` (`payload`, and the test notice in `operator_test`) and
+`coordinator/src/sw.js`; this repo's `web/sw.js` also builds notification words, though no phone push reaches it today
+(phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
+(`agent_needs_you_words`), sent by the `notify.rs` sweep.
