@@ -642,6 +642,9 @@ const SCREENS = [
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-tasklist .tkcard-built', { state: 'visible', timeout: 15000 });
+    // On a phone the Tasks column is below the room: bring the built card into the shot.
+    await page.evaluate(() => document.querySelector('#pj-tasklist .tkcard-built').closest('.tkcard').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(300);
   }, after: async (page, data) => {
     await page.evaluate((id) => fetch('/api/project/' + encodeURIComponent(id) + '/task/1/built', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clear: true }) }), data.projectId);
   } },
