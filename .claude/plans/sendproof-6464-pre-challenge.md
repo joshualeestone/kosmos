@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: sendproof-6464
-diff_hash: 5c712f9601b1e6ae2525de712486e27c65543a37545627d258f31bace18c0760
+diff_hash: c1efcf98e8d50da588feff94539ea72aeae702f5cacc267483720f6ba8dbf213
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T10:12:12Z
@@ -35,3 +35,5 @@ The full suite runs in PR CI.
 ### Iteration 2 (sonnet)
 - No BLOCKER or WARNING findings.
 - [NIT] the damaged-install arm's regex also matched other refusals (FIXED: pins its own sentence)
+
+CI fix 05:22: suite (node) was red on 1 of 21814, the #3628 guard (my connect harness checked a bare variable, not .code). Respelled; #3628 + cli.board-proof 25/25.
