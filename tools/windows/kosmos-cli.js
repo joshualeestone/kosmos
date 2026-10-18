@@ -2216,7 +2216,8 @@ async function verbHandoff(ctx, args) {
   try {
     text = handoff.render({ session: ctx.env.KOSMOS_AGENT_SESSION || '', cwd: process.cwd(), artifacts: args, now: Date.now() });
   } catch (e) {
-    ctx.err('kosmos handoff: could not gather the handoff facts (' + String((e && e.message) || e) + ')');
+    const why = String((e && e.message) || e).split('\n')[0];   // one line, as the Mac entry's firstLine keeps it
+    ctx.err('kosmos handoff: could not gather the handoff facts (' + why + ')');
     return 1;
   }
   for (const l of String(text).replace(/\n$/, '').split('\n')) ctx.out(l);

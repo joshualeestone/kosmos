@@ -83,6 +83,17 @@ test('#6506 axis 4: a repository with no commits yet says so, not an error', () 
   assert.match(handoff.gitFact(d), /no commits yet$/);
 });
 
+test('#6506 axis 4: a detached HEAD is said as detached, with the sha', () => {
+  const d = tmp('kosmos-handoff-detached-');
+  initRepo(d);
+  fs.writeFileSync(path.join(d, 'f.txt'), 'x');
+  git(d, ['add', '.']);
+  git(d, ['commit', '-q', '-m', 'first']);
+  const sha = execFileSync('git', ['-C', d, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  git(d, ['checkout', '-q', sha]);   // detach HEAD onto the commit
+  assert.match(handoff.gitFact(d), /^detached HEAD at `[0-9a-f]{40}`, clean$/, handoff.gitFact(d));
+});
+
 // ── axis 5: artifact fingerprints ───────────────────────────────────────────
 
 test('#6506 axis 5: fingerprint is sha256 for a file, honest for a directory/missing path, and keeps a path with spaces intact', () => {
@@ -96,10 +107,11 @@ test('#6506 axis 5: fingerprint is sha256 for a file, honest for a directory/mis
 
 // ── axis 2: the live state, never defaulting to idle ────────────────────────
 
-test('#6506 axis 2: a never-reported agent reads "never reported", not idle', () => {
+test('#6506 axis 2: a never-reported agent reads "never reported", not idle, and not doubled', () => {
   const session = 'handoffnever';
   assert.match(handoff.stateFact(session), /^never reported/, 'absence must not render as a state');
   assert.doesNotMatch(handoff.stateFact(session), /\bidle\b/, 'a missing report must never read as idle');
+  assert.doesNotMatch(handoff.stateFact(session), /never reported \(it has never reported\)/, 'the never-reported phrase must not double');
 });
 
 test('#6506 axis 2: a recorded self-report renders its state', () => {
