@@ -7743,8 +7743,8 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
    opens on it). */
 @media (max-width: 40rem) { #rolesel { font-size: 16px; } }   /* the New Agent phone layout's breakpoint */
 .dmnone { font-size: .875rem; color: var(--k-ink-2); margin: 0; }
-/* #6479: "Nothing back yet." says nothing the working line under it does not, so it steps aside while that line
-   shows the agent working. Keyed on the slot's own state (paintBusy sets it), so an auth failure in the same slot
+/* #6479: "Nothing back yet." steps aside while the line under it shows the agent working, so the thread ends on
+   one line rather than two. Keyed on the slot's own state (paintBusy sets it), so an auth failure in the same slot
    does not hide it, and the quiet-and-not-working case it exists for is unchanged. */
 #d-sec-talk:has(#d-busy[data-state="working"]:not([hidden])) .dmquiet { display: none; }
 /* #4612: what a Muse agent answered in its own window when it never replied here. Kept in the person's own reading
