@@ -3002,6 +3002,11 @@ test('#2808 class 2: describe carries stateReportedBy onto the member, so pjMemb
   assert.equal(members.claudebot.state, 'needs_you');
   assert.equal(members.claudebot.stateReportedBy, 'agent',
     'a deliberate agent question must carry by:agent onto the member -- without it pjMember cardStOf stays attn (red) and the class-2 de-alarm never reaches the project view');
+  // #6483 review 1: both count as needing the person here, and only the agent's own question counts as a question, so
+  // the technical prompt keeps the project's red Issue.
+  const qrow = projects.list(roster).find((p) => p.id === q.id);
+  assert.equal(qrow.summary.needsYou, 2, 'CONTROL: both are about this project');
+  assert.equal(qrow.summary.needsYouQuestions, 1, '#6483: an auto (technical) prompt was counted as a calm question');
   assert.ok(members.mara && members.mara.present, 'the class-1 member resolves');
   assert.equal(members.mara.stateReportedBy, 'auto', 'a class-1 (auto) prompt must carry by:auto onto the member, so pjMember keeps it red');
 });
@@ -3105,6 +3110,13 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
   assert.deepEqual(why, { wk88: null, qq88: 'question', rl88: null, cl88: 'crash_loop' });
   assert.deepEqual(row.agents.find((m) => m.sessionName === 'rl88').needsYouQuiet, { reason: 'stuck_rate', because: 'usage' });
   assert.equal(row.summary.needsYou, 2, 'the pill counts exactly the members with a reason');
+  assert.equal(row.summary.needsYouQuestions, 1, '#6483: the question counts as a question, the crash loop does not');
+  // #6483 review 1: a question from an agent that is now crash-looping is red on its own card ("Keeps stopping"), so it
+  // is not a calm question on the project either.
+  const looping = roster.map((c) => (c.sessionName === 'qq88' ? { ...c, crashLoop: { looping: true, count: 4 } } : c));
+  const lrow = projects.list(looping).find((x) => x.id === p.id);
+  assert.equal(lrow.agents.find((m) => m.sessionName === 'qq88').needsYouHere, 'question', 'CONTROL: still counted, as its question');
+  assert.equal(lrow.summary.needsYouQuestions, 0, '#6483: a crash-looping agent\'s question made the project calm');
   // The same question names Why, not Elsewhere (#763): no reason there, and nothing counted.
   const other = projects.list(roster).find((x) => x.id === elsewhere.id);
   assert.equal(other.agents[0].needsYouHere, null);

@@ -6,7 +6,8 @@ Card: kosmos#6483 (noise pass on 0.7.56). One question showed as red five ways o
 ## Change (the card's "smallest change", both items)
 - `engine/projects.js`: the project summary gains `needsYouQuestions`, the members counted in `needsYou` whose reason
   is `'question'` AND whose report came from the agent (`stateReportedBy === 'agent'`), the same #2808 class-2 rule
-  that makes the agent card say a calm "Question".
+  that makes the agent card say a calm "Question". In the agent card's own order: a member whose restart failed or
+  that is crash-looping is red there before its question is calm, so it is not counted as a question here either.
 - `web/index.html` `pjPillOf`: when every needs-you member is such a question, the pill is the agent card's
   `{cls:'question', GLYPH.question, 'Question'}`; any other reason keeps the red Issue. A summary with no
   `needsYouQuestions` (an older board) keeps Issue. Because the card's red border keys on `pill.cls === 'attn'`, a
@@ -26,6 +27,8 @@ The Projects tab count, the "N Issue" tile and the card's red number still count
 - `web.project-question-6483.test.js` (7): Question for question-only; Issue for mixed, non-question, and an older
   summary; no claim when the roster is unreadable; the notice names one agent once, keeps names for two (CONTROL) and
   for an "also" row. Mutation: reverting either fix fails exactly its tests.
-- `engine/projects.test.js`: needsYouQuestions is 1 for an agent's question, 0 for a given-up connection and a trust wait.
+- `engine/projects.test.js`: needsYouQuestions is 1 for an agent's question; 1 of 2 beside a technical (auto) prompt on
+  the same project; 0 for a given-up connection and a trust wait; 0 for a question from a crash-looping agent. Mutation:
+  removing the by-agent check or the crash-loop check fails exactly its assertion.
 - `docs/browser-checks/render-projects-badges-4730.js`: a question-only project draws Question with "?" and no red
   card, beside a red Issue CONTROL, in grid and list.
