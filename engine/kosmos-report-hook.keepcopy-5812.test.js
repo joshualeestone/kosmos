@@ -132,17 +132,25 @@ test('on Windows a UNC or device path sends nothing (the board would resolve it 
     'control: off Windows a leading // is an ordinary absolute path, as the Mac CLI sends it');
 });
 
-test('the bound main uses is 3 s: a keep call that never answers is given up at 3000 ms, not before', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
+/* #6529: the keep call's bound is what the board check leaves of 3 s, measured with Date.now (the hook's `proven`).
+   With only setTimeout mocked, any real time the check took (1 ms on a loaded runner) shrank the bound below 3000, so
+   the mocked 2999 ms tick already gave up: a flake on unrelated PRs. The clock is mocked too, so no real time counts.
+   `slowCheckMs` busy-waits inside the board check, which is the flake made certain: it fails if Date is not mocked. */
+async function boundIs3s(t, { slowCheckMs = 0 } = {}) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   let aborted = false;
   const hang = (url, init) => url.endsWith('/api/undo/keep')
     ? new Promise((resolve, reject) => { init.signal.addEventListener('abort', () => { aborted = true; reject(new Error('aborted')); }); })
     : { ok: true, status: 200, text: async () => '{"recorded":true}' };
+  // The board check, run inside the window `proven` times with Date.now: it spends real time, as a loaded runner does.
+  const proveBoard = slowCheckMs > 0
+    ? async () => { const until = performance.now() + slowCheckMs; while (performance.now() < until) { /* real time */ } return { ok: true }; }
+    : undefined;
   const rec = recorder(hang);
   let done = false;
   const p = hook.main({ input: JSON.stringify(pre('Edit', { file_path: 'C:\\w\\agent\\n.md' })), env: { KOSMOS_AGENT_TOKEN: 'ab12' },
     url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl: rec.fetchImpl, throttleDir: path.join(TMP, 'mt'), ppid: 9,
-    now: () => 1000, stdout: () => {}, platform: 'win32' }).then(() => { done = true; });
+    now: () => 1000, stdout: () => {}, platform: 'win32', proveBoard }).then(() => { done = true; });
   const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
   await settle();
   assert.equal(keeps(rec.calls).length, 1, 'the keep call went out');
@@ -153,4 +161,9 @@ test('the bound main uses is 3 s: a keep call that never answers is given up at 
   t.mock.timers.tick(10000); await settle();
   await p;
   assert.equal(done, true);
-});
+}
+
+test('the bound main uses is 3 s: a keep call that never answers is given up at 3000 ms, not before', (t) => boundIs3s(t));
+
+test('#6529: a board check that takes real time does not shorten the mocked 3 s bound (the CI flake, made certain)',
+  (t) => boundIs3s(t, { slowCheckMs: 15 }));
