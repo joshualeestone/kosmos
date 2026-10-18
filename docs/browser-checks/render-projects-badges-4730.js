@@ -172,12 +172,14 @@ function ok(name, cond, detail) {
         paintProjects();
         const read = (id) => { const r = list.querySelector('.pj-row[data-project="' + id + '"]'); const pill = r && r.querySelector('.pjpill');
           return r ? { attn: r.classList.contains('attn'), border: getComputedStyle(r).borderTopColor, pill: pill ? pill.textContent.trim() : null,
+            // The label without its glyph (the "?" and "!" glyphs are text too).
+            label: pill ? [...pill.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim() : null,
             ask: !!(pill && pill.querySelector('.ask')), haz: !!(pill && pill.querySelector('.haz')),
             pillBorder: pill ? getComputedStyle(pill).borderTopColor : null } : null; };
         return { ask: read('q-ask'), issue: read('r-issue') };
       }, view);
-      ok(`${t} ${view}: #6483 a question-only project says Question with the "?" glyph`, !!q.ask && q.ask.pill === 'Question' && q.ask.ask && !q.ask.haz, JSON.stringify(q.ask));
-      ok(`${t} ${view}: #6483 CONTROL a project with a real need still says Issue, red`, !!q.issue && q.issue.pill === 'Issue' && q.issue.attn && q.issue.haz, JSON.stringify(q.issue));
+      ok(`${t} ${view}: #6483 a question-only project says Question with the "?" glyph`, !!q.ask && q.ask.label === 'Question' && q.ask.ask && !q.ask.haz, JSON.stringify(q.ask));
+      ok(`${t} ${view}: #6483 CONTROL a project with a real need still says Issue, red`, !!q.issue && q.issue.label === 'Issue' && q.issue.attn && q.issue.haz, JSON.stringify(q.issue));
       ok(`${t} ${view}: #6483 the question project is not red (no attn, its border is not the Issue card's)`,
         !!q.ask && !!q.issue && !q.ask.attn && (view === 'list' || q.ask.border !== q.issue.border), JSON.stringify({ ask: q.ask && q.ask.border, issue: q.issue && q.issue.border }));
       if (view === 'grid') ok(`${t} grid: #6483 the Question pill does not wear the Issue pill's red border`, !!q.ask && !!q.issue && q.ask.pillBorder !== q.issue.pillBorder,
