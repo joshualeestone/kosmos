@@ -111,7 +111,8 @@ record and its seller name cannot be undone, which is why item 2 is Josh's decis
 the key at `/etc/kosmos-coordinator/apns.p8`), and **`KOSMOS_PUSH` is not set at all**. So Steps 3 and 8 happen as one
 deploy: APNs sends for real from that deploy on, as web push already did. Nothing reaches a phone until the phone
 registers (the TestFlight app, signed in) and its computer's Phone notifications switch is on. The board's lock is open
-since 0.7.54 (`PHONE_APP_CAN_RECEIVE`, #4220). The rest of this step is the earlier plan, kept for the record.
+since 0.7.54 (`PHONE_APP_CAN_RECEIVE`, #4220). Deployed 2026-10-17 20:33 CDT as relay main `56d980fe`; the measured
+record is on #3763. The rest of this step is the earlier plan, kept for the record.
 
 **Turns on after:** the coordinator deploy in Step 3. A Mac release or APK
 cannot supply these server settings.
