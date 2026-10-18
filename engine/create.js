@@ -1744,7 +1744,10 @@ function setAccount(name, dir, opts) {
     }
   }
 
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass, onboarding, imports };
+  /* #6231 item 8: report the configDir this write committed (as the job will read it back,
+     `job.configDir || null`) so the account-move START path can cache the per-agent `to` read
+     instead of forcing an uncached /Query. The Claude default writes null; a named account its dir. */
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.isDefault ? null : acct.dir, trust, bypass, onboarding, imports };
 }
 
 /**
@@ -1915,7 +1918,10 @@ function setCodexAccount(clean, spoken, dir, job, platform) {
     try { trustCodexFolder(workerDir(clean), homeArg, homeArg === null); }
     catch { trust = { ok: false, because: 'we could not let the OpenAI runner work in its folder' }; }
   }
-  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
+  /* #6231 item 8: report the configDir written (homeArg) so account-move can cache the `to` read.
+     This is the override-aware value: a default Codex account with CODEX_HOME in force writes a
+     concrete dir, not null, so the cache must use exactly what was written, not `isDefault ? null`. */
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: homeArg, trust };
 }
 
 /**
@@ -1959,7 +1965,8 @@ function setGeminiAccount(clean, spoken, dir, job, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'gemini',
   }, platform);
   if (unwritten) return unwritten;
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir };
 }
 
 /**
@@ -2000,7 +2007,8 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
     try { store.writeProfile(clean, { qwenAccount: before }); } catch { /* the job did not move, so Repair finds it */ }
     return unwritten;
   }
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written (acct.dir; Qwen has no default) so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir: acct.dir };
 }
 
 function setGrokAccount(clean, spoken, dir, job, platform) {
@@ -2020,7 +2028,8 @@ function setGrokAccount(clean, spoken, dir, job, platform) {
     runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir, runner: 'grok',
   }, platform);
   if (unwritten) return unwritten;
-  return { outcome: OUTCOME.CREATED, because: null, account: acct };
+  // #6231 item 8: report the configDir written so account-move can cache the `to` read.
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, configDir };
 }
 
 /**

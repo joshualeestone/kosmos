@@ -147,17 +147,16 @@ function start(body, deps) {
     try { return { ok: true, dir: deps.readAccount(name) }; } catch { return { ok: false }; }
   };
   /* #6231 item 8: the `to` read used to be a second readNow(name) right after setAccount, which
-     busts the task-spec cache, so it forced one uncached schtasks /Query per agent. The job reads
-     its account back as exactly what setAccount just wrote, so take it from wrote.account instead
-     of the wire. Normalize as readAccount does (`job.configDir || null`): configDir is written as
-     isDefault ? null : dir. Reusing the DIR unconditionally would break a move to the DEFAULT
-     account, where readAccount reads null at put-back time while to.dir stayed a dir, so the stop
-     clobber guard (now !== a.to.dir) would fire on every stop and skip every put-back. Fall back
-     to a live read if the write did not carry an account, so a malformed write is not papered over. */
+     busts the task-spec cache, so it forced one uncached schtasks /Query per agent. setAccount now
+     reports the configDir it actually wrote, and the job reads that back as `job.configDir || null`,
+     so cache that directly. It matches readAccount for EVERY runner, including a Codex default with
+     CODEX_HOME in force, which writes a concrete dir rather than null (where an `isDefault ? null`
+     shortcut would diverge and make the put-back clobber guard misfire). Fall back to a live read
+     when a write did not report configDir, so correctness never depends on every setAccount path
+     having been updated: an unreported path simply keeps the old live read, not a wrong value. */
   const savedTo = (wrote, name) => {
-    const acct = wrote && wrote.account;
-    if (!acct) return readNow(name);
-    return { ok: true, dir: acct.isDefault ? null : (acct.dir || null) };
+    if (wrote && 'configDir' in wrote) return { ok: true, dir: wrote.configDir || null };
+    return readNow(name);
   };
   for (const name of names) {
     /* #6190: an agent a restart still holds is refused before its account is written, not after (the write used to land

@@ -42,8 +42,9 @@ function deps({ saved = {}, putBackRefuses = [], unreadable = [], slow = [] } = 
     hold: (ns) => ns.forEach((n) => held.add(n)),
     release: (n) => held.delete(n),
     /* A move to '/acct/default' models the default account: setAccount writes its job configDir as null (readAccount then
-       reads back null, i.e. `job.configDir || null`) while the returned account still carries a concrete dir plus isDefault. */
-    setAccount: (n, dir) => { const isDefault = dir === '/acct/default'; saved[n] = isDefault ? null : dir; return { outcome: 'changed', account: { email: names[dir], dir, isDefault } }; },
+       reads back null, i.e. `job.configDir || null`) while the returned account still carries a concrete dir plus isDefault.
+       setAccount REPORTS the configDir it wrote (#6231 item 8); the engine caches that value for the per-agent `to` read. */
+    setAccount: (n, dir) => { const isDefault = dir === '/acct/default'; const configDir = isDefault ? null : dir; saved[n] = configDir; return { outcome: 'changed', configDir, account: { email: names[dir], dir, isDefault } }; },
     readAccount: (n) => { if (unreadable.includes(n)) throw new Error('unreadable'); return n in saved ? saved[n] : null; },
     /* The async put-back the move's tail awaits. A `slow` agent's put-back parks until the test settles it. */
     putBackAsync: (n, dir) => {
@@ -113,11 +114,11 @@ test('#6231 item 8: a move TO the default account still puts the not-reached age
   d.pending.get('bo')({ outcome: RESTARTED, steps: [] });
   await out.done;
 
-  /* The cached `to` for cy and di is the default account: setAccount reports { isDefault: true, dir: '/acct/default' }, and
-     savedTo normalizes that to null, exactly what readAccount returns for the default. So at put-back now (null) === a.to.dir
-     (null): the clobber guard passes and both are put back to their old account. Had `to` cached the resolved dir instead,
-     now !== a.to.dir would be (null !== '/acct/default') on every stop, falsely reading "changed since" and skipping every
-     put-back. That is the item-8 trap this test guards. */
+  /* The cached `to` for cy and di comes from the configDir setAccount reported: null for this default account, exactly what
+     readAccount returns (`job.configDir || null`). So at put-back now (null) === a.to.dir (null): the clobber guard passes
+     and both are put back to their old account. Had `to` cached the resolved account dir instead, now !== a.to.dir would be
+     (null !== '/acct/default') on every stop, falsely reading "changed since" and skipping every put-back. That is the
+     item-8 trap this test guards. */
   assert.deepEqual(d.putBacks, [['cy', '/acct/old'], ['di', '/acct/old']], 'the not-reached agents are put back, not skipped as "changed since"');
   assert.equal(d.saved.cy, '/acct/old');
   assert.equal(d.saved.di, '/acct/old');
@@ -125,6 +126,50 @@ test('#6231 item 8: a move TO the default account still puts the not-reached age
 
   const end = accountmove.read(out.body.id);
   assert.deepEqual(end.agents.map((a) => [a.name, a.outcome]), [['al', 'changed'], ['bo', 'changed'], ['cy', 'stopped'], ['di', 'stopped']]);
+});
+
+test('#6231 item 8 (Codex/CODEX_HOME trap): a move to a DEFAULT account that still writes a CONCRETE configDir puts the not-reached agents back; the cache uses the written configDir, not `isDefault ? null`', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old' } });
+  /* Model a Codex agent moved to its default account WITH CODEX_HOME in force: create.setCodexAccount writes
+     configDir = acct.isDefault && !codexHomeOverridden() ? null : acct.dir, so the DEFAULT here writes a CONCRETE dir,
+     not null, and readAccount reads that concrete dir back. setAccount reports exactly that written configDir. */
+  const CODEX_HOME = '/acct/codexhome';
+  d.setAccount = (n) => { d.saved[n] = CODEX_HOME; return { outcome: 'changed', configDir: CODEX_HOME, account: { email: 'codex-default@example.com', dir: CODEX_HOME, isDefault: true } }; };
+  const out = accountmove.start({ dir: '/acct/codexdefault', names: ['al', 'bo', 'cy'] }, d);
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick();
+  const s = accountmove.stop();
+  assert.equal(s.body.stopped, true);
+  assert.equal(d.saved.al, CODEX_HOME, 'al was moved: its job reads back the concrete CODEX_HOME, not null');
+
+  d.pending.get('bo')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+
+  /* cy was not reached. Its cached `to.dir` is the written configDir (CODEX_HOME), which equals readAccount at put-back,
+     so now === a.to.dir and cy is put back. An `isDefault ? null` shortcut would cache null, and null !== CODEX_HOME would
+     falsely read "changed since" and skip the put-back -- exactly the Codex-override trap. */
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old']], 'the not-reached Codex-default agent is put back, not skipped as "changed since"');
+  assert.equal(d.saved.cy, '/acct/old');
+  assert.deepEqual(d.noted, [], 'no spurious leftOnOld note');
+});
+
+test('#6231 item 8: when setAccount reports no configDir, the `to` read falls back to the live readAccount, so an unupdated path keeps correct put-back behavior', async () => {
+  const d = deps({ saved: { al: '/acct/old', bo: '/acct/old', cy: '/acct/old' } });
+  /* A setAccount that reports NO configDir (an older/unupdated runner path). savedTo must fall back to readNow(name),
+     i.e. the live readAccount, so the put-back clobber guard still has a correct `to` to compare against. */
+  d.setAccount = (n, dir) => { d.saved[n] = dir; return { outcome: 'changed', account: { email: 'x@example.com' } }; };
+  const out = accountmove.start({ dir: '/acct/new', names: ['al', 'bo', 'cy'] }, d);
+  d.pending.get('al')({ outcome: RESTARTED, steps: [] });
+  await tick();
+  accountmove.stop();
+  d.pending.get('bo')({ outcome: RESTARTED, steps: [] });
+  await out.done;
+
+  /* cy not reached: its `to` came from the live read (readAccount right after the move = '/acct/new'), which still equals
+     readAccount at put-back, so the guard passes and cy is put back. Had the fallback returned {ok:false}, the readiness
+     gate would skip the put-back instead. */
+  assert.deepEqual(d.putBacks, [['cy', '/acct/old']], 'the not-reached agent is put back via the live-read fallback');
+  assert.equal(d.saved.cy, '/acct/old');
 });
 
 test('#6214 (Liu Kang m5659): an account changed by hand since the move saved it is kept, not put back', async () => {
