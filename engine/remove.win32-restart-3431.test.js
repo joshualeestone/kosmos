@@ -369,3 +369,35 @@ test('#6183 win32stop.endSteps: nothing running under the name is the end state,
     stop.setLive(null);
   }
 });
+
+test('#6243 win32stop.endSteps: a taskkill that EXITS 128 ("already gone") reads as success on the async arm; the exit code survives win32StepResult', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(() => false);   // the look-again confirms it is gone
+  try {
+    /* stderr is deliberately NON-matching (no "not found" / "no running instance") so this isolates the
+       EXIT-CODE branch of finishKill: gone can only come from r.code === 128. If win32StepResult dropped the
+       code, gone would be false and the kill would wrongly read as a failure. */
+    const r = driveWin32(stop.endSteps('a'), (exec) => {
+      assert.equal(exec[0], 'taskkill.exe');
+      return { ok: false, code: 128, stderr: 'ERROR: the operation could not be completed.' };
+    });
+    assert.equal(r.ret.ok, true, 'exit 128 is "already gone", a success, not a failed kill');
+    assert.equal(r.sent.length, 1, 'exactly one taskkill is yielded');
+  } finally {
+    stop.setLive(null); stop.setAlive(null);
+  }
+});
+
+test('#6243 win32stop.endSteps: a taskkill whose TEXT says "no running instance" reads as already gone on the async arm; stderr survives win32StepResult', () => {
+  stop.setLive(() => new Map([['a', { sessionId: 's1', pid: 4242 }]]));
+  stop.setAlive(() => false);
+  try {
+    /* code is 1 (NOT 128), so gone can only come from the message branch, which reads r.out. That proves
+       win32StepResult maps the failure's stderr into `out`; if it did not, out would be empty and the kill
+       would wrongly read as a failure. */
+    const r = driveWin32(stop.endSteps('a'), () => ({ ok: false, code: 1, stderr: 'INFO: No running instance of the task is running.' }));
+    assert.equal(r.ret.ok, true, 'the "no running instance" text is treated as already gone');
+  } finally {
+    stop.setLive(null); stop.setAlive(null);
+  }
+});
