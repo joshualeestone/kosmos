@@ -692,7 +692,7 @@ function readStatusRecord() {
   if (!s) return null;
   if (s.code === 0) return null;   // a success seeds nothing: success is the board coming back changed
   // #6468 ask 3: 97 is run-setup's "not run": the installer did not match its signed release (or could not be checked).
-  if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed', log: installLog() };
+  if (s.code === 97) return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the update could not be checked against its signed release, so nothing was installed. Try again in a few minutes', log: installLog() };
   return { startedAt: s.startedAt, endedAt: s.endedAt, code: s.code, because: 'the installer stopped before it could restart the board', log: installLog() };
 }
 /* #1728. A surviving start marker (see markInstallStarted) means the attempt
@@ -942,7 +942,7 @@ function wireChild(child, opts) {
   child.on('exit', (code) => {
     /* 🛑 #988: THE CLEAR IS OUTSIDE THE `realCode !== 0` BRANCH, DELIBERATELY, AND AN
        EARLIER VERSION HAD IT INSIDE. The spawned shell is
-       `curl … | sh; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi`,
+       `"$5" "$6" run-setup …; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi` (curl | sh before #6468),
        so THE CHILD'S EXIT STATUS IS THE TRAILING `if`, NOT THE INSTALLER'S.
        Measured: an installer exiting 7 records "7" in the status file and the
        child still exits 0. So the child `code` is 0 on ordinary failures, and a
@@ -1166,14 +1166,14 @@ function beginInstall(opts) {
      and a real Mac board falls through to the spawn below. */
   if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
   // The URL travels as a positional parameter, never interpolated into the
-  // one command in this product that ends in `| sh`; and KOSMOS_RELEASE_BASE
+  // command that runs the installer (run-setup, #6468; it used to end in `| sh`); and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
   // script came from (the app's env override and the installer's default
   // could otherwise split-brain a staging deployment).
   /* The exit code and the start stamp land in install.status whatever
      happens to this server; the file is the only witness a failed update
      leaves for the next board. Positional parameters, never interpolated
-     into the one command in this product that ends in `| sh`. */
+     into the command that runs the installer. */
   const statusFile = installStatusFile() || '/dev/null';
   /* #1728: the shell removes the in-flight marker (written by wireChild) when
      the attempt finishes -- whichever way the pipeline exited, since the tail of
@@ -1234,7 +1234,7 @@ function beginInstall(opts) {
        better than a green run that curled a remote script into sh. In production
        it WARNS and we return without spawning, leaving the update un-started
        rather than half-started. */
-    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'curl | sh (installer)']);
+    liveExec.refuseOrWarn('engine/update.js', '/bin/sh', ['-c', 'run-setup (installer)']);
     return;
   }
   /* #6468 ask 3: never `curl | sh` any more. THIS (installed) copy's node and engine/manifest-verify.js download the

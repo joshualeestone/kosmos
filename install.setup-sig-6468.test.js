@@ -116,5 +116,5 @@ test('the build records setup_sha256 from install/setup.sh in the manifest it si
 });
 test('the board words exit 97 as "could not be checked", not as a crash', () => {
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'update.js'), 'utf8');
-  assert.match(src, /if \(s\.code === 97\) return \{[^}]*because: 'the update could not be checked against its signed release, so nothing was installed'/);
+  assert.match(src, /if \(s\.code === 97\) return \{[^}]*because: 'the update could not be checked against its signed release, so nothing was installed\. Try again in a few minutes'/);
 });
