@@ -65514,7 +65514,15 @@ function tskPaint() {
          a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
          decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
       if (!ts.length && !unknown) return '';
-      const head = '<h3><span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>' + esc(g.l) + '<span class="count">' + (unknown ? '?' : ts.length) + '</span></h3><p class="why">' + esc(unknown ? TSK_DECISION_UNKNOWN : g.why) + '</p>';
+      /* #6482 (Josh's clean-up theme, #3949: less text we can do without): an ordinary group is its heading and
+         count only. Its explanation is the same on every visit, so it is the heading's hover text and, for a screen
+         reader, a hidden description, not a visible paragraph. The cannot-tell decision group keeps its line in view:
+         that one is a warning about now, not an explanation. */
+      const dot = '<span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>';
+      const head = unknown
+        ? '<h3>' + dot + esc(g.l) + '<span class="count">?</span></h3><p class="why">' + esc(TSK_DECISION_UNKNOWN) + '</p>'
+        : '<h3 title="' + esc(g.why) + '" aria-describedby="tsk-why-' + g.k + '">' + dot + esc(g.l) + '<span class="count">' + ts.length + '</span></h3>'
+          + '<span class="vh" id="tsk-why-' + g.k + '">' + esc(g.why) + '</span>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
