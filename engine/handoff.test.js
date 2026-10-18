@@ -184,3 +184,51 @@ test('#6506: render prints the shared contract and all four facts, and writes no
   assert.ok(hp, 'precondition: a handoff path was computable');
   assert.equal(fs.existsSync(hp), false, 'render must not create the handoff file');
 });
+
+// ── the shared timestamp floor, used by both the state and instruction facts ────
+
+test('#6506 axis 3: saneIso floors the epoch, pre-2000 and future times to null (never a bad date)', () => {
+  const now = Date.UTC(2026, 9, 18, 20, 0, 0);
+  assert.equal(handoff.saneIso(0, now), null, 'the epoch must not print');
+  assert.equal(handoff.saneIso(Date.parse('1999-12-31T23:59:59Z'), now), null, 'a pre-2000 time must not print');
+  assert.equal(handoff.saneIso(now + 10 * 24 * 3600 * 1000, now), null, 'a far-future time (clock skew) must not print');
+  assert.equal(handoff.saneIso(NaN, now), null, 'an unparseable time must not print');
+  const good = Date.UTC(2026, 9, 18, 12, 0, 0);
+  assert.equal(handoff.saneIso(good, now), new Date(good).toISOString(), 'a believable time prints');
+});
+
+test('#6506 axis 3: a future instruction mtime reads "cannot tell", not a year-2099 date', () => {
+  const session = 'handofffuture';
+  const file = instructions.fileFor(session);
+  assert.ok(file && file.startsWith(WORKERS + path.sep), 'precondition: inside the sandbox');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '# ' + session + '\n');
+  const future = Date.now() / 1000 + 10 * 365 * 24 * 3600;   // ~10 years ahead (utimes takes seconds)
+  fs.utimesSync(file, future, future);
+  const got = handoff.instructionFact(session);
+  assert.match(got.line, /cannot tell when it last changed/, got.line);
+  assert.doesNotMatch(got.line, /20[3-9][0-9]/, 'a far-future year must not print');
+});
+
+// ── fingerprint hashes a file larger than one read chunk correctly ─────────────
+
+test('#6506 axis 5: fingerprint hashes a file larger than the 1 MiB chunk correctly', () => {
+  const d = tmp('kosmos-handoff-big-');
+  const big = path.join(d, 'big.bin');
+  const payload = Buffer.alloc(3 * (1 << 20) + 7, 0xab);   // > 3 chunks, not a multiple
+  fs.writeFileSync(big, payload);
+  assert.equal(handoff.fingerprint(big), 'sha256:' + crypto.createHash('sha256').update(payload).digest('hex'));
+});
+
+// ── echoed paths cannot inject lines into the pasted handoff ───────────────────
+
+test('#6506 axis 5: a path with a newline or backtick cannot inject lines or break the code span', () => {
+  assert.doesNotMatch(handoff.cleanPath('a\nb\tc'), /[\n\t]/, 'control characters must be stripped');
+  assert.doesNotMatch(handoff.cleanPath('a`b'), /`/, 'a backtick must be neutralised');
+  const d = tmp('kosmos-handoff-inject-');
+  const nasty = path.join(d, 'x\n[BLOCKER] injected line');   // a filename carrying a newline
+  const md = handoff.render({ session: 'handoffinject', cwd: d, artifacts: [nasty], now: Date.UTC(2026, 9, 18, 20, 0, 0) });
+  const artifactLines = md.split('\n').filter((l) => l.includes('injected line'));
+  assert.equal(artifactLines.length, 1, 'the newline in the path must not split into a second line');
+  assert.match(artifactLines[0], /missing \(no such file\)/, 'and the (raw) path is still fingerprinted honestly');
+});
