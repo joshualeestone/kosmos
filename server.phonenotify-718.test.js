@@ -737,3 +737,93 @@ test('#6488: an off that could not be saved is not kept for later either', async
   const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
   assert.equal(fs.existsSync(CHOICE), false, 'an off the person was told failed was kept for after a reconnect');
 });
+
+/* #6488 review 3: the person acting while a default mint is still out. turnOff and setKind wait for it, so the person's
+   choice is the last word. */
+async function withHeldDefaultMint(during) {
+  const gate = path.join(SANDBOX, 'default-gate');
+  fs.rmSync(gate, { force: true });
+  process.env.AGENT_WORKFORCE_TUNNEL_BIN = tunnelScript('default-gated-tunnel', `${LOG_CALL}\n${WAIT_GATE(gate)}\nprintf '{"token":"${MINTED}"}\\n'`);
+  process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS = '90000';
+  try {
+    const def = phonenotify.ensureDefaultOn();
+    // Wait until the mint is really out (the tunnel has logged its call), then act, then let it answer.
+    for (let i = 0; i < 300 && mints() === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(mints(), 1, 'premise: the default mint is out');
+    const acting = during();
+    fs.writeFileSync(gate, '');
+    await def;
+    return await acting;
+  } finally {
+    fs.writeFileSync(gate, '');
+    process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL;
+    delete process.env.AGENT_WORKFORCE_MAC_REQUEST_TIMEOUT_MS;
+  }
+}
+
+test('#6488: turning off while the default mint is out ends off, and the off is kept', async () => {
+  enrol();
+  const r = await withHeldDefaultMint(() => phonenotify.turnOff());
+  assert.equal(r.ok, true);
+  assert.equal(phonenotify.readState().on, false, 'the default mint landed on over the person\'s off');
+  assert.equal(phonenotify.masterChoice(), 'off');
+  assert.ok(fs.existsSync(path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json')), 'the off was not kept');
+  assert.equal(mints(), 1, 'more than one mint');
+});
+
+test('#6488: a sub-switch set while the default mint is out is kept, and it ends on', async () => {
+  enrol();
+  const r = await withHeldDefaultMint(() => phonenotify.setKind('replied', false));
+  assert.equal(r.ok, true);
+  const st = phonenotify.readState();
+  assert.equal(st.on, true);
+  assert.equal(st.kinds.replied, false, 'the default mint lost the sub-switch set during it');
+  assert.equal(mints(), 1);
+});
+
+test('#6488: a refusal made before anything was sent does not lengthen the wait, and the raw reason is logged once', async () => {
+  enrol();
+  const waits = []; const runs = [];
+  const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
+  const realWrite = process.stderr.write;
+  const logged = [];
+  // A turn-on as the busy computer answers it (remote.macRequest's notSent refusal), then as a coordinator refusal.
+  let answer = { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.', detail: 'this computer is busy signing in', notSent: true };
+  process.stderr.write = (s) => { if (String(s).startsWith('phonenotify:')) logged.push(String(s)); return true; };
+  try {
+    const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure: async () => answer });
+    await ctl.whenIdle();
+    for (let i = 0; i < 3; i++) { runs.shift()(); await ctl.whenIdle(); }
+    assert.deepEqual(waits, Array(4).fill(phonenotify.DEFAULT_ON_EVERY_MS), 'a not-sent refusal lengthened the wait');
+    assert.deepEqual(logged, ['phonenotify: could not turn phone notifications on by default: this computer is busy signing in\n']);
+    answer = { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.', detail: 'coordinator: 403 mac not allowed' };
+    runs.shift()(); await ctl.whenIdle();
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 2, 'a real refusal did not lengthen the wait');
+    assert.match(logged.at(-1), /403 mac not allowed/, 'the raw reason was not logged');
+    ctl.stop();
+  } finally { process.stderr.write = realWrite; }
+});
+
+test('#6488: the wait goes back to short when this computer connects', async () => {
+  const waits = []; const runs = [];
+  const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
+  // Connected: the coordinator refuses. Not connected: nothing to do (null), as ensureDefaultOn answers.
+  const ensure = async () => (require('./engine/remote').enrolled() ? { ok: false, because: 'x', detail: 'coordinator refused' } : null);
+  const realWrite = process.stderr.write;
+  process.stderr.write = () => true;
+  try {
+    enrol();
+    const ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule, ensure });
+    await ctl.whenIdle();
+    runs.shift()(); await ctl.whenIdle();
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS * 4, 'premise: the wait grew');
+    unenrol();                                   // removed: nothing to do, short wait
+    runs.shift()(); await ctl.whenIdle();
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
+    // Grow it again, then connect: the first tick after the change starts short.
+    enrol();
+    runs.shift()(); await ctl.whenIdle();
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS, 'connecting did not reset the wait');
+    ctl.stop();
+  } finally { process.stderr.write = realWrite; }
+});

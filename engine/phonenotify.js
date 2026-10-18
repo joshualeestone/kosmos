@@ -88,7 +88,10 @@ const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry ol
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
 // from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
-// It holds only { off: true }: no token. Written by turnOff, removed by a turn-on.
+// It holds only { off: true }: no token. Written by turnOff, removed by a turn-on. It belongs to this computer (this
+// data folder), not to a Kosmos+ account: a different person connecting it later keeps the earlier off. If removing
+// it after a turn-on fails, it is left behind: still 'on' now (on wins), and after a reconnect it reads as off, the
+// safe direction.
 const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choice.json');
 function choiceSaysOff() {
   try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
@@ -233,7 +236,10 @@ async function doTurnOn({ quiet } = {}) {
     }
     // The raw reason goes to the board's log; the person gets a sentence.
     if (!quiet) process.stderr.write('phonenotify: turning on failed: ' + String(minted.because || '') + '\n');
-    return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.' };
+    // #6488: `detail` (the raw reason, for the default path's log, never shown to the person) and `notSent` (refused
+    // on this computer before anything was sent, so the default path does not back off for it).
+    return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.',
+      detail: String(minted.because || ''), notSent: minted.notSent === true };
   }
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use' };
@@ -291,39 +297,50 @@ async function ensureDefaultOn() {
 
 /** #6488: run ensureDefaultOn now, then again after DEFAULT_ON_EVERY_MS, so a computer connected later is turned on
     without a restart. A failed turn-on waits twice as long each time, up to DEFAULT_ON_MAX_MS, and back to the
-    short wait once there is nothing to do; one that failed after its mint succeeded (`minted`) stops until the next
-    restart, because each retry would replace the token at the coordinator. A failure is logged once per reason.
+    short wait once there is nothing to do, or when this computer's connection changes; a refusal made on this
+    computer before anything was sent (`notSent`: busy signing in or being removed) does not lengthen the wait. One
+    that failed after its mint succeeded (`minted`) stops until the next restart, because each retry would replace
+    the token at the coordinator. A failure is logged once per reason, with the raw reason (`detail`).
     Real startup only (server.js). Returns { stop } for tests. */
 const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
 const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;
-function startDefaultOn({ schedule = setTimeout } = {}) {
+function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}) {   // both injectable for tests
   let lastBecause = null;
   let wait = DEFAULT_ON_EVERY_MS;
   let stopped = false;
   let timer = null;
   let inFlight = Promise.resolve();
+  let wasConnected = null;
   const next = () => {
     if (stopped) return;
     timer = schedule(tick, wait);
     if (timer && typeof timer.unref === 'function') timer.unref();
   };
-  function tick() {
-    inFlight = ensureDefaultOn().then((r) => {
-      if (r && r.ok === true) {
-        process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
-        wait = DEFAULT_ON_EVERY_MS; lastBecause = null;
-      } else if (r && r.ok === false) {
-        if (r.because !== lastBecause) {
-          lastBecause = r.because;
-          process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + String(r.because) + '\n');
-        }
-        if (r.minted === true) { stopped = true; return; }
-        wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
-      } else {
-        wait = DEFAULT_ON_EVERY_MS;
+  function handle(r) {
+    let connected = null;
+    try { connected = remote.enrolled() === true; } catch { /* unknown: no reset */ }
+    const changed = connected !== null && wasConnected !== null && connected !== wasConnected;
+    if (changed) wait = DEFAULT_ON_EVERY_MS;   // a first failure right after connecting retries soon
+    if (connected !== null) wasConnected = connected;
+    if (r && r.ok === true) {
+      process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
+      wait = DEFAULT_ON_EVERY_MS; lastBecause = null;
+    } else if (r && r.ok === false) {
+      const why = String(r.detail || r.because);
+      if (why !== lastBecause) {
+        lastBecause = why;
+        process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + why + '\n');
       }
-      next();
-    }, () => { next(); });
+      if (r.minted === true) { stopped = true; return; }
+      if (r.notSent !== true && !changed) wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
+    } else {
+      wait = DEFAULT_ON_EVERY_MS;
+    }
+  }
+  function tick() {
+    // One handler for every outcome, and a failure inside it never ends the schedule.
+    inFlight = Promise.resolve().then(() => ensure()).then((r) => { try { handle(r); } catch { /* next() still runs */ } }, () => {})
+      .then(() => { try { next(); } catch { /* a schedule that cannot be set ends here */ } });
   }
   tick();
   return {
