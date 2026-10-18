@@ -4,7 +4,7 @@ Card: kosmos#6514 (found in the 0.7.57 noise read, Settings > Advanced).
 
 ## Finished looks like
 On Settings > Advanced, the "Save diagnostics" button sits on one line with no underline, at desktop and phone sizes,
-in light and dark, like every other `.btn-quiet` on the page. The Updates "Download" link gets the same look.
+in light and dark, like every other `.btn-quiet` on the page. (The Updates "Download" link already had its own one-line, no-underline rule at #upd-download; here it only gains the phone wrap.)
 
 ## Cause
 `#diag-save` and `#upd-download` are `<a class="btn-quiet">` (they download or open a page). `.btn-quiet` was written
