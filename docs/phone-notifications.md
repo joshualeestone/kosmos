@@ -12,8 +12,9 @@ for an iPhone and through web push for Android and the browser.
 
 **Phone notifications are off until the person turns them on**: Settings, "Buzz my phone about my agents", Turn on.
 That switch is off by default today; kosmos#6488 changes it. Once it is on, a notification goes out only when the kind's
-own switch is on, this computer is connected to Kosmos+, and a phone or browser is signed in and this computer has allowed it. A computer still
-waiting to be allowed, or a phone that was denied, gets nothing.
+own switch is on, this computer is connected to Kosmos+, a phone or browser is signed in, and this computer has approved that phone
+(one waiting for this computer's approval gets nothing, and so does one that was denied). Nothing gets through from a
+computer not yet allowed onto the person's Kosmos+ account: the coordinator refuses it.
 
 ## Wording (the plain templates, to ship)
 Short and plain: the title says who and what; the body names the project, and is left out when there is none
@@ -32,8 +33,8 @@ no project (now no body).
 **Not yet in force.** The words are built in three places, and they must be changed to match this table: the
 coordinator's iPhone builder, the coordinator's web-push worker, and this repo's `web/sw.js`. Ice Cream Kitty makes that
 change after kosmos#6488, with tests that keep all three equal to this table. No test reads this page yet. The test
-notice (`Kosmos has something for you`, body `in Kosmos`) goes through the same wording code with no project, so the
-change must keep its body on purpose (or it loses it); the
+notice (`Kosmos has something for you`, body `in Kosmos`) goes through the same wording code with no project; it keeps `in Kosmos` as a deliberate exception to the
+no-project, no-body rule, which the change must code in; the
 email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is not a notification.
 
 ## Shipped today
@@ -43,9 +44,9 @@ email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is no
 | An agent needs you (its report) | an agent's report changes to needing the person | `<Agent> needs you` | `on <Project>`, or `in Kosmos` | When an agent needs me, on | at most once per agent per 5 minutes |
 | An agent needs you (keeps crashing) | 3 runs of an agent end on their own within 30 minutes, each lasting 2 minutes or less; restarts Kosmos makes itself do not count (told once per loop) | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent needs you (stuck) | an agent's sign-in has been expired for 15 minutes, or a usage limit has held it for 30 minutes | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
-| An agent needs you (a helper gave up) | one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
+| An agent needs you (a helper gave up) | about a minute after one of the agent's helpers gives up (a quota resume, an idle nudge, or the first-reply reminder); not while the agent already shows needs-you | `<Agent> needs you` | `in Kosmos` | When an agent needs me, on | once per episode, and at most once per agent per 5 minutes |
 | An agent answered you | an agent writes to the person in its direct chat (whether or not the person wrote first) | `<Agent> replied` | `in Kosmos` (a reply carries no project) | When an agent answers me, on | every reply |
-| An agent replied to your post | an agent's project post answers a post the person wrote, sent with the agent's own token | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
+| An agent replied to your post | an agent's project post is a reply to one of the person's own posts (it carries the reply link), sent with the agent's own token | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When an agent replies to a post of mine, on | at most once per agent per 5 minutes |
 | Any other agent post in a room (not a reply to the person's post) | an agent posts in any project room with its own token (the code does not check that the person is in it, though the switch's label says "I am on") | `<Agent> posted` | `on <Project>`, or `in Kosmos` | When anyone posts in a project room I am on, off | at most once per room per 10 minutes |
 | Work ready for you | an agent (not the person) marks a task built, when that changes the task | `<Agent> has work ready for you` | `on <Project>`, or `in Kosmos` | When work is ready for my check, on | at most once per agent per 5 minutes |
 | Test notice | the operator sends a test from the coordinator (iPhone only; a tap opens nothing) | `Kosmos has something for you` | `in Kosmos` | none (operator only) | on demand |
@@ -53,7 +54,7 @@ email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is no
 The four "needs you" rows share ONE 5-minute window per agent: a needs-you that lands inside the window of an earlier
 one from the same agent is not sent at all (it is dropped, not delayed), and a crash, stuck or helper notice dropped
 this way is not tried again for that episode. (One exception today, kosmos#6495: the crash notice keys the agent by a cleaned-up name, so
-for an agent whose session name has anything but lowercase letters, digits, `-` and `_` it has its own window.) 
+for an agent whose session name has anything but lowercase letters, digits, `-` and `_` it has its own window.)
 
 The other windows are separate: "work ready" and "replied to your post" each have their own 5 minutes per agent, so one
 agent can buzz once for each inside the same 5 minutes. Restarting Kosmos clears the windows. It also restarts the stuck and helper clocks, so those
@@ -75,7 +76,7 @@ to a post of mine" switch; it does not fall back to the room switch when that on
 
 An event of any other kind from a computer cannot reach a phone: the computer and the coordinator both refuse a kind they do not know.
 
-Sound: the default sound on every kind. Grouping: none yet; each notification stands alone.
+Sound: the default sound on iPhone; on Android and the browser, whatever the device does. Grouping: none yet; each notification stands alone.
 
 ## Built, not on
 
