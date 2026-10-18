@@ -71,7 +71,7 @@ else
 fi
 
 # wait_port_free: the old one returns at once and leaves the listener; the new one reaches its kill pass.
-# The new one waits out its full first loop (30 x 0.5 s) before the kill pass, so this arm takes about 15 s.
+# The new one waits out its full first loop (30 x 0.5 s) before the kill pass, so this arm takes 15 to 25 s, depending on load (an lsof per pass).
 if old_wait_port_free && kill -0 "$LPID" 2>/dev/null; then
   ok "CONTROL: the old wait_port_free calls it free at once and leaves the listener running"
 else
