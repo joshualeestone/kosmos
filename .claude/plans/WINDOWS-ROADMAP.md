@@ -68,6 +68,8 @@ below for history.
 - **DUNS filed for a new entity → Azure code-signing** (removes the SmartScreen warning;
   addresses #3015). Signing has landed: setup.ps1 checks the signer on a fresh install, and
   since updater-sig-win-1765 the in-app updater checks it too (win32update.js B4, the same pins).
+  Since win-inplace-acl-1765 the launcher refuses to run from a folder outside the profile
+  that other people on the PC can change (KosmosLauncher.cs UnsafeRunFolderReason).
 
 ## The one-line state (2026-09-12, ~16:00 UTC)
 
