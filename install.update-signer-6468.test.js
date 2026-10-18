@@ -144,6 +144,25 @@ real('REAL INSTALL: the same app re-signed ad-hoc (no release key) is refused', 
   execFileSync('/usr/bin/codesign', ['--force', '--deep', '-s', '-', path.join(stage, 'app', 'Kosmos.app')], { stdio: 'ignore' });
   const r = check(stage, realTree());
   assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /Kosmos\.app is not signed by the same developer/);
+  assert.doesNotMatch(r.out, /reinstall|uninstall/, 'a refusal must not point at the way around it');
+});
+
+it('an unsigned (local) installed part is not held to a signer, and is named', () => {
+  const dest = tree('/bin/ls', '/bin/cat');
+  fs.writeFileSync(path.join(dest, 'app/bin/kosmos-tunnel'), '#!/bin/sh\n', { mode: 0o755 });
+  const r = check(tree('/bin/ls', '/bin/ls'), dest);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /not signed for release: app\/bin\/kosmos-tunnel\)/);
+});
+
+it('a symlinked installed part is named as not held, not skipped silently', () => {
+  const dest = tree('/bin/ls', null);
+  fs.mkdirSync(path.join(dest, 'app/bin'), { recursive: true });
+  fs.symlinkSync('/bin/cat', path.join(dest, 'app/bin/kosmos-tunnel'));
+  const r = check(tree('/bin/ls', '/bin/cat'), dest);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /not signed for release: app\/bin\/kosmos-tunnel\)/);
 });
 
 it('an install whose PATH contains the word adhoc is still held to its signer', () => {
