@@ -779,6 +779,19 @@ function chk(ok, label, extra) {
         chk(unknown.num === '?' && unknown.n === 'unknown' && !unknown.red && unknown.redBadge === false && unknown.bgSame && /cannot tell/.test(unknown.label) && unknown.after === '1'
           && unknown.headCount === '?' && unknown.headRedDot === false && /cannot tell/.test(unknown.why),
           `${tag} with the agents unreadable, Needs Your Decision says it cannot tell (not 0, not red)`, JSON.stringify(unknown));
+        /* #6482: an ordinary group is its heading and count only. Its explanation is the heading's hover text and a
+           hidden description a screen reader reads, never a visible paragraph (the cannot-tell line above stays). */
+        const quiet = await page.evaluate(() => {
+          TSK.rosterUnknown = false; tskPaint();
+          return [...document.querySelectorAll('#tsk-groups .tsk-grp:not([data-unknown])')].filter((g) => g.querySelector(':scope > h3')).map((g) => {
+            const h = g.querySelector(':scope > h3'); const id = h.getAttribute('aria-describedby'); const d = id && document.getElementById(id);
+            const r = d && d.getBoundingClientRect();
+            return { head: h.textContent, title: h.getAttribute('title') || '', desc: d ? d.textContent : null,
+              hidden: !!r && r.width <= 1 && r.height <= 1, paras: g.querySelectorAll(':scope > p.why').length };
+          });
+        });
+        chk(quiet.length >= 2 && quiet.every((q) => q.paras === 0 && q.title.length > 10 && q.desc === q.title && q.hidden),
+          `${tag} #6482: each ordinary group shows only its heading and count; its explanation is hover text and a hidden description`, JSON.stringify(quiet));
         /* #4053 (Josh picked option C, then taller; approved v2 mock): every tile has a 36px round tinted badge with a
            19px line icon beside its number, the label below it 10px on, 16px 16px 15px padding and one shared height
            (at least 108px). Needs Your Decision with a count (Max's 1, restored above) is red: badge, and a red-tinted
