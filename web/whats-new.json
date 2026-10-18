@@ -1,5 +1,5 @@
 {
-  "version": "0.7.55",
+  "version": "0.7.56",
   "highlights": [
     {
       "icon": "shield",
@@ -20,14 +20,14 @@
       "line": "Paused projects and agents out of usage no longer mark a project as an Issue, and every row in a project's needs-you list can be dismissed."
     },
     {
+      "icon": "tasks",
+      "title": "An agent marking a task built tells the others",
+      "line": "When an agent marks a task built, Kosmos now tells the task's other agents and whoever holds the task above it."
+    },
+    {
       "icon": "swarm",
       "title": "A team map for each project",
       "line": "In the Separate tabs view, a project's Members card has a Team map: who reports to whom, what each member holds, who handed work to whom."
-    },
-    {
-      "icon": "tasks",
-      "title": "Agents are told how to finish a task",
-      "line": "An agent that reports on a task it holds, with kosmos task message, is now told how to mark that task done."
     }
   ]
 }

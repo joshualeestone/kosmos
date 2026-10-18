@@ -309,6 +309,10 @@ test('an agent out of usage is not typed into: its line is kept (#5805), and an 
     const zed = r.json.delivered.find((d) => d.agent === 'zed');
     assert.equal(zed.state, messages.HELD_STATE, 'the limited agent was not kept: ' + JSON.stringify(zed));
     assert.equal(limitqueue.list('zed').length, 1, 'nothing kept for zed');
+    // #6359: kept as the built notice, and the marker is not told not to send again what it could not send again.
+    assert.equal(limitqueue.list('zed')[0].built, true, 'the kept line lost its built mark: ' + JSON.stringify(limitqueue.list('zed')));
+    assert.match(r.json.summary, /Kept, not typed yet: zed /, r.json.summary);
+    assert.doesNotMatch(r.json.summary, /Do not send it again/, r.json.summary);
     // CONTROL: the idle assignee on the same task was typed into.
     assert.equal(r.json.delivered.find((d) => d.agent === 'ivy').state, 'placed', JSON.stringify(r.json));
     assert.equal(pastedMessages(sends).length, 1, 'only ivy is typed into: ' + JSON.stringify(pastedMessages(sends)));

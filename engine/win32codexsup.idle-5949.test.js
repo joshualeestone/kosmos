@@ -159,6 +159,8 @@ test('#5949 a sender that throws or rejects never stops the supervisor', async (
 test('#5949 the REAL default sender posts an automatic idle to /api/report with the run token (child process, fake board)', async () => {
   const got = [];
   const board = http.createServer((req, res) => {
+    // #1765: the sender checks the board holds the run's token before sending it; this board does.
+    if (require('../test-support/proof-listener-1765').answerProof(req, res, ['abc123'])) return;
     let body = '';
     req.on('data', (d) => { body += d; });
     req.on('end', () => {

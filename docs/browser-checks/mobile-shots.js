@@ -191,8 +191,9 @@ const newLook = async (page) => {
 /* #4594: the consolidated view without writing it. The page reads its layout from GET /api/style (paintStyles, also
    on later polls), so a page-only applyLayout was undone mid-shot; saving it with PUT /api/style would change the
    one board every later screen of this run is shot on. So the READ is stubbed in this screen's own context (gone
-   with it) to say consolidated, and the page reloads. Screens that call this set noServiceWorker. */
-async function openConsAgents(page) {
+   with it) to say consolidated (stubConsolidatedStyle), and openConsAgents reloads the page. Screens that stub it set
+   noServiceWorker. */
+async function stubConsolidatedStyle(page) {
   /* #6027: this handler waits before it answers, so the answer can land after the browser closed; inside the try,
      its late rejection is caught instead of crashing the check after it passed. */
   await page.route('**/api/style', async (r) => {
@@ -205,6 +206,9 @@ async function openConsAgents(page) {
       return await r.fulfill({ response: resp, json: { ...j, layout: 'consolidated' } });
     } catch { await r.abort().catch(() => {}); }
   });
+}
+async function openConsAgents(page) {
+  await stubConsolidatedStyle(page);
   // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (a run with
   // MSHOTS_TABLET_LAYOUT=tabs would otherwise keep these screens on tabs).
   await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
@@ -534,58 +538,6 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
-  /* #5314: the "Last community post" line on agent cards, which the throwaway board cannot show on
-     its own (the community switch is off, so every card is the switch-off case). This screen STUBS
-     /api/status (gone with it, via `after`) to set the rendered fields directly on a few agents, so
-     it shows how the line LOOKS at desktop and phone; it does NOT exercise the server reader (the
-     unit tests cover that). Seeds the four states the card shows: a post today, one a few days ago, one
-     that never posted, and a held-only agent, which shows "No community posts yet" (the string the
-     published-only reader produces, since a held post is not published). The held-only and
-     never-posted seeds are the same rendered string by design. */
-  { name: 'community-card-5314', owner: 'Kano', noServiceWorker: true, go: async (page) => {
-    const now = Date.now();
-    const iso = (d) => new Date(now - d * 86400000).toISOString();
-    const seed = [
-      { communityOn: true, lastCommunityPost: 'Last community post: today', lastCommunityPostAt: iso(0) },
-      { communityOn: true, lastCommunityPost: 'Last community post: 3 days ago', lastCommunityPostAt: iso(3) },
-      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
-      { communityOn: true, lastCommunityPost: 'No community posts yet', lastCommunityPostAt: null },
-    ];
-    /* #6022: a poll can be in flight when the check closes the browser; inside the try, its late rejection is caught
-       (and a real failure mid-check aborts the request, so it fails fast), instead of crashing the check after it passed. */
-    await page.route('**/api/status', async (route) => {
-      try {
-        const res = await route.fetch();
-        const d = await res.json();
-        if (Array.isArray(d.agents)) d.agents.forEach((a, i) => { if (seed[i]) Object.assign(a, seed[i]); });
-        await route.fulfill({ response: res, body: JSON.stringify(d), headers: { ...res.headers(), 'content-type': 'application/json' } });
-      } catch { await route.abort().catch(() => {}); }
-    });
-    await at(page, '');
-    // The default board view already shows the .acard agents grid (like the agents-list and
-    // allow-card screens, which use .acard with no tab switch), so no openTab here.
-    await page.waitForSelector('.acard .acommunity', { state: 'visible', timeout: 12000 });
-    // The shot is viewport-only (no fullPage, see the capture at page.screenshot below), and the
-    // community line sits at the BOTTOM of each card, below the fold at every phone width. The
-    // first 16 shots framed only the top of the screen and never showed the line (Sonya's m4641).
-    // Scroll the first line (the "today" card) to the middle of the viewport so the shot frames it;
-    // the verify below asserts it actually landed in view, so a re-render that reset scroll fails
-    // the shot loudly instead of silently producing a line-less image.
-    await page.$eval('.acard .acommunity', (el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }));
-    await page.waitForTimeout(400);
-  }, after: async (page) => { await page.unroute('**/api/status').catch(() => {}); },
-  verify: async (page) => {
-    const texts = await page.$$eval('.acard .acommunity', (els) => els.map((e) => e.textContent.trim()));
-    if (!texts.some((t) => t === 'Last community post: today')) throw new Error('community-card-5314: the "today" line did not render: ' + JSON.stringify(texts));
-    if (!texts.some((t) => t === 'No community posts yet')) throw new Error('community-card-5314: the "No community posts yet" line did not render: ' + JSON.stringify(texts));
-    // A shot is only useful if the line is in the CAPTURED viewport, not merely in the DOM below the
-    // fold (m4641). Assert the first .acommunity is wholly within the viewport the screenshot took.
-    const seen = await page.$eval('.acard .acommunity', (el) => {
-      const r = el.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom, h: window.innerHeight, ok: r.top >= 0 && r.bottom <= window.innerHeight };
-    });
-    if (!seen.ok) throw new Error('community-card-5314: the community line is not within the captured viewport (top ' + Math.round(seen.top) + ', bottom ' + Math.round(seen.bottom) + ', viewport height ' + seen.h + '); the shot would not show it');
-  } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
@@ -881,11 +833,11 @@ const SCREENS = [
   }, after: async (page) => { await page.unroute('**/api/community/ready'); } },
   /* #4794: the computer waiting to be allowed shows the same code and "The codes match". */
   { name: 'plus-join', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await joinWaiting(page); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Check it shows this same code/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Type this code there, then press Allow/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
-  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads, the code steps back. */
+  /* kosmos#6314: the same waiting computer after "The codes match": the next action leads; #6404: the code stays large (it is typed there). */
   { name: 'plus-join-matched', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await joinWaiting(page, true); await at(page, '?tab=settings&sec=plus');
-    await page.waitForFunction(() => /Now press Allow on homemac, your other computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
+    await page.waitForFunction(() => /Waiting for homemac, your other computer, to allow this computer/.test((document.getElementById('plus-join') || {}).innerText || ''), null, { timeout: 10000 });
   } },
   /* kosmos#6353: the same waiting computer after its code ran out: nothing restarts by itself, so it offers Try again. */
   { name: 'plus-join-retry', owner: 'Angel', noServiceWorker: true, go: async (page) => { await joinWaiting(page, false, true); await at(page, '?tab=settings&sec=plus');
@@ -934,6 +886,7 @@ const SCREENS = [
   }, after: async (page) => { await plusSigningInEnd(page); await page.unroute('**/api/remote/computer-name'); } },
   { name: 'connect-connected', owner: 'PigeonPete', noServiceWorker: true, go: async (page) => { await connectPending(page); await at(page, '?tab=settings&sec=plus');
     await page.waitForSelector('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]', { state: 'visible', timeout: 8000 });
+    await page.fill('#askcode-d-sample-pc', '482 915');   // #6404: the code typed from the joining computer
     await page.click('#plus-ask-rows [data-ask="allow"][data-id="d-sample-pc"]');
     await page.waitForFunction(() => /windowsbox is connected\./.test((document.getElementById('plus-ask-rows') || {}).innerText || ''), null, { timeout: 8000 });
   } },
@@ -1089,6 +1042,28 @@ const SCREENS = [
   { name: 'org-chart', owner: 'unowned', go: async (page) => {
     await page.click('button.vt[data-layout="org"]');
     await page.waitForSelector('button.vt[data-layout="org"][aria-pressed="true"]', { timeout: 5000 });
+  } },
+  /* kosmos#6349: the consolidated rail's project notice, capped and with more below, so its bottom fades. Grown from
+     copies of the notice's own row (no invented markup) until it outruns the cap; the layout is applied, not saved, and
+     every screen starts on a freshly loaded board; the style read is stubbed (stubConsolidatedStyle). Desktop only: the consolidated view exists at >= 960px. */
+  { name: 'rail-notice-more', owner: 'Angel', desktopOnly: true, noServiceWorker: true, go: async (page, data) => {
+    await stubConsolidatedStyle(page);   // a later style read says consolidated too, so it cannot undo the layout mid-shot
+    // #6107: on a sideways tablet the tablet's own choice wins over the board's, so it says one screen too (as openConsAgents).
+    await page.evaluate(() => { try { localStorage.setItem('kosmos-tablet-layout', 'consolidated'); } catch { /* storage refused */ } });
+    await openTab(page, 'projects');
+    await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+    await page.evaluate(() => applyLayout('consolidated', true));
+    await page.waitForFunction(() => { const b = document.getElementById('alist-pj-notice'); return !!(b && b.querySelector('.pnotice')); }, null, { timeout: 8000 });
+    await page.evaluate(() => {
+      const box = document.getElementById('alist-pj-notice'), row = box.querySelector('.pnotice');
+      box.setAttribute('aria-live', 'off');
+      for (let n = 0; n < 30 && box.scrollHeight <= box.clientHeight * 1.6; n++) box.appendChild(row.cloneNode(true));
+    });
+    await page.waitForFunction(() => document.getElementById('alist-pj-notice').hasAttribute('data-more'), null, { timeout: 5000 });
+  }, verify: async (page) => {   // at the shot: still the consolidated layout, still faded
+    const ok = await page.evaluate(() => document.documentElement.getAttribute('data-layout') === 'consolidated'
+      && document.getElementById('alist-pj-notice').hasAttribute('data-more'));
+    if (!ok) throw new Error('rail-notice-more: the shot is not of a faded rail notice in the consolidated layout');
   } },
   /* #4594: the consolidated view's Agents column and its Grid / Org chart segmented control. The
      consolidated view exists only at >= 960px, so these are desktop-only. */
@@ -1637,7 +1612,13 @@ const SCREENS = [
      lines out again, as the #5752 screen above does. */
   { name: 'project-room-held-5800', owner: 'Angel', go: async (page, data) => {
     const storeRoot = require(path.join(REPO, 'engine', 'store')).ROOT;
-    const cap = require(path.join(REPO, 'engine', 'limits')).caps().roomArrivalsPerWindow;
+    /* #6420: the room's budget scales with its size (engine/messages.js roomCap), so the seed fills THIS project's
+       budget, sized as the room route and the valve size it (messages.roomRecipientsOf). */
+    const msgs = require(path.join(REPO, 'engine', 'messages'));
+    const proj = require(path.join(REPO, 'engine', 'projects')).readAll().find((x) => x && x.id === data.projectId);
+    if (!proj) throw new Error('#6420: the seeded project ' + data.projectId + ' is not in the registry, so its budget cannot be read');
+    const size = msgs.roomRecipientsOf(proj.agents);
+    const cap = msgs.roomCap(require(path.join(REPO, 'engine', 'limits')).caps(), size);
     const to = Array.from({ length: cap }, (_, i) => 'member' + (i + 1));
     const ago = (min) => new Date(Date.now() - min * 60 * 1000).toISOString();
     data.heldLines = [
@@ -1648,6 +1629,8 @@ const SCREENS = [
         stopped: true, at: ago(4) }),
     ];
     fs.appendFileSync(path.join(storeRoot, 'messages.jsonl'), data.heldLines.join('\n') + '\n');
+    // The premise, checked here rather than read off a later timeout: the room reads held at its own size.
+    if (!msgs.roomHeld(data.projectId, Date.now(), size)) throw new Error('#6420: the seed did not hold the room at its own budget (' + cap + ')');
     await openTab(page, 'projects');
     await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
     await page.waitForSelector('#pj-held [data-reopen-room]', { state: 'visible', timeout: 10000 });
@@ -1891,14 +1874,14 @@ DATA_SETS.marketing = {
        limitFor (status.js), so the reading is the one a real card would carry. A codex row carries the window codex
        reports; a gemini row says its window is assumed, as the engine's own Gemini reader does; a muse row carries
        no reading at all, because Kosmos does not read Muse's memory yet (status.js, the Muse pane's context). */
-    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000, postedDaysAgo: 1 },
-    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000, postedDaysAgo: 0 },
-    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000, postedDaysAgo: 0 },
-    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000, postedDaysAgo: 3 },
-    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000, postedDaysAgo: 0 },
-    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true, postedDaysAgo: 2 },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
-    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000, postedDaysAgo: 1 },
-    ravi: { runner: 'muse', postedDaysAgo: 5 },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
+    cleo: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 305000 },
+    dana: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 590000 },
+    eli: { modelName: 'GPT 5.2', runner: 'codex', tokens: 84000, ceiling: 400000 },
+    farah: { model: 'claude-haiku-5-5', modelName: 'Claude Haiku 5.5', tokens: 110000 },
+    maya: { model: 'claude-sonnet-5-5', modelName: 'Claude Sonnet 5.5', tokens: 485000 },
+    theo: { modelName: 'Gemini 3 Pro', runner: 'gemini', tokens: 140000, ceiling: 1048576, assumed: true },   // the engine's assumed Gemini window (status.js GEMINI_TEXT_WINDOW)
+    iris: { model: 'claude-opus-5-5', modelName: 'Claude Opus 5.5', tokens: 665000 },
+    ravi: { runner: 'muse' },   // no name (modelLine says Meta Muse) and no reading: Kosmos does not read Muse's memory
   },
   commitments: {
     dana: 'Task 1 of Launch the spring catalogue: copy for pages 9 to 12, once the photos are in',
@@ -1920,20 +1903,12 @@ function busyCards(body, busy) {
     const assumed = lim ? lim.assumed : b.assumed === true;
     const raw = Math.round((b.tokens / ceiling) * 100);   // measuredResult's arithmetic: clamp the percent, flag the excess
     const percent = Math.min(100, raw);
-    // Counted as reached only when every line it asks for can show: a community line needs the community on.
-    const lineCanShow = !Number.isInteger(b.postedDaysAgo) || c.communityOn !== false;
-    if (lineCanShow) BUSY_SEEN.add(key);
+    BUSY_SEEN.add(key);
     if (b.modelName) { c.modelName = b.modelName; c.plannedModelName = b.modelName; }   // modelLine reads the planned one on a stopped card
     // A Muse card with no model of its own says "Meta Muse" (modelLine's fallback); the sandbox's seeded Claude model
     // must not stand in for it.
     else if (b.runner === 'muse') { c.modelName = null; c.plannedModelName = null; }
     if (b.runner) c.runner = b.runner;   // modelLine names a codex agent's model without the Claude prefix
-    if (Number.isInteger(b.postedDaysAgo) && c.communityOn !== false) {
-      // The server's own wording for the card's community line (server.js, lastCommunityPost).
-      const d = b.postedDaysAgo;
-      c.lastCommunityPost = 'Last community post: ' + (d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago');
-      c.lastCommunityPostAt = new Date(Date.now() - d * 86400000).toISOString();
-    }
     c.context = b.runner === 'muse'
       ? { tokens: null, percent: null, confidence: 'none', notYet: false, because: 'Kosmos does not read how full Muse\u2019s memory is yet' }
       : { tokens: b.tokens, percent, overCeiling: raw > 100, notYet: false, ceiling, ceilingAssumed: assumed,
@@ -2704,7 +2679,7 @@ async function run() {
   if (errors) { console.error(`FAIL  mobile-shots: ${errors} shot(s) could not be taken; see the ERROR lines above`); return 2; }
   /* #6051: a busy agent no status read ever matched would have shot as "Not yet read" without a word: fail instead. */
   const unmatched = DATA.busy && rows.some((r) => !r.skipped) ? Object.keys(DATA.busy).filter((k) => !BUSY_SEEN.has(k)) : [];
-  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them, or their community line could not show because the community is off); those cards are not as the busy table says'); return 2; }
+  if (unmatched.length) { console.error('FAIL  mobile-shots: the busy table never reached ' + unmatched.join(', ') + ' (no status card matched them); those cards are not as the busy table says'); return 2; }
   if (args.strict && overflowCount) { console.error(`FAIL  mobile-shots: ${overflowCount} shot(s) overflow sideways; see the FLAG lines above`); return 1; }
   return 0;
 }

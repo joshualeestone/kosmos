@@ -779,7 +779,11 @@ const BUILT_NOTE_MAX = 300;
 /* Thrown inside projects.mutate's callback to leave the store unwritten (review round 15: mutate writes the whole
    store even when the callback changes nothing, so a looping repeat mark rewrote it on every call). */
 const NO_WRITE = Symbol('no write');
-const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote'];
+const BUILT_FIELDS = ['builtAt', 'builtBy', 'builtByPerson', 'builtWho', 'builtFreesAll', 'builtNote', 'builtFingerprint',
+  'builtFingerprintBy'];
+/* #6330 slice 2: a built mark can carry the deliverable's fingerprint, so the next agent can check it has the exact
+   thing delivered. The CLI hashes the file; the board only checks the shape (the algorithm is named in the value). */
+const FINGERPRINT_RE = /^sha256:[0-9a-f]{64}$/;
 function withoutBuilt(t) {
   if (!t || !BUILT_FIELDS.some((k) => k in t)) return t;
   const rest = { ...t };
@@ -798,12 +802,20 @@ function withoutBuilt(t) {
  *   builtFreesAll          the person marked it: the Assigner frees every agent on it. Not an unnamed caller
  *                          (review round 11: that gave a caller that would not name itself more power than one that
  *                          did); an unnamed mark frees nobody, and the person can free them from the screen
- * The same mark again (same marker, same note) records nothing (`changed: false`). `refusePersonMark` refuses a
+ *   builtFingerprint       (#6330) the deliverable's "sha256:<hex>", from an agent's `fingerprint`
+ *   builtFingerprintBy     who sent it. Another named agent's mark without one (the checker's) and the person's mark
+ *                          keep it; the sender's own mark without one drops it, as that is a new version sent without
+ *                          its fingerprint (review 5: keeping it presented the old one as current), and so does an
+ *                          unnamed agent's (review 6). A clear drops both
+ * The same mark again (same marker, same note, same fingerprint) records nothing (`changed: false`). `refusePersonMark` refuses a
  * change to a mark the person made, checked inside the write (review round 9: it was read before it). A closed
  * task is refused: closing already cleared the mark.
  */
-function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false } = {}) {
+function setBuilt(projectId, n, { by = null, person = false, note = '', refusePersonMark = false, fingerprint = null } = {}) {
   const said = typeof note === 'string' ? note.replace(/\s+/g, ' ').trim() : '';
+  const print = fingerprint == null ? '' : fingerprint;
+  // Only a string of the shape: String() would make ['sha256:...'] one (review 1), and '' is not one (review 3).
+  if (fingerprint != null && !(typeof print === 'string' && FINGERPRINT_RE.test(print))) return { ok: false, because: 'a fingerprint is "sha256:" followed by 64 lowercase hex characters' };
   /* #5705 review 3: format characters (zero-width and the like) are not a note, so a note of only those is none. Checked
      on a copy (review 4): the stored note keeps them, as an emoji or a right-to-left name needs them. */
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
@@ -828,9 +840,17 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
          for that note, and now a bare mark is refused. The person's mark from the screen never is. After the
          person-mark refusal (review 1), so an agent hears the real answer first. */
       if (!isPerson && !saidSomething && Array.isArray(t.doneWhen) && t.doneWhen.length) { unsaid = t.doneWhen.length; throw NO_WRITE; }
-      /* The same mark again (same marker, same note) changes no field and records nothing (review round 3: a looping
+      /* The same mark again (same marker, same note, same fingerprint) changes no field and records nothing (review round 3: a looping
          agent re-marking wrote a history line each time), and writes nothing (review round 15). */
-      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said) {
+      /* #6330 slice 2: the fingerprint describes the deliverable, so another agent's mark without one (the checker's,
+         review 3) keeps it; its sender's own mark without one drops it (review 5), as above. */
+      /* The person's mark keeps it (they did not change the file); an unnamed agent's drops it, as it cannot be told
+         from an unnamed sender and a dropped fingerprint is safer than a false match (review 6: null matched null). */
+      const keep = !print && t.builtAt && t.builtFingerprint && (isPerson || (who !== null && (t.builtFingerprintBy || null) !== who));
+      const kept = print || (keep ? t.builtFingerprint : '');
+      const keptBy = print ? who : (keep ? t.builtFingerprintBy || null : null);
+      if (t.builtAt && (t.builtBy || null) === who && (t.builtByPerson === true) === isPerson && (t.builtNote || '') === said
+        && (t.builtFingerprint || '') === kept && (!print || (t.builtFingerprintBy || null) === who)) {
         same = true; changed = t; throw NO_WRITE;
       }
       const earlier = t.builtAt ? (Array.isArray(t.builtWho) ? t.builtWho : []) : [];
@@ -840,6 +860,7 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
         ...(said ? { builtNote: said } : {}),
+        ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
       };
       return { ...p, tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)) };
     });

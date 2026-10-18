@@ -69,8 +69,11 @@ function phrase(ev, nameOfMember, opts) {
        worded for an agent, the person's own message is "the person's message", as "You" is "The person" above). */
     case 'kept-sent': case 'kept-dropped': {
       const to = nameOf(ev.to) || 'an agent';
-      const subject = ev.person === true ? (agent ? 'the person\u2019s message' : 'your message') : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
-      const Subject = ev.person === true ? (agent ? 'The person\u2019s message' : 'Your message') : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      // #6359: a built notice is named as the notice (the page's words), never as a message the conversation showed.
+      const subject = ev.built === true ? (ev.from ? 'the built notice from ' + nameOf(ev.from) : 'a built notice')
+        : ev.person === true ? (agent ? 'the person\u2019s message' : 'your message') : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.built === true ? (ev.from ? 'The built notice from ' + nameOf(ev.from) : 'A built notice')
+        : ev.person === true ? (agent ? 'The person\u2019s message' : 'Your message') : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
       const behind = ev.behind === true;
       if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
         + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';

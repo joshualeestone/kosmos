@@ -214,6 +214,18 @@ test('#2710 parity: a post refused for any reason hands the text back (not only 
   assert.match(held.err, /here it is to send again/, 'a which-room hold keeps its own wording');
 });
 
+test('#6420 parity: a held room\'s refusal says when the limit lifts', async () => {
+  const r = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 17 } } }));
+  assert.match(r.err, /or reopened it, or in about 17 minutes, when the limit on agent posts here lifts\./);
+  assert.doesNotMatch(r.err, /about an hour/);
+  const one = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: 1 } } }));
+  assert.match(one.err, /or in about a minute, when the limit on agent posts here lifts\./);
+  for (const bad of [0, '17', 2.5, null, 60, 75]) {   // not 1 to 59 whole minutes: the old words, about an hour
+    const r2 = await run(['post', 'proj-1', 'x'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'held', clearsInMinutes: bad } } }));
+    assert.match(r2.err, /or in about an hour\./, 'clearsInMinutes ' + JSON.stringify(bad) + ' was said as a time');
+  }
+});
+
 test('#4934 parity: a loop-guard refusal (code room_held) says nothing was kept and not to send it another way', async () => {
   const r = await run(['post', 'proj-1', 'a long substantive update'], () => ({ body: { delivery: { state: 'could_not', code: 'room_held', because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.' } } }));
   assert.equal(r.code, 1);
@@ -441,6 +453,41 @@ test('#6330: task built prints the board\'s sentence about who was told; an olde
   assert.equal(older.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark.');
   const said = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true, delivered: [], summary: 'Told zed.' } }));
   assert.equal(said.out, 'Marked task 4 on proj/1 built, waiting to be released or checked. Closing it clears the mark. Told zed.');
+});
+
+test('#6330 slice 2: task built --file sends the file\'s sha256 and keeps the path out of the note; a missing file, --file with no path, and --file with --clear never reach the board', async () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'aw-builtsha-win-'));
+  try {
+    const file = path.join(dir, 'deliverable.txt');
+    fs.writeFileSync(file, 'the delivered thing\n');
+    const want = 'sha256:' + require('node:crypto').createHash('sha256').update('the delivered thing\n').digest('hex');
+    const ok = await run(['task', 'built', 'proj/1', '4', 'merged', '--file', file], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(ok.calls[0].body.fingerprint, want);
+    assert.equal(ok.calls[0].body.note, 'merged', 'the path leaked into the note');
+    const none = await run(['task', 'built', 'proj/1', '4', 'merged'], () => ({ body: { task: { number: 4 }, changed: true } }));
+    assert.equal('fingerprint' in none.calls[0].body, false, 'CONTROL: a mark without --file sent a fingerprint');
+    for (const [argv, said] of [[['--file', path.join(dir, 'missing')], /cannot read that file/], [['--file'], /--file needs the path/], [['--file', ''], /cannot read that file/], [['--clear', '--file', file], /takes no file/]]) {
+      const r = await run(['task', 'built', 'proj/1', '4', ...argv]);
+      assert.equal(r.code, 2, argv.join(' ') + ': ' + r.err);
+      assert.match(r.err, said, 'refused for another reason');
+      assert.equal(r.calls.length, 0, argv.join(' ') + ' reached the board');
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#6330 slice 2: task list prints a built task\'s fingerprint and who sent it; an unbuilt task or a bad value prints none', async () => {
+  const fp = 'sha256:' + 'a'.repeat(64);
+  const r = await run(['task', 'list', 'proj'], () => ({ body: { tasks: [
+    { number: 1, sentence: 'Ship it', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: fp, builtFingerprintBy: 'mona' },
+    { number: 2, sentence: 'Not built', builtFingerprint: fp },
+    { number: 3, sentence: 'Odd value', builtAt: '2026-10-17T00:00:00Z', builtFingerprint: 'sha256:xyz' },
+  ] } }));
+  assert.equal(r.code, 0, r.err);
+  const lines = r.out.split('\n').filter((l) => l.includes('fingerprint'));
+  assert.deepEqual(lines, ['    fingerprint ' + fp + ', sent by mona'], r.out);
 });
 
 // ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────

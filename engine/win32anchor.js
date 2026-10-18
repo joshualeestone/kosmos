@@ -92,6 +92,9 @@ const BOOT_NAME = 'supervisor-boot.js';
    change. Here, with the other anchor names, so the updater that writes them and the board's
    logon shim that reads the journal (win32board.BOOT_JS) spell them one way. */
 const UPDATE_JOURNAL_NAME = 'update-journal.json';
+/* #4382: a version a computer that connects elsewhere rolled back from, so its next automatic look does not
+   install it again (engine/win32connectupdate.js). Any finished forward update lets it go (win32apply). */
+const UPDATE_HELD_NAME = 'update-held.json';
 const UPDATE_STATUS_NAME = 'update-status.json';
 /* The updater's working folder inside the Kosmos folder (engine/win32update.js WORK), named here so
    the updater and the two places that must never treat a build inside it as the install
@@ -392,6 +395,6 @@ function readPointer(platform, home, env) {
 
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
-  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME, UPDATE_WORK_DIRNAME, bundleIsInUpdateWork,
+  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_HELD_NAME, UPDATE_STATUS_NAME, UPDATE_WORK_DIRNAME, bundleIsInUpdateWork,
   anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };

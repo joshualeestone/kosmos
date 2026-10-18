@@ -93,6 +93,39 @@ test('#4934: a loop-guard refusal (code room_held) says nothing was kept, not to
   });
 });
 
+/* #6420: the board says when the held room's limit lifts (clearsInMinutes); the CLI passes it on in place of
+   "about an hour". The test above, with no such field (an older board), is the CONTROL that the old words stay. */
+test('#6420: a held room\'s refusal says when the limit lifts', () => {
+  const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, clearsAt: '2026-10-17T19:12:00.000Z', clearsInMinutes: 17 } } } };
+  return withBoard(routes, async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await runCli(['post', 'henderson', 'the lease renews monthly'], env);
+    assert.match(out.stdout, /or reopened it, or in about 17 minutes, when the limit on agent posts here lifts\./);
+    assert.doesNotMatch(out.stdout, /about an hour/, 'the board said when the room clears, and the CLI still said an hour');
+    assert.equal(out.code, 1);
+  });
+});
+
+test('#6420: a clearsInMinutes that is not a whole number of minutes, 1 or more, keeps the old words', async () => {
+  for (const bad of ['0', '"17"', '017', '2.5', 'null', '60', '75']) {   // sixty or more: about an hour
+    const routes = { 'POST /api/post': { code: 200, body: '{"delivery":{"state":"could_not","code":"room_held","because":"held","clearsInMinutes":' + bad + '}}' } };
+    await withBoard(routes, async (port) => {
+      const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+      const out = await runCli(['post', 'henderson', 'x'], env);
+      assert.match(out.stdout, /or in about an hour\./, 'clearsInMinutes ' + bad + ' was said as a time');
+    });
+  }
+});
+
+test('#6420: one minute reads as a minute', () => {
+  const routes = { 'POST /api/post': { code: 200, body: { delivery: { state: 'could_not', code: 'room_held', because: VALVE_BECAUSE, clearsInMinutes: 1 } } } };
+  return withBoard(routes, async (port) => {
+    const env = { ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%42' };
+    const out = await runCli(['post', 'henderson', 'x'], env);
+    assert.match(out.stdout, /or in about a minute, when the limit on agent posts here lifts\./);
+  });
+});
+
 test('#2710: `kosmos room reopen <project>` clears a held room and says so', () => {
   const routes = { 'POST /api/project/henderson/room/reopen': { code: 200, body: { ok: true, at: '2026-09-10T20:00:00.000Z' } } };
   return withBoard(routes, async (port) => {

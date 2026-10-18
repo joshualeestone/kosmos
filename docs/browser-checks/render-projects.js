@@ -1290,6 +1290,102 @@ async function main() {
       contrastFails += 1;
       console.log(`  FAIL  #6347 a long rail notice: expected it capped at 40vh, scrolling in its own box and ending above the list, at this viewport and at 560px tall (${scheme}), got ${JSON.stringify(railLong)}`);
     }
+    /* #6349: with more of the notice below the box's edge, the box carries data-more and its bottom fades (a cue a Mac's
+       hidden scrollbar does not give); scrolled to the end, none. The notice may already be taller than the cap here,
+       so its starting and short-again states are read, not assumed. Set by the page's
+       own observer (railPjMore), so each step waits two frames for it rather than calling it. Copies as above, removed
+       in finally. */
+    const cue = await page.evaluate(async () => {
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      const box = document.getElementById('alist-pj-notice');
+      const row = box && box.querySelector('.pnotice');
+      if (!box || !row) return { missing: true };
+      const fade = () => { const a = getComputedStyle(box, '::after'); return a.content !== 'none' && a.content !== 'normal' && parseFloat(a.height) > 0; };
+      /* Whether more is below, measured with the cue taken off (so the cue cannot hold itself on), and the box's sizes.
+         The attribute is not observed, so taking it off for the read does not re-run the page's own reader. */
+      const truth = () => {
+        const had = box.hasAttribute('data-more');
+        if (had) box.removeAttribute('data-more');
+        const t = { below: box.scrollHeight - box.scrollTop - box.clientHeight > 2, sh: box.scrollHeight, ch: box.clientHeight, st: Math.round(box.scrollTop) };
+        if (had) box.setAttribute('data-more', '');
+        return t;
+      };
+      const step = () => ({ more: box.hasAttribute('data-more'), fade: fade(), ...truth() });
+      const live = box.getAttribute('aria-live'); box.setAttribute('aria-live', 'off');
+      const copies = [];
+      // What this arm changes besides the copies, so finally can put it back even after a throw.
+      const body = document.body, folded = body.classList.contains('fold-a'), st0 = box.scrollTop;
+      let tbEl = null, tbWas = null, tmPaint = null;   // the Team map step's button and the repaint it holds
+      try {
+        await frames();   // the arm above put the window back; the page's own readers answer on the next frame
+        const before = step();
+        do copies.push(box.appendChild(row.cloneNode(true))); while (box.scrollHeight <= innerHeight && copies.length < 60);   // at least one, so the row-grew step has a copy to grow
+        await frames();
+        const grown = { ...step(), scrolls: box.scrollHeight > box.clientHeight + 1 };
+        box.scrollTop = box.scrollHeight; await frames();
+        const atEnd = step();
+        /* The box itself shrinking with no row changing (its cap moving without a window resize): only the box's own size
+           watcher can say more is now below. */
+        box.style.maxHeight = Math.max(60, box.clientHeight - 80) + 'px'; await frames();
+        const capShrank = step();
+        box.style.maxHeight = ''; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
+        /* #6324's real cap: the Team map button showing lowers the box's cap by 52px (CSS :has), so at the end of the box
+           more is below again; hiding it gives the room back. This fixture's project already shows the button, so it is
+           hidden first and the full-cap height read then (the page's own repaint of it is held for the step). The box's
+           height must really change, or the step proves nothing. */
+        tbEl = document.getElementById('alist-teammap-btn');
+        tbWas = tbEl ? tbEl.hidden : null;
+        if (typeof window.paintRailTeamMap === 'function') { tmPaint = window.paintRailTeamMap; window.paintRailTeamMap = () => {}; }
+        if (tbEl) tbEl.hidden = true; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
+        const teamMapOff = step();   // full cap, at the end: nothing below
+        const h0 = box.clientHeight;
+        if (tbEl) tbEl.hidden = false; await frames();
+        const teamMap = { ...step(), shrank: box.clientHeight < h0 - 40 };   // the cap drops: more below at the same scroll
+        if (tbEl) tbEl.hidden = tbWas; await frames();
+        box.scrollTop = box.scrollHeight; await frames();
+        /* A row growing with no row added or removed (a font or an image settling): only the row's own size says so. */
+        const last = copies[copies.length - 1];
+        last.style.paddingBottom = '120px'; await frames();
+        const rowGrew = step();
+        last.style.paddingBottom = ''; await frames();
+        box.scrollTop = 0; await frames();
+        const backUp = step();
+        /* The fade ends in the rail's own background, so it reads as the box running on rather than a band. */
+        const rgb = /rgba?\([^)]*\)/g;
+        const ends = { img: getComputedStyle(box, '::after').backgroundImage, rail: getComputedStyle(document.getElementById('rail-agents')).backgroundColor };
+        ends.ok = /linear-gradient/.test(ends.img) && (ends.img.match(rgb) || []).pop() === ends.rail;
+        /* Grown while the agents rail is folded (the box hidden), then unfolded: nothing scrolls or repaints, so only a size
+           change (the box's or its rows') can bring the cue back. */
+        body.classList.add('fold-a'); await frames();
+        copies.push(box.appendChild(row.cloneNode(true))); await frames();
+        body.classList.toggle('fold-a', folded); await frames();
+        const unfolded = step();
+        for (const c of copies.splice(0)) c.remove(); await frames();
+        const shortAgain = step();
+        return { before, grown, atEnd, capShrank, teamMap, teamMapOff, rowGrew, backUp, ends, unfolded, shortAgain };
+      } finally {
+        for (const c of copies) c.remove();
+        if (tbEl && tbWas !== null) tbEl.hidden = tbWas;
+        if (tmPaint) window.paintRailTeamMap = tmPaint;
+        body.classList.toggle('fold-a', folded);
+        box.style.maxHeight = '';
+        box.scrollTop = st0;
+        if (live === null) box.removeAttribute('aria-live'); else box.setAttribute('aria-live', live);
+        await frames();   // the page's own readers settle the cue before the next arm reads the page
+      }
+    }).catch((e) => ({ error: String(e && e.message || e) }));   // a throw is a FAIL line, never a crash that hides the arms after it
+    /* At every step the cue (attribute and fade together) says exactly whether more is below; and the grown box really
+       scrolls, with more below at the top and none at the end, so both answers are exercised. */
+    const cueRight = (s) => s.more === s.below && s.fade === s.below;
+    if (cue.error || cue.missing || !cue.grown.scrolls || !cue.grown.below || cue.atEnd.below || !cue.backUp.below || !cue.unfolded.below || !cue.rowGrew.below || !cue.capShrank.below
+        || !cue.teamMap || !cue.teamMap.shrank || !cue.teamMap.below || cue.teamMapOff.below
+        || ![cue.before, cue.grown, cue.atEnd, cue.capShrank, cue.teamMap, cue.teamMapOff, cue.rowGrew, cue.backUp, cue.unfolded, cue.shortAgain].every(cueRight)
+        || !cue.ends.ok) {
+      contrastFails += 1;
+      console.log(`  FAIL  #6349 the capped rail notice's "more below" cue: expected the fade exactly while more of the notice is below its edge (measured with the cue off: at the start, grown, at the end, after the box shrank there, after a row grew there, scrolled back up, after the rail unfolds, short again), and ending in the rail's own background (${scheme}), got ${JSON.stringify(cue)}`);
+    }
     await page.evaluate((want) => applyLayout(want, true), layoutBefore);
     const railOff = await railRead();
     const rail = { on: railOn, off: railOff };

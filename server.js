@@ -529,6 +529,9 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
   const lineFor = (m, n) => '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' marked task ' + t.number + ' built'
     + (n ? ': "' + n + '"' : '')
     + (forParent.includes(m) ? ' (it is under your task ' + heldAt.number + ')' : '')
+    /* #6330 slice 2: the deliverable's fingerprint, so the next agent can check its copy (the board checked the shape).
+       Only when this mark sent it: a kept one under another marker's name read as theirs (review 5). */
+    + (/^sha256:[0-9a-f]{64}$/.test(t.builtFingerprint || '') && t.builtFingerprintBy === t.builtBy ? ' - fingerprint ' + t.builtFingerprint : '')
     + ' - reply in the task: kosmos task message ' + clean(projectId) + ' ' + t.number + ' "..."';
   // Every recipient at once (different panes), so the mark's answer waits for the slowest line, not the sum of them.
   // One deadline for the whole answer, taken before any recipient's checks run, so their time comes out of it.
@@ -540,7 +543,7 @@ async function tellBuiltMark(projectId, t, by, byKey, roster, admit) {
       if (!member(m)) return { agent: m, state: chat.DELIVERY.COULD_NOT, because: m + ' is not on this project any more, so it was not told' };
       const line = lineFor(m, note);
       outcome = messages.keepTaskLine(m, line, roster, String(by || ''), 'task ' + t.number + ' in ' + projName,
-        { projectId, task: t.number, person: false });
+        { projectId, task: t.number, person: false, kind: 'built' });   // #6359: said as the built notice when kept
       if (!outcome) {
         /* A pane with a typing backlog must not hold the mark's answer past the CLI's 15 s: every line waits only until
            the one deadline set before any recipient's checks ran; past it the line is still queued and typed, and is said
@@ -977,6 +980,7 @@ const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on c
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const handoffRestart = require('./engine/handoff-restart'); // #3492: "write a handoff, then restart" prompts + freshness gate
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
+const boardproof = require('./engine/boardproof'); // #1765: prove this board holds a client's token before the client sends it
 /* #1946: whether this board enforces the board token, and the token, resolved at
    start() (real boot) rather than at require -- ensureToken() writes a file, and a
    bare `require('./server')` in a unit test must not touch the real store. The
@@ -1064,6 +1068,54 @@ function snapshotWorlds() {
   KNOWN_WORLD_TOKENS = m;
 }
 function knowWorld(id) { if (KNOWN_WORLD_TOKENS && typeof id === 'string' && !KNOWN_WORLD_TOKENS.has(id)) KNOWN_WORLD_TOKENS.set(id, null); }
+/* #1765: the agent tokens for a board proof, by key id. Cached, because the route needs no token and any local
+   process can ask it for random key ids. A key id already in the map is answered from it without looking at the
+   folder; a key id not in it rereads the token files only when the token folder's signature (proofTokenFilesSig,
+   one stat) changed, or the map is PROOF_AGENT_KEYS_MAX_AGE_MS old. With the registry and token-file stats beside it, a stream of random key ids costs a few stats
+   each; a file with nothing to stat is read each time instead (no registry file on a single-world install, no
+   token file on a board started without enforcing). So a token revoked since it was cached is
+   still proved until some lookup misses after the change and rebuilds the map; the gate then refuses it, so the
+   proof gives nothing away. The 200 or 404 tells a caller only whether that key id is in the map. */
+const PROOF_AGENT_KEYS = { sig: null, ids: new Map(), at: 0 };
+// A miss also rebuilds the map once it is this old, even with the folder unchanged: the token readers skip a file
+// they cannot read, so one transient failure would otherwise stay cached until the folder next changes. It also
+// bounds the work: at most one rebuild per interval for a stream of unknown key ids.
+const PROOF_AGENT_KEYS_MAX_AGE_MS = 30000;
+/* The proof route needs no token, so any local process can make it miss on demand: log each distinct failure
+   message once (up to boardproof's LOG_KEEP remembered, then the memory starts again), not once per request. */
+const proofLogOnce = (msg) => boardproof.logOnce(msg);   // one remembered set for the route, in engine/boardproof.js
+/* One stat of the token folder. sendertoken writes token files by a rename into it (securewrite.writeSecret) and
+   removes files from it, so its mtime moves on those changes. NOT on writeSecret's in-place fallback (taken after
+   three failed atomic attempts), nor within one mtime tick: a token written that way is proved after a later change
+   to the folder or once the map is old enough to rebuild on a miss (PROOF_AGENT_KEYS_MAX_AGE_MS), and until then
+   its agent is refused (98), the safe direction. */
+function proofTokenFilesSig() {
+  try { const st = fs.statSync(sendertoken.DIR); return st.mtimeMs + ':' + st.ctimeMs; }
+  catch (e) { if (!(e && e.code === 'ENOENT')) proofLogOnce('could not read the agent token folder: ' + ((e && e.message) || e)); return ''; }
+}
+/* A file's parsed value, kept until the file's mtime or size changes, so the token-free proof route does not read
+   it on every request. `read` returns the value; a file that cannot be stat'ed is read every time (the rare case). */
+const proofFileCache = new Map();
+function proofCachedRead(file, read) {
+  let sig = null;
+  try { const st = fs.statSync(file); sig = st.mtimeMs + ':' + st.size; } catch { sig = null; }
+  const hit = sig && proofFileCache.get(file);
+  if (hit && hit.sig === sig) return hit.value;
+  const value = read();
+  if (sig && value != null) proofFileCache.set(file, { sig, value });   // a failed read is not cached, so it is tried again
+  return value;
+}
+function* proofAgentTokens(k) {
+  const c = PROOF_AGENT_KEYS;   // a key id already in the map was answered by the route before it got here
+  const sig = proofTokenFilesSig();
+  if (sig === c.sig && Date.now() - c.at < PROOF_AGENT_KEYS_MAX_AGE_MS) return;
+  const ids = new Map();
+  for (const t of sendertoken.heldValues()) ids.set(boardproof.keyId(t), t);
+  c.sig = sig;
+  c.at = Date.now();
+  c.ids = ids;
+  if (ids.has(k)) yield ids.get(k);
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -1173,7 +1225,6 @@ const communityturn = require('./engine/communityturn'); // #4947 slice 2: a few
 const communityvote = require('./engine/communityvote'); // #4884: an agent votes posts and comments up or down, and reads the ask over the last 24 hours, through its board
 const communityendorse = require('./engine/communityendorse'); // #4913: an agent endorses another agent (stars + a review), or takes it back, through its board
 const communitysend = require('./engine/communitysend'); // #4287: sends PUBLISHED community posts to community.kosmosplus.com, only while the #4288 switch is on
-const communitystore = require('./engine/communitystore'); // #5314: agent card shows time since last community post
 /* #4938: an agent's post or comment that is published (or a held one released) is sent at once, not on the next
    5-minute pass. After the answer, never before it, and never into it: sendSoon always resolves. The timer stays
    as the retry. */
@@ -4417,28 +4468,14 @@ function attachPluginReach(agents, opts) {
 
 function withAgentSortFields(list, supplied) {
   let direct = null; let roomRows = null; let births = null;
-  let communityOn = false;
-  let communityTimes = null;
   if (supplied) {
     direct = supplied.direct !== undefined ? supplied.direct : null;
     roomRows = supplied.roomRows !== undefined ? supplied.roomRows : null;
     births = supplied.births !== undefined ? supplied.births : null;
-    communityOn = supplied.communityOn !== undefined
-      ? Boolean(supplied.communityOn)
-      : (supplied.communityPosts !== undefined);
-    communityTimes = supplied.communityPosts !== undefined
-      ? supplied.communityPosts
-      : (communityOn ? new Map() : null);
   } else {
     try { direct = chat.dmSummaryAll(); } catch { direct = null; }
     try { const rec = messages.record(); roomRows = rec && rec.ok === true && Array.isArray(rec.rows) ? rec.rows : null; } catch { roomRows = null; }
     try { births = create.createdLog(); } catch { births = null; }
-    try { communityOn = communitysend.switchOn(); } catch { communityOn = false; }
-    if (communityOn) {
-      // #5314: PUBLISHED posts only (the card counts posts published on the board, not held/quarantined ones);
-      // the community nudge keeps postTimesAll (all statuses). See communitystore.
-      try { communityTimes = communitystore.publishedPostTimesAll(); } catch { communityTimes = null; }
-    }
   }
   const at = (value) => { const n = Date.parse(value || ''); return Number.isFinite(n) ? n : null; };
   const latest = (values) => {
@@ -4483,34 +4520,6 @@ function withAgentSortFields(list, supplied) {
         .map((b) => at(b.at)).filter(Number.isFinite);
       if (matches.length) createdAt = new Date(Math.min(...matches)).toISOString();
     }
-    let lastCommunityPost = null;
-    let lastCommunityPostAt = null;
-    if (communityOn) {
-      if (communityTimes === null) {
-        lastCommunityPost = null;
-      } else {
-        let times = [];
-        for (const name of [a && a.sessionName, a && a.name].filter(Boolean)) {
-          const k = String(name).trim().toLowerCase();
-          const list = communityTimes instanceof Map ? communityTimes.get(k) : communityTimes[k];
-          if (Array.isArray(list) && list.length > 0) {
-            times = times.concat(list);
-          }
-        }
-        const parsedTimes = times.map(at).filter(Number.isFinite);
-        if (parsedTimes.length > 0) {
-          const latestTime = Math.max(...parsedTimes);
-          lastCommunityPostAt = new Date(latestTime).toISOString();
-          const midnight = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-          const now = (supplied && supplied.now) ? new Date(supplied.now) : new Date();
-          const days = Math.round((midnight(now) - midnight(new Date(latestTime))) / communitynudge.DAY_MS);
-          const age = days <= 0 ? 'today' : (days === 1 ? 'yesterday' : `${days} days ago`);
-          lastCommunityPost = `Last community post: ${age}`;
-        } else {
-          lastCommunityPost = 'No community posts yet';
-        }
-      }
-    }
     const readableTalk = dm !== null && roomRows !== null;
     const readableActive = dm !== null && roomRows !== null && workReadable;
     return {
@@ -4519,9 +4528,6 @@ function withAgentSortFields(list, supplied) {
       lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
       lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
       createdAt,
-      communityOn,
-      lastCommunityPost,
-      lastCommunityPostAt,
     };
   });
 }
@@ -5116,7 +5122,10 @@ function taskFinalWordHint(t, senderName, projectId, byKey) {
   return `If that is your final word on it, kosmos task built ${pid} ${t.number} 'what you decided' marks it done, so nothing waits on it.`;
 }
 
-function taskMessageSummary(delivered, assigned) {
+/* #6359: `kind` 'built' is a built mark's answer (`kosmos task built`): a kept line there is the built notice, not a
+   message the marker sent. The same mark again tells nobody, and a new note replaces the kept notice, so the marker is
+   not told not to send it again. */
+function taskMessageSummary(delivered, assigned, kind) {
   const plain = (x) => String(x == null ? '' : x).toWellFormed().replace(/["\\\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').replace(/\s+/g, ' ').trim();
   const list = Array.isArray(delivered) ? delivered : [];
   if (!assigned) return 'Nobody is assigned to it, so no agent was told.';
@@ -5147,7 +5156,8 @@ function taskMessageSummary(delivered, assigned) {
   for (const d of kept) {
     const why = plain(d.because).replace(/^held: /, '').replace(/\.$/, '');
     // It was accepted: a sender that read it as a failure would only add a second copy to the same queue.
-    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset')) + '. Do not send it again.');
+    parts.push('Kept, not typed yet: ' + (why.startsWith(d.who + ' ') ? why : d.who + (why ? ' (' + why + ')' : ' is out of usage; Kosmos types it after the reset'))
+      + (kind === 'built' ? '.' : '. Do not send it again.'));
   }
   /* Each line names the agent: chat's reasons do not (only the route's own do, and they start with the name). */
   for (const d of not) {
@@ -5623,16 +5633,52 @@ const server = http.createServer(async (req, res) => {
     // term, not folded into exemptPublic, because the reason differs: a public
     // product surface, not the post-switch lockout read.
     const exemptPublicCommunity = PUBLIC_COMMUNITY_ROUTES.has(`${req.method} ${pathname}`);
+    // #1765: the board proof is asked BEFORE a client sends any token, so it cannot need one. It answers only
+    // with an HMAC over the client's own nonce, keyed on a token the client already holds.
+    const exemptProof = req.method === 'GET' && pathname === boardproof.PROOF_PATH;
     // #1307: a webhook call (its own secret, checked in the handler; loopback only, see HOOK_CALL_RE).
     const exemptHook = req.method === 'POST' && HOOK_CALL_RE.test(pathname);
     // #4491: an agent route, reached with a valid agent token and no board token (see
     // AGENT_TOKEN_ROUTES and AGENT_TOKEN_ROUTE_PATTERNS). A function, called last, so a caller that already holds the board
     // token never pays for the token-store scan.
     const exemptAgentToken = () => agentTokenRoute(`${req.method} ${pathname}`) && agentTokenOk(req);
-    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
+    if (sensitive && !exemptAgent && !exemptPublic && !exemptPublicCommunity && !exemptProof && !exemptHook && !boardTokenOk(req) && !exemptAgentToken()) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: boardTokenRefusal(req, '') });
       return;
     }
+  }
+
+  /* #1765: GET /api/board-proof?n=<32 hex>&k=<16 hex>. Answers HMAC-SHA256(token, address, port and n) for the token whose
+     key id is k, among this board's world tokens and its agents' tokens, or 404. Exempt from the gate above,
+     and for loopback peers only (the socket peer, as remoteWriteGuard reads it). */
+  if (pathname === boardproof.PROOF_PATH && req.method === 'GET') {
+    // A second guard: remoteWriteGuard above already refuses a network peer on any route not meant for one.
+    if (!isLoopbackPeer(req)) { sendJson(res, 403, { error: 'the board proof is for this computer only' }); return; }
+    let q = {};
+    try { q = Object.fromEntries(new URL(req.url, ROUTING_BASE).searchParams); } catch { q = {}; }
+    /* Cheapest lookups first (a cached agent key, the board token, the world tokens, then a rescan of the agent
+       tokens), stopping at the first match; a key id selects at most one token. The world
+       tokens are the ones boardTokenOk accepts (known at start and still listed), so a proof is never given for a
+       token the gate would then refuse. The port is the one this board listens on (see boardproof.js). */
+    const out = boardproof.answer(q, function* (k) {
+      // A cached agent token first: it is the cheapest lookup, and token-only agents ask on every report.
+      if (PROOF_AGENT_KEYS.ids.has(k)) { yield PROOF_AGENT_KEYS.ids.get(k); return; }
+      /* The token this board's account holds: the one it enforces, or, on a board started without enforcing, the
+         file it would enforce from, which the CLI reads and sends all the same (no other account can read it). An
+         enforcing board that could not load its own token proves no board token here, as its gate accepts none;
+         the world and agent tokens below it still accepts, so it still proves those. */
+      if (boardAuthState.on) { if (boardAuthState.token) yield boardAuthState.token; }
+      else { const t = proofCachedRead(boardauth.tokenPath(), () => boardauth.readToken()); if (t) yield t; }   // readToken never throws; null for an unreadable file
+      if (KNOWN_WORLD_TOKENS) {
+        let listed = [];
+        try { const base = worldBase(); listed = proofCachedRead(worlds.registryPath(base), () => worlds.listWorlds(base)); }
+        catch (e) { proofLogOnce('could not list the worlds: ' + ((e && e.message) || e)); listed = []; }
+        for (const w of listed) { const t = KNOWN_WORLD_TOKENS.get(w.id); if (t) yield t; }
+      }
+      yield* proofAgentTokens(k);
+    }, req.socket.localPort, req.socket.localAddress);
+    sendJson(res, out.status, out.body);
+    return;
   }
 
   /* #1979: mint a single-use, short-TTL browser-open nonce. LOOPBACK-ONLY (it is
@@ -9773,7 +9819,12 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'that has to be on or off' }); return; }
-        const saved = body.on ? await phonenotify.turnOn() : await phonenotify.turnOff();
+        // #6254: `{ kind, on }` sets one per-kind sub-switch under the master; `{ on }` alone is the
+        // master turn-on/off (unchanged). Any present `kind` (even a non-string) goes to setKind, which
+        // refuses an unknown kind with a 400, so a malformed kind can never fall through to the master path.
+        const saved = ('kind' in body)
+          ? await phonenotify.setKind(body.kind, body.on)
+          : (body.on ? await phonenotify.turnOn() : await phonenotify.turnOff());
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         sendJson(res, 200, phonenotify.status());
       })
@@ -10805,7 +10856,9 @@ const server = http.createServer(async (req, res) => {
          the board cannot accept them itself (the coordinator refuses a family's enroll without wordsShown), so the
          joined view offers to show them (preview { review: true }, then Accept with wordsShown). */
       const wordsNeeded = !!(here && rec && rec.org && rec.org.kind === 'family' && !accepted);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
+      const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
@@ -13975,6 +14028,14 @@ const server = http.createServer(async (req, res) => {
               })
               .catch(() => {});
           },
+          // #6231 item 7: the put-back's WRITE off the board's thread. win32 is the case this targets: it drives
+          // restoreAccountSteps via driveAsync so a large move's schtasks /Create WRITES no longer hold the board.
+          // The per-agent staleness re-read (the /Query) stays SYNC by contract 3, so a cold-cache read can still
+          // block the thread briefly per agent -- it is the serialized WRITES that were the #6183 freeze, not the
+          // reads. linux/mac run the sync restoreAccount inline (a local job-file write, never the freeze).
+          putBackAsync: (n, dir) => (process.platform === 'win32'
+            ? removal.putBackAsync(n, dir)
+            : Promise.resolve(create.restoreAccount(n, dir))),
         });
         sendJson(res, started.status, started.body);
       })
@@ -16922,9 +16983,10 @@ const server = http.createServer(async (req, res) => {
            reaches exactly the room a live one would. The token sender is resolved
            here and refused inside it, after the project check: the order this
            route has always answered in. */
+        const postSender = senderFromAgentToken(req, body, roster);   // #6254: kept to name the poster for a `posted` notification below
         const delivery = await sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: senderFromAgentToken(req, body, roster),
+          sender: postSender,
           senderByToken: true,   // kosmos#5752: this sender came from the token helper; the outbox drain never sets it (its sender may be a pane claim)
           project: body.project,
           text: body.text,
@@ -16937,6 +16999,22 @@ const server = http.createServer(async (req, res) => {
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        // #6254: an agent's room post -> a `posted` phone notification (best-effort, after the response, like
+        // the attribution below). A reply to the PERSON's own post is a names-you buzz (postedMention, on by
+        // default); any other room post is postedRoom (off by default, one buzz per room per 10 min). Never the
+        // post's words. Only a post actually recorded in the room (delivery.id), by a known agent (operator
+        // posts come from the screen, not this token route). The tap target is the app's call (the room for
+        // posted, the agent for the other kinds); the board sends both session and project so it can route.
+        try {
+          if (postSender && postSender.ok && delivery && delivery.id) {
+            const pj = projects.get(body.project, roster);
+            phonenotify.happened({ kind: 'posted', namesPerson: delivery.repliesToPerson === true,
+              id: 'post:' + delivery.id, agent: (postSender.card && postSender.card.name) || null,
+              session: (postSender.card && postSender.card.sessionName) || null,
+              // #6254: the room's project id (not just its name) so a posted tap opens the room.
+              project: pj ? pj.name : null, projectId: pj ? pj.id : null });
+          }
+        } catch { /* a notification is never a reason to fail the post */ }
         /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
            that this agent is working in THIS project -- "the activity carries which
            project it belongs to". Carry that project onto the poster's state so the
@@ -19993,9 +20071,11 @@ const server = http.createServer(async (req, res) => {
        503, never the fail-open read below. See AGENT_TOKEN_ROUTES. */
     const tokenOnly = agentTokenOnlyCaller(req);
     let roomRefusal = null;
+    let roomRecord = null;   // #6420: kept for the hold read below, so the registry is read once
     try {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
+      roomRecord = stored[0] || null;
       projectKnown = stored.length > 0;
       if (tokenOnly === '' && stored.length) {
         roomRefusal = [403, 'Kosmos could not tell which agent this token belongs to, so it cannot read its room'];   // kosmos#5752 round 1
@@ -20102,7 +20182,13 @@ const server = http.createServer(async (req, res) => {
          Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
          learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
       let held = null;
-      try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }
+      try {
+        /* #6420: read at the room's own budget (it scales with the room), sized as the valve sizes it: removed agents
+           dropped, then the poster (messages.roomRecipientsOf). If the registry could not be read above, no size: the
+           dial's own budget, which can show a big room held when it is not (a hint, erring toward the hold). */
+        const size = roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined;
+        held = messages.roomHeld(id, Date.now(), size);
+      } catch { held = null; }
       if (asText) {
         /* #1895: the operator's own zone, read ONCE for the whole render rather
            than per line. Same best-effort contract as `silent` above -- a store
@@ -21593,7 +21679,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   /* #3951: mark a task built, waiting to ship (Josh's "Built but waiting" tile), or take the mark off. Body
-     { note?, clear?, from_pane? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
+     { note?, clear?, from_pane?, fingerprint? }. Who marked it: the screen is the person (builtByPerson); a process is named by its agent token
      (a token that does not resolve is refused, as the message route does) or else its pane. The pane name is
      advisory, as on the message route: a local process can claim any pane, so the builder it names is a label, not
      a proof (an enforcing board still needs the board token, or the agent's own token via
@@ -21749,7 +21835,9 @@ const server = http.createServer(async (req, res) => {
       /* #4733: the note is masked when `by` is the setup guide. From the screen `by` is null, so the person's is kept. */
       const out = body.clear === true
         ? tasks.clearBuilt(id, taskBuilt[2], as)
-        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '' });
+        : tasks.setBuilt(id, taskBuilt[2], { ...as, note: typeof body.note === 'string' ? guideMasked(by, body.note) : '',
+          // #6330 slice 2: an agent's mark may carry the deliverable's fingerprint; the screen sends none.
+          fingerprint: !viaScreen && body.fingerprint != null ? body.fingerprint : null });
       if (!out.ok) {
         const code = out.person ? 403 : out.closed ? 409 : out.code === 'UNREADABLE' ? 500
           : (/no project by that name|no task by that number/.test(out.because) ? 404 : 400);
@@ -21784,11 +21872,22 @@ const server = http.createServer(async (req, res) => {
             + String(told.refusal.because).replace(/; the person can still [^;]* from the screen\.?$/, '').replace(/\.$/, '') + '.';
           else if (delivered.length) {
             // Lines may be out by now, so nothing here may say nobody was told.
-            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length)); }
+            try { summary = taskMessageSummary(delivered, Math.max(1, tasks.whoOf(out.task).length), 'built'); }
             catch { summary = 'Kosmos could not say who was told; the answer lists each agent.'; }
           }
           // Nobody to tell: no sentence, so the CLI adds nothing to a solo mark.
         }
+      }
+      // #6254: an agent marking a task BUILT means work is waiting for the person's check -> a `ready`
+      // buzz (push-only, Liu Kang's ruling: never email). Not when the person marks it from the screen
+      // (viaScreen, by === null), not on a clear, and only when the mark actually changed. Never the
+      // task's words; a tap opens the agent. phonenotify gates on the `ready` switch and a per-agent cooldown.
+      if (!viaScreen && body.clear !== true && out.changed && card) {
+        try {
+          const pj = projects.get(id, roster);
+          phonenotify.happened({ kind: 'ready', id: 'built:' + id + ':' + taskBuilt[2] + ':' + Date.now(),
+            agent: card.name || card.sessionName, session: card.sessionName, project: pj ? pj.name : null });
+        } catch { /* a notification is never a reason to fail the mark */ }
       }
       sendJson(res, 200, { task: out.task, changed: out.changed === true, ...(delivered ? { delivered, ...(summary ? { summary } : {}) } : {}) });
     }).catch((err) => {

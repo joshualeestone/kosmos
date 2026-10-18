@@ -15,6 +15,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { stopBoard } = require('./test-support/board-child');
+const { scaleBudget } = require('./test-support/eventually');
 
 const REPO = __dirname;
 
@@ -71,6 +72,20 @@ function boot(box, extraEnv) {
 const flagFile = (box) => path.join(box.data, 'Kosmos', 'setup-assistant.json');
 const armFile = (box) => path.join(box.data, 'Kosmos', 'setup-assistant-armed.json');
 
+/* #6432: the flag as a parsed object, or null while it is missing OR not yet whole. A reader that saw the file
+   exist and parsed it at once failed with "Unexpected end of JSON input"; the inferred cause (not reproduced) is
+   that it caught a write in progress. The board now saves it by rename, and this read keeps polling past a partial one rather than failing the test on it.
+   The raw text is kept, so a flag that stays unparsable fails with its bytes, not as "never created".
+   A return to in-place writing is caught by the "#6432 ATOMIC" test in engine.setup-assistant-3034.test.js. */
+function readFlag(box) {
+  let raw;
+  try { raw = fs.readFileSync(flagFile(box), 'utf8'); } catch { return null; }
+  try { return JSON.parse(raw); } catch { readFlag.lastRaw = raw; return null; }
+}
+const unparsed = () => (readFlag.lastRaw === undefined ? '' : ' (the flag was seen but never parsed: ' + JSON.stringify(readFlag.lastRaw) + ')');
+/* One wait for the flag, starting with no remembered bytes, so a failure never reports an earlier wait's (or box's). */
+function waitForFlag(box, ms) { readFlag.lastRaw = undefined; return waitFor(() => readFlag(box), scaleBudget(ms)); }
+
 async function waitFor(fn, ms) {
   const until = Date.now() + ms;
   for (;;) {
@@ -92,8 +107,8 @@ test('#3660: Giddy Up with a connected model creates the setup guide on that mod
     const r = await fetch(base + '/api/first-run/complete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     assert.equal(r.status, 200);
     assert.ok(fs.existsSync(armFile(box)), 'Giddy Up did not arm the guide');
-    const flag = await waitFor(() => (fs.existsSync(flagFile(box)) ? JSON.parse(fs.readFileSync(flagFile(box), 'utf8')) : null), 10000);
-    assert.ok(flag, 'no guide was created after Giddy Up with a connected Claude account');
+    const flag = await waitForFlag(box, 10000);
+    assert.ok(flag, 'no guide was created after Giddy Up with a connected Claude account' + unparsed());
     assert.equal(flag.provider, 'anthropic', 'the guide was not created on the connected model');
     assert.equal(flag.via, 'first-run');
     assert.match(String(flag.name), /^josh$/i);
@@ -133,8 +148,8 @@ test('#3660: a model connected AFTER Giddy Up is picked up by the sweep, and the
     await new Promise((res) => setTimeout(res, 1200));
     assert.equal(fs.existsSync(flagFile(box)), false, 'CONTROL: no model yet, so no guide (the sweep has run several times)');
     signIn(box.home);   // they connect Claude later, from Settings
-    const flag = await waitFor(() => (fs.existsSync(flagFile(box)) ? JSON.parse(fs.readFileSync(flagFile(box), 'utf8')) : null), 10000);
-    assert.ok(flag, 'the sweep did not create the guide after a model was connected');
+    const flag = await waitForFlag(box, 10000);
+    assert.ok(flag, 'the sweep did not create the guide after a model was connected' + unparsed());
     assert.equal(flag.via, 'model-connected', 'created, but not by the sweep');
     assert.equal(flag.provider, 'anthropic');
   } finally {

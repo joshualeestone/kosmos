@@ -56,7 +56,7 @@ const INBOUND_ROWS_PER_DAY = 2000;
 const MAX_POST_LINE = 16 * 1024;
 /* The connector's final refusals that are about this Mac or its account, not
    the connection (kosmos-relay fedroom.rs FINAL_REFUSALS). */
-const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer
+const MAC_LEVEL_REFUSAL = /unknown mac|this (?:mac|computer) was retired|account gone|not set up for kosmos\+/i;   // #4645: either wording of the retired answer (engine/remote.js retiredAlready matches the same sentence with its own regex)
 /* #5193: a member's edge revoked by the owner, told in one plain sentence. The connector's own
    reason for it reads "...that connection has been revoked. Ask to be re-invited. (HTTP 409 on
    /v1/mac/federation/room-ticket)", which shows a raw path and says "ask" twice. */

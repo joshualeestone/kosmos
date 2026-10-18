@@ -356,9 +356,20 @@ if (args[0] === 'devices') {
 // #3827: a retire that hangs (a dead network).
 if (args[0] === 'retire' && mode.includes('hung-retire')) { const until = Date.now() + 15000; while (Date.now() < until) { /* wait */ } }
 if (args[0] === 'retire' && mode.includes('slow-retire')) { const until = Date.now() + 2500; while (Date.now() < until) { /* wait */ } }
-// A definite refusal: Kosmos+ answered, and it will not retire this key.
+// A definite refusal: Kosmos+ answered, and it will not retire this key. (Its sentence is the older "this Mac was retired"
+// wording, which Forget reads as retired since kosmos#6390; the sign-in tests that use it go through clearHalfIdentity.)
 // The tunnel's own sentences for a retire (crates/tunnel coordinator.rs signed_request).
 if (args[0] === 'retire' && mode.includes('retire-refused')) { process.stderr.write('Error: Kosmos+ refused this Mac: this Mac was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+// kosmos#6390 controls: each keeps all but one part of the match (the sentence, the status, the route).
+// The Windows build's prefix (crates/tunnel words.rs REFUSED_PREFIX: "this computer"), and a gateway's line that carries
+// the sentence under another prefix.
+if (args[0] === 'retire' && mode.includes('retire-win-already')) { process.stderr.write('Error: Kosmos+ refused this computer: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\r\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-gateway-retired')) { process.stderr.write('Error: Kosmos+ answered 401 for /v1/mac/retire: this computer was retired (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-401-route')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/request)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-401-other')) { process.stderr.write('Error: Kosmos+ refused this Mac: signature does not verify (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
+if (args[0] === 'retire' && mode.includes('retire-403-retired')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 403 on /v1/mac/retire)\\n'); process.exit(1); }
+// kosmos#6390: the coordinator's sentence for a computer removed on the account page (relay auth.rs).
+if (args[0] === 'retire' && mode.includes('retire-already')) { process.stderr.write('Error: Kosmos+ refused this Mac: this computer was retired; set Kosmos up again to give it a new key (HTTP 401 on /v1/mac/retire)\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-down')) { process.stderr.write('Error: Kosmos+ unreachable for /v1/mac/retire: connection refused\\n'); process.exit(1); }
 if (args[0] === 'retire' && mode.includes('retire-429')) { process.stderr.write('Error: Kosmos+ refused this Mac: too many requests; wait a minute (HTTP 429 on /v1/mac/retire)\\n'); process.exit(1); }
 // A gateway's error page: the tunnel prints the raw body, many lines, when it is not the API's JSON.
@@ -3319,6 +3330,41 @@ test('#3827: a Forget whose retire meets a gateway error page says why in one re
   } finally { delete process.env.FAKE_TUNNEL_MODE; }
 });
 
+test('#6390: a Forget whose retire is refused because the computer was already removed counts as retired', async () => {
+  process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
+  await remote.signinStart('her@example.com');
+  await remote.signinVerify('her@example.com', '111111');
+  assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered');
+  // Both wordings of the coordinator's answer: "this computer was retired", and the older "this Mac was retired".
+  for (const mode of ['retire-already', 'retire-refused', 'retire-win-already']) {
+    if (mode !== 'retire-already') {
+      await remote.signinStart('her@example.com');
+      await remote.signinVerify('her@example.com', '111111');
+      assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered again (' + mode + ')');
+    }
+    process.env.FAKE_TUNNEL_MODE = mode;
+    try {
+      const got = await remote.forget();
+      assert.equal(got.retired, true, mode + ': a computer already removed on the account page read as not retired');
+      assert.equal(got.because, null, mode + ': the person was told the account could not be updated: ' + got.because);
+    } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  }
+  // CONTROLS: a refusal missing one part of the match is still a failure, said as one: a 401 on the retire route for
+  // another reason (the sentence), the retired sentence under another status (the status) or for another route (the
+  // route) or under a gateway's prefix (the prefix), and a plain 429 (none of it).
+  for (const mode of ['retire-401-other', 'retire-403-retired', 'retire-401-route', 'retire-gateway-retired', 'retire-429']) {
+    await remote.signinStart('her@example.com');
+    await remote.signinVerify('her@example.com', '111111');
+    assert.equal((await remote.signinRegister('hers')).ok, true, 'fixture: registered again (' + mode + ')');
+    process.env.FAKE_TUNNEL_MODE = mode;
+    try {
+      const got = await remote.forget();
+      assert.equal(got.retired, false, mode + ' read as retired');
+      assert.match(got.because, /could not be updated/, mode + ': ' + got.because);
+    } finally { delete process.env.FAKE_TUNNEL_MODE; }
+  }
+});
+
 test('#3827: a Sign out during a register that then fails leaves a Mac that was on, on', async () => {
   process.env.AGENT_WORKFORCE_TUNNEL_RELAY = '127.0.0.1:9444';
   await remote.signinStart('her@example.com');
@@ -4473,7 +4519,7 @@ async function vouchSignedIn(name) {
   assert.equal(reg.ok, true, reg.because);
   const secret = remote.vouchSecretForTests();
   assert.ok(secret && /^[A-Za-z0-9_-]{43}$/.test(secret), 'premise: a sign-in mints a 43-character secret');
-  const plant = (devices) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify({ devices }));
+  const plant = (devices, signins) => fs.writeFileSync(nodePath.join(DATA_ROOT, 'remote', 'pending.json'), JSON.stringify(signins ? { devices, signins } : { devices }));
   return { secret, plant };
 }
 const nowS = () => Math.floor(Date.now() / 1000);
@@ -4585,6 +4631,60 @@ test('#5786 (b): a secret ends on Sign out and on switching off, and an old requ
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR; else process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = before;
   }
+  remote.setOn(false);
+});
+
+test('kosmos#6407: a recent sign-in that never knocked here (in signins only) still opens the connect tab; this computer\'s own and a Not me one do not', async () => {
+  let r = await vouchSignedIn('vouchsign1');
+  // Premise for every refusal below: each id is one the filter would otherwise take (the engine's DEVICE_ID), so it is
+  // refused for the reason named, not for its shape. dev-web, the CONTROL, has the same shape and is taken.
+  const SHAPE = /^(?:[A-Za-z0-9_-]{1,128}|k1\.[A-Za-z0-9_-]{32})$/;
+  const own = remote.read().device_id;
+  for (const id of [own, 'dev-refused', 'dev-old', 'dev-web']) assert.match(String(id), SHAPE, 'premise: ' + id + ' has the shape of a device id');
+  assert.ok(remote.ownDeviceIds().includes(own), 'premise: the sign-in id of this computer is one of its own ids');
+  // This computer's own sign-in, fresh: never "the person, a moment ago" (an app-only sign-in opens no tab).
+  r.plant([], [{ device_id: own, first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'this computer\'s own sign-in opened the browser');
+  // A device the person said Not me to, fresh: not either.
+  const denied = { ...JSON.parse(fs.readFileSync(remote.FILE, 'utf8')) };
+  denied.denied = { 'dev-refused': nowS() };
+  fs.writeFileSync(remote.FILE, JSON.stringify(denied));
+  r.plant([], [{ device_id: 'dev-refused', first_seen: nowS() - 30 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'a Not me device\'s sign-in opened the browser');
+  // A computer row, by its labels (a wrong tunnel could send one in signins): never "the person". The ids
+  // have a device id's shape, so each is refused for its label, not its shape.
+  for (const row of [{ device_id: 'dev-joining', joining_computer: 'tmnt' }, { device_id: 'dev-codewait', code_wait: 'another_computer' }]) {
+    assert.match(row.device_id, SHAPE, 'premise: ' + row.device_id + ' has the shape of a device id');
+    r.plant([], [{ ...row, first_seen: nowS() - 30 }]);
+    remote.vouchTickForTests();
+    assert.equal(remote.vouchOpenedUrlForTests(), '', row.device_id + ': a computer row opened the browser');
+  }
+  // An old one (an hour ago): not either.
+  r.plant([], [{ device_id: 'dev-old', first_seen: nowS() - 3600 }]);
+  remote.vouchTickForTests();
+  assert.equal(remote.vouchOpenedUrlForTests(), '', 'an hour-old sign-in opened the browser');
+  // CONTROL: a browser signed in on the website a minute ago, which never knocked here (devices is empty).
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60 }]);
+  remote.vouchTickForTests();
+  assert.ok(remote.vouchOpenedUrlForTests(), 'a recent website sign-in did not open the connect tab');
+  // signins only opens the tab: a row there carrying the right vouch is never what gets allowed. CONTROL below: the
+  // same vouch on a row in devices is allowed.
+  const vouch = require('node:crypto').createHmac('sha256', r.secret).update('dev-web').digest('base64url');
+  // Premise: the secret is live and nothing is mid-allow, so this tick does try the rows (it returns early otherwise).
+  assert.ok(remote.vouchSecretForTests(), 'premise: the secret is still live');
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'premise: no allow is out before this tick');
+  r.plant([], [{ device_id: 'dev-web', first_seen: nowS() - 60, vouch }]);
+  remote.vouchTickForTests();
+  // Decided in the tick itself: an allow would be out now. Then as long as the CONTROL below is given to land.
+  assert.equal(remote.vouchAllowingIdForTests(), '', 'an allow started for a row in signins');
+  for (let i = 0; i < 50; i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(!allowsOf().includes('dev-web'), 'a row in signins was allowed by its vouch');   // allowsOf() lists every recorded allow, this computer's own sign-in grant among them, so ask for dev-web by name
+  r.plant([{ device_id: 'dev-web', name: 'Mac · Safari', first_seen: nowS() - 60, code: 'VR-D6', vouch }], []);
+  remote.vouchTickForTests();
+  for (let i = 0; i < 50 && !allowsOf().includes('dev-web'); i++) await new Promise((ok) => setTimeout(ok, 100));
+  assert.ok(allowsOf().includes('dev-web'), 'CONTROL: the same vouch on a devices row was not allowed');
   remote.setOn(false);
 });
 

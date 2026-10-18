@@ -507,10 +507,12 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   .askreq .askdev { grid-area: dev; }
   .askreq .askwho { grid-area: who; }
   .askreq .asksay { grid-area: say; }
-  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig { grid-area: code; }
+  #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { grid-area: code; }
   .askreq .acts { grid-area: acts; }
   /* Kosmos+ blue in the panel too (the 09-16 ruling: gold is regular Kosmos only). */
   .askreq .btn.uprime, .askreq .btn.uprime:hover { background: #2f57c4; border-color: #2f57c4; color: #fff; }
+  /* #6404: Allow short of six digits is aria-disabled (still reachable); it stays blue on the card, dimmed like other ones. */
+  .askreq .acts .btn.uprime[aria-disabled="true"], .askreq .acts .btn.uprime[aria-disabled="true"]:hover { background: #2f57c4; opacity: .8; cursor: not-allowed; }
   .askreq .askwho b { color: #fff; font-size: 1.05rem; }
   .askreq .askwho span { color: #9fb0d4; white-space: nowrap; }   /* "a moment ago" stays on one line (review NIT) */
   .askreq .askdev { background: rgba(126,160,240,.14); }
@@ -519,17 +521,27 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-asks .askreq .askcodebig, #askcard .askreq .askcodebig, #plus-join .askcodebig { margin: 6px 0 2px;
                 font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; color: #fff; }
   .askreq .asksay { color: #c3cde3; }
+  /* #6404: the joining computer's code, typed by the person, as large as the code it replaces. */
+  #plus-asks .askreq .askcodetype, #askcard .askreq .askcodetype { margin: 6px 0 2px; display: grid; gap: 4px; }
+  .askreq .askcodetype label { color: #c3cde3; font-size: .85rem; }
+  .askreq .askcodein { width: 8.2em; max-width: 100%; box-sizing: border-box; padding: 4px 10px; border-radius: 8px;
+                       border: 1px solid #6f86c4; background: rgba(255,255,255,.06); color: #fff;
+                       font: 700 1.9rem/1.2 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .14em; }
+  /* On a phone the Settings rule that keeps every field at 16px (so iOS does not zoom) outranks the rule above;
+     this keeps the code field as large as the code it replaces (1.9rem is over 16px, so iOS does not zoom either). */
+  #panel-settings #plus-asks .askreq .askcodein { font-size: 1.9rem; }
+  .askreq .askcodein::placeholder { color: #93a3c6; }
+  .askreq .askcodein:focus-visible { outline: 2px solid #9ab6ff; outline-offset: 2px; }
   /* #4794: the waiting computer's code (Mona Lisa: identical to the Allow card's, which is drawn on its dark card; here it
      sits on the page, so it takes the page's ink). */
   #plus-join .askcodebig { color: var(--k-ink); }
   #plus-join .plus-join-say { margin: 8px 0 0; }
   #plus-join .acts { margin-top: 6px; }
-  /* kosmos#6314: the two steps on the waiting computer; after a match, the next action leads and the code steps back. */
+  /* kosmos#6314: the steps on the waiting computer; after a match, the next action leads (#6404: the code stays large). */
   #plus-join .plus-join-steps { margin: 6px 0 0; padding-left: 1.25rem; color: var(--k-ink-2); }
   #plus-join .plus-join-steps li { margin: 3px 0; }
   #plus-join .plus-join-done::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #2fa36b; margin-right: 8px; vertical-align: 1px; }
   #plus-join .plus-join-next { margin: 6px 0 0; color: var(--k-ink); font-weight: 600; }
-  #plus-join .plus-join-code-small { margin: 6px 0 0; font: 600 1rem/1.3 var(--font-mono, ui-monospace, Menlo, monospace); letter-spacing: .1em; color: var(--k-ink-2); }
   /* While this computer waits to be allowed, the pairing is the page's one job (Josh 11:37). */
   #plus-flow.plus-joining #plus-devices, #plus-flow.plus-joining #plus-org { display: none !important; }
   /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
@@ -2154,8 +2166,8 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 .worldsw-btn:hover { background: var(--k-side); }
 .worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 0.7.15 cut, render-dm-chatfirst-718 (bisected by Baron to #4822): since #4815 the top-left always names this
-   computer, and on a phone its row may wrap (.headleft, 720px), so on a 320-wide phone at 150% text the name took a
+/* 0.7.15 cut, render-dm-chatfirst-718 (bisected by Baron to #4822): since #4815 the top-left names this
+   computer (since #6396 only when the account has another), and on a phone its row may wrap (.headleft, 720px), so on a 320-wide phone at 150% text the name took a
    second header row and the swarm conversation lost its last line. On a phone the name truncates on the K mark's row
    instead: it may shrink to nothing before it wraps (basis 0), and the header's left column takes only the room the
    right-hand controls leave. A notice that is showing (the update, offline or login slots) takes a row of its own, so
@@ -3096,8 +3108,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    heights still line their model up, and shrunk a long way — Josh: "very much
    smaller". This is the change that let the whole card get shorter. */
 .acard .amodel { font-size: .75rem; color: var(--k-ink-2); margin-top: auto; padding-top: 16px; }
-.acard .acommunity { font-size: .75rem; color: var(--k-ink-2); margin-top: 6px; }
-.acard.notrunning .acommunity { margin-top: 10px; }
 .acard .note { text-align: left; margin-top: 12px; }
 /* presence is NOT status: three states, and the third does not look like off */
 .pres { position: absolute; right: 6px; bottom: 6px; width: 14px; height: 14px;
@@ -3140,32 +3150,6 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    only the near-full number badge remains, so the plain `.membadge` selector is
    exact now. */
 .agauge:has(.dmbadge) .membadge { top: 24px; }
-.ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
-         border: 0; background: none;
-         /* One padding declaration only: a second one in this same rule was
-            silently clobbering the pack's 1px baseline nudge (#179). */
-         padding: 0 0 1px; font-family: inherit; cursor: pointer;
-         /* ⚠️ 24px minimum (WCAG 2.2 SC 2.5.8), the floor the retired
-            .card-answer carried and .linkish duplicates: this is the one
-            control on the card whose function nothing else duplicates
-            (the card body opens DETAIL, not the thread), so the
-            undersized-target exceptions do not apply. The underline moves
-            to a span so the stretched hit area does not drag a bar across
-            its full height. */
-         min-height: 24px; display: inline-flex; align-items: center; }
-.ansgo > u { text-decoration: none; border-bottom: 1px solid currentColor; padding-bottom: 1px; }
-.ansgo:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
-/* #718 mobile: on a touchscreen "Answer" is the thumb's main target on a card that needs you,
-   and its box is one short line of text. A larger invisible hit area around it (the layout of
-   the pill does not change): about 40px tall, kept small enough not to reach the next row.
-   Not 44px like the Allow buttons: those grow the button itself in a card with room to spare,
-   while this area floats over its neighbours (a positioned box paints above them) in a list
-   row with 12px padding, so 44px would start taking taps meant for the row around it. */
-@media (hover: none) {
-  .ansgo { position: relative; }
-  .ansgo::after { content: ""; position: absolute; inset: -8px -6px; }
-}
-.acard:hover .ansgo, .lrow:hover .ansgo { color: var(--k-ink); }
 /* ---- the settings screen: the pack's view K (pack-pass, scrappy) ----
    Ported from CURRENT-FREEZE (17c) with the 17c full-width ruling
    (.stack > .dbox stretches). Cards ride k-surface and k-ink, which flip
@@ -4045,7 +4029,6 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lavtint { width: 100%; height: 100%; display: grid; place-items: center; border-radius: 50%; }
 .lname b { display: block; font-size: 1rem; }
 .lstate { display: flex; align-items: center; gap: 8px; font-size: .9375rem; font-weight: 600; }
-.lstate .ansgo { margin-left: 10px; }
 .ltask { font-size: .9375rem; color: var(--k-ink-2); overflow: hidden;
          text-overflow: ellipsis; white-space: nowrap; }
 /* #6045: a note in the task cell (rules behind, not run in N days) is the model column's size, not a task line's. */
@@ -5379,6 +5362,14 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm { max-height: 35vh; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; padding: 4px; }   /* padding: room at the sides for a node's focus ring (2px + 2px offset), which the scroll box would clip */
   html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-tm::-webkit-scrollbar { display: none; }   /* #867: no scrollbar inside the agents rail */
   html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tmbtn, html[data-layout="consolidated"] body.consolidated.fold-a #rail-agents > .alist-tm { display: none; }
+  /* #6349: a Mac hides the scrollbar at rest, so a needs-you row below the capped box's edge had no cue. While more of
+     the notice is below (data-more, set by railPjMore), its bottom fades into the head's own background (--k-bg): a cue that
+     does not depend on the scrollbar setting. Keyed to the box's own scroll, not to the cap's size. Sticky, so it paints
+     over the rows; it never takes a click. A control under it is dimmed, never hidden (WCAG 2.4.11 at AA), except in its
+     last few pixels, which are fully covered: a control whose top edge sits there shows once scrolled (the plan's trade). */
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { content: ''; display: block; position: sticky; bottom: 0; height: var(--railcue-fade); margin-top: calc(-1 * var(--railcue-fade)); pointer-events: none; background: linear-gradient(to bottom, transparent, var(--k-bg, #faf9f7)); }
+  html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn { --railcue-fade: 28px; }
+  @media (forced-colors: active) { html[data-layout="consolidated"] body.consolidated #rail-agents > .alist-pjn[data-more]::after { display: none; } }   /* the system colours replace --k-bg, so the fade would paint the wrong colour */
   /* #980: SCOPED to the agents rail -- unscoped, folding agents also hid
      the PROJECTS label two columns over (Josh's "they jump around all over
      the place" family: a fold on one rail visibly rearranging the other). */
@@ -5469,16 +5460,7 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      a FLOOR as well as a ceiling: collapsing the lines onto each other would
      satisfy "tighter" and be worse than what it replaced. */
   html[data-layout="consolidated"] body.consolidated .lrow > .ltitle { grid-column: 2; grid-row: 2; font-size: .625rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* ⚠️ .lstate hides EXCEPT when it carries the inline Answer button
-     (challenge-loop iteration 1): the state chatter goes, per Josh, but
-     the needs-you row's one ACTION lived in the same element, and hiding
-     it left clicking the row as the only way to answer. :has() has
-     precedent in this file (.agauge/.dav-wrap/.pjmidhead). The kept row
-     sits on its own third line; its state word takes the quiet size while
-     .ansgo keeps its own larger .8125rem (it is the action, and its
-     SC 2.5.3 name contract wants it legible). The quoted said-line no longer
-     renders in a list row at all (kosmos#986), so there is nothing here to
-     hide -- see the note on the clip below. */
+  /* The rail row's quiet third line. The quoted said-line no longer renders in a list row (kosmos#986). */
   /* `font-weight: 400` is kosmos#1303 A item 4, Josh: "Let's unbold the agent
      status." MEASURED at 600 in this view: the base `.lstate` rule sets
      `font-weight: 600` and this override changed only the SIZE, so the quiet
@@ -5540,7 +5522,6 @@ body:not(.consolidated).pj-roadmap .pj-rm-strip {
      the glyph does not, exactly as the state line itself does. */
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork > .act { display: none; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork { font-size: inherit; }
-  html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   /* #2863: the unread-DM bubble is exempt from this catch-all hide, so it shows in
      the consolidated list too (an agent DMing you must signal in every list view, not
      just the default one). It is a direct .lrow child like .lav, absolute, so it does
@@ -11712,6 +11693,10 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #s-sec-plus .plus-org-ico { flex: none; opacity: .8; }
 #s-sec-plus .plus-org-outhead { display: flex; justify-content: flex-end; }
 #s-sec-plus #plus-devices #plus-lost-open { display: block; margin-top: 8px; }
+/* #6402: the company block starts its own section, ruled off like the foot (.plus-foot), so the devices block's last
+   line (Lost your phone?) does not read as a heading over Join Corporate Account. A rule, not a label: no new words
+   (Josh 10-08: one quiet line for a person with no company; Josh 10-17: no new lines). */
+#s-sec-plus #plus-org { padding-top: 14px; border-top: 1px solid rgba(255,255,255,.1); }
 #s-sec-plus .plus-lost-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 #s-sec-plus .plus-foot .plus-signin-link { font-weight: 600; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
@@ -12195,7 +12180,7 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
    tablet, where a needs-you card's Question pill and Answer button need the width). Face on the left, name, role
    and state beside it, and what the agent is on underneath. The state sits under the name, not beside it: an
    upright iPad card is about 390px, and the Question pill with its Answer button beside the name would leave the
-   name 60px. At the 330px floor (an iPad mini) the pill must still fit under the name: render-home-phone-718's 744x1133 arm checks it. Visually the task and community lines come before the model line; in the DOM they come after it.
+   name 60px. At the 330px floor (an iPad mini) the pill must still fit under the name: render-home-phone-718's 744x1133 arm checks it. Visually the task line comes before the model line; in the DOM it comes after it.
    All three are plain text lines, so nothing focusable changes order.
    Only the ordinary card: the stopped and needs-trust cards keep their own stacked shape, which carries a note
    and a button the grid areas below do not place. The classic look only: the hidden new look draws its own
@@ -12203,11 +12188,11 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
 @media (hover: none) and (pointer: coarse) and (min-width: 600px) and (max-width: 67.99rem) and (orientation: portrait) {
   :root:not([data-look="new"]) body:not(.consolidated) #grid.cards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 14px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) { display: grid; grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas: "g n" "g m" "g s" "g w" "t t" "c c" "md md";
+    grid-template-areas: "g n" "g m" "g s" "g w" "t t" "md md";
     /* A row of cards stretches to its tallest: the spare height goes to the last row, so the lines stay together and
        the model line sits at the foot, as .amodel's margin-top: auto does on the column card. */
-    grid-template-rows: repeat(6, auto) 1fr; align-content: start;
-    column-gap: 14px; row-gap: 0; align-items: center; text-align: left; padding: 18px 18px 16px; }   /* no row gap: absent lines (alsowork, community) leave empty rows; spacing is each line's own margin */
+    grid-template-rows: repeat(5, auto) 1fr; align-content: start;
+    column-gap: 14px; row-gap: 0; align-items: center; text-align: left; padding: 18px 18px 16px; }   /* no row gap: an absent line (alsowork) leaves an empty row; spacing is each line's own margin */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge { grid-area: g; width: 64px; margin: 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .agauge svg { width: 64px; height: 64px; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .aname { grid-area: n; align-self: end; min-width: 0; }
@@ -12216,7 +12201,6 @@ html[data-kosmos-platform="win32"] #firstrun .llm.fr-qwen .pmark svg { filter: g
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .astate { grid-area: s; justify-self: start; margin: 6px 0 0; }   /* all four: the base auto side margins would centre it */
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .alsowork { grid-area: w; justify-self: start; margin: 4px 0 0; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .atask { grid-area: t; margin-top: 12px; }
-  :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .acommunity { grid-area: c; }
   :root:not([data-look="new"]) body:not(.consolidated) #grid .acard:not(.notrunning) > .amodel { grid-area: md; padding-top: 10px; align-self: end; }
 }
 /* #6107 piece 2, the project room on an upright tablet (classic tab layout; the hidden new look and the consolidated
@@ -18619,9 +18603,36 @@ window.kosmosMeasureScrollbarWidth();
       <!-- #4194: the phone app is in testing, so a Mac user without it is not misled into thinking it can be installed. -->
       <p class="dhint" id="phone-notify-testing" style="margin:6px 0 0;">The Kosmos phone app is still in testing. For now it is an Android test build, and it is not in the App Store or Google Play yet. Until it is on your phone, these will not reach your phone.</p>
       <div class="setrow" id="phone-notify-row" style="margin-top:14px;">
-        <div><b>Buzz my phone when an agent needs me</b>
-          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time when an agent needs you or answers you, never what they said. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
+        <div><b>Buzz my phone about my agents</b>
+          <p class="dhint" style="margin:2px 0 0;">Kosmos+ is told the agent's name, its project and the time, never what they said. Turn this on, then choose below what buzzes your phone. If an agent has needed you for 30 minutes and nobody has answered, Kosmos+ may also send you an email.</p></div>
         <button class="btn uprime" id="phone-notify-toggle" type="button" disabled>Turn on</button>
+      </div>
+      <!-- #6254: one switch per kind, under the master above. Shown only while the master is on
+           (the client unhides it in paintKinds). Each button toggles its own kind through
+           PUT /api/phone-notify { kind, on }; the server's `kinds` says which are on. postedRoom
+           is off by default (a busy room is opt-in); the rest are on. -->
+      <div id="phone-notify-kinds" style="margin-top:6px;" hidden>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent needs me</div>
+          <button class="btn" id="pn-kind-needsYou" data-kind="needsYou" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent answers me</div>
+          <button class="btn" id="pn-kind-replied" data-kind="replied" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When an agent replies to a post of mine</div>
+          <button class="btn" id="pn-kind-postedMention" data-kind="postedMention" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When work is ready for my check</div>
+          <button class="btn" id="pn-kind-ready" data-kind="ready" type="button" aria-pressed="true">On</button>
+        </div>
+        <div class="setrow" style="margin-top:8px;">
+          <div>When anyone posts in a project room I am on
+            <p class="dhint" style="margin:2px 0 0;">Off to start with, so a busy room does not fill your phone. At most one buzz per room every few minutes.</p></div>
+          <button class="btn" id="pn-kind-postedRoom" data-kind="postedRoom" type="button" aria-pressed="false">Off</button>
+        </div>
       </div>
       <p class="dhint" id="phone-notify-msg" role="status" style="margin:8px 0 0;"></p>
       <p class="dhint" id="phone-notify-step" style="margin:8px 0 0;" hidden>Then open the Kosmos app on your phone, sign in, and allow notifications. Do this on each phone you want alerts on.</p>
@@ -19640,6 +19651,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <div id="plus-forget-ask" hidden>
         <p class="fhint" id="plus-forget-sure">This computer leaves your Kosmos+ account and its address is freed. Your devices will no longer reach it. You can connect it again later by signing in.</p>
+        <p class="fhint" id="plus-forget-required" hidden></p>
         <div class="frow">
           <button class="btn danger-btn" type="button" id="plus-forget-yes">Remove</button>
           <button class="btn" type="button" id="plus-forget-no">Cancel</button>
@@ -20685,7 +20697,8 @@ function pnavFill(name) {
       const nm = row.querySelector('.worldsw-rowname'), st = row.querySelector('.worldsw-state');
       const it = document.createElement(row.tagName === 'A' ? 'a' : 'div');
       it.className = 'pnav-item pnav-comp' + (row.tagName === 'A' || row.getAttribute('aria-current') === 'true' ? '' : ' pnav-off');
-      if (row.tagName === 'A') { it.href = row.href; it.target = '_blank'; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
+      // #6406: the row's own target (none in the Kosmos app, so the app keeps it in its window; a new tab in a browser).
+      if (row.tagName === 'A') { it.href = row.href; if (row.target) it.target = row.target; it.rel = 'noopener noreferrer'; it.setAttribute('aria-label', row.getAttribute('aria-label') || ''); }
       if (row.getAttribute('aria-current') === 'true') it.setAttribute('aria-current', 'true');
       const t = document.createElement('span'); t.className = 'pnav-text'; t.textContent = nm ? nm.textContent : row.textContent;
       it.appendChild(t);
@@ -20990,7 +21003,8 @@ const STATE_COPY = {
      not broken. Still an attention state with the needs-you look: it blocks the agent, and #2808 keeps a technical
      prompt red on purpose, as the fallback when nothing answers it. Only the word changes. */
   approval:     { label: 'Waiting for you', attn: true },
-  rate_limited: { label: 'Paused',        attn: true  },
+  /* #6398 (Josh 2026-10-17 11:09): "Lets reduce all that to a \"Rate Limit\" and put it where the \"Paused\" status is." */
+  rate_limited: { label: 'Rate Limit',    attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
      the wrong reassurance (it implies "will resume on its own"), so this
@@ -21337,13 +21351,17 @@ function stateReason(a, opts) {
     const n = Number(a.crashLoop.count) || 3;
     return 'Kosmos has restarted it ' + n + ' times in the last half hour, and each time it stopped within a couple of minutes. Kosmos will keep trying. Open it to see what it shows.';
   }
+  /* #6398: a rate-limited agent's card and list row say only the pill ("Rate Limit"); the sentence (how long, what
+     to do) is the pill's hover and screen-reader text and stays on the agent's own page, which calls this without card.
+     Below the crash-loop arm: a crash-looping agent's pill reads "Keeps stopping", so it keeps its own sentence. */
+  if (a && a.state === 'rate_limited' && opts && opts.card === true) return '';
   /* #5154 slice C: the same terminal error has stood past its threshold (engine/stuckterminal.js), so the card
      names what is wrong and what to do. Placed before the plain auth_failed / rate_limited rules below so a
      STUCK agent gets this sharper sentence; a brief one still falls through to the ordinary state sentence.
      Plain words, consistent with the "Keeps stopping" card; Mona can refine later. DELIBERATE: slice C escalates
      the SENTENCE, the Issue-filter membership (agentNeedsAttention / needsPerson) and one phone push -- not the
      card's look or pill. auth_failed and rate_limited already render attn:true pills ("Sign-in isn't working" /
-     "Paused"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
+     "Rate Limit"), so a stuck card already reads as an issue; restyling cardStOf/stateCopyOf would recolour those
      paused states wholesale, which is out of this slice's scope. */
   if (a && a.stuckError && a.stuckError.stuck === true && a.state === a.stuckError.state) {   // state-match: never a stale sentence on a mid-sweep switch
     const mins = Math.max(1, Math.round((Number(a.stuckError.forMs) || 0) / 60000));
@@ -22096,17 +22114,39 @@ function boardMods(a, m) {
        with the red is fine." */
   ].filter(Boolean).join(' ');
 }
-function answerBtn(a) {
-  /* ⚠️ Same tie gate as before the redesign (defence-in-depth: upstream
-     forces untied panes to unknown today; the gate is for the day that
-     changes). The accessible name CONTAINS the visible word "Answer"
-     verbatim (SC 2.5.3). */
-  /* #4006: a restart that did not come back has no question to answer. */
-  return a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true)
-    ? `<button class="ansgo" type="button" data-answer="${esc(a.sessionName)}"`
-      + ` data-answer-name="${esc(a.name)}"`
-      + ` aria-label="Answer ${esc(a.name)}'s question"><u>Answer &rarr;</u></button>`
-    : '';
+function answerAttrs(a) {
+  /* #6400 (Josh 2026-10-17 11:14): the pill says only "Issue", with no "Answer ->" link in it. An agent with a question
+     to answer carries the answer target on its card or row itself, so a click anywhere on it (or Enter on its name
+     button) opens its page with the reply box focused, as the link did (pjAnswerFrom). Same gate as the link had:
+     tied to its own session, and not a restart that did not come back (#4006), which has nothing to answer.
+     The board's click handler checks [data-answer] first, and leaves any other button, link or input inside the card to
+     its own handler (only the name button is an answer route), so a control added to a card later is not swallowed. */
+  return isAnswerable(a) ? ` data-answer="${esc(a.sessionName)}" data-answer-name="${esc(a.name)}"` : '';
+}
+function isAnswerable(a) {
+  return !!(a && a.state === 'needs_you' && a.isNamedOurs && !(a.disruption && a.disruption.failed === true));
+}
+/* #6398: the pill reads Rate Limit (not, say, a crash loop's Keeps stopping, which outranks it). */
+function pillIsRateLimit(a) {
+  return !!(a && a.state === 'rate_limited' && stateCopyOf(a) === STATE_COPY.rate_limited);
+}
+/* #6400: the name button's accessible name. On an answerable card or row a press runs the answer route (answerAttrs),
+   so it says so; the visible name is in it (SC 2.5.3). */
+function nameGoLabel(a) {
+  return isAnswerable(a) ? 'Answer ' + a.name + '\u2019s question' : 'Open ' + a.name;
+}
+/* #6398: the rate-limit sentence for a screen reader, inside the pill's visually hidden text (a title is not read
+   reliably, and the list pill is aria-hidden). Nothing is drawn. */
+function rateLimitVh(a) {
+  if (!pillIsRateLimit(a)) return '';
+  const why = stateReason(a);
+  return why ? `<span class="vh">. ${esc(why)}</span>` : '';
+}
+/* #6398: the hover text of a rate-limited pill: the sentence its page shows (how long, what to do). */
+function rateLimitTitle(a) {
+  if (!pillIsRateLimit(a)) return '';
+  const why = stateReason(a);
+  return why ? ` title="${esc(why)}"` : '';
 }
 
 /**
@@ -22328,18 +22368,6 @@ function dmBadge(a) {
   const s = n > 99 ? '99+' : String(n);
   return '<span class="dmbadge" aria-label="' + s + ' unread ' + (n === 1 ? 'message' : 'messages') + '">' + s + '</span>';
 }
-/* #5314: the agent's last-community-post line. The server (withAgentSortFields) builds the whole
-   sentence in a.lastCommunityPost -- the single source of truth -- and this returns it verbatim,
-   or '' when the switch is off or there is no sentence. There is no client-side day-diff.
-   KEEP the `typeof communityLine === 'function'` guard at card()'s two call sites: some
-   card-render test files lift card() without this helper in scope (e.g. web.trust-wait-card-3013),
-   where a direct call throws. It looks dead in production; it is load-bearing for those tests. */
-function communityLine(a) {
-  if (!a || a.communityOn === false) return '';
-  if (typeof a.lastCommunityPost === 'string') return a.lastCommunityPost;
-  // No client-side day-diff: with no server string there is nothing to show (see the docblock).
-  return '';
-}
 /* messages-filter (Josh 2026-09-19): an agent "has messages" when it carries 1+ unread DMs
    (a.dmUnread > 0) -- the same signal the #st-dm "Messages" pill totals. Independent of
    dmBadge's CURRENT-suppression, so the open agent is still shown when the filter is on. Every
@@ -22379,7 +22407,6 @@ function card(a) {
      the guard makes the presentation self-contained, so a future running:false
      restarting payload still renders the honest restarting state, not "Not running". */
   if (a.running === false && a.state !== 'restarting') {
-    const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
     /* #3013: a Windows agent stuck at Claude Code's invisible workspace-trust
        prompt. It is enumerated like any offline agent (a registered job, no live
        session), but "Not running" / "Can't tell" would be the wrong story -- a
@@ -22396,7 +22423,6 @@ function card(a) {
       <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
       <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
-      ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
     </div>`;
     }
     /* #668: the one offline row whose "Not running" would be a lie. The board
@@ -22417,7 +22443,6 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
     ${!split && offlineNote(a) ? `<div class="arules">${esc(offlineNote(a))}</div>` : ''}
-    ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -22436,7 +22461,6 @@ function card(a) {
   const m = cardStOf(a);
   const copy = stateCopyOf(a);
   const pct = pctOf(a.context);
-  const answer = answerBtn(a);
 
   /* #3729 (Josh, 2026-09-25): the unknown card's note ("Not the same as idle. We cannot see this
      one, so we are not telling you it is fine.") is gone with the conflict line. It was an
@@ -22453,24 +22477,22 @@ function card(a) {
      never pushes the name), and guarded by server.test.js. */
   const badge = (pct >= NEARLY_FULL ? `<span class="membadge">${memPrint(a.context, pct)}</span>` : '');
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
-  const comm = typeof communityLine === 'function' ? communityLine(a) : (a && a.communityOn !== false && a.lastCommunityPost ? a.lastCommunityPost : '');
 
-  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
+  return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
-    <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
+    <div class="aname"><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
-    <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
+    <div class="astate st-${m.st}"${rateLimitTitle(a)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${rateLimitVh(a)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
-    ${comm ? `<div class="acommunity">${esc(comm)}</div>` : ''}
   </div>`;
 }
 
 /**
  * The pack's list row (stage 4): the same agent, one readable line.
  * Both renderers read the same derivations (cardStOf/taskLine/modelLine/
- * roleLine/answerBtn), so grid and list cannot disagree about an agent.
+ * roleLine/answerAttrs), so grid and list cannot disagree about an agent.
  * Memory here is a BAR (the row has no room for a ring); unknown memory is
  * the dashed bar with no number, never a guessed figure.
  */
@@ -22673,9 +22695,9 @@ function lrow(a) {
   const mem = pct === null
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
-  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
+  return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}"${answerAttrs(a)}${Number.isFinite(Number(a && a.dmUnread)) && Number(a && a.dmUnread) > 0 ? ' data-has-msgs' : ''}${agentNeedsAttention(a) ? ' data-attn' : ''}>
     <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}<span class="pres lpres ${m.pres}" aria-hidden="true"></span></div>${dmBadge(a)}
-    <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
+    <div class="lname"><b><button class="namego" type="button" aria-label="${esc(nameGoLabel(a))}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
          rule above forbids an eighth child, and .lstate already stacks a
@@ -22690,10 +22712,10 @@ function lrow(a) {
          COLOUR (working=green, needs-you=red, everything else=grey), not a
          waiting/idle/busy WORD. The state glyph + word are kept in the row for
          screen readers (.vh) but not shown; the red-! triangle (LROW_WARN, on
-         .lav above) still marks needs-you visually, and answerBtn/alsowork stay
-         because they are actions, not status text. This supersedes the #1191
+         .lav above) still marks needs-you visually, and alsowork stays because
+         it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
-    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span><span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}">${glyphOf(a)}</span>${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
+    <div class="lstate"><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${rateLimitVh(a)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${rateLimitTitle(a)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     ${lrowTask(taskLine(a, { card: true }), rulesBehindLine(a, false))}
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
@@ -27798,8 +27820,9 @@ function acctMoveNote(cards) {
 async function stopAccountMove() {
   try {
     const ctl = typeof AbortController === 'function' ? new AbortController() : null;
-    /* As long as the move request's own limit: the board puts every unreached agent back inside this request, and on
-       Windows each put-back is a few Task Scheduler calls. */
+    /* #6231 item 7: the stop route now ANSWERS AT ONCE -- it only flags the move; the put-backs run in the move's
+       async tail, no longer inside this request. So this is a generous ceiling on the board acking the stop, not on
+       the put-backs. Left at 60s (not tightened) because an over-generous abort is harmless. */
     const timer = ctl ? setTimeout(() => ctl.abort(), 60e3) : null;
     let res;
     try { res = await fetch('/api/agents/account-moves/stop', { method: 'POST', ...(ctl ? { signal: ctl.signal } : {}) }); }
@@ -27813,8 +27836,9 @@ async function stopAccountMove() {
     }
     return { ok: false, said: (out && (out.because || out.error)) || 'The move could not be stopped. Try again in a moment.' };
   } catch (e) {
-    /* A request that ran out of time may well have stopped the move (the board answers after the put-backs): say so,
-       never that it failed. */
+    /* A request that ran out of time may well have stopped the move: the board flags the stop before it answers (the
+       put-backs then run in the move's async tail), so an abort does not mean the stop did not take. Say so, never
+       that it failed. */
     if (e && e.name === 'AbortError') return { ok: false, said: 'Kosmos took too long to answer, so the move may already be stopping. Check Settings, AI Models in a moment.' };
     return { ok: false, said: 'The move could not be stopped: Kosmos did not answer. Try again in a moment.' };
   }
@@ -30114,9 +30138,9 @@ function worldswSetStale(stale) {
 /* kosmos#4815 (Josh, #admin 2026-09-30 19:50): "I want to remove multiple Kosmoses ... we don't have to remove the
    structure. I just want it commented out so that it's not visible on anything." One switch, not a deletion: with
    it false, the Kosmoses list, New Kosmos (and its dialog), each Kosmos's settings cog (rename, add agents from
-   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then names THIS computer
-   (from Your computers, #4648, else "This computer") and opens only when the account has another computer, the
-   menu holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
+   another Kosmos, hide) and the last-known-list note are never shown. The top-left button then shows only when the
+   account has another computer (#6396), names THIS computer (from Your computers, #4648) and opens onto a menu
+   holding just Your computers. A board that already has several Kosmoses keeps running the one it booted;
    nothing is moved or deleted, and /api/worlds is unchanged. Change the default below to bring it all back. */
 /* The default is OFF. A browser can turn it back on with localStorage 'kosmos.multiKosmos' = '1' (nothing on a
    screen offers that): the browser checks that pin the kept structure (#1704, #2238, #2350, #2563, #2628, #2935,
@@ -30182,7 +30206,11 @@ function worldswOneKosmos() {
   nameEl.textContent = name;
   sw.classList.add('worldsw-onekosmos');
   sw.classList.toggle('worldsw-fixed', !COMPUTERS_OPENABLE);
-  sw.hidden = false;   // the name no longer depends on the Kosmoses read (review round 1)
+  /* kosmos#6396 (Josh 11:09: "If there is only 1 computer lets not show \"This computer\" in the top left - it makes
+     no sense"): shown only once the account has another computer to go to; one computer, not signed in, or no answer
+     yet shows nothing there. Read before hiding: where focus was. */
+  const focusWasInside = sw.contains(document.activeElement);
+  sw.hidden = !COMPUTERS_OPENABLE;
   const menu = document.getElementById('worldsw-menu');
   if (COMPUTERS_OPENABLE) {
     btn.removeAttribute('aria-disabled');
@@ -30191,12 +30219,16 @@ function worldswOneKosmos() {
     btn.setAttribute('aria-expanded', menu && !menu.hidden ? 'true' : 'false');
     btn.setAttribute('aria-label', 'Your computers. This computer: ' + name);
   } else {
-    /* Plain text, as the card asks: nothing to expand, so no expanded state, no controls and no Tab stop (a screen
-       reader would otherwise announce a collapsed button that never opens). Close a menu left open from before. */
-    if (menu && !menu.hidden) {
-      const focusWasInside = menu.contains(document.activeElement);
-      menu.hidden = true;
-      if (focusWasInside) btn.focus();   // never leave focus on a row that just went away
+    /* Hidden (#6396), so nothing to expand: no expanded state, no controls and no Tab stop. A menu or the At a glance
+       sheet (which lives inside the switcher) left open goes with it, and focus that was inside moves to the first
+       visible of the K mark, the Kosmos+ bar's menu and the page heading (as the login and restart notices do), not
+       to the page. */
+    if (menu && !menu.hidden) menu.hidden = true;
+    const wv = document.getElementById('wv-modal');
+    if (wv && !wv.hidden) wvClose();
+    if (focusWasInside) {
+      const next = ['.apphead .klink', '.kplus-bar-menu', '.apphead h1'].map((s) => document.querySelector(s)).find((el) => el && el.getClientRects().length);
+      if (next) next.focus();
     }
     btn.removeAttribute('aria-expanded');
     btn.removeAttribute('aria-controls');
@@ -30598,6 +30630,17 @@ async function computersFetch() {
   if (gen !== COMPUTERS_GEN) return;
   computersRender(data);
 }
+/* kosmos#6406: the Kosmos app's own window (the Mac app's kosmosBadge bridge, the Windows app's WebView2), not a browser. */
+function computersInApp() {
+  try { return !!((window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosBadge) || (window.chrome && window.chrome.webview)); } catch { return false; }
+}
+/* kosmos#6406 (Josh 12:04): every link to another of the person's computers. In the Kosmos app, no target: the app keeps
+   a same-window https://<name>.kosmosplus.com address in its window (Mac in every mode; Windows once the computer's mode
+   is chosen, an unchosen Windows computer still sends it to the browser). In a browser, a new tab as before. The same
+   page then replaces this one, so unsent text in a composer goes, as it does on a reload (the page has no beforeunload). */
+function computersLinkTarget(a) {
+  if (!computersInApp()) a.target = '_blank';
+}
 function computersRender(data) {
   const box = document.getElementById('worldsw-computers');
   const list = document.getElementById('worldsw-computers-list');
@@ -30639,7 +30682,9 @@ function computersRender(data) {
       st.textContent = state;
       if (opens) {
         row.href = 'https://' + c.address + '/';
-        row.target = '_blank';
+        /* kosmos#6406: in the Kosmos app this window, in a browser a new tab (computersLinkTarget); noreferrer either
+           way, so this board's address never travels in the request. */
+        if (typeof computersLinkTarget === 'function') computersLinkTarget(row); else row.target = '_blank';
         row.rel = 'noopener noreferrer';
         row.setAttribute('aria-label', 'Open ' + c.name + ', ' + state.toLowerCase());
       }
@@ -30796,7 +30841,7 @@ function oaCard(a, c, off) {
   const name = (typeof a.name === 'string' && a.name.trim()) || a.sessionName;
   if (!off) {
     el.href = oaAgentHref(c.address, a.sessionName);
-    el.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(el); else el.target = '_blank';   // #6406
     el.rel = 'noopener noreferrer';
     el.setAttribute('aria-label', 'Open ' + name + ' on ' + c.name);
   }
@@ -30828,7 +30873,7 @@ function oaGroup(c, seen, now) {
     const open = document.createElement('a');
     open.className = 'oa-open';
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(open); else open.target = '_blank';   // #6406
     open.rel = 'noopener noreferrer';
     open.textContent = 'Open ' + c.name;
     head.appendChild(open);
@@ -31126,7 +31171,7 @@ function aoGroup(c, seen, ao, now) {
   if (st !== 'out') {   // as the Agents view's group (#4812): where to sign in, or to see it there
     const open = aoEl('a', 'oa-open', 'Open ' + c.name);
     open.href = 'https://' + c.address + '/';
-    open.target = '_blank';
+    if (typeof computersLinkTarget === 'function') computersLinkTarget(open); else open.target = '_blank';   // #6406
     open.rel = 'noopener noreferrer';
     g.appendChild(open);
   }
@@ -44820,11 +44865,14 @@ function setWritesOffered(a, tied) {
 
 for (const boardEl of [document.getElementById('grid'), document.getElementById('alist')]) {
   boardEl.addEventListener('click', (e) => {
-    // ⚠️ FIRST, because it is INSIDE the card. Checked after the card it
-    // would never fire at all: the card's own handler matches the same click
-    // and opens the detail panel instead, the screen this button skips.
+    // #6400: an agent with a question carries its answer target on the card or row itself (answerAttrs), so it is
+    // checked FIRST: the plain open below would take the same click and skip focusing the reply box.
     const answer = e.target.closest('[data-answer]');
-    if (answer) { pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return; }
+    // A control of its own inside the card (anything but the name, which IS the answer route) is not an answer.
+    const ownControl = e.target.closest('button, a, input, select, textarea, [role="button"]');
+    if (answer && !(ownControl && answer.contains(ownControl) && !ownControl.classList.contains('namego'))) {
+      pjAnswerFrom(answer.dataset.answer, answer.dataset.answerName); return;
+    }
     // .acard in the grid, .lrow in the list: one contract (data-agent).
     const card = e.target.closest('.acard[data-agent], .lrow[data-agent]');
     if (card) openDetail(card.dataset.agent);
@@ -50280,17 +50328,45 @@ function askEsc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;',
    tick is not announced while a new or changed request still is. ⚠️ Not measured with a screen reader:
    where one reads the card's region instead (role=status is atomic), the whole card is read once a
    minute, which is still far quieter than the old rewrite every 5 seconds. */
+/* kosmos#6405: a computer's request (joining, or a row that started as one): the tunnel keeps one row across every
+   attempt, so its first_seen is the FIRST ask, never this one. Josh's laptop read "23 hours ago" for a fresh request. */
+function askComputerRow(d) { return !!(d && (d.joining_computer || d.code_wait === 'was_a_computer')); }
 function askAgoSpan(unix) { return '<span data-ask-ago="' + (Number(unix) || 0) + '" aria-live="off"></span>'; }
+/* #6404: what the person typed for a computer's code, kept across repaints and forgotten when the code changes. */
+// The tunnel's pairing code is six digits in two groups (pairsas), so digits alone are the code; revisit if it gains letters.
+function askDigits(v) { return String(v || '').replace(/\D/g, ''); }
+function askTypedFor(d) {
+  const t = ASK.typed && ASK.typed[d.device_id];
+  return t && t.code === d.code ? t.v : '';
+}
+function askTyped(id, v) {
+  const d = ASK.devices.find((x) => x.device_id === id);
+  if (!d) return;
+  ASK.typed = ASK.typed || {};
+  ASK.typed[id] = { code: d.code, v: v };
+}
 function askWrite(el, html) {
   if (!el) return;
   /* A real change still rewrites the rows (a request crossing the hour fades, an answer lands): the
      button that had focus is found again by what it does and for whom, and focus goes back to it. */
   const a = document.activeElement;
-  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '' } : null;
+  const had = a && el.contains(a) && a.dataset ? { ask: a.dataset.ask || '', id: a.dataset.id || '', code: a.dataset.askcode || '',
+    at: a.dataset.askcode ? [a.selectionStart, a.selectionEnd] : null } : null;
   setLive(el, html);
+  // #6404: a code field gets back what was typed for this code (kept out of the markup).
+  for (const f of el.querySelectorAll('.askcodein')) {
+    const d = ASK.devices.find((x) => x.device_id === f.dataset.askcode);
+    const v = d ? askTypedFor(d) : '';
+    if (f.value !== v) f.value = v;
+  }
   if (had && !el.contains(document.activeElement)) {
-    const back = Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
-    if (back) back.focus();
+    const back = had.code ? Array.from(el.querySelectorAll('.askcodein')).find((f) => f.dataset.askcode === had.code)
+      : Array.from(el.querySelectorAll('[data-ask]')).find((b) => b.dataset.ask === had.ask && (b.dataset.id || '') === had.id);
+    if (back) {
+      back.focus();
+      // #6404: a rebuilt code field keeps the person's place in what they typed.
+      if (had.at && back.value) back.setSelectionRange(Math.min(had.at[0], back.value.length), Math.min(had.at[1], back.value.length));
+    }
   }
   for (const s of el.querySelectorAll('[data-ask-ago]')) {
     const t = askAgo(Number(s.dataset.askAgo) || 0);
@@ -50326,6 +50402,8 @@ const JOIN_WAIT_WORDS = {
   daily_limit: 'This computer has added as many computers as it can today. Try again tomorrow.',
   wait_a_few_minutes: 'This computer just added one. The code for <name> shows here in a few minutes.',
   was_a_computer: 'This started as a computer and now shows as a device, so it cannot be allowed. Press Not me.',
+  /* #6383: since #6353 a code that ran out is followed by a new one only once the person asks on the joining computer. */
+  code_ran_out: 'The code for <name> ran out. On <name>, press Try again for a new one.',
 };
 function paintAsk() {
   const card = document.getElementById('askcard');
@@ -50347,7 +50425,7 @@ function paintAsk() {
      every state it is in: signing in, signed in, connected. This reverses the #3829 review rule that kept them in the
      top card unless the connected panel (#plus-flow) was showing, which is how, right after sign-in (the "You're
      signed in" card, #plus-flow hidden), they spread across the top of the whole window above the sidebars. The top
-     card stays the compact "N devices want to connect" notice on every other view. */
+     card stays the compact one-line notice on every other view. */
   const inPanel = onPlus && !!panel;
   if (panel) panel.hidden = !(inPanel && anything);
   /* #4637 (Mona Lisa's review W1): "Waiting for you" only while something waits; a success line stands alone. A request
@@ -50368,14 +50446,22 @@ function paintAsk() {
     /* #6315 (Josh, 19:41: "Definitely have to have a way to dismiss it"): the notice is for one set of requests. Its
        close button or Review puts that set away (kept across a reload); a new request shows it again. */
     // A request is its device and when it asked (and when it was last turned away), so the same device asking again
-    // later is a new request. A row whose first_seen and denied_at both arrive as 0 cannot come back.
-    const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '');
+    // later is a new request. A phone's or browser's row whose first_seen and denied_at both arrive as 0 cannot come back.
+    // kosmos#6417: a computer keeps ONE row across every attempt (one first_seen), so its key also carries its code:
+    // a new code is a new attempt (kosmos-relay crates/tunnel/src/pairing.rs: one code per attempt, each withdrawn after
+    // REVEAL_TIMEOUT_SECS, 600 s), and brings the notice back. Its code goes empty while an attempt starts, waits or
+    // lapses; none of those is a new request, so a computer row with no code counts as put away when any of its codes
+    // was (noteAway; safe as a prefix because that key ends in '@'), and its wait state is not part of the key.
+    const noteKey = (d) => String(d.device_id) + '@' + (d.first_seen || '') + '@' + (d.denied_at || '')
+      + (askComputerRow(d) ? '@' + (d.code || '') : '');
+    const noteAway = (d, put) => put.indexOf(noteKey(d)) !== -1
+      || (askComputerRow(d) && !d.code && put.some((k) => k.indexOf(noteKey(d)) === 0));
     const hereKey = here ? 'here:' + askHereKey(here) : '';
     if (hide) { ASK.noteKeys = []; askWrite(document.getElementById('ask-rows'), ''); return; }
     // Never cleared on an empty list (a list being rewritten reads as empty, and another tab may be behind).
     const put = askNoteDismissed();
     // The notice names only what was not put away; with nothing left it is hidden.
-    const fresh = live.filter((d) => put.indexOf(noteKey(d)) === -1);
+    const fresh = live.filter((d) => !noteAway(d, put));
     const hereNew = here && put.indexOf(hereKey) === -1 ? here : null;
     if (!fresh.length && !hereNew) { ASK.noteKeys = []; card.hidden = true; askWrite(document.getElementById('ask-rows'), ''); return; }
     title.textContent = '';
@@ -50385,7 +50471,9 @@ function paintAsk() {
     // named, so it is not put away (its line is the way to its Undo).
     ASK.noteKeys = n ? fresh.map(noteKey) : [hereKey];
     // kosmos#5786 (b): with nothing waiting, the browser this computer just connected; Review leads to its Undo.
-    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.' : n + ' devices want to connect to your Kosmos.';
+    // kosmos#6388: several of the person's own computers joining, and nothing else, are computers, not devices.
+    const line = !n && hereNew ? askEsc(askBrowserWord(hereNew.name)) + ' on this computer is connected.' : n === 1 ? askHead(fresh[0]) + '.'
+      : fresh.every((d) => d.joining_computer) ? n + ' of your computers want to join.' : n + ' devices want to connect to your Kosmos.';
     askWrite(document.getElementById('ask-rows'), '<div class="asknote"><span class="askbrand">Kosmos+</span><span>' + line +
       '</span><button class="btn uprime" type="button" data-ask="open">Review</button>' +
       '<button class="asknote-x" type="button" data-ask="note-dismiss" aria-label="Dismiss notice" title="Dismiss"><span aria-hidden="true">&times;</span></button></div>');
@@ -50406,8 +50494,9 @@ function paintAsk() {
     if (e && e.state === 'denied') {
       /* #3829 review: denying an OLD request (older than an hour, likely the person's own stale sign-in)
          does not accuse anyone; the password sentence is for a fresh one they did not make. */
-      const oldAsk = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
-      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in; it can ask again by signing in.</p>' +
+      // #6405: a computer's first_seen is its first ask, so its age says nothing: it always gets the fresh wording.
+      const oldAsk = !askComputerRow(d) && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+      if (oldAsk) return '<div class="askrow done"><p>Turned away. That ' + askEsc(kind) + ' was not let in; it can ask again by signing in.</p>' +   // never a computer's row (#6405)
         '<div class="acts"><button class="btn" type="button" data-ask="gotit" data-id="' + askEsc(d.device_id) + '">Got it</button></div></div>';
       return '<div class="askrow done"><p>Turned away. That ' + (d.joining_computer ? 'computer, ' + askEsc(d.joining_computer) + ',' : askEsc(kind)) + ' was not let in. If you did not just sign in anywhere, someone has a code sent to <b>' + askEsc(ASK.email || 'your email') +
         '</b>: change that email\'s password.</p>' +
@@ -50416,9 +50505,11 @@ function paintAsk() {
     /* #3829 (Josh: "terribly worded"; Mona Lisa's sketch): one compact card per request. The device and
        how long ago, one sentence, then the code LARGE directly above Allow / Not me (it is what the person checks
        against the device in their hand; #3952). A request older than an hour is faded. No paragraphs, no "Not now". */
-    const stale = d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
+    // #6405: no age and no fading for a computer's request (askComputerRow); its code or wait line says where it is.
+    const joiningRow = askComputerRow(d);
+    const stale = !joiningRow && d.first_seen && (Date.now() / 1000 - d.first_seen) > 60 * 60;
     const again = d.denied_at ? ' You said no to this ' + askEsc(kind) + ' ' + askAgoSpan(d.denied_at) + ' and it has asked again. If it is not yours, change that email\'s password; that is what stops it.' : '';
-    /* #4794 (Mona Lisa's words): a computer joining shows this same code on its own screen. Until the two computers have
+    /* #4794 (Mona Lisa's words), #6404: a computer joining shows its code on its own screen; the person types it here. Until the two computers have
        worked it out, the code's place says why (the tunnel's code_wait) and Allow waits, disabled but in place. */
     const name = d.joining_computer ? askEsc(d.joining_computer) : askEsc(d.name || 'this computer');
     /* Keyed on code_wait too: was_a_computer comes on a row with no joining_computer (the tunnel's devices.rs). */
@@ -50427,7 +50518,7 @@ function paintAsk() {
       ? (JOIN_WAIT_WORDS[d.code_wait] || 'Working out the code with <name>. It shows here in a moment.').replace(/<name>/g, name) : '';
     /* A pairing refusal is about the code it was given: once the row's code changes it no longer applies. While it does,
        a code_changed refusal keeps Allow waiting for the new code (pressing it on the same code only refuses again). */
-    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many');
+    const tagged = e && e.state === 'error' && (e.because === 'code_changed' || e.because === 'code_pending' || e.because === 'code_many' || e.because === 'code_typed' || e.because === 'code_new' || e.because === 'code_short');
     const staleTag = tagged && e.code !== d.code;
     /* ...for a minute at most, so a refusal that was not about a real change cannot leave the card dead (review 4). */
     const holdAllow = !!waitLine || (tagged && !staleTag && e.because === 'code_changed' && Date.now() - e.at < 60000);
@@ -50439,27 +50530,41 @@ function paintAsk() {
        and browser words match: the asking device names itself, so free text never goes into this sentence. Anything else
        keeps "the device in your hand". */
     const deskBrowser = /^(Mac|Windows PC|Chromebook|Linux computer) \u00b7 (Edge|Opera|Firefox|Samsung Internet|Chrome|Safari)$/.exec(String(d.name || ''));
-    const say = d.joining_computer ? (d.code ? 'Allow it if ' + name + ' shows this same code.' : '')
+    /* #6404: for a computer the person TYPES the code shown on it; this computer's own code is not shown, so Allow
+       cannot be pressed without reading the other screen (one click used to send this computer's own code). */
+    const typing = !!(d.joining_computer && d.code && !waitLine);
+    const typed = typing ? askTypedFor(d) : '';
+    const say = d.joining_computer ? (d.code ? 'Type the code shown on ' + name + ', then press Allow.' : '')
       : d.code && deskBrowser ? 'Allow only if this code is showing in ' + askEsc(deskBrowser[2]) + ', in the tab where you signed in.'
         : d.code ? 'Allow only if this code is showing on the device in your hand.' : 'Allow only if this is the device in your hand.';
     /* The tunnel's pairing refusals, worded (never the raw tag). While the wait line shows it already says what is
        happening, so an earlier refusal is not repeated beside it (review 1). */
     const errWords = !(e && e.state === 'error') || waitLine || staleTag ? ''
-      : e.because === 'code_changed' ? 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.'
+      : e.because === 'code_short' ? 'Type the six digits shown on ' + name + ', then press Allow.'
+      : e.because === 'code_typed' ? 'That is not the code ' + name + ' shows. Check it on ' + name + ' and type it again.'
+      : e.because === 'code_new' ? name + ' has a new code. Type the new one from ' + name + ', then press Allow.'
+      : e.because === 'code_changed' ? (d.joining_computer ? 'The code changed before you pressed Allow. Type the new one from ' + name + ', then press Allow.'
+        : 'The code changed before you pressed Allow. Check the new one on ' + name + ', then press Allow again.')
         : e.because === 'code_pending' ? 'Working out the code with ' + name + '. It shows here in a moment.'
           : e.because === 'code_many' ? 'More than one computer is showing a code here. Press Not me on the ones you do not recognise.'
             : askEsc(e.because);
     /* #4637 (Mona Lisa's outline, #4754): the Kosmos+ sheet. The brand, who wants in and when, one line, then the code
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
-    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code ? ', code ' + askEsc(d.code) : '');
+    const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><p class="askbrand">Kosmos+</p><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
-      '<div class="askwho"><b>' + askHead(d) + '</b>' + askAgoSpan(d.first_seen) + '</div>' +
-      '<p class="asksay">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
+      '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
-      (d.code && !waitLine ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
-      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : '') + '>Allow</button>' +
+      /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
+         rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
+      (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code on ' + name + '</label>' +
+        '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
+        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
+      (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
+      '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="Allow ' + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>Allow</button>' +
       '<button class="btn quiet" type="button" data-ask="deny" data-id="' + askEsc(d.device_id) + '" aria-label="Not me: turn away ' + label + '">Not me</button></div></div>';
   };
   /* #4637 (Mona Lisa's review W1): what still waits comes first, under "Waiting for you"; answered ones follow it. */
@@ -50489,7 +50594,7 @@ function paintAsk() {
   ASK.shownKey = waiting.join(',');
 }
 async function askAct(act, id, at) {
-  const d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
+  let d = ASK.devices.find((x) => x.device_id === id) || (ASK.done[id] && ASK.done[id].device);
   if (act === 'open') { askNoteDismiss(); showTab('settings'); settingsGo('plus'); paintAsk(); return; }   // #3829 addendum: the notice's link
   // 'open' and 'note-dismiss' exist only on the compact notice, whose paint wrote ASK.noteKeys.
   if (act === 'note-dismiss') {
@@ -50529,14 +50634,49 @@ async function askAct(act, id, at) {
   }
   if (act === 'gotit') { if (ASK.done[id]) ASK.done[id] = { state: 'gone', at: Date.now(), device: d }; paintAsk(); paintDevices(); return; }
   if (!d) return;
+  // Only the two buttons act on a request; anything else (#6404: a click that reached here from elsewhere) does nothing.
+  if (act !== 'allow' && act !== 'deny') return;
   const verb = act === 'allow' ? 'allow' : 'deny';
+  /* #6404: for a computer, what the person typed is checked here, digit for digit, against the code this computer worked
+     out, and then it is what Allow sends (in the tunnel's "ddd ddd" form), so the tunnel checks the person's entry too.
+     A wrong one never reaches the tunnel (it would read as "the code changed"). Before calling it wrong, the list is read
+     once more: the other computer may have a new code this page has not seen yet, and the person typed that one. */
+  let typedCode;
+  if (verb === 'allow' && d.joining_computer && d.code) {
+    const t = ASK.typed && ASK.typed[id];
+    // What the field shows (typing for an earlier code is not shown, so it does not count).
+    const v = askDigits(askTypedFor(d));
+    const refuse = (because) => {
+      ASK.done[id] = { state: 'error', at: Date.now(), device: d, code: d.code, because };
+      for (const rid of ['ask-rows', 'plus-ask-rows']) { const el = document.getElementById(rid); if (el) el.__lastLive = null; }
+      paintAsk();
+      const f = document.getElementById('askcode-' + id);
+      if (f) { f.focus(); if (because !== 'code_short') f.select(); }
+    };
+    // The field went blank because the code changed after the person typed: say so, not "type all six".
+    if (!v && t && askDigits(t.v) && t.code !== d.code) { refuse('code_new'); return; }
+    if (v.length !== 6) { refuse('code_short'); return; }
+    if (v !== askDigits(d.code)) {
+      if (typeof pollAsk === 'function') await pollAsk();
+      const now = ASK.devices.find((x) => x.device_id === id);
+      if (now && now.code && v === askDigits(now.code)) { d = now; t.code = now.code; }
+      else {
+        if (now) d = now;
+        // Typed for a code that has since changed: say so, not "that is not the code".
+        refuse(now && t.code !== now.code ? 'code_new' : 'code_typed');
+        return;
+      }
+    }
+    typedCode = v.slice(0, 3) + ' ' + v.slice(3);
+  }
   let res = null;
   try {
     res = await fetch('/api/remote/devices/' + verb, { method: 'POST', headers: { 'content-type': 'application/json' },
-      /* #4794: Allow for a joining computer carries the code the person was shown; the tunnel refuses any other. */
-      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: verb === 'allow' && d.joining_computer && d.code ? d.code : undefined }) });
+      /* #4794, #6404: Allow for a joining computer carries the code the person TYPED; the tunnel refuses any other. */
+      body: JSON.stringify({ device_id: id, name: d.name || undefined, code: typedCode }) });
   } catch { res = null; }
   if (res && res.ok) {
+    if (ASK.typed) delete ASK.typed[id];
     ASK.done[id] = { state: act === 'allow' ? 'allowed' : 'denied', at: Date.now(), device: d };
   } else {
     const said = res ? await res.json().catch(() => null) : null;
@@ -50561,6 +50701,29 @@ document.getElementById('plus-asks').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ask]');
   if (b) askAct(b.getAttribute('data-ask'), b.getAttribute('data-id'), b.getAttribute('data-at'));
 });
+/* #6404: typing the joining computer's code. Allow wakes at six digits without a repaint; Enter presses it. */
+for (const cid of ['askcard', 'plus-asks']) {
+  const host = document.getElementById(cid);
+  host.addEventListener('input', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f) return;
+    const id = f.dataset.askcode;
+    askTyped(id, f.value);
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === id);
+    const d = ASK.devices.find((x) => x.device_id === id);
+    const e2 = ASK.done[id];
+    const held = !d || (e2 && e2.state === 'error' && e2.because === 'code_changed' && e2.code === d.code && Date.now() - e2.at < 60000);
+    // Short of six digits Allow stays reachable (aria-disabled, so Tab from here lands on it, never on Not me); a press says why.
+    if (allow) { allow.disabled = !!held; if (!held && askDigits(f.value).length !== 6) allow.setAttribute('aria-disabled', 'true'); else allow.removeAttribute('aria-disabled'); }
+  });
+  host.addEventListener('keydown', (e) => {
+    const f = e.target.closest('.askcodein');
+    if (!f || e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    const allow = Array.from(host.querySelectorAll('[data-ask="allow"]')).find((b) => b.dataset.id === f.dataset.askcode);
+    if (allow && !allow.disabled) allow.click();   // short of six digits the press says so on the card
+  });
+}
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -51167,6 +51330,7 @@ function plusOrgMaybe(keepMsg) {   // keepMsg: a refusal about the NEW state sta
     if (j && (j.enrolled !== true || j.wordsNeeded !== true)) PLUS_ORG.wordsRefused = false;
     const was = !!(PLUS_ORG.state && PLUS_ORG.state.enrolled === true);
     PLUS_ORG.state = j;
+    if (typeof plusForgetRequiredOnRead === 'function') plusForgetRequiredOnRead();   // kosmos#6367
     const msg = document.getElementById('plus-org-msg');
     // A line about the old state ("not known yet", "left") must not sit under the new one (review 31).
     if (j && (j.enrolled === true) !== was && keepMsg !== true) msg.textContent = '';
@@ -51506,9 +51670,12 @@ function plusJoinReset() {
   PLUS_JOIN_PROBED = false; PLUS_JOIN_PROBE_TRIES = 0; PLUS_JOIN_MSG = ''; PLUS_JOIN_MSG_AT = 0; PLUS_JOIN_RETRY_AT = 0;
   paintPlusJoin();
 }
-/* #6353 (Mona Lisa's review): while a Try again is owed nothing is being waited on, so the pill asks for the person. */
+/* #6353 (Mona Lisa's review): while a Try again is owed, or (#6387) every try is used, nothing is being waited on, so
+   the pill asks for the person. */
 function plusJoinPillWord() {
-  return PLUS_JOIN_WAITING && PLUS_JOIN && PLUS_JOIN.needs_retry === true && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
+  /* #6387: "Too many tries" (failed) needs the person as much as a code that ran out (needs_retry): both are still held
+     and neither moves until someone acts, so the pill says so for both. */
+  return PLUS_JOIN_WAITING && PLUS_JOIN && (PLUS_JOIN.needs_retry === true || PLUS_JOIN.failed === true) && plusJoinLive(PLUS_JOIN) ? 'Needs you' : 'Waiting to be allowed';
 }
 /* Whether the pairing is live (the block shows, polls, and stands in for the coordinator's sentence). Held, OR a code is
    up and not yet confirmed: the tunnel keeps the code after the other computer's Allow ("the person may press Allow on
@@ -51572,7 +51739,11 @@ function paintPlusJoin() {
        must still be said). */
     const nn = askEsc(note.name || 'your other computer');
     html = note.kind === 'matched' ? '<p class="plus-join-say">Matched with ' + nn + '.</p>'
-      : '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + nn + ' yet.</p>';
+      /* kosmos#6386: nothing on either screen can finish the match once the code ran out, and nothing reads the match yet
+         (peers.json has no reader outside pairing.rs), so the sentence says so rather than promising a step. It says the
+         other computer allowed this one, which stays true through a later outage (it is said once and not polled). The
+         slice that first reads peers (kosmos-relay) must change this sentence, or give this state a way to pair again. */
+      : '<p class="plus-join-say">' + (note.name ? nn : 'Your other computer') + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';
     if (el.__lastJoin !== html) { el.innerHTML = html; el.__lastJoin = html; }
     return;
   }
@@ -51591,22 +51762,22 @@ function paintPlusJoin() {
     + '<p class="plus-join-next">When you are at both computers, press Try again for a new code.</p>'
     + '<div class="acts"><button class="btn uprime" type="button" id="plus-join-retry">Try again</button></div>'
     + (PLUS_JOIN_MSG && Date.now() - PLUS_JOIN_MSG_AT < PLUS_JOIN_CODE_MS ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
-  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads and
-     the code steps back, small and grey. */
+  /* kosmos#6314 (Josh 11:29, the big code staying read as "nothing happened"): once matched, the next action leads. */
+  /* #6404: the other computer allows by TYPING this code, so it stays large until it has been allowed. */
   else if (code && j.confirmed) html = '<p class="plus-join-say plus-join-done">The codes match.</p>'
-    + '<p class="plus-join-next">Now press Allow on ' + name + other + '.</p>'
-    + '<p class="plus-join-code-small" role="img" aria-label="' + askEsc(plusJoinSpoken(code)) + '">' + askEsc(code) + '</p>';
+    + '<p class="plus-join-next">Waiting for ' + name + (other ? other + ',' : '') + ' to allow this computer. If you have not yet, type this code there and press Allow.</p>'
+    + plusJoinCode(code);
   /* Allowed already (not held): the other computer no longer shows the code, so the line asks what it showed (review 5). */
   /* kosmos#6314 (Josh 11:28, "Check that 10102026 shows..." read as THIS computer): the other computer is named as the
      other one, and the line says where to look on it. */
   else if (code) html = (j.held === true
-      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Check it shows this same code.</li></ol>'
-      : '<p class="plus-join-say">If ' + name + (other ? other + ',' : '') + ' showed this same code when you allowed it, press The codes match.</p>') + plusJoinCode(code) +
+      ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Once ' + name + ' says this computer is connected, press The codes match here.</li></ol>'
+      : '<p class="plus-join-say">If you typed this code on ' + name + (other ? other + ',' : '') + ' to allow this computer, press The codes match.</p>') + plusJoinCode(code) +
     '<div class="acts"><button class="btn uprime" type="button" id="plus-join-match" data-code="' + askEsc(code) + '" aria-label="The codes match: ' + askEsc(plusJoinSpoken(code)) + '">The codes match</button></div>' +
     (PLUS_JOIN_MSG ? '<p class="fhint">' + askEsc(PLUS_JOIN_MSG) + '</p>' : '');
   /* Allowed, and the code is past the page's 10 minutes: no new code follows once allowed (pairing.rs: only a held
      round starts one), so this is the ran-out ending while the next round confirms it (review 6). */
-  else if (j.held !== true && stale) html = '<p class="plus-join-say">This computer is connected, but the code ran out before it was matched here, so it does not trust ' + name + ' yet.</p>';
+  else if (j.held !== true && stale) html = '<p class="plus-join-say">' + (named ? name : 'Your other computer') + ' allowed this computer. The code ran out before The codes match was pressed here, and nothing more is needed.</p>';   // kosmos#6386, as the ending above
   /* Held with the tunnel's ran-out flag and no Try again owed: the one new attempt was asked for (or is the first after
      the #6315 reset), so it is coming. By the page's clock alone nothing is promised: Try again shows once a round says. */
   else if (j.confirm_expired) html = PLUS_JOIN_RETRY_AT && Date.now() - PLUS_JOIN_RETRY_AT >= PLUS_JOIN_CODE_MS
@@ -51854,7 +52025,32 @@ function plusForgetKept(on, said) {
   if (p) p.textContent = on ? PLUS_FORGET_WORDS.kept(said) : '';
   if (box) box.hidden = !on;
 }
+/* kosmos#6367: when this is the work Kosmos and its company's policy requires reports, the confirm says what removing
+   it does to them. A warning, not a refusal: it is the person's computer, and quitting Kosmos stops reports too.
+   "Stops reporting" only while it reports now; a Kosmos not reporting yet (words to accept, or waiting for its print)
+   is told only that it cannot report once removed, which is true either way. */
+const PLUS_FORGET_REQUIRED = 'Your company requires this computer to report to it. Once it is removed, it stops reporting, and your company will see that.';
+const PLUS_FORGET_REQUIRED_IDLE = 'Your company requires this computer to report to it. Once it is removed, it cannot report.';
+function plusForgetRequiredLine(st) {
+  if (!(st && st.enrolled === true && st.reportingRequired === true)) return '';
+  const line = st.reporting === true ? PLUS_FORGET_REQUIRED : PLUS_FORGET_REQUIRED_IDLE;
+  return typeof plusOrgIn === 'function' ? plusOrgIn(st.org, line) : line;
+}
+/* Filled when the confirm opens, and again when a read of /api/org lands while it is open (plusOrgMaybe): pressed
+   before the pane's first read, the confirm would otherwise stay without the line however long it stays open. */
+function plusForgetRequiredPaint(on) {
+  const req = document.getElementById('plus-forget-required');
+  if (!req) return;
+  const line = on ? plusForgetRequiredLine(typeof PLUS_ORG === 'object' && PLUS_ORG ? PLUS_ORG.state : null) : '';
+  req.textContent = line; req.hidden = !line;
+}
+// A read of /api/org has landed: an open Remove confirm takes the new state's line, and a closed one is left alone.
+function plusForgetRequiredOnRead() {
+  const ask = document.getElementById('plus-forget-ask');
+  if (ask && !ask.hidden) plusForgetRequiredPaint(true);
+}
 function plusForgetArm(on) {
+  plusForgetRequiredPaint(on);
   const ask = document.getElementById('plus-forget-ask'); const row = document.getElementById('plus-forget-go');
   if (ask) ask.hidden = !on;
   if (row) row.hidden = on;
@@ -65550,8 +65746,12 @@ function tkActPhrase(ev, p) {
       /* Whose: "Your" only when the person sent it from the screen (`person`); an agent by name; and an empty `from`
          without `person` is an agent the route could not name, never the person. No possessive, so a name ending in
          s reads cleanly and is never re-cased. */
-      const subject = ev.person === true ? 'your message' : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
-      const Subject = ev.person === true ? 'Your message' : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
+      /* #6359: a built notice (`built`) is the built mark's note, typed to an agent kept out of usage, never a message
+         the conversation showed, so it is named as the notice. */
+      const subject = ev.built === true ? (ev.from ? 'the built notice from ' + nameOf(ev.from) : 'a built notice')
+        : ev.person === true ? 'your message' : ev.from ? 'the message from ' + nameOf(ev.from) : 'a message';
+      const Subject = ev.built === true ? (ev.from ? 'The built notice from ' + nameOf(ev.from) : 'A built notice')
+        : ev.person === true ? 'Your message' : ev.from ? 'A message from ' + nameOf(ev.from) : 'A message';
       const behind = ev.behind === true;
       if (ev.kind === 'kept-dropped') return Subject + ' to ' + to + ' was never sent: '
         + 'Kosmos kept it ' + (behind ? 'behind earlier messages' : 'while ' + to + ' was out of usage') + ' and could not send it within a day';
@@ -76141,6 +76341,31 @@ function pjNeedsOpenClick(e) {
 document.getElementById('pj-one-notice').addEventListener('click', pjNeedsOpenClick);
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNeedsOpenClick); }
 { const rn = document.getElementById('alist-pj-notice'); if (rn) rn.addEventListener('click', pjNoticeRetryClick); }
+/* #6349: data-more while some of the rail notice is below its box's bottom edge (the fade cue above). Read on the box's
+   scroll, on a change to its rows (added, removed, text), on a change to the box's size or any of its top-level rows',
+   and on window resize. */
+function railPjMore() {
+  const rn = document.getElementById('alist-pj-notice');
+  if (!rn) return;
+  const more = rn.scrollHeight - rn.scrollTop - rn.clientHeight > 2;
+  if (more !== rn.hasAttribute('data-more')) rn.toggleAttribute('data-more', more);
+}
+{
+  const rn = document.getElementById('alist-pj-notice');
+  if (rn) {
+    rn.addEventListener('scroll', railPjMore, { passive: true });
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(railPjMore) : null;
+    if (ro) { ro.observe(rn); for (const c of rn.children) ro.observe(c, { box: 'border-box' }); }   // a row's padding or border counts too
+    if (typeof MutationObserver === 'function') new MutationObserver((recs) => {
+      if (ro) for (const r of recs) if (r.target === rn) {
+        for (const n of r.removedNodes) if (n.nodeType === 1) ro.unobserve(n);
+        for (const n of r.addedNodes) if (n.nodeType === 1) ro.observe(n, { box: 'border-box' });
+      }
+      railPjMore();
+    }).observe(rn, { childList: true, subtree: true, characterData: true });
+    window.addEventListener('resize', railPjMore);
+  }
+}
 /* #6341: Dismiss on a "needs you" row. The board keeps it (per member and reason), so it holds across windows and a
    reload, and the project's Issue count drops with the row. Focus goes to the next row's Dismiss, else the last
    Dismiss left (the row above), else the notice's first button, else the Members heading, so a keyboard user is not
@@ -84548,11 +84773,35 @@ setInterval(ageCheckedStamp, 1000);
   function el(id) { return document.getElementById(id); }
   function setMsg(text) { var m = el('phone-notify-msg'); if (m) m.textContent = text || ''; }
 
+  // #6254: the per-kind sub-switches, in the page's order.
+  var KIND_BTNS = ['needsYou', 'replied', 'postedMention', 'ready', 'postedRoom'];
+  /* Paint the sub-switches from the board's `kinds`. Shown ONLY while the whole
+     feature is on and connected -- off, not connected, or unavailable all hide
+     the block, so a kind can be changed only when it could actually send. Each
+     button reads its own stored value ('On'/'Off'); the server resolves the
+     defaults, so a missing value never shows here. */
+  function paintKinds(st) {
+    var box = el('phone-notify-kinds');
+    if (!box) return;
+    var show = !!(st && st.available && st.connected && st.on && st.kinds);
+    box.hidden = !show;
+    if (!show) return;
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      var name = KIND_BTNS[i];
+      var b = el('pn-kind-' + name);
+      if (!b) continue;
+      var on = st.kinds[name] === true;
+      b.textContent = on ? 'On' : 'Off';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
   /* Paint from what the board said: on/off, and whether this computer is
      connected to Kosmos+. */
   var current = null;
   function paint(st) {
     current = st;
+    paintKinds(st);   // #6254: the sub-switches follow the master on every paint (hidden unless on + connected)
     // Shown only when the board says phone notifications are available (the
     // ship gate in engine/phonenotify.js); hidden otherwise, including when the
     // setting could not be read.
@@ -84610,13 +84859,47 @@ setInterval(ageCheckedStamp, 1000);
     }).then(function (result) { busy = false; return result; });
   }
 
+  // #6254: toggle one sub-switch. Only while the master is on and connected (the
+  // buttons are hidden otherwise, but guard anyway); a refused PUT shows the
+  // board's words and leaves the switches at the last good paint.
+  var kindBusy = false;
+  function toggleKind(name) {
+    if (kindBusy || !current || !current.available || !current.connected || !current.on || !current.kinds) return Promise.resolve(false);
+    if (KIND_BTNS.indexOf(name) === -1) return Promise.resolve(false);
+    kindBusy = true;
+    var want = !current.kinds[name];
+    return fetch(API, {
+      method: 'PUT', credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ kind: name, on: want }),
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (body) {
+        if (!r.ok) { paint(current); setMsg(body.error || 'That did not work. Please try again.'); return false; }
+        paint(body);
+        return true;
+      });
+    }).catch(function () {
+      paint(current);
+      setMsg('That did not work. Please try again.');
+      return false;
+    }).then(function (result) { kindBusy = false; return result; });
+  }
+
   // Exposed so a browser-check can drive these without simulating clicks.
   window.kosmosRegisterServiceWorker = registerServiceWorker;
   window.kosmosPhoneNotifyToggle = toggle;
+  window.kosmosPhoneNotifyKindToggle = toggleKind;   // #6254
 
   function wire() {
     var btn = el('phone-notify-toggle');
     if (btn) btn.addEventListener('click', function () { toggle(); });
+    // #6254: wire each sub-switch to its own kind (an IIFE pins `name` per button).
+    for (var i = 0; i < KIND_BTNS.length; i++) {
+      (function (name) {
+        var kb = el('pn-kind-' + name);
+        if (kb) kb.addEventListener('click', function () { toggleKind(name); });
+      })(KIND_BTNS[i]);
+    }
     load();
     registerServiceWorker();
   }

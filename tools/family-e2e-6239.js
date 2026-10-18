@@ -79,7 +79,7 @@ const nextTickOffset = (t) => (t < ROLLUP_FIRST_MS ? ROLLUP_FIRST_MS : t < ROLLU
 // family's words must not be these. A second copy, kept on purpose (round 17): deriving it in the run needs a second
 // admin and a company join. If relay ever changes the company words, its pinned test changes; change this with it, or
 // step 9's hash clause stops discriminating (the --kind company control in the plan is how to see it).
-const COMPANY_CONSENT_HASH = '68fb6404e47cd76af21b12578002d4a92d2f422efe7e68b450a0581995661151';
+const COMPANY_CONSENT_HASH = 'fc7e3f7b1a246ceab4c09b1d7e26742870b5c5c29d2fc266287215597300dad8';   // kosmos#5532: the company's words name token use
 // One table: each step's label prefix and how many checks it makes. EXPECTED_CHECKS and the "never ran" list both come
 // from it, so adding a check means changing one number here.
 const STEP_CHECKS = { 'step 1': 1, 'step 2': 1, 'step 4': 4, 'step 4b': 3, 'step 5': 1, 'step 6': 1, 'step 7': 3, 'step 8': 1,

@@ -43,7 +43,7 @@ test('#3829 each request is a compact card: kind, when, the code, one device-neu
   // Positive control: the same card does carry the kind, the time and the code.
   // #4637: the headline says who wants in (askHead: the kind, or "Your computer ... wants to join").
   assert.match(card, /askHead\(d\)/);
-  assert.match(card, /askAgoSpan\(d\.first_seen\)/);   // #3978: the time is a span filled in place
+  assert.match(card, /\(joiningRow \? '' : askAgoSpan\(d\.first_seen\)\)/);   // #3978: the time is a span filled in place; #6405: not for a computer
   assert.match(card, /askEsc\(d\.code\)/);
   assert.match(card, /data-ask="allow"[^>]*>Allow<\/button>/);
   assert.match(card, /data-ask="deny"[^>]*>Not me<\/button>/);
@@ -87,7 +87,10 @@ test('Remove confirms inline with the sentence the tunnel makes true; Allow / No
   assert.ok(pd.length > 200, 'paintDevices moved; re-anchor');
   assert.doesNotMatch(pd, /data-ask="(allow|deny)"/, 'the devices list offers Allow / Deny, so a request shows twice');
   assert.doesNotMatch(JS, /ASK\.later|getItem\('ask-later'\)/, 'the Not now session flag is read again, which could hide a request with no way back');
-  assert.match(JS, /const stale = d\.first_seen && \(Date\.now\(\) \/ 1000 - d\.first_seen\) > 60 \* 60;/);
+  // A phone's or browser's request older than an hour fades; a computer's never does (#6405: its first_seen is its first ask).
+  assert.match(JS, /const stale = !joiningRow && d\.first_seen && \(Date\.now\(\) \/ 1000 - d\.first_seen\) > 60 \* 60;/);
+  assert.match(JS, /const joiningRow = askComputerRow\(d\);/);
+  assert.match(JS, /function askComputerRow\(d\) \{ return !!\(d && \(d\.joining_computer \|\| d\.code_wait === 'was_a_computer'\)\); \}/);
   assert.doesNotMatch(JS, /confirm\(/, 'a browser confirm dialog crept in; the design has no modal');
 });
 

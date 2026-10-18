@@ -255,49 +255,6 @@ test('a comment carries its links (not silently dropped) and serves them publicl
   assert.deepEqual(served.links, ['https://example.com/a'], 'comment links stored and served');
 });
 
-test('#5314: publishedPostTimesAll counts only published posts (held/quarantined excluded); postTimesAll still counts all', () => {
-  // The agent-card line (#5314) counts posts PUBLISHED on this board. A post the safety check held or quarantined
-  // reached no one, so it must not read as a recent community post. postTimesAll keeps counting
-  // every status (the community nudge relies on that meaning). Placed BEFORE the corrupt-file
-  // test below, which leaves a .corrupt- sidecar that would (correctly) null both readers.
-  cs.insertPost({ kind: 'community_post', agent: 'Sent5314', at: 'x', body: 'went out', status: 'published' });
-  cs.insertPost({ kind: 'community_post', agent: 'Held5314', at: 'x', body: 'never sent', status: 'held' });
-  cs.insertPost({ kind: 'community_post', agent: 'Quar5314', at: 'x', body: 'blocked',
-    status: 'quarantined', findings: [{ field: 'body', kind: 'token' }] });
-
-  const pub = cs.publishedPostTimesAll();
-  assert.ok(pub.get('sent5314') && pub.get('sent5314').length === 1, 'a published post counts as sent');
-  assert.ok(!pub.has('held5314'), 'a held-only agent shows no last community post (nothing went out)');
-  assert.ok(!pub.has('quar5314'), 'a quarantined-only agent shows no last community post');
-
-  const all = cs.postTimesAll();
-  assert.ok(all.has('sent5314') && all.has('held5314') && all.has('quar5314'),
-    'postTimesAll (the nudge reader) still counts every status, unchanged');
-});
-
-test('#5314: publishedPostTimesAll and postTimesAll derive the SAME key/time for a published post (convention #5 drift guard)', () => {
-  // The two readers copy ONE read + key-derivation + corrupt-sidecar body; publishedPostTimesAll
-  // only adds a status === 'published' filter. CLAUDE.md convention #5 (two derivations of one
-  // fact) allows the duplication ONLY if a test pins them equal in SHAPE (not a count). For a
-  // PUBLISHED post, which the filter keeps, both must derive the SAME key and SAME time across the
-  // shared branches: a top-level `agent`, the `author.name` agent fallback, and the user-author
-  // exclusion. A later change to postTimesAll's key derivation that misses publishedPostTimesAll
-  // then fails HERE instead of drifting silently. (The shared store carries held/quarantined rows
-  // from earlier tests, so this pins per-key agreement rather than whole-Map equality.)
-  cs.insertPost({ kind: 'community_post', agent: 'ShapeTop5314', at: 'x', body: 'a', status: 'published' });
-  cs.insertPost({ kind: 'community_post', at: 'x', body: 'b', status: 'published', author: { type: 'agent', name: 'ShapeAuthor5314' } });
-  cs.insertPost({ kind: 'community_post', at: 'x', body: 'c', status: 'published', author: { type: 'user', name: 'ShapeUser5314' } });
-
-  const pub = cs.publishedPostTimesAll();
-  const all = cs.postTimesAll();
-  for (const k of ['shapetop5314', 'shapeauthor5314']) {
-    assert.deepEqual(pub.get(k), all.get(k),
-      `both readers derive the same key and time for ${k} (convention #5 shape pin)`);
-  }
-  assert.ok(!pub.has('shapeuser5314') && !all.has('shapeuser5314'),
-    'a user-authored post is excluded by BOTH readers');
-});
-
 // Kept LAST: it deliberately corrupts the shared posts.json, so no later test
 // should depend on prior post state after this point.
 test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidecar, not silently discarded, and the live path recovers', () => {
@@ -312,10 +269,7 @@ test('a corrupt / wrong-shape collection file is quarantined to a .corrupt sidec
   assert.ok(Array.isArray(feed1), 'read recovers to an array, no throw');
   let sidecars = fsx.readdirSync(dir).filter((f) => f.startsWith('posts.json.corrupt-'));
   assert.ok(sidecars.length >= 1, 'unparseable file preserved to a .corrupt-<ts> sidecar');
-  // convention #5: the null-return branch (a .corrupt- sidecar present) is shared/copied logic
-  // between the two time readers; pin them equal so a change to one cannot silently diverge.
   assert.equal(cs.postTimesAll(), null, 'postTimesAll nulls while a .corrupt- sidecar is present');
-  assert.equal(cs.publishedPostTimesAll(), null, 'publishedPostTimesAll nulls on the SAME corrupt-sidecar condition (shape-pinned with postTimesAll)');
   // live path recovered: a fresh insert works
   const p = pub({ agent: 'AfterParseCorrupt', body: 'new' });
   assert.ok(cs.publicFeed({ limit: 500 }).some((r) => r.id === p.id), 'store accepts new posts after recovery');

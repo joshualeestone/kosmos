@@ -379,7 +379,8 @@ const MAX_BODY = 64 * 1024;
 
 /* The valve budgets live in engine/limits.js now -- ONE dial the person
    owns (2026-08-18): each pair gets perHour exchanges an hour, each room
-   four times that in arrivals, and the window is an hour because that is
+   four times that in arrivals as a floor (scaled with the room's size by
+   roomCap, kosmos#6420), and the window is an hour because that is
    the unit on the screen. The split that matters: crossing a budget
    ALWAYS logs the tell (stopped: true|false on the row); the setting
    decides only whether the send is also refused. The default equals the
@@ -391,7 +392,11 @@ const MAX_BODY = 64 * 1024;
    the room), at the recorded 4x allowance over the pair budget
    (Splinter: a deliberate allowance, not parity -- the room is the
    visible collaboration surface). Both budgets derive from the one
-   dial in engine/limits.js. Operator posts count nothing. */
+   dial in engine/limits.js. Operator posts count nothing. kosmos#6420
+   scales the room's budget with its size (roomCap): from three to nine
+   members, posts per hour stay at the three-member count (each post still
+   costs its reach; a pair keeps the dial's own budget); past nine the
+   budget stops growing, so the cost is bounded. */
 
 /* Every envelope marker this module can mint, refused inside any BODY on
    any path: a body carrying one would read, on a recipient's screen, as
@@ -1736,8 +1741,9 @@ async function tellHeldDropped(entry, roster) {
    kept from then are still waiting, so it never arrives ahead of them. null: not held, type it now. Otherwise the
    outcome the route reports for that agent: held when kept, could_not when it could not be kept (and was not typed).
    `from` is the sending agent's name, or '' for the person (or an agent the route could not name). `where` (#5842,
-   optional): { projectId, task, person }, the task the line belongs to and whether the person sent it from the screen,
-   kept with it so its outcome is recorded in that task's conversation. Never throws: a throw before a hold is found types it
+   optional): { projectId, task, person, kind }, the task the line belongs to and whether the person sent it from the
+   screen, kept with it so its outcome is recorded in that task's conversation. #6359: kind 'built' is the built
+   notice of `kosmos task built`, not a task message, and its later notices say so. Never throws: a throw before a hold is found types it
    (as an unreadable limit verdict does for `kosmos msg`); one after a hold is found refuses it, untyped. */
 function keepTaskLine(toName, line, roster, from, about, where) {
   let decided = false;   // a hold was found: from here a failure must not fall through to typing
@@ -1768,9 +1774,22 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     signinNow = !behind && hold.heldFor === 'signin';
     // The drop clock: the printed reset, or now when that is already past (as for `kosmos msg`).
     const dropFrom = Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : at;
+    /* #6359 review 1: a new built notice for the same task, from the same sender, replaces one still kept (a new note
+       marks it again), once it is decided this one is kept: the stale note is not typed ahead of the current one, and
+       one mark takes one place in the queue. One the sweep is typing now (or has typed) is left to finish. Removed
+       before the add, so it frees its place for the new one; if the add then fails, the sender is told this one was not
+       kept, and the old one is gone without a drop notice (the write that just succeeded makes that rare). */
+    if (where && where.kind === 'built') {
+      const prior = limitqueue.readEntries(qName);
+      if (prior.ok) for (const e of prior.entries) {
+        if (e.built === true && e.projectId === where.projectId && e.task === where.task && e.from === String(from || '')
+          && !limitqueue.isTyping(e.id) && !limitqueue.isDone(e.id)) limitqueue.remove(qName, e.id);
+      }
+    }
     const id = 'k' + crypto.randomBytes(6).toString('hex');
     const why = limitqueue.addOrWhy(qName, { id, kind: limitqueue.TASK_KIND, from: String(from || ''), envelope: String(line), at, reset: dropFrom, about: String(about || ''), behind, signin: !behind && hold.heldFor === 'signin',
-      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true) });
+      projectId: where && where.projectId, task: where && where.task, person: !!(where && where.person === true),
+      built: !!(where && where.kind === 'built') });
     if (why) {
       const cause = why === 'sender-cap' ? limitqueue.MAX_PER_SENDER + ' messages from this sender are kept for it already'
         : why === 'agent-cap' ? limitqueue.MAX_KEPT + ' messages are kept for it already' : 'its queue could not be read or written';
@@ -1793,7 +1812,9 @@ function recordTaskLineOutcome(entry, v, dropped) {
   // `behind`: kept behind earlier messages rather than for a usage reset, so the page does not speak of a reset.
   // `person`: the person sent it from the screen. An empty `from` alone is not that: an agent the route could not name
   // also arrives with none.
-  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}) };
+  const flags = { ...(entry.behind === true ? { behind: true } : {}), ...(entry.person === true ? { person: true } : {}),
+    // #6359: a built notice, which the conversation shows as the built mark, not as a message.
+    ...(entry.built === true ? { built: true } : {}) };
   return require('./taskchat').record(entry.projectId, entry.task, dropped
     ? { kind: 'kept-dropped', to: String(entry.to || ''), from: String(entry.from || ''), ...flags }
     : { kind: 'kept-sent', to: String(entry.to || ''), from: String(entry.from || ''), state: String((v && v.state) || ''), ...flags });
@@ -1807,9 +1828,16 @@ async function tellTaskLineDropped(entry, roster) {
   let told = entry.person === true ? 'nobody (the person sent it)' : 'nobody (no sender named)';
   if (entry.from) {
     // The task page's words (engine/taskactphrase.js): a line kept behind earlier messages names no usage limit.
-    const line = '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it '
-      + (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'))
-      + ' and could not send it within a day. Send it again if it still matters.';
+    const kept = (entry.behind === true ? 'behind earlier messages' : 'while ' + entry.to + (entry.signin === true ? ' was signed out' : ' was out of usage'));
+    /* #6359: a built notice is not a message to send again (the same mark again tells nobody), so its sender is
+       pointed at `kosmos msg`, which reaches this agent whether it was told as an assignee or as a parent task's holder
+       (a task message reaches only the task's own assignees). Nothing is said about the mark itself: a day on, it may
+       have been cleared or the task closed. */
+    const line = entry.built === true
+      ? '[from Kosmos] Your built notice in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. To tell ' + entry.to + ' now, use kosmos msg ' + entry.to + '.'
+      : '[from Kosmos] Your message in ' + (entry.about || 'a task') + ' never reached ' + entry.to + ': Kosmos kept it ' + kept
+        + ' and could not send it within a day. Send it again if it still matters.';
     try { v = await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { v = null; }
     told = entry.from + ', delivery=' + ((v && v.state) || 'could_not');
   }
@@ -2404,12 +2432,15 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
-  let allowed = lim.roomArrivalsPerWindow;
+  const roomBudget = roomCap(lim, recipients.length);   // #6420: scaled to the room, so a bigger room is not held sooner
+  let allowed = roomBudget;
+  let progressFrom = null;   // #6420: the allowance as read once here, handed to the clear-time reading below
   if (lim.on && operator !== true && arrivals + charged > allowed) {
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
        earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
-    allowed += roomProgressAllowance(projectId, lim, now, countFrom)(countFrom);
+    progressFrom = roomProgressAllowance(projectId, roomBudget, now, countFrom);
+    allowed += progressFrom(countFrom);
   }
   /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
      the volume valve below. The volume valve counts arrivals; two agents trading
@@ -2552,7 +2583,20 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       } catch { /* the record is best-effort; the verdict is not */ }
       // #4934: a code, so the CLI can tell the agent what this refusal means for its text (nothing was kept; do not send
       // it another way) without reading the person-facing sentence above.
-      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, id: null, at, outcomes: null };
+      /* #6420: and WHEN the volume limit lifts (only this valve: the pair limit and the duplicate check are their own
+         refusals), so the agent is told a time, not "about an hour" whatever the room did. Read by roomHeldRead, the
+         function behind the room's own "should lift by": counted posts age out oldest first, and the progress
+         allowance shrinks as its steps leave the hour. Read for THIS post's size, so it agrees with the room's own
+         reading when the sizes match (that one reads the latest post's). An estimate, so the CLI says "about".
+         The fields are left off when there is no time to give: a row dated after now (counted here, not by
+         roomHeldRead) can leave no reading at all, and a post bigger than the whole budget fits no wait (below the
+         ceiling roomCap's cap is at least a post's own recipients, so that takes a room past it: 162 members or
+         more at the lowest dial). A post that reaches nobody (charged 0) is read at
+         the latest post's size. */
+      const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
+      const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
+      const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
+      return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
     }
   }
 
@@ -2888,6 +2932,10 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   // `text` is the form the room stored, so a federated room can send out
   // exactly what this room shows (#3311).
     return { state, because: null, id, at, outcomes, ...(Object.keys(heldUntil).length ? { heldUntil } : {}), from, text: stored,
+      /* #6254: whether this post answers one the PERSON wrote (operator), the one signal the phone-notify
+         `posted` seam needs from here (the route has no other way to know; the person is never an @mention).
+         A boolean, never the posts' words. Only present on a reply, so an ordinary post's answer is unchanged. */
+      ...(answered ? { repliesToPerson: answered.operator === true } : {}),
       /* #4653: an ambiguous @-word reached nobody as a request; the sender is told, in these words. It stays
          the LAST key: kosmos post reads it anchored on the end of the answer. */
       ...(note4653 ? { ambiguousNote: note4653 } : {}) };
@@ -3541,8 +3589,8 @@ function reopenForOwnPost(projectId, row) {
    - the next post's charge, taken as the latest counted post's (a room post costs one arrival per member it reaches);
      a member switched off or added since changes it;
    - `until`, when enough counted posts age out for such a post to land, counting only steps already taken, so
-     further work moving can end the hold sooner. Null when one post alone is over the budget (only the person can
-     end that hold).
+     further work moving can end the hold sooner. Null when no wait fits a post of that size, as when a caller
+     passes no room size (the dial's own budget) and the latest post reached more members than that.
    Returns { at, because, until } (at and because are the latest valve row's since countFrom, or null) or null.
    The allowance reads task and file times, so it is read only for a room already over its plain budget, and the
    answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
@@ -3550,8 +3598,10 @@ function reopenForOwnPost(projectId, row) {
 const HELD_MEMO_MS = 4000;
 /* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
    the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
-const HELD_MEMO = new Map();   // project id -> { t, rows, out }
-function roomHeld(project, now) {
+const HELD_MEMO = new Map();   // project id -> { t, rows, size, out } (#6420: an answer is for one room size)
+/* #6420: `roomRecipients`, the room's members less one, so the hold is read at the room's own scaled budget
+   (roomCap), as the valve that would refuse the next post reads it. Without it, the dial's own room budget. */
+function roomHeld(project, now, roomRecipients) {
   const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return null;
   const at = Number.isFinite(now) ? now : Date.now();
@@ -3560,13 +3610,18 @@ function roomHeld(project, now) {
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   const memo = HELD_MEMO.get(projectId);
-  if (memo && memo.rows === rec.rows.length && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
-  const out = roomHeldRead(projectId, at, lim, rec.rows);
+  const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
+  if (memo && memo.rows === rec.rows.length && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const out = roomHeldRead(projectId, at, lim, rec.rows, undefined, undefined, size);
   if (HELD_MEMO.size > 200) HELD_MEMO.clear();
-  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, size, out });
   return out;
 }
-function roomHeldRead(projectId, at, lim, rows) {
+/* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.
+   `progressFrom`: the allowance as the caller already read it for this same moment (#6420: sendPost's refusal, so a
+   refused post reads the task and file times once); without it, read here.
+   `roomRecipients`: the room's members less one, for its cap (roomCap); without it, the dial's own room budget. */
+function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipients) {
   let lastOperatorAt = 0;
   for (const m of rows) {
     if (!m || m.project !== projectId) continue;
@@ -3586,19 +3641,41 @@ function roomHeldRead(projectId, at, lim, rows) {
     else if (m.kind === 'post' && !m.operator) counted.push({ t, n: Array.isArray(m.to) ? m.to.length : 0 });
   }
   counted.sort((a, b) => a.t - b.t);
-  const charge = Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
+  const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
-  const cap = lim.roomArrivalsPerWindow;
-  if (arrivals + charge <= cap) return null;
-  const allowanceFrom = roomProgressAllowance(projectId, lim, at, countFrom);
-  if (arrivals + charge <= cap + allowanceFrom(countFrom)) return null;
+  const cap = roomCap(lim, roomRecipients);
+  if (arrivals + size <= cap) return null;
+  const allowanceFrom = typeof progressFrom === 'function' ? progressFrom : roomProgressAllowance(projectId, cap, at, countFrom);
+  if (arrivals + size <= cap + allowanceFrom(countFrom)) return null;
   let freeAt = null;
   for (const c of counted) {
     arrivals -= c.n;
     /* When c ages out the window starts at c.t, and only steps from then on still earn room. */
-    if (arrivals + charge <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
+    if (arrivals + size <= cap + allowanceFrom(c.t)) { freeAt = c.t + lim.windowMs; break; }
   }
   return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
+}
+
+/* #6420: a room's recipients for its cap, from its stored members, as the valve counts them: removed agents dropped
+   (_roomMembers), then the poster. undefined when the removed list cannot be read (the reader keeps the dial's budget). */
+function roomRecipientsOf(members) {
+  const room = _roomMembers(Array.isArray(members) ? members.filter((m) => typeof m === 'string' && m) : []);
+  return room.ok ? Math.max(0, room.members.length - 1) : undefined;
+}
+/* #6420: THE ROOM'S ARRIVAL BUDGET, SCALED TO THE ROOM. The dial's room budget (perHour x ROOM_FACTOR, #75) counts
+   arrivals, one per member a post reaches, so a bigger room got fewer posts: at the default dial a three-member room
+   was held after 40 posts an hour and a six-member room after 16, which held a real six-agent workflow for doing its
+   work (feedback 2026-10-17). Multiplied by the room's recipients over a three-member room's two, so a room of up to
+   nine members gets the posts a three-member room gets (40 an hour at the default dial); never less than the dial's,
+   and never more than four times it (ROOM_SCALE_MAX), so a very large room's cost is bounded (a twenty-member room
+   at the highest dial gets 1600 arrivals an hour, not 3800).
+   The acknowledgement loop guard still stops agreement loops after a few posts. Weakest premise: arrivals cost grows
+   with the room (a six-member room can now take 200 arrivals an hour, not 80; 400 with task progress, not 160). One
+   function for every reader. */
+const ROOM_SCALE_MAX = 4;   // #6420: a room of nine (eight recipients) and above
+function roomCap(lim, roomRecipients) {
+  const r = Number.isFinite(roomRecipients) && roomRecipients > 0 ? roomRecipients : 0;
+  return Math.round(lim.roomArrivalsPerWindow * Math.min(ROOM_SCALE_MAX, Math.max(1, r / 2)));
 }
 
 /* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task
@@ -3606,8 +3683,7 @@ function roomHeldRead(projectId, at, lim, rows) {
    can ask it again for a later window start without reading again. Each first-time task step and each changed file
    (files read only when task steps alone do not already earn the most there is) adds a quarter of the cap, up to the
    cap. */
-function roomProgressAllowance(projectId, lim, now, since) {
-  const cap = lim.roomArrivalsPerWindow;
+function roomProgressAllowance(projectId, cap, now, since) {
   const taskTimes = require('./taskchat').progressTimes(projectId, now, since).filter((t) => t >= since);
   let fileTimes = null;
   return (from) => {
@@ -3748,7 +3824,8 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
   const room = _roomMembers(members.filter(ok));
   if (!room.ok) return { ok: false, nudged: [] };
   let held = null;
-  try { held = roomHeld(projectId, now); } catch { held = null; }
+  // #6420: the room's own budget; room.members is already _roomMembers' list, so its size is roomRecipientsOf's
+  try { held = roomHeld(projectId, now, Math.max(0, room.members.length - 1)); } catch { held = null; }
   if (held) return { ok: true, nudged: [], held: true };
   let offHere = new Set();
   try {
@@ -3797,6 +3874,8 @@ module.exports = {
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
+  roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
