@@ -42,6 +42,14 @@ was no project (now no body).
 | Work ready for you | an agent marks a task built | `<Agent> has work ready for you` | `on <Project>`, or `in Kosmos` | Work ready, on | at most once per agent per 5 minutes |
 | Anything else | a kind the coordinator does not know | `<Agent> has something for you` | `in Kosmos` | (none) | (none) |
 
+## Built, not on
+
+| Event | Where | Wording | Status |
+|---|---|---|---|
+| An agent needs you, by email | coordinator `delivery.rs` (`agent_needs_you_words`), sent by the `notify.rs` sweep | says `on <Project>` | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production, so nothing sends today |
+
+The Settings hint that the phone switch "may also send you an email" is not true while that flag is off.
+
 Sound: the default sound on every kind. Grouping: none yet (each notification stands alone).
 
 ## Proposed (Josh, 2026-10-18)
