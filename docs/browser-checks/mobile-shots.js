@@ -920,6 +920,12 @@ const SCREENS = [
     await at(page, '?tab=settings&sec=advanced');
     await page.waitForSelector('#look-toggle', { state: 'visible', timeout: 8000 });
   } },
+  /* #6514: the Diagnostics row, below the fold on both sizes, so its Save diagnostics link is in the shot. */
+  { name: 'settings-diagnostics', owner: 'Angel', go: async (page) => {
+    await at(page, '?tab=settings&sec=advanced');
+    await page.waitForSelector('#diag-save', { state: 'visible', timeout: 8000 });
+    await page.$eval('#diag-row', (el) => el.scrollIntoView({ block: 'center' }));
+  } },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
     await at(page, '?tab=settings&sec=accounts');
     await page.waitForSelector('#s-sec-accounts', { state: 'visible', timeout: 5000 });
