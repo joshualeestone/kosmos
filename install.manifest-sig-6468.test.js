@@ -307,3 +307,42 @@ test('served check: a .sig that is not a pinned key\'s fails, required or not', 
     assert.match(r.stdout, /SIGNATURE: the served \.sig does not verify/);
   }
 });
+
+// ---- round 7: check against what INSTALLS accept (the served release's pinned_keys), not the checkout's KEYS ----
+function servedManifest(over) {
+  const p = path.join(fs.mkdtempSync(path.join(tmp, 'srv-')), 'm.json');
+  fs.writeFileSync(p, JSON.stringify({ version: '1.2.0', files: [{ path: 'app/engine/manifest-verify.js', sha256: 'x' }], ...over }));
+  return p;
+}
+test('release: check-served refuses a key the served release does not pin; CONTROL: one it pins passes', () => {
+  const k = path.join(tmp, 'served-key.pem');
+  fs.writeFileSync(k, privateKey.export({ type: 'pkcs8', format: 'pem' }), { mode: 0o600 });
+  const otherPub = other.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  let r = signRun('check-served', k, servedManifest({ pinned_keys: [otherPub] }));
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /not one the served release 1\.2\.0 accepts/);
+  r = signRun('check-served', k, servedManifest({ pinned_keys: [otherPub, PUB] }));
+  assert.equal(r.status, 0, r.stderr);
+});
+test('release: check-served cannot tell (2) when a checking release names no pinned keys; a non-checking one is skipped', () => {
+  const k = path.join(tmp, 'served-key.pem');
+  assert.equal(signRun('check-served', k, servedManifest({})).status, 2);
+  assert.equal(signRun('check-served', k, servedManifest({ files: [] })).status, 0);
+  assert.equal(signRun('check-served', k, path.join(tmp, 'absent.json')).status, 2);
+});
+test('promote: verify-under checks a signature under the keys the CURRENT release pins, not the checkout', () => {
+  const rel = release('1.2.3');   // signed with the throwaway key, which the checkout does not pin
+  const otherPub = other.publicKey.export({ type: 'spki', format: 'der' }).toString('base64');
+  assert.equal(signRun('verify-under', rel.manifest, rel.sig, servedManifest({ pinned_keys: [PUB] })).status, 0);
+  assert.equal(signRun('verify-under', rel.manifest, rel.sig, servedManifest({ pinned_keys: [otherPub] })).status, 1);
+  assert.equal(signRun('verify-under', rel.manifest, rel.sig, servedManifest({})).status, 2);
+});
+
+test('installer: a verifier with its runtime gone says so truly (not "predates signed releases")', () => {
+  const home = installedHome('1.2.0');
+  fs.rmSync(path.join(home, 'runtime', 'bin', 'node'));
+  const r = setupCheck(release('1.2.3'), home, '1.2.3');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /own runtime is missing/);
+  assert.doesNotMatch(r.out, /predates signed releases/);
+});

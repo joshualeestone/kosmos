@@ -799,6 +799,26 @@ if [ -n "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
 elif [ -z "$KOSMOS_MANIFEST_KEY" ] || ! node "$REPO/tools/lib/manifest-sign.js" check "$KOSMOS_MANIFEST_KEY"; then
   echo "the release manifest-signing key (secrets map target kosmos-manifest-signing) is missing or not pinned (#6468). A release cut without it would be refused by every install."; exit 1
 fi
+# #6468 round 7: the checkout's KEYS say what the NEXT release accepts. What decides whether this release installs is
+# what the releases already out there accept: each signed manifest records its pinned_keys. So the key must be one
+# that BOTH channels' currently served release pins (when that release checks signatures at all). Read from the site's
+# origin/main, which is what is served.
+if [ -z "${KOSMOS_MANIFEST_KEY_PROBE_BIN:-}" ]; then
+  _srv_dir="$(mktemp -d)"; _srv=()
+  git -C "$SITE" fetch -q origin main 2>/dev/null || { echo "could not fetch the site to read what is served (#6468)"; rm -rf "$_srv_dir"; exit 1; }
+  for _ptr in latest.json latest-staging.json; do
+    _pm="$(git -C "$SITE" show "origin/main:dist/$_ptr" 2>/dev/null | sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || _pm=""
+    [ -n "$_pm" ] || continue
+    case "$_pm" in */*|*..*) echo "the served $_ptr names an odd manifest '$_pm' (#6468)"; rm -rf "$_srv_dir"; exit 1 ;; esac
+    git -C "$SITE" show "origin/main:dist/$_pm" > "$_srv_dir/$_ptr.manifest.json" 2>/dev/null \
+      || { echo "the served $_ptr names $_pm, which the site does not hold (#6468)"; rm -rf "$_srv_dir"; exit 1; }
+    _srv+=("$_srv_dir/$_ptr.manifest.json")
+  done
+  if [ "${#_srv[@]}" -gt 0 ] && ! node "$REPO/tools/lib/manifest-sign.js" check-served "$KOSMOS_MANIFEST_KEY" "${_srv[@]}"; then
+    echo "the manifest-signing key is not one the releases now served accept (#6468): installs would refuse this cut. Ship a release that pins it first."; rm -rf "$_srv_dir"; exit 1
+  fi
+  rm -rf "$_srv_dir"
+fi
 
 step "== 1d. the Plus connector is current with kosmos-relay main (#3884) =="
 # 0.6.95 bundled a prebuilt kosmos-tunnel from 19:00 and missed relay #145 (the #3832 HSTS
