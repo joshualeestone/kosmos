@@ -1903,6 +1903,8 @@ test('the --apply CLI with --yes reads "started by its task" from the board\'s o
     /* #2986: Task Scheduler's running is true or null (null whenever it cannot be told), so the CLI
        does not ask it; the stub says null, as a real read on a German Windows would. */
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    /* #4382: never this machine's own mode file: a run computer, as these cases are written for. */
+    readsConnect: () => false,
     begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
       runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
   });
@@ -2252,6 +2254,7 @@ test('#3286 --apply --from --report: the launcher reads one tagged line, and the
     /* A real install's board names its commit too (buildIdentity reads the manifest beside runtime\node.exe). */
     probe: async () => ({ answering: true, identity: `${INSTALLED}+${SOURCE_SHA.slice(0, 12)}@default`, startedByTask }),
     boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    readsConnect: () => false,
     begin: { platform: 'win32', arch: ARCH, env: c.env, ...OFFLINE, freeBytes: () => PLENTY_OF_DISK, runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--from', source, '--port', '16555', '--world', 'default', '--report', report, '--yes'];

@@ -4279,3 +4279,87 @@ test('#5732: a project id that is not a plain id is never typed into a pane', ()
     assert.equal(tmux.sends().length, 0);
   });
 });
+
+/* #6420: a held room says WHEN its limit lifts, and it is the SAME time the room's own "should lift by" gives
+   (roomHeld().until): one reading, not a second copy. The oldest posts are 50 minutes old, so about ten minutes. */
+test('#6420: a held room\'s refusal carries when it clears, the same time the room itself says', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const oldest = now - 50 * 60000;
+    // Appended newest first, so the reading cannot lean on the log's order.
+    for (let i = ROOM_BUDGET / 2 - 1; i >= 0; i -= 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(i < 2 ? oldest : now - 5 * 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: the room is held');
+    const held = messages.roomHeld('henderson-lease', Date.now());
+    assert.ok(held && held.until, 'CONTROL: the room itself says when it lifts');
+    assert.equal(sent.clearsAt, held.until, 'the refusal and the room disagree on when the room lifts');
+    assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the room does not clear when its oldest counted posts leave the hour');
+    assert.ok(sent.clearsInMinutes >= 10 && sent.clearsInMinutes <= 11, 'about ten minutes, not an hour: ' + sent.clearsInMinutes);
+  });
+});
+
+/* #6420: the time is for THIS post's size, not the latest post's. The latest counted post reaches one member,
+   the refused post two. Read for one arrival, the room is not held at all (79 + 1 fits 80); read for this post's two,
+   it is held until the oldest post leaves the hour. */
+test('#6420: the clear time is read for the refused post\'s own size, not the latest post\'s', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const oldest = now - 50 * 60000;
+    const rows = [];
+    for (let i = 0; i < ROOM_BUDGET / 2 - 1; i += 1) {
+      rows.push({ kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: MEMBERS[i % 3],
+        to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]), text: 'round ' + i, at: new Date(i === 0 ? oldest : now - 5 * 60000).toISOString(), outcomes: {} });
+    }
+    rows.push({ kind: 'post', id: 'mlast', project: 'henderson-lease', from: 'mara', to: ['april'], text: 'to one', at: new Date(now - 60000).toISOString(), outcomes: {} });
+    for (const r of rows) fs.appendFileSync(messages.LOG, JSON.stringify(r) + '\n');
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: 79 counted plus this post\'s two is over 80');
+    assert.equal(messages.roomHeld('henderson-lease', Date.now()), null, 'CONTROL: read for the latest post\'s one arrival, the room fits');
+    assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the clear time was read for the latest post\'s size, not this one\'s');
+  });
+});
+
+/* #6420: no time is promised when there is none to give. A post that reaches more members than the whole budget fits
+   no wait and no reopen, so the refusal carries no clearsAt or clearsInMinutes (the CLI then keeps its old words). */
+test('#6420: a post bigger than the whole budget is refused with no clear time', () => {
+  const names = Array.from({ length: ROOM_BUDGET + 2 }, (_, i) => 'm' + i);
+  withFleet(names.map((n) => fleet.agent(n, { state: 'idle' })), (board) => {
+    armSender('m0-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'to everyone' }, board.agents, names);
+    assert.equal(sent.code, 'room_held', 'CONTROL: one post to more members than the budget is held');
+    assert.equal('clearsAt' in sent, false, 'a time was given that no wait honours');
+    assert.equal('clearsInMinutes' in sent, false, 'minutes were given that no wait honours');
+  });
+});
+
+/* #6420: under a minute left still reads as one minute, never zero. */
+test('#6420: a hold lifting in seconds says one minute', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease', from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(i < 2 ? now - 60 * 60000 + 20000 : now - 5 * 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'one more' }, board.agents, MEMBERS);
+    assert.equal(sent.code, 'room_held', 'CONTROL: held');
+    assert.equal(sent.clearsInMinutes, 1, 'twenty seconds left read as ' + sent.clearsInMinutes + ' minutes');
+  });
+});

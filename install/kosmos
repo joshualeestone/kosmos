@@ -9,7 +9,8 @@
 #   kosmos status    say whether it is running, in a sentence (exit 0 running,
 #                    1 not, 4 running but too busy to answer: #4466, 5 a listener is there but
 #                    this shell cannot connect to it, or this shell cannot check at all (a strict sandbox):
-#                    #4636, as `open` too; the watchdog reads 4 and 5)
+#                    #4636, as `open` too; the watchdog reads 4 and 5); a note comes first when this
+#                    install cannot run the board check (#6358)
 #   kosmos open      start if needed, then open the dashboard in the browser
 #   kosmos version   print the app version
 #
@@ -1009,8 +1010,10 @@ token_refused_hint() {   # <token-sent> <board-answer>
 #   is none or it is 0), clamped to 0.5 to 15 s; the request then gets the caller's -m less the proof's time
 #   (KOSMOS_PROOF_LEFT, at least 0.5 s). Only a separate numeric `-m <seconds>` is read and rewritten.
 # - Node computes the key id and checks the answer; the token reaches it on stdin, never argv.
-# - Runs only in the installed layout (runtime/bin/node and app/engine/boardproof.js present); without either, and
-#   for a call with no token, it returns 0 and the call is sent as before.
+# - Runs only in the installed layout (runtime/bin/node present and executable, and app/engine/boardproof.js present:
+#   kosmos_proof_runnable); without that, and
+#   for a call with no token, it returns 0 and the call is sent as before. `kosmos status` names an installed Kosmos
+#   (app/server.js present) that cannot run it (kosmos#6358); a source checkout is not named, by design.
 # - Not remembered between calls. Nothing is sent unless this returns 0:
 #   0   proven, or there is no token to protect, or this is not the installed layout
 #   5/6/7  curl could not resolve or connect for the proof: the same codes, and the same "not sent" meaning
@@ -1042,12 +1045,17 @@ KOSMOS_PROOF_MIN_S=0.5        # the floor for the proof's share and the request'
 KOSMOS_PROOF_MAX_S=15         # the most the proof itself may take (a busy board can take seconds to answer)
 KOSMOS_PROOF_DEFAULT_M=15     # the caller's -m when it passes none or 0 (curl reads both as no limit); 15 s is the
                               # CLI's usual -m for a board call
+# Can this install run the board proof? Presence and the exec bit only: a node that is there but broken is not
+# detected here (the proof then fails closed, 96). One rule for kosmos_board_proven (which sends unproven when it cannot, by
+# design: see above) and for kosmos status, which names that state (kosmos#6358) so it is seen rather than silent.
+KOSMOS_BOARDPROOF="$KOSMOS_HOME/app/engine/boardproof.js"
+kosmos_proof_runnable() { [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$KOSMOS_BOARDPROOF" ]; }
 kosmos_board_proven() {   # <token> <the caller's curl arguments>
   local _token="$1"; shift
   KOSMOS_PROOF_LEFT=""
   [ -n "$_token" ] || return 0
-  local _bp="$KOSMOS_HOME/app/engine/boardproof.js"
-  { [ -f "$NODE" ] && [ -x "$NODE" ] && [ -f "$_bp" ]; } || return 0
+  local _bp="$KOSMOS_BOARDPROOF"
+  kosmos_proof_runnable || return 0
   local _caller_m="$KOSMOS_PROOF_DEFAULT_M" _prev="" _a _nonce _key_id _ans _rc _proof_m _proof_took
   local _nolimit=""
   for _a in "$@"; do [ "$_prev" = "-m" ] && _kosmos_is_secs "$_a" && _caller_m="$_a"; _prev="$_a"; done
@@ -2004,6 +2012,15 @@ cmd_stop() {
 
 cmd_status() {
   local _st_pid
+  # kosmos#6358: an installed Kosmos (app/server.js present) that cannot run the board proof sends its token
+  # without it. Said first because most branches below exit; a source checkout never proves, so it is not said there.
+  # An agent is told to pass it on rather than reinstall: changing the install is the person's call, as with the
+  # restart advice #4466 keeps from agents (and the exit-96 wording in this file, which tells an agent the same).
+  if [ -f "$APP" ] && ! kosmos_proof_runnable; then
+    say "Note: part of this Kosmos install is missing or cannot run, so when it sends a token it cannot first check"
+    say "that it is talking to its own board."
+    if _invoked_by_agent; then say "Tell your person: reinstalling Kosmos fixes it."; else say "Reinstalling Kosmos fixes it: curl -fsSL https://installkosmos.com/setup | sh"; fi
+  fi
   if healthy; then
     local pid
     pid="$(running_pid)" || pid=""
@@ -2090,8 +2107,62 @@ cmd_open() {
   # silence-plus-exit-0, indistinguishable from success. Name the URL (a person
   # with no browser can go there themselves) and name a real failure with a
   # non-zero exit instead of swallowing it. KOSMOS_OPEN_BIN is a test seam.
-  say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
-  "${KOSMOS_OPEN_BIN:-/usr/bin/open}" "$_open_url" || die "Could not open a browser. Go to the dashboard yourself: $URL"
+  # #6361: the opener is the platform's. /usr/bin/open is macOS's only: most Linux systems have no such file, and on
+  # Debian and Ubuntu that path can be openvt. Linux opens with xdg-open when there is a display to open on.
+  # KOSMOS_OPEN_BIN still wins (the test seam, or a person's own choice).
+  local _opener=""
+  if [ -n "${KOSMOS_OPEN_BIN:-}" ]; then
+    _opener="$KOSMOS_OPEN_BIN"
+  else
+    case "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" in
+      Darwin) _opener=/usr/bin/open ;;
+      Linux)
+        if [ -n "${DISPLAY:-}" ] || [ -n "${WAYLAND_DISPLAY:-}" ]; then
+          _opener="$(command -v xdg-open 2>/dev/null || true)"
+        fi ;;
+    esac
+  fi
+  local _failed=0
+  if [ -n "$_opener" ]; then
+    say "Opening the dashboard at $URL in your browser. If it does not open, go there yourself."
+    "$_opener" "$_open_url" && return 0
+    _failed=1
+    # #6361: an opener that fails (a dead or forwarded DISPLAY, xdg-open with nothing to hand it to) leaves the person
+    # where no opener does, so it takes the same path below rather than ending on the plain address.
+    # #1957: a failed open still ends non-zero and says so on stderr, whatever it hands over below.
+    printf '  %s\n' "Could not open a browser from here." >&2
+  else
+    say "No browser opens from here."
+  fi
+  # #6361: no opener (or it failed), so the person opens it. The refusals above have already run: this is reached only
+  # after the board proved itself and answered. On an enforcing board the address carries the one-time sign-in nonce,
+  # which signs a browser in once within 2 minutes (NONCE_TTL_MS, engine/boardauth.js). It is printed only to a person
+  # at a terminal: piped or logged it would sit in a file, and an agent's terminal is its transcript, so neither gets
+  # it. An agent with none of the supervisor's markers is not caught (the plan's weakest premise).
+  local _again="\"$KOSMOS_HOME/bin/kosmos\" open"   # quoted: a home with a space still pastes
+  if [ "$_open_url" = "$URL" ]; then
+    # #6361: an enforcing board (a token was read) that answered without a nonce: its plain page cannot sign in, so
+    # handing it over would be a dead end. Only a board with no token is a plain address that works.
+    if [ -n "$_bt" ]; then
+      die "Kosmos could not make a one-time sign-in address (the board answered without one), so its page would not sign you in. Try again: $_again"
+    fi
+    [ "$_failed" = 1 ] && die "Go to the dashboard yourself: $URL"   # the failure is already said, above
+    say "Go to the dashboard yourself: $URL"
+    return 0
+  fi
+  local _agent=0
+  _invoked_by_agent && _agent=1   # once: it may ask tmux, and both decisions below must agree
+  if [ -t 1 ] && [ "$_agent" = 0 ]; then
+    # A failed opener may have reached a browser that used the address before failing, so it is offered as a "maybe".
+    if [ "$_failed" = 1 ]; then say "If no browser opened, open this address in a browser on this computer within 2 minutes. It signs that browser in once, so do not share it:"
+    else say "Open this address in a browser on this computer within 2 minutes. It signs that browser in once, so do not share it:"; fi
+    say "$_open_url"
+    [ "$_failed" = 1 ] && exit 1
+    return 0
+  fi
+  local _who="In a terminal on this computer, run"
+  [ "$_agent" = 1 ] && _who="Tell the person who runs this computer to run, in a terminal on it"   # as _stop_advice does
+  die "This is not a person's terminal, so the one-time sign-in address is not printed (it would land in a file or a transcript). $_who: $_again"
 }
 
 # The direct look the board names when it cannot read the agents (#274).
@@ -2892,7 +2963,15 @@ cmd_post() {
           else
             say "Not posted: this room went back and forth without landing, so Kosmos has paused it until your person steps in. Nothing was sent to anyone, and Kosmos does not keep it or send it later."
           fi
-          say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour." ;;
+          # #6420: the board says when the room's limit lifts; an older board does not, and gets the old words.
+          # A whole number of minutes, 1 to 59, as the board writes it (compact JSON); anything else, the old words.
+          _clears="$(printf '%s' "$body" | sed -n 's/.*"clearsInMinutes":\([1-9][0-9]*\)[,}].*/\1/p')" || true
+          if [ -n "$_clears" ] && [ "${#_clears}" -le 2 ] && [ "$_clears" -lt 60 ]; then
+            if [ "$_clears" = 1 ]; then _clears="about a minute"; else _clears="about $_clears minutes"; fi
+            say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in $_clears, when the limit on agent posts here lifts."
+          else
+            say "Do not send it another way, such as a direct message: post it here again once your person has posted in the room or reopened it, or in about an hour."
+          fi ;;
         # #4934 / #5967: the ack-only refusal is NOT a hold. The room is not paused and the person is not being brought in:
         # this one reply only agreed with what was already said, so Kosmos did not pass it on. A post with something new
         # goes through straight away, so the copy says exactly that and never speaks of a pause, an hour, or the person.

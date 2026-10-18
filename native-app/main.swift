@@ -429,10 +429,54 @@ func isBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
         let label = page.host?.lowercased().split(separator: ".").first.map(String.init) ?? ""
         return !kosmosPlusReservedLabels.contains(label)
     }
-    guard let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
+    return isOwnBoardPage(page, board: board)
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the page on screen is THIS app's own board: the host and
+/// port it loaded (`board`; nil on a connect computer), not another computer reached through Kosmos+ (#6406).
+/// Only there are the page's Settings this computer's. isBoardPage reads it for its own-board half.
+func isOwnBoardPage(_ page: URL?, board: (host: String, port: Int)?) -> Bool {
+    guard let page = page, let board = board, page.user == nil, let scheme = page.scheme?.lowercased(),
           scheme == "http" || scheme == "https", let host = page.host?.lowercased()
     else { return false }
     return host == board.host.lowercased() && (page.port ?? (scheme == "https" ? 443 : 80)) == board.port
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. Whether the Settings on the page on screen are THIS computer's:
+/// its own board (isOwnBoardPage), or its own Kosmos+ address (`ownPlusHost`, from ownKosmosPlusHost), which is
+/// where another computer's switcher sends a person back to (#6406). Any other computer's address is not.
+func isOwnSettingsPage(_ page: URL?, board: (host: String, port: Int)?, ownPlusHost: String?) -> Bool {
+    if isOwnBoardPage(page, board: board) { return true }
+    // isKosmosPlusURL holds the scheme, user, port and name rules for a Kosmos+ address; this adds only "its own".
+    guard let page = page, let own = ownPlusHost?.lowercased(), isKosmosPlusURL(page),
+          let host = page.host?.lowercased()
+    else { return false }
+    return host == own
+}
+
+/// #6411: this computer's own Kosmos+ address, as the board keeps it (engine/remote.js address(): `address` in
+/// AGENT_WORKFORCE_TUNNEL_STATE when set, else the store's remote/ folder); nil when it has none. The override is
+/// read from THIS app's environment, which a board started with it does not hand over (a test and development
+/// setup): there the default file is read instead, so that setup's own Kosmos+ address may be refused, or another
+/// install's address on the same account accepted. Read when asked, never cached: it appears when Kosmos+ is set up and goes when this computer is forgotten.
+func ownKosmosPlusHost() -> String? {
+    let env = ProcessInfo.processInfo.environment
+    let file: URL?
+    if let dir = env["AGENT_WORKFORCE_TUNNEL_STATE"], !dir.isEmpty {
+        file = URL(fileURLWithPath: dir).appendingPathComponent("address")
+    } else {
+        file = storeFileURL("remote/address")
+    }
+    guard let f = file else { return nil }
+    return ownPlusHostFrom(try? String(contentsOf: f, encoding: .utf8))
+}
+
+/// #6411: PURE, for --kosmos-app-mode-selftest. The host in the board's `address` file as written (a bare host,
+/// perhaps with a newline): trimmed and lowercased, nil when there is no file or nothing in it.
+func ownPlusHostFrom(_ raw: String?) -> String? {
+    guard let raw = raw else { return nil }
+    let host = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return host.isEmpty ? nil : host
 }
 
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether the board's page says a refusal of this download
@@ -5508,6 +5552,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // #4356: hidden on a connect computer (updateRunAgentsItem), and refused here too, in case its
         // Cmd-, still fires: the page's Settings there are the OTHER computer's.
         guard computerMode != .connect else { NSSound.beep(); return }
+        /* #6411: since #6406 a run or both Mac can show ANOTHER computer in this window, and its Settings tab is
+           that computer's while this menu reads as this computer's. Refused the same way unless the window is on this
+           computer: its own board, or its own Kosmos+ address (where the other computer's switcher sends a person
+           back). Before the first page commits there is no page to drive, so that refuses too. The refusal comes
+           before the window is brought forward: a hidden window stays hidden and beeps. */
+        guard isOwnSettingsPage(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) else {
+            NSSound.beep(); logLine("openSettings: refused, the window is not on this computer"); return
+        }
         /* ⚠️ THE WINDOW MAY BE HIDDEN. ⌘W (new on this branch) routes through
            `windowShouldClose`, which orders the window out and returns false --
            the app keeps running with no window on screen. Switching a tab on an
@@ -6864,6 +6916,51 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     if connectBoard { bad += 1 }
     print((connectBoard ? "FAIL  board      " : "PASS  not        ") + "a connect computer has no board of its own to save from")
     board(nil, false, "no page yet")
+    func own(_ s: String?, _ mine: (host: String, port: Int)?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isOwnBoardPage(s.flatMap { URL(string: $0) }, board: mine)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "own board" : "not own").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    let here = (host: "127.0.0.1", port: 16180)
+    own("http://127.0.0.1:16180/?tab=agents", here, true, "this computer's own board: its Settings are this computer's")
+    own("https://josh.kosmosplus.com/#kst=abc", here, false, "ANOTHER COMPUTER IN THE WINDOW (#6406): ITS SETTINGS ARE NOT THIS COMPUTER'S")
+    own("http://127.0.0.1:3000/", here, false, "another local server is not this board")
+    own("http://localhost:16180/", here, false, "the board is the host it was loaded as")
+    own("http://127.0.0.1:16180/", nil, false, "a connect computer has no board of its own")
+    own(nil, here, false, "no page committed yet")
+    own("http://u@127.0.0.1:16180/", here, false, "a user part on the board's address is not the board")
+    own("ftp://127.0.0.1:16180/", here, false, "only http or https")
+    own("https://127.0.0.1/", (host: "127.0.0.1", port: 443), true, "https with no port is port 443")
+    own("http://localhost:16180/", (host: "LocalHost", port: 16180), true, "the loaded host in any case")
+    func settings(_ s: String, _ ownPlus: String?, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = isOwnSettingsPage(URL(string: s), board: here, ownPlusHost: ownPlus)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + (got ? "ours" : "not ours").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    settings("https://home.kosmosplus.com/?tab=agents", "home.kosmosplus.com", true, "this computer's own Kosmos+ address: where the way back lands")
+    settings("https://HOME.kosmosplus.com/", "home.kosmosplus.com", true, "its host in any case")
+    settings("https://josh.kosmosplus.com/", "home.kosmosplus.com", false, "ANOTHER COMPUTER'S ADDRESS IS NOT THIS COMPUTER'S SETTINGS")
+    settings("https://home.kosmosplus.com/", nil, false, "no address of its own (never set up, or forgotten): a Kosmos+ page is not ours")
+    settings("http://home.kosmosplus.com/", "home.kosmosplus.com", false, "an http address is not a Kosmos+ page")
+    settings("https://home.kosmosplus.com:8443/", "home.kosmosplus.com", false, "nor is one on another port")
+    settings("https://u@home.kosmosplus.com/", "home.kosmosplus.com", false, "nor one with a user part")
+    settings("https://evil.example/", "evil.example", false, "A FILE NAMING A HOST THAT IS NOT A KOSMOS+ ADDRESS ACCEPTS NOTHING")
+    settings("http://127.0.0.1:16180/", nil, true, "CONTROL: the own board, with no address of its own")
+    settings("http://127.0.0.1:16180/", "home.kosmosplus.com", true, "CONTROL: the own board, with an address of its own")
+    settings("http://127.0.0.1:3000/", "home.kosmosplus.com", false, "ANOTHER LOCAL SERVER IS NOT OURS (the own-board half says no)")
+    settings("https://home.kosmosplus.com/", "HOME.kosmosplus.com", true, "the file's host in any case")
+    func file(_ raw: String?, _ want: String?, _ why: String) {
+        ran += 1
+        let got = ownPlusHostFrom(raw)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "address".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    file("home.kosmosplus.com\n", "home.kosmosplus.com", "the board's file as written: a bare host and a newline")
+    file("  HOME.kosmosplus.com  ", "home.kosmosplus.com", "trimmed and lowercased")
+    file("\n", nil, "an empty file is no address")
+    file(nil, nil, "no file is no address")
     func dest(_ suggested: String, _ taken: Set<String>, _ want: String, _ why: String) {
         ran += 1
         let dir = URL(fileURLWithPath: "/D", isDirectory: true)
@@ -6957,7 +7054,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     disk(KosmosInstallConfig.load(from: [own, bundled], uid: 501, isInstalled: { _ in true })?.kosmosHome == "/b", "a damaged account file falls back to the bundle's copy")
     try? FileManager.default.removeItem(at: cdir)
     try? FileManager.default.removeItem(at: dir)
-    let expected = 112   // #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 138   // #6411: +26 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

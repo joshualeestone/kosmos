@@ -94,10 +94,12 @@ test('#4794: a pending row passes code_wait only from the fixed list', () => {
     { device_id: 'dev-a', name: 'laptop', first_seen: 1756000000, code: '', joining_computer: 'laptop', code_wait: 'daily_limit' },
     { device_id: 'dev-b', name: 'laptop2', first_seen: 1756000000, code: '', joining_computer: 'laptop2', code_wait: '<b>bad</b>' },
     { device_id: 'dev-c', name: 'laptop3', first_seen: 1756000000, code: '482 915', joining_computer: 'laptop3' },
+    // #6383: the tunnel's reason for a code that ran out on the joining computer.
+    { device_id: 'dev-d', name: 'laptop4', first_seen: 1756000000, code: '', joining_computer: 'laptop4', code_wait: 'code_ran_out' },
   ] }));
   remote.setOn(true);
   const by = Object.fromEntries(remote.pendingDevices().devices.map((d) => [d.device_id, d.code_wait]));
-  assert.deepEqual(by, { 'dev-a': 'daily_limit', 'dev-b': null, 'dev-c': null });
+  assert.deepEqual(by, { 'dev-a': 'daily_limit', 'dev-b': null, 'dev-c': null, 'dev-d': 'code_ran_out' });
 });
 
 test('#4794: Allow sends a six-digit code with --code, and nothing for anything else', async () => {

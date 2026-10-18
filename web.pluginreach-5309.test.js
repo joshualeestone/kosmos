@@ -2,7 +2,7 @@
 
 // #5309 part 2, slice 2: the /api/status wiring of the per-agent plugin-reach signal.
 // Drives the exported attachPluginReach (the seam the route calls) with fixture rows + an injected fs
-// that COUNTS reads, exactly as web.community-card-5314 drives withAgentSortFields. Proves: the right
+// that COUNTS reads. Proves: the right
 // reach verdict lands on each row, and a second status pass re-reads nothing when mtimes are unchanged
 // (the per-poll read discipline Liu Kang required, #5309; consistent with #5314's read-once pattern).
 
