@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recheckapp-6404
-diff_hash: d9035a3ac4ea773f61b8d24f3fdfbaf52da2dbffc03b7026c91c6bf8dff20e6b
+diff_hash: 47b55a70d4cfdf145effdc74902ef91e75b5e028d58cc22973a033f2610f285e
 validation: passed (after rebasing onto typedcode-6404, itself rebased on main: engine/remote.joincode-4794 20/20, engine/remote.test.js 229/229, server.test.js 359/359, web.allow-card 12/12, web.plus-tab and web.plus-stale 0 failing; both browser-check gates 0. render-connect-sheet-4637's arms start a board, so PR CI's browser-checks job runs them)
 subdir_audit: passed
 timestamp: 2026-10-18T02:30:31Z
