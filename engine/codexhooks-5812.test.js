@@ -14,6 +14,7 @@ const path = require('node:path');
 const http = require('node:http');
 const { answerProof, boardTokens } = require('../test-support/boardproof-stub');
 const { execFile, execFileSync } = require('node:child_process');
+const stray = require('../test-support/stray-processes');
 
 process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codexhooks-5812-data-'));
 const hooks = require('./codexhooks');
@@ -373,7 +374,11 @@ function fakeModel(patch) {
 }
 
 /* stdin is closed at once: `codex exec` reads more prompt from an open stdin and would wait there until the timeout
-   (measured: it then exits 0 on the kill, so a timed-out run reads as a clean one; hence `killed` is returned too). */
+   (measured: it then exits 0 on the kill, so a timed-out run reads as a clean one; hence `killed` is returned too).
+   kosmos#6362 slice 2: Codex's plugin sync (git fetch into CODEX_HOME/.tmp) outlives it and wrote under this file's kts-
+   dir after the sweep, so whatever still names this file's tmpscope dir is ended (its own group, or in ours, it and its
+   descendants) before the run counts as done. The whole dir, not the home passed: a home given through a link is
+   resolved by Codex to its real path. */
 function runCodex(codexHome, workdir, modelPort, env) {
   return new Promise((resolve) => {
     const child = execFile('codex', ['exec', '--skip-git-repo-check', '--dangerously-bypass-approvals-and-sandbox', '-C', workdir,
@@ -382,7 +387,11 @@ function runCodex(codexHome, workdir, modelPort, env) {
       '-c', 'model_providers.fake.wire_api="responses"', '-c', 'model_providers.fake.env_key="FAKE_KEY"',
       '-m', 'gpt-5.5', 'edit the files'],
     { env: { ...process.env, ...env, CODEX_HOME: codexHome, FAKE_KEY: 'x' }, timeout: 120000 },
-    (err, stdout, stderr) => resolve({ err, stdout, stderr, killed: child.killed || child.signalCode !== null }));
+    (err, stdout, stderr) => {
+      const killed = child.killed || child.signalCode !== null;
+      stray.killUnderScope();
+      resolve({ err, stdout, stderr, killed });
+    });
     child.stdin.end();
   });
 }
