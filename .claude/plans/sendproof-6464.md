@@ -23,3 +23,7 @@ Card joshualeestone/kosmos#6464 (from the #6437 review). The split is on the car
   old code (asks once), and the real-board control counts two real proofs.
 - [NIT] proof and send are separate connections, so a takeover in the milliseconds between them still lands. Stated as
   a remaining limit: narrowed, not closed, unless the proof is bound to the connection that carries the send.
+
+### Round 2 (sonnet, 05:07): no blockers, no should-fix
+- [NIT] the damaged-install arm matched a regex other refusals also satisfy. FIXED: pins "missing part of itself".
+- [NIT] hook arm uses the seam (accepted, as round 1).

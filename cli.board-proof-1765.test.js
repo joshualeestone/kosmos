@@ -309,7 +309,7 @@ test('kosmos#6464: a damaged install (no runtime) refuses to send a service key,
     fs.symlinkSync(path.join(__dirname, 'engine'), path.join(broken, 'app', 'engine'));
     const r = await connectWith(port, DATA, broken);
     assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /Nothing was sent|nothing was connected/, r.out);
+    assert.match(r.out, /missing part of itself[\s\S]*Nothing was sent/, r.out);
     assert.ok(!seen.some((q) => q.method === 'POST'), 'a request carrying the key reached the listener: ' + JSON.stringify(seen.map((q) => q.method + ' ' + q.url)));
   } finally { fs.rmSync(broken, { recursive: true, force: true }); }
 }));
