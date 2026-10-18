@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: updater-sig-win-1765
-diff_hash: 6f09b3c6d8340f425192c3dbebd4fab0e8a48e5755226fdae414ab1d16d006ad
-diff_hash_of: git diff c4f215d29...22a248fad (everything before this record)
+diff_hash: c88f8e3f32355223fd3926656cae75ed587a3f3b99ca9060470614304265349b
+diff_hash_of: git diff c4f215d29...579bff9ce, excluding this record
 validation: substituted (the helper needs yarn, which this Windows box does not have; instead the full node suite, engine/*.test.js and *.test.js, ran at dff45526b and at origin/main c4f215d29 with the no-schtasks preload, --test-force-exit and a 180 s per-test limit: branch 21674 tests, 3050 fail; main 21658 tests, 3048 fail; failing tests compared by file, name and reason (ports, temp names and timestamps normalised). Five entries failed on the branch run only: each was re-run alone on both trees. communityfollow.test.js and server.tmux-a11y-status-2911.test.js pass on the branch. server.restartnote-5359.test.js fails on both trees in the same way. win32agysignin.e2e.test.js passes on the branch. win32agyreply.e2e.test.js, a real Antigravity agent run, failed 2 of 6 branch runs and 0 of 6 main runs, each time with the agent's own spawn ENOENT; it passed on the branch's last four runs and touches no updater code. Three file-level entries failed on main only. The last code commit, 323df7225, changed only comments, error wording and a test helper. Its five affected test files were re-run and pass: 199 pass, 1 unrelated skip.)
 subdir_audit: passed
-timestamp: 2026-10-18T02:14:13Z
+timestamp: 2026-10-18T03:15:05Z
 iterations: 3
 converged: true
 ---
@@ -55,3 +55,6 @@ converged: true
 - The check runs before anything staged is run or swapped. A refusal leaves the installed build untouched and writes no journal.
 - Real on-box proof: the committed signed Kosmos.exe and the published 0.7.55 release pass. A one-byte-tampered copy, a copy with its signature stripped, node.exe (same Microsoft chain, different signer) and lookalike signers are all refused.
 - Every new test failed under a mutation that removed its check (ten mutations), then passed once restored.
+
+### After convergence: a Windows CI fix (test helpers only)
+On the Windows CI runner, the inherited PSModulePath left Windows PowerShell 5.1 without its Cert: drive. As a result the lookalike-signer test could not create its certificate. The root probe also read the missing drive as "root not installed" and skipped the two tests that need a Valid signature. The test helpers now start Windows PowerShell the same way authenticodeOf does: by full path, without PSModulePath, with the Security module imported by path. The probe now reports "could not ask" when the drive is missing. I reproduced the failure on the box with a bogus PSModulePath; after the fix, both files pass with and without it (133 pass, 1 unrelated skip). The product code did not change, so no new review round was run.
