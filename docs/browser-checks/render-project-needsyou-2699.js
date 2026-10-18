@@ -121,8 +121,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       sameRow, height: db ? db.getBoundingClientRect().height : 0, quietListed: quietHtml !== '' };
     const counted5688 = { countedWarn: !!(r2[0] && r2[0].querySelector('.pj-face .lwarn')), countedWarnDisplay: disp(r2[0] && r2[0].querySelector('.pj-face .lwarn')),
       uncountedWarn: !!(r2[1] && r2[1].querySelector('.pj-face .lwarn')), noticeShown: vis(nb), noticeText: nb ? nb.textContent : '', openShown: vis(ob), openLabel: ob ? ob.getAttribute('aria-label') : '' };
-    /* #6484: a member whose restart failed while it was asking its own question carries restartFailed (no disruption):
-       it is drawn red like its card; the same member without restartFailed stays a calm Question (CONTROL). */
+    /* #6484 (a guard: today's engine sends no "by" with a failed restart, so this shape is built here, not reached): a
+       member with restartFailed and stateReportedBy 'agent' is drawn red like its card; the same member without
+       restartFailed stays a calm Question (CONTROL). */
     const fh = document.createElement('div');
     document.body.appendChild(fh);
     const askM = Object.assign(mk('needs_you'), { name: 'Fay', stateReportedBy: 'agent', needsYouHere: null });

@@ -19,6 +19,15 @@ docs/browser-checks/render-project-needsyou-2699.js: a member with `state: 'need
 `restartFailed: true` is drawn red (warning glyph and pjm-attn); CONTROL: the same member without `restartFailed` stays a
 calm Question. A mutant reverting the fix must fail the red arm.
 
+## Reachability (review 1, measured)
+Today the engine reports a failed restart as needs_you with no "by" (engine/status.js reconcileReport), so a member with
+restartFailed always has stateReportedBy null, and cardStOf already draws it red. The case is not reached today; the
+change keeps the row matching the card if a failed restart ever carries stateReportedBy 'agent'. Kept as a cheap guard.
+restartFailed is rebuilt on every describe() from card.disruption.failed (engine/projects.js), so it does not go stale.
+
 ## Weakest premise
-That `restartFailed` on a member always means what `disruption.failed` means on the card (the card #6484 says it comes
-from it). If a member can carry a stale `restartFailed` after a later successful restart, the row would stay red.
+That the guard is worth carrying although the case is unreachable today. If it is not, the card closes as no-fix.
+
+## Left alone (review 1 NIT)
+In Settings' member list the label would still say "Question" in red for that shape (stateCopyOf ignores
+disruption.failed); the agent card has the same split, and it is unreachable today.
