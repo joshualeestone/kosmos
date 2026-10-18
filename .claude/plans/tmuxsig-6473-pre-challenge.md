@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tmuxsig-6473
-diff_hash: 2aec6f4817f88421fe41db1433f2c3dfd2f4dab0daf7554de95940019622a4be
+diff_hash: 587e1bc00afd9ab54df9de7ec995297dc76f3d99334dedaef2702cad6d851c2f
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T11:48:13Z
@@ -38,3 +38,5 @@ Not run: a real cut and test-install.sh end to end.
 ### Iteration 2 (sonnet): no BLOCKER or WARNING findings (converged)
 - [NIT] the capability grep matched early2 (FIXED: whole word, -E, measured on the real line and three controls)
 - [NIT] an unreadable served tmux pair refuses even with the opt-in; local KOSMOS_SRC + network tmux runs the full check; text-only release tests (ACCEPTED)
+
+Rebased 06:55 onto setupsig-6468 (its 96/97 split and frozen-interface note): a conflict in engine/manifest-verify.js exports was resolved keeping both (verifyTmux, NOT_FETCHED); 51 tests pass; rehashed. Commit 6fa2cc1f17 in this history is an empty-of-meaning proof-note commit made by mistake during the paused rebase; the proof file in the tree is this one.
