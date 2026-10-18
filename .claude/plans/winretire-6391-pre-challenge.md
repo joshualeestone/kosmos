@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: winretire-6391
-diff_hash: 5d94342aa794ba9cc2282a87d5315300192b66c1b25ba6ef452da46a7e9a2482
+diff_hash: 18be8742517f8a15a9e1a80ab51236a964fd7c90caee2ce0afbc40632e8469cd
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-17T23:28:26Z
@@ -80,6 +80,23 @@ pin-test), .claude/plans/winretire-6391.md (plan).
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
 **Converged** — a fresh, blind Opus pass found no new actionable findings after dedup; no unresolved
 ASKED findings. No code change, so no commit (6f).
+
+## Post-convergence fix (CI-caught, head 3ab21b435)
+
+After convergence, the Windows CI job (.github/workflows/windows.yml runs tools/windows-tests.js,
+which runs every test file with "win32" in its name on a real Windows runner) ran the uninstall()
+wiring arms that skip on a Mac, and caught one defect the Mac CI could not:
+
+- [WARNING] engine/win32uninstall.js exports line -- the timeout-cap test asserts
+  `seen === uninstaller.RETIRE_TIMEOUT_MAX_MS`, but RETIRE_TIMEOUT_MAX_MS was defined and NOT
+  exported, so the test compared against `undefined` and failed with "the timeout override was not
+  capped". The PRODUCTION cap is correct and unchanged (Math.min(env, 300000) already caps an absurd
+  override); only the export was missing --> FIXED: added RETIRE_TIMEOUT_MAX_MS to module.exports next
+  to RETIRE_TIMEOUT_MS. Verified: the export resolves to 300000, the assertion now holds, portable
+  tests still 19 pass / 0 fail, and the Windows CI check is required to go green on this head.
+
+This corrects the earlier (iteration-8) "weakest reasoning" claim below: the uninstall() wiring arms
+are NOT uncovered by CI. The Windows job runs them, and it is what surfaced this fix.
 
 ## Validation
 
