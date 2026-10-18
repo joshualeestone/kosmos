@@ -96,9 +96,10 @@ Four screenshots per set, in upload order:
 **How they were made.** `ios/store/shoot-app.sh` builds the app with a screenshot switch (`KOSMOS_STORE_SHOTS`)
 that only this script sets: it opens a given address instead of Kosmos+ and skips the notification prompt. The
 address is `shots-proxy.js` in front of a throwaway board filled with an invented team
-(`docs/browser-checks/mobile-shots.js --keep --data store`). No real account, agent, message or computer appears:
-the tool's leak guard reads the four screens first, and the proxy reads every answer the board gives the app with
-the same checks and stops the run on a hit. iOS CI checks that the store build never carries the switch
+(`docs/browser-checks/mobile-shots.js --keep --data store --remote`). No real account, agent, message or computer
+appears: the tool's leak guard reads the four screens first, and the proxy reads every text answer the board gives
+the app with the same checks, lets through only pictures and files the product itself ships, and stops the run on
+anything else. iOS CI checks that the store build never carries the switch
 (`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar reads 9:41 with full signal, as Apple's
 own pictures do.
 

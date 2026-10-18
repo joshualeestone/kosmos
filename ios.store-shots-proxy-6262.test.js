@@ -37,6 +37,7 @@ const ROUTES = {
   '/api/agent/cleo/instructions': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: 'Run `' + CHECKOUT + '/install/kosmos task add` or read ' + CHECKOUT + '/web.' })); },
   '/icons/kosmos-32.png': PNG,                 // a file the product ships
   '/api/agent/cleo/avatar': PNG,                // a picture of someone: not a shipped file
+  '/files/report.pdf': (res) => { res.writeHead(200, { 'content-type': 'application/pdf' }); res.end('%PDF-1.7 ...'); },
   // A sibling folder whose name starts with the checkout's: not this checkout, so it must not be swapped.
   '/sibling': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: CHECKOUT + '-other/x' })); },
   '/leak': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ where: os.homedir() + '/Documents' })); },
@@ -49,7 +50,10 @@ const ROUTES = {
 let board, proxy, base, logs = '';
 
 test.before(async () => {
-  board = http.createServer((req, res) => (ROUTES[new URL(req.url, 'http://x').pathname] || ((r) => { r.writeHead(404); r.end(); }))(res));
+  board = http.createServer((req, res) => {
+    const p = new URL(req.url, 'http://x').pathname;
+    (ROUTES[p] || (p.endsWith('.png') ? PNG : (r) => { r.writeHead(404); r.end(); }))(res);
+  });
   await new Promise((r) => board.listen(0, '127.0.0.1', r));
   proxy = spawn(process.execPath, [PROXY, '127.0.0.1', 'http://127.0.0.1:' + board.address().port, CHECKOUT], { stdio: ['ignore', 'pipe', 'pipe'] });
   proxy.stderr.on('data', (c) => { logs += c; });
@@ -111,8 +115,17 @@ test('a picture passes only when it is a file the product ships', async () => {
   await logged(/^LEAK \/api\/agent\/cleo\/avatar: a picture or media file that is not one the product ships/m);
 });
 
+test('a file that is neither text nor shipped is refused, and a malformed path cannot stop the proxy', async () => {
+  assert.equal((await get('/files/report.pdf')).status, 502);
+  await logged(/^LEAK \/files\/report\.pdf: an answer that is neither text/m);
+  assert.equal((await get('/icons/%E0%A4%A.png')).status, 502);
+  assert.equal((await get('/api/status')).status, 200);   // still answering
+  assert.equal(proxy.exitCode, null);
+});
+
 test('a sibling of the checkout is not swapped', async () => {
   const r = await get('/sibling');
+  assert.equal(r.status, 200);   // first, so a guard hit reads as one rather than as a JSON error
   assert.equal(JSON.parse(r.body).text, CHECKOUT + '-other/x');
 });
 

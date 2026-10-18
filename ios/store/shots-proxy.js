@@ -17,9 +17,10 @@
  *   Every other field, and every other route, is the board's own.
  * - Is the leak guard for this path. mobile-shots.js reads each page in its browser; the app's pictures never
  *   pass through it, so every text answer the board gives (the page itself included) is read whole here with the
- *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. An image, font, audio or video
- *   answer cannot be read that way, so it passes only when its path is a file the product ships under web/ (the
- *   board's icons); any other picture (an agent's or a person's, an upload) is refused. A hit, an encoded body, a
+ *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. An answer that is not text (an
+ *   image, a font, a PDF, an attachment, no type at all) cannot be read that way, so it passes only empty or when
+ *   its path is a file the product ships under web/ (the board's icons); any other picture or file (an agent's or
+ *   a person's, an upload) is refused. A hit, an encoded body, a
  *   stream or such a picture is refused, never passed on, and printed as "LEAK" by kind and length only;
  *   shoot-app.sh then files nothing.
  *   This reads SOURCE (the page's script and comments too), not only what a screen shows, which is stricter than
@@ -53,9 +54,13 @@ let ours = '';
 const fromHost = (addr) => addr === host || addr === '::ffff:' + host;
 const WEB = path.join(checkout, 'web');
 const shipped = (p) => {
-  const f = path.resolve(WEB, '.' + decodeURIComponent(p));
+  let f;
+  try { f = path.resolve(WEB, '.' + decodeURIComponent(p)); } catch { return false; }   // a malformed % is not a file
   return f.startsWith(WEB + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile();
 };
+// The answers the guard can read as text. Anything else (a PDF, a zip, an attachment, no type at all) cannot be
+// read that way, so it passes only empty or as a shipped file.
+const TEXT = /^(text\/(?!event-stream)|application\/(json|javascript|x-javascript|manifest\+json|xml)\b|image\/svg\+xml)/i;
 
 const server = http.createServer((req, res) => {
   if (!fromHost(req.socket.remoteAddress)) {
@@ -92,11 +97,15 @@ const server = http.createServer((req, res) => {
     const chunks = [];
     r.on('data', (c) => chunks.push(c));
     r.on('end', () => {
+      if (!r.complete) return;   // broken off: the 'error' handler has refused it
+      if (!TEXT.test(type) && Buffer.concat(chunks).length && !shipped(pathname)) {
+        leak(pathname, ['an answer that is neither text the guard can read nor a file the product ships (' + (type.split(';')[0] || 'no type') + ')']);
+        res.writeHead(502); res.end(); return;
+      }
       const raw = Buffer.concat(chunks).toString('utf8');
       const text = asInstalled(raw);
       const hits = hitsIn(text);
       if (hits.length) { leak(pathname, hits); res.writeHead(502); res.end(); return; }
-      if (!r.complete) return;   // broken off: the 'error' handler has refused it
       let body = text === raw ? Buffer.concat(chunks) : Buffer.from(text);
       // Sent whole with its own length: the board's framing and connection headers no longer describe it.
       for (const h of ['content-length', 'transfer-encoding', 'connection', 'keep-alive']) delete out[h];
