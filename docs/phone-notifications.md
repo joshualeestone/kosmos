@@ -33,7 +33,7 @@ Short and plain: the title says who and what; the body names the project, and is
 | Kind | Title | Body |
 |---|---|---|
 | needs_you | `<Agent> needs you` | `in <Project>`, or no body |
-| replied | `<Agent> replied` | `in <Project>`, or no body |
+| replied | `<Agent> replied` | no body (a reply carries no project) |
 | posted | `<Agent> posted` | `in <Project>`, or no body |
 | ready | `<Agent> has work ready for you` | `in <Project>`, or no body |
 
@@ -103,7 +103,7 @@ yet** (not the board, and not the iPhone or Android app in this repo), so with t
 person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you that turned 30 minutes old while the
 coordinator was running with the flag off is never emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
 sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
-before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") shows up to Kosmos 0.7.57 and is gone from the release after it (kosmos#6489).
+before the flag is turned on. The Settings hint's sentence about this email ("may also send you an email") shows up to Kosmos 0.7.57 and is gone from the release after it (kosmos#6489).
 
 ## Proposed (Josh, 2026-10-18)
 Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
@@ -129,7 +129,7 @@ Recommended: option 2. The call is Josh's.
 
 ## Where the code lives
 The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from the release after 0.7.57 the default turn-on), called from `server.js`. The words:
-kosmos-relay `coordinator/src/push.rs` (`notice_text`, shared by `apns.rs` for iPhone and `coordinator/src/sw.js` for
-web push, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
+kosmos-relay `coordinator/src/push.rs` (`notice_text`, used by `apns.rs` `payload` for iPhone and by `push.rs` `web_payload` for
+web push, which `coordinator/src/sw.js` shows as it arrives, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
 the release after 0.7.57 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.

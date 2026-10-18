@@ -8,12 +8,12 @@ header) ship in the release after 0.7.57 (package.json is still 0.7.57, so the d
 
 ## Change
 docs/phone-notifications.md: the wording is in force on the coordinator; the "today" table's bodies become the new ones
-(test notice unchanged); the master switch is described for up to 0.7.57 and from 0.7.58; the email paragraph now says
+(test notice unchanged); the master switch is described for up to 0.7.57 and from the release after 0.7.57; the email paragraph now says
 the auto turn-on makes every connected computer eligible; "Where the code lives" names push.rs notice_text.
 
 ## Decided
 The room tap (#6254) is in 18e6ac3e too, so it is described as live with the wording. The Settings email hint is gone from
-0.7.58 (#6489 merged).
+the release after 0.7.57 (#6489 merged).
 Attribute the deploy to the push owner (not measured here) and say nobody has seen the words on a real phone.
 
 ## Weakest premise
