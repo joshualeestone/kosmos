@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: memdash-6511
-diff_hash: 21b888530b85767c447559ebdaa20d2d88e8d86d6143dcbf9c5f651899dd7abb
+diff_hash: 852c62ebe5139fbdc82bf22c14c845fa2782c13912d7b2b85237f52053174cfc
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T22:30:09Z
@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 3 (fresh blind reviewers: Sonnet, Opus, Sonnet)
 **Converged:** Yes. Round 3 had no actionable findings.
-**Validation:** passed at bb138bdb6a (hash 21b888530b85): 22,001 node tests, 0 failed; shell shard 252/252.
+**Validation:** passed at bb138bdb6a (hash 21b888530b85), which is this diff before the plan file was added (the plan is one Markdown file; the proof hash below binds both): 22,001 node tests, 0 failed; shell shard 252/252.
 **Tests that can fail:** the new #6511 test in web.memory-words.test.js fails on main (control run in a detached
 origin/main worktree). Round 2 mutation-checked it four ways: the word restored, the .vh sentence dropped, the .vh
 holding the word, and a dash followed by the word. Each one fails.
