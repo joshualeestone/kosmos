@@ -47,3 +47,6 @@ A real .pkg install (needs a built, notarized pkg).
   the pinned throwaway key and asserts the exact mismatch sentence.
 - [NIT] curl timeout added; greedy version sed and the outer "did not complete" line (ACCEPTED)
 - Mutants: retry removed (5d, 5g red), node probe removed (5e red), version check removed (5f red).
+### Iteration 3 (sonnet): 0 BLOCKERs, 1 should-fix
+- [WARNING] an unreadable latest.json gave an empty version, which run-setup refused (97): a network blip ended the install with a misleading sentence (FIXED: an empty version is a 96, retried; arm 5h; a mutant dropping it turns 5h red)
+- [NIT] 5b no-retry assertion also passed with no hand-off (FIXED: exactly one call); checksum gate still first (DOCUMENTED as deliberate); loose version grep (ACCEPTED: falls back safely)
