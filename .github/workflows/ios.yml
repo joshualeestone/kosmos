@@ -108,8 +108,9 @@ jobs:
           test -d "$RUNNER_TEMP/Kosmos.xcarchive/Products/Applications/Kosmos.app"
 
       # #6262: the store build never carries the App Store screenshot switch (ios/store/shoot-app.sh's
-      # KOSMOS_STORE_SHOTS). Checked on the Release app and the archive's app, and shown able to fail on an
-      # executable that carries the switch's variable name.
+      # KOSMOS_STORE_SHOTS). Checked on the Release app and the archive's app, and shown able to fail on a REAL
+      # build made with the switch, so a renamed or inlined marker cannot make the check pass by finding nothing.
+      # (archive.sh runs the same check on the exported .ipa before upload, inside check-ipa-entitlements.sh.)
       - name: No screenshot switch in the store build
         run: |
           set -o pipefail
@@ -117,9 +118,11 @@ jobs:
             ios/tools/check-no-shots-flag.sh "$app" | tee "$RUNNER_TEMP/shots-flag.log"
             grep -q '^VERDICT: PASS' "$RUNNER_TEMP/shots-flag.log"
           done
-          mkdir -p "$RUNNER_TEMP/fake-shots.app" && printf 'xx KOSMOS_SHOTS_URL xx' > "$RUNNER_TEMP/fake-shots.app/Kosmos"
-          if ios/tools/check-no-shots-flag.sh "$RUNNER_TEMP/fake-shots.app" > "$RUNNER_TEMP/shots-ctl.log"; then
-            echo "the check passed an app that carries the switch"; exit 1
+          xcodebuild -project ios/Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO SYMROOT="$RUNNER_TEMP/shots-sym" OBJROOT="$RUNNER_TEMP/shots-obj" \
+            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=DEBUG KOSMOS_STORE_SHOTS' build
+          if ios/tools/check-no-shots-flag.sh "$RUNNER_TEMP/shots-sym/Debug-iphonesimulator/Kosmos.app" > "$RUNNER_TEMP/shots-ctl.log"; then
+            echo "the check passed an app built with the switch"; exit 1
           fi
           grep -q '^VERDICT: FAIL' "$RUNNER_TEMP/shots-ctl.log"
 

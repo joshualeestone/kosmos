@@ -1,68 +1,69 @@
 'use strict';
 /* #6262: the address the iPhone app opens for the App Store screenshots (ios/store/shoot-app.sh).
  *
- *   node ios/store/shots-proxy.js <listen-host> <listen-port> <board-base> <checkout-root>
+ *   node ios/store/shots-proxy.js <listen-host> <board-base> <checkout-root>
  *
- * Passes every request to the throwaway board that docs/browser-checks/mobile-shots.js --keep --data store
- * serves, for two reasons:
- * - The app must open the board at an address that is not loopback. The board picks its phone-app layout
- *   (html.kremote, kplusRemote() in web/index.html) from its own address, and the real app always opens a
- *   computer at <computer>.kosmosplus.com. The board is asked as itself (Host, Origin and Referer say the
- *   board's own loopback address), the same as mobile-shots.js --remote does through the browser's router.
- * - /api/status says the Claude subscription is connected, as mobile-shots.js does in the page for the store
+ * Passes requests to the throwaway board that docs/browser-checks/mobile-shots.js --keep --data store serves.
+ * It does three things:
+ * - Gives the app an address that is not loopback. The board picks its phone-app layout (html.kremote,
+ *   kplusRemote() in web/index.html) from its own address, and the real app always opens a computer at
+ *   <computer>.kosmosplus.com. The board is asked as itself (Host, Origin and Referer say the board's own loopback
+ *   address), the same as mobile-shots.js --remote does through the browser's router.
+ *   Because that disarms the board's own is-it-local checks, the proxy answers only connections from
+ *   <listen-host> itself, which is where the simulator's requests come from; anything else on the network is
+ *   refused ("REFUSED", which shoot-app.sh treats as a failed run).
+ * - Says the Claude subscription is connected in /api/status, as mobile-shots.js does in the page for the store
  *   set (DATA_SETS.store.connected): the sandbox has no Claude account on purpose, and a customer's Mac does.
  *   Every other field, and every other route, is the board's own.
- * - THE LEAK GUARD for this path. mobile-shots.js reads each page in its browser; the app's pictures never pass
- *   through it, so every answer the board gives (all but the shipped page itself, web/index.html, the same for
- *   everyone) is read here with the same checks (docs/browser-checks/lib-leak-guard.js: an email the board
- *   injected, a key, this Mac's home path, user name or host name). A hit is refused, never passed on, and
- *   printed as "LEAK" by kind and length only; shoot-app.sh then files nothing.
+ * - Is the leak guard for this path. mobile-shots.js reads each page in its browser; the app's pictures never
+ *   pass through it, so every text answer the board gives (the page itself included) is read whole here with the
+ *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. Only image, font, audio and
+ *   video answers pass unread. A hit, an encoded body or a stream is refused, never passed on, and printed as
+ *   "LEAK" by kind and length only; shoot-app.sh then files nothing.
  *   One value is replaced before the check, not let through: the board writes where its `kosmos` command lives
  *   into every agent's instructions, and the throwaway board runs from this checkout, whose path holds this Mac's
  *   user name. On a customer's computer that is the installed command, ~/.local/share/kosmos/bin/kosmos, so the
- *   checkout's path becomes that path for a made-up user (/Users/you). None of the four screens shows it.
- * Prints "listening <url>" once it is up. Stop it with a signal.
+ *   checkout's path becomes that path for a made-up user (/Users/you).
+ * Listens on a free port and prints "listening <url>" once it is up. Stop it with a signal.
  */
 const http = require('node:http');
 const path = require('node:path');
 const { hitsIn } = require(path.join(__dirname, '..', '..', 'docs', 'browser-checks', 'lib-leak-guard.js'));
 const leak = (where, hits) => { process.stderr.write('LEAK ' + where + ': ' + hits.join(', ') + '\n'); };
 
-const [host, port, boardBase, checkout] = process.argv.slice(2);
-if (!host || !/^\d+$/.test(port || '') || !/^http:\/\/127\.0\.0\.1:\d+$/.test(boardBase || '') || !path.isAbsolute(checkout || '')) {
-  process.stderr.write('usage: shots-proxy.js <listen-host> <listen-port> http://127.0.0.1:<board-port> <checkout-root>\n');
+const [host, boardBase, checkout] = process.argv.slice(2);
+if (!host || !/^http:\/\/127\.0\.0\.1:\d+$/.test(boardBase || '') || !path.isAbsolute(checkout || '')) {
+  process.stderr.write('usage: shots-proxy.js <listen-host> http://127.0.0.1:<board-port> <checkout-root>\n');
   process.exit(2);
 }
 const INSTALLED = '/Users/you/.local/share/kosmos';
 const asInstalled = (t) => t.split(checkout + '/install/kosmos').join(INSTALLED + '/bin/kosmos').split(checkout).join(INSTALLED + '/app');
 const board = new URL(boardBase);
-const ours = `http://${host}:${port}`;
+let ours = '';
+const fromHost = (addr) => addr === host || addr === '::ffff:' + host;
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
+  if (!fromHost(req.socket.remoteAddress)) {
+    process.stderr.write('REFUSED a request from another address\n');
+    res.writeHead(403); res.end(); return;
+  }
   const headers = { ...req.headers, host: board.host };
   for (const h of ['origin', 'referer']) {
     if (typeof headers[h] === 'string' && headers[h].startsWith(ours)) headers[h] = board.origin + headers[h].slice(ours.length);
   }
-  const status = req.method === 'GET' && new URL(req.url, board).pathname === '/api/status';
-  delete headers['accept-encoding'];   // every answer is read (and /api/status rewritten), so ask for it plain
+  const pathname = new URL(req.url, board).pathname;
+  const status = req.method === 'GET' && pathname === '/api/status';
+  delete headers['accept-encoding'];   // every text answer is read (and /api/status rewritten), so ask for it plain
   const up = http.request({ host: board.hostname, port: board.port, method: req.method, path: req.url, headers }, (r) => {
     const out = { ...r.headers };
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
-    const pathname = new URL(req.url, board).pathname;
-    // The shipped page and binary files pass as they are; everything else is read whole before it is sent on.
-    if (/^text\/html/.test(type) || /^(image|font|audio|video)\//.test(type) || /\.(png|jpe?g|gif|webp|svg|ico|woff2?)$/i.test(pathname)) {
-      res.writeHead(r.statusCode, out); r.pipe(res); return;
-    }
-    if (/^text\/event-stream/.test(type)) {   // a stream never ends: read it as it passes
-      res.writeHead(r.statusCode, out);
-      r.on('data', (c) => { const t = asInstalled(c.toString('utf8')); const h = hitsIn(t); if (h.length) { leak(pathname, h); res.destroy(); r.destroy(); } else res.write(t); });
-      r.on('end', () => res.end());
-      return;
-    }
+    // Binary media pass unread (they are files, and the store set has no pictures of anyone); SVG is text and is read.
+    if (/^(image\/(?!svg)|font\/|audio\/|video\/)/.test(type)) { res.writeHead(r.statusCode, out); r.pipe(res); return; }
+    const refuse = (why) => { leak(pathname, [why]); res.writeHead(502); res.end(); r.resume(); };
+    if (/^text\/event-stream/.test(type)) return refuse('a stream, which cannot be read whole before it is sent');
     if (r.headers['content-encoding'] && r.headers['content-encoding'] !== 'identity') {
-      leak(pathname, ['an encoded answer the guard cannot read (' + r.headers['content-encoding'] + ')']);
-      res.writeHead(502); res.end(); r.resume(); return;
+      return refuse('an encoded answer the guard cannot read (' + r.headers['content-encoding'] + ')');
     }
     const chunks = [];
     r.on('data', (c) => chunks.push(c));
@@ -73,18 +74,20 @@ http.createServer((req, res) => {
       if (hits.length) { leak(pathname, hits); res.writeHead(502); res.end(); return; }
       let body = text === raw ? Buffer.concat(chunks) : Buffer.from(text);
       delete out['content-length'];
-      if (!status || r.statusCode !== 200) { res.writeHead(r.statusCode, { ...out, 'content-length': body.length }); res.end(body); return; }
-      try {
-        const j = JSON.parse(body.toString('utf8'));
-        if (j && typeof j === 'object') {
-          j.connection = { ...(j.connection || {}), state: 'connected' };
-          body = Buffer.from(JSON.stringify(j));
-        }
-      } catch { /* not JSON: pass it through as the board sent it */ }
+      if (status && r.statusCode === 200) {
+        try {
+          const j = JSON.parse(body.toString('utf8'));
+          if (j && typeof j === 'object') {
+            j.connection = { ...(j.connection || {}), state: 'connected' };
+            body = Buffer.from(JSON.stringify(j));
+          }
+        } catch { /* not JSON: pass it through as the board sent it */ }
+      }
       res.writeHead(r.statusCode, { ...out, 'content-length': body.length });
       res.end(body);
     });
   });
   up.on('error', () => { if (!res.headersSent) res.writeHead(502); res.end(); });
   req.pipe(up);
-}).listen(Number(port), host, () => console.log('listening ' + ours));
+});
+server.listen(0, host, () => { ours = `http://${host}:${server.address().port}`; console.log('listening ' + ours); });

@@ -13,7 +13,8 @@
 #
 # Needs: Xcode with an iOS simulator runtime (xcodebuild -downloadPlatform iOS), Python with Pillow, the pw-runtime
 # for mobile-shots.js, and this Mac on a network (the app reaches the board at this Mac's network address, which
-# is what gives the board its phone-app layout; the proxy listens on that one address only while this runs).
+# is what gives the board its phone-app layout; the proxy listens there only while this runs, and answers only
+# requests that come from this Mac).
 # It is a heavy run: it refuses unless tools/heavy-gate.sh is clear.
 #
 # Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot-app.sh
@@ -26,7 +27,12 @@ board_pid=""; proxy_pid=""; sims=()
 cleanup() {
   [ -n "$proxy_pid" ] && kill "$proxy_pid" 2>/dev/null
   # SIGINT is the board's Ctrl-C: it stops and deletes its data.
-  [ -n "$board_pid" ] && kill -INT "$board_pid" 2>/dev/null && sleep 2
+  # SIGINT is what mobile-shots.js listens for (its own handler; a background job's default would ignore it).
+  # Wait up to 20s for it to delete its data, then make sure it is gone.
+  if [ -n "$board_pid" ] && kill -INT "$board_pid" 2>/dev/null; then
+    for _ in $(seq 1 40); do kill -0 "$board_pid" 2>/dev/null || break; sleep 0.5; done
+    kill -TERM "$board_pid" 2>/dev/null
+  fi
   for s in "${sims[@]+"${sims[@]}"}"; do xcrun simctl shutdown "$s" >/dev/null 2>&1; xcrun simctl delete "$s" >/dev/null 2>&1; done
   rm -rf "$work"
 }
@@ -34,9 +40,9 @@ trap cleanup EXIT
 fail() { echo "VERDICT: FAIL ($1)"; exit 1; }
 
 bash "$repo/tools/heavy-gate.sh" --quiet || fail "the heavy-run gate is not clear"
-runtime="$(xcrun simctl list runtimes 2>/dev/null | grep -o 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*' | tail -1)"
+runtime="$(xcrun simctl list runtimes 2>/dev/null | grep -o 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*' | sort -V | tail -1)"
 [ -n "$runtime" ] || fail "no iOS simulator runtime; install one with xcodebuild -downloadPlatform iOS"
-sdk="$(xcodebuild -showsdks 2>/dev/null | grep -o 'iphonesimulator[0-9.]*' | tail -1)"
+sdk="$(xcodebuild -showsdks 2>/dev/null | grep -o 'iphonesimulator[0-9.]*' | sort -V | tail -1)"
 [ -n "$sdk" ] || fail "no iphonesimulator SDK"
 
 echo "== build (Debug, $sdk, KOSMOS_STORE_SHOTS)"
@@ -63,12 +69,11 @@ if grep -q 'LEAK GUARD' "$work/board.log"; then fail "mobile-shots.js's leak gua
 
 lan="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)"
 [ -n "$lan" ] || fail "this Mac has no network address for the app to reach the board at"
-port="$(node -e "const s=require('node:net').createServer();s.listen(0,'$lan',()=>{console.log(s.address().port);s.close();});")"
-node "$here/shots-proxy.js" "$lan" "$port" "$base" "$repo" > "$work/proxy.log" 2>&1 &
+node "$here/shots-proxy.js" "$lan" "$base" "$repo" > "$work/proxy.log" 2>&1 &
 proxy_pid=$!
 for _ in $(seq 1 20); do grep -q '^listening' "$work/proxy.log" && break; sleep 0.5; done
 grep -q '^listening' "$work/proxy.log" || fail "the proxy did not start"
-url="http://$lan:$port/"
+url="$(sed -n 's/^listening //p' "$work/proxy.log" | head -1)/"
 
 # Each screen is an address, as a tapped notification opens one (the board's own deep links). The agents' board
 # names are the store set's (mobile-shots.js STORE_AGENTS: Cleo asks, Dana chats).
@@ -104,6 +109,7 @@ for d in "${devices[@]}"; do
   done
 done
 
+if grep -q '^REFUSED' "$work/proxy.log"; then fail "something other than this Mac reached the proxy; nothing filed"; fi
 if grep -q '^LEAK' "$work/proxy.log"; then grep '^LEAK' "$work/proxy.log" | head -5; fail "the proxy's leak guard refused an answer; nothing filed"; fi
 
 python3 - "$work/raw" "$here/screenshots" "${order[@]}" <<'PY' || fail "filing the shots failed"

@@ -1,7 +1,8 @@
 # iOS App Store listing assets (#718)
 
-Files and drafts only. **Nothing here has been uploaded to App Store Connect**,
-and no app record has been created.
+Files and drafts only. **Nothing here has been uploaded to App Store Connect.** The app record exists (created by
+Josh 2026-10-17, "Kosmos: AI Agent Manager", per #6262) and build 1 is in TestFlight; nothing has been submitted
+for review.
 
 ## 🛑 For Josh: decide or sign before the first submission
 
@@ -39,10 +40,9 @@ These are listed roughly in the order they would stop a submission.
    refresh and opening outside links in Safari. Hiding Approve and Deny (item 3)
    removed one native feature. Turning Face ID on, and building Approve and Deny
    for real, would both strengthen the case.
-7. **Copy choices:** the name (`Kosmos: AI Workforce`, with two fallbacks in
-   case it is taken, which only App Store Connect can tell you), the subtitle,
-   the keywords and the category (Productivity, then Business). All are
-   reversible until submission.
+7. **Copy choices:** the name is decided (`Kosmos: AI Agent Manager`, Josh
+   2026-10-16). Still open: the subtitle, the keywords and the category
+   (Productivity, then Business). All are reversible until submission.
 8. **The support URL** is the Featurebase help site from the kosmosplus.com
    footer. Apple wants a way to contact you on that page. Please confirm it has
    one.
