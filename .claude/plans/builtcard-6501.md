@@ -16,4 +16,6 @@ built from the page reads "(built)", CONTROL its neighbour does not; on main the
   WARNING, the built line sat under one agent's name, misattributing who marked it --> FIXED: its own line, claim
   dropped. NIT, nobody assigned or no claim showed nothing --> FIXED by the same own line. NIT, the new look hides the
   label --> the own line is visible there. NIT, a misplaced comment --> FIXED.
-- [ ] Round 2, shots, validation, proof, PR (merges after the 0.7.57 lift).
+- [x] Round 2 (sonnet): no new blocker or warning. NITs: the new look styles the built line like the claim line --> FIXED; the comment names all three claim forms --> FIXED. The surface gate named render-shell-noscroll-4872: run (72 passed), with a trailer.
+- [x] Shots: project-built (new screen) and project-head, posted for Mona.
+- [ ] Validation, proof, PR (merges after the 0.7.57 lift).
