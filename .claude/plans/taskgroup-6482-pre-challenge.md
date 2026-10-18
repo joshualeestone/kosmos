@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: taskgroup-6482
-diff_hash: d84f533b3b69f22292ed34e918d49280598221732d9fde786866dd3ccab6589c
+diff_hash: 0714e64785f557ebc5c56b79a95deedd6c282d107539f6e1abe8f31be19c2b4f
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T15:23:02Z
@@ -34,3 +34,5 @@ Validation: render-tasks-view-3559 (headless, queued turn) All checks passed inc
 - [NIT] no hover on a phone or keyboard (ACCEPTED: the card's trade, stated on the card and in the PR)
 - Checked: the tasks-groups screen always finds a heading with every data set, an error row if not, lands below the sticky bar; no registry needs the name; static tests 48/48 and 31/31.
 
+
+Post-review change 12:05 (Mona Lisa design review): the status group heading carries a 9px bottom margin (measured 9/9 on all six groups; the check asserts 8-10). render-tasks-view-3559 All checks passed at 47a5a3b4cc; 12 shots re-taken there, 0 overflow, 0 errors, fix shots looked at. Rehashed.
