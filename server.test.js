@@ -7884,6 +7884,7 @@ test('paintAddAgents shows the not-signed-in copy on a 403, and cannot-read othe
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = true; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();
     assert.match(box.innerHTML, /not signed in/i, 'a 403 add-project view showed cannot-read, not the signin copy');
     assert.ok(!/cannot read the agents/i.test(box.innerHTML), 'the signin branch leaked the generic cannot-read copy');
+    assert.ok(!/You can still add the project/i.test(box.innerHTML), 'it promised a project the board\'s gate will refuse to create (#6358)');
     // CONTROL: flag OFF with the same failed read must show cannot-read.
     box.innerHTML = '';
     pageFunction('paintAddAgents', base + 'let BOARD_NEEDS_SIGNIN = false; let BOARD_DEVICE_OFFLINE = false; let BOARD_SIGNED_OUT = false;\n')();
@@ -11751,6 +11752,15 @@ test('kosmos#6406: a ticket to open another computer is only for this computer\'
   assert.equal(boardCookieHere({ headers: {} }, on, good), false, 'nothing');
   assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, () => false), false, 'a cookie that does not match');
   assert.equal(boardCookieHere({ headers: {} }, { on: false, token: null }, good), true, 'a board that enforces nothing');
+  /* #6358: with the real gate, the cookie is a session and the gate falls back to a header or query token, so the cookie
+     is judged on its own: a live session counts; a made-up cookie beside a valid header or ?token= does not. */
+  const ba = require('./engine/boardauth');
+  const realGate = (r) => ba.tokenOk({ token: 't', req: r });
+  const sid = ba.mintSession('t');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=' + sid } }, on, realGate), true, 'a live session cookie');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }, on, realGate), false, 'a made-up cookie beside a valid header');
+  assert.equal(boardCookieHere({ url: '/?token=t', headers: { cookie: 'kosmos_board=made-up' } }, on, realGate), false, 'a made-up cookie beside a valid ?token=');
+  assert.equal(realGate({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }), true, 'CONTROL: the gate itself takes that header, so only the cookie-alone judging refuses it');
   /* Review 10: a page on another local port is refused too (the global cross-site guard compares the port). */
   const otherPort = await req('/api/remote/open-ticket', { method: 'POST', headers: { ...page, origin: 'http://127.0.0.1:3000' }, body });
   assert.equal(otherPort.status, 403, 'another local port got through: ' + otherPort.body);

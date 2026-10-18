@@ -2390,8 +2390,8 @@ class KosmosLauncher
     // mints a single-use boot nonce with the board token and names the address to open. With
     // --print-url it hands that address to this process over a private pipe instead of to a
     // browser, so neither the token nor the nonce reaches a command line or a console. The board
-    // answers the nonce with its persistent cookie, which the window's own web profile keeps
-    // (%LOCALAPPDATA%\Kosmos\WebView2), so a reload stays signed in.
+    // answers the nonce with a session cookie, which the window's own web profile keeps
+    // (%LOCALAPPDATA%\Kosmos\WebView2), so a reload stays signed in until the board restarts (#6358).
     //
     // WHEN THIS PC CANNOT HOST THE WINDOW (no WebView2 Runtime, a missing loader, or the Runtime
     // refusing to start), it falls back to what a double-click did before: the opener opens the

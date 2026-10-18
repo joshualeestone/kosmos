@@ -85,8 +85,9 @@ WebView2 Runtime, pointed at the same local board.
   window ends only the window. The board and the agents run under their own tasks, as on the Mac.
 - **Signing in** is `open-board.js`'s job, as it is for the browser (#2007). With `--print-url`
   it hands the signed-in address (a single-use boot nonce) to the window over a private pipe
-  instead of opening a browser. The board answers with its persistent cookie, which the window
-  keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`.
+  instead of opening a browser. The board answers with a session cookie, which the window
+  keeps in its own web profile, `%LOCALAPPDATA%\Kosmos\WebView2`. A board restart ends that session (#6358); until
+  Kosmos.exe answers the page's sign-in request, double-clicking Kosmos.exe again signs the window back in.
 - **One window per board.** A second double-click brings the open window forward (restoring it if
   minimised) instead of opening another, and signs it in again with a fresh address from the same
   `--print-url` path, so "double-click Kosmos.exe again" (the zip's READ ME) also rescues a window

@@ -283,7 +283,7 @@ async function readLinux(browser, platform) {
       check(`${engine}: win32 ${sel} reads "${want}"`, win.got.text[sel] === want, JSON.stringify(win.got.text[sel]));
     }
     check(`${engine}: win32 not-signed-in panel points at Kosmos.exe, with no Mac path`,
-      /Kosmos\.exe/.test(win.got.signin) && !/~\/\.local|fix itself/.test(win.got.signin), win.got.signin.slice(0, 120));
+      /Kosmos\.exe/.test(win.got.signin) && !/~\/\.local|Applications folder|Sign this tab in again/.test(win.got.signin), win.got.signin.slice(0, 120));
     check(`${engine}: win32 wizard skips S2 and S4`, JSON.stringify(win.got.steps) === '[1,5,3,6,7,8,9]', JSON.stringify(win.got.steps));
     check(`${engine}: win32 page raised no errors`, win.errors.length === 0, win.errors.join(' | '));
 
@@ -296,7 +296,7 @@ async function readLinux(browser, platform) {
       check(`${engine}: CONTROL Mac ${sel} still reads "${want}"`, mac.got.text[sel] === want, JSON.stringify(mac.got.text[sel]));
     }
     check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,5,2,3,4,6,7,8,9]', JSON.stringify(mac.got.steps));
-    check(`${engine}: CONTROL Mac not-signed-in panel is unchanged`, /fix itself the next/.test(mac.got.signin), mac.got.signin.slice(0, 120));
+    check(`${engine}: CONTROL Mac not-signed-in panel is the Mac copy (#6358: the Kosmos app from Applications)`, /Kosmos app from your Applications folder/.test(mac.got.signin), mac.got.signin.slice(0, 120));
     check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
 
     const lin = await readLinux(browser, 'linux');

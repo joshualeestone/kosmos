@@ -373,18 +373,19 @@ test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () =
    Not signed in (W-24), toasts (W-26), the Claude card, Settings rows
 --------------------------------------------------------------------------- */
 
+// #6358: a browser tab's copy (a board restart ends its sign-in; the Mac app signs itself in).
 const MAC_SIGNIN_PANEL = '<div class="pj-empty boardfail">'
   + '<p><b>This board is not signed in.</b><br>'
-  + 'It cannot read your agents or projects yet. It will fix itself the next '
-  + 'time Kosmos updates, with no action from you. A bookmark or a typed '
-  + '127.0.0.1 address reaches the board without its access token; the next '
-  + 'update hands the token over.</p>'
-  + '<details class="fr-hatch"><summary>Need it sooner?</summary>'
-  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal. Use '
-  + 'the full path shown: the bare name is not always on your PATH.</details>'
+  + 'It cannot read your agents or projects. Kosmos signs a browser tab out each time it '
+  + 'restarts or updates, and after seven days. This tab stays signed out until it is signed in again, and the '
+  + 'steps are just below. Or keep going in the Kosmos app from your Applications folder, which signs itself in.</p>'
+  + '<details class="fr-hatch"><summary>Sign this tab in again</summary>'
+  + 'Run <code>~/.local/share/kosmos/bin/kosmos open</code> in a terminal, then press Reload here, or use the tab it opens '
+  + '(it opens in your default browser, so a tab in another browser stays signed out). '
+  + 'Use the full path shown: the bare name is not always on your PATH.</details>'
   + '<button class="btn" type="button" data-board-retry>Reload</button>'
   + '</div>';
-const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
+const MAC_SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. The not-signed-in note on the agents list says what to do.';
 
 function boardEmpty(platform, failed) {
   return runPage(platform, ['esc', 'boardSigninHtml', 'kplusRemote', 'boardEmpty'], 'boardEmpty()',
@@ -848,4 +849,23 @@ test('#5865: an unreadable daily-report setting on Linux does not send the perso
   };
   assert.equal(msg('linux'), 'We could not check this setting here. Open Kosmos on the computer running it and you can change it.');
   assert.equal(msg('darwin'), 'We could not check this setting here. Open Kosmos from its icon and you can change it.', 'CONTROL: the Mac line changed');
+});
+
+test('#6358: on Linux the not-signed-in panel leads with the tab\'s own sign-in (#6361), offers Kosmos+, and the sentence points to the panel, never the Mac app or Kosmos.exe', () => {
+  const html = runPage('linux', ['boardSigninHtml'], 'boardSigninHtml()');
+  assert.match(html, /reach this board through Kosmos\+, which stays signed in/);
+  assert.match(html, /<summary>Sign this tab in again<\/summary>On the computer running Kosmos, run <code>~\/\.local\/share\/kosmos\/bin\/kosmos open<\/code> in a terminal\./, 'the step #6361 made work on Linux');
+  assert.match(html, /prints a one-time address: open it within 2 minutes in the browser showing this page\./, 'a computer with no browser opener (a headless server reached through a forward) gets the address, for THIS browser');
+  assert.match(html, /Then press Reload here, or use that tab \(a tab in another browser stays signed out\)\./, 'the cookie is one browser\'s: Reload here is only true in the same one');
+  assert.ok(html.indexOf('Sign this tab in again') < html.indexOf('data-board-retry'), 'the steps come before Reload');
+  assert.doesNotMatch(html, /not available on Linux/, 'the pre-#6361 dead end is gone');
+  assert.match(html, /data-board-retry/, 'the panel lost its Reload');
+  assert.doesNotMatch(html, /Applications folder|Kosmos\.exe|the app signs itself in/, 'a Linux board has no app');
+  const sentence = runPage('linux', [], page.liftConst(SCRIPT, 'SIGNIN_SENTENCE').replace(/^const SIGNIN_SENTENCE = /, '').replace(/;$/, ''));
+  assert.match(sentence, /The not-signed-in note on the agents list says what to do\./, 'the sentence points to the panel');
+  assert.doesNotMatch(sentence, /stays signed in/, 'false to a person reading this board through Kosmos+ while signed out');
+  assert.doesNotMatch(sentence, /kosmos open/, 'the sentence points to the panel; the panel carries the step');
+  assert.doesNotMatch(sentence, /Applications folder/);
+  // platformCopy has no Linux branch: on Linux every key keeps the Mac words (the Linux panel reads linuxCopy itself).
+  assert.equal(runPage('linux', [], "platformCopy('no-such-key-6358', 'MAC WORDS')"), 'MAC WORDS');
 });

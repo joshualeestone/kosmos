@@ -67,7 +67,11 @@ test('#1979: bootstrap redeems a valid ?boot= for the cookie, strips boot, and i
     const boot = boardauth.bootstrap({ token: 'TOK', req: { url: `/?first-run=1&boot=${n}`, headers: {} }, routingBase: 'http://localhost', method: 'GET' });
     assert.ok(boot, 'a valid ?boot= must bootstrap');
     assert.equal(boot.location, '/?first-run=1', 'boot is stripped, other params kept');
-    assert.match(boot.setCookie, /^kosmos_board=TOK; HttpOnly; SameSite=Strict; Path=\//, 'the cookie carries the durable token, httpOnly');
+    // #6358: the cookie carries a session minted for TOK, never TOK itself.
+    const m = boot.setCookie.match(/^kosmos_board=([0-9a-f]{64}); HttpOnly; SameSite=Strict; Path=\//);
+    assert.ok(m, 'the cookie carries a 64-hex session, httpOnly: ' + boot.setCookie);
+    assert.equal(boardauth.sessionToken(m[1]), 'TOK', 'the session names the token it was minted from');
+    assert.doesNotMatch(boot.setCookie, /kosmos_board=TOK;/, 'the durable token is not the cookie');
     // Burned: a second bootstrap with the same nonce (and no ?token=) is not a bootstrap.
     const again = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: {} }, routingBase: 'http://localhost', method: 'GET' });
     assert.equal(again, null, 'a burned nonce must not bootstrap again');
@@ -91,13 +95,28 @@ test('a ?boot= redemption is flagged viaBootNonce, a ?token= bootstrap is not (t
   });
 });
 
-test('#1979: a cookie already present short-circuits before the nonce is even touched', () => {
+test('#6358: a LIVE session plus a valid ?boot= redeems and is redirected to the clean address, keeping that session', () => {
+  /* #6358 changed this from #1979's short-circuit: the address must never keep a sign-in parameter (the Mac app reads
+     a kept one as a refusal), so a valid nonce is redeemed and stripped even when the browser is already signed in. */
   withClock(() => {
     const n = boardauth.mintNonce();
-    const b = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: { cookie: 'kosmos_board=TOK' } }, routingBase: 'http://localhost', method: 'GET' });
-    assert.equal(b, null, 'a request that already has the cookie is not a bootstrap (no redirect loop)');
-    // And the nonce was NOT consumed, so it can still redeem on a real first load.
-    assert.equal(boardauth.redeemNonce(n), true, 'the nonce must survive a cookie-present request unspent');
+    const sid = boardauth.mintSession('TOK');
+    const b = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    assert.ok(b, 'a valid ?boot= is redirected even with a live session');
+    assert.equal(b.location, '/', 'boot is stripped');
+    assert.match(b.setCookie, new RegExp('^kosmos_board=' + sid + ';'), 'the live session is kept');
+    assert.equal(boardauth.redeemNonce(n), false, 'the nonce was spent: single-use as ever');
+  });
+});
+
+test('#6358: a DEAD session cookie (a board restart forgot it) does not stop ?boot= from signing in again', () => {
+  withClock(() => {
+    const sid = boardauth.mintSession('TOK');
+    boardauth._resetSessions();   // what a board restart does: no session survives the process
+    const n = boardauth.mintNonce();
+    const b = boardauth.bootstrap({ token: 'TOK', req: { url: `/?boot=${n}`, headers: { cookie: 'kosmos_board=' + sid } }, routingBase: 'http://localhost', method: 'GET' });
+    assert.ok(b, 'a dead session is no sign-in, so the nonce bootstraps');
+    assert.ok(!b.setCookie.includes(sid), 'a new session, not the dead one');
   });
 });
 
