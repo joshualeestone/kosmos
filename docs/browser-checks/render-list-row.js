@@ -160,13 +160,13 @@ const { chromium } = require('playwright');
     const sideways = await ph.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     const on = rows.filter((r) => r.running);
     say(on.length > 0, 'at ' + width + 'px the list has running rows to read', rows.length + ' rows, ' + on.length + ' running');
-    // #6516: and at least one shows a model, so the full-width check below cannot pass with nothing to measure.
-    say(on.some((r) => !!r.text), 'at ' + width + 'px a running row shows a model to measure', JSON.stringify(on.map((r) => r.agent + ':' + (r.text || ''))));
     for (const r of on) {
       const at = 'at ' + width + 'px ' + r.agent;
       say(!!r.title && !!r.name && r.title.left === r.name.left && r.title.top >= r.name.bottom,
         at + "'s role sits under the name, not in the avatar column", JSON.stringify(r));
-      if (r.vhOnly && !r.text) say(true, at + "'s model cell holds only the screen-reader sentence (#6516: never recorded)", JSON.stringify(r));
+      // #6516: a never-recorded row's cell holds only the screen-reader sentence, and its slot still spans the line, so the
+      // geometry is measured on the cell's own box either way (CI's fixture board records no model for its running rows).
+      if (r.vhOnly && !r.text) say(!!r.model && r.model.width >= 150, at + "'s model cell holds only the screen-reader sentence and still spans a full-width line (#6516)", JSON.stringify(r));
       else say(!!r.text && !!r.model && r.model.width >= 150, at + "'s model has a full-width line of its own", JSON.stringify(r));
       say(!!r.model && !!r.name && r.model.left === r.name.left && r.model.top >= r.name.bottom,
         at + "'s model sits under the name, not in the avatar column", JSON.stringify(r));

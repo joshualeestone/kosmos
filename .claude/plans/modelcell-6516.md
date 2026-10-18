@@ -22,7 +22,8 @@ off, on every row whose launch was never recorded (every row on a board set up b
   (zero height, the 8px row gap). Less space than the visible sentence took before.
   Likewise on the phone remote layout (html.kremote), where .lmodel is pinned to grid row 3: a 2px empty row.
 - render-list-row.js (live board): its phone arm reads the shown text (.vh removed), checks a never-recorded running row
-  as holding only the screen-reader sentence, and requires a running row that shows a model.
+  as holding only the screen-reader sentence on a slot that still spans a full-width line. (Requiring a running row
+  that SHOWS a model was tried and dropped: CI's fixture board records none, so the check went red, PR #6528.)
 
 ## Checks
 - web.made-before.test.js: the cell is the .vh sentence for never-recorded; "Unknown Model" and a real model are shown
