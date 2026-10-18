@@ -15,7 +15,11 @@
 # for mobile-shots.js, and this Mac on a network (the app reaches the board at this Mac's network address, which
 # is what gives the board its phone-app layout; the proxy listens there only while this runs, and answers only
 # requests that come from this Mac).
-# It is a heavy run: it refuses unless tools/heavy-gate.sh is clear.
+# It is a heavy run. Run it through the queue, which waits for the box and holds it for the run:
+#   bash ~/.cache/claude-handoffs/queued-heavy.sh "<what>" ios/store/shoot-app.sh
+# Run directly, it refuses unless tools/heavy-gate.sh is clear. Inside the queue's turn that check would see the
+# queue's own claim on the box, so there it asks whether the claim is this run's (kosmos_holds_machine_claim:
+# the claim's cookie against the one the queue hands its command) and goes ahead only if it is.
 #
 # Usage: NODE_PATH=$HOME/work/pw-runtime/node_modules ios/store/shoot-app.sh
 # Ends with one VERDICT: line; no verdict line means it did not finish.
@@ -39,7 +43,9 @@ cleanup() {
 trap cleanup EXIT
 fail() { echo "VERDICT: FAIL ($1)"; exit 1; }
 
-bash "$repo/tools/heavy-gate.sh" --quiet || fail "the heavy-run gate is not clear"
+if ! ( . "$repo/tools/lib/cut-guard.sh" >/dev/null 2>&1 && kosmos_holds_machine_claim ); then
+  bash "$repo/tools/heavy-gate.sh" --quiet || fail "the heavy-run gate is not clear (run it through queued-heavy.sh)"
+fi
 runtime="$(xcrun simctl list runtimes 2>/dev/null | grep -o 'com.apple.CoreSimulator.SimRuntime.iOS-[0-9-]*' | sort -V | tail -1)"
 [ -n "$runtime" ] || fail "no iOS simulator runtime; install one with xcodebuild -downloadPlatform iOS"
 sdk="$(xcodebuild -showsdks 2>/dev/null | grep -o 'iphonesimulator[0-9.]*' | sort -V | tail -1)"

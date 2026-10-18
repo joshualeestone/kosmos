@@ -46,6 +46,11 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   pushes live), ios/README.md, mobile-shots.js's pointer.
 
 ## Decided
+- **Run through the queue (queued-heavy.sh), and trust only the run's OWN claim.** Inside a queued turn, heavy-gate
+  sees the queue's claim and reads BUSY, so the first queued run refused itself (measured, 23:55). The queue unsets
+  KOSMOS_SIDE_AWARE before the command, so that variable cannot tell (measured, 00:02). The script now asks
+  kosmos_holds_machine_claim (the claim's cookie against the one the queue exports); measured three arms: no cookie
+  and a made-up cookie both fall back to the gate, and the real queued turn went straight to the build.
 - **Swap the checkout path, do not exempt it.** Exempting it from the guard would let it reach a picture if a
   screen ever showed it; swapping means no picture can carry it, and every other hit still stops the run.
 - **The page-guard pass runs with --remote**, so mobile-shots.js reads the same phone layout the app shows.
