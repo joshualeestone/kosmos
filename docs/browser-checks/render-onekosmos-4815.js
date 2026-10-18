@@ -320,7 +320,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
             window.__which = 'one'; worldswRender(worlds, {}); await computersFetch();
             window.__which = 'four'; await computersFetch(); await new Promise((r) => setTimeout(r, 30));
             const tip = document.getElementById('worldsw-tip'), r = tip.getBoundingClientRect();
-            const b = document.createElement('button'); b.id = 'under-tip'; b.textContent = 'under';
+            const b = document.createElement('button'); b.id = 'under-tip'; b.textContent = 'under'; window.__underBtn = b;
             Object.assign(b.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', zIndex: '1' });
             window.__underHits = 0; b.addEventListener('click', () => { window.__underHits += 1; });
             document.body.appendChild(b);
@@ -329,7 +329,7 @@ const WORLDS = { worlds: [{ id: 'w1', name: 'Kosmos 1' }, { id: 'w2', name: 'Cli
           await page.mouse.click(under.x, under.y);
           const afterTipClick = await page.evaluate(() => ({ hits: window.__underHits, tipUp: !document.getElementById('worldsw-tip').hidden }));
           await page.mouse.click(under.x, under.y);
-          const afterGone = await page.evaluate(() => { const n = window.__underHits; const b = document.getElementById('under-tip'); if (b) b.remove(); return n; });
+          const afterGone = await page.evaluate(() => { const n = window.__underHits; const b = window.__underBtn; if (b) b.remove(); return n; });
           ok(`${t} #6403: a click on the tip puts it away and never reaches a control under it`, under.up && afterTipClick.hits === 0 && !afterTipClick.tipUp, JSON.stringify({ under, afterTipClick }));
           ok(`${t} #6403 CONTROL: with the tip gone, the same click reaches that control`, afterGone === 1, String(afterGone));
           /* Shown once, end to end: the page itself writes the seen flag (the tip shown and seen), and a click on the tip text
