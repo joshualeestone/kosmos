@@ -783,6 +783,37 @@ verify_download() {
   return 0
 }
 
+# #6468 ask 2: a downloaded update must match its SIGNED release manifest before anything in it runs. The check is made
+# by the INSTALLED copy (its own node running its own engine/manifest-verify.js, which pins the release's public
+# keys), never by the new build or by this script, so an install that has the check holds every later update to it.
+# $1 the stage (unpacked, its tarball still at $1/kosmos.tar.gz), $2 the installed home. An install with no verifier
+# (from before this, or not a Kosmos home yet) has nothing to check with and says so. The manifest and its .sig are
+# the versioned, immutable names release.sh publishes beside the tarball.
+update_manifest_ok() {
+  local stage="$1" dest="$2" v have rc=0 out
+  [ -f "$dest/app/engine/manifest-verify.js" ] && [ -x "$dest/runtime/bin/node" ] || {
+    [ ! -e "$dest/app" ] || info "this install predates signed releases, so the update's manifest is not checked"
+    return 0; }
+  v="${TARGET_VERSION:-}"
+  if [ -z "$v" ]; then
+    info "could not read which version to install, so the update could not be checked and was not installed"
+    return 1
+  fi
+  curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json" -o "$stage/.manifest.json" 2>/dev/null \
+    && curl -fsL -m 30 "$KOSMOS_RELEASE_BASE/kosmos-$v-$ARCH.manifest.json.sig" -o "$stage/.manifest.sig" 2>/dev/null || {
+    info "the update's signed manifest could not be downloaded, so it was not installed. Wait a minute and try again."
+    return 1; }
+  have="$(/usr/bin/head -c 32 "$dest/VERSION" 2>/dev/null | /usr/bin/tr -d '[:space:]')" || have=""
+  out="$("$dest/runtime/bin/node" "$dest/app/engine/manifest-verify.js" "$stage/.manifest.json" "$stage/.manifest.sig" \
+    "$stage/kosmos.tar.gz" "$stage" "$v" "$have" 2>&1)" || rc=$?
+  rm -f "$stage/.manifest.json" "$stage/.manifest.sig"
+  case "$rc" in
+    0) return 0 ;;
+    3) info "$out, so the update's manifest is not checked"; return 0 ;;
+    *) info "${out:-the update could not be checked}, so it was not installed"; return 1 ;;
+  esac
+}
+
 # A HEAD probe first, and a one-byte ranged GET before refusing: some static
 # origins reject HEAD (405) while serving GET fine, and "check your internet
 # connection" for a working connection is the wrong sentence.
@@ -1297,6 +1328,12 @@ install_kosmos() {
     verify_download "$stage/kosmos.tar.gz" "$url" "$shaurl" || { rm -rf "$stage"; return 1; }
     _kp_emit installing
     tar -xzf "$stage/kosmos.tar.gz" -C "$stage" || { rm -rf "$stage"; return 1; }
+    # #6468 ask 2: held to the installed copy's signed-manifest check before anything unpacked runs. Not on Linux
+    # (its updates are not built or signed here yet).
+    if [ "$(uname -s)" = "Darwin" ] && ! update_manifest_ok "$stage" "$dest"; then
+      rm -rf "$stage"
+      return 1
+    fi
     rm -f "$stage/kosmos.tar.gz"
   fi
   # ⚠️ THE STAGE IS VERIFIED, THEN SWAPPED. On the update path the old

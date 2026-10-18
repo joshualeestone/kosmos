@@ -729,6 +729,9 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
          sandbox has no key and CI's Linux has no xcrun, so the probe's own test-only seam
          stands in, as KOSMOS_CODESIGN_BIN does. Step 4 never reads it. */
       KOSMOS_NOTARY_PROBE_BIN: 'true',
+      /* #6468: step 1c also proves the manifest-signing key resolves and is pinned; the stub secrets map hands back a
+         file that is not a key, so arms meant to pass 1c take the probe seam (its own arm is below). */
+      KOSMOS_MANIFEST_KEY_PROBE_BIN: 'true',
       /* #3884: step 1d, against the current fixture connector above. */
       KOSMOS_TUNNEL_BIN: TUNNEL_BIN,
       KOSMOS_RELAY_REPO: RELAY_REPO,
@@ -977,6 +980,19 @@ test('#5934: a leftover KOSMOS_TEST_PART refuses the cut in step 1c, before the 
   assert.equal(r.status, 1, r.said.slice(-400));
   assert.match(r.said, /A cut always tests the whole suite \(#5934\)/);
   assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it reached step 2 with a partial suite exported');
+  assert.equal(r.touched, false, 'it edited the version before refusing');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+/* #6468: a cut whose manifest-signing key does not load as a pinned key stops at 1c, before the bump: the stub
+   secrets map hands back a file that is not a key at all. (The probe seam the other arms take is the control.) */
+test('#6468: a missing or unpinned manifest-signing key refuses the cut in step 1c, before the bump', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { env: { KOSMOS_MANIFEST_KEY_PROBE_BIN: undefined } });
+  assert.equal(r.status, 1, r.said.slice(-400));
+  assert.match(r.said, /manifest-signing key \(secrets map target kosmos-manifest-signing\) is missing or not pinned/);
+  assert.ok(!/== 2\. the version, in one place ==/.test(r.said), 'it reached step 2 without a signing key');
   assert.equal(r.touched, false, 'it edited the version before refusing');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
