@@ -1051,6 +1051,10 @@ kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line (a missi
 }
 _odd="$(kosmos_bundle_odd_names "$STAGE")"
 [ -z "$_odd" ] || { echo "FAIL: the bundle holds names the signed manifest cannot list exactly (#6468), first ones:" >&2; printf '%s\n' "$_odd" | sed -n '1,5p' >&2; exit 1; }
+# The keys installs of this build will accept go in its signed manifest (pinned_keys). An empty list would make the
+# next cut refuse its own key with a misleading sentence, so a failed read stops the build here instead.
+KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).KEYS))' "$STAGE/app/engine/manifest-verify.js" 2>/dev/null)" || KM_PINNED_KEYS=""
+case "$KM_PINNED_KEYS" in ''|'[]') echo "FAIL: could not read the pinned keys from app/engine/manifest-verify.js (#6468)" >&2; exit 1 ;; esac
 ( cd "$STAGE" && find bin app runtime VERSION -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(shasum -a 256 "$f" | awk '{print $1}')" "$f"; done ) > "$OUT/.files.$$"
 KOSMOS_MANIFEST_OUT="$MANIFEST_OUT" KOSMOS_MANIFEST_FILES="$OUT/.files.$$" \
 KM_VERSION="$_pkg_version" KM_ARCH="$ARCH" KM_ARTIFACT="$(basename "$TARBALL_OUT")" \
@@ -1059,7 +1063,7 @@ KM_APP_COMMIT="$_app_commit" KM_APP_DIRTY="$_app_dirty" \
 KM_NODE_VERSION="$("$STAGE/runtime/bin/node" --version)" KM_NODE_SHA="${NODE_SHA:-unknown}" \
 KM_TUNNEL_SIGNED="${_tunnel_sha:-unknown}" KM_TUNNEL_INPUT="${_tunnel_in:-unknown}" KM_TUNNEL_COMMIT="${_tunnel_src:-unknown}" \
 KM_NATIVE_APP_SIGNED="${_app_bin_sha:-unknown}" \
-KM_PINNED_KEYS="$("$STAGE/runtime/bin/node" -e 'process.stdout.write(JSON.stringify(require(process.argv[1]).KEYS))' "$STAGE/app/engine/manifest-verify.js")" \
+KM_PINNED_KEYS="$KM_PINNED_KEYS" \
 KM_BUILT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" KM_HOST="$(hostname -s 2>/dev/null || echo '?')" KM_MACOS="$(sw_vers -productVersion 2>/dev/null || echo '?')" \
 "$STAGE/runtime/bin/node" -e '
 const fs = require("fs"); const e = process.env;

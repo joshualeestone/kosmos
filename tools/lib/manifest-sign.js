@@ -12,6 +12,8 @@
  *   node tools/lib/manifest-sign.js check-served <private-key.pem> <served-manifest.json>...
  *       exit 0 when every served release that checks signatures pins this key (its signed manifest's pinned_keys).
  *       The checkout's KEYS say what the NEXT release accepts; what installs out there accept is what they shipped.
+ *       LIMIT: only the CURRENTLY served releases are read. An install still on an older release checks with ITS keys,
+ *       so a key may be retired only once no release that pins only it is still in use.
  *   node tools/lib/manifest-sign.js verify-under <manifest.json> <sig> <served-manifest.json>
  *       verify, under the keys the served release pins when it checks signatures, else the checkout's.
  *   node tools/lib/manifest-sign.js needs-sig <manifest.json>
