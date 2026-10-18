@@ -38,7 +38,8 @@ s.bind(("127.0.0.1",int(sys.argv[1]))); s.listen(16); time.sleep(120)' "$1" &
   LPID=$!
   PIDS="$PIDS $LPID"
   local i=0
-  while [ "$i" -lt 50 ] && [ -z "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ]; do sleep 0.1; i=$((i+1)); done
+  while [ "$i" -lt 100 ] && [ -z "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ]; do sleep 0.1; i=$((i+1)); done
+  [ -n "$(lsof -nP -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null)" ] || { bad "the test's listener on $1 came up within 10 s"; return 1; }
 }
 
 P1="$(free_port)"
@@ -58,11 +59,28 @@ P3="$(free_port)"
 before=free; _ti_port_busy "$P3" && before=busy
 silent_listener "$P3"
 after=free; _ti_port_busy "$P3" && after=busy
+{ kill "$LPID"; wait "$LPID"; } 2>/dev/null
 if [ "$before" = free ] && [ "$after" = busy ]; then
   ok "a listener started during the run turns free into busy, so the gate still goes red"
 else
   bad "a listener started during the run turns free into busy (before=$before after=$after)"
 fi
+
+# Each arm on its own: the other one stubbed to see nothing. lsof by PATH (the probe calls it by name); nc by redefining
+# the probe's absolute /usr/bin/nc path in a copy of the function.
+STUB="$(mktemp -d "${TMPDIR:-/tmp}/portprobe-6457.XXXXXXXX")" || { bad "no scratch dir"; exit 1; }
+trap 'for p in $PIDS; do kill "$p" 2>/dev/null; done; rm -rf "${STUB:?}"' EXIT
+printf '#!/bin/sh\nexit 1\n' > "${STUB:?}/lsof"; chmod +x "${STUB:?}/lsof"
+P4="$(free_port)"
+silent_listener "$P4"
+if PATH="${STUB:?}:$PATH" _ti_port_busy "$P4"; then ok "the connect arm alone reads a silent listener busy (lsof sees nothing)"; else bad "the connect arm alone reads a silent listener busy (lsof sees nothing)"; fi
+eval "$(printf '%s\n' "$probe" | sed 's#/usr/bin/nc#false#; s#^_ti_port_busy()#_ti_lsof_only()#')"
+if _ti_lsof_only "$P4"; then ok "the lsof arm alone reads a silent listener busy (no connect)"; else bad "the lsof arm alone reads a silent listener busy (no connect)"; fi
+# CONTROL for both stubs: lsof stubbed AND no connect must read that live listener free, or the arms above passed on
+# the real lsof (a PATH that did not reach the function).
+if PATH="${STUB:?}:$PATH" _ti_lsof_only "$P4"; then bad "CONTROL: both arms stubbed read the live listener free"; else ok "CONTROL: both arms stubbed read the live listener free"; fi
+kill "$LPID" 2>/dev/null; wait "$LPID" 2>/dev/null
+if PATH="${STUB:?}:$PATH" _ti_port_busy "$P4"; then bad "CONTROL: with that listener gone, the connect arm alone reads free"; else ok "CONTROL: with that listener gone, the connect arm alone reads free"; fi
 
 n="$(grep -c '_ti_port_busy "\$KOSMOS_DEFAULT_PORT" && DEFAULT_PORT_\(BEFORE\|AFTER\)=busy' tools/test-install.sh)"
 if [ "$n" = 2 ]; then ok "both gate probes use it"; else bad "both gate probes use it (found $n)"; fi
@@ -70,6 +88,11 @@ if grep -q 'curl -s -m 1 [^#]*KOSMOS_DEFAULT_PORT' tools/test-install.sh; then
   bad "no 1 s curl probe of the default port is left"
 else
   ok "no 1 s curl probe of the default port is left"
+fi
+if grep -q '^while _ti_port_busy "\$PORT"; do' tools/test-install.sh; then
+  ok "the sandbox's free port is picked with the same probe"
+else
+  bad "the sandbox's free port is picked with the same probe"
 fi
 
 [ "$FAILS" -eq 0 ] && { echo "ALL PASS"; exit 0; }

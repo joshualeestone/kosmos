@@ -7,7 +7,10 @@ a re-run of about 2 h.
 ## Change
 - `tools/test-install.sh`: `_ti_port_busy <port>` is busy when `lsof -nP -tiTCP:<port> -sTCP:LISTEN` names a listener,
   or, for one lsof cannot see (another account's), when `/usr/bin/nc -z -G 3` connects. Both the BEFORE and the AFTER
-  probe of the default port use it, so the comparison stays like for like.
+  probe of the default port use it, so the comparison stays like for like. The sandbox's free-port pick (4460-4499)
+  uses it too: there the 1 s curl read a loaded board as free and the run would install onto a taken port.
+- Left for #6459: three "released/free" checks (uninstall released the port, before the belt pass, wait_port_free)
+  still use the 1 s curl; their error is a false green, and changing them can add new reds, so they get their own run.
 - `tools/test-install-portprobe-6457.sh` (wired into `test:shell`): runs that function as written in the harness.
 
 ## Decisions
@@ -22,4 +25,7 @@ a re-run of about 2 h.
 - A port with nothing on it reads free.
 - Free before, a listener started, busy after: the gate's comparison still goes red for a leaked listener.
 - Both gate probes call it; no 1 s curl probe of the default port is left.
+- Each arm alone: lsof stubbed (by PATH) and the connect alone reads busy; no connect and lsof alone reads busy.
+  CONTROL: both stubbed reads the live listener free, so the stubs really took effect.
+- The sandbox's free port is picked with the same probe.
 - Mutation: the old curl probe put back inside the function fails the two behaviour arms.
