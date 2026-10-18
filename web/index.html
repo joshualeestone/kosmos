@@ -64871,11 +64871,14 @@ function paintProjectTasks(p) {
        slacking". #761 item 8's null-case fix (taskClaimHtml, above) keeps
        this same discipline: the real `because` the engine computed, never
        an invented "issue" word standing in for it. */
-    const sayHtml = taskClaimHtml(t.claim);
+    /* #6501 (agent feedback): an open task marked built read here as unfinished work, its agent's claim beside it. It says
+       it is built and waiting on the person, in the sense of Josh's "Built but waiting" tile; closing stays on its page. */
+    const builtOpen = typeof t.builtAt === 'string' && t.builtAt !== '' && !t.closedAt;
+    const sayHtml = builtOpen ? '<em class="tksay">built, waiting for you to check it</em>' : taskClaimHtml(t.claim);
     let who;
     if (!assigned.length) {
       /* #5456: a repeating task with nobody on it reads as the Tasks view says it, not as ownerless work. */
-      // A task on hold, or in a paused project, does not say On a schedule (built or not: this card does not show built).
+      // A task on hold, or in a paused project, does not say On a schedule. (#6501: a built task says so in its label.)
       who = '<span class="tkcard-who"><span class="tkcard-who-b">' + (t.repeat && t.onHold !== true && p.paused !== true ? 'On a schedule' : 'Nobody yet') + '</span></span>';
     } else if (parts.length > 1) {
       /* #761 item 8: "Multiple assignees, as the pack drew." One face+name
@@ -64908,7 +64911,7 @@ function paintProjectTasks(p) {
       ? '<span class="tkcard-part-of">Part of #' + Number(t.parent) + (t.parentSentence ? ' ' + esc(t.parentSentence) : '') + '</span>' : '';
     return '<button class="tkcard' + (t.closedAt ? ' closed' : '') + (depth ? ' sub' + depth : '') + '" type="button" data-task="' + n + '">'
       + partOf
-      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : '') + '</span>'
+      + '<span class="tkcard-n">Task ' + n + (t.closedAt ? ' (done)' : builtOpen ? ' (built)' : '') + '</span>'
       + '<div class="tkcard-t">' + esc(t.sentence) + '</div>'
       /* #1307: a webhook task says so wherever it can be given out, so the person who gives it
          knows its words came from outside. Inline, not a shared helper: the tests lift this

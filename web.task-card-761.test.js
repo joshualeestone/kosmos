@@ -403,3 +403,24 @@ test('#2762: a STRANGER holding the name lends neither the picture nor its versi
   assert.doesNotMatch(html, /april\/avatar/,
     "an avatar URL was drawn for a name held by a stranger");
 });
+
+/* #6501 (agent feedback): an open task marked built read on this card as unfinished work, with its agent's claim. It now
+   says it is built and waiting on the person, in its label and in place of the claim. */
+test('#6501: a built open task says "(built)" and "built, waiting for you to check it" instead of the claim', () => {
+  const base = {
+    number: 4, sentence: 'Book the photographer', who: 'april', closedAt: null,
+    parts: [{ id: 1, who: 'april', sentence: 'Book the photographer', closedAt: null }],
+    progress: { done: 0, total: 1, closed: false, assigned: 1 },
+    claim: { claimed: true, about: 'april' },
+  };
+  const built = runPaintProjectTasks({ ...PROJECT, tasks: [{ ...base, builtAt: '2026-10-18T12:00:00Z', builtBy: 'april' }] })
+    .els['pj-tasklist'].innerHTML;
+  assert.match(built, /<span class="tkcard-n">Task 4 \(built\)<\/span>/, built);
+  assert.match(built, /<b>April<\/b><em class="tksay">built, waiting for you to check it<\/em>/, built);
+  assert.doesNotMatch(built, /says it is on this/, 'a built task still reads as work in progress');
+  // CONTROL: the same task not built keeps the claim. (A closed task is not drawn in this column at all, so the
+  // builtOpen check against closedAt guards only a future change to that.)
+  const open = runPaintProjectTasks({ ...PROJECT, tasks: [base] }).els['pj-tasklist'].innerHTML;
+  assert.match(open, /<span class="tkcard-n">Task 4<\/span>/);
+  assert.match(open, /says it is on this/);
+});
