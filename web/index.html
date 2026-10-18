@@ -3900,9 +3900,11 @@ html.snav-loose body:not(.consolidated) #s-nav { position: static; }
 }
 /* #6514: a link wearing the button (Save diagnostics, Download) looks like the button: no link underline, and its
    label stays on one line instead of wrapping when a settings row is narrow. */
-a.btn-quiet { text-decoration: none; white-space: nowrap; flex-shrink: 0; }
-/* On a phone that one-line label would leave the row's words a narrow column beside it, so the link goes under them. */
-@media (max-width: 480px) { .setrow:has(> a.btn-quiet) { flex-wrap: wrap; } }
+.setrow > a.btn-quiet { text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+/* Scoped to a settings row on purpose (review round 1): the Add a provider help links are long and must still wrap.
+   On a phone the one-line label would leave the row's words a narrow column beside it, so the link goes under them,
+   only while the link is shown (Download stays hidden off Windows, and its row keeps its layout). */
+@media (max-width: 480px) { .setrow:has(> a.btn-quiet:not([hidden])) { flex-wrap: wrap; } }
 .btn-quiet:hover { background: rgba(198,154,50,.14); }
 .btn-quiet:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 .btn-quiet[disabled] { opacity: .55; cursor: default; }
