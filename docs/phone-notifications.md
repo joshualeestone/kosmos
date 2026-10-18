@@ -93,7 +93,7 @@ Sound: the default sound on iPhone; on Android and the browser, whatever the dev
 
 | Event | When it would fire | Wording | Status |
 |---|---|---|---|
-| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
+| An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (the email keeps its own wording, see Wording) (no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
 
 A computer can send needs-yous only once the master switch is on (that is what gives it the key the coordinator checks).
 From 0.7.58 that happens by itself once a computer is connected to Kosmos+, so every connected computer becomes eligible
@@ -122,7 +122,7 @@ decision before it is built. Three ways:
    still carry only "something happened". On an iPhone that is a notification service extension; on Android and the
    browser, the web-push worker fetches before it shows the notification. If the computer is asleep or offline, the
    plain notification above shows instead. More to build.
-3. Keep today's no-words notifications and only change their wording.
+3. Keep the no-words notifications as they are now.
 
 Recommended: option 2. The call is Josh's.
 
