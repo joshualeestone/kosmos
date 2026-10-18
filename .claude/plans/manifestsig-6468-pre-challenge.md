@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: manifestsig-6468
-diff_hash: e272555fa0b7ce962930620ddf24b6f37888172a4773e3b8b912796cc67d10b0
+diff_hash: 3e467e0313aff6978b21441b94488a352d6f200bb90c9a793f5405c740a61736
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T11:16:06Z
@@ -87,3 +87,5 @@ the measurement).
 - [NIT] an empty pinned_keys could ship if reading them failed (FIXED after convergence, 2 lines: the build stops)
 - [NIT] only served releases are read; retiring a key must wait until no release pinning only it is in use (DOCUMENTED in manifest-sign.js)
 - [NIT] harness partial rewrite, pointer parsed by sed in promote, origin/main vs deployed (ACCEPTED as is)
+
+CI fix 06:20: test-linux-setup red on tools/test-installer-runnable-guard.sh (setup.sh:801 used a bare [ -x ] for the installed node). Now [ -f ] && [ -x ]; the runnable guard 0 failures, install-static 23/23, install-static-control and plist-heredoc pass, manifest suite 30/30.
