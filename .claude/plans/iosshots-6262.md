@@ -46,6 +46,10 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   pushes live), ios/README.md, mobile-shots.js's pointer.
 
 ## Decided
+- **Any process on this Mac passes the proxy, and that is accepted:** it grants nothing new, since such a process
+  can already reach the throwaway board itself at its loopback address. Other machines are refused.
+- **A picture passes only if it is a file the product ships under web/** (the board's icons); an agent's or a
+  person's picture, or an upload, is refused, so "no pictures of anyone" is enforced rather than assumed.
 - **Run through the queue (queued-heavy.sh), and trust only the run's OWN claim.** Inside a queued turn, heavy-gate
   sees the queue's claim and reads BUSY, so the first queued run refused itself (measured, 23:55). The queue unsets
   KOSMOS_SIDE_AWARE before the command, so that variable cannot tell (measured, 00:02). The script now asks

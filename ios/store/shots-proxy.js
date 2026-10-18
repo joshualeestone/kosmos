@@ -17,9 +17,11 @@
  *   Every other field, and every other route, is the board's own.
  * - Is the leak guard for this path. mobile-shots.js reads each page in its browser; the app's pictures never
  *   pass through it, so every text answer the board gives (the page itself included) is read whole here with the
- *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. Only image, font, audio and
- *   video answers pass unread. A hit, an encoded body or a stream is refused, never passed on, and printed as
- *   "LEAK" by kind and length only; shoot-app.sh then files nothing.
+ *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. An image, font, audio or video
+ *   answer cannot be read that way, so it passes only when its path is a file the product ships under web/ (the
+ *   board's icons); any other picture (an agent's or a person's, an upload) is refused. A hit, an encoded body, a
+ *   stream or such a picture is refused, never passed on, and printed as "LEAK" by kind and length only;
+ *   shoot-app.sh then files nothing.
  *   This reads SOURCE (the page's script and comments too), not only what a screen shows, which is stricter than
  *   lib-leak-guard.js's own use on rendered text. So on a Mac whose user or host name is a word in a script or
  *   comment the board serves (other than web/index.html, whose words the lib already exempts), every run stops
@@ -33,6 +35,7 @@
  * Listens on a free port and prints "listening <url>" once it is up. Stop it with a signal.
  */
 const http = require('node:http');
+const fs = require('node:fs');
 const path = require('node:path');
 const { hitsIn } = require(path.join(__dirname, '..', '..', 'docs', 'browser-checks', 'lib-leak-guard.js'));
 const leak = (where, hits) => { process.stderr.write('LEAK ' + where + ': ' + hits.join(', ') + '\n'); };
@@ -48,6 +51,11 @@ const asInstalled = (t) => t.split(checkout + '/install/kosmos').join(INSTALLED 
 const board = new URL(boardBase);
 let ours = '';
 const fromHost = (addr) => addr === host || addr === '::ffff:' + host;
+const WEB = path.join(checkout, 'web');
+const shipped = (p) => {
+  const f = path.resolve(WEB, '.' + decodeURIComponent(p));
+  return f.startsWith(WEB + path.sep) && fs.existsSync(f) && fs.statSync(f).isFile();
+};
 
 const server = http.createServer((req, res) => {
   if (!fromHost(req.socket.remoteAddress)) {
@@ -71,9 +79,12 @@ const server = http.createServer((req, res) => {
     const out = { ...r.headers };
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
-    // Binary media pass unread (they are files, and the store set has no pictures of anyone); SVG is text and is read.
-    if (/^(image\/(?!svg)|font\/|audio\/|video\/)/.test(type)) { res.writeHead(r.statusCode, out); r.pipe(res); return; }
     const refuse = (why) => { leak(pathname, [why]); res.writeHead(502); res.end(); r.resume(); };
+    // Binary media cannot be read as text (SVG is text and is read): only a file the product ships passes.
+    if (/^(image\/(?!svg)|font\/|audio\/|video\/)/.test(type)) {
+      if (!shipped(pathname)) return refuse('a picture or media file that is not one the product ships (' + type.split(';')[0] + ')');
+      res.writeHead(r.statusCode, out); r.pipe(res); return;
+    }
     if (/^text\/event-stream/.test(type)) return refuse('a stream, which cannot be read whole before it is sent');
     if (r.headers['content-encoding'] && r.headers['content-encoding'] !== 'identity') {
       return refuse('an encoded answer the guard cannot read (' + r.headers['content-encoding'] + ')');
