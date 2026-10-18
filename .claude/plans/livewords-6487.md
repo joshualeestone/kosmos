@@ -4,7 +4,7 @@ The catalog said the new wording was "not yet in force" and the master switch wa
 kosmos-relay #451 deployed (coordinator 18e6ac3e, per the push path's owner) with push.rs `notice_text` shared by apns.rs
 and coordinator sw.js, giving "in <Project>" or no body, and the test notice keeping "in Kosmos" (read at 18e6ac3e).
 Board side: #6502 (web/sw.js, merged) and #6500 / #6488 (on by default once connected, merged; engine/phonenotify.js
-header) ship with 0.7.58.
+header) ship in the release after 0.7.57 (package.json is still 0.7.57, so the doc names no number).
 
 ## Change
 docs/phone-notifications.md: the wording is in force on the coordinator; the "today" table's bodies become the new ones

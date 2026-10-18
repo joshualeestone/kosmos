@@ -8,10 +8,9 @@ Read from the code on 2026-10-18 and checked against the push path owner's table
 - **Web push**: how Android phones and browsers receive notifications (iPhones use Apple's own service).
 - **Window**: a few minutes after a notification during which another of the same sort is not sent.
 - **Episode**: one stretch of the same trouble, from when it starts until it clears.
+- **Connected to Kosmos+**: this computer is signed in to Kosmos+ and Kosmos+ is switched on here.
 - **Session name**: the agent's short internal name, such as `leo`, as opposed to the name shown on screen.
 - **The agent's token**: the private pass each agent uses when it posts, so Kosmos knows the post is really from it.
-
-- **Connected to Kosmos+**: this computer is signed in to Kosmos+ and Kosmos+ is switched on here.
 
 ## How a notification travels
 A computer running Kosmos notices that something happened and sends the coordinator a short event: its kind, the
@@ -21,7 +20,7 @@ for an iPhone and through web push for Android and the browser.
 **The words of a message are never sent.** A notification says who did what, and a tap usually opens that agent's page (exceptions below).
 
 **The master switch**: Settings, "Buzz my phone about my agents". Up to Kosmos 0.7.57 it is off until the person presses
-Turn on. From 0.7.58 (kosmos#6488) it turns itself on once this computer is connected to Kosmos+, unless the person has
+Turn on. From the release after 0.7.57 (kosmos#6488) it turns itself on once this computer is connected to Kosmos+ (see Words used here), unless the person has
 turned it off. Once it is on, a notification goes out only when the kind's
 own switch is on, this computer is connected to Kosmos+, a phone or browser is signed in, and this computer has approved that phone
 (one waiting for this computer's approval gets nothing, and so does one that was denied). Nothing gets through from a
@@ -29,7 +28,7 @@ computer not yet allowed onto the person's Kosmos+ account: the coordinator refu
 
 ## Wording
 Short and plain: the title says who and what; the body names the project, and is left out when there is none
-(everything is in Kosmos, so "in Kosmos" adds nothing). An agent with no name is called "An agent".
+(everything is in Kosmos, so "in Kosmos" adds nothing; the test notice is the one exception, below). An agent with no name is called "An agent".
 
 | Kind | Title | Body |
 |---|---|---|
@@ -42,7 +41,7 @@ Changed on 2026-10-18: the body said `on <Project>` (now `in`, as Josh wrote it)
 project (now no body).
 
 **In force on the coordinator since 2026-10-18** (kosmos-relay #451, deployed per the push path's owner): iPhone and web push both take their words from
-this table, through one shared function. This repo's own `web/sw.js` matches it from Kosmos 0.7.58 (kosmos#6502). Nobody
+this table, through one shared function. This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). Nobody
 has yet seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
 not a notification. No test reads this page yet.
@@ -98,13 +97,13 @@ Sound: the default sound on iPhone; on Android and the browser, whatever the dev
 | An agent needs you, by email | a needs-you this computer sent to Kosmos+ (so the master and "When an agent needs me" switches on, and not dropped by the 5-minute window, and the computer already allowed; no phone needed) and not acknowledged within 30 minutes, checked every minute (nothing in Kosmos sends that acknowledgement yet, see below); never one older than 6 hours; at most once per agent per account per 24 hours | subject `<Agent> needs you`; first line `<Agent> needs you on <Project>.` (its own wording, see Wording; no "on" part without a project), then how to open Kosmos, and "Your agent paused for your input and will pick up again once you answer." | built, behind `KOSMOS_NEEDS_YOU_EMAIL`, which is off in production (measured on the coordinator by the push path's owner, #6487), so nothing sends today |
 
 A computer can send needs-yous only once the master switch is on (that is what gives it the key the coordinator checks).
-From 0.7.58 that happens by itself once a computer is connected to Kosmos+, so every connected computer becomes eligible
+From the release after 0.7.57 that happens by itself once a computer is connected to Kosmos+, so every connected computer becomes eligible
 for this email, including people who never set up a phone. **And nothing in Kosmos acknowledges a needs-you
 yet** (not the board, and not the iPhone or Android app in this repo), so with the flag on, the first needs-you from each agent in any 24 hours would be emailed after 30 minutes, even one the
 person already answered on the board. The flag must stay off until the board sends that acknowledgement. A needs-you that turned 30 minutes old while the
 coordinator was running with the flag off is never emailed; a younger one is, once it reaches 30 minutes. The crash, stuck and helper notices are needs-you events too, so they would be emailed as well, and the email's closing
 sentence ("Your agent paused for your input and will pick up again once you answer.") does not fit them; change that
-before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") shows up to Kosmos 0.7.57 and is gone from 0.7.58 (kosmos#6489).
+before the flag is turned on. The Settings hint that mentions this email ("may also send you an email") shows up to Kosmos 0.7.57 and is gone from the release after it (kosmos#6489).
 
 ## Proposed (Josh, 2026-10-18)
 Josh's words, verbatim: "<Agent> said <message>" for a direct message, and "<Agent> commented in <Project>: <message>"
@@ -129,8 +128,8 @@ decision before it is built. Three ways:
 Recommended: option 2. The call is Josh's.
 
 ## Where the code lives
-The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from 0.7.58 the default turn-on), called from `server.js`. The words:
+The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from the release after 0.7.57 the default turn-on), called from `server.js`. The words:
 kosmos-relay `coordinator/src/push.rs` (`notice_text`, shared by `apns.rs` for iPhone and `coordinator/src/sw.js` for
 web push, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
-0.7.58 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
+the release after 0.7.57 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.
