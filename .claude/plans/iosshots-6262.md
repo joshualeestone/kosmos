@@ -53,7 +53,8 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   and the proxy rewrites Host, so the board's own rebinding defence does not apply to it. Accepted for a run of a
   few minutes over invented data.
 - **A picture passes only if it is a file the product ships under web/** (the board's icons); an agent's or a
-  person's picture, or an upload, is refused, so "no pictures of anyone" is enforced rather than assumed.
+  person's picture, or an upload, is refused. Checked by path, not by bytes: it rests on the board serving its own
+  icons at those paths.
 - **Run through the queue (queued-heavy.sh), and trust only the run's OWN claim.** Inside a queued turn, heavy-gate
   sees the queue's claim and reads BUSY, so the first queued run refused itself (measured, 23:55). The queue unsets
   KOSMOS_SIDE_AWARE before the command, so that variable cannot tell (measured, 00:02). The script now asks

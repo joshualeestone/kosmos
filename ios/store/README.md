@@ -98,8 +98,8 @@ that only this script sets: it opens a given address instead of Kosmos+ and skip
 address is `shots-proxy.js` in front of a throwaway board filled with an invented team
 (`docs/browser-checks/mobile-shots.js --keep --data store --remote`). No real account, agent, message or computer
 appears: the tool's leak guard reads the four screens first, and the proxy reads every text answer the board gives
-the app with the same checks, lets through only pictures and files the product itself ships, and stops the run on
-anything else. iOS CI checks that the store build never carries the switch
+the app with the same checks, lets a picture or file through only at the path of one the product itself ships,
+and stops the run on anything else. iOS CI checks that the store build never carries the switch
 (`ios/tools/check-no-shots-flag.sh`, shown able to fail). The status bar reads 9:41 with full signal, as Apple's
 own pictures do.
 

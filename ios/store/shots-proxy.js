@@ -10,8 +10,8 @@
  *   <computer>.kosmosplus.com. The board is asked as itself (Host, Origin and Referer say the board's own loopback
  *   address), the same as mobile-shots.js --remote does through the browser's router.
  *   Because that disarms the board's own is-it-local checks, the proxy answers only connections from
- *   <listen-host> itself, which is where the simulator's requests come from; anything else on the network is
- *   refused ("REFUSED", which shoot-app.sh treats as a failed run).
+ *   <listen-host> itself, which is where the simulator's requests come from, and only requests whose Host is the
+ *   proxy's own address; anything else is refused ("REFUSED", which shoot-app.sh treats as a failed run).
  * - Says the Claude subscription is connected in /api/status, as mobile-shots.js does in the page for the store
  *   set (DATA_SETS.store.connected): the sandbox has no Claude account on purpose, and a customer's Mac does.
  *   Every other field, and every other route, is the board's own.
@@ -19,8 +19,9 @@
  *   pass through it, so every text answer the board gives (the page itself included) is read whole here with the
  *   same checks (docs/browser-checks/lib-leak-guard.js) before any of it is sent on. An answer that is not text (an
  *   image, a font, a PDF, an attachment, no type at all) cannot be read that way, so it passes only empty or when
- *   its path is a file the product ships under web/ (the board's icons); any other picture or file (an agent's or
- *   a person's, an upload) is refused. A hit, an encoded body, a
+ *   its PATH is a file the product ships under web/ (the board's icons); the bytes are not compared, so this rests
+ *   on the board serving its own icons at those paths. Any other picture or file (an agent's or a person's, an
+ *   upload, at an /api path no shipped file has) is refused. A hit, an encoded body, a
  *   stream or such a picture is refused, never passed on, and printed as "LEAK" by kind and length only;
  *   shoot-app.sh then files nothing.
  *   This reads SOURCE (the page's script and comments too), not only what a screen shows, which is stricter than
@@ -63,8 +64,10 @@ const shipped = (p) => {
 const TEXT = /^(text\/(?!event-stream)|application\/(json|javascript|x-javascript|manifest\+json|xml)\b|image\/svg\+xml)/i;
 
 const server = http.createServer((req, res) => {
-  if (!fromHost(req.socket.remoteAddress)) {
-    process.stderr.write('REFUSED a request from another address\n');
+  // From this Mac, and addressed to this proxy by its own address: a page that reaches it under another name
+  // (DNS rebinding) carries that name in Host and is refused too.
+  if (!fromHost(req.socket.remoteAddress) || req.headers.host !== ours.slice('http://'.length)) {
+    process.stderr.write('REFUSED a request from another address or for another host\n');
     res.writeHead(403); res.end(); return;
   }
   const headers = { ...req.headers, host: board.host };

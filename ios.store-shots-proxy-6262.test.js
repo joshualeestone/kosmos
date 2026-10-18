@@ -9,7 +9,8 @@
  *   - an encoded answer and an event stream are refused, since neither can be read whole first;
  *   - a chunked answer is sent with its own length and no Transfer-Encoding beside it;
  *   - an answer the board breaks off part way is refused and printed as UPSTREAM.
- * Not covered here: refusing a request from another address needs a second source address this machine does not
+ *   - a request for another host name (a page reaching the proxy by DNS rebinding) is refused with 403 and REFUSED.
+ * Not covered here: refusing a request from another source address needs a second address this machine does not
  * have; it was measured by hand (curl --interface 127.0.0.1 to the proxy on the network address: 403, REFUSED).
  *
  *   node --test ios.store-shots-proxy-6262.test.js
@@ -75,9 +76,9 @@ async function logged(re) {
   assert.match(logs, re);
 }
 
-function get(p) {
+function get(p, headers) {
   return new Promise((resolve, reject) => {
-    const req = http.get(base + p, (res) => {
+    const req = http.get(base + p, { headers: headers || {} }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
       res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString('utf8') }));
@@ -121,6 +122,13 @@ test('a file that is neither text nor shipped is refused, and a malformed path c
   assert.equal((await get('/icons/%E0%A4%A.png')).status, 502);
   assert.equal((await get('/api/status')).status, 200);   // still answering
   assert.equal(proxy.exitCode, null);
+});
+
+test('a request for another host name is refused (a page reaching the proxy by DNS rebinding)', async () => {
+  const r = await get('/api/status', { host: 'rebind.example:80' });
+  assert.equal(r.status, 403);
+  await logged(/^REFUSED /m);
+  assert.equal((await get('/api/status')).status, 200);   // its own address still answers
 });
 
 test('a sibling of the checkout is not swapped', async () => {
