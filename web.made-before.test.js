@@ -50,6 +50,30 @@ test('no model and no launch file reads as history; no model WITH one stays the 
     'a readable model was displaced by the history sentence');
 });
 
+/* #6516: the Agents LIST cell does not repeat the sentence on every row of a board set up before Kosmos; it keeps it for a
+   screen reader. Any other model line, "Unknown Model" (the fault) included, is shown as before. */
+function runLmodelCell(agent) {
+  const src = liftAll(SCRIPT, ['modelLine', 'lmodelCell', 'esc']);
+  return new Function('a', `
+    const cardStOf = () => ({ pres: 'off' });
+    ${src}
+    return lmodelCell(a);
+  `)(agent);
+}
+
+test('#6516: the list cell keeps the never-recorded sentence for a screen reader only', () => {
+  assert.equal(runLmodelCell({ neverRecorded: true }), '<span class="vh">Made before Kosmos recorded this</span>');
+  // CONTROLS: the fault, and a real model, are shown as they were.
+  assert.equal(runLmodelCell({ neverRecorded: false }), 'Unknown Model', 'the fault state was hidden from the list');
+  assert.equal(runLmodelCell({ neverRecorded: true, plannedModelName: 'Claude Sonnet 5' }), 'Claude Sonnet 5');
+  assert.equal(runLmodelCell({ neverRecorded: true, plannedModelName: '<b>x</b>' }), 'Claude &lt;b&gt;x&lt;/b&gt;', 'a model name was not escaped');
+});
+
+test('#6516: the list row draws its model cell through lmodelCell, not modelLine directly', () => {
+  assert.match(SCRIPT, /<div class="lmodel">\$\{lmodelCell\(a\)\}<\/div>/);
+  assert.equal(/<div class="lmodel">\$\{esc\(modelLine\(a\)\)\}<\/div>/.test(SCRIPT), false, 'the list row still prints the sentence');
+});
+
 test('the memory panel says never recorded, for a running context and for a stopped row alike', () => {
   /* The engine flag rides context for a running agent; a stopped row carries
      NO context, so memoryBox synthesizes one from the row flag. Two pins:
