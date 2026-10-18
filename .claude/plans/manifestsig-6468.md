@@ -90,3 +90,7 @@ differ from it, or whose version is older than the installed one, before anythin
   pinned_keys; manifest-sign.js check-served / verify-under, 3 test arms each way)
 - [NIT] the gate control's second copy lacked engine/ (MOOT: the harness no longer needs it; control back to main's)
 - [NIT] a verifier with its runtime gone said "predates signed releases" (FIXED: says the runtime is missing; arm)
+### Iteration 8 (sonnet): no BLOCKER or WARNING findings (converged)
+- [NIT] an empty pinned_keys could ship if reading them failed (FIXED after convergence, 2 lines: the build stops)
+- [NIT] only served releases are read; retiring a key must wait until no release pinning only it is in use (DOCUMENTED in manifest-sign.js)
+- [NIT] harness partial rewrite, pointer parsed by sed in promote, origin/main vs deployed (ACCEPTED as is)
