@@ -33,6 +33,9 @@ differ from it, or whose version is older than the installed one, before anythin
 ## Limits
 - Until ask 3, setup.sh itself is fetched from the site, so a site that serves its own setup.sh skips this check.
 - Losing both copies of the key means installs refuse updates until reinstalled fresh.
+- A prod ROLLBACK to an older version is refused by installs that already updated (they stay put until a newer
+  version is cut); a rollback must be cut as a new, higher version. --if-newer never downgraded anyway.
+- No channel binding: a signed staging build newer than an install passes on a prod install.
 
 ## Review log
 ### Iteration 1 (opus): 2 BLOCKERs, 3 should-fix, nits
@@ -50,3 +53,11 @@ differ from it, or whose version is older than the installed one, before anythin
 - [NIT] post-branch cleanup (FIXED), channel switch refused as older (DEFERRED: stated on the card), replay of an
   older signed release still at or above the installed one (DEFERRED: stated), 1c reads the checkout's key list
   (NOTED: same commit as the frozen tree; sign re-checks), verb typo hits the key loader first (FIXED)
+### Iteration 3 (opus): 0 BLOCKERs, 2 should-fix
+- [WARNING] the install-gate control could never pass (its copy lacked engine/; no key elsewhere) (FIXED: copies
+  engine/; a no-key skip is exit 3, cannot answer)
+- [WARNING] promote and served-check shell logic untested (FIXED: 5 promote arms in test-staging-channel-2036.sh, a
+  mutant swapping the needs-sig arms goes red; 3 served-check arms; real-key served run on 0.7.56 passes)
+- [NIT] no-target arm asserted only the exit (FIXED), build could ship a symlink or an odd name (FIXED: the build
+  refuses), verify-manifest's node (FIXED, and NODE moved above its first use, which set -u would have killed),
+  rollback named in Limits (FIXED)
