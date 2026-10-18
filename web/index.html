@@ -51996,7 +51996,7 @@ function paintPlusJoin() {
      other one, and the line says where to look on it. */
   else if (code) html = (j.rechecking === true && j.held !== true
       /* kosmos#6404: the fresh code check: typed on the other computer, confirmed there, then matched here. */
-      ? '<p class="plus-join-say"><b>Finish the code check with ' + name + '.</b></p><ol class="plus-join-steps"><li>On ' + name + ', go to Settings, then Kosmos+.</li><li>Type this code there, then press Confirm.</li><li>Once ' + name + ' says the check is done, press The codes match here.</li></ol>'
+      ? '<p class="plus-join-say"><b>Finish the code check with ' + name + '.</b></p><ol class="plus-join-steps"><li>On ' + name + ', go to Settings, then Kosmos+.</li><li>Type this code there, then press Confirm.</li><li>Once ' + name + ' says the check is done, press The codes match here. If it is cancelled on ' + name + ', this ends by itself within ten minutes, and you can check again.</li></ol>'
       : j.held === true
       ? '<p class="plus-join-say"><b>Allow this computer from your other one.</b></p><ol class="plus-join-steps"><li>Open Kosmos on ' + (named ? 'your other computer, ' + name + ',' : name) + ' and go to Settings, then Kosmos+.</li><li>Type this code there, then press Allow.</li><li>Once ' + name + ' says this computer is connected, press The codes match here.</li></ol>'
       : '<p class="plus-join-say">If you typed this code on ' + name + (other ? other + ',' : '') + ' to allow this computer, press The codes match.</p>') + plusJoinCode(code) +

@@ -578,7 +578,7 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
         await page.click('#plus-join-recheck');
         await page.waitForTimeout(400);
         jr = await readJoin();
-        chk(recheckPosts === 1 && /^Finish the code check with homemac\.\s*On homemac, go to Settings, then Kosmos\+\.\s*Type this code there, then press Confirm\.\s*Once homemac says the check is done, press The codes match here\./.test(jr.text)
+        chk(recheckPosts === 1 && /^Finish the code check with homemac\.\s*On homemac, go to Settings, then Kosmos\+\.\s*Type this code there, then press Confirm\.\s*Once homemac says the check is done, press The codes match here\.\s*If it is cancelled on homemac, this ends by itself within ten minutes, and you can check again\./.test(jr.text)
           && jr.code === '246 810' && jr.size >= 28 && !!jr.button,
           `${tag} #6404: Check the code asks once, then the check's steps show with the code large and The codes match`, JSON.stringify({ recheckPosts, jr }));
         /* Review 2: the check ends with no code confirmed (the tunnel offers it again): the button comes back. */
