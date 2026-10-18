@@ -52,7 +52,7 @@ function tree(node, tunnel, { adhoc = [] } = {}) {
 }
 
 function check(stage, dest) {
-  const script = ['set -u', 'info() { printf "%s\\n" "$*"; }', fnSource('update_signer_ok'),
+  const script = ['set -eu', '(set -o pipefail) 2>/dev/null && set -o pipefail', 'info() { printf "%s\\n" "$*"; }', fnSource('update_signer_ok'),
     'update_signer_ok "$1" "$2"'].join('\n');
   const r = spawnSync('/bin/sh', ['-c', script, 'sh', stage, dest], { encoding: 'utf8' });
   return { code: r.status, out: r.stdout + r.stderr };
@@ -84,6 +84,7 @@ it('an unsigned part is refused', () => {
   fs.writeFileSync(path.join(stage, 'app/bin/kosmos-tunnel'), '#!/bin/sh\n', { mode: 0o755 });
   const r = check(stage, dest);
   assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /kosmos-tunnel is not signed by the same developer/);
 });
 
 it('a symlink in place of a part is refused', () => {
@@ -93,6 +94,7 @@ it('a symlink in place of a part is refused', () => {
   fs.symlinkSync('/bin/cat', path.join(stage, 'app/bin/kosmos-tunnel'));
   const r = check(stage, dest);
   assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /kosmos-tunnel is not signed by the same developer/);
 });
 
 it('an ad-hoc (local build) install is not held to a signer, and says so', () => {
@@ -141,6 +143,14 @@ real('REAL INSTALL: the same app re-signed ad-hoc (no release key) is refused', 
   const stage = realTree();
   execFileSync('/usr/bin/codesign', ['--force', '--deep', '-s', '-', path.join(stage, 'app', 'Kosmos.app')], { stdio: 'ignore' });
   const r = check(stage, realTree());
+  assert.equal(r.code, 1, r.out);
+});
+
+it('an install whose PATH contains the word adhoc is still held to its signer', () => {
+  const dest = tree('/bin/ls', '/bin/cat');
+  const odd = path.join(tmpRoot, 'x(adhoc,adhoc');
+  fs.renameSync(dest, odd);
+  const r = check(tree('/bin/ls', '/bin/cat', { adhoc: ['runtime/bin/node'] }), odd);
   assert.equal(r.code, 1, r.out);
 });
 
