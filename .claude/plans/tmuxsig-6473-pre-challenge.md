@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: tmuxsig-6473
-diff_hash: 587e1bc00afd9ab54df9de7ec995297dc76f3d99334dedaef2702cad6d851c2f
+diff_hash: b83ce7438370a5235d00fe6dfc0ed24e3c9b8810338eb414d969e25ec15504ad
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T11:48:13Z
@@ -40,3 +40,5 @@ Not run: a real cut and test-install.sh end to end.
 - [NIT] an unreadable served tmux pair refuses even with the opt-in; local KOSMOS_SRC + network tmux runs the full check; text-only release tests (ACCEPTED)
 
 Rebased 06:55 onto setupsig-6468 (its 96/97 split and frozen-interface note): a conflict in engine/manifest-verify.js exports was resolved keeping both (verifyTmux, NOT_FETCHED); 51 tests pass; rehashed. Commit 6fa2cc1f17 in this history is an empty-of-meaning proof-note commit made by mistake during the paused rebase; the proof file in the tree is this one.
+
+Rebased 08:15 onto main after #6475 merged (clean, 6 commits). Revalidated: 76 test files reading the touched files 1510 pass 0 fail; the four manifest/installer suites 67/67; staging-channel, setup-staging, bundle-names, cut-sign-preflight, runnable-guard, install-static pass. Rehashed.
