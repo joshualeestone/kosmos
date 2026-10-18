@@ -216,7 +216,8 @@ function emptySpot(page, sel) {
             chk(card.cards >= 3 && card.columns === across, `${tag} #6107: the agent cards are ${across === 2 ? 'two' : 'one'} across`, JSON.stringify({ columns: card.columns, cards: card.cards }));
             chk(beside && stacked && under, `${tag} #6107: the face is on the left, name then state beside it, the task underneath`, JSON.stringify(card));
             chk(card.unplaced.length === 0, `${tag} #6107: every line of every ordinary card is in a named grid area`, JSON.stringify(card.unplaced));
-            // The shapes most likely to break: cleo needs you (the state pill carries an Answer button), and a long name
+            // The shapes most likely to break: cleo needs you (#6400: its pill says only Issue, and the card itself is the
+            // answer route), and a long name
             // beside the 64px face. Nothing in the card may poke out of it, or under the face.
             const fit = await page.evaluate(() => {
               const res = {};
@@ -224,6 +225,7 @@ function emptySpot(page, sel) {
               const cleo = document.querySelector('#grid .acard[data-agent="cleo"]');
               res.cleoState = cleo ? inside(cleo, '.astate') : 'no cleo card';
               res.cleoAnswer = cleo ? inside(cleo, '.astate button, .astate [data-answer]') : 'no cleo card';
+              res.cleoRoute = !!(cleo && cleo.hasAttribute('data-answer'));
               const ada = document.querySelector('#grid .acard[data-agent="ada"]');
               const nm = ada && ada.querySelector('.namego');
               if (!nm) return Object.assign(res, { error: 'no ada name' });
@@ -235,8 +237,8 @@ function emptySpot(page, sel) {
               } finally { nm.textContent = was; }
               return res;
             });
-            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'in' && fit.longName === 'in' && /^(left|start)$/.test(fit.nameAlign) && fit.clearOfFace && fit.cardFits,
-              `${tag} #6107: a needs-you card's state and Answer stay inside it, and a long name wraps beside the face, left-aligned`, JSON.stringify(fit));
+            chk(!fit.error && fit.cleoState === 'in' && fit.cleoAnswer === 'absent' && fit.cleoRoute && fit.longName === 'in' && /^(left|start)$/.test(fit.nameAlign) && fit.clearOfFace && fit.cardFits,
+              `${tag} #6107: a needs-you card's state stays inside it, its pill carries no Answer link and the card answers (#6400), and a long name wraps beside the face, left-aligned`, JSON.stringify(fit));
           } else {
             // The desktop card's mark is the face ABOVE the name (the tablet card puts it beside); the column count is
             // not, since the desktop grid is two across at 834 and three at 1024 (seen in CI, #6135).

@@ -379,7 +379,8 @@ const MAX_BODY = 64 * 1024;
 
 /* The valve budgets live in engine/limits.js now -- ONE dial the person
    owns (2026-08-18): each pair gets perHour exchanges an hour, each room
-   four times that in arrivals, and the window is an hour because that is
+   four times that in arrivals as a floor (scaled with the room's size by
+   roomCap, kosmos#6420), and the window is an hour because that is
    the unit on the screen. The split that matters: crossing a budget
    ALWAYS logs the tell (stopped: true|false on the row); the setting
    decides only whether the send is also refused. The default equals the
@@ -391,7 +392,11 @@ const MAX_BODY = 64 * 1024;
    the room), at the recorded 4x allowance over the pair budget
    (Splinter: a deliberate allowance, not parity -- the room is the
    visible collaboration surface). Both budgets derive from the one
-   dial in engine/limits.js. Operator posts count nothing. */
+   dial in engine/limits.js. Operator posts count nothing. kosmos#6420
+   scales the room's budget with its size (roomCap): from three to nine
+   members, posts per hour stay at the three-member count (each post still
+   costs its reach; a pair keeps the dial's own budget); past nine the
+   budget stops growing, so the cost is bounded. */
 
 /* Every envelope marker this module can mint, refused inside any BODY on
    any path: a body carrying one would read, on a recipient's screen, as
@@ -2427,13 +2432,14 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
      busy room with the limit off would otherwise re-read its task files on every post). Each post over the cap
      (refused, or let through on the allowance) lists the task-chats folder and reads every file of this project
      written since countFrom, synchronously. */
-  let allowed = lim.roomArrivalsPerWindow;
+  const roomBudget = roomCap(lim, recipients.length);   // #6420: scaled to the room, so a bigger room is not held sooner
+  let allowed = roomBudget;
   let progressFrom = null;   // #6420: the allowance as read once here, handed to the clear-time reading below
   if (lim.on && operator !== true && arrivals + charged > allowed) {
     /* #5260: a file in the project's folder changed since countFrom is a step forward too, each file once, in the
        same bounded allowance (engine/projects.js changedFileTimes). Read only when task steps alone do not already
        earn the most there is. #5800: the count lives in roomProgressAllowance, shared with roomHeld. */
-    progressFrom = roomProgressAllowance(projectId, lim, now, countFrom);
+    progressFrom = roomProgressAllowance(projectId, roomBudget, now, countFrom);
     allowed += progressFrom(countFrom);
   }
   /* #4934 / #5967: STOP PASSING ON A RUN OF ACKNOWLEDGEMENT-ONLY POSTS, sooner than
@@ -2582,11 +2588,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
          function behind the room's own "should lift by": counted posts age out oldest first, and the progress
          allowance shrinks as its steps leave the hour. Read for THIS post's size, so it agrees with the room's own
          reading when the sizes match (that one reads the latest post's). An estimate, so the CLI says "about".
-         The fields are left off when there is no time to give: until is null for a post bigger than the whole
-         budget with what progress has earned (no wait and no reopen fits it), and a row dated after now (counted
-         here, not by roomHeldRead) can leave no reading at all. A post that reaches nobody (charged 0) is read at
+         The fields are left off when there is no time to give: a row dated after now (counted here, not by
+         roomHeldRead) can leave no reading at all, and a post bigger than the whole budget fits no wait (below the
+         ceiling roomCap's cap is at least a post's own recipients, so that takes a room past it: 162 members or
+         more at the lowest dial). A post that reaches nobody (charged 0) is read at
          the latest post's size. */
-      const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom);
+      const heldNow = roomHeldRead(projectId, now, lim, log, charged, progressFrom, recipients.length);
       const clearsAt = heldNow && heldNow.until ? heldNow.until : null;
       const clears = clearsAt === null ? {} : { clearsAt, clearsInMinutes: Math.max(1, Math.ceil((Date.parse(clearsAt) - now) / 60000)) };
       return { state: chat.DELIVERY.COULD_NOT, code: 'room_held', because, ...clears, id: null, at, outcomes: null };
@@ -3578,8 +3585,8 @@ function reopenForOwnPost(projectId, row) {
    - the next post's charge, taken as the latest counted post's (a room post costs one arrival per member it reaches);
      a member switched off or added since changes it;
    - `until`, when enough counted posts age out for such a post to land, counting only steps already taken, so
-     further work moving can end the hold sooner. Null when one post alone is over the budget (only the person can
-     end that hold).
+     further work moving can end the hold sooner. Null when no wait fits a post of that size, as when a caller
+     passes no room size (the dial's own budget) and the latest post reached more members than that.
    Returns { at, because, until } (at and because are the latest valve row's since countFrom, or null) or null.
    The allowance reads task and file times, so it is read only for a room already over its plain budget, and the
    answer is kept for HELD_MEMO_MS per room while the record has not grown, so the page's poll does not re-read the
@@ -3587,8 +3594,10 @@ function reopenForOwnPost(projectId, row) {
 const HELD_MEMO_MS = 4000;
 /* Keyed on the record's row count: the log is append-only, so a changed record is a longer one. Were it ever trimmed to
    the same length with new rows, a stale answer could stand for HELD_MEMO_MS, as a hint, never a gate. */
-const HELD_MEMO = new Map();   // project id -> { t, rows, out }
-function roomHeld(project, now) {
+const HELD_MEMO = new Map();   // project id -> { t, rows, size, out } (#6420: an answer is for one room size)
+/* #6420: `roomRecipients`, the room's members less one, so the hold is read at the room's own scaled budget
+   (roomCap), as the valve that would refuse the next post reads it. Without it, the dial's own room budget. */
+function roomHeld(project, now, roomRecipients) {
   const projectId = String(project == null ? '' : project).trim();
   if (!projectId) return null;
   const at = Number.isFinite(now) ? now : Date.now();
@@ -3597,16 +3606,18 @@ function roomHeld(project, now) {
   const rec = record();
   if (!rec || rec.ok !== true || !Array.isArray(rec.rows)) return null;
   const memo = HELD_MEMO.get(projectId);
-  if (memo && memo.rows === rec.rows.length && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
-  const out = roomHeldRead(projectId, at, lim, rec.rows);
+  const size = Number.isInteger(roomRecipients) && roomRecipients > 0 ? roomRecipients : null;
+  if (memo && memo.rows === rec.rows.length && memo.size === size && at >= memo.t && at - memo.t < HELD_MEMO_MS) return memo.out;
+  const out = roomHeldRead(projectId, at, lim, rec.rows, undefined, undefined, size);
   if (HELD_MEMO.size > 200) HELD_MEMO.clear();
-  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, out });
+  HELD_MEMO.set(projectId, { t: at, rows: rec.rows.length, size, out });
   return out;
 }
 /* `charge`: the size of the post asking (#6420, a refused post's own recipients); without it, the latest post's.
    `progressFrom`: the allowance as the caller already read it for this same moment (#6420: sendPost's refusal, so a
-   refused post reads the task and file times once); without it, read here. */
-function roomHeldRead(projectId, at, lim, rows, charge, progressFrom) {
+   refused post reads the task and file times once); without it, read here.
+   `roomRecipients`: the room's members less one, for its cap (roomCap); without it, the dial's own room budget. */
+function roomHeldRead(projectId, at, lim, rows, charge, progressFrom, roomRecipients) {
   let lastOperatorAt = 0;
   for (const m of rows) {
     if (!m || m.project !== projectId) continue;
@@ -3628,9 +3639,9 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom) {
   counted.sort((a, b) => a.t - b.t);
   const size = Number.isInteger(charge) && charge > 0 ? charge : Math.max(1, counted.length ? counted[counted.length - 1].n : 1);
   let arrivals = counted.reduce((n, c) => n + c.n, 0);
-  const cap = lim.roomArrivalsPerWindow;
+  const cap = roomCap(lim, roomRecipients);
   if (arrivals + size <= cap) return null;
-  const allowanceFrom = typeof progressFrom === 'function' ? progressFrom : roomProgressAllowance(projectId, lim, at, countFrom);
+  const allowanceFrom = typeof progressFrom === 'function' ? progressFrom : roomProgressAllowance(projectId, cap, at, countFrom);
   if (arrivals + size <= cap + allowanceFrom(countFrom)) return null;
   let freeAt = null;
   for (const c of counted) {
@@ -3641,13 +3652,34 @@ function roomHeldRead(projectId, at, lim, rows, charge, progressFrom) {
   return { at: band ? band.at : null, because: band ? band.because : null, until: freeAt === null ? null : new Date(freeAt).toISOString() };
 }
 
+/* #6420: a room's recipients for its cap, from its stored members, as the valve counts them: removed agents dropped
+   (_roomMembers), then the poster. undefined when the removed list cannot be read (the reader keeps the dial's budget). */
+function roomRecipientsOf(members) {
+  const room = _roomMembers(Array.isArray(members) ? members.filter((m) => typeof m === 'string' && m) : []);
+  return room.ok ? Math.max(0, room.members.length - 1) : undefined;
+}
+/* #6420: THE ROOM'S ARRIVAL BUDGET, SCALED TO THE ROOM. The dial's room budget (perHour x ROOM_FACTOR, #75) counts
+   arrivals, one per member a post reaches, so a bigger room got fewer posts: at the default dial a three-member room
+   was held after 40 posts an hour and a six-member room after 16, which held a real six-agent workflow for doing its
+   work (feedback 2026-10-17). Multiplied by the room's recipients over a three-member room's two, so a room of up to
+   nine members gets the posts a three-member room gets (40 an hour at the default dial); never less than the dial's,
+   and never more than four times it (ROOM_SCALE_MAX), so a very large room's cost is bounded (a twenty-member room
+   at the highest dial gets 1600 arrivals an hour, not 3800).
+   The acknowledgement loop guard still stops agreement loops after a few posts. Weakest premise: arrivals cost grows
+   with the room (a six-member room can now take 200 arrivals an hour, not 80; 400 with task progress, not 160). One
+   function for every reader. */
+const ROOM_SCALE_MAX = 4;   // #6420: a room of nine (eight recipients) and above
+function roomCap(lim, roomRecipients) {
+  const r = Number.isFinite(roomRecipients) && roomRecipients > 0 ? roomRecipients : 0;
+  return Math.round(lim.roomArrivalsPerWindow * Math.min(ROOM_SCALE_MAX, Math.max(1, r / 2)));
+}
+
 /* #4786 / #5260: the extra room a project earns by work moving since countFrom, the valve's allowance. Reads the task
    and file times once (from `since`) and returns a function of the window start, so sendPost asks it once and roomHeld
    can ask it again for a later window start without reading again. Each first-time task step and each changed file
    (files read only when task steps alone do not already earn the most there is) adds a quarter of the cap, up to the
    cap. */
-function roomProgressAllowance(projectId, lim, now, since) {
-  const cap = lim.roomArrivalsPerWindow;
+function roomProgressAllowance(projectId, cap, now, since) {
   const taskTimes = require('./taskchat').progressTimes(projectId, now, since).filter((t) => t >= since);
   let fileTimes = null;
   return (from) => {
@@ -3788,7 +3820,8 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
   const room = _roomMembers(members.filter(ok));
   if (!room.ok) return { ok: false, nudged: [] };
   let held = null;
-  try { held = roomHeld(projectId, now); } catch { held = null; }
+  // #6420: the room's own budget; room.members is already _roomMembers' list, so its size is roomRecipientsOf's
+  try { held = roomHeld(projectId, now, Math.max(0, room.members.length - 1)); } catch { held = null; }
   if (held) return { ok: true, nudged: [], held: true };
   let offHere = new Set();
   try {
@@ -3837,6 +3870,8 @@ module.exports = {
   _sendWithDelivery: sendWithDelivery,
   _nextIdForTests: nextIdForTests, // #4888
   _sendPostWithDelivery: sendPostWithDelivery,
+  roomCap,   // #6420: the room's budget, scaled to its size (the browser check fills it)
+  roomRecipientsOf,   // #6420: the room route and the browser check size a room as the valve does
   setSenderTextFilter, filteredText, // #3769
   _spillHead: spillHead, // #5706
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,

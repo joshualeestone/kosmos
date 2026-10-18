@@ -20033,9 +20033,11 @@ const server = http.createServer(async (req, res) => {
        503, never the fail-open read below. See AGENT_TOKEN_ROUTES. */
     const tokenOnly = agentTokenOnlyCaller(req);
     let roomRefusal = null;
+    let roomRecord = null;   // #6420: kept for the hold read below, so the registry is read once
     try {
       const everyProject = projects.readAll();
       const stored = everyProject.filter((p) => p && p.id === id);   // every one with that id, as the task read does
+      roomRecord = stored[0] || null;
       projectKnown = stored.length > 0;
       if (tokenOnly === '' && stored.length) {
         roomRefusal = [403, 'Kosmos could not tell which agent this token belongs to, so it cannot read its room'];   // kosmos#5752 round 1
@@ -20142,7 +20144,13 @@ const server = http.createServer(async (req, res) => {
          Reopen button in the strip above its composer, and the text view puts one line at the top, so a member reading the room
          learns of the hold before posting rather than by being refused. Best-effort: unreadable reads as open. */
       let held = null;
-      try { held = messages.roomHeld(id, Date.now()); } catch { held = null; }
+      try {
+        /* #6420: read at the room's own budget (it scales with the room), sized as the valve sizes it: removed agents
+           dropped, then the poster (messages.roomRecipientsOf). If the registry could not be read above, no size: the
+           dial's own budget, which can show a big room held when it is not (a hint, erring toward the hold). */
+        const size = roomRecord ? messages.roomRecipientsOf(roomRecord.agents) : undefined;
+        held = messages.roomHeld(id, Date.now(), size);
+      } catch { held = null; }
       if (asText) {
         /* #1895: the operator's own zone, read ONCE for the whole render rather
            than per line. Same best-effort contract as `silent` above -- a store

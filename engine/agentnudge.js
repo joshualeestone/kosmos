@@ -62,6 +62,7 @@ function openParts(session, projects) {
   for (const p of Array.isArray(projects) ? projects : []) {
     /* #4771: nothing in a paused project, and no task on hold, is the agent's work to be nudged about. */
     if (!p || p.archived === true || require('./projects').isPaused(p)) continue;
+    let tree = null;   // #6421: built once per project, only when one of this agent's open parts is found
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (tasks.isOnHold(t)) continue;
       if (require('./taskrepeat').waitingForNextRun(t)) continue;   // #4787: between runs a repeating task holds no work
@@ -90,7 +91,20 @@ function openParts(session, projects) {
             due = { dueWords: tr.whenWords(at), ...(at > slot ? { dueEarlier: true } : {}), ...(by !== null ? { byWords: tr.whenWords(by) } : {}) };
           }
         }
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due });
+        /* #6421 (10-17 feedback: a delivered parent whose subtasks were built, not closed, was nudged with no reason): the
+           subtasks' counts, so the line says built ones wait for the person and what is left. */
+        /* Not for a repeating task: it is never marked built (setBuilt refuses it; review 1). */
+        if (!tree && !t.repeat) tree = tasks.treeOf(p);
+        const k = t.repeat ? { total: 0 } : tree.progress(t.number);
+        /* Another open part (someone else's, or nobody's) means the task is not this agent's alone to mark (review 1:
+           setBuilt marks the whole task, so "mark it built" would declare a colleague's unfinished part built). */
+        /* Its own second part is not another's (review 2), and nor is the part of a colleague who has already marked the
+           task built: marking never closes a part, so theirs reads open though they are done (review 3). */
+        const markedBy = t.builtAt && Array.isArray(t.builtWho) ? t.builtWho : [];
+        const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
+        const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
+        const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others, checks } } : {};
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
       }
     }
   }
@@ -124,8 +138,25 @@ function nudgeText(part) {
       + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
+  /* #6421: a parent whose subtasks are built says why it is still open. Built is waiting for the person to check and
+     close, not unfinished; with nothing below left unfinished, the next step is the parent's own mark. */
+  const s = part.subs;
+  const sub = s && s.built > 0
+    ? (() => {
+      const left = s.total - s.done - s.built;   // built never counts a closed subtask (tasks.treeOf isBuilt)
+      const are = (c) => (c === 1 ? ' is' : ' are');
+      const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
+      if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
+      const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
+      if (s.others === true) return all + ', and another part of it (someone else\'s, or nobody\'s) is still open, so it is not yours alone to mark built.';
+      /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
+      /* "When", not "if": the fixed "Pick it up" follows, so the two read as one order of work (review 2). */
+      return all + ', so when your own part of it is done, mark it built (kosmos task built '
+        + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (s.checks > 0 ? ' \'<how its checks went>\'' : '') + ').';   // a note only asked for with checks (review 3)
+    })()
+    : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + ' Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
        needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
        where it went inert (0.7.22, a real install). The question is in SINGLE quotes: unquoted, a ? stops zsh with "no

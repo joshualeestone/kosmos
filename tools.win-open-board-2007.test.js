@@ -29,6 +29,9 @@ const http = require('node:http');
 const REPO = __dirname;
 const WIN = fs.readFileSync(path.join(REPO, 'tools', 'build-kosmos-windows.sh'), 'utf8');
 const helper = require('./tools/kosmos-open-board.js');
+const { answerProof } = require('./test-support/proof-listener-1765');
+// The token the fixture app dir writes, which the fixture board holds (#1765: it proves it before the mint).
+const FIXTURE_TOKEN = 'a-real-board-token';
 
 /* ---- half 1: the build wires the helper --------------------------------- */
 
@@ -114,8 +117,11 @@ const OPENER_WAIT_MS = 20000;
 // A fixture board: GET / answers with `getStatus`, POST /api/board-nonce answers
 // with `nonceBody`. Both are per-test knobs so we can model an enforcing board, a
 // 403'ing board, and a board that returns a junk nonce.
-function startFixtureBoard({ getStatus = 200, nonceBody = '{"nonce":"abc123def456"}' } = {}) {
+function startFixtureBoard({ getStatus = 200, nonceBody = '{"nonce":"abc123def456"}', holds = FIXTURE_TOKEN, seen = null } = {}) {
   const server = http.createServer((req, res) => {
+    if (seen) seen.push({ method: req.method, url: req.url, headers: { ...req.headers } });
+    // #1765: the board proves it holds the token before the helper sends it (holds: null for one that cannot).
+    if (answerProof(req, res, [holds])) return;
     if (req.method === 'GET' && req.url === '/') {
       res.writeHead(getStatus, { 'content-type': 'text/plain' });
       res.end('board');
@@ -145,7 +151,9 @@ function makeAppDir({ withToken }) {
     path.join(appDir, 'engine', 'store.js'),
     `module.exports = { ROOT: ${JSON.stringify(dataRoot)} };\n`,
   );
-  if (withToken) fs.writeFileSync(path.join(dataRoot, 'board.token'), 'a-real-board-token\n');
+  if (withToken) fs.writeFileSync(path.join(dataRoot, 'board.token'), FIXTURE_TOKEN + '\n');
+  // #1765: the real proof check, where the bundle ships it (beside store.js).
+  fs.copyFileSync(path.join(REPO, 'engine', 'boardproof.js'), path.join(appDir, 'engine', 'boardproof.js'));
   return { appDir, dataRoot };
 }
 
@@ -310,7 +318,10 @@ test('a mint that returns a non-2xx (stale/wrong token -> 403) falls back to pla
   // The realistic enforcing-board failure: the board token on disk is stale, so
   // POST /api/board-nonce returns 403 (not a malformed body). mintNonce must treat
   // !r.ok as no-nonce and resolveOpenUrl fall back to the plain url.
+  // #1765: this board proves it holds the token (a board that cannot is never sent it: see the #1765 tests below), so
+  // the 403 here is the mint's own refusal.
   const server = http.createServer((req, res) => {
+    if (answerProof(req, res, [FIXTURE_TOKEN])) return;
     if (req.method === 'GET' && req.url === '/') { res.writeHead(200); res.end('board'); return; }
     if (req.method === 'POST' && req.url === '/api/board-nonce') { res.writeHead(403); res.end('{"error":"nope"}'); return; }
     res.writeHead(404); res.end();
@@ -332,7 +343,8 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
   const server = http.createServer(() => { /* accept, then never respond */ });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = server.address().port;
-  const { appDir } = makeAppDir({ withToken: true });
+  // #1765: no token, so the plain url is the right fallback (with one, nothing opens: see below).
+  const { appDir } = makeAppDir({ withToken: false });
   const t0 = Date.now();
   try {
     // Runs ~4.8s, not ~2.5s: at ~2.4s (after the first 2s probe aborts + a 400ms
@@ -344,6 +356,18 @@ test('a board that ACCEPTS the connection but never responds does not hang', asy
     assert.equal(url, `http://127.0.0.1:${port}`, 'a hung board did not fall back to the plain url');
     assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
   } finally { server.close(); }
+});
+
+test('#1765: on an enforcing board, a listener that takes the connection and never answers gets nothing opened at it', async () => {
+  const server = http.createServer(() => { /* accept, then never respond */ });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const { appDir } = makeAppDir({ withToken: true });
+  const t0 = Date.now();
+  try {
+    assert.equal(await helper.resolveOpenUrl({ appDir, port, timeoutMs: 2500 }), null, 'an address nothing answered for was opened on an enforcing board');
+    assert.ok(Date.now() - t0 < 12000, 'the helper hung on an unresponsive board instead of timing out');
+  } finally { server.closeAllConnections(); server.close(); }
 });
 
 test('main() end-to-end: stdout is the PLAIN url, the opener gets the NONCED url', async (t) => {
@@ -403,13 +427,103 @@ test('#1118: --print-url hands the NONCED url to the board window on stdout and 
   } finally { server.close(); }
 });
 
-test('board never comes up: opens the plain url within the timeout', async () => {
-  // Nothing listening on this port; the helper must give up and return the plain
-  // url rather than hang or crash.
-  const { appDir } = makeAppDir({ withToken: true });
+test('board never comes up: opens the plain url within the timeout (no token), and nothing on an enforcing board (#1765)', async () => {
+  // Nothing listening on this port; the helper must give up rather than hang or crash.
   const port = 1;               // port 1 refuses fast; the connect simply errors
-  const t0 = Date.now();
-  const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 1200 });
-  assert.equal(url, `http://127.0.0.1:${port}`);
-  assert.ok(Date.now() - t0 < 5000, 'the helper did not honor its timeout');
+  for (const withToken of [false, true]) {
+    const { appDir } = makeAppDir({ withToken });
+    const t0 = Date.now();
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: 1200 });
+    assert.equal(url, withToken ? null : `http://127.0.0.1:${port}`, 'withToken=' + withToken);
+    assert.ok(Date.now() - t0 < 5000, 'the helper did not honor its timeout');
+  }
+});
+
+/* ---- #1765: the listener proves it holds the token before the helper sends it ---- */
+
+const { startListener } = require('./test-support/proof-listener-1765');
+
+test('#1765: a squatter on the port gets no token and no nonce request; nothing is opened (null)', async () => {
+  const sq = await startListener({ mode: 'squatter' });
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    const url = await helper.resolveOpenUrl({ appDir, port: sq.port, timeoutMs: BOARD_WAIT_MS });
+    assert.equal(url, null, 'an unproven listener must not get an address opened at it, plain or nonced');
+    assert.deepEqual(sq.carrying([FIXTURE_TOKEN]), [], 'the board token reached the squatter');
+    assert.equal(sq.seen.filter((r) => r.url === '/api/board-nonce').length, 0, 'the mint was asked of an unproven listener');
+    assert.equal(sq.proofRequests().length, 1, 'the check was not made');
+  } finally { await sq.close(); }
+});
+
+test('#1765: a board holding another account\'s token is refused the same way', async () => {
+  const seen = [];
+  const { server, port } = await startFixtureBoard({ holds: 'another-accounts-token', seen });
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    assert.equal(await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS }), null);
+    assert.ok(seen.every((r) => !String(r.headers['x-kosmos-board-token'] || '').includes(FIXTURE_TOKEN)));
+    assert.equal(seen.filter((r) => r.url === '/api/board-nonce').length, 0);
+  } finally { server.close(); }
+});
+
+test('#1765 CONTROL: the same fixture holding OUR token is proved, minted and opened nonced', async () => {
+  const seen = [];
+  const { server, port } = await startFixtureBoard({ seen });
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    assert.equal(await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS }), `http://127.0.0.1:${port}/?boot=abc123def456`);
+    const mint = seen.filter((r) => r.url === '/api/board-nonce');
+    assert.equal(mint.length, 1);
+    assert.equal(mint[0].headers['x-kosmos-board-token'], FIXTURE_TOKEN, 'the arm above could not have seen the token');
+  } finally { server.close(); }
+});
+
+test('#1765: with no boardproof module beside the store, the helper cannot check and sends nothing', async () => {
+  const seen = [];
+  const { server, port } = await startFixtureBoard({ seen });
+  const { appDir } = makeAppDir({ withToken: true });
+  fs.rmSync(path.join(appDir, 'engine', 'boardproof.js'));
+  try {
+    assert.equal(await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS }), null);
+    assert.equal(seen.filter((r) => r.url === '/api/board-nonce').length, 0);
+  } finally { server.close(); }
+});
+
+test('#1765: the seam is asked with the url, the token and a bound; false opens nothing', async () => {
+  const asked = [];
+  const { server, port } = await startFixtureBoard();
+  const { appDir } = makeAppDir({ withToken: true });
+  try {
+    const url = await helper.resolveOpenUrl({ appDir, port, timeoutMs: BOARD_WAIT_MS, proveBoard: async (u, t, ms) => { asked.push([u, t, ms]); return false; } });
+    assert.equal(url, null);
+    assert.deepEqual(asked, [[`http://127.0.0.1:${port}`, FIXTURE_TOKEN, helper.PROOF_TIMEOUT_MS]]);
+  } finally { server.close(); }
+});
+
+test('#1765: main() against a squatter opens no browser, prints no address, exits with the refusal code and says why', async (t) => {
+  const { execFile } = require('node:child_process');
+  const sq = await startListener({ mode: 'squatter' });
+  const { appDir } = makeAppDir({ withToken: true });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kob-sq-'));
+  const stub = makeOpener(dir);
+  if (!stub) { await sq.close(); t.skip('no .NET Framework compiler on this machine'); return; }
+  try {
+    for (const extra of [[], ['--print-url']]) {
+      const r = await new Promise((resolve, reject) => {
+        execFile(process.execPath,
+          [path.join(__dirname, 'tools', 'kosmos-open-board.js'), '--port', String(sq.port), '--app', appDir, '--timeout-ms', String(BOARD_WAIT_MS), ...extra],
+          { env: { ...process.env, KOSMOS_OPEN_BIN: stub } },
+          (err, so, se) => {
+            if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code (' + err.code + '). ' + se)); return; }
+            resolve({ code: err ? err.code : 0, stdout: so, stderr: se });
+          });
+      });
+      assert.equal(r.code, helper.OPENER_REFUSED_EXIT, extra.join(' ') + ': ' + r.stderr);
+      assert.equal(r.stdout, '', 'an address was handed out for an unproven listener');
+      assert.match(r.stderr, /could not show it is your Kosmos .*nothing was opened and nothing was sent/);
+    }
+    await new Promise((res) => setTimeout(res, 1000));   // a detached opener would have written by now
+    assert.equal(fs.existsSync(path.join(dir, 'opened.txt')), false, 'a browser was opened at the unproven listener');
+    assert.deepEqual(sq.carrying([FIXTURE_TOKEN]), []);
+  } finally { await sq.close(); }
 });
