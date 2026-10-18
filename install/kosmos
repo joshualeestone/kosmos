@@ -3190,7 +3190,16 @@ cmd_connect() {
   # rather than send a secret unproven. Only where the proof can run (the installed layout), as kosmos_board_proven.
   if [ -z "$_bt" ] && kosmos_proof_runnable; then
     rm -f "$tmp"; trap - INT TERM HUP
-    say "This computer could not read its board token, so it cannot check that Kosmos is what answers. Nothing was sent. Start Kosmos (or wait for it to finish starting) and try again."
+    say "Kosmos is running, but this computer could not read its board token, so it cannot check that Kosmos is what answers. Nothing was sent. Restarting Kosmos usually fixes this; if it does not, reinstalling does."
+    exit 1
+  fi
+  # Review: an INSTALLED layout whose runtime or proof is gone (a damaged install) cannot run the board at all, so
+  # whatever answers on its address is not Kosmos. kosmos_board_proven sends unproven there by design (#1765, named by
+  # kosmos status, #6358); a service key in the body is refused instead. A source checkout (no app/server.js under
+  # KOSMOS_HOME) keeps the #1765 behaviour.
+  if [ -f "$KOSMOS_HOME/app/server.js" ] && ! kosmos_proof_runnable; then
+    rm -f "$tmp"; trap - INT TERM HUP
+    say "This Kosmos install is missing part of itself, so it cannot check that Kosmos is what answers. Nothing was sent. Reinstalling Kosmos fixes this."
     exit 1
   fi
   local body rc=0
