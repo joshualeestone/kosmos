@@ -355,9 +355,15 @@ update_signer_ok() {
   local stage="$1" dest="$2" part req deep d desc unheld=""
   for part in app/Kosmos.app runtime/bin/node app/bin/kosmos-tunnel app/bin/kosmos-app; do
     [ -e "$dest/$part" ] && [ ! -L "$dest/$part" ] || continue
+    # Matched on codesign's own lines, never on the whole output (which carries the path).
     desc="$(/usr/bin/codesign -dv "$dest/$part" 2>&1)" || :
-    case "$desc" in
-      *"not signed at all"*|*"(adhoc"*|*",adhoc"*) unheld="$unheld $part"; continue ;;
+    case "
+$desc
+" in
+      *": code object is not signed at all
+"*|*"
+Signature=adhoc
+"*) unheld="$unheld $part"; continue ;;
     esac
     req="$(/usr/bin/codesign -d -r- "$dest/$part" 2>&1 | /usr/bin/sed -n 's/^#* *designated => //p')" || req=""
     case "$req" in
