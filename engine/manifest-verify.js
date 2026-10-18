@@ -166,8 +166,7 @@ function runSetup({ setupUrl, base, version, home, spawnSync = require('child_pr
 function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEYS }) {
   const r = verify({ manifest, sig, tarball: null, stage: '-', version, installedVersion, keys, skipTarball: true });
   if (r.code !== 0) return r;
-  let m;
-  try { m = JSON.parse(fs.readFileSync(manifest, 'utf8')); } catch { return { code: 1, why: 'the signed manifest is not readable' }; }
+  const m = r.manifest;   // the bytes the signature covered
   if (typeof m.tmux_sha256 !== 'string') return { code: 1, why: `the signed manifest for ${version} records no tmux bundle` };
   if (sha256File(tmux) !== m.tmux_sha256) return { code: 1, why: 'the terminal manager download does not match its signed release' };
   return { code: 0, why: `the terminal manager matches the signed manifest for ${version}` };
@@ -175,6 +174,10 @@ function verifyTmux({ manifest, sig, tmux, version, installedVersion, keys = KEY
 
 module.exports = { verify, verifySetup, verifyTmux, runSetup, NOT_RUN, NOT_FETCHED, KEYS, listFiles };
 
+/* The installer (install/setup.sh) runs THIS installed copy, which may be older than the installer, so it asks before
+ * using a call form: it greps the next line, which lists every form this copy understands beyond the original
+ * <manifest> <sig> <tarball> <stage> <version> <home>. Keep it one line, and add to it when adding a form.
+ * manifest-verify capabilities: run-setup early tmux */
 if (require.main === module && process.argv[2] === 'run-setup') {
   // <installed node> manifest-verify.js run-setup <setup-url> <release-base> <version> <installed-home>
   const [setupUrl, base, version, home] = process.argv.slice(3);

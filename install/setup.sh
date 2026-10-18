@@ -868,6 +868,13 @@ update_manifest_ok() {
       fi
     fi
     return 0; }
+  # Round 1 (#6473): this runs the INSTALLED copy, which can be older than this installer. One that does not list
+  # "early" (manifest-verify capabilities line) cannot do the signature-only check or the tmux check, so early is
+  # skipped: pre fetches the manifest itself, as before, and the terminal manager goes unchecked this once.
+  if [ "$phase" = early ] && ! /usr/bin/grep -q "manifest-verify capabilities:.* early" "$dest/app/engine/manifest-verify.js"; then
+    info "this install checks the update's own files, but not yet its terminal manager download (it will after this update)"
+    return 0
+  fi
   v="${TARGET_VERSION:-}"
   if [ -z "$v" ]; then
     info "could not read which version to install, so the update could not be checked and was not installed"
@@ -899,7 +906,7 @@ update_manifest_ok() {
   case "$rc" in
     0) return 0 ;;
     3) [ "$phase" = post ] || _UM_NOKEY=yes
-       info "$out, so the update's manifest is not checked"; return 0 ;;
+       info "$out, so the update's manifest (and its terminal manager) is not checked"; return 0 ;;
     # Only the verifier's own one-line reason is shown; anything else (node itself failing) gets a plain sentence.
     1) case "$out" in *"
 "*|''|node:*) out="the update could not be checked" ;; esac
@@ -3759,6 +3766,8 @@ _kosmos_clear_own_marker() {
 }
 _kosmos_on_exit() {
   _kosmos_exit_rc=$?
+  # #6473: the signed manifest an early check fetched, on any exit before pre or post removed it.
+  [ -z "${_UM_DIR:-}" ] || /bin/rm -rf "$_UM_DIR" 2>/dev/null || true
   if [ "$_kosmos_exit_rc" -ne 0 ]; then _kosmos_put_board_back || true; _kosmos_clear_own_marker || true; fi
 }
 trap '_kosmos_on_exit' EXIT
