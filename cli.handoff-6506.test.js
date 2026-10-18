@@ -62,9 +62,10 @@ function cli(args, { cwd = REPO, env: extra = {} } = {}) {
     const t = setTimeout(() => child.kill('SIGKILL'), 20000);
     child.on('close', (code, sig) => {
       clearTimeout(t);
+      const r = { code, out };
       /* #3628: a killed CLI has no exit code; it must fail the test, never read as one. */
-      if (typeof code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
-      resolve({ code, out });
+      if (typeof r.code !== 'number') { reject(new Error('the CLI gave no exit code (' + sig + '): killed by the 20s limit. ' + out)); return; }
+      resolve(r);
     });
   });
 }
@@ -111,4 +112,18 @@ test('#6506: an install missing its handoff reader says so, with no stack trace,
     assert.match(r.out, /could not find its own handoff reader; this install looks incomplete\./);
     assert.doesNotMatch(r.out, /at Module|Error:|kosmos-handoff-noengine-/, 'no stack trace or path leaked');
   } finally { fs.rmSync(HOME_NO_ENGINE, { recursive: true, force: true }); }
+});
+
+test('#6506: with no session (a fresh pane) the facts say so rather than guessing, and no handoff path is named', async () => {
+  const r = await cli(['handoff'], { env: { KOSMOS_AGENT_SESSION: '' } });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /Live state \(self-report\): cannot tell which agent this is \(no session\)/, r.out);
+  assert.match(r.out, /Instruction file: cannot tell which agent this is \(no session\)/, r.out);
+  assert.doesNotMatch(r.out, /Paste into:/, 'no session means no handoff path to name');
+});
+
+test('#6506: a directory named as an artifact is said as a directory, not hashed', async () => {
+  const r = await cli(['handoff', NONGIT], { cwd: NONGIT });
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /`: is a directory, not a file/, r.out);
 });

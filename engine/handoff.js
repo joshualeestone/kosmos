@@ -58,14 +58,59 @@ function firstLine(s) {
   return nl === -1 ? t : t.slice(0, nl).trim();
 }
 
+/* An ISO timestamp only when the time is believable: at or after MIN_SANE_YEAR and not in
+ * the future beyond a day's slack for clock skew. A zero or epoch time, a parse failure, or
+ * a clock-skewed future time returns null, so the caller prints "cannot tell" rather than a
+ * 1970 or a 2099 date. The future bound is not hypothetical: the fleet has measured agents
+ * writing timestamps ahead of the real clock. */
+function saneIso(ms, now) {
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  if (new Date(ms).getUTCFullYear() < MIN_SANE_YEAR) return null;
+  const ceiling = (Number.isFinite(now) ? now : Date.now()) + 24 * 60 * 60 * 1000;
+  if (ms > ceiling) return null;
+  return iso(ms);
+}
+
+/* A path safe to echo inside a Markdown code span. The output is pasted into the handoff
+ * file, so a path carrying a newline (filenames may) would otherwise inject arbitrary lines
+ * into it, and a backtick would close the span early. Control characters are stripped and a
+ * backtick is neutralised; the path stays recognisable. The RAW path is still what the fs
+ * calls use, so this only touches what is shown. */
+function cleanPath(p) {
+  // Filtered by code point rather than a regex literal: the characters to strip include line
+  // terminators (LF, CR, U+2028, U+2029), which cannot appear literally in a regex literal, and
+  // building the class with escapes is fragile across encoders. Each control or C1 character and
+  // each line/paragraph separator becomes a space; a backtick becomes an apostrophe so it cannot
+  // close the Markdown code span early.
+  let out = '';
+  for (const ch of String(p == null ? '' : p)) {
+    const c = ch.codePointAt(0);
+    if (c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029) out += ' ';
+    else if (ch === '`') out += "'";
+    else out += ch;
+  }
+  return out;
+}
+
 /* Run git read-only, returning { ok, out } or { ok:false, code, stderr }. Never
- * throws: a missing binary is reported as code 'ENOENT'. */
+ * throws: a missing binary is reported as code 'ENOENT'.
+ *
+ * LC_ALL/LANG=C so git's messages are English: the "not a git repository" and
+ * "no commits yet" answers below are told apart by matching git's own text, and
+ * under a translated locale the real answers would fall through to "git could not
+ * read this folder", breaking the distinction the card asks for. A 10s timeout and
+ * a generous maxBuffer so a slow or large work tree degrades to an honest "state
+ * unknown" rather than hanging a command an agent runs when it is already under
+ * pressure; GIT_OPTIONAL_LOCKS=0 so a status read never waits on a lock. */
 function runGit(cwd, args) {
   try {
     const out = execFileSync('git', ['-C', cwd, ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
+      timeout: 10000,
+      maxBuffer: 16 * 1024 * 1024,
+      env: { ...process.env, LC_ALL: 'C', LANG: 'C', GIT_OPTIONAL_LOCKS: '0' },
     });
     return { ok: true, out: String(out) };
   } catch (e) {
@@ -102,11 +147,14 @@ function gitFact(cwd) {
   }
   const sha = head.out.trim();
   const br = runGit(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  let branch = br.ok ? br.out.trim() : '';
+  const branch = br.ok ? br.out.trim() : '';
   const dirty = runGit(cwd, ['status', '--porcelain']);
   const state = dirty.ok ? (dirty.out.trim() ? 'uncommitted changes present' : 'clean') : 'working-tree state unknown';
 
-  const where = !branch || branch === 'HEAD' ? 'detached HEAD' : 'branch `' + branch + '`';
+  let where;
+  if (!br.ok) where = 'HEAD (branch could not be read)';        // not the same as detached: the read itself failed
+  else if (!branch || branch === 'HEAD') where = 'detached HEAD';
+  else where = 'branch `' + branch + '`';
   return where + ' at `' + sha + '`, ' + state;
 }
 
@@ -125,18 +173,44 @@ function fingerprint(p) {
   }
   if (st.isDirectory()) return 'is a directory, not a file';
   if (!st.isFile()) return 'not a regular file';
+  // Hash in chunks rather than reading the whole file into memory: a named artifact can be a
+  // large build output or media file, and a whole-file read would throw on a multi-GB file and
+  // report a perfectly readable file as unreadable. The chunked read also closes the
+  // stat-then-read window: a path swapped for a directory in between surfaces as EISDIR here
+  // and is said as a directory, not as a mystery read error.
+  let fd;
   try {
-    const buf = fs.readFileSync(p);
-    return 'sha256:' + crypto.createHash('sha256').update(buf).digest('hex');
+    fd = fs.openSync(p, 'r');
   } catch (e) {
     if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
+    if (e && e.code === 'EISDIR') return 'is a directory, not a file';
+    if (e && e.code === 'ENOENT') return 'missing (no such file)';
     return 'could not be read (' + firstLine(e && e.message) + ')';
+  }
+  try {
+    const hash = crypto.createHash('sha256');
+    const buf = Buffer.allocUnsafe(1 << 20);   // 1 MiB at a time
+    for (;;) {
+      let n;
+      try {
+        n = fs.readSync(fd, buf, 0, buf.length, null);
+      } catch (e) {
+        if (e && e.code === 'EISDIR') return 'is a directory, not a file';
+        if (e && e.code === 'EACCES') return 'unreadable (permission denied)';
+        return 'could not be read (' + firstLine(e && e.message) + ')';
+      }
+      if (n === 0) break;
+      hash.update(buf.subarray(0, n));
+    }
+    return 'sha256:' + hash.digest('hex');
+  } finally {
+    try { fs.closeSync(fd); } catch (_) { /* best effort */ }
   }
 }
 
 /** The agent's live state from the self-report, "never reported" when absent
  * (#6506 axis 2). Never defaults to idle. */
-function stateFact(session) {
+function stateFact(session, now) {
   if (!session) return 'cannot tell which agent this is (no session), so no self-report was read';
   let self;
   try {
@@ -161,15 +235,16 @@ function stateFact(session) {
   if (typeof r.on === 'string' && r.on) parts.push('on ' + r.on);
   if (typeof r.owner === 'string' && r.owner) parts.push('owner ' + r.owner);
   if (typeof r.until === 'string' && r.until) parts.push('until ' + r.until);
-  const when = iso(Date.parse(r.at));
+  const when = saneIso(Date.parse(r.at), now);   // same 1970/future floor as the instruction time: never print a bad date
   if (when) parts.push('as of ' + when);
+  else if (r.at) parts.push('reported at a time that cannot be read');
   return parts.join('; ');
 }
 
 /** When the instruction file last changed, its sha256 version, and whether the
  * running agent is on an edited copy. A bad or epoch mtime reads "cannot tell"
  * (#6506 axis 3). Returns { file, line }. */
-function instructionFact(session) {
+function instructionFact(session, now) {
   if (!session) return { file: null, line: 'cannot tell which agent this is (no session), so the instruction file was not read' };
   let instr;
   try {
@@ -190,11 +265,10 @@ function instructionFact(session) {
     return { file, line: 'could not read the instruction file (' + firstLine(e && e.message) + ')' };
   }
   st = st || {};
-  const ms = st.editedAt ? Date.parse(st.editedAt) : NaN;
-  const sane = Number.isFinite(ms) && ms > 0 && new Date(ms).getUTCFullYear() >= MIN_SANE_YEAR;
+  const when = saneIso(st.editedAt ? Date.parse(st.editedAt) : NaN, now);
 
   const bits = [];
-  if (sane) bits.push('last changed ' + iso(ms));
+  if (when) bits.push('last changed ' + when);
   else bits.push('cannot tell when it last changed' + (st.because ? ' (' + st.because + ')' : ''));
   if (typeof st.version === 'string' && st.version) bits.push('version ' + st.version);
   if (st.state === 'stale') bits.push('STALE: edited since this agent started, so a restart is needed to re-read it');
@@ -250,7 +324,7 @@ function render(opts) {
 
   const hp = handoffPath(session);
   if (hp) {
-    lines.push('Paste into: ' + hp);
+    lines.push('Paste into: ' + cleanPath(hp));
     lines.push('');
   }
 
@@ -264,13 +338,15 @@ function render(opts) {
   lines.push('');
 
   lines.push('## Prefilled facts');
-  lines.push('- Branch and sha (checked in `' + cwd + '`): ' + gitFact(cwd));
-  lines.push('- Live state (self-report): ' + stateFact(session));
-  const instr = instructionFact(session);
-  lines.push('- Instruction file' + (instr.file ? ' (`' + instr.file + '`)' : '') + ': ' + instr.line);
+  lines.push('- Branch and sha (checked in `' + cleanPath(cwd) + '`): ' + gitFact(cwd));
+  lines.push('- Live state (self-report): ' + stateFact(session, now));
+  const instr = instructionFact(session, now);
+  lines.push('- Instruction file' + (instr.file ? ' (`' + cleanPath(instr.file) + '`)' : '') + ': ' + instr.line);
   if (artifacts.length) {
     lines.push('- Artifacts you named:');
-    for (const p of artifacts) lines.push('  - `' + p + '`: ' + fingerprint(p));
+    // The echoed path is cleaned so a newline in it cannot inject lines into the pasted
+    // handoff; fingerprint() still uses the RAW path for the filesystem read.
+    for (const p of artifacts) lines.push('  - `' + cleanPath(p) + '`: ' + fingerprint(p));
   } else {
     lines.push('- Artifacts you named: none (pass artifact paths as arguments to fingerprint them)');
   }
@@ -280,7 +356,7 @@ function render(opts) {
   return lines.join('\n') + '\n';
 }
 
-module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, handoffPath, contractBullets, MIN_SANE_YEAR };
+module.exports = { render, gitFact, fingerprint, stateFact, instructionFact, handoffPath, contractBullets, saneIso, cleanPath, MIN_SANE_YEAR };
 
 /* Run as the CLI entry (install/kosmos cmd_handoff runs this file with the
  * artifact paths as arguments; the Windows CLI calls render directly). Session
