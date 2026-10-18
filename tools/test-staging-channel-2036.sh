@@ -160,6 +160,30 @@ Smn="$(make_site)"; bash "$PUBLISH" "$Smn" >/dev/null 2>&1; rm -f "$Smn/dist/$MA
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Smn" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && has "$out" "missing manifest" && [ ! -f "$Smn/dist/latest.json" ] && pass "promote: refuses a pointer whose manifest went missing" || bad "promote missing-manifest (rc=$rc, out=$out)"
 
+# #6468 ask 2: the signature beside the manifest. A good one needs the release key, which a test does not hold (the
+# real-key arm is in the plan), so these are the arms that refuse or pass without one.
+PM="kosmos-9.9.8-arm64.manifest.json"
+prod_at() {   # <site> <prod manifest body, or "" for a pointer naming a manifest that is not there>
+  printf '{"version":"9.9.8","manifest":"%s"}\n' "$PM" > "$1/dist/latest.json"
+  [ -z "$2" ] || printf '%s\n' "$2" > "$1/dist/$PM"
+}
+CHECKS='{"files":[{"path":"app/engine/manifest-verify.js","sha256":"x"}]}'
+Ss1="$(make_site)"; bash "$PUBLISH" "$Ss1" >/dev/null 2>&1; printf 'AAAA\n' > "$Ss1/dist/$MAN.sig"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Ss1" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "does not verify under a pinned key" && pass "promote: a .sig that does not verify refuses (#6468)" || bad "promote bad-sig (rc=$rc, out=$out)"
+Ss2="$(make_site)"; bash "$PUBLISH" "$Ss2" >/dev/null 2>&1; prod_at "$Ss2" "$CHECKS"
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Ss2" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "checks signatures - refusing" && grep -q '"9.9.8"' "$Ss2/dist/latest.json" && pass "promote: no .sig over a prod that checks signatures refuses, prod untouched (#6468)" || bad "promote nosig-checking (rc=$rc, out=$out)"
+Ss3="$(make_site)"; bash "$PUBLISH" "$Ss3" >/dev/null 2>&1; prod_at "$Ss3" ""
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Ss3" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "cannot be read to tell" && pass "promote: no .sig and prod's manifest missing refuses (cannot tell) (#6468)" || bad "promote nosig-prod-missing (rc=$rc, out=$out)"
+Ss4="$(make_site)"; bash "$PUBLISH" "$Ss4" >/dev/null 2>&1; prod_at "$Ss4" '{'
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Ss4" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "cannot be read to tell" && pass "promote: no .sig and prod's manifest unparseable refuses (#6468)" || bad "promote nosig-prod-unparseable (rc=$rc, out=$out)"
+Ss5="$(make_site)"; bash "$PUBLISH" "$Ss5" >/dev/null 2>&1; prod_at "$Ss5" '{"files":[]}'
+out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 bash "$PROMOTE" "$Ss5" 2>&1)"; rc=$?
+[ "$rc" = 0 ] && grep -q "\"$V\"" "$Ss5/dist/latest.json" && pass "promote: CONTROL: no .sig over a prod that does not check signatures still promotes (#6468)" || bad "promote nosig-not-checking (rc=$rc, out=$out)"
+
 # [port] is forwarded to the gate (its arg1), so an operator gives the fresh board's port
 # rather than being pushed toward --force by a wrong-port HOLD.
 Spt="$(make_site)"; bash "$PUBLISH" "$Spt" >/dev/null 2>&1

@@ -213,6 +213,7 @@ test('installer: a missing .sig is refused, not skipped', () => {
 test('installer: no target version is refused when the install can check', () => {
   const r = setupCheck(release('1.2.3'), installedHome('1.2.0'), '');
   assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /could not read which version to install/);
 });
 
 test('installer: an install from before signing (no verifier) is not checked, and says so', () => {
@@ -263,4 +264,46 @@ test('release: needs-sig is yes only for a release that ships the verifier', () 
   fs.writeFileSync(bad, '{');
   assert.equal(signRun('needs-sig', bad).status, 2, 'an unreadable manifest is "cannot tell", not "no"');
   assert.equal(signRun('needs-sig', path.join(tmp, 'absent.json')).status, 2);
+});
+
+// ---- the served check after a deploy: tools/verify-manifest.sh ----
+const VM = path.join(__dirname, 'tools', 'verify-manifest.sh');
+function servedDist({ sig }) {
+  const dist = fs.mkdtempSync(path.join(tmp, 'served-'));
+  const tree = fs.mkdtempSync(path.join(tmp, 'tree-'));
+  fs.mkdirSync(path.join(tree, 'bin')); fs.writeFileSync(path.join(tree, 'bin', 'kosmos'), '#!/bin/sh\n');
+  fs.mkdirSync(path.join(tree, 'app')); fs.writeFileSync(path.join(tree, 'app', 'server.js'), 'x');
+  fs.mkdirSync(path.join(tree, 'runtime')); fs.writeFileSync(path.join(tree, 'runtime', 'n'), 'n');
+  fs.writeFileSync(path.join(tree, 'VERSION'), 'app: x\n');
+  const tgz = path.join(dist, 'kosmos-1.2.3-arm64.tar.gz');
+  spawnSync('/usr/bin/tar', ['-czf', tgz, '-C', tree, 'bin', 'app', 'runtime', 'VERSION']);
+  const files = ['VERSION', 'app/server.js', 'bin/kosmos', 'runtime/n'].map((p) => ({ path: p, sha256: sha(fs.readFileSync(path.join(tree, p))) }));
+  const m = { manifest: 1, version: '1.2.3', arch: 'arm64', artifact: 'kosmos-arm64.tar.gz', sha256: sha(fs.readFileSync(tgz)),
+    app: { commit: 'c', dirty: false }, node: { version: 'v', download_sha256: 'd' },
+    connector: { signed_sha256: 'aaaaaaaaaaaaaaaa', input_sha256: 'bbbbbbbbbbbbbbbb', commit: 'c' },
+    built: { at: 't', host: 'h', macos: 'm' }, files };
+  const mp = path.join(dist, 'kosmos-1.2.3-arm64.manifest.json');
+  fs.writeFileSync(mp, JSON.stringify(m, null, 1) + '\n');
+  if (sig === 'bad') fs.writeFileSync(mp + '.sig', crypto.sign(null, fs.readFileSync(mp), privateKey).toString('base64') + '\n');
+  return dist;
+}
+const vm = (dist, env = {}) => spawnSync('/bin/bash', [VM, '1.2.3'], { encoding: 'utf8', env: { ...process.env, KOSMOS_BASE: 'file://' + dist, KOSMOS_REQUIRE_SIG: '', ...env } });
+
+test('served check: CONTROL: with no .sig and none required, the rest of the check runs and passes', () => {
+  const r = vm(servedDist({ sig: null }));
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /no signature served/);
+  assert.match(r.stdout, /every file matches the manifest/);
+});
+test('served check: a cut (KOSMOS_REQUIRE_SIG=1) with no .sig served fails', () => {
+  const r = vm(servedDist({ sig: null }), { KOSMOS_REQUIRE_SIG: '1' });
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /SIGNATURE: no kosmos-1\.2\.3-arm64\.manifest\.json\.sig served/);
+});
+test('served check: a .sig that is not a pinned key\'s fails, required or not', () => {
+  for (const req of ['', '1']) {
+    const r = vm(servedDist({ sig: 'bad' }), { KOSMOS_REQUIRE_SIG: req });
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /SIGNATURE: the served \.sig does not verify/);
+  }
 });
