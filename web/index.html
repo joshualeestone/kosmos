@@ -85234,13 +85234,15 @@ setInterval(ageCheckedStamp, 1000);
       if (step) step.hidden = true;
       setMsg(!st ? 'This setting could not be read.'
         : onButIdle ? 'On, but this computer is not connected to Kosmos+, so nothing is sent.'
-        : 'This turns on by itself once this computer is connected to Kosmos+.');   // #6488
+        // #6488: on by default once connected, unless the person turned it off (offByChoice).
+        : st.offByChoice ? 'Off. You can turn it on once this computer is connected to Kosmos+.'
+        : 'This turns on by itself once this computer is connected to Kosmos+.');
       return;
     }
     btn.disabled = false;
     btn.textContent = st.on ? 'Turn off' : 'Turn on';
     if (step) step.hidden = !st.on;
-    setMsg(st.on ? 'On for this computer.' : '');
+    setMsg(st.on ? 'On for this computer.' : st.offByChoice ? '' : 'Not on yet. It turns on by itself, or press Turn on now.');
   }
 
   function load() {

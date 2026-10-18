@@ -88,7 +88,8 @@ const COOLDOWN_PRUNE_MS = POSTED_ROOM_COOLDOWN_MS;   // the longest; an entry ol
 const file = () => path.join(remote.stateDir(), 'phone-notify.json');
 // #6488: the person's off, kept beside remote.json and OUTSIDE the tunnel state dir, because removing this computer
 // from Kosmos+ deletes that dir (remote.forget), and a reconnect must not turn back on what the person turned off.
-// It holds only { off: true }: no token. Written by turnOff, removed by a turn-on. It belongs to this computer (this
+// It holds only { off: true }: no token. Written by turnOff (and by ensureDefaultOn, copying an off from before
+// #6488), removed by a turn-on. It belongs to this computer (this
 // data folder), not to a Kosmos+ account: a different person connecting it later keeps the earlier off. If removing
 // it after a turn-on fails, it is left behind: still 'on' now (on wins), and after a reconnect it reads as off, the
 // safe direction.
@@ -203,9 +204,10 @@ function writeState(next) {
 /** What the Settings screen shows. Never the token. While the ship gate is
     closed it is off and unavailable, whatever the file says. */
 function status() {
-  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds };
+  if (!available) return { available: false, on: false, connected: remote.enrolled(), kinds: readState().kinds, offByChoice: false };
   const s = readState();
-  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds };
+  // #6488: offByChoice says the person turned it off (so Settings does not promise it turns on by itself).
+  return { available: true, on: s.on, connected: remote.enrolled(), kinds: s.kinds, offByChoice: !s.on && masterChoice() === 'off' };
 }
 
 /** Turn phone notifications on: mint a fresh notify token (minting replaces
@@ -241,6 +243,9 @@ async function doTurnOn({ quiet } = {}) {
     return { ok: false, because: 'Kosmos+ could not be reached just now. Try again in a minute.',
       detail: String(minted.because || ''), notSent: minted.notSent === true };
   }
+  // #6488: removed from Kosmos+ while the mint was out: its state dir is gone, and saving would bring back a token
+  // for the identity just retired. Not saved; a reconnect starts again from masterChoice.
+  if (!remote.enrolled()) return { ok: false, because: 'this computer was removed from Kosmos+ while turning on' };
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
   if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use' };
   const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
@@ -295,15 +300,17 @@ async function ensureDefaultOn() {
   } catch { return null; }
 }
 
+const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
+const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;
+let defaultOn = null;   // the running schedule (startDefaultOn), so sign-in can poke it
+
 /** #6488: run ensureDefaultOn now, then again after DEFAULT_ON_EVERY_MS, so a computer connected later is turned on
     without a restart. A failed turn-on waits twice as long each time, up to DEFAULT_ON_MAX_MS, and back to the
     short wait once there is nothing to do, or when this computer's connection changes; a refusal made on this
     computer before anything was sent (`notSent`: busy signing in or being removed) does not lengthen the wait. One
-    that failed after its mint succeeded (`minted`) stops until the next restart, because each retry would replace
-    the token at the coordinator. A failure is logged once per reason, with the raw reason (`detail`).
-    Real startup only (server.js). Returns { stop } for tests. */
-const DEFAULT_ON_EVERY_MS = 5 * 60 * 1000;
-const DEFAULT_ON_MAX_MS = 6 * 60 * 60 * 1000;
+    that failed after its mint succeeded (`minted`) waits the longest, because each retry replaces the token at the
+    coordinator. A failure is logged once per reason, with the raw reason (`detail`). Only one run is ever waiting.
+    Real startup only (server.js). Returns { stop, poke, whenIdle, waitMs, stopped } (poke and the rest for tests). */
 function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}) {   // both injectable for tests
   let lastBecause = null;
   let wait = DEFAULT_ON_EVERY_MS;
@@ -313,6 +320,7 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
   let wasConnected = null;
   const next = () => {
     if (stopped) return;
+    if (timer) { try { clearTimeout(timer); } catch { /* a test's timer */ } }
     timer = schedule(tick, wait);
     if (timer && typeof timer.unref === 'function') timer.unref();
   };
@@ -331,24 +339,35 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
         lastBecause = why;
         process.stderr.write('phonenotify: could not turn phone notifications on by default: ' + why + '\n');
       }
-      if (r.minted === true) { stopped = true; return; }
-      if (r.notSent !== true && !changed) wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
+      if (r.minted === true) wait = DEFAULT_ON_MAX_MS;
+      else if (r.notSent !== true && !changed) wait = Math.min(wait * 2, DEFAULT_ON_MAX_MS);
     } else {
       wait = DEFAULT_ON_EVERY_MS;
     }
   }
   function tick() {
-    // One handler for every outcome, and a failure inside it never ends the schedule.
-    inFlight = Promise.resolve().then(() => ensure()).then((r) => { try { handle(r); } catch { /* next() still runs */ } }, () => {})
+    // One handler for every outcome, and a failure inside it never ends the schedule. Runs one at a time.
+    inFlight = inFlight.then(() => ensure()).then((r) => { try { handle(r); } catch { /* next() still runs */ } }, () => {})
       .then(() => { try { next(); } catch { /* a schedule that cannot be set ends here */ } });
+    return inFlight;
   }
   tick();
-  return {
-    stop: () => { stopped = true; if (timer) clearTimeout(timer); },
+  const ctl = {
+    stop: () => { stopped = true; if (timer) { try { clearTimeout(timer); } catch { /* a test's timer */ } } },
+    // Sign-in: start over from the short wait and try now.
+    poke: () => { if (stopped) return inFlight; wait = DEFAULT_ON_EVERY_MS; lastBecause = null; return tick(); },
     whenIdle: () => inFlight,   // the tick in flight (tests)
     waitMs: () => wait,
     stopped: () => stopped,
   };
+  defaultOn = ctl;
+  return ctl;
+}
+
+/** #6488: sign-in just connected this computer: run the default now, through the schedule when it is running, so a
+    long wait left from before is reset. Never throws. */
+function pokeDefaultOn() {
+  try { return defaultOn ? defaultOn.poke() : ensureDefaultOn(); } catch { return Promise.resolve(null); }
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */
@@ -461,4 +480,4 @@ function happened(event) {
   } catch { /* a notification is never a reason to fail the report it rides on */ }
 }
 
-module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+module.exports = { PHONE_APP_CAN_RECEIVE, setAvailableForTests, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
