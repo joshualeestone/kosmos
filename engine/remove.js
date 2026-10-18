@@ -2578,7 +2578,7 @@ async function putBackAsync(name, dir) {
      (calling it just builds an iterator, it does not run the body) and driveAsync is async (it
      returns a promise, so a synchronous throw inside it rejects that promise instead). If a
      future change put a synchronous throw on that path, the hold would leak -- move the add past
-     it or release in the catch. (Raiden, #6433 review.) */
+     it or release in the catch. */
   RESTARTING.add(clean);
   try {
     const capped = new Promise((resolve) => {
