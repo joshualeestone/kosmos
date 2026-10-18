@@ -33,7 +33,7 @@ const win32update = require('./win32update');
 const win32zip = require('./win32zip');
 const worlds = require('./worlds');
 const { buildZip } = require('../test-support/zipfixture');
-const { SIGNED_KOSMOS } = require('../test-support/signedkosmos');
+const { SIGNED_KOSMOS, microsoftRootSkip } = require('../test-support/signedkosmos');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -1560,7 +1560,7 @@ test('no name the build stages looks like a Windows short name, so refusing them
 
 const SAMPLE = process.env.KOSMOS_WIN_ZIP_SAMPLE;
 test('a real Kosmos build stages end to end under the real caps, and its real node.exe runs',
-  { timeout: 120000, skip: !SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this' }, async () => {
+  { timeout: 120000, skip: (!SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this') || (ON_WINDOWS && microsoftRootSkip()) }, async () => {
     const zip = fs.readFileSync(SAMPLE);
     const L = win32update.DEFAULT_LIMITS;
     const entries = win32zip.readZipDirectory(zip, {
@@ -2284,7 +2284,8 @@ function tamperedKosmosExe() {
   bytes[0x400] ^= 0xff;
   return bytes;
 }
-const WINDOWS_ONLY = { ...T, timeout: 120000, skip: !ON_WINDOWS && 'asks Windows itself (Get-AuthenticodeSignature)' };
+/* Windows must call the committed Kosmos.exe Valid: Microsoft's root on this computer (test-support/signedkosmos.js). */
+const WITH_ROOT = { ...T, timeout: 120000, skip: microsoftRootSkip() };
 
 test('#1765: a staged Kosmos.exe Windows does not call validly signed is refused before anything staged runs, and nothing is left staged', T, async () => {
   for (const [answer, pattern] of [
@@ -2306,7 +2307,7 @@ test('#1765: a signature Windows could not check is a refusal, never a pass', T,
   await refusedWith(freshCase(), site(bundleZip()), /^the signature of the update's Kosmos\.exe could not be checked \(spawn EACCES\)$/,
     { checkSignature: () => { throw new Error('spawn EACCES'); } });
   await refusedWith(freshCase(), site(bundleZip()), /^the signature of the update's Kosmos\.exe could not be checked \(Windows did not answer within 60 seconds\)$/,
-    { checkSignature: () => { throw Object.assign(new Error('spawnSync powershell.exe ETIMEDOUT'), { code: 'ETIMEDOUT' }); } });
+    { checkSignature: () => { throw Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' }); } });
   await refusedWith(freshCase(), site(bundleZip()), /^the update's Kosmos\.exe is not validly signed \(Windows says: nothing\)$/,
     { checkSignature: () => undefined });
 });
@@ -2341,7 +2342,7 @@ test('#1765 --from: a newer folder whose Kosmos.exe is not signed is refused lik
 
 /* On this computer, Windows' own answer: no checkSignature seam, so prepare() asks Get-AuthenticodeSignature. */
 
-test('#1765 on Windows: a download carrying the committed, signed Kosmos.exe stages; the same with one byte changed is refused', WINDOWS_ONLY, async () => {
+test('#1765 on Windows: a download carrying the committed, signed Kosmos.exe stages; the same with one byte changed is refused', WITH_ROOT, async () => {
   const good = freshCase();
   const ok = await win32update.prepare(prepareOpts(good, site(bundleZip({ extra: { 'Kosmos.exe': fs.readFileSync(REAL_KOSMOS_EXE) } })), { checkSignature: undefined }));
   assert.equal(ok.ok, true, ok.because);
@@ -2351,7 +2352,7 @@ test('#1765 on Windows: a download carrying the committed, signed Kosmos.exe sta
   assertCleanedUp(bad, /HashMismatch/);
 });
 
-test('#1765 on Windows: the headless --apply --from --yes refuses an unsigned Kosmos.exe in words, and installs a signed one', WINDOWS_ONLY, async () => {
+test('#1765 on Windows: the headless --apply --from --yes refuses an unsigned Kosmos.exe in words, and installs a signed one', WITH_ROOT, async () => {
   const c = withInstalledManifest(freshCase());
   const report = path.join(c.dir, 'report.txt');
   const seams = {

@@ -376,12 +376,17 @@ function authenticodeOf(exe, timeoutMs, env) {
   const e = env || process.env;
   const ps = path.win32.join(e.SystemRoot || process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   const unreadable = 'Windows PowerShell answered in a form Kosmos could not read';
+  /* No PSModulePath: the Security module is imported by its full path, and an inherited PowerShell 7
+     module path is what makes 5.1 find the wrong copy. */
+  const childEnv = { ...process.env, KOSMOS_SIGNED_FILE: exe };
+  for (const key of Object.keys(childEnv)) if (key.toLowerCase() === 'psmodulepath') delete childEnv[key];
   return new Promise((resolve, reject) => {
     cp.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', SIGNATURE_SCRIPT], {
       encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 1024 * 1024,
-      env: { ...process.env, KOSMOS_SIGNED_FILE: exe },
+      env: childEnv,
     }, (err, stdout, stderr) => {
       if (err) {
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { reject(new Error('Windows PowerShell answered with far more than a signature')); return; }
         if (err.killed || err.code === 'ETIMEDOUT') { reject(Object.assign(new Error('Windows did not answer in time'), { code: 'ETIMEDOUT' })); return; }
         if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
         reject(new Error(powershellReason(stderr) || `Windows PowerShell ended with code ${err.code}`));
@@ -394,6 +399,14 @@ function authenticodeOf(exe, timeoutMs, env) {
       resolve({ status: String(j.status || ''), signer: String(j.signer || ''), rootThumbprint: String(j.rootThumbprint || ''), chain: chain.map(String) });
     });
   });
+}
+
+/** A name from a certificate, as a sentence can show it: anything outside printable ASCII written as
+    \uXXXX (so a lookalike is visible as one), and no longer than SHOWN_NAME_MAX characters. */
+const SHOWN_NAME_MAX = 120;
+function shownName(name) {
+  const escaped = String(name).replace(/[^\x20-\x7e]/g, (ch) => '\\u' + ch.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'));
+  return escaped.length > SHOWN_NAME_MAX ? escaped.slice(0, SHOWN_NAME_MAX) + '...' : escaped;
 }
 
 /** Printable ASCII only. The pins are ASCII, and JS's toLowerCase folds some non-ASCII lookalikes
@@ -413,14 +426,14 @@ function asciiEqualIgnoringCase(a, b) {
  */
 function signatureRefusal(sig) {
   const s = sig && typeof sig === 'object' ? sig : {};
-  if (s.status !== 'Valid') return `the update's Kosmos.exe is not validly signed (Windows says: ${s.status || 'nothing'})`;
+  if (s.status !== 'Valid') return `the update's Kosmos.exe is not validly signed (Windows says: ${s.status ? shownName(s.status) : 'nothing'})`;
   const signer = String(s.signer || '');
-  if (!asciiEqualIgnoringCase(signer, EXPECTED_SIGNER)) return `the update's Kosmos.exe is signed by '${signer}', not by ${EXPECTED_SIGNER}`;
+  if (!asciiEqualIgnoringCase(signer, EXPECTED_SIGNER)) return `the update's Kosmos.exe is signed by '${shownName(signer)}', not by ${EXPECTED_SIGNER}`;
   const chain = Array.isArray(s.chain) ? s.chain.map(String) : [];
   const root = String(s.rootThumbprint || '');
   const intermediate = chain.some((subject) => PRINTABLE_ASCII.test(subject) && EXPECTED_INTERMEDIATE_PATTERN.test(subject));
   if (!asciiEqualIgnoringCase(root, EXPECTED_ROOT_THUMBPRINT) || !intermediate) {
-    return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (its chain ends at ${chain.length ? chain[chain.length - 1] : 'nothing'})`;
+    return `the update's Kosmos.exe signature does not come from Microsoft's code-signing service for ${EXPECTED_SIGNER} (its chain ends at ${chain.length ? shownName(chain[chain.length - 1]) : 'nothing'})`;
   }
   return null;
 }

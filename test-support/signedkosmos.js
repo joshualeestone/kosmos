@@ -17,4 +17,24 @@ const SIGNED_KOSMOS = Object.freeze({
   ]),
 });
 
-module.exports = { SIGNED_KOSMOS };
+/**
+ * Why a test that needs Windows to call the signed Kosmos.exe Valid cannot run here, or false when it can.
+ * Valid needs Microsoft's Identity Verification root (2020) in this computer's root store, as setup.ps1's
+ * check does; every supported Windows has it, and a box that does not is said, not failed. Asked once.
+ */
+let rootSkip;
+function microsoftRootSkip() {
+  if (rootSkip !== undefined) return rootSkip;
+  if (process.platform !== 'win32') { rootSkip = 'asks Windows itself (Get-AuthenticodeSignature)'; return rootSkip; }
+  let there = false;
+  try {
+    const out = require('node:child_process').execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `[Console]::Out.Write([string](Test-Path -LiteralPath 'Cert:\\LocalMachine\\Root\\${SIGNED_KOSMOS.rootThumbprint}'))`],
+    { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    there = out.trim() === 'True';
+  } catch { there = false; }
+  rootSkip = there ? false : 'Microsoft Identity Verification Root 2020 is not installed on this computer';
+  return rootSkip;
+}
+
+module.exports = { SIGNED_KOSMOS, microsoftRootSkip };
