@@ -1224,6 +1224,13 @@ const SCREENS = [
     await at(page, '?tab=tasks');
     await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
   } },
+  /* #6482: the status groups themselves, scrolled to: on a phone the tiles fill the first screen, so the plain tasks
+     shot never shows a group heading. */
+  { name: 'tasks-groups', owner: 'Angel', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#tsk-groups .tsk-grp h3', { state: 'visible', timeout: 5000 });
+    await page.evaluate(() => document.querySelector('#tsk-groups .tsk-grp').scrollIntoView({ block: 'start' }));
+  } },
   /* #3029: subprojects on the Tasks view, named by their chain. Two subprojects both called Launch (one under the
      fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
