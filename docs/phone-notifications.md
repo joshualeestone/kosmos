@@ -33,7 +33,7 @@ Short and plain: the title says who and what; the body names the project, and is
 | Kind | Title | Body |
 |---|---|---|
 | needs_you | `<Agent> needs you` | `in <Project>`, or no body |
-| replied | `<Agent> replied` | no body (a reply carries no project) |
+| replied | `<Agent> replied` | `in <Project>`, or no body (the board sends no project with a reply today) |
 | posted | `<Agent> posted` | `in <Project>`, or no body |
 | ready | `<Agent> has work ready for you` | `in <Project>`, or no body |
 
@@ -41,8 +41,8 @@ Changed on 2026-10-18: the body said `on <Project>` (now `in`, as Josh wrote it)
 project (now no body).
 
 **In force on the coordinator since 2026-10-18** (kosmos-relay #451, deployed per the push path's owner): iPhone and web push both take their words from
-this table, through one shared function. This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). Nobody
-has yet seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
+this table, through one shared function. This repo's own `web/sw.js` matches it from the release after 0.7.57 (kosmos#6502). As of
+2026-10-18 nobody has seen the new words on a real phone. The test notice (`Kosmos has something for you`, body `in Kosmos`) is a
 deliberate exception that keeps its body; the email keeps its own sentence (`<Agent> needs you on <Project>.`), since it is
 not a notification. No test reads this page yet.
 
@@ -79,7 +79,8 @@ In the Android app a tap first opens the Kosmos+ sign-in page, and one more tap 
 plain Chrome on a phone that has the app). Otherwise a tap opens that agent's page (or the board's home when the agent's session name has
 anything but lowercase letters, digits, `-` and `_`, starts with `-` or `_`, or is longer than 64 characters). A project post is the exception in a browser without
 the Android app (a computer's browser, or Chrome on a phone without the app): its tap opens that project's room
-(kosmos#6254, live on the coordinator since 2026-10-18 with the wording above). A project the board does not know opens the projects list, and a post with no usable project opens the agent.
+(kosmos#6254, live on the coordinator since 2026-10-18 with the wording above; a phone picks it up
+within about a day, when its browser next checks for an update). A project the board does not know opens the projects list, and a post with no usable project opens the agent.
 The Android app and the iPhone still open the agent for a project post: the Android app's sign-in step carries only the
 agent, and the iPhone notification carries no project id. A reply, a crash, a stuck terminal and a helper giving up never carry a project, so they
 have no body. A reply or post written while Kosmos was closed, and delivered later, does
