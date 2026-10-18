@@ -114,7 +114,7 @@ test('the sentence never claims the folders are at risk', async () => {
      has to be alarming about the right thing or somebody starts recreating
      agents whose folders are sitting there. */
   const wrap = await paint({ ok: true, missing: ['brigitte'] });
-  assert.match(wrap.innerHTML, /folders and everything\s+they remember are untouched/);
+  assert.match(wrap.innerHTML, /folders and everything they remember are untouched\./);
   // #6518: the body no longer restates the headline ("so they stop when it does").
   assert.doesNotMatch(wrap.innerHTML, /so they stop when/);
 });

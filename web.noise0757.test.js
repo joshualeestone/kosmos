@@ -38,7 +38,7 @@ test('#6517: the subscription bar says its one fact and no idle count', () => {
 });
 
 test('#6518: the restart panel says the restart once, and the Done report says starts at login once', () => {
-  assert.ok(PAGE.includes("'Their folders and everything they remember are untouched '"), 'CONTROL: the body sentence that stays is gone');
+  assert.ok(PAGE.includes("'Their folders and everything they remember are untouched.</p>'"), 'CONTROL: the body sentence that stays is gone');
   assert.ok(!PAGE.includes('starts them when you log in, so they stop when'), 'the body still repeats the headline');
   assert.ok(PAGE.includes("'starts at login, and is running now'"), 'CONTROL: the per-agent Done row is gone');
   assert.ok(!PAGE.includes('Restarting this computer will bring these back.'), 'the Done report still repeats its rows');
@@ -78,6 +78,12 @@ test('#6522: add a computer says each thing once', () => {
   assert.ok(PAGE.includes("'Your computer \"' + askEsc(d.joining_computer) + '\" wants to join'"), 'CONTROL: the heading lost the name');
   assert.ok(!PAGE.includes("'Type the code shown on ' + name + ', then press '"), 'the Allow card still names the computer in its line');
   assert.ok(!PAGE.includes("'\">Code on ' + name"), 'the field label still names the computer');
+  // Review 1: the field is described by the heading that names the computer, and an empty line renders nothing.
+  // (render-connect-sheet-4637.js checks the same in a browser, including the error case.)
+  assert.ok(PAGE.includes(`'<div class="askwho"><b id="askhead-' + askEsc(d.device_id) + '">' + askHead(d) + '</b>'`), 'the heading has no id to describe the field by');
+  assert.ok(PAGE.includes(`const codeDescribedBy = 'askhead-' + askEsc(d.device_id) + (sayText ? ' asksay-' + askEsc(d.device_id) : '');`), 'the field is not described by the heading');
+  assert.ok(PAGE.includes(`aria-describedby="' + codeDescribedBy + '"`), 'the field does not use the heading description');
+  assert.ok(PAGE.includes(`(sayText ? '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + sayText + '</p>' : '')`), 'an empty line still renders a paragraph');
   // The retry card: a new code, once.
   assert.ok(PAGE.includes('A new code is needed to finish pairing.'), 'CONTROL: the retry line is gone');
   assert.ok(!PAGE.includes('press Try again for a new code'), 'the retry card still says a new code twice');

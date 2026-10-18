@@ -163,7 +163,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
           aboveActs: !!(place && place.nextElementSibling && place.nextElementSibling.classList.contains('acts')), acts,
           inside: !place || place.getBoundingClientRect().right <= r.getBoundingClientRect().right + 0.5,
           /* #6404: a computer's sheet asks for the code on the joining computer and never shows this one's own. */
-          field: field ? { label: (r.querySelector('.askcodetype label') || {}).textContent || '', value: field.value, labelled: !!(field.labels && field.labels.length) } : null,
+          field: field ? { label: (r.querySelector('.askcodetype label') || {}).textContent || '', value: field.value, labelled: !!(field.labels && field.labels.length),
+            /* #6522 review 1: what assistive tech reads with the field: the elements its aria-describedby names, in order. */
+            described: (field.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map((id) => { const n = document.getElementById(id); return n ? n.textContent : '<missing ' + id + '>'; }) } : null,
+          sayParagraphs: r.querySelectorAll('.asksay').length,
           ownCode: r.innerHTML.indexOf('482 915') > -1 || r.innerHTML.indexOf('4 8 2, 9 1 5') > -1,
           allowOff: ((a) => !!(a && (a.disabled || a.getAttribute('aria-disabled') === 'true')))(r.querySelector('[data-ask="allow"]')),
           /* The headline gets the sheet's width, not the icon's 40px column (a grid slip read one word per line). */
@@ -201,6 +204,10 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       chk(pc.field && pc.field.label === 'Code' && pc.field.labelled && pc.field.value === '' && !pc.code && !pc.ownCode && pc.allowOff,
         `${tag} #6404: a computer's sheet has one labelled field for the code on windowsbox, never shows (or speaks) this computer's code, and Allow waits`, JSON.stringify(pc));
       chk(!ph.field && !ph.allowOff, `${tag} #6404 CONTROL: a phone's sheet has no field and Allow is ready`, JSON.stringify(ph));
+      /* #6522 review 1: the name is on screen once, in the heading, and the field is described by that heading; an empty
+         line renders no paragraph. The phone's sheet (the CONTROL) keeps its line. */
+      chk(pc.field && pc.field.described.length === 1 && /windowsbox/.test(pc.field.described[0]) && pc.sayParagraphs === 0 && ph.sayParagraphs === 1,
+        `${tag} #6522: the code field is described by the heading that names windowsbox, and an empty line renders no paragraph`, JSON.stringify({ pc: pc.field, pcSay: pc.sayParagraphs, phSay: ph.sayParagraphs }));
       /* #6404 review 1: clicking the field's label, then the field, as a person would, sends nothing and turns nobody away. */
       await page.click('label[for="askcode-' + PC_ID + '"]');
       await page.click('[id="askcode-' + PC_ID + '"]');
@@ -353,6 +360,11 @@ const REMOTE = { configured: true, on: true, ok: true, enrolled: true, email: 'y
       const cc = await page.evaluate(() => (document.getElementById('plus-ask-rows').innerText || '').replace(/\s+/g, ' '));
       chk(/The code changed before you pressed Allow\. Type the new one from laptop4, then press Allow\./.test(cc) && !/code_changed/.test(cc),
         `${tag} #4794: a refused code is worded ("The code changed..."), never the raw tag`, cc);
+      /* #6522 review 1: with an error showing, the field is described by the heading AND the error line. */
+      const ccDescribed = await page.evaluate(() => { const f = document.getElementById('askcode-d-cc');
+        return f ? (f.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map((id) => (document.getElementById(id) || {}).textContent || '<missing ' + id + '>') : null; });
+      chk(ccDescribed && ccDescribed.length === 2 && /laptop4/.test(ccDescribed[0]) && /The code changed before you pressed Allow/.test(ccDescribed[1]),
+        `${tag} #6522: with an error, the code field is described by the heading and the error line`, JSON.stringify(ccDescribed));
       const heldOff = await page.evaluate(() => { const a = document.querySelector('#plus-ask-rows [data-ask="allow"][data-id="d-cc"]'); return !!(a && a.disabled); });
       chk(heldOff, `${tag} #4794: after "code changed", Allow waits while the same code shows (review 3)`);
       pending = [{ device_id: 'd-cc', name: 'laptop4', code: '864 201', first_seen: now() - 10, joining_computer: 'laptop4' }];

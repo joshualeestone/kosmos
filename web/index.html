@@ -47797,8 +47797,7 @@ async function paintSurvival() {
     + '<p><b>' + esc(survivalSay(body.missing.length)) + '</b><br>'
     /* #6518: the cause is the button's own words and the effect is the headline,
        so the body says only what the headline does not. */
-    + 'Their folders and everything they remember are untouched '
-    + 'either way.</p>'
+    + 'Their folders and everything they remember are untouched.</p>'
     + '<p class="dhint">' + names + '</p>'
     + '<button class="btn" type="button" data-survival-fix>Set them to start at login</button>'
     + unknownBlockWith(unknown.length === 1
@@ -50861,16 +50860,20 @@ function paintAsk() {
        large and once (not the letter boxes) directly above Allow, so matching and allowing stay one glance (#3952),
        and a quiet Not me. The device id never reaches readable text. */
     const label = (d.joining_computer ? 'computer ' + askEsc(d.joining_computer) : askEsc(kind)) + (d.code && !d.joining_computer ? ', code ' + askEsc(d.code) : '');
+    /* #6522 review 1: an empty line renders no paragraph, and the code field is described by the heading, which is
+       where the computer's name is on screen, plus the line when there is one (an error or a re-ask). */
+    const sayText = [say, again.trim(), errWords].filter(Boolean).join(' ');
+    const codeDescribedBy = 'askhead-' + askEsc(d.device_id) + (sayText ? ' asksay-' + askEsc(d.device_id) : '');
     return '<div class="askreq' + (stale ? ' stale' : '') + '"><div class="askdev">' + askIcon(d.joining_computer ? 'computer' : kind) + '</div>' +
-      '<div class="askwho"><b>' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
-      '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + [say, again.trim(), errWords].filter(Boolean).join(' ') + '</p>' +
+      '<div class="askwho"><b id="askhead-' + askEsc(d.device_id) + '">' + askHead(d) + '</b>' + (joiningRow ? '' : askAgoSpan(d.first_seen)) + '</div>' +
+      (sayText ? '<p class="asksay" id="asksay-' + askEsc(d.device_id) + '">' + sayText + '</p>' : '') +
       (waitLine ? '<p class="askwait">' + waitLine + '</p>' : '') +
       /* Read out a character at a time, as the boxes were (#3952): "V R, D 6". */
       /* Not a [data-ask] control (a click on it must never act), and the typed digits stay out of the markup, so typing
          rebuilds nothing except once, when Allow wakes or sleeps at six digits (askWrite puts the digits, focus and place back). */
       (typing ? '<p class="askcodetype"><label for="askcode-' + askEsc(d.device_id) + '">Code</label>' +
         '<input class="askcodein" id="askcode-' + askEsc(d.device_id) + '" data-askcode="' + askEsc(d.device_id) + '" type="text" inputmode="numeric"' +
-        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="asksay-' + askEsc(d.device_id) + '"' +
+        ' autocomplete="off" spellcheck="false" maxlength="9" placeholder="000 000" aria-describedby="' + codeDescribedBy + '"' +
         (e && e.state === 'error' && (e.because === 'code_typed' || e.because === 'code_short') && !staleTag ? ' aria-invalid="true"' : '') + '></p>' : '') +
       (d.code && !waitLine && !typing ? '<p class="askcodebig" role="img" aria-label="' + askEsc(String(d.code).split(/[- ]/).filter((g) => g).map((g) => [...g].join(' ')).join(', ')) + '">' + askEsc(d.code) + '</p>' : '') +
       '<div class="acts"><button class="btn uprime" type="button" data-ask="allow" data-id="' + askEsc(d.device_id) + '" aria-label="' + (d.recheck ? 'Confirm the code check for ' : 'Allow ') + label + '"' + (holdAllow ? ' disabled' : typing && askDigits(typed).length !== 6 ? ' aria-disabled="true"' : '') + '>' + (d.recheck ? 'Confirm' : 'Allow') + '</button>' +
