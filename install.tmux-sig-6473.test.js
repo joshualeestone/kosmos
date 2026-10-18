@@ -48,11 +48,17 @@ function host(version, { tmuxRecorded, key = privateKey } = {}) {
   fs.writeFileSync(mp + '.sig', crypto.sign(null, fs.readFileSync(mp), key).toString('base64') + '\n');
   return { dir, tmux, tgz, manifest: mp, sig: mp + '.sig' };
 }
-function installedHome(version) {
+function installedHome(version, { keys = [PUB], older = false } = {}) {
   const home = fs.mkdtempSync(path.join(tmp, 'home-'));
   fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
-  const pinned = VERIFIER.replace(/const KEYS = \[[\s\S]*?\];/, `const KEYS = [${JSON.stringify(PUB)}];`);
+  let pinned = VERIFIER.replace(/const KEYS = \[[\s\S]*?\];/, `const KEYS = ${JSON.stringify(keys)};`);
+  // An installed copy from before this change: no capabilities line, so the installer must not call it in a new form.
+  // It also BEHAVES older: as the #6472 copy did, it reads "-" or "tmux" as a file name and fails.
+  if (older) {
+    pinned = pinned.replace(/^.*manifest-verify capabilities:.*$/m, ' */')
+      .replace("'use strict';", "'use strict';\nif (require.main === module && (process.argv[2] === 'tmux' || process.argv[4] === '-')) { process.stdout.write('the update could not be checked (ENOENT)\\n'); process.exit(1); }");
+  }
   assert.notEqual(pinned, VERIFIER, 'the KEYS list moved; this fixture cannot pin its key');
   fs.writeFileSync(path.join(home, 'app', 'engine', 'manifest-verify.js'), pinned);
   fs.writeFileSync(path.join(home, 'app', 'package.json'), JSON.stringify({ version }) + '\n');
@@ -127,6 +133,48 @@ test('installer: an install with no verifier fetches nothing early and does not 
   const r = sh(h, home, '1.2.3', EARLY_THEN_TMUX);
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /predates signed releases/);
+});
+
+test('installer: an OLDER installed checker (no capabilities line) is not called in a new form: early is skipped, pre still checks', () => {
+  const home = installedHome('1.2.0', { older: true });
+  assert.doesNotMatch(fs.readFileSync(path.join(home, 'app', 'engine', 'manifest-verify.js'), 'utf8'), /manifest-verify capabilities:/);
+  const h = host('1.2.3');
+  fs.appendFileSync(h.tmux, 'unchecked this once');
+  const stage = fs.mkdtempSync(path.join(tmp, 'stage-'));
+  fs.copyFileSync(h.tgz, path.join(stage, 'kosmos.tar.gz'));
+  const body = `update_manifest_ok early "" "$2" || { echo "refused at early"; exit 1; }
+[ -z "$_UM_DIR" ] || { echo "early fetched with an older checker"; exit 1; }
+update_tmux_ok "$1" "$2" || { echo "refused at tmux"; exit 1; }
+update_manifest_ok pre "${stage}" "$2" || { echo "refused at pre"; exit 1; }
+echo "pre-ok"`;
+  let r = sh(h, home, '1.2.3', body);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /not yet its terminal manager download/);
+  assert.match(r.out, /pre-ok/);
+  fs.appendFileSync(path.join(stage, 'kosmos.tar.gz'), 'x');
+  r = sh(h, installedHome('1.2.0', { older: true }), '1.2.3', body);
+  assert.equal(r.code, 1, r.out);
+  assert.match(r.out, /refused at pre/, 'an older checker still checks the Kosmos bundle');
+});
+test('installer: an install that pins no key carries "not checked" through early, tmux, pre and post, and says so once', () => {
+  const h = host('1.2.3');
+  fs.appendFileSync(h.tmux, 'x');
+  const stage = fs.mkdtempSync(path.join(tmp, 'stage-'));
+  const r = sh(h, installedHome('1.2.0', { keys: [] }), '1.2.3', `update_manifest_ok early "" "$2" || exit 1
+update_tmux_ok "$1" "$2" || exit 1
+update_manifest_ok pre "${stage}" "$2" || exit 1
+update_manifest_ok post "${stage}" "$2" || exit 1
+echo "all-ok"`);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /all-ok/);
+  assert.match(r.out, /\(and its terminal manager\) is not checked/);
+});
+test('installer: no verifier installed: early fetches nothing', () => {
+  const home = installedHome('1.2.0');
+  fs.rmSync(path.join(home, 'app', 'engine', 'manifest-verify.js'));
+  const r = sh(host('1.2.3'), home, '1.2.3', 'update_manifest_ok early "" "$2" || exit 1\nprintf "dir=[%s]\\n" "$_UM_DIR"');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /dir=\[\]/);
 });
 
 test('setup.sh runs the early check before fetch_tmux, and fetch_tmux checks before tar', () => {

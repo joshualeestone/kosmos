@@ -22,3 +22,18 @@ anything in it runs. The release records tmux_sha256 and refuses a cut whose man
 
 ## Not run
 A real cut and test-install.sh end to end (need a built, signed bundle).
+
+## Review log
+### Iteration 1 (opus): 1 BLOCKER, 2 should-fix
+- [BLOCKER] the new installer called the INSTALLED checker in two new forms (tarball "-", tmux); a Mac on the #6472
+  release alone has a checker that knows neither, so every later update would die (FIXED: the checker carries a
+  one-line "manifest-verify capabilities:" list; early runs only when it lists early, otherwise pre fetches as before
+  and tmux goes unchecked this once, said in a sentence. Arm with an older-BEHAVING checker; mutant removing the
+  capability check goes red; live: the real #6472 verifier under the new functions skips early, fetches nothing)
+- [WARNING] one served tmux path for both channels: a cut with a different tmux breaks the other channel (FIXED:
+  the cut refuses a tmux pair that differs from the one served unless KOSMOS_CUT_NEW_TMUX=1, which prints the cost)
+- [WARNING] the early manifest folder leaked on any exit before pre (FIXED: _kosmos_on_exit removes it)
+- [NIT] verifyTmux re-read the manifest after verifying it (FIXED: verify hands back the verified, parsed bytes; same
+  for verifySetup on the base branch), no-key line now mentions the terminal manager (FIXED), tests for no-key through
+  every phase and no-verifier fetching nothing (ADDED); text-position tests (ACCEPTED), local Kosmos + network tmux
+  runs the full version check (ACCEPTED: it is a real check on what is downloaded)

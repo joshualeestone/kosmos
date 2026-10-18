@@ -1273,6 +1273,21 @@ step "== 4. build =="
 # pair between cuts makes every checking install refuse updates until the next one.
 [ -f "$SITE/dist/tmux-arm64.tar.gz" ] && [ -f "$SITE/dist/tmux-arm64.tar.gz.sha256" ] || { echo "no tmux bundle pair in $SITE/dist (a fresh site checkout has none: fetch the served pair from ${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz and .sha256 into $SITE/dist, or build one with tools/build-tmux-bundle.sh); the build cannot record it"; exit 1; }
 mkdir -p "$REPO/dist" && cp "$SITE/dist/tmux-arm64.tar.gz" "$SITE/dist/tmux-arm64.tar.gz.sha256" "$REPO/dist/"
+# Round 1 (#6473): the tmux pair has ONE served path for prod and staging, while each manifest records the tmux of
+# its own cut. So a cut that brings a DIFFERENT tmux makes every checking install on the other channel (and any
+# pointer rolled back) refuse updates until it catches up. Refuse that unless it is meant: KOSMOS_CUT_NEW_TMUX=1,
+# and then move the other channel to this cut soon.
+_tm_served="$(curl -fsSL -m 20 "${HOST:-https://installkosmos.com}/dist/tmux-arm64.tar.gz.sha256" 2>/dev/null | awk 'NR==1{print $1}')" || _tm_served=""
+_tm_local="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
+if [ -z "$_tm_served" ]; then
+  echo "could not read the served tmux pair to compare with this cut's (#6473); not cutting blind"; exit 1
+elif [ "$_tm_served" != "$_tm_local" ]; then
+  if [ "${KOSMOS_CUT_NEW_TMUX:-}" = 1 ]; then
+    echo "   NOTE: this cut serves a NEW tmux bundle ($_tm_local, served now $_tm_served). Installs on the other channel refuse updates until it is promoted to the same cut (#6473)."
+  else
+    echo "this cut would serve a different tmux bundle ($_tm_local) from the one served now ($_tm_served). Installs on the other channel would refuse updates until they reach this cut (#6473). Set KOSMOS_CUT_NEW_TMUX=1 to cut it on purpose."; exit 1
+  fi
+fi
 ( cd "$REPO" && bash tools/build-kosmos-bundle.sh dist )
 _tm_want="$(awk 'NR==1{print $1}' "$REPO/dist/tmux-arm64.tar.gz.sha256")"
 _tm_got="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).tmux_sha256 || ""' "$REPO/dist/kosmos-arm64.manifest.json")"
