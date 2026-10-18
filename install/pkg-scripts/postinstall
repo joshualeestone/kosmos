@@ -286,12 +286,22 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # .pkg is notarized; checking a signature without one needs a native verifier, see the card). Keep this block
    # free of apostrophes: it is inside the single-quoted argument above.
    h="$HOME/.local/share/kosmos"
+   # The installed node must actually RUN (a broken install being repaired keeps the checksum path). A 97 (not run:
+   # the pointer, manifest or signature not readable yet) is retried on the same bounded budget as the checksum, so a
+   # half-published window still recovers; any other status is the answer.
    if [ -f "$h/app/engine/manifest-verify.js" ] && [ -f "$h/runtime/bin/node" ] && [ -x "$h/runtime/bin/node" ] \
-      && /usr/bin/grep -q run-setup "$h/app/engine/manifest-verify.js"; then
+      && /usr/bin/grep -q run-setup "$h/app/engine/manifest-verify.js" \
+      && "$h/runtime/bin/node" -e 0 >/dev/null 2>&1; then
      base="${0%/*}/dist"
-     v=$(/usr/bin/curl -fsSL "$base/latest.json" 2>/dev/null | /usr/bin/sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1) || v=""
-     "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h"
-     exit $?
+     n=0
+     while :; do
+       n=$((n + 1))
+       v=$(/usr/bin/curl -fsSL "$base/latest.json" 2>/dev/null | /usr/bin/sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1) || v=""
+       src=0; "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h" || src=$?
+       [ "$src" -eq 97 ] || exit "$src"
+       [ "$n" -lt "$_rmax" ] || exit 97
+       /bin/sleep "$_rsleep"
+     done
    fi
    /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
