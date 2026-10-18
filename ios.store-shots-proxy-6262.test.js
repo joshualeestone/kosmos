@@ -61,7 +61,10 @@ test.before(async () => {
     (ROUTES[p] || (p.endsWith('.png') ? PNG : (r) => { r.writeHead(404); r.end(); }))(res, req);
   });
   await new Promise((r) => board.listen(0, '127.0.0.1', r));
-  proxy = spawn(process.execPath, [PROXY, '127.0.0.1', 'http://127.0.0.1:' + board.address().port, CHECKOUT], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // An environment of its own (#4796): a throwaway data root, and only the PATH and HOME the proxy needs (its leak
+  // guard compares against this HOME, the same one the arms below build their leaks from).
+  const env = { PATH: process.env.PATH, HOME: os.homedir(), AGENT_WORKFORCE_DATA: fs.mkdtempSync(path.join(os.tmpdir(), 'shots-proxy-data-')) };
+  proxy = spawn(process.execPath, [PROXY, '127.0.0.1', 'http://127.0.0.1:' + board.address().port, CHECKOUT], { stdio: ['ignore', 'pipe', 'pipe'], env });
   proxy.stderr.on('data', (c) => { logs += c; });
   base = await new Promise((resolve, reject) => {
     let out = '';
