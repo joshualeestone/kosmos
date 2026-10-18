@@ -76,3 +76,7 @@ differ from it, or whose version is older than the installed one, before anythin
   reject_pathy-checked in promote (FIXED), the key's map row named the wrong file (FIXED on both Macs)
 - Self-caught while fixing: a test-only env switch that would have skipped the guard in a real build; removed before
   commit (the test lifts the function instead).
+### Iteration 6 (sonnet): 0 BLOCKERs, 1 should-fix
+- [WARNING] a newline in a FOLDER name split into pieces that each looked plain, so nothing was flagged (FIXED: names
+  with a newline are found by name, find -name $'*\n*' -print0; arm added; a mutant disabling it goes red)
+- [NIT] a missing stage or part read as "no offenders" (FIXED: each is an offender; two arms)

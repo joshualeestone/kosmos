@@ -1040,8 +1040,13 @@ _pkg_version="$(KOSMOS_PKG="$STAGE/app/package.json" "$STAGE/runtime/bin/node" -
 # no spaces) under bin/, app/ or runtime/, or VERSION itself. The 0.7.56 bundle's 362 names all are.
 # kosmos_bundle_odd_names lists every offender IN FULL (no head inside a pipe: under pipefail a SIGPIPE would fail the
 # pipeline and a fallback would throw the names away, measured with 3000 names). tools/test-bundle-names-6468.sh runs it.
-kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line
-  ( cd "$1" && { find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | sed 's/^/not a plain file: /'
+kosmos_bundle_odd_names() {   # <stage>; prints offenders, one per line (a missing stage or part is one too)
+  [ -d "$1" ] || { echo "no stage at $1"; return 0; }
+  local part
+  for part in bin app runtime VERSION; do [ -e "$1/$part" ] || echo "missing: $part"; done
+  # A newline anywhere in a path splits it into lines that can each look plain, so it is found by name, not by line.
+  ( cd "$1" && { find bin app runtime VERSION -name $'*\n*' -print0 2>/dev/null | tr '\n\0' ' \n' | sed 's/^/a name with a newline in it: /'
+                 find bin app runtime VERSION ! -type f ! -type d 2>/dev/null | sed 's/^/not a plain file: /'
                  find bin app runtime VERSION -type f 2>/dev/null | LC_ALL=C grep -vE '^((bin|app|runtime)/[A-Za-z0-9._/@+=,~%#()-]+|VERSION)$' | sed 's/^/name the manifest cannot carry: /'; } ) || true
 }
 _odd="$(kosmos_bundle_odd_names "$STAGE")"
