@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: codexleak-6362
-diff_hash: b95dd6e6493d2cbb85cabbcef4d7231b018f4d67cbf7adbe7c04b4ad8b9c166e
+diff_hash: 78b0485e9d84aa0cc00c51fead5fa6fe94c14345058b1bed554ac5f4ecb4784e
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T08:12:21Z
@@ -14,6 +14,7 @@ converged: true
 
 **Iterations:** 14
 **Converged:** Yes, at iteration 14 (NITs only; 30 runs of the new tests under heavy load, no red, nothing left behind)
+Rebased onto main after convergence (a conflict with #6448 in tools/windows-tests.js): one commit, code byte-identical to the reviewed head 5215bd967, windows-tests.js = main + this entry; the proof is rehashed and the validation re-run for the new hash.
 **Total findings:** 0 BLOCKERs, about 26 WARNINGs across iterations 1 to 13, all fixed; NITs mostly fixed
 **Fixed:** all WARNINGs | **Deferred:** 3 (below) | **Asked (awaiting user):** 0
 
