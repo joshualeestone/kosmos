@@ -217,7 +217,7 @@ test('#6492: a question row with a known start says it once: "<name>: Waiting fo
     const ask = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }] });
     assert.ok(ask.includes('<div class="why tsk-waiting tsk-waiting-who">' + name + ': Waiting for your answer for 3 hours.</div>'), ask);
     assert.doesNotMatch(ask, /Waiting on you/, 'the age line was said as well');
-    assert.equal((ask.match(/tsk-waiting/g) || []).length, 2, 'one line carrying both classes, not two lines: ' + ask);
+    assert.equal((ask.match(/<div class="why tsk-waiting/g) || []).length, 1, 'one waiting line, not two: ' + ask);
     assert.ok(row({ state: 'decision', waitingSince: '2026-10-12T15:59:58Z', waitingOn: [{ who: 'rex', reason: 'question' }] })
       .includes(name + ': Just started waiting for your answer.</div>'));
     // Two asks by the same agent name it once.

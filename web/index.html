@@ -65291,16 +65291,19 @@ function tskRow(t, at) {
      projects.needsYouReason), so the person does not try to flag it some other way. A missed run the person reviews names no agent itself
      (its repeat line says it); the filter keeps an older or odd entry with no agent out of the line too. */
   const whoWaits = t.state !== 'decision' || !Array.isArray(t.waitingOn) ? [] : t.waitingOn.filter((w) => w && w.who);
-  /* #6492 (Mona's 0.7.56 noise pass): when every reason is a question, "Waiting on you for N" and "Cleo: Waiting for
-     your answer." say the same thing twice, so the row shows one line with the name and the age:
-     "Cleo: Waiting for your answer for 24 seconds." It carries both classes (it is the age line and the who line).
-     Any other reason says something the age line does not and keeps both lines; so does a row with no known start. */
+  /* #6492 (Mona's 0.7.56 noise pass): "Waiting on you for N" and "Cleo: Waiting for your answer." said the same thing
+     twice, so a question row shows one line with the name and the age: "Cleo: Waiting for your answer for 24 seconds."
+     It carries both classes (it is the age line and the who line). Today the route sends an age only for question rows
+     (engine/tasks.js waitingSinceOf: every card NEEDS_YOU, whose reason is always 'question'), so this is the age
+     wording in practice; the #5942 two-line form below is kept only for an age beside another reason, which the
+     route does not send now. A row with no known start keeps the who line alone. */
   const askOnly = !!waitWords && whoWaits.length > 0 && whoWaits.every((w) => w.reason === 'question');
   const waitLine = !waitWords ? ''
     : askOnly
       ? '<div class="why tsk-waiting tsk-waiting-who">'
-        + esc(whoWaits.map((w) => tskAgentName(w.who)).filter((n, i, all) => all.indexOf(n) === i).join(', ')) + ': '
-        + (waitWords === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
+        + esc(whoWaits.filter((w, i, all) => all.findIndex((x) => x.who === w.who) === i).map((w) => tskAgentName(w.who)).join(', ')) + ': '
+        + (waitWords === 'just now' ? 'Just started waiting for your answer.'
+          : PJ_NEEDS_WHY.question[0].replace(/\.$/, '') + ' for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
         + '</div>'
       : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   const whoLine = !whoWaits.length || askOnly ? ''
