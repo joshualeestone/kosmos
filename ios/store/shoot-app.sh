@@ -6,7 +6,7 @@
 # store team (docs/browser-checks/mobile-shots.js --keep --data store), so no real account, agent or Mac appears.
 #
 # Two sizes, light and dark, the same four screens in store order:
-#   6.3/  iPhone 17          1206x2622  App Store Connect's REQUIRED iPhone size (Dynamic Island, medium display)
+#   6.3/  iPhone 17          1206x2622  meets App Store Connect's required display (Dynamic Island, medium; 1179x2556 also does)
 #   6.9/  iPhone 17 Pro Max  1320x2868  the large size; optional, shown on the biggest phones
 # filed as screenshots/<size>-<theme>/NN-name.png with no alpha channel. The status bar reads 9:41, full signal and
 # battery, as Apple's own pictures do.
@@ -140,17 +140,20 @@ for size, theme in sets:
         if im.size != want[size]:
             sys.exit(f'{size} {theme} {name} is {im.size}, not {want[size]}')
         im.convert('RGB').save(os.path.join(stage, f'{size}-{theme}', f'{i:02d}-{name}.png'), optimize=True)
-# Only once every shot was written: the committed sets are replaced as a whole, including the old light/ and dark/.
-for old in glob.glob(os.path.join(dest, '*', '*.png')):
-    os.remove(old)
-for d in glob.glob(os.path.join(dest, '*')):
-    if os.path.isdir(d) and not os.listdir(d):
-        os.rmdir(d)
+# Only once every shot was written, the committed sets are swapped as a whole: the new tree is built beside them
+# (same folder, so the swap is two renames), then old and new trade places. A run killed part way leaves either
+# the old set or the new one, never a half-filled set (between the two renames the old set is screenshots.old).
+import shutil
+new, old = dest + '.new', dest + '.old'
+for d in (new, old):
+    shutil.rmtree(d, ignore_errors=True)
+shutil.copytree(stage, new)
+if os.path.isdir(dest):
+    os.rename(dest, old)
+os.rename(new, dest)
+shutil.rmtree(old, ignore_errors=True)
 for size, theme in sets:
-    d = os.path.join(dest, f'{size}-{theme}')
-    os.makedirs(d, exist_ok=True)
-    for f in sorted(os.listdir(os.path.join(stage, f'{size}-{theme}'))):
-        os.replace(os.path.join(stage, f'{size}-{theme}', f), os.path.join(d, f))
-        print('filed', f'screenshots/{size}-{theme}/{f}', Image.open(os.path.join(d, f)).size)
+    for f in sorted(os.listdir(os.path.join(dest, f'{size}-{theme}'))):
+        print('filed', f'screenshots/{size}-{theme}/{f}', Image.open(os.path.join(dest, f'{size}-{theme}', f)).size)
 PY
 echo "VERDICT: PASS"

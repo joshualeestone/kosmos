@@ -3,11 +3,9 @@
 # sizes. This one still shows the board's phone layout in a desktop WebKit, and files into the folder you name
 # (or a new temp folder, printed), never into ios/store/screenshots/.
 #
-# Was: takes the iOS App Store screenshots (#718): the real board UI on a throwaway
-# board seeded with the clean store fleet (docs/browser-checks/mobile-shots.js
-# --data store), at the 6.9-inch iPhone size App Store Connect requires
-# (1320x2868), in WebKit, light and dark. Then drops the alpha channel (App
-# Store Connect rejects it) and files each shot as screenshots/<theme>/NN-name.png.
+# It shoots the board UI on a throwaway board seeded with the clean store fleet
+# (docs/browser-checks/mobile-shots.js --data store) at 1320x2868, in WebKit, light
+# and dark, drops the alpha channel, and files each shot as <out>/<theme>/NN-name.png.
 #
 # WebKit is an engine approximation of the iPhone app's web view, not the app.
 # It is a heavy run: pass the fleet heavy-run gate before starting it.

@@ -23,12 +23,20 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const { spawn } = require('node:child_process');
 
+const fs = require('node:fs');
 const PROXY = path.join(__dirname, 'ios', 'store', 'shots-proxy.js');
-const CHECKOUT = '/Users/someone/work/a-checkout';   // what the board writes, standing in for this checkout's path
+/* Stands in for the checkout the board runs from: its path is what the board writes into instructions, and its
+   web/ is what the product ships (one icon here). */
+const CHECKOUT = fs.mkdtempSync(path.join(os.tmpdir(), 'shots-proxy-'));
+fs.mkdirSync(path.join(CHECKOUT, 'web', 'icons'), { recursive: true });
+fs.writeFileSync(path.join(CHECKOUT, 'web', 'icons', 'kosmos-32.png'), 'png');
+const PNG = (res) => { res.writeHead(200, { 'content-type': 'image/png' }); res.end('png'); };
 
 const ROUTES = {
   '/api/status': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ connection: { state: 'none', plan: null }, agents: [{ name: 'Cleo' }] })); },
   '/api/agent/cleo/instructions': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: 'Run `' + CHECKOUT + '/install/kosmos task add` or read ' + CHECKOUT + '/web.' })); },
+  '/icons/kosmos-32.png': PNG,                 // a file the product ships
+  '/api/agent/cleo/avatar': PNG,                // a picture of someone: not a shipped file
   // A sibling folder whose name starts with the checkout's: not this checkout, so it must not be swapped.
   '/sibling': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: CHECKOUT + '-other/x' })); },
   '/leak': (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ where: os.homedir() + '/Documents' })); },
@@ -92,6 +100,15 @@ test('the checkout path becomes a made-up install path, and only that changes', 
   assert.equal(j.text, 'Run `/Users/you/.local/share/kosmos/bin/kosmos task add` or read /Users/you/.local/share/kosmos/app/web.');
   assert.ok(!r.body.includes(CHECKOUT));
   assert.equal(Number(r.headers['content-length']), Buffer.byteLength(r.body));
+});
+
+test('a picture passes only when it is a file the product ships', async () => {
+  const icon = await get('/icons/kosmos-32.png');
+  assert.equal(icon.status, 200);
+  assert.equal(icon.body, 'png');
+  const avatar = await get('/api/agent/cleo/avatar');
+  assert.equal(avatar.status, 502);
+  await logged(/^LEAK \/api\/agent\/cleo\/avatar: a picture or media file that is not one the product ships/m);
 });
 
 test('a sibling of the checkout is not swapped', async () => {
