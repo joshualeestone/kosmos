@@ -3117,6 +3117,13 @@ test('#5688: every member the Issue pill counts carries why, and the pill is exa
   const lrow = projects.list(looping).find((x) => x.id === p.id);
   assert.equal(lrow.agents.find((m) => m.sessionName === 'qq88').needsYouHere, 'question', 'CONTROL: still counted, as its question');
   assert.equal(lrow.summary.needsYouQuestions, 0, '#6483: a crash-looping agent\'s question made the project calm');
+  // #6483 review 2: and a question from an agent whose restart failed (the card's disruption.failed, red "failed restart").
+  const failed = roster.map((c) => (c.sessionName === 'qq88' ? { ...c, disruption: { failed: true } } : c));
+  const frow = projects.list(failed).find((x) => x.id === p.id);
+  const fq = frow.agents.find((m) => m.sessionName === 'qq88');
+  assert.equal(fq.restartFailed, true, 'CONTROL: the member carries the failed restart');
+  assert.equal(fq.needsYouHere, 'question', 'CONTROL: still counted, as its question');
+  assert.equal(frow.summary.needsYouQuestions, 0, '#6483: a failed restart\'s question made the project calm');
   // The same question names Why, not Elsewhere (#763): no reason there, and nothing counted.
   const other = projects.list(roster).find((x) => x.id === elsewhere.id);
   assert.equal(other.agents[0].needsYouHere, null);

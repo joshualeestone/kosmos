@@ -1085,9 +1085,9 @@ function describe(project, roster, all) {
          agent question here just as it does on the home card / list row / org node. WITHOUT this,
          a class-2 member arrives with `stateReportedBy` undefined, cardStOf stays 'attn', and the
          member keeps the red #2699 triangle in production -- the calm-card / red-project-view
-         split this branch exists to avoid. This is the RENDER carry, independent of the deferred
-         COUNT split: the project needsYou counts (the red pill) deliberately still include a
-         class-2 (see the plan), only the per-member render de-alarms. Null when untied. */
+         split this branch exists to avoid. This is the RENDER carry. The project's needsYou count
+         still includes a class-2; #6483 added summary.needsYouQuestions, so the project PILL is a
+         calm Question when every needs-you member is one. Null when untied. */
       stateReportedBy: (card && card.isNamedOurs) ? (card.stateReportedBy || null) : null,
       awaitingApproval: Boolean(card && card.isNamedOurs && card.awaitingApproval === true),   // #6091, same gate
       // The face, gated on tied like every other card-read here: a

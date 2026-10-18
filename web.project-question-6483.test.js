@@ -57,6 +57,12 @@ test('#6483: any other reason, alone or beside a question, keeps the red Issue',
   }
 });
 
+test('#6483: nothing needing the person is never a Question (an idle or working project, or an empty summary)', () => {
+  assert.equal(pjPillOf(proj({ needsYou: 0, needsYouQuestions: 0, working: 1 }), false).label, 'Working');
+  assert.notEqual(pjPillOf(proj({ needsYou: 0, needsYouQuestions: 0 }), false).label, 'Question');
+  assert.notEqual(pjPillOf(proj({}), false).label, 'Question', 'an empty summary matched 0 === 0 or undefined === undefined');
+});
+
 test('#6483: an older board with no needsYouQuestions keeps Issue (it cannot tell a question from a problem)', () => {
   const pill = pjPillOf(proj({ needsYou: 1 }), false);
   assert.equal(pill.label, 'Issue');

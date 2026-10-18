@@ -26,9 +26,11 @@ The Projects tab count, the "N Issue" tile and the card's red number still count
 ## Checks
 - `web.project-question-6483.test.js` (7): Question for question-only; Issue for mixed, non-question, and an older
   summary; no claim when the roster is unreadable; the notice names one agent once, keeps names for two (CONTROL) and
-  for an "also" row. Mutation: reverting either fix fails exactly its tests.
+  for an "also" row; nothing needing the person (idle, working, an empty summary) is never a Question. Mutation:
+  reverting the pill branch or the notice change fails exactly their tests.
 - `engine/projects.test.js`: needsYouQuestions is 1 for an agent's question; 1 of 2 beside a technical (auto) prompt on
-  the same project; 0 for a given-up connection and a trust wait; 0 for a question from a crash-looping agent. Mutation:
-  removing the by-agent check or the crash-loop check fails exactly its assertion.
+  the same project; 0 for a given-up connection and a trust wait; 0 for a question from a crash-looping agent or one
+  whose restart failed. Mutation: removing the by-agent check or the crash-loop check fails exactly its assertion
+  (measured); so does removing the failed-restart guard, or the pill's needsYou guard (both measured in review 2).
 - `docs/browser-checks/render-projects-badges-4730.js`: a question-only project draws Question with "?" and no red
   card, beside a red Issue CONTROL, in grid and list.
