@@ -68307,8 +68307,9 @@ function paintOneProject() {
       crumbEl.innerHTML = '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
     }
     /* #6480: a top-level project's only crumb is its own name, which the heading says just below, so today's look
-       hides it (CSS .pj-crumb-only) and keeps the back chevron, except on an upright tablet (body.pj-tasks-top). The new look keeps it: there the crumb IS the visible
-       title ("Projects / Name") and #pj-one-name is visually hidden. */
+       hides it (CSS .pj-crumb-only) and keeps the back chevron, except on an upright tablet (body.pj-tasks-top). The
+       new look keeps it: there the crumb IS the visible title ("Projects / Name") and #pj-one-name is visually hidden.
+       A sub-project whose parent is not loaded or named counts as top-level here: its crumb was its own name too. */
     crumbEl.classList.toggle('pj-crumb-only', !ancNodes.length);
   }
   /* #2928: name the back chevron's live target so a screen-reader user hears where it
