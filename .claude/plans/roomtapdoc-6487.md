@@ -6,8 +6,9 @@ room (coordinator sw.js tapUrlForRoom; "Only the posted kind reads it"). The iPh
 project id and ios/Kosmos/PushBridgeLogic.swift has no project handling, so an iPhone tap still opens the agent.
 
 ## Change
-The tap paragraph: a project post's tap opens the room on Android and the browser once a coordinator with that code is
-deployed; on iPhone it still opens the agent. The Android sign-in hop now says it opens "the page" (agent or room).
+The tap paragraph: a project post's tap opens the room only in a browser without the Android app, once a coordinator
+with that code is deployed (the app's sign-in step, frontDoorUrl, carries only the agent and takes priority, per the
+sw.js comment "room routing in the app is a follow-up"); the iPhone still opens the agent (no project id in its payload).
 
 ## Decided
 State the deploy condition rather than claim the deploy state, which was not measured.
