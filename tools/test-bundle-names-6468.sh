@@ -27,6 +27,18 @@ two.js"
 out="$(kosmos_bundle_odd_names "$d")"
 [ -n "$out" ] && pass "a name with a newline in it is refused" || bad "newline name passed"
 
+# Round 6: a newline in a FOLDER name whose every piece looks plain ("app/x" and "app/b.js").
+d="$(tree)"; mkdir -p "$d/app/x
+app"; : > "$d/app/x
+app/b.js"
+out="$(kosmos_bundle_odd_names "$d")"
+printf '%s\n' "$out" | grep -q 'a name with a newline in it' && pass "a newline in a folder name whose pieces look plain is refused" || bad "newline folder passed: [$out]"
+
+out="$(kosmos_bundle_odd_names "$T/no-such-stage")"
+[ -n "$out" ] && pass "a missing stage is an offender, not a clean tree" || bad "missing stage read as clean"
+d="$(tree)"; rm -rf "$d/runtime"; out="$(kosmos_bundle_odd_names "$d")"
+printf '%s\n' "$out" | grep -q 'missing: runtime' && pass "a missing part is an offender" || bad "missing part: [$out]"
+
 d="$(tree)"; ln -s /etc/hosts "$d/app/link"
 out="$(kosmos_bundle_odd_names "$d")"
 printf '%s\n' "$out" | grep -q 'not a plain file: app/link' && pass "a symlink is refused" || bad "symlink: $out"
