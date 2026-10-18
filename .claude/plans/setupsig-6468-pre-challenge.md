@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: setupsig-6468
-diff_hash: 7ede4716322d97bc3f72bd8bc3720ff9cbb8360cc983c8ccb9541e9856a80766
+diff_hash: 0a329a96f5bc67dd6bc7067bbe4617d8c4a49ab6da77b8fbf74442b256f60b75
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T11:30:55Z
@@ -35,3 +35,5 @@ Validation after rebasing onto origin/manifestsig-6468: install.setup-sig-6468 (
 Post-convergence change 06:45 (from the #6473/#6474 reviews): refusal messages say "Kosmos:" not "kosmos update:" (the .pkg runs it too), and verifySetup reads setup_sha256 from the manifest bytes the signature covered (verify now hands them back) instead of re-reading the file. 54/54 across the three manifest suites.
 
 Post-convergence change 06:52 (from the #6474 review): run-setup returns 96 for a failed download (retryable) and 97 for a refusal; the board words 96 as "could not be downloaded"; the run-setup command line is marked frozen (shipped .pkgs call newer installed copies). 51/51.
+
+Rebased 07:24 onto main after #6472 merged (clean, 8 commits). Revalidated: the 205 test files reading the touched files, 3926 pass, 14 fail, all 14 the environmental set that fails identically on a clean main in this shell; the four ask suites 81/81; installer runnable-guard 0 failures. Rehashed against origin/main.
