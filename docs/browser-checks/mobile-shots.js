@@ -1228,6 +1228,15 @@ const SCREENS = [
      fixture project, one under a new Book B) and a long grandchild, each with a task; made ONCE per run through the
      board's own API and reused by every size and theme. tasks-subprojects groups by project with nothing picked;
      tasks-subproject-picked picks the long grandchild, so the closed select, crumb and title show it. */
+  /* #6492: the Tasks view scrolled to the row waiting on the person (on a phone the tiles fill the first screen), so
+     its waiting line is in the shot. Needs a decision row, as --data marketing has (Cleo's ask). */
+  { name: 'tasks-decision', owner: 'PigeonPete', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { const r = document.querySelector('#tsk-groups .tsk-row .tsk-waiting.tsk-waiting-who').closest('.tsk-row'); r.scrollIntoView({ block: 'center' }); });
+    await page.waitForTimeout(300);
+  } },
   /* #6480: a sub-project's page, where the trail above the heading ("Parent / Launch") still shows; the control for
      project-head, where a top-level project's lone crumb is hidden in today's look. */
   { name: 'subproject-head', owner: 'PigeonPete', go: async (page, data) => {

@@ -65307,13 +65307,26 @@ function tskRow(t, at) {
      dropped for "for". When the route sends no start (nothing knows it), the row shows no age. */
   const waitWords = t.state === 'decision' && typeof t.waitingSince === 'string'
     ? agoWords(Date.now() - Date.parse(t.waitingSince)) : '';
-  const waitLine = !waitWords ? ''
-    : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   /* #6157: WHO put it here and why, in the project page's words for the same reason (PJ_NEEDS_WHY, the codes from
      projects.needsYouReason), so the person does not try to flag it some other way. A missed run the person reviews names no agent itself
      (its repeat line says it); the filter keeps an older or odd entry with no agent out of the line too. */
   const whoWaits = t.state !== 'decision' || !Array.isArray(t.waitingOn) ? [] : t.waitingOn.filter((w) => w && w.who);
-  const whoLine = !whoWaits.length ? ''
+  /* #6492 (Mona's 0.7.56 noise pass): "Waiting on you for N" and "Cleo: Waiting for your answer." said the same thing
+     twice, so a question row shows one line with the name and the age: "Cleo: Waiting for your answer for 24 seconds."
+     It carries both classes (it is the age line and the who line). Today the route sends an age only for question rows
+     (engine/tasks.js waitingSinceOf: every card NEEDS_YOU, whose reason is always 'question'), so this is the age
+     wording in practice; the #5942 two-line form below is kept only for an age beside another reason, which the
+     route does not send now. A row with no known start keeps the who line alone. */
+  const askOnly = !!waitWords && whoWaits.length > 0 && whoWaits.every((w) => w.reason === 'question');
+  const waitLine = !waitWords ? ''
+    : askOnly
+      ? '<div class="why tsk-waiting tsk-waiting-who">'
+        + esc(whoWaits.filter((w, i, all) => all.findIndex((x) => x.who === w.who) === i).map((w) => tskAgentName(w.who)).join(', ')) + ': '
+        + (waitWords === 'just now' ? 'Just started waiting for your answer.'
+          : PJ_NEEDS_WHY.question[0].replace(/\.$/, '') + ' for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
+        + '</div>'
+      : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
+  const whoLine = !whoWaits.length || askOnly ? ''
     : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
   /* #3951: a built row says who marked it and what is left, the agent's own words. */
   /* On any marked open task, not only in the Built group (review round 5: a built task whose agent needs the person
