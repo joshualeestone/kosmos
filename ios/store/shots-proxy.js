@@ -82,8 +82,11 @@ const server = http.createServer((req, res) => {
     if (!res.headersSent) { res.writeHead(502); res.end(); } else res.destroy();
   };
   req.on('error', () => { /* the app went away mid-request: nothing to answer */ });
-  const up = http.request({ host: board.hostname, port: board.port, method: req.method, path: req.url, headers }, (r) => {
-    r.on('error', () => broke('the answer broke off'));
+  // A fresh connection for every request (agent: false). Node's default agent keeps connections alive and reuses
+  // them, and a poll sent just as the board closes an idle one (its 5s keep-alive timeout) is reset: measured
+  // 2026-10-18, ECONNRESET on /api/status and a room thread, which would fail the whole run.
+  const up = http.request({ host: board.hostname, port: board.port, method: req.method, path: req.url, headers, agent: false }, (r) => {
+    r.on('error', (e) => broke('the answer broke off (' + (e.code || e.message) + ')'));
     const out = { ...r.headers };
     if (typeof out.location === 'string' && out.location.startsWith(board.origin)) out.location = ours + out.location.slice(board.origin.length);
     const type = String(r.headers['content-type'] || '');
@@ -125,7 +128,7 @@ const server = http.createServer((req, res) => {
       res.end(body);
     });
   });
-  up.on('error', () => broke('the board did not answer'));
+  up.on('error', (e) => broke('the board did not answer (' + (e.code || e.message) + ')'));
   req.pipe(up);
 });
 server.listen(0, host, () => { ours = `http://${host}:${server.address().port}`; console.log('listening ' + ours); });

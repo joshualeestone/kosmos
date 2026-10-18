@@ -47,6 +47,12 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   pushes live), ios/README.md, mobile-shots.js's pointer.
 
 ## Decided
+- **A fresh connection to the board for every request (agent: false).** Three runs in a row failed closed on
+  UPSTREAM after three had passed; logging the error code showed ECONNRESET on the proxy's request to the board
+  (/api/status twice, a room thread once): Node's default agent reuses keep-alive connections, and a poll sent as
+  the board closes an idle one (Node's 5s default, the board sets none) is reset. Two probes that tried to force it
+  did not reproduce it; the fixed proxy then passed two runs in a row. Weakest premise: two passes against a race,
+  not a proof; the run still fails closed if it returns.
 - **Any process on this Mac passes the proxy, and that is accepted:** it grants nothing new, since such a process
   can already reach the throwaway board itself at its loopback address. Other machines are refused. One residual is
   NOT covered by that reasoning: a web page open in a browser on this Mac could reach the proxy during the run,
