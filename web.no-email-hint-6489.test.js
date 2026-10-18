@@ -20,5 +20,6 @@ test('#6489: the phone hint does not promise an email', () => {
 });
 
 test('#6489 control: the rest of the phone hint is still there', () => {
-  assert.match(page, /Kosmos\+ is told the agent's name, its project and the time, never what they said\. Turn this on, then choose below what buzzes your phone\.<\/p>/);
+  // #6488: the hint now says it is on by default once connected.
+  assert.match(page, /Kosmos\+ is told the agent's name, its project and the time, never what they said\. It is on once this computer is connected to Kosmos\+, unless you turn it off\. While it is on, choose below what buzzes your phone\.<\/p>/);
 });
