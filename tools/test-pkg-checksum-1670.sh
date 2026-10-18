@@ -207,6 +207,12 @@ rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
 if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5j: a truncated verifier keeps the checksum path"
 else fail "ARM 5j: a truncated verifier must keep the checksum path (rc=$rc): $out"; fi
 cp "$T/mv.real" "$K/app/engine/manifest-verify.js"
+# ARM 5k (review 5): valid JSON whose version is not x.y.z keeps the checksum path (the regex, not only the parse).
+mv "$K/app/package.json" "$K/app/package.json.real"; printf '{"name":"kosmos","version":"1.2"}\n' > "$K/app/package.json"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 0 ] && [ "$(cat "$T/RANS" 2>/dev/null)" = x ] && [ ! -e "$HO" ]; then pass "ARM 5k: a version that is not x.y.z keeps the checksum path"
+else fail "ARM 5k: a non x.y.z version must keep the checksum path (rc=$rc): $out"; fi
+mv "$K/app/package.json.real" "$K/app/package.json"
 # ARM 5f: an installed version that will not READ keeps the checksum path too.
 mv "$K/app/package.json" "$K/app/package.json.real"; printf '{\n' > "$K/app/package.json"
 rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
