@@ -214,8 +214,15 @@ if [ "$FAMILY" = mac ]; then
       || { echo "promote-channel: $MANIFEST.sig does not verify under a pinned key - refusing; every checking install would refuse this update (#6468)" >&2; exit 1; }
   else
     _prod_manifest="$(sed -n 's/.*"manifest"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SITE/dist/$PROD_NAME" 2>/dev/null | head -1)" || _prod_manifest=""
-    if [ -n "$_prod_manifest" ] && [ -f "$SITE/dist/$_prod_manifest" ] && node "$_sign_js" needs-sig "$SITE/dist/$_prod_manifest"; then
-      echo "promote-channel: $MANIFEST has no .sig, and the release prod serves now ($_prod_manifest) checks signatures - refusing; its installs would refuse this update (#6468)" >&2; exit 1
+    if [ -n "$_prod_manifest" ]; then
+      # A prod pointer that names a manifest promote cannot read is "cannot tell", which refuses: reading it as "prod
+      # does not check signatures" would strand every install that does.
+      _ns=0; [ -f "$SITE/dist/$_prod_manifest" ] && { node "$_sign_js" needs-sig "$SITE/dist/$_prod_manifest" || _ns=$?; } || _ns=2
+      case "$_ns" in
+        1) : ;;
+        0) echo "promote-channel: $MANIFEST has no .sig, and the release prod serves now ($_prod_manifest) checks signatures - refusing; its installs would refuse this update (#6468)" >&2; exit 1 ;;
+        *) echo "promote-channel: $MANIFEST has no .sig, and prod's current manifest ($_prod_manifest) cannot be read to tell whether its installs check signatures - refusing (#6468)" >&2; exit 1 ;;
+      esac
     fi
   fi
 

@@ -44,9 +44,13 @@ function main(argv) {
     console.error('the manifest signature is missing or does not verify under a pinned key'); return 1;
   }
   if (verb === 'needs-sig') {
-    const m = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-    return Array.isArray(m.files) && m.files.some((f) => f.path === 'app/engine/manifest-verify.js') ? 0 : 1;
+    // 0 yes, 1 no, 2 cannot tell (unreadable): promote refuses on 2 rather than read it as "no".
+    let m;
+    try { m = JSON.parse(fs.readFileSync(keyPath, 'utf8')); } catch { console.error('could not read ' + keyPath); return 2; }
+    if (!Array.isArray(m.files)) { console.error(keyPath + ' lists no files'); return 2; }
+    return m.files.some((f) => f && f.path === 'app/engine/manifest-verify.js') ? 0 : 1;
   }
+  if (!['check', 'sign'].includes(verb)) { console.error('usage: manifest-sign.js check|sign|verify|needs-sig ...'); return 2; }
   const key = load(keyPath);
   if (!pinned(key)) {
     console.error('the manifest-signing key is not one engine/manifest-verify.js pins, so installs would refuse this release');

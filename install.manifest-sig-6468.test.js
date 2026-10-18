@@ -111,11 +111,11 @@ test('no pinned key: exit 3 (nothing to check against)', () => {
 
 /** An installed home as a real build leaves it: VERSION in the build's own three-line shape, the version in
  *  app/package.json, and the verifier with its pinned key list rewritten to the throwaway key. */
-function installedHome(version) {
+function installedHome(version, keys = [PUB]) {
   const home = fs.mkdtempSync(path.join(tmp, 'home-'));
   fs.mkdirSync(path.join(home, 'app', 'engine'), { recursive: true });
   fs.mkdirSync(path.join(home, 'runtime', 'bin'), { recursive: true });
-  const pinned = VERIFIER.replace(/const KEYS = \[[\s\S]*?\];/, `const KEYS = [${JSON.stringify(PUB)}];`);
+  const pinned = VERIFIER.replace(/const KEYS = \[[\s\S]*?\];/, `const KEYS = ${JSON.stringify(keys)};`);
   assert.notEqual(pinned, VERIFIER, 'the KEYS list moved; this fixture cannot pin its key');
   fs.writeFileSync(path.join(home, 'app', 'engine', 'manifest-verify.js'), pinned);
   fs.writeFileSync(path.join(home, 'app', 'package.json'), JSON.stringify({ name: 'kosmos', version }, null, 2) + '\n');
@@ -126,7 +126,7 @@ function installedHome(version) {
 /** Runs the real update_manifest_ok for the given phases in ONE shell (they share _UM_DIR), as install_kosmos does. */
 function setupCheck(r, home, target, phases = ['pre', 'post'], env = {}) {
   const calls = phases.map((ph) => `update_manifest_ok ${ph} "$1" "$2" || { echo "refused at ${ph}"; exit 1; }`);
-  const script = ['set -eu', 'info() { printf "%s\\n" "$*"; }', '_UM_DIR=""', fnSource('update_manifest_ok'),
+  const script = ['set -eu', 'info() { printf "%s\\n" "$*"; }', '_UM_DIR=""', '_UM_NOKEY=""', fnSource('update_manifest_ok'),
     ...calls, 'printf "leftover=%s\\n" "$_UM_DIR"'].join('\n');
   const e = { ...process.env, KOSMOS_RELEASE_BASE: 'file://' + r.dir, ARCH: 'arm64', TARGET_VERSION: target, TMPDIR: tmp, ...env };
   const p = spawnSync('/bin/sh', ['-c', script, 'sh', r.stage, home], { encoding: 'utf8', env: e });
@@ -195,6 +195,13 @@ test('installer: NODE_OPTIONS from the environment does not reach the verifier',
   assert.equal(fs.existsSync(marker), false);
 });
 
+test('installer: an install that pins no key is not checked, through BOTH phases, and says so', () => {
+  const r = setupCheck(release('1.2.3'), installedHome('1.2.0', []), '1.2.3');
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /no release signing key is pinned/);
+  assert.match(r.out, /leftover=\n/);
+});
+
 test('installer: a missing .sig is refused, not skipped', () => {
   const rel = release('1.2.3');
   fs.rmSync(rel.sig);
@@ -252,4 +259,8 @@ test('release: needs-sig is yes only for a release that ships the verifier', () 
   const rel = release('1.2.3', { files: { 'app/engine/manifest-verify.js': 'x', VERSION: '1.2.3\n' } });
   assert.equal(signRun('needs-sig', rel.manifest).status, 0);
   assert.equal(signRun('needs-sig', release('1.2.3').manifest).status, 1);
+  const bad = path.join(tmp, 'bad-manifest.json');
+  fs.writeFileSync(bad, '{');
+  assert.equal(signRun('needs-sig', bad).status, 2, 'an unreadable manifest is "cannot tell", not "no"');
+  assert.equal(signRun('needs-sig', path.join(tmp, 'absent.json')).status, 2);
 });
