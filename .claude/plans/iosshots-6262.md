@@ -26,8 +26,9 @@ can fail on a set at the wrong size; the README and listing draft say what is tr
   notification permission. Nothing changes in any other build.
 - `ios/store/shots-proxy.js`: gives the app a non-loopback address for the throwaway board (so the phone layout),
   says the Claude subscription is connected in /api/status (as mobile-shots.js does in the page for the store
-  set), and is the leak guard for this path (lib-leak-guard.js on every text answer, the page included; only image,
-  font, audio and video pass unread; a hit, an encoded body or a stream is refused and the run files nothing).
+  set), and is the leak guard for this path (lib-leak-guard.js on every text answer, the page included, in its
+  decoded forms too; a non-text answer passes only empty or at the path of a shipped file; a hit, an encoded body
+  or a stream is refused and the run files nothing).
 - The proxy's leak guard fired on the first full run: every agent's instructions name the `kosmos` command by
   this checkout's path (`<checkout>/install/kosmos`), which holds the Mac's user name. Not on any of the four
   screens, but refused, so nothing was filed. Now the proxy swaps that path for the installed path of a made-up
