@@ -3185,6 +3185,14 @@ cmd_connect() {
     exit 1
   fi
   local _bt; _bt="$(board_token || true)"
+  # kosmos#6464: the service key travels in the BODY, so the board proof (keyed on the board token) is what keeps it
+  # from whatever else listens on the board's address. With no board token there is nothing to prove with: refuse,
+  # rather than send a secret unproven. Only where the proof can run (the installed layout), as kosmos_board_proven.
+  if [ -z "$_bt" ] && kosmos_proof_runnable; then
+    rm -f "$tmp"; trap - INT TERM HUP
+    say "This computer could not read its board token, so it cannot check that Kosmos is what answers. Nothing was sent. Start Kosmos (or wait for it to finish starting) and try again."
+    exit 1
+  fi
   local body rc=0
   _out="$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-connect-answer.XXXXXX")" || { rm -f "$tmp"; trap - INT TERM HUP; say "We could not make a private file for the answer, so nothing was sent."; exit 1; }
   _stopd="$(mktemp -d "${TMPDIR:-/tmp}/kosmos-connect-stop.XXXXXX")" || _stopd=""
