@@ -713,6 +713,25 @@
       "rank": 4,
       "since": "0.7.55",
       "status": "pending"
+    },
+    {
+      "title": "A way back to this computer",
+      "line": "In the Kosmos app, View, Back to This Computer (Command Shift H) returns the window here after you open another computer.",
+      "icon": "phone",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 2.6,
+      "since": "0.7.57",
+      "status": "pending"
+    },
+    {
+      "title": "Joining says why it waits",
+      "line": "A computer joining your Kosmos+ account now says, after a minute, that your other computer adds one computer at a time.",
+      "icon": "shield",
+      "rank": 2.8,
+      "since": "0.7.57",
+      "status": "pending"
     }
   ]
 }
