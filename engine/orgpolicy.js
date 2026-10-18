@@ -254,6 +254,16 @@ function allows({ provider, model } = {}, policy = inForce()) {
    neither says "company". */
 const POLICY_SETTER = 'the policy set for this Kosmos';
 
+/** kosmos#6367: whether the company requires this computer to report to it (`telemetry: { required: true }`). Only
+ *  a policy that says exactly true requires it; no policy, the key unset, or anything unreadable does not. It is said,
+ *  not enforced here: a work Kosmos has no switch that turns reports off, so what the policy changes is what the person
+ *  is told before they remove this computer from Kosmos+ (which stops its reports) and what the admin sees. */
+function reportingRequired(policy) {
+  let p = policy;
+  if (p === undefined) { try { p = current(); } catch { return false; } }
+  return !!(p && typeof p === 'object' && p.telemetry && typeof p.telemetry === 'object' && p.telemetry.required === true);
+}
+
 /** kosmos#6239: whether agents may reach anyone outside this computer (the Kosmos community, federation, rooms shared
  *  with another computer). Stopped only by `outside_contact: { enabled: false }`; no policy, or the key unset, allows. */
 function contactAllows(policy = currentStrict()) {
@@ -400,4 +410,4 @@ function restore(snap) {
   }
 }
 
-module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };
+module.exports = { refresh, current, appliedNow, inForce, allows, providerName, contactAllows, reportingRequired, quietAt, quietAllows, currentStrict, capShapeOk, monthStart, capAt, capAllows, capSentence, clear, appliedOrg, bundleOrg, snapshot, restore, TYP, BUNDLE, PINNED, APPLIED };

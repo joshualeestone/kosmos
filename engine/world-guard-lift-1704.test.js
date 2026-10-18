@@ -138,10 +138,10 @@ function winWorld({ taskExists = true, onRun = null, onCreate = null } = {}) {
   });
   win32stop.setLive(() => new Map());   // nothing live under any name: the end state
   /* #3431: the win32 restart 'loaded' check now polls the supervisor's liveness marker
-     (win32job.running -> win32streamstate.liveIdentity), the way the Mac's launchctl-print
+     (win32job.runningSteps -> win32streamstate.liveIdentity), the way the Mac's launchctl-print
      check works. Model a supervisor that genuinely comes up: a live pid (this process, so the
      real pidAlive passes) and a fresh sessionId on each read, so the post-restart identity
-     differs from the pre-restart baseline and running() accepts on the first poll with no wait.
+     differs from the pre-restart baseline and runningSteps accepts on the first poll with no wait.
      setRunner above cleared this seam, so it is set here, after it. */
   let live = 0;
   win32job.setLiveness(() => ({ pid: process.pid, sessionId: 'live-' + (++live) }));

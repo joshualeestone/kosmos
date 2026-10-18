@@ -146,6 +146,18 @@ function start(body, deps) {
     if (typeof deps.readAccount !== 'function') return { ok: false };
     try { return { ok: true, dir: deps.readAccount(name) }; } catch { return { ok: false }; }
   };
+  /* #6231 item 8: the `to` read used to be a second readNow(name) right after setAccount, which
+     busts the task-spec cache, so it forced one uncached schtasks /Query per agent. setAccount now
+     reports the configDir it actually wrote, and the job reads that back as `job.configDir || null`,
+     so cache that directly. It matches readAccount for EVERY runner, including a Codex default with
+     CODEX_HOME in force, which writes a concrete dir rather than null (where an `isDefault ? null`
+     shortcut would diverge and make the put-back clobber guard misfire). Fall back to a live read
+     when a write did not report configDir, so correctness never depends on every setAccount path
+     having been updated: an unreported path simply keeps the old live read, not a wrong value. */
+  const savedTo = (wrote, name) => {
+    if (wrote && 'configDir' in wrote) return { ok: true, dir: wrote.configDir || null };
+    return readNow(name);
+  };
   for (const name of names) {
     /* #6190: an agent a restart still holds is refused before its account is written, not after (the write used to land
        and only its restart was refused). The move's own hold comes after this loop, so this sees only earlier holds. */
@@ -166,7 +178,7 @@ function start(body, deps) {
       continue;
     }
     try { deps.forget(name); } catch { /* #5959: a move keeps the name, not its sighting */ }
-    m.agents.push({ name, outcome: 'pending', wrote, account: wrote.account, from, to: readNow(name) });
+    m.agents.push({ name, outcome: 'pending', wrote, account: wrote.account, from, to: savedTo(wrote, name) });
   }
   moves.set(m.id, m);
   prune(Date.now());

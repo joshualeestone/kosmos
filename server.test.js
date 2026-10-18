@@ -11686,6 +11686,87 @@ test('kosmos#4794 (review): confirming a code and allowing a device are screen-o
   }
 });
 
+test('kosmos#6406: a ticket to open another computer is only for this computer\'s own screen, never through Kosmos+', async () => {
+  // The app's page: a browser's header and this board's own loopback Origin (Node's fetch sends no Origin itself).
+  const page = { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base };
+  const body = JSON.stringify({ address: 'tmnt.kosmosplus.com' });
+  for (const [what, headers, extra] of [
+    ['a process', { 'content-type': 'application/json' }, {}],
+    ['an agent token', { ...page, 'x-kosmos-agent-token': 'f'.repeat(64) }, {}],
+    ['an agent token in the body', page, { token: 'f'.repeat(64) }],
+    ['a phone through Kosmos+', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com', 'x-forwarded-for': '203.0.113.9' }, {}],
+    ['through Kosmos+, host only', { ...page, 'x-forwarded-host': 'laptop.kosmosplus.com' }, {}],
+    ['through Kosmos+, for only (the webhook path sets only this one)', { ...page, 'x-forwarded-for': '203.0.113.9' }, {}],
+  ]) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers, body: JSON.stringify({ address: 'tmnt.kosmosplus.com', ...extra }) });
+    assert.equal(r.status, 403, what + ' got a ticket: ' + r.body);
+    assert.match(JSON.parse(r.body).error, /Only the Kosmos app on this computer can open another computer directly/, what);
+  }
+  /* Review 4: "on this computer" is positive (loopback Host AND Origin, nothing forwarded), so a reverse proxy of the
+     person's own (AGENT_WORKFORCE_ALLOWED_HOSTS) that adds no header, or rewrites Host to loopback, still fails. */
+  const { madeOnThisComputer } = require('./server');
+  const here = { host: '127.0.0.1:16180', origin: 'http://127.0.0.1:16180' };
+  assert.equal(madeOnThisComputer(here), true, 'the app window on this computer');
+  assert.equal(madeOnThisComputer({ host: 'localhost:16180', origin: 'http://localhost:16180' }), true);
+  for (const [what, h] of [
+    ['a proxy name, no forwarded header', { host: 'board.example.com', origin: 'https://board.example.com' }],
+    ['a proxy that rewrites Host to loopback', { host: '127.0.0.1:16180', origin: 'https://board.example.com' }],
+    ['no Origin', { host: '127.0.0.1:16180' }],
+    ['no Host', { origin: 'http://127.0.0.1:16180' }],
+    ['x-forwarded-for', { ...here, 'x-forwarded-for': '203.0.113.9' }],
+    ['x-forwarded-host', { ...here, 'x-forwarded-host': 'laptop.kosmosplus.com' }],
+    ['Forwarded', { ...here, forwarded: 'for=203.0.113.9' }],
+    ['a look-alike name', { host: '127.0.0.1.evil.example', origin: 'http://127.0.0.1.evil.example' }],
+  ]) assert.equal(madeOnThisComputer(h), false, what);
+  /* Review 6: and the socket. The same headers from a socket elsewhere on the network are refused. */
+  const { ticketCallerHere } = require('./server');
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: here }), true);
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '::ffff:127.0.0.1' }, headers: here }), true);
+  for (const peer of ['192.168.1.20', '10.0.0.5', undefined]) {
+    assert.equal(ticketCallerHere({ socket: { remoteAddress: peer }, headers: here }), false, String(peer));
+  }
+  assert.equal(ticketCallerHere({ socket: { remoteAddress: '127.0.0.1' }, headers: { ...here, 'x-forwarded-for': '1.2.3.4' } }), false);
+  /* Review 7: and the route uses that rule (the test server's socket is always loopback, so this is read from the
+     route's own source). */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const at = src.indexOf("pathname === '/api/remote/open-ticket'");
+  assert.ok(at > 0, 'the route moved');
+  assert.match(src.slice(at, at + 1200), /if \(!ticketCallerHere\(req\) \|\| !boardCookieHere\(req\) \|\| !isViaScreen\(req, body\)\)/);
+  /* Review 8: on a board that enforces its token, the board COOKIE is required (Kosmos+ strips it and sends the token
+     as a header instead); a header alone is refused, and a board that enforces nothing does not ask. */
+  const { boardCookieHere } = require('./server');
+  const on = { on: true, token: 't' };
+  const good = () => true;
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, good), true, 'the app window');
+  assert.equal(boardCookieHere({ headers: { 'x-kosmos-board-token': 't' } }, on, good), false, 'a header alone (Kosmos+)');
+  assert.equal(boardCookieHere({ headers: {} }, on, good), false, 'nothing');
+  assert.equal(boardCookieHere({ headers: { cookie: 'kosmos_board=t' } }, on, () => false), false, 'a cookie that does not match');
+  assert.equal(boardCookieHere({ headers: {} }, { on: false, token: null }, good), true, 'a board that enforces nothing');
+  /* #6358: with the real gate, the cookie is a session and the gate falls back to a header or query token, so the cookie
+     is judged on its own: a live session counts; a made-up cookie beside a valid header or ?token= does not. */
+  const ba = require('./engine/boardauth');
+  const realGate = (r) => ba.tokenOk({ token: 't', req: r });
+  const sid = ba.mintSession('t');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=' + sid } }, on, realGate), true, 'a live session cookie');
+  assert.equal(boardCookieHere({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }, on, realGate), false, 'a made-up cookie beside a valid header');
+  assert.equal(boardCookieHere({ url: '/?token=t', headers: { cookie: 'kosmos_board=made-up' } }, on, realGate), false, 'a made-up cookie beside a valid ?token=');
+  assert.equal(realGate({ url: '/', headers: { cookie: 'kosmos_board=made-up', 'x-kosmos-board-token': 't' } }), true, 'CONTROL: the gate itself takes that header, so only the cookie-alone judging refuses it');
+  /* Review 10: a page on another local port is refused too (the global cross-site guard compares the port). */
+  const otherPort = await req('/api/remote/open-ticket', { method: 'POST', headers: { ...page, origin: 'http://127.0.0.1:3000' }, body });
+  assert.equal(otherPort.status, 403, 'another local port got through: ' + otherPort.body);
+  /* An address no computer of the account can have is refused before the tunnel. */
+  for (const address of ['evil.example', '', 'tmnt.kosmosplus.com/x', '../x']) {
+    const r = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body: JSON.stringify({ address }) });
+    assert.equal(r.status, 400, address + ': ' + r.body);
+    assert.match(JSON.parse(r.body).error, /not the address of one of your computers/, address);
+  }
+  /* CONTROL: the page on this computer reaches openTicket's own gate (this board is not enrolled), so the refusals above
+     are the guards and not the whole route. */
+  const ok = await req('/api/remote/open-ticket', { method: 'POST', headers: page, body });
+  assert.equal(ok.status, 400, ok.body);
+  assert.match(JSON.parse(ok.body).error, /finish the Plus sign-up first/);
+});
+
 test('the Allow seam (#567): pending is honest-empty off the switch, and the verbs refuse a bad id in words', async () => {
   const pending = JSON.parse((await req('/api/remote/pending')).body);
   assert.deepEqual(pending.devices, [], 'a board with Plus off has something waiting');

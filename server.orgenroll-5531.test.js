@@ -76,7 +76,7 @@ test('#5531: from the screen, a decline sends nothing and records nothing; a pre
 
 test('#5531: GET /api/org reports this world\'s own record, and only one that names this world', async () => {
   const none = await call('/api/org', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, wordsNeeded: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
+  assert.deepEqual(none.json, { enrolled: false, reporting: false, reportingWait: null, wordsNeeded: false, reportingRequired: false, stoppedFor: null, leaveRefused: null, leaveRefusedUndo: false, org: null, role: null, enrolledAt: null });
   const world = oe.worldId();
   fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world, enrolledAt: '2026-10-07T00:00:00.000Z' }));
   const yes = await call('/api/org', { method: 'GET', headers: SCREEN });
@@ -89,6 +89,20 @@ test('#5531: GET /api/org reports this world\'s own record, and only one that na
   assert.equal(other.json.enrolled, false, 'a record naming another world read as enrolled here');
   assert.equal(other.json.org, null, "another world's company was shown here");
   fs.rmSync(enrollmentFile(), { force: true });
+});
+
+test('#6367: /api/org says reportingRequired from the applied policy, for this world\'s enrollment only', async (t) => {
+  const applied = path.join(store.ROOT, 'org-policy-applied.json');
+  t.after(() => { fs.rmSync(enrollmentFile(), { force: true }); fs.rmSync(applied, { force: true }); });
+  const world = oe.worldId();
+  const enroll = (w) => fs.writeFileSync(enrollmentFile(), JSON.stringify({ org: { id: 'org_1', name: 'Acme', slug: 'acme' }, role: 'member', world: w, enrolledAt: '2026-10-07T00:00:00.000Z' }));
+  const policy = (required) => fs.writeFileSync(applied, JSON.stringify({ version: 1, policy: { telemetry: { required } } }));
+  enroll(world); policy(true);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, true, 'the applied policy requires reports');
+  policy(false);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'CONTROL: required false');
+  enroll('f'.repeat(32)); policy(true);
+  assert.equal((await call('/api/org', { method: 'GET', headers: SCREEN })).json.reportingRequired, false, 'not the enrolled Kosmos here: nothing is said');
 });
 
 test('#5531 review 3: an accepted join needs the ticket a screen got from a preview; without it nothing is sent', async () => {

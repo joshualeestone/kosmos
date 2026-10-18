@@ -1778,10 +1778,10 @@ function allowSelfQuietly() {
    the coordinator serves the page that reads S, so a compromised coordinator could vouch for one device of its own
    inside the window (kosmos-relay docs/coordinator-api.md, device-vouch).
    What it does not prove: who is sitting at this computer. Anyone who can open its browser can also press Allow.
-   The browser is opened only once the snapshot holds a phone or browser request from the last VOUCH_RECENT_S, so an
-   app-only sign-up never gets a stray sign-in tab. That recency is the coordinator's first_seen, so a coordinator can
-   also make the tab open inside the window; the tab carries S only in its fragment, and allowing still needs the vouch.
-   A joining computer is never allowed this way: computers pair by
+   The browser is opened only once the snapshot holds a phone or browser sign-in from the last VOUCH_RECENT_S
+   (in `signins` or `devices`, kosmos#6407), so an app-only sign-up never gets a stray sign-in tab. That recency is the
+   coordinator's first_seen, so a coordinator can also make the tab open inside the window; the tab carries S only in
+   its fragment, and allowing still needs the vouch. A joining computer is never allowed this way: computers pair by
    code (#4794, Baron's tunnel review). */
 const VOUCH_WINDOW_MS = 10 * 60 * 1000;
 const VOUCH_RECENT_S = 30 * 60;
@@ -1826,8 +1826,13 @@ function startVouch() {
   vouchTimer = setInterval(vouchTick, VOUCH_POLL_MS);
   if (vouchTimer.unref) vouchTimer.unref();
 }
-/* The rows a vouch may allow: valid ids, not this computer's own sign-ins, not a device the person said Not me to, and
-   never a computer (a joining one carries joining_computer, or a code wait). null while there is no snapshot. */
+/* From one read of the snapshot, two lists through the same filter: valid ids, not this computer's own sign-ins, not a
+   device the person said Not me to, and never a computer (a joining one carries joining_computer, or a code wait).
+   `devices`: the rows a vouch may allow. `signins` (kosmos#6407): the phone and browser rows of the tunnel's pending
+   list before its knock filter (id and first_seen), read only to decide whether to open the tab, never matched for an
+   allow. `devices` holds only what knocked at this computer's gate, and the sign-in that arms the tab usually happened
+   on the website, so it is in `signins` only. A tunnel that predates the field writes none: an empty list. null while
+   there is no snapshot. */
 function vouchRows() {
   let raw;
   try { raw = JSON.parse(fs.readFileSync(pendingFile(), 'utf8')); } catch { return null; }
@@ -1838,10 +1843,11 @@ function vouchRows() {
   const denied = settings.denied || {};
   /* #6315: DEVICE_ID, not REQUEST_ID, on purpose: a minted computer: id never qualifies, so a computer is never
      allowed by a vouch even on a row that carries no joining_computer. */
-  return raw.devices.filter((d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
+  const keep = (d) => d && DEVICE_ID.test(String(d.device_id || '')) && !selves.includes(String(d.device_id))
     && !Object.prototype.hasOwnProperty.call(denied, String(d.device_id))
     && !notMeDuringVouch.has(String(d.device_id))   // a Not me the tunnel refused writes no `denied`
-    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait);
+    && (d.joining_computer === undefined || d.joining_computer === null) && !d.code_wait;
+  return { devices: raw.devices.filter(keep), signins: (Array.isArray(raw.signins) ? raw.signins : []).filter(keep) };
 }
 function vouchMatches(secret, d) {
   if (typeof d.vouch !== 'string') return false;
@@ -1856,11 +1862,13 @@ function vouchTick() {
   const v = vouchState;
   if (!v) return;
   if (Date.now() > v.until || v.epoch !== selfEpoch || !enrolled() || !read().on || inState(HELD_FILE)) { stopVouch(); return; }
-  const rows = vouchRows();
-  if (!rows) return;
+  const lists = vouchRows();
+  if (!lists) return;
+  const rows = lists.devices;
   if (!v.opened) {
     const now = Math.floor(Date.now() / 1000);
-    if (!rows.some((d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S)) return;
+    const recent = (d) => now - (Number(d.first_seen) || 0) <= VOUCH_RECENT_S;
+    if (!rows.some(recent) && !lists.signins.some(recent)) return;
     v.opened = true;   // armed before the opener runs, so it is never re-run; one still running after 5 s is not an
     // error (runCompanyOpener), it just logs nothing. The window still bounds S.
     // The window is NOT restarted here: Josh ruled on a secret that lives ~10 minutes from the app sign-in (10-10 19:04).
@@ -2273,6 +2281,26 @@ async function joinRetry() {
   if (!got.ok) return got;
   if (!got.data || got.data.retry !== true) return { ok: false, because: 'that did not go through' };
   return { ok: true, because: null, data: { retry: true } };
+}
+
+/* kosmos#6406 step 2: a ticket that opens another of this account's computers in this computer's app window with no
+   sign-in (kosmos-tunnel open-ticket: signed with this computer's key, for that computer's origin only, good for two
+   minutes, once). The other computer takes it only if it trusts this computer's key; the server route asks for one
+   only for a request made on this computer's own screen. `address` is the other computer's host, already checked. */
+async function openTicket(address) {
+  if (!enrolled()) return { ok: false, because: 'finish the Plus sign-up first' };
+  // Its own short limit: the page opens the plain address after 8 s anyway (a ticket is local work, no network).
+  const r = await tracked(setupRun(['open-ticket', '--state-dir', STATE_DIR(), '--to', 'https://' + address], null, 15000));
+  const said = (String(r.stderr || '') + '\n' + String(r.because || '')).replace(/\x1b\[[0-9;]*m/g, '');
+  if (!r.ok && r.code === 2 && /unrecognized subcommand '?open-ticket'?/.test(said)) {
+    return { ok: false, because: 'this version of Kosmos cannot open another computer directly yet' };
+  }
+  const got = parseSaid(r);
+  // A fixed sentence for any other failure (review 7): the tunnel's own words (a path, a spawn error) stay here.
+  if (!got.ok) return { ok: false, because: 'that did not go through' };
+  const t = got.data && got.data.ticket;
+  if (typeof t !== 'string' || !/^[A-Za-z0-9_-]{20,2048}$/.test(t)) return { ok: false, because: 'that did not go through' };
+  return { ok: true, because: null, data: { ticket: t } };
 }
 
 /* ---- Sign in THIS computer (#3149 journey 2). The in-app wizard replaces the
@@ -3365,6 +3393,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   joinStatus,
   joinConfirm,
   joinRetry,
+  openTicket,
   deviceDeny,
   deviceRemove,
   /* #988: ONE derivation of each of these, for the same reason the #790 comment
@@ -3403,6 +3432,7 @@ module.exports = { computerNameShown, computerNameChoice, canKeepComputerNameCho
   vouchTickForTests: () => vouchTick(),
   vouchSecretForTests: () => (vouchState ? vouchState.secret : null),
   vouchOpenedUrlForTests: () => vouchOpenedUrl,
+  vouchAllowingIdForTests: () => vouchAllowingId,   // kosmos#6407
   vouchUntilForTests: () => (vouchState ? vouchState.until : 0),
   setSetupSpawnForTests: (fn) => { setupSpawn = fn; },
   setManagedReaderForTests: (fn) => { managedReader = fn; managedCache = null; },

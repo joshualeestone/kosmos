@@ -1123,6 +1123,18 @@ function* proofAgentTokens(k) {
 function boardTokenOkWithoutCookie(req) {
   return boardTokenOk({ url: req.url, method: req.method, headers: Object.assign({}, req.headers, { cookie: undefined }) });
 }
+/* kosmos#6406 (review 8): a second signal, independent of the forwarding headers, for the ticket route. On a board that
+   enforces its token, the app window carries the board COOKIE; Kosmos+ strips a visitor's board cookie and sends the
+   token as a header instead (kosmos-relay proxy.rs strip_cookie_named(.., BOARD_COOKIE_NAME)), so a phone through it
+   has no cookie. A board that enforces nothing (a sandboxed test board) has no cookie to ask for. */
+function boardCookieHere(req, state = boardAuthState, check = boardTokenOk) {
+  if (!state || !state.on) return true;
+  /* #6358: the cookie is a session and the gate falls back to a header or query token, so the cookie is judged on its
+     own: a request carrying a stale or made-up cookie and a valid header must not count as the app window. */
+  const headers = req && req.headers ? req.headers : {};
+  const cookieOnly = { url: String((req && req.url) || '/').split('?')[0], method: req && req.method, headers: { cookie: headers.cookie } };
+  return !!boardauth.cookieToken(req) && check(cookieOnly);
+}
 function boardTokenOk(req) {
   // A tokenless request is a 403 either way (no candidate can match nothing), so
   // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
@@ -4220,6 +4232,28 @@ const ROUTING_BASE = 'http://localhost';
 // check got it exactly backwards -- routing `//localhost/x` (port 80, not us)
 // while refusing `//localhost:4317/x` (us).
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/* kosmos#6406 step 2: whether a request was made on THIS computer itself, for the one route that signs with its key to
+   open another of the account's computers. All three, positively: addressed to a loopback name (Host); sent by a page
+   on a loopback name (Origin, which a browser always sends on a POST); and forwarded by nothing that says so (Kosmos+
+   sets x-forwarded-for, and x-forwarded-host on all but a webhook). A reverse proxy the person put in front of the
+   board (AGENT_WORKFORCE_ALLOWED_HOSTS) fails the Origin half even when it rewrites Host and adds no header, because
+   the phone's page is on the proxy's own name. */
+function madeOnThisComputer(headers) {
+  const h = headers || {};
+  if (h['x-forwarded-host'] !== undefined || h['x-forwarded-for'] !== undefined || h.forwarded !== undefined) return false;
+  const nameOf = (v, withScheme) => {
+    try { return new URL(withScheme ? String(v) : 'http://' + String(v)).hostname.replace(/\.$/, '').toLowerCase(); } catch { return ''; }
+  };
+  if (typeof h.host !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.host, false))) return false;
+  if (typeof h.origin !== 'string' || !LOOPBACK_HOSTS.has(nameOf(h.origin, true))) return false;
+  return true;
+}
+/* And the socket is this computer's (review 5: headers alone can be written by a caller elsewhere on the network;
+   Kosmos+ reaches the board over loopback, which is why the header rule stays). */
+function ticketCallerHere(req) {
+  return isLoopbackPeer(req) && madeOnThisComputer(req && req.headers);
+}
 
 /**
  * Extra hostnames this server will answer to, comma-separated.
@@ -10877,7 +10911,9 @@ const server = http.createServer(async (req, res) => {
          the board cannot accept them itself (the coordinator refuses a family's enroll without wordsShown), so the
          joined view offers to show them (preview { review: true }, then Accept with wordsShown). */
       const wordsNeeded = !!(here && rec && rec.org && rec.org.kind === 'family' && !accepted);
-      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
+      // kosmos#6367: the company's policy requires reports, so Remove this computer from Kosmos+ says the company will see it stop.
+      const reportingRequired = here ? require('./engine/orgpolicy').reportingRequired() : false;
+      sendJson(res, 200, { enrolled: here, reporting: hasWords && !waitsForPrint, reportingWait: why, wordsNeeded, reportingRequired,   // #5532: reports = accepted report lines and not waiting for a print (rollup reviews 10, 29, 31)
        stoppedFor: stopped, leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
@@ -11016,6 +11052,37 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not ask for a new code' }));
+    return;
+  }
+  /* kosmos#6406 step 2: a ticket to open another of this account's computers in this app window with no sign-in. Only
+     for a request made on THIS computer's own screen (madeOnThisComputer: loopback Host and Origin, nothing forwarded;
+     the Kosmos+ headers are pinned in kosmos-relay's proxy tests), so a phone let in here, through Kosmos+ or a proxy
+     of the person's own, cannot use this computer's key to reach the other computers; and with no agent token
+     (isViaScreen). Kosmos+ rewrites Host and Origin to loopback and connects over loopback, so for a phone through it
+     the forwarding headers and the board cookie (boardCookieHere: Kosmos+ strips it) are what refuse it. A local
+     process that sends a browser's header can still ask, as it can for the other screen-only routes; it could run the
+     tunnel with this computer's key itself. The address must be one an account's computer can have. */
+  if (pathname === '/api/remote/open-ticket' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (!ticketCallerHere(req) || !boardCookieHere(req) || !isViaScreen(req, body)) {
+          sendJson(res, 403, { error: 'Only the Kosmos app on this computer can open another computer directly.' });
+          return;
+        }
+        const address = typeof body.address === 'string' ? body.address.trim().toLowerCase() : '';
+        const domain = accountComputers.computerDomain(remote.COORDINATOR());
+        if (!address || !domain || !accountComputers.validAddress(address, domain)) {
+          sendJson(res, 400, { error: 'that is not the address of one of your computers' });
+          return;
+        }
+        const got = await remote.openTicket(address);
+        if (!got.ok) { sendJson(res, 400, { error: got.because }); return; }
+        sendJson(res, 200, { ticket: got.data.ticket });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not open that computer directly' }));
     return;
   }
   if (pathname === '/api/remote/devices' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -25045,6 +25112,7 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  madeOnThisComputer, ticketCallerHere, boardCookieHere, // kosmos#6406: the ticket route's "on this computer" rule
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
   statusForSibling, // #6178: the sibling cut's account keys, for its test
