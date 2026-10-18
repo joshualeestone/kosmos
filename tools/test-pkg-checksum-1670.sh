@@ -170,6 +170,12 @@ rm -f "$HO"; printf 99 > "$F96"; out=$(ARM_HOME="$IH" run_arm); rc=$?
 if [ "$rc" -eq 96 ] && [ ! -f "$T/RAN" ] && [ "$(cat "$HO" 2>/dev/null)" = "$(printf %${KOSMOS_PKG_RETRY_MAX}s | tr " " x)" ] && has "$out" "safe to try again"; then pass "ARM 5g: a download that keeps failing stops after the retry budget, says a retry is safe, runs nothing"
 else fail "ARM 5g: a persistent 96 (rc=$rc, hand-off calls=$(cat "$HO" 2>/dev/null)): $out"; fi
 rm -f "$F96"
+# ARM 5h: an unreadable pointer (latest.json missing) is a failed download (96, retried), never a refusal (97).
+mv "$WWW/dist/latest.json" "$WWW/dist/latest.json.away"
+rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
+if [ "$rc" -eq 96 ] && [ ! -f "$T/RAN" ] && [ ! -e "$HO" ] && has "$out" "safe to try again"; then pass "ARM 5h: an unreadable pointer is retried as a failed download and ends safe-to-retry, nothing run"
+else fail "ARM 5h: an unreadable pointer must be a 96 (rc=$rc, hand-off=$([ -e "$HO" ] && echo yes || echo no)): $out"; fi
+mv "$WWW/dist/latest.json.away" "$WWW/dist/latest.json"
 # Re-sign (with the same pinned key) a manifest naming OTHER installer bytes: the published checksum still matches,
 # the signature is good, and only the signed installer hash differs.
 node -e '
@@ -182,7 +188,7 @@ rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?
 if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "ARM 5b: an installer the signed release does not name is NOT run, though its checksum matches"
 else fail "ARM 5b: a mismatch with the signed release must refuse and not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
 if has "$out" "does not match its signed release, so the installer was not run"; then pass "ARM 5b: and says the installer does not match its signed release"; else fail "ARM 5b: and says why: $out"; fi
-if [ "$(cat "$HO" 2>/dev/null | wc -c | tr -d " ")" -le 1 ] || [ "$(cat "$HO")" = x ]; then pass "ARM 5b: a refusal (97) is not retried"; else fail "ARM 5b: a refusal was retried (calls=$(cat "$HO"))"; fi
+if [ "$(cat "$HO" 2>/dev/null)" = x ]; then pass "ARM 5b: a refusal (97) is not retried (the hand-off ran exactly once)"; else fail "ARM 5b: a refusal must run the hand-off once and not again (calls=$(cat "$HO" 2>/dev/null))"; fi
 # ARM 5e: an installed node that will not RUN (a broken install being repaired) keeps the checksum path.
 mv "$K/runtime/bin/node" "$K/runtime/bin/node.real"; printf '#!/bin/sh\nexit 1\n' > "$K/runtime/bin/node"; chmod +x "$K/runtime/bin/node"
 rm -f "$HO"; out=$(ARM_HOME="$IH" run_arm); rc=$?

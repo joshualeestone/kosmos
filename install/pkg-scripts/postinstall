@@ -286,6 +286,8 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # .pkg is notarized; checking a signature without one needs a native verifier, see the card). Keep this block
    # free of apostrophes: it is inside the single-quoted argument above.
    h="$HOME/.local/share/kosmos"
+   # The checksum gate above still runs first, on purpose: an existing install is held to BOTH (the hand-off downloads
+   # the installer again and checks it against the signed release). Conservative, not an oversight.
    # The installed node must RUN and the installed version must READ (a broken install being repaired keeps the
    # checksum path: no weaker than a first install). run-setup answers 96 when a download failed, which a retry can
    # fix (a half-published deploy), so 96 is retried on the same bounded budget as the checksum above; 97 means it
@@ -300,7 +302,9 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
      while :; do
        n=$((n + 1))
        v=$(/usr/bin/curl -fsSL --connect-timeout 20 "$base/latest.json" 2>/dev/null | /usr/bin/sed -n "s/.*\"version\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | /usr/bin/head -1) || v=""
-       src=0; "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h" || src=$?
+       # An unreadable pointer is a failed download too (96), never a refusal: a blip must not end the install.
+       if [ -z "$v" ]; then src=96
+       else src=0; "$h/runtime/bin/node" "$h/app/engine/manifest-verify.js" run-setup "$0" "$base" "$v" "$h" || src=$?; fi
        if [ "$src" -eq 97 ]; then
          echo "Kosmos: this Mac already has Kosmos, and its own check refused this installer (the line above says why), so nothing was changed. If it says this Mac is newer than the version offered, there is nothing to repair." >&2
          exit 97
