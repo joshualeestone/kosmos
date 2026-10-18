@@ -1103,7 +1103,7 @@ chk "a pre-existing backup halts the edit (profile untouched)" "cmp -s \"$SB/zpr
 chk "the preserved backup survives byte-identical" "[ \"\$(cat \"$SB/zprofile.kosmos-uninstall-backup\")\" = 'PRESERVED FROM AN EARLIER RUN' ]"
 chk "the halt names the backup in its note" "grep -q 'already exists from an earlier run' \"$SB/uninstall3.log\""
 rm -f "$SB/zprofile.kosmos-uninstall-backup" "$SB/zprofile.before-halt"
-chk "port released (uninstall stopped the board itself)" "! curl -s -m 1 -o /dev/null http://127.0.0.1:$PORT/"
+chk "port released (uninstall stopped the board itself)" "! _ti_port_busy $PORT"   # #6459: listening, not answering in a second (a loaded board is not released)
 
 echo "== the download path (file:// origin, no local-copy shortcut) =="
 # The local-copy branch above never runs reachable(), verify_download() or
@@ -1933,7 +1933,7 @@ echo "== the open gate's sandbox belt, and a file-shadowed Applications =="
 # install with the suppressor CLEARED must still not open. Without this
 # pass the belt could be deleted and the suite would stay green, because
 # every other override pass inherits the global KOSMOS_NO_OPEN.
-chk "port free before the belt pass (a leaked board here makes the belt assertion vacuous)" "! curl -s -m 1 -o /dev/null http://127.0.0.1:$PORT/"
+chk "port free before the belt pass (a leaked board here makes the belt assertion vacuous)" "! _ti_port_busy $PORT"   # #6459: listening, not answering in a second (a loaded board is not released)
 OPENED_LINES_BEFORE="$(wc -l < "$SB/opened.log" | tr -d ' ')"
 export KOSMOS_HOME="$SB/home18" KOSMOS_BIN_DIR="$SB/bin18"
 RC=0; cat "$SETUP" | KOSMOS_APP_DIR="$SB/apps18" KOSMOS_NO_OPEN= KOSMOS_OPEN_CMD="$SB/open-stub" sh > "$SB/belt.log" 2>&1 || RC=$?
@@ -1998,12 +1998,12 @@ echo "== #883: a sandboxed KOSMOS_HOME derives its own board label and env roots
 wait_port_free() {
   local i
   for i in $(seq 1 30); do
-    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    _ti_port_busy "$PORT" || return 0   # #6459: free means nothing listens, not "no 2xx within a second"
     sleep 0.5
   done
   lsof -nP -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | xargs -r kill -9 2>/dev/null || true
   for i in $(seq 1 10); do
-    curl -fsS -m 1 -o /dev/null "http://127.0.0.1:$PORT/" 2>/dev/null || return 0
+    _ti_port_busy "$PORT" || return 0   # #6459: free means nothing listens, not "no 2xx within a second"
     sleep 0.5
   done
   return 1
