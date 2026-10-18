@@ -130,6 +130,7 @@ Recommended: option 2. The call is Josh's.
 ## Where the code lives
 The computer side: `engine/phonenotify.js` (kinds, switches, how often, and from the release after 0.7.57 the default turn-on), called from `server.js`. The words:
 kosmos-relay `coordinator/src/push.rs` (`notice_text`, used by `apns.rs` `payload` for iPhone and by `push.rs` `web_payload` for
-web push, which `coordinator/src/sw.js` shows as it arrives, including the test notice's words; `apns.rs` `operator_test_with` sends it). This repo's `web/sw.js` shows the same words from
+web push, which `coordinator/src/sw.js` shows as it arrives; it also words the test notice, which `apns.rs`
+`operator_test_with` sends). This repo's `web/sw.js` shows the same words from
 the release after 0.7.57 (#6502), though no phone push reaches it today (phones subscribe on the coordinator's address, #3510). The email: kosmos-relay `coordinator/src/delivery.rs`
 (`agent_needs_you_words`), sent by the `notify.rs` sweep.
