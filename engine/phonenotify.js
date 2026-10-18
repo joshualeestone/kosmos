@@ -231,8 +231,10 @@ function turnOn(opts) {
    AFTER a mint succeeded whose retry would mint again at once carries `minted: true` (a bad answer, or a save that
    failed): the coordinator has already replaced this computer's token, so retrying soon would churn it. */
 async function doTurnOn({ quiet } = {}) {
-  if (!remote.enrolled()) {
-    return { ok: false, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
+  // #6488: connected AND Kosmos+ switched on here (plusLive): a mint is a signed call to Kosmos+, and nothing goes there
+  // while its switch is off, from a press or from the default.
+  if (!plusLive()) {
+    return { ok: false, notSent: true, because: 'connect this computer to Kosmos+ first, then turn phone notifications on' };
   }
   const s = readState();
   const notifyId = s.notifyId || crypto.randomUUID();
@@ -251,9 +253,9 @@ async function doTurnOn({ quiet } = {}) {
   // #6488: the state dir went while the mint was out (remote.forget itself waits for a mint in flight before it
   // deletes it, so this is the folder removed some other way): saving would bring back a token for an identity that
   // is gone. Not saved; a reconnect starts again from masterChoice.
-  if (!remote.enrolled()) return { ok: false, because: 'this computer was removed from Kosmos+ while turning on' };
+  if (!remote.enrolled()) return { ok: false, because: 'This computer was removed from Kosmos+ while turning on.' };
   const token = minted.data && typeof minted.data.token === 'string' ? minted.data.token : '';
-  if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use' };
+  if (!TOKEN_SHAPE.test(token)) return { ok: false, minted: true, because: 'Kosmos+ answered in a shape we could not use.' };
   const saved = writeState({ on: true, notifyId, token, kinds: storedKinds() });
   if (!saved.ok) return { ...saved, minted: true };
   writeChoice(false);   // #6488: turning on undoes the person's earlier off
@@ -285,14 +287,11 @@ async function setKind(name, on) {
   const k = storedKinds();
   k[name] = on === true;
   // #6488: keep a person's off. A sub-switch write must not turn an explicit off back into 'unset'.
-  const off = !s.on && masterChoice() === 'off' ? 'person' : undefined;
+  // Positive evidence only: an unreadable file reads as off but was never the person's choice.
+  const off = !s.on && (choiceSaysOff() || stateSaysOff()) ? 'person' : undefined;
   return writeState({ on: s.on, off, notifyId: s.notifyId, token: s.token, kinds: k });
 }
 
-/** #6488: turn phone notifications on for a computer whose person never touched the switch, once it is connected to
-    Kosmos+ (minting needs the connection). Does nothing while the ship gate is closed, while not connected, or when
-    the person chose either way. Through turnOn, so it mints exactly as the Settings button does and shares its
-    one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
 /** #6488: connected to Kosmos+ AND its switch on. Signing in leaves files on disk after the person switches Kosmos+
     off; that is not a computer anything about agents may be sent from. A read that fails reads as off. */
 function plusLive() {
@@ -300,6 +299,11 @@ function plusLive() {
 }
 
 let defaultBecause = null;   // #6488: why the default could not turn it on, last time (the person's sentence), or null
+
+/** #6488: turn phone notifications on for a computer whose person never touched the switch, once it is connected to
+    Kosmos+ (minting needs the connection). Does nothing while the ship gate is closed, while not connected, or when
+    the person chose either way. Through turnOn, so it mints exactly as the Settings button does and shares its
+    one-at-a-time guard. Resolves to turnOn's answer, or null when it did nothing. Never throws. */
 async function ensureDefaultOn() {
   try {
     if (!available) return null;
@@ -348,11 +352,10 @@ function startDefaultOn({ schedule = setTimeout, ensure = ensureDefaultOn } = {}
     if (timer && typeof timer.unref === 'function') timer.unref();
   };
   function handle(r) {
-    let connected = null;
-    connected = plusLive();   // signed in and switched on; switching Kosmos+ back on counts as connecting
-    const changed = connected !== null && wasConnected !== null && connected !== wasConnected;
+    const connected = plusLive();   // signed in and switched on; switching Kosmos+ back on counts as connecting
+    const changed = wasConnected !== null && connected !== wasConnected;
     if (changed) wait = DEFAULT_ON_EVERY_MS;   // a first failure right after connecting retries soon
-    if (connected !== null) wasConnected = connected;
+    wasConnected = connected;
     if (r && r.ok === true) {
       process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
       wait = DEFAULT_ON_EVERY_MS; lastBecause = null;

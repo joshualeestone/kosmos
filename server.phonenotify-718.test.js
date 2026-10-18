@@ -649,10 +649,15 @@ test('#6488: the board starts the default turn-on at real startup, not at requir
   const cb = src.indexOf('const onListening = () => {');
   const wired = src.indexOf("server.once('listening', onListening)");
   assert.ok(cb > 0 && at > cb && at < wired, 'the default turn-on moved out of the listen callback');
-  // And right after a register finishes (the sign-in that connects this computer).
-  const reg = src.indexOf('await remote.signinRegister(name)');
-  const after = src.indexOf('phonenotify.pokeDefaultOn()', reg);
-  assert.ok(reg > 0 && after > reg && after - reg < 600, 'sign-in no longer runs the default turn-on');
+  // And after every way of connecting: a register, the sign-up, the company sign-in, and switching Kosmos+ on. Each
+  // handler's poke must come before that handler's answer (its sendJson 200), not somewhere later in the file.
+  for (const call of ['await remote.signinRegister(name)', 'await remote.setupComplete(code, name)', 'await remote.companyComplete(', 'remote.setOn(body.on)']) {
+    const at2 = src.indexOf(call);
+    assert.ok(at2 > 0, 'connect path not found: ' + call);
+    const answer = src.indexOf('sendJson(res, 200', at2);
+    const poke = src.indexOf('phonenotify.pokeDefaultOn()', at2);
+    assert.ok(poke > at2 && poke < answer, 'this way of connecting no longer runs the default turn-on: ' + call);
+  }
 });
 
 test('#6488: removing this computer from Kosmos+ and connecting again keeps the person\'s off', async () => {
@@ -942,4 +947,20 @@ test('#6488: a notifyId left from an earlier turn-on counts as the person\'s off
   assert.equal(phonenotify.masterChoice(), 'off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: a press on Turn on while Kosmos+ is switched off here mints nothing', async () => {
+  enrolSwitchedOff();
+  const r = await call('PUT', '/api/phone-notify', { body: { on: true } });
+  assert.equal(r.code, 400, r.text);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false, 'a signed mint went to Kosmos+ while its switch was off');
+  assert.equal(phonenotify.readState().on, false);
+});
+
+test('#6488: a sub-switch set over a file we cannot read is not made the person\'s off', async () => {
+  enrol();
+  fs.writeFileSync(PN_FILE(), 'not json');
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'ready', on: false } })).code, 200);
+  assert.notEqual(JSON.parse(fs.readFileSync(PN_FILE(), 'utf8')).off, 'person', 'one bad read became the person\'s off');
+  assert.equal(phonenotify.masterChoice(), 'unset');
 });
