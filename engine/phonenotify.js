@@ -43,8 +43,9 @@ const remote = require('./remote');
 // change it. Tests use setAvailableForTests.
 // #4194: OPEN. A phone app that receives now exists (the Android test build, vc3 #4165: a real push under the Kosmos
 // icon #4172, the tap routes to the agent #4178), so Josh's phone can be tested end to end. The app is not in the
-// stores yet, so the Settings section says it is in testing. #6488: on by default once connected (ensureDefaultOn),
-// unless the person turned it off; nothing reaches a phone until one is registered. The bundle refuses to ship this open with a connector that lacks
+// stores yet, so the Settings section says it is in testing. #6488: on by default once
+// connected (ensureDefaultOn), unless the person turned it off; nothing reaches a phone
+// until one is registered. The bundle refuses to ship this open with a connector that lacks
 // `mac-request` (tools/lib/connector-verbs.sh).
 const PHONE_APP_CAN_RECEIVE = true;
 let available = PHONE_APP_CAN_RECEIVE;
@@ -92,8 +93,18 @@ const choiceFile = () => path.join(path.dirname(remote.FILE), 'phone-notify-choi
 function choiceSaysOff() {
   try { const c = JSON.parse(fs.readFileSync(choiceFile(), 'utf8')); return !!(c && c.off === true); } catch { return false; }
 }
+/** An off recorded only in phone-notify.json (a readable file, switch not on). Not an unreadable file: that reads as
+    off without being a choice we can copy. */
+function legacyOff() {
+  try {
+    const p = JSON.parse(fs.readFileSync(file(), 'utf8'));
+    return !!(p && typeof p === 'object' && !Array.isArray(p) && p.on !== true
+      && (p.off === 'person' || (typeof p.token === 'string' && p.token !== '')));
+  } catch { return false; }
+}
 function writeChoice(off) {
   try {
+    fs.mkdirSync(path.dirname(choiceFile()), { recursive: true, mode: 0o700 });
     if (off) require('./securewrite').writeSecret(choiceFile(), JSON.stringify({ off: true }) + '\n', 0o600, { atomicOnly: true });
     else fs.rmSync(choiceFile(), { force: true });
   } catch { /* best effort: the off marker in phone-notify.json still holds while the computer stays connected */ }
@@ -239,8 +250,9 @@ async function turnOff() {
   if (turningOn) { try { await turningOn; } catch { /* its outcome does not matter here */ } }
   const s = readState();
   // #6488: `off: 'person'` records the choice, so the default turn-on never undoes it (masterChoice).
-  writeChoice(true);
-  return writeState({ on: false, off: 'person', notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
+  const saved = writeState({ on: false, off: 'person', notifyId: s.notifyId, token: s.token, kinds: storedKinds() });
+  if (saved.ok) writeChoice(true);   // only after a good save: an off the person was told failed is not kept
+  return saved;
 }
 
 /** #6254: set one per-kind sub-switch (the Settings toggles under the master).
@@ -267,8 +279,12 @@ async function setKind(name, on) {
 async function ensureDefaultOn() {
   try {
     if (!available) return null;
+    const choice = masterChoice();
+    // An off from before #6488 lives only in phone-notify.json (a token held, switch off), which removing this
+    // computer deletes. Copy it to choiceFile while it is still readable: no network, no connection needed.
+    if (choice === 'off' && !choiceSaysOff() && legacyOff()) writeChoice(true);
     if (!remote.enrolled()) return null;
-    if (masterChoice() !== 'unset') return null;
+    if (choice !== 'unset') return null;
     return await turnOn({ quiet: true });
   } catch { return null; }
 }
@@ -285,13 +301,14 @@ function startDefaultOn({ schedule = setTimeout } = {}) {
   let wait = DEFAULT_ON_EVERY_MS;
   let stopped = false;
   let timer = null;
+  let inFlight = Promise.resolve();
   const next = () => {
     if (stopped) return;
     timer = schedule(tick, wait);
     if (timer && typeof timer.unref === 'function') timer.unref();
   };
   function tick() {
-    ensureDefaultOn().then((r) => {
+    inFlight = ensureDefaultOn().then((r) => {
       if (r && r.ok === true) {
         process.stdout.write('phonenotify: phone notifications turned on by default (#6488)\n');
         wait = DEFAULT_ON_EVERY_MS; lastBecause = null;
@@ -309,7 +326,12 @@ function startDefaultOn({ schedule = setTimeout } = {}) {
     }, () => { next(); });
   }
   tick();
-  return { stop: () => { stopped = true; if (timer) clearTimeout(timer); }, waitMs: () => wait, stopped: () => stopped };
+  return {
+    stop: () => { stopped = true; if (timer) clearTimeout(timer); },
+    whenIdle: () => inFlight,   // the tick in flight (tests)
+    waitMs: () => wait,
+    stopped: () => stopped,
+  };
 }
 
 /** `v` cut to at most `n` UTF-8 bytes, never inside a character. */

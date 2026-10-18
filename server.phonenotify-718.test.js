@@ -2,7 +2,8 @@
 
 /**
  * #718: phone notifications, driven through the real board. What is guarded:
- *   - OFF by default, and while off NOTHING leaves the Mac: a counting sender
+ *   - While off NOTHING leaves the Mac (#6488: off until turned on by the person or by the
+ *     default turn-on, tested at the end of this file): a counting sender
  *     sees zero sends for a needs_you and a reply, and the tunnel is never run.
  *     The same actions DO send once on (the control), so the zero is not vacuous.
  *   - Turning on mints the notify token through the tunnel's mac-request verb,
@@ -632,12 +633,10 @@ test('#6488: the board starts the default turn-on at real startup, not at requir
   const at = src.indexOf('phonenotify.startDefaultOn()');
   assert.ok(at > 0, 'server.js no longer starts the default turn-on');
   assert.equal(src.indexOf('phonenotify.startDefaultOn()', at + 1), -1, 'started twice');
-  // It sits in the real-startup block with the crash-loop sweep (which a require never reaches): nothing but
-  // comments and the stuck-terminal reset between them.
-  const sweep = src.indexOf('const crashLoopTick = setInterval(');
-  assert.ok(sweep > at, 'the default turn-on moved out of the real-startup block');
-  const between = src.slice(at, sweep).split('\n').slice(1).map((l) => l.trim()).filter((l) => l && !l.startsWith('//'));
-  assert.deepEqual(between, [], 'code now sits between the default turn-on and the crash-loop sweep');
+  // Inside the listen callback (real startup), which a require never reaches.
+  const cb = src.indexOf('const onListening = () => {');
+  const wired = src.indexOf("server.once('listening', onListening)");
+  assert.ok(cb > 0 && at > cb && at < wired, 'the default turn-on moved out of the listen callback');
   // And right after a register finishes (the sign-in that connects this computer).
   const reg = src.indexOf('await remote.signinRegister(name)');
   const after = src.indexOf('phonenotify.ensureDefaultOn()', reg);
@@ -664,13 +663,12 @@ test('#6488: the default retries with a doubling wait, and stops after a mint it
   const waits = [];
   const runs = [];
   const fakeSchedule = (fn, ms) => { waits.push(ms); runs.push(fn); return { unref() {} }; };
-  const step = async () => { runs.shift()(); await new Promise((r) => setTimeout(r, 50)); };
   // Not connected: nothing to do, so the short wait.
   let ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
-  await new Promise((r) => setTimeout(r, 50));
-  assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_EVERY_MS);
+  await ctl.whenIdle();
+  assert.deepEqual(waits, [phonenotify.DEFAULT_ON_EVERY_MS]);
   ctl.stop();
-  // Connected, the mint fails: each failure doubles the wait, up to the cap.
+  // Connected, the mint fails: each failure doubles the wait, up to the cap, and stays there.
   enrol();
   const failing = path.join(SANDBOX, 'fail-tunnel');
   fs.writeFileSync(failing, '#!/bin/bash\n' + LOG_CALL + '\necho "coordinator said no" >&2; exit 1\n', { mode: 0o755 });
@@ -678,12 +676,16 @@ test('#6488: the default retries with a doubling wait, and stops after a mint it
   waits.length = 0; runs.length = 0;
   try {
     ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
-    await new Promise((r) => setTimeout(r, 300));
-    for (let i = 0; i < 8; i++) { await step(); await new Promise((r) => setTimeout(r, 250)); }
+    await ctl.whenIdle();
+    for (let i = 0; i < 8; i++) {
+      assert.equal(runs.length, 1, 'no run scheduled after tick ' + i);
+      runs.shift()();
+      await ctl.whenIdle();
+    }
     const want = [];
-    for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < waits.length; w = Math.min(w * 2, phonenotify.DEFAULT_ON_MAX_MS)) want.push(w);
+    for (let w = phonenotify.DEFAULT_ON_EVERY_MS * 2; want.length < 9; w = Math.min(w * 2, phonenotify.DEFAULT_ON_MAX_MS)) want.push(w);
     assert.deepEqual(waits, want, 'the waits did not double up to the cap');
-    assert.ok(waits.includes(phonenotify.DEFAULT_ON_MAX_MS), 'never reached the cap');
+    assert.equal(waits.at(-1), phonenotify.DEFAULT_ON_MAX_MS, 'never reached the cap');
     ctl.stop();
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
   // The mint succeeds but its answer cannot be used: stop, do not mint again.
@@ -694,19 +696,44 @@ test('#6488: the default retries with a doubling wait, and stops after a mint it
   try {
     fs.rmSync(TUNNEL_LOG, { force: true });
     ctl = phonenotify.startDefaultOn({ schedule: fakeSchedule });
-    await new Promise((r) => setTimeout(r, 300));
+    await ctl.whenIdle();
     assert.equal(mints(), 1);
     assert.equal(ctl.stopped(), true, 'kept retrying after a mint it could not use');
     assert.equal(runs.length, 0, 'scheduled another run after a mint it could not use');
   } finally { process.env.AGENT_WORKFORCE_TUNNEL_BIN = FAKE_TUNNEL; }
 });
 
+test('#6488: an off from before #6488 is copied out of the state dir, so it survives a reconnect too', async () => {
+  enrol();
+  fs.writeFileSync(PN_FILE(), JSON.stringify({ on: false, notifyId: 'n1', token: 'knt1_heldtoken0123' }));
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
+  assert.equal(fs.readFileSync(CHOICE, 'utf8'), '{"off":true}\n', 'the kept off holds more than {off:true}');
+  unenrol(); enrol();
+  assert.equal(phonenotify.masterChoice(), 'off', 'a pre-#6488 off was lost to a reconnect');
+  assert.equal(await phonenotify.ensureDefaultOn(), null);
+  assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
 test('#6488: an off with no token ever minted is still kept through a sub-switch change (the marker alone carries it)', async () => {
   enrol();
   assert.equal((await call('PUT', '/api/phone-notify', { body: { on: false } })).json.on, false);
   assert.equal(phonenotify.readState().token, null, 'premise: no token was ever minted');
+  // The kept copy beside remote.json would answer 'off' on its own; take it away so this checks setKind's marker.
+  fs.rmSync(path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json'), { force: true });
   assert.equal((await call('PUT', '/api/phone-notify', { body: { kind: 'replied', on: false } })).code, 200);
   assert.equal(phonenotify.masterChoice(), 'off', 'the sub-switch write dropped the person\'s off');
   assert.equal(await phonenotify.ensureDefaultOn(), null);
   assert.equal(fs.existsSync(TUNNEL_LOG), false);
+});
+
+test('#6488: an off that could not be saved is not kept for later either', async () => {
+  enrol();
+  assert.equal((await call('PUT', '/api/phone-notify', { body: { on: true } })).json.on, true);
+  fs.chmodSync(STATE, 0o500);   // the state save fails
+  let r;
+  try { r = await phonenotify.turnOff(); } finally { fs.chmodSync(STATE, 0o700); }
+  assert.equal(r.ok, false, 'premise: the save failed');
+  const CHOICE = path.join(path.dirname(require('./engine/remote').FILE), 'phone-notify-choice.json');
+  assert.equal(fs.existsSync(CHOICE), false, 'an off the person was told failed was kept for after a reconnect');
 });
