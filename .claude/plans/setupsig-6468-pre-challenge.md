@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: setupsig-6468
-diff_hash: 52a12058be57f70e83848ca91679dfd6bd53138a25524d2c1e8cca736894e66d
+diff_hash: 84ac48d0f28870b70f43110d5a4e456f77f4f012f7190bcd6085beca327dd086
 validation: passed
 subdir_audit: passed
 timestamp: 2026-10-18T11:30:55Z
@@ -31,3 +31,5 @@ Validation after rebasing onto origin/manifestsig-6468: install.setup-sig-6468 (
   coupling noted (FIXED), two source-text tests (ACCEPTED: the cli arms run the real path end to end)
 ### Iteration 2 (sonnet): no BLOCKER or WARNING findings (converged)
 - [NIT] an empty home is now an explicit refusal (FIXED + arm); an installer exiting 97 itself is reported as 1 (FIXED + arm)
+
+Post-convergence change 06:45 (from the #6473/#6474 reviews): refusal messages say "Kosmos:" not "kosmos update:" (the .pkg runs it too), and verifySetup reads setup_sha256 from the manifest bytes the signature covered (verify now hands them back) instead of re-reading the file. 54/54 across the three manifest suites.
