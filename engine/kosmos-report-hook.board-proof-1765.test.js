@@ -67,7 +67,7 @@ test('#1765 CONTROL: a board that holds the token gets the report and the keep, 
     const sends = board.seen.filter((r) => !r.url.startsWith('/api/board-proof'));
     assert.deepEqual(sends.map((r) => r.url).sort(), ['/api/report', '/api/undo/keep']);
     assert.ok(sends.every((r) => r.headers['x-kosmos-board-token'] === BOARD && r.headers['x-kosmos-agent-token'] === AGENT));
-    assert.equal(board.proofRequests().length, 1, 'proved once for the process, not once per send');
+    assert.equal(board.proofRequests().length, 2, 'proved before each of the two sends (kosmos#6464), not once for the process');
   } finally { await board.close(); }
 });
 
@@ -130,25 +130,24 @@ test('#1765: the seam decides, and a refusal sends nothing even through an injec
   assert.ok(asked[0].timeoutMs > 0 && asked[0].timeoutMs <= hook.SHORT_TIMEOUT_MS / 2, 'the check gets at most half the send\'s bound');
 });
 
-test('#1765: a check that ran out of time is asked again by the next send; any other answer serves the process', async () => {
+test('kosmos#6464: each send proves for itself, so a listener that changes between two sends gets nothing at the second', async () => {
   const sent = [];
-  const answers = [{ ok: false, why: 'timed out' }, true];
+  let answers = [true, { ok: false, why: 'answer is not a proof' }];
   let asked = 0;
   const edit = evt('PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'C:\\w\\a.md' }, cwd: 'C:\\w', session_id: 's' });
-  const run = io('http://127.0.0.1:1', edit, {
-    fetchImpl: async (u) => { sent.push(new URL(u).pathname); return { ok: true, status: 200, text: async () => '{"recorded":true}' }; },
-    proveBoard: async () => answers[asked++],
-  });
-  await hook.main(run.io);
-  assert.equal(asked, 2, 'the report did not ask again after the keep\'s check ran out of time');
-  assert.deepEqual(sent, ['/api/report'], 'the keep went unproven, or the report did not go once proven');
-  // CONTROL: a refusal that is not a timeout is not asked again.
+  const fetchImpl = async (u) => { sent.push(new URL(u).pathname); return { ok: true, status: 200, text: async () => '{"recorded":true}' }; };
+  // The board proves for the keep, then something else answers at the same address for the report.
+  await hook.main(io('http://127.0.0.1:1', edit, { fetchImpl, proveBoard: async () => answers[asked++] }).io);
+  assert.equal(asked, 2, 'the report did not prove again after the keep');
+  assert.ok(!sent.includes('/api/report'), 'the report went to a listener that had not proved: ' + JSON.stringify(sent));
+  assert.ok(sent.length === 1, 'the keep, proved, did not go: ' + JSON.stringify(sent));
+  // CONTROL, the other way round: unproven for the keep, proven for the report: only the report goes.
+  answers = [{ ok: false, why: 'answer is not a proof' }, true];
   asked = 0;
-  answers.splice(0, 2, { ok: false, why: 'answer is not a proof' }, true);
   sent.length = 0;
-  await hook.main(io('http://127.0.0.1:1', edit, { fetchImpl: run.io.fetchImpl, proveBoard: async () => answers[asked++] }).io);
-  assert.equal(asked, 1);
-  assert.deepEqual(sent, []);
+  await hook.main(io('http://127.0.0.1:1', edit, { fetchImpl, proveBoard: async () => answers[asked++] }).io);
+  assert.equal(asked, 2);
+  assert.deepEqual(sent, ['/api/report']);
 });
 
 test('#1765: with no token at all nothing is proved (there is nothing to protect)', async () => {
